@@ -122,8 +122,8 @@ def _stage(
         selected_report.release_matrix_report_id,
         *selected_report.exact_dependency_ids,
     }
-    if selected_report.parent_release_id is not None:
-        dependencies.add(selected_report.parent_release_id)
+    if selected_report.source_base_release_id is not None:
+        dependencies.add(selected_report.source_base_release_id)
     return ExpertReleaseMatrixStageResultRecord.mint(
         validation_attempt_id=selected_report.validation_attempt_id,
         authorization_transition_id=_AUTHORIZATION_TRANSITION_ID,
@@ -131,7 +131,7 @@ def _stage(
         candidate_id=selected_report.candidate_id,
         candidate_tree_hash=selected_report.candidate_tree_hash,
         scope_contract_id=selected_report.scope_contract_id,
-        parent_release_id=selected_report.parent_release_id,
+        source_base_release_id=selected_report.source_base_release_id,
         validation_policy_id=selected_report.validation_policy_id,
         configuration_fingerprint=selected_report.configuration_fingerprint,
         plan_reservation_operation_id=(selected_report.plan_reservation_operation_id),

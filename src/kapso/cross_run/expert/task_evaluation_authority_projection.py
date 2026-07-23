@@ -111,8 +111,8 @@ def task_evaluation_spawn_security_subject_ids(
     }
     if current.publication_id is not None:
         subject_ids.add(current.publication_id)
-    if prepared.parent is not None:
-        subject_ids.update(prepared.parent.release_manifest.consumed_dependency_ids)
+    if prepared.source_base is not None:
+        subject_ids.update(prepared.source_base.release_manifest.consumed_dependency_ids)
     for observation in task_adapter_trust_observations:
         subject_ids.update(
             {
@@ -220,7 +220,7 @@ def _reconstruct_prepared_request(
         plan_join=prepared_request.plan_join,
         stored_candidate=prepared_request.stored_candidate,
         candidate=prepared_request.candidate,
-        parent=prepared_request.parent,
+        source_base=prepared_request.source_base,
         current_release_observation=prepared_request.current_release_observation,
         cases=prepared_request.cases,
     )

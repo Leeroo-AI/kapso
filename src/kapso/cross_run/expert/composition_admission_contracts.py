@@ -178,7 +178,7 @@ class ExpertCompositionAdmissionFence(StrictContract):
     candidate_tree_hash: str
     scope_id: str
     scope_contract_id: str
-    expected_parent_release_id: str
+    expected_current_release_id: str
     composition_plan_id: str
     composition_materialization_id: str
     base_reference_id: str
@@ -206,9 +206,9 @@ class ExpertCompositionAdmissionFence(StrictContract):
                 "composition admission scope contract",
             ),
             (
-                self.expected_parent_release_id,
+                self.expected_current_release_id,
                 "expert-base-release",
-                "composition admission expected parent",
+                "composition admission expected current release",
             ),
             (
                 self.composition_plan_id,
@@ -241,7 +241,7 @@ class ExpertCompositionAdmissionFence(StrictContract):
         if not {
             self.base_reference_id,
             self.scope_contract_id,
-            self.expected_parent_release_id,
+            self.expected_current_release_id,
         }.issubset(self.base_security_subject_ids):
             raise ExpertCompositionAdmissionContractError(
                 "composition admission base omits mandatory security authority"
@@ -281,7 +281,7 @@ class ExpertCompositionAdmissionFence(StrictContract):
         if (
             type(current) is not SourceReplayCurrentReleaseObservation
             or current.scope_id != self.scope_id
-            or current.release_id != self.expected_parent_release_id
+            or current.release_id != self.expected_current_release_id
             or type(denylist) is not SecurityDenylistObservation
             or denylist.scope_id != self.scope_id
             or denylist.scope_contract_id != self.scope_contract_id
@@ -303,7 +303,7 @@ class ExpertCompositionAdmissionFence(StrictContract):
                     self.candidate_id,
                     self.candidate_commit_record_id,
                     self.scope_contract_id,
-                    self.expected_parent_release_id,
+                    self.expected_current_release_id,
                     self.composition_plan_id,
                     self.composition_materialization_id,
                     self.base_reference_id,
@@ -395,10 +395,10 @@ def composition_admission_security_subject_ids(
         current_release_observation.publication_id,
         *current_release_observation.validation_closure_ids,
     }
-    if manifest.parent_release_id is not None:
-        subjects.add(manifest.parent_release_id)
-    if manifest.parent_repository_map_ref is not None:
-        subjects.add(manifest.parent_repository_map_ref)
+    if manifest.source_base_release_id is not None:
+        subjects.add(manifest.source_base_release_id)
+    if manifest.source_base_repository_map_ref is not None:
+        subjects.add(manifest.source_base_repository_map_ref)
     for authority in source_authorities:
         subjects.update(
             {
@@ -454,7 +454,7 @@ def validate_expert_composition_admission_fence(
         or fence.candidate_tree_hash != closure.manifest.candidate_tree_hash
         or fence.scope_id != plan.scope_contract.scope_id
         or fence.scope_contract_id != plan.scope_contract.scope_contract_id
-        or fence.expected_parent_release_id != plan.current_base.release_id
+        or fence.expected_current_release_id != plan.current_base.release_id
         or fence.composition_plan_id != plan.composition_plan_id
         or fence.composition_materialization_id != materialization.materialization_id
         or fence.base_reference_id != plan.current_base.base_reference_id
@@ -473,24 +473,24 @@ def validate_expert_composition_admission_fence(
             )
     context = closure.validation_context
     if (
-        context.parent_scope_contract is None
-        or context.parent_release is None
-        or context.parent_tree_receipt is None
-        or context.parent_repository_map is None
+        context.source_base_scope_contract is None
+        or context.source_base_release is None
+        or context.source_base_tree_receipt is None
+        or context.source_base_repository_map is None
     ):
         raise ExpertCompositionAdmissionContractError(
-            "composition admission candidate lacks its parent base closure"
+            "composition admission candidate lacks its source-base closure"
         )
-    parent_base = build_expert_composition_base_closure(
-        scope_contract=context.parent_scope_contract,
-        release_manifest=context.parent_release,
-        parent_tree_receipt=context.parent_tree_receipt,
-        repository_map=context.parent_repository_map,
-        module_contracts=context.parent_module_contracts,
-        source_contents=derivation.parent_contents,
+    source_base_closure = build_expert_composition_base_closure(
+        scope_contract=context.source_base_scope_contract,
+        release_manifest=context.source_base_release,
+        source_base_tree_receipt=context.source_base_tree_receipt,
+        repository_map=context.source_base_repository_map,
+        module_contracts=context.source_base_module_contracts,
+        source_contents=derivation.source_base_contents,
     )
     expected_base_security_subject_ids = expert_composition_base_security_subject_ids(
-        parent_base,
+        source_base_closure,
         fence.current_release_observation,
     )
     if fence.base_security_subject_ids != expected_base_security_subject_ids:

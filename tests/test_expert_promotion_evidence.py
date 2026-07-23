@@ -101,7 +101,7 @@ def _bootstrap_prepared_with_store(tmp_path, monkeypatch):
     coordinator, *_providers = _coordinator(
         validation_store=validation_store,
         prepared_plan=prepared_plan,
-        parent=None,
+        source_base=None,
         current_authority=_PreflightCurrentAuthority((observation, observation)),
     )
     return validation_store, snapshot, coordinator.build(plan_reservation)
@@ -237,7 +237,7 @@ def test_parent_report_preserves_semantic_values_after_both_stores_reopen(
     values_by_case_and_kind = {
         case.evaluation_case_id: {
             TaskEvaluationLegKind.CANDIDATE: float(position * 10 + 7),
-            TaskEvaluationLegKind.PARENT_CONTROL: float(position * 10 + 3),
+            TaskEvaluationLegKind.SOURCE_BASE_CONTROL: float(position * 10 + 3),
         }
         for position, case in enumerate(prepared.plan_join.request.cases, start=1)
     }
@@ -263,8 +263,8 @@ def test_parent_report_preserves_semantic_values_after_both_stores_reopen(
         assert set(row.candidate_replicate_values.values()) == {
             expected_values[TaskEvaluationLegKind.CANDIDATE]
         }
-        assert set(row.parent_replicate_values.values()) == {
-            expected_values[TaskEvaluationLegKind.PARENT_CONTROL]
+        assert set(row.control_replicate_values.values()) == {
+            expected_values[TaskEvaluationLegKind.SOURCE_BASE_CONTROL]
         }
 
     reopened_validation_store = ExpertValidationStore(
@@ -370,11 +370,11 @@ def test_parent_report_merges_source_and_case_scoped_task_evidence(
             ].event_id
         )
         assert (
-            case_evidence.parent_result_accepted_event_id
+            case_evidence.control_result_accepted_event_id
             == accepted_events[
                 (
                     request_case.evaluation_case_id,
-                    legs_by_kind[TaskEvaluationLegKind.PARENT_CONTROL].leg_id,
+                    legs_by_kind[TaskEvaluationLegKind.SOURCE_BASE_CONTROL].leg_id,
                 )
             ].event_id
         )
@@ -395,8 +395,8 @@ def test_parent_report_merges_source_and_case_scoped_task_evidence(
                     candidate_result_accepted_event_id=(
                         second_case.candidate_result_accepted_event_id
                     ),
-                    parent_result_accepted_event_id=(
-                        second_case.parent_result_accepted_event_id
+                    control_result_accepted_event_id=(
+                        second_case.control_result_accepted_event_id
                     ),
                     evaluation_fingerprint_ids=(second_case.evaluation_fingerprint_ids),
                 ),
@@ -418,8 +418,8 @@ def test_parent_report_merges_source_and_case_scoped_task_evidence(
                     candidate_result_accepted_event_id=(
                         first_case.candidate_result_accepted_event_id
                     ),
-                    parent_result_accepted_event_id=(
-                        first_case.parent_result_accepted_event_id
+                    control_result_accepted_event_id=(
+                        first_case.control_result_accepted_event_id
                     ),
                     evaluation_fingerprint_ids=(first_case.evaluation_fingerprint_ids),
                 ),
@@ -480,10 +480,10 @@ def test_bootstrap_report_is_candidate_only_and_does_not_reopen_source(
         4 * len(report.task_execution_evidence.case_evidence)
     )
     assert all(
-        case.parent_result_accepted_event_id is None
+        case.control_result_accepted_event_id is None
         for case in report.task_execution_evidence.case_evidence
     )
-    assert all(row.parent_observation_event_id is None for row in report.evidence_rows)
+    assert all(row.control_observation_event_id is None for row in report.evidence_rows)
     assert all(
         event.event_kind is TaskEvaluationExecutionJournalEventKind.RESULT_ACCEPTED
         for event in completed.events[3::4]

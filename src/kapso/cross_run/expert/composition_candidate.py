@@ -78,7 +78,7 @@ def project_deterministic_composition_candidate(
             candidate_commit_record=source.stored_candidate.commit_record,
             validation_context=source.stored_candidate.closure.validation_context,
             reduction_source=source.reduction_source,
-            parent_files=source.stored_candidate.closure.parent_files,
+            source_base_files=source.stored_candidate.closure.source_base_files,
             agent_derivation=source.stored_candidate.closure.derivation,
             sanitation_report=source.stored_candidate.closure.sanitation_report,
         )
@@ -93,8 +93,8 @@ def project_deterministic_composition_candidate(
                 plan.scope_contract.scope_contract_id,
                 current_base.scope_contract.scope_contract_id,
                 current_base.release_manifest.release_id,
-                current_base.parent_tree_receipt.parent_tree_receipt_id,
-                current_base.parent_tree_receipt.source_extraction_receipt.extraction_receipt_id,
+                current_base.source_base_tree_receipt.source_base_tree_receipt_id,
+                current_base.source_base_tree_receipt.source_extraction_receipt.extraction_receipt_id,
                 current_base.repository_map.repository_map_id,
                 *(
                     module.module_contract_id
@@ -107,12 +107,12 @@ def project_deterministic_composition_candidate(
     )
     validation_context = ExpertCandidateValidationContext.mint(
         scope_contract=plan.scope_contract,
-        parent_scope_contract=current_base.scope_contract,
-        parent_release=current_base.release_manifest,
-        parent_tree_receipt=current_base.parent_tree_receipt,
-        parent_tree_hash=current_base.reference.source_tree_hash,
-        parent_repository_map=current_base.repository_map,
-        parent_module_contracts=current_base.module_contracts,
+        source_base_scope_contract=current_base.scope_contract,
+        source_base_release=current_base.release_manifest,
+        source_base_tree_receipt=current_base.source_base_tree_receipt,
+        source_base_tree_hash=current_base.reference.source_tree_hash,
+        source_base_repository_map=current_base.repository_map,
+        source_base_module_contracts=current_base.module_contracts,
         active_task_bindings=plan.active_task_bindings,
         replay_evidence=replay_evidence,
         stable_dependency_ids=context_dependencies,
@@ -148,7 +148,7 @@ def project_deterministic_composition_candidate(
         record=derivation_record,
         materialization=materialization,
         source_provenance=source_provenance,
-        parent_contents=current_base.source_contents,
+        source_base_contents=current_base.source_contents,
     )
     sanitation = sanitizer.scan(
         plan.scope_contract.scope_contract_id,
@@ -158,9 +158,9 @@ def project_deterministic_composition_candidate(
     manifest = ExpertCandidateManifest.mint(
         scope_contract_id=plan.scope_contract.scope_contract_id,
         change_kind=CandidateChangeKind.CAPABILITY,
-        parent_release_id=current_base.release_manifest.release_id,
-        parent_repository_map_ref=current_base.repository_map.repository_map_id,
-        parent_tree_hash=current_base.reference.source_tree_hash,
+        source_base_release_id=current_base.release_manifest.release_id,
+        source_base_repository_map_ref=current_base.repository_map.repository_map_id,
+        source_base_tree_hash=current_base.reference.source_tree_hash,
         derivation_kind=(ExpertCandidateDerivationKind.DETERMINISTIC_COMPOSITION),
         derivation_ref=derivation_record.derivation_id,
         validation_context_ref=validation_context.validation_context_id,
@@ -186,7 +186,7 @@ def project_deterministic_composition_candidate(
         validation_context=validation_context,
         patch=materialization.patch,
         candidate_tree=materialization.source_tree,
-        parent_files=materialization.parent_tree.files,
+        source_base_files=materialization.source_base_tree.files,
         repository_map=materialization.repository_map,
         module_contracts=materialization.module_contracts,
         derivation=derivation,

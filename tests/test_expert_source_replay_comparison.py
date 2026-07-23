@@ -73,7 +73,7 @@ class _SemanticMatchedLegProvider(_MatchedLegProvider):
         self.invocations.append(invocation)
         request_case = invocation.materialized_case.request_case
         leg_kind = (
-            ExpertSourceReplayExecutionLegKind.CONTROL_PARENT
+            ExpertSourceReplayExecutionLegKind.SOURCE_BASE_CONTROL
             if invocation.invocation_allocation.execution_leg_id
             == request_case.control_leg.execution_leg_id
             else ExpertSourceReplayExecutionLegKind.CANDIDATE
@@ -162,7 +162,7 @@ def _complete_execution(
         )
     selected_aggregates = (
         {
-            ExpertSourceReplayExecutionLegKind.CONTROL_PARENT: 0.7,
+            ExpertSourceReplayExecutionLegKind.SOURCE_BASE_CONTROL: 0.7,
             ExpertSourceReplayExecutionLegKind.CANDIDATE: 0.8,
         }
         if aggregate_by_leg_kind is None
@@ -325,7 +325,7 @@ def test_receipt_dependency_closure_rejects_malformed_omitted_and_extra_ids(tmp_
 def test_incomplete_journal_cannot_mint_completed_execution(tmp_path, event_count):
     fixture, prepared, reservation, store = _journal_fixture(tmp_path)
     aggregate_by_leg_kind = {
-        ExpertSourceReplayExecutionLegKind.CONTROL_PARENT: 0.7,
+        ExpertSourceReplayExecutionLegKind.SOURCE_BASE_CONTROL: 0.7,
         ExpertSourceReplayExecutionLegKind.CANDIDATE: 0.8,
     }
     with store.reservation_session(

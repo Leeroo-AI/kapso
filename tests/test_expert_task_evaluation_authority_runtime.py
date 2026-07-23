@@ -171,10 +171,10 @@ def _bootstrap_prepared(tmp_path, monkeypatch):
         prepared_plan=prepared_plan,
     ).reservation
     admission_observation = _current_observation(prepared_plan)
-    preflight, _reader, parent_provider, _adapter_provider = _coordinator(
+    preflight, _reader, source_base_provider, _adapter_provider = _coordinator(
         validation_store=validation_store,
         prepared_plan=prepared_plan,
-        parent=None,
+        source_base=None,
         current_authority=_CurrentAuthority(
             (admission_observation, admission_observation)
         ),
@@ -183,13 +183,13 @@ def _bootstrap_prepared(tmp_path, monkeypatch):
         validation_store,
         snapshot,
         preflight.build(plan_reservation),
-        parent_provider,
+        source_base_provider,
     )
 
 
 def _runtime(tmp_path, monkeypatch, *, bootstrap=False):
     if bootstrap:
-        validation_store, snapshot, prepared, parent_provider = _bootstrap_prepared(
+        validation_store, snapshot, prepared, source_base_provider = _bootstrap_prepared(
             tmp_path, monkeypatch
         )
     else:
@@ -197,7 +197,7 @@ def _runtime(tmp_path, monkeypatch, *, bootstrap=False):
             tmp_path,
             monkeypatch,
         )
-        parent_provider = None
+        source_base_provider = None
     reservation_snapshot = validation_store.reserve_task_evaluation(
         expected_transition_id=snapshot.transition.transition_id,
         prepared_request=prepared,
@@ -228,7 +228,7 @@ def _runtime(tmp_path, monkeypatch, *, bootstrap=False):
         execution_store=execution_store,
         provider_registry=provider_registry,
         providers=providers,
-        parent_provider=parent_provider,
+        source_base_provider=source_base_provider,
     )
 
 
@@ -405,7 +405,7 @@ def test_bootstrap_spawn_preserves_stable_authenticated_absence(
     assert calls == _expected_success_calls(runtime.prepared)
     assert fence.stable_current_release_observation == fresh_absence
     assert fence.stable_current_release_observation.release_id is None
-    assert runtime.parent_provider.calls == []
+    assert runtime.source_base_provider.calls == []
 
 
 def test_bootstrap_spawn_rejects_a_release_appearing_before_adapter_work(
@@ -441,7 +441,7 @@ def test_bootstrap_spawn_rejects_a_release_appearing_before_adapter_work(
 
     assert calls == ["reservation", "current"]
     assert denylist.checked_subject_ids is None
-    assert runtime.parent_provider.calls == []
+    assert runtime.source_base_provider.calls == []
 
 
 def test_second_reopen_rejects_validation_head_change_without_spawn(

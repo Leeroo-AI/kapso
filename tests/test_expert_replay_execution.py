@@ -142,7 +142,7 @@ def test_mixed_key_aggregate_fails_before_any_provider_revalidation(
             (replay_case, replay_case),
             (exact_key, missing_key),
             prepared_replay_request.candidate,
-            prepared_replay_request.parent,
+            prepared_replay_request.source_base,
         )
 
     assert provider.dispatch_key_reads == 0
@@ -247,7 +247,7 @@ def test_resolved_provider_identity_is_fenced_again_before_execution(
             materialized_case=replay_case,
             dispatch_key=exact_key,
             candidate=prepared_replay_request.candidate,
-            parent=prepared_replay_request.parent,
+            source_base=prepared_replay_request.source_base,
             provider=provider,
         )
 
@@ -263,8 +263,8 @@ def test_resolved_provider_requires_exact_typed_expert_sources(
         ResolvedExpertSourceReplayExecutionCase(
             materialized_case=replay_case,
             dispatch_key=exact_key,
-            candidate=prepared_replay_request.parent,
-            parent=prepared_replay_request.parent,
+            candidate=prepared_replay_request.source_base,
+            source_base=prepared_replay_request.source_base,
             provider=provider,
         )
 

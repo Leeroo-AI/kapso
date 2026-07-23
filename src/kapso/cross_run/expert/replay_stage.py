@@ -159,7 +159,7 @@ class ExpertSourceReplayStageOrchestrator:
             attempt=prepared.attempt,
             selection=prepared.selection,
             candidate=prepared.candidate,
-            parent=prepared.parent,
+            source_base=prepared.source_base,
             authorization_state=prepared.authorization_state,
             cases=prepared.cases,
         )

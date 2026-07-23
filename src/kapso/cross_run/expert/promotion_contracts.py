@@ -34,9 +34,9 @@ class ExpertReleaseMatrixContractError(ValueError):
 
 
 class ExpertReleaseMatrixMode(str, Enum):
-    """Whether a release matrix compares a candidate with a released parent."""
+    """Whether a release matrix compares a candidate with a released source base."""
 
-    PARENT_COMPARISON = "parent_comparison"
+    CONTROL_COMPARISON = "control_comparison"
     BOOTSTRAP = "bootstrap"
 
 
@@ -401,15 +401,15 @@ class ExpertReleaseMatrixProvenanceBinding(StrictContract):
 
 @dataclass(frozen=True)
 class ExpertReleaseMatrixEvaluationCell(StrictContract):
-    """One precommitted full-fingerprint candidate or candidate-parent cell."""
+    """One precommitted full-fingerprint candidate or candidate-source-base cell."""
 
     evaluation_cell_id: str
     mode: ExpertReleaseMatrixMode
     validation_attempt_id: str
     candidate_id: str
     candidate_tree_hash: str
-    parent_release_id: str | None
-    parent_tree_hash: str | None
+    source_base_release_id: str | None
+    source_base_tree_hash: str | None
     adapter_authority_id: str
     provenance_binding_id: str
     task_context_binding: TaskContextBinding
@@ -458,21 +458,21 @@ class ExpertReleaseMatrixEvaluationCell(StrictContract):
             )
         _require_digest(self.candidate_tree_hash, "release matrix candidate tree")
         if self.mode is ExpertReleaseMatrixMode.BOOTSTRAP:
-            if self.parent_release_id is not None or self.parent_tree_hash is not None:
+            if self.source_base_release_id is not None or self.source_base_tree_hash is not None:
                 raise ExpertReleaseMatrixContractError(
-                    "bootstrap release matrix cell cannot name a parent"
+                    "bootstrap release matrix cell cannot name a source base"
                 )
         else:
-            if self.parent_release_id is None or self.parent_tree_hash is None:
+            if self.source_base_release_id is None or self.source_base_tree_hash is None:
                 raise ExpertReleaseMatrixContractError(
-                    "parent-comparison release matrix cell requires a parent tree"
+                    "control-comparison release matrix cell requires a source-base tree"
                 )
             _require_namespaced_id(
-                self.parent_release_id,
+                self.source_base_release_id,
                 "expert-base-release",
-                "release matrix cell parent release",
+                "release matrix cell source-base release",
             )
-            _require_digest(self.parent_tree_hash, "release matrix parent tree")
+            _require_digest(self.source_base_tree_hash, "release matrix source-base tree")
         fingerprint = self.evaluation_fingerprint
         binding = self.metric_comparison_binding
         if (
@@ -496,9 +496,9 @@ class ExpertReleaseMatrixEvaluationCell(StrictContract):
             self.independence_identity_id,
             fingerprint.evaluation_fingerprint_id,
         }
-        if self.parent_release_id is not None:
-            expected_dependencies.add(self.parent_release_id)
-        if len(expected_dependencies) != (8 if self.parent_release_id else 7):
+        if self.source_base_release_id is not None:
+            expected_dependencies.add(self.source_base_release_id)
+        if len(expected_dependencies) != (8 if self.source_base_release_id else 7):
             raise ExpertReleaseMatrixContractError(
                 "release matrix cell dependency roles must be distinct"
             )
@@ -530,8 +530,8 @@ class ExpertReleaseMatrixEvaluationPlan(StrictContract):
     candidate_commit_record_id: str
     candidate_tree_hash: str
     scope_contract_id: str
-    parent_release_id: str | None
-    parent_tree_hash: str | None
+    source_base_release_id: str | None
+    source_base_tree_hash: str | None
     validation_policy_id: str
     configuration_fingerprint: str
     adapter_authorities: tuple[ExpertReleaseMatrixAdapterAuthority, ...]
@@ -577,21 +577,21 @@ class ExpertReleaseMatrixEvaluationPlan(StrictContract):
             "release matrix plan configuration fingerprint",
         )
         if self.mode is ExpertReleaseMatrixMode.BOOTSTRAP:
-            if self.parent_release_id is not None or self.parent_tree_hash is not None:
+            if self.source_base_release_id is not None or self.source_base_tree_hash is not None:
                 raise ExpertReleaseMatrixContractError(
-                    "bootstrap release matrix plan cannot name a parent"
+                    "bootstrap release matrix plan cannot name a source base"
                 )
         else:
-            if self.parent_release_id is None or self.parent_tree_hash is None:
+            if self.source_base_release_id is None or self.source_base_tree_hash is None:
                 raise ExpertReleaseMatrixContractError(
-                    "parent-comparison release matrix plan requires a parent tree"
+                    "control-comparison release matrix plan requires a source-base tree"
                 )
             _require_namespaced_id(
-                self.parent_release_id,
+                self.source_base_release_id,
                 "expert-base-release",
-                "release matrix plan parent release",
+                "release matrix plan source-base release",
             )
-            _require_digest(self.parent_tree_hash, "release matrix plan parent tree")
+            _require_digest(self.source_base_tree_hash, "release matrix plan source-base tree")
         authority_keys = tuple(
             authority.canonical_key for authority in self.adapter_authorities
         )
@@ -635,8 +635,8 @@ class ExpertReleaseMatrixEvaluationPlan(StrictContract):
             self.validation_attempt_id,
             self.candidate_id,
             self.candidate_tree_hash,
-            self.parent_release_id,
-            self.parent_tree_hash,
+            self.source_base_release_id,
+            self.source_base_tree_hash,
         )
         if any(
             (
@@ -644,8 +644,8 @@ class ExpertReleaseMatrixEvaluationPlan(StrictContract):
                 cell.validation_attempt_id,
                 cell.candidate_id,
                 cell.candidate_tree_hash,
-                cell.parent_release_id,
-                cell.parent_tree_hash,
+                cell.source_base_release_id,
+                cell.source_base_tree_hash,
             )
             != plan_subjects
             for cell in self.evaluation_cells
@@ -797,8 +797,8 @@ class ExpertReleaseMatrixEvaluationPlan(StrictContract):
                 self.validation_policy_id,
             }
         )
-        if self.parent_release_id is not None:
-            expected_external_dependencies.add(self.parent_release_id)
+        if self.source_base_release_id is not None:
+            expected_external_dependencies.add(self.source_base_release_id)
         if set(self.external_dependency_ids) != expected_external_dependencies:
             raise ExpertReleaseMatrixContractError(
                 "release matrix plan external dependency closure is not exact"
@@ -831,9 +831,9 @@ class ExpertReleaseMatrixComparisonRow(StrictContract):
     comparison_row_id: str
     evaluation_cell_id: str
     candidate_observation_event_id: str
-    parent_observation_event_id: str | None
+    control_observation_event_id: str | None
     candidate_replicate_values: Mapping[str, float]
-    parent_replicate_values: Mapping[str, float] | None
+    control_replicate_values: Mapping[str, float] | None
 
     CONTENT_NAMESPACE: ClassVar[str] = "expert-release-matrix-comparison-row"
     IDENTITY_FIELD: ClassVar[str] = "comparison_row_id"
@@ -848,12 +848,12 @@ class ExpertReleaseMatrixComparisonRow(StrictContract):
             self.candidate_observation_event_id,
             "release matrix candidate observation event",
         )
-        if self.parent_observation_event_id is not None:
+        if self.control_observation_event_id is not None:
             _require_observation_event_id(
-                self.parent_observation_event_id,
-                "release matrix parent observation event",
+                self.control_observation_event_id,
+                "release matrix control observation event",
             )
-            if self.parent_observation_event_id == self.candidate_observation_event_id:
+            if self.control_observation_event_id == self.candidate_observation_event_id:
                 raise ExpertReleaseMatrixContractError(
                     "release matrix candidate and control events must be distinct"
                 )
@@ -868,17 +868,17 @@ class ExpertReleaseMatrixComparisonRow(StrictContract):
                 raise ExpertReleaseMatrixContractError(
                     "release matrix candidate replicate value must normalize signed zero"
                 )
-        if self.parent_replicate_values is not None:
-            if not self.parent_replicate_values:
+        if self.control_replicate_values is not None:
+            if not self.control_replicate_values:
                 raise ExpertReleaseMatrixContractError(
-                    "release matrix parent replicate values must not be empty"
+                    "release matrix control replicate values must not be empty"
                 )
-            for replicate_id, value in self.parent_replicate_values.items():
-                require_identifier(replicate_id, "release matrix parent replicate")
-                require_finite_float(value, "release matrix parent replicate value")
+            for replicate_id, value in self.control_replicate_values.items():
+                require_identifier(replicate_id, "release matrix control replicate")
+                require_finite_float(value, "release matrix control replicate value")
                 if value == 0.0 and math.copysign(1.0, value) < 0.0:
                     raise ExpertReleaseMatrixContractError(
-                        "release matrix parent replicate value must normalize signed zero"
+                        "release matrix control replicate value must normalize signed zero"
                     )
 
     @property
@@ -887,8 +887,8 @@ class ExpertReleaseMatrixComparisonRow(StrictContract):
             self.evaluation_cell_id,
             self.candidate_observation_event_id,
         }
-        if self.parent_observation_event_id is not None:
-            dependencies.add(self.parent_observation_event_id)
+        if self.control_observation_event_id is not None:
+            dependencies.add(self.control_observation_event_id)
         return tuple(sorted(dependencies))
 
 
@@ -899,7 +899,7 @@ class ExpertReleaseMatrixTaskCaseEvidence(StrictContract):
     evaluation_case_id: str
     provenance_binding_id: str
     candidate_result_accepted_event_id: str
-    parent_result_accepted_event_id: str | None
+    control_result_accepted_event_id: str | None
     evaluation_fingerprint_ids: tuple[str, ...]
 
     def _validate(self) -> None:
@@ -921,14 +921,14 @@ class ExpertReleaseMatrixTaskCaseEvidence(StrictContract):
             ),
         ):
             _require_namespaced_id(value, namespace, name)
-        if self.parent_result_accepted_event_id is not None:
+        if self.control_result_accepted_event_id is not None:
             _require_namespaced_id(
-                self.parent_result_accepted_event_id,
+                self.control_result_accepted_event_id,
                 "task-evaluation-execution-journal-event",
-                "release matrix task evidence parent event",
+                "release matrix task evidence control event",
             )
             if (
-                self.parent_result_accepted_event_id
+                self.control_result_accepted_event_id
                 == self.candidate_result_accepted_event_id
             ):
                 raise ExpertReleaseMatrixContractError(
@@ -1017,7 +1017,7 @@ class ExpertReleaseMatrixTaskExecutionEvidence(StrictContract):
             for case in self.case_evidence
             for event_id in (
                 case.candidate_result_accepted_event_id,
-                case.parent_result_accepted_event_id,
+                case.control_result_accepted_event_id,
             )
             if event_id is not None
         )
@@ -1029,17 +1029,17 @@ class ExpertReleaseMatrixTaskExecutionEvidence(StrictContract):
             )
         if self.mode is ExpertReleaseMatrixMode.BOOTSTRAP:
             if any(
-                case.parent_result_accepted_event_id is not None
+                case.control_result_accepted_event_id is not None
                 for case in self.case_evidence
             ) or len(self.execution_journal_event_ids) != 4 * len(self.case_evidence):
                 raise ExpertReleaseMatrixContractError(
                     "bootstrap task evidence requires one complete candidate leg per case"
                 )
         elif any(
-            case.parent_result_accepted_event_id is None for case in self.case_evidence
+            case.control_result_accepted_event_id is None for case in self.case_evidence
         ) or len(self.execution_journal_event_ids) != 8 * len(self.case_evidence):
             raise ExpertReleaseMatrixContractError(
-                "parent task evidence requires two complete semantic legs per case"
+                "control task evidence requires two complete semantic legs per case"
             )
         for dependency_ids, name in (
             (
@@ -1090,8 +1090,8 @@ class ExpertReleaseMatrixReport(StrictContract):
     candidate_commit_record_id: str
     candidate_tree_hash: str
     scope_contract_id: str
-    parent_release_id: str | None
-    parent_tree_hash: str | None
+    source_base_release_id: str | None
+    source_base_tree_hash: str | None
     validation_policy_id: str
     configuration_fingerprint: str
     plan_reservation_operation_id: str
@@ -1143,21 +1143,21 @@ class ExpertReleaseMatrixReport(StrictContract):
             "release matrix plan reservation operation",
         )
         if self.mode is ExpertReleaseMatrixMode.BOOTSTRAP:
-            if self.parent_release_id is not None or self.parent_tree_hash is not None:
+            if self.source_base_release_id is not None or self.source_base_tree_hash is not None:
                 raise ExpertReleaseMatrixContractError(
-                    "bootstrap release matrix cannot name a parent"
+                    "bootstrap release matrix cannot name a source base"
                 )
         else:
-            if self.parent_release_id is None or self.parent_tree_hash is None:
+            if self.source_base_release_id is None or self.source_base_tree_hash is None:
                 raise ExpertReleaseMatrixContractError(
-                    "parent-comparison release matrix requires a parent tree"
+                    "control-comparison release matrix requires a source-base tree"
                 )
             _require_namespaced_id(
-                self.parent_release_id,
+                self.source_base_release_id,
                 "expert-base-release",
-                "release matrix parent release",
+                "release matrix source-base release",
             )
-            _require_digest(self.parent_tree_hash, "release matrix parent tree")
+            _require_digest(self.source_base_tree_hash, "release matrix source-base tree")
         plan = self.evaluation_plan
         if (
             plan.mode,
@@ -1166,8 +1166,8 @@ class ExpertReleaseMatrixReport(StrictContract):
             plan.candidate_commit_record_id,
             plan.candidate_tree_hash,
             plan.scope_contract_id,
-            plan.parent_release_id,
-            plan.parent_tree_hash,
+            plan.source_base_release_id,
+            plan.source_base_tree_hash,
             plan.validation_policy_id,
             plan.configuration_fingerprint,
         ) != (
@@ -1177,8 +1177,8 @@ class ExpertReleaseMatrixReport(StrictContract):
             self.candidate_commit_record_id,
             self.candidate_tree_hash,
             self.scope_contract_id,
-            self.parent_release_id,
-            self.parent_tree_hash,
+            self.source_base_release_id,
+            self.source_base_tree_hash,
             self.validation_policy_id,
             self.configuration_fingerprint,
         ):
@@ -1206,7 +1206,7 @@ class ExpertReleaseMatrixReport(StrictContract):
             )
             event_pair = (
                 row.candidate_observation_event_id,
-                row.parent_observation_event_id,
+                row.control_observation_event_id,
             )
             existing_pair = event_pairs_by_provenance.setdefault(
                 provenance.provenance_binding_id,
@@ -1219,7 +1219,7 @@ class ExpertReleaseMatrixReport(StrictContract):
                 )
             for role, event_id in (
                 ("candidate", row.candidate_observation_event_id),
-                ("parent", row.parent_observation_event_id),
+                ("control", row.control_observation_event_id),
             ):
                 if event_id is None:
                     continue
@@ -1273,7 +1273,7 @@ class ExpertReleaseMatrixReport(StrictContract):
                     != provenance.evaluation_fingerprint_ids
                     or (
                         case_evidence.candidate_result_accepted_event_id,
-                        case_evidence.parent_result_accepted_event_id,
+                        case_evidence.control_result_accepted_event_id,
                     )
                     != event_pairs_by_provenance[provenance.provenance_binding_id]
                 ):
@@ -1300,8 +1300,8 @@ class ExpertReleaseMatrixReport(StrictContract):
                 for dependency_id in row.exact_dependency_ids
             ),
         }
-        if self.parent_release_id is not None:
-            expected_dependencies.add(self.parent_release_id)
+        if self.source_base_release_id is not None:
+            expected_dependencies.add(self.source_base_release_id)
         if self.task_execution_evidence is not None:
             expected_dependencies.update(
                 {
@@ -1329,8 +1329,8 @@ class ExpertReleaseMatrixReport(StrictContract):
         if row.candidate_observation_event_id.split(":sha256:", 1)[0] != (
             expected_event_namespace
         ) or (
-            row.parent_observation_event_id is not None
-            and row.parent_observation_event_id.split(":sha256:", 1)[0]
+            row.control_observation_event_id is not None
+            and row.control_observation_event_id.split(":sha256:", 1)[0]
             != expected_event_namespace
         ):
             raise ExpertReleaseMatrixContractError(
@@ -1343,18 +1343,18 @@ class ExpertReleaseMatrixReport(StrictContract):
             )
         if cell.mode is ExpertReleaseMatrixMode.BOOTSTRAP:
             if (
-                row.parent_replicate_values is not None
-                or row.parent_observation_event_id is not None
+                row.control_replicate_values is not None
+                or row.control_observation_event_id is not None
             ):
                 raise ExpertReleaseMatrixContractError(
                     "bootstrap row must contain only the candidate result"
                 )
             return
         if (
-            row.parent_replicate_values is None
-            or row.parent_observation_event_id is None
-            or set(row.parent_replicate_values) != expected_replicates
+            row.control_replicate_values is None
+            or row.control_observation_event_id is None
+            or set(row.control_replicate_values) != expected_replicates
         ):
             raise ExpertReleaseMatrixContractError(
-                "parent-comparison row requires exact paired replicate results"
+                "control-comparison row requires exact paired replicate results"
             )

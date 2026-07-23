@@ -111,10 +111,10 @@ def test_bootstrap_matrix_projects_one_candidate_leg_without_parent(
         prepared_plan=prepared_plan,
     ).reservation
     observation = _current_observation(prepared_plan)
-    coordinator, _candidate_reader, parent_provider, _adapter_provider = _coordinator(
+    coordinator, _candidate_reader, source_base_provider, _adapter_provider = _coordinator(
         validation_store=validation_store,
         prepared_plan=prepared_plan,
-        parent=None,
+        source_base=None,
         current_authority=_CurrentAuthority((observation, observation)),
     )
     prepared = coordinator.build(plan_reservation)
@@ -139,7 +139,7 @@ def test_bootstrap_matrix_projects_one_candidate_leg_without_parent(
     )
 
     assert evaluator_request.opaque_invocation_id == allocation.opaque_invocation_id
-    assert parent_provider.calls == []
+    assert source_base_provider.calls == []
 
 
 def test_matrix_allocation_is_namespace_exact_and_content_bound(

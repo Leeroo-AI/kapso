@@ -120,13 +120,13 @@ def authority(tmp_path):
         fixture.validation_store.root,
         prepared.settings.policy,
     )
-    parent = prepared.parent.release_manifest
+    source_base = prepared.source_base.release_manifest
     current_observation = SourceReplayCurrentReleaseObservation.mint(
-        scope_id=parent.scope_id,
-        release_id=parent.release_id,
+        scope_id=source_base.scope_id,
+        release_id=source_base.release_id,
         publication_id=content_id(
             "github-publication",
-            {"release_id": parent.release_id},
+            {"release_id": source_base.release_id},
         ),
         repository_full_name="Leeroo-AI/kapso-expert",
         repository_node_id="expert_repo_node",

@@ -94,7 +94,7 @@ def build_expert_source_replay_paired_comparison_receipt(
             (
                 request_case.execution_case_id,
                 legs_by_kind[
-                    ExpertSourceReplayExecutionLegKind.CONTROL_PARENT
+                    ExpertSourceReplayExecutionLegKind.SOURCE_BASE_CONTROL
                 ].execution_leg_id,
             )
         ]

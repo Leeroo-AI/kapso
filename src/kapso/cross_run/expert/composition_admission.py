@@ -369,7 +369,7 @@ class ExpertCompositionAdmissionCoordinator:
             candidate_tree_hash=closure.manifest.candidate_tree_hash,
             scope_id=plan.scope_contract.scope_id,
             scope_contract_id=plan.scope_contract.scope_contract_id,
-            expected_parent_release_id=plan.current_base.release_id,
+            expected_current_release_id=plan.current_base.release_id,
             composition_plan_id=plan.composition_plan_id,
             composition_materialization_id=materialization.materialization_id,
             base_reference_id=plan.current_base.base_reference_id,

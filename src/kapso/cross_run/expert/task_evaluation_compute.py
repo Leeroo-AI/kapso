@@ -74,11 +74,11 @@ def derive_release_matrix_compute_bindings(
             for provenance_id in ordered_provenance_ids
         }
     else:
-        parent_first = (
-            TaskEvaluationLegKind.PARENT_CONTROL,
+        source_base_control_first = (
+            TaskEvaluationLegKind.SOURCE_BASE_CONTROL,
             TaskEvaluationLegKind.CANDIDATE,
         )
-        candidate_first = tuple(reversed(parent_first))
+        candidate_first = tuple(reversed(source_base_control_first))
         order_digest = tree_or_blob_digest(
             canonical_json_bytes(
                 {
@@ -92,7 +92,7 @@ def derive_release_matrix_compute_bindings(
         starting_offset = int(order_digest[-1], 16) % 2
         schedules = {
             provenance_id: (
-                parent_first
+                source_base_control_first
                 if (position + starting_offset) % 2 == 0
                 else candidate_first
             )

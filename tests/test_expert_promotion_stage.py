@@ -290,8 +290,8 @@ def test_parent_stage_publishes_candidate_and_control_evidence(
 
     report = committed.stage_result.release_matrix_report
     assert committed.replayed is False
-    assert report.mode is ExpertReleaseMatrixMode.PARENT_COMPARISON
-    assert all(row.parent_replicate_values is not None for row in report.evidence_rows)
+    assert report.mode is ExpertReleaseMatrixMode.CONTROL_COMPARISON
+    assert all(row.control_replicate_values is not None for row in report.evidence_rows)
     assert (
         committed.snapshot.state.next_stage
         is ExpertValidationStage.PUBLICATION_ELIGIBILITY

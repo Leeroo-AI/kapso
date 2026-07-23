@@ -93,7 +93,7 @@ def _base_payload() -> dict[str, object]:
         "validation_policy_id": policy_id,
         "promotion_policy_version": "promotion.v1",
         "configuration_fingerprint": tree_or_blob_digest(b"configuration"),
-        "mode": ExpertReleaseMatrixMode.PARENT_COMPARISON,
+        "mode": ExpertReleaseMatrixMode.CONTROL_COMPARISON,
         "validation_track": ExpertValidationTrack.BEHAVIORAL_CAPABILITY,
         "outcome": ExpertReleaseMatrixDecisionOutcome.FAILED,
         "reason": ExpertReleaseMatrixDecisionReason.NO_BENEFIT,

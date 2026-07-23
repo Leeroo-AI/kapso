@@ -25,7 +25,7 @@ from kapso.cross_run.expert.composition_base import (
 from kapso.cross_run.expert.replay_authority_contracts import (
     SourceReplayCurrentReleaseObservation,
 )
-from kapso.cross_run.expert.triggers import ExpertParentTreeReceipt
+from kapso.cross_run.expert.triggers import ExpertSourceBaseTreeReceipt
 from kapso.cross_run.github.materializer import (
     ExpertReleaseSourceSnapshot,
     GitHubArtifactMaterializer,
@@ -339,11 +339,11 @@ class GitHubExpertCompositionBaseProvider:
             )
         canonical_modules = tuple(sorted(modules, key=lambda module: module.module_id))
         extraction_receipt = source_snapshot.source_extraction_receipt
-        parent_tree_receipt = ExpertParentTreeReceipt.mint(
+        source_base_tree_receipt = ExpertSourceBaseTreeReceipt.mint(
             release_id=manifest.release_id,
             cache_verification_receipt=cache_receipt,
             source_extraction_receipt=extraction_receipt,
-            parent_tree_hash=extraction_receipt.source_tree_hash,
+            source_base_tree_hash=extraction_receipt.source_tree_hash,
             repository_map_id=repository_map.repository_map_id,
             module_contract_ids=tuple(
                 sorted(module.module_contract_id for module in canonical_modules)
@@ -353,7 +353,7 @@ class GitHubExpertCompositionBaseProvider:
         return build_expert_composition_base_closure(
             scope_contract=scope_contract,
             release_manifest=manifest,
-            parent_tree_receipt=parent_tree_receipt,
+            source_base_tree_receipt=source_base_tree_receipt,
             repository_map=repository_map,
             module_contracts=canonical_modules,
             source_contents=source_contents,

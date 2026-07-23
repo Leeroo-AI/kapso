@@ -38,7 +38,7 @@ from kapso.cross_run.record_contracts import SanitationReport
 from kapso.cross_run.expert import (
     EMPTY_EXPERT_TREE_DIGEST,
     ExpertEvolutionTriggerDecision,
-    ExpertParentTreeReceipt,
+    ExpertSourceBaseTreeReceipt,
     ExpertTriggerDecisionStore,
     ExpertTriggerEvidencePacket,
     ExpertTriggerEvidencePacketBuilder,
@@ -85,8 +85,8 @@ def configuration_fingerprint(settings: ExpertTriggerSettings) -> str:
     return tree_or_blob_digest(canonical_json_bytes(settings.to_dict()))
 
 
-def parent_tree_file() -> SourceFileDescriptor:
-    content = b"verified parent source"
+def source_base_tree_file() -> SourceFileDescriptor:
+    content = b"verified source-base source"
     return SourceFileDescriptor(
         relative_path="src/expert.py",
         digest=tree_or_blob_digest(content),
@@ -95,8 +95,8 @@ def parent_tree_file() -> SourceFileDescriptor:
     )
 
 
-def verified_parent_tree_hash() -> str:
-    tree_file = parent_tree_file()
+def verified_source_base_tree_hash() -> str:
+    tree_file = source_base_tree_file()
     return source_tree_digest(
         {
             tree_file.relative_path: (
@@ -223,11 +223,11 @@ def trigger_packet(
     claims: tuple[KnowledgeClaim, ...] = (),
     observations: tuple[ExpertTriggerObservation, ...] = (),
     bootstrap: bool = False,
-    repository_map: ExpertRepositoryMap | None = None,
-    module_contracts: tuple[ExpertModuleContract, ...] | None = None,
-    released_parent: ExpertBaseReleaseManifest | None = None,
+    source_base_repository_map: ExpertRepositoryMap | None = None,
+    source_base_module_contracts: tuple[ExpertModuleContract, ...] | None = None,
+    source_base_release: ExpertBaseReleaseManifest | None = None,
     current_scope_contract: ExpertScopeContract | None = None,
-    released_scope_contract: ExpertScopeContract | None = None,
+    source_base_scope_contract: ExpertScopeContract | None = None,
     active_task_bindings: tuple[CrossRunTaskBindingSettings, ...] = (
         CrossRunTaskBindingSettings(
             scope_id="ml_ai",
@@ -242,17 +242,17 @@ def trigger_packet(
 ) -> ExpertTriggerEvidencePacket:
     scope, module, current_map, release = expert_records()
     current_scope = current_scope_contract or scope
-    released_scope = released_scope_contract or scope
-    selected_map = None if bootstrap else repository_map or current_map
-    selected_modules = () if bootstrap else module_contracts or (module,)
-    selected_release = None if bootstrap else released_parent or release
-    parent_tree_hash = (
-        EMPTY_EXPERT_TREE_DIGEST if bootstrap else verified_parent_tree_hash()
+    source_base_scope = source_base_scope_contract or scope
+    selected_map = None if bootstrap else source_base_repository_map or current_map
+    selected_modules = () if bootstrap else source_base_module_contracts or (module,)
+    selected_release = None if bootstrap else source_base_release or release
+    source_base_tree_hash = (
+        EMPTY_EXPERT_TREE_DIGEST if bootstrap else verified_source_base_tree_hash()
     )
-    parent_tree_receipt = (
+    source_base_tree_receipt = (
         None
         if bootstrap
-        else ExpertParentTreeReceipt.mint(
+        else ExpertSourceBaseTreeReceipt.mint(
             release_id=selected_release.release_id,
             cache_verification_receipt=CacheVerificationReceipt(
                 artifact_kind=PublicationArtifactKind.EXPERT_BASE_RELEASE,
@@ -273,11 +273,11 @@ def trigger_packet(
                 source_archive_digest=selected_release.checksums[
                     selected_release.source_archive_ref
                 ],
-                source_tree_hash=parent_tree_hash,
-                source_tree_files=(parent_tree_file(),),
+                source_tree_hash=source_base_tree_hash,
+                source_tree_files=(source_base_tree_file(),),
                 extractor_version=SOURCE_ARCHIVE_EXTRACTOR_VERSION,
             ),
-            parent_tree_hash=parent_tree_hash,
+            source_base_tree_hash=source_base_tree_hash,
             repository_map_id=selected_map.repository_map_id,
             module_contract_ids=tuple(
                 sorted(module.module_contract_id for module in selected_modules)
@@ -298,12 +298,12 @@ def trigger_packet(
         knowledge_record_closure_digest=package.record_closure_digest,
         configuration_fingerprint=configuration_fingerprint(settings),
         scope_contract=current_scope,
-        parent_scope_contract=None if bootstrap else released_scope,
-        parent_release=selected_release,
-        parent_tree_receipt=parent_tree_receipt,
-        parent_tree_hash=parent_tree_hash,
-        repository_map=selected_map,
-        module_contracts=tuple(
+        source_base_scope_contract=None if bootstrap else source_base_scope,
+        source_base_release=selected_release,
+        source_base_tree_receipt=source_base_tree_receipt,
+        source_base_tree_hash=source_base_tree_hash,
+        source_base_repository_map=selected_map,
+        source_base_module_contracts=tuple(
             sorted(
                 selected_modules,
                 key=lambda contract: contract.module_contract_id,
@@ -344,13 +344,13 @@ def test_bootstrap_requires_the_canonical_empty_tree_and_no_parent_topology():
     settings = trigger_settings()
     packet = trigger_packet(settings=settings, bootstrap=True)
 
-    with pytest.raises(ExpertTriggerError, match="canonical empty parent"):
-        replace(packet, parent_tree_hash=digest("not-empty"))
+    with pytest.raises(ExpertTriggerError, match="canonical empty source base"):
+        replace(packet, source_base_tree_hash=digest("not-empty"))
 
     released = trigger_packet(settings=settings)
-    with pytest.raises(ExpertTriggerError, match="released parent"):
-        replace(released, parent_tree_hash=EMPTY_EXPERT_TREE_DIGEST)
-    different_content = b"different verified parent source"
+    with pytest.raises(ExpertTriggerError, match="released source base"):
+        replace(released, source_base_tree_hash=EMPTY_EXPERT_TREE_DIGEST)
+    different_content = b"different verified source-base source"
     different_file = SourceFileDescriptor(
         relative_path="src/expert.py",
         digest=tree_or_blob_digest(different_content),
@@ -366,31 +366,31 @@ def test_bootstrap_requires_the_canonical_empty_tree_and_no_parent_topology():
             )
         }
     )
-    mismatched_receipt = ExpertParentTreeReceipt.mint(
-        release_id=released.parent_release.release_id,
+    mismatched_receipt = ExpertSourceBaseTreeReceipt.mint(
+        release_id=released.source_base_release.release_id,
         cache_verification_receipt=replace(
-            released.parent_tree_receipt.cache_verification_receipt,
+            released.source_base_tree_receipt.cache_verification_receipt,
             cache_tree_digest=digest("different-cache-tree"),
         ),
         source_extraction_receipt=SourceArchiveExtractionReceipt.mint(
-            artifact_id=released.parent_release.release_id,
-            source_archive_ref=released.parent_release.source_archive_ref,
-            source_archive_digest=released.parent_release.checksums[
-                released.parent_release.source_archive_ref
+            artifact_id=released.source_base_release.release_id,
+            source_archive_ref=released.source_base_release.source_archive_ref,
+            source_archive_digest=released.source_base_release.checksums[
+                released.source_base_release.source_archive_ref
             ],
             source_tree_hash=different_tree_hash,
             source_tree_files=(different_file,),
             extractor_version=SOURCE_ARCHIVE_EXTRACTOR_VERSION,
         ),
-        parent_tree_hash=different_tree_hash,
-        repository_map_id=released.repository_map.repository_map_id,
+        source_base_tree_hash=different_tree_hash,
+        repository_map_id=released.source_base_repository_map.repository_map_id,
         module_contract_ids=tuple(
-            module.module_contract_id for module in released.module_contracts
+            module.module_contract_id for module in released.source_base_module_contracts
         ),
         materializer_version="kapso.expert_materializer.v1",
     )
     with pytest.raises(ExpertTriggerError, match="tree receipt differs"):
-        replace(released, parent_tree_receipt=mismatched_receipt)
+        replace(released, source_base_tree_receipt=mismatched_receipt)
 
 
 def test_snapshot_builder_uses_every_admitted_episode_not_a_retrieval_budget():
@@ -409,12 +409,12 @@ def test_snapshot_builder_uses_every_admitted_episode_not_a_retrieval_budget():
     packet = ExpertTriggerEvidencePacketBuilder(settings).build(
         knowledge_snapshot=package,
         scope_contract=package.prepared.scope_contract,
-        parent_scope_contract=None,
-        parent_release=None,
-        parent_tree_receipt=None,
-        parent_tree_hash=EMPTY_EXPERT_TREE_DIGEST,
-        repository_map=None,
-        module_contracts=(),
+        source_base_scope_contract=None,
+        source_base_release=None,
+        source_base_tree_receipt=None,
+        source_base_tree_hash=EMPTY_EXPERT_TREE_DIGEST,
+        source_base_repository_map=None,
+        source_base_module_contracts=(),
         active_task_bindings=(
             task_binding("language_model_post_training", "posttrain"),
         ),
@@ -506,7 +506,7 @@ def test_repeated_difficulty_requires_a_typed_closed_observation():
         campaign_id="campaign-second",
         context=analogical_context(context),
     )
-    parent_tree_hash = verified_parent_tree_hash()
+    source_base_tree_hash = verified_source_base_tree_hash()
     difficulty_signature = digest("shared-infrastructure-failure")
     exact_evidence_ids = tuple(sorted((first.episode_id, second.episode_id)))
     difficulty_evidence_signatures = {
@@ -537,14 +537,14 @@ def test_repeated_difficulty_requires_a_typed_closed_observation():
         "inspection_policy_version": "kapso.expert_inspection.v1",
         "kind": "repeated_independent_difficulty",
         "occurrence_count": 2,
-        "parent_tree_hash": parent_tree_hash,
+        "source_base_tree_hash": source_base_tree_hash,
         "task_context_binding_ids": task_context_binding_ids,
     }
     inspection_final_output = json.dumps(inspection_payload, indent=2) + "\n"
     operation = inspection_operation(settings, inspection_final_output)
     observation = ExpertTriggerObservation.mint(
         kind=ExpertTriggerObservationKind.REPEATED_INDEPENDENT_DIFFICULTY,
-        parent_tree_hash=parent_tree_hash,
+        source_base_tree_hash=source_base_tree_hash,
         inspection_policy_version="kapso.expert_inspection.v1",
         configuration_fingerprint=configuration_fingerprint(settings),
         inspection_operation=operation,
@@ -604,7 +604,7 @@ def test_repeated_difficulty_requires_a_typed_closed_observation():
     )
     unauthorized_observation = ExpertTriggerObservation.mint(
         kind=observation.kind,
-        parent_tree_hash=observation.parent_tree_hash,
+        source_base_tree_hash=observation.source_base_tree_hash,
         inspection_policy_version=observation.inspection_policy_version,
         configuration_fingerprint=observation.configuration_fingerprint,
         inspection_operation=unauthorized_operation,
@@ -694,9 +694,9 @@ def test_uncovered_admitted_task_family_requests_an_architecture_candidate():
 
     inactive_packet = trigger_packet(
         settings=settings,
-        repository_map=limited_map,
-        module_contracts=(module,),
-        released_parent=limited_release,
+        source_base_repository_map=limited_map,
+        source_base_module_contracts=(module,),
+        source_base_release=limited_release,
     )
     assert (
         ExpertTriggerEvaluator(settings).evaluate(inactive_packet).candidate_required
@@ -705,9 +705,9 @@ def test_uncovered_admitted_task_family_requests_an_architecture_candidate():
 
     packet = trigger_packet(
         settings=settings,
-        repository_map=limited_map,
-        module_contracts=(module,),
-        released_parent=limited_release,
+        source_base_repository_map=limited_map,
+        source_base_module_contracts=(module,),
+        source_base_release=limited_release,
         active_task_bindings=(
             task_binding("relational_tabular_prediction", "relbench"),
         ),
@@ -721,28 +721,28 @@ def test_uncovered_admitted_task_family_requests_an_architecture_candidate():
 
 def test_attested_successor_scope_can_evolve_an_existing_release():
     settings = trigger_settings()
-    parent_scope, _, _, _ = expert_records()
+    source_base_scope, _, _, _ = expert_records()
     successor_scope = ExpertScopeContract.mint(
-        scope_id=parent_scope.scope_id,
-        supersedes_scope_contract_id=parent_scope.scope_contract_id,
-        purpose=parent_scope.purpose,
-        explicit_non_goals=parent_scope.explicit_non_goals,
-        task_family_ontology=parent_scope.task_family_ontology,
-        task_family_lineage=parent_scope.task_family_lineage,
+        scope_id=source_base_scope.scope_id,
+        supersedes_scope_contract_id=source_base_scope.scope_contract_id,
+        purpose=source_base_scope.purpose,
+        explicit_non_goals=source_base_scope.explicit_non_goals,
+        task_family_ontology=source_base_scope.task_family_ontology,
+        task_family_lineage=source_base_scope.task_family_lineage,
         artifact_classes=("dataset", "feature_table", "model"),
-        required_context_dimensions=parent_scope.required_context_dimensions,
-        context_dimension_schemas=parent_scope.context_dimension_schemas,
-        context_dimension_lineage=parent_scope.context_dimension_lineage,
-        task_adapter_contract=parent_scope.task_adapter_contract,
-        sanitation_policy_ref=parent_scope.sanitation_policy_ref,
-        validation_policy_ref=parent_scope.validation_policy_ref,
-        repository_architecture_constraints=parent_scope.repository_architecture_constraints,
+        required_context_dimensions=source_base_scope.required_context_dimensions,
+        context_dimension_schemas=source_base_scope.context_dimension_schemas,
+        context_dimension_lineage=source_base_scope.context_dimension_lineage,
+        task_adapter_contract=source_base_scope.task_adapter_contract,
+        sanitation_policy_ref=source_base_scope.sanitation_policy_ref,
+        validation_policy_ref=source_base_scope.validation_policy_ref,
+        repository_architecture_constraints=source_base_scope.repository_architecture_constraints,
     )
 
     packet = trigger_packet(
         settings=settings,
         current_scope_contract=successor_scope,
-        released_scope_contract=parent_scope,
+        source_base_scope_contract=source_base_scope,
     )
     decision = ExpertTriggerEvaluator(settings).evaluate(packet)
 
@@ -753,12 +753,12 @@ def test_attested_successor_scope_can_evolve_an_existing_release():
 
 def test_successor_family_rename_keeps_parent_evidence_historical():
     settings = trigger_settings()
-    parent_scope, _, _, _ = expert_records()
+    source_base_scope, _, _, _ = expert_records()
     successor_scope = ExpertScopeContract.mint(
-        scope_id=parent_scope.scope_id,
-        supersedes_scope_contract_id=parent_scope.scope_contract_id,
-        purpose=parent_scope.purpose,
-        explicit_non_goals=parent_scope.explicit_non_goals,
+        scope_id=source_base_scope.scope_id,
+        supersedes_scope_contract_id=source_base_scope.scope_contract_id,
+        purpose=source_base_scope.purpose,
+        explicit_non_goals=source_base_scope.explicit_non_goals,
         task_family_ontology=(
             TaskFamilyDefinition(
                 task_family_id="general_model_adaptation",
@@ -772,19 +772,19 @@ def test_successor_family_rename_keeps_parent_evidence_historical():
                 relation=LineageRelation.RENAME,
             ),
         ),
-        artifact_classes=parent_scope.artifact_classes,
-        required_context_dimensions=parent_scope.required_context_dimensions,
-        context_dimension_schemas=parent_scope.context_dimension_schemas,
-        context_dimension_lineage=parent_scope.context_dimension_lineage,
+        artifact_classes=source_base_scope.artifact_classes,
+        required_context_dimensions=source_base_scope.required_context_dimensions,
+        context_dimension_schemas=source_base_scope.context_dimension_schemas,
+        context_dimension_lineage=source_base_scope.context_dimension_lineage,
         task_adapter_contract=(
             TaskAdapterBinding(
                 task_family_id="general_model_adaptation",
                 task_adapter_ids=("general_adapter",),
             ),
         ),
-        sanitation_policy_ref=parent_scope.sanitation_policy_ref,
-        validation_policy_ref=parent_scope.validation_policy_ref,
-        repository_architecture_constraints=parent_scope.repository_architecture_constraints,
+        sanitation_policy_ref=source_base_scope.sanitation_policy_ref,
+        validation_policy_ref=source_base_scope.validation_policy_ref,
+        repository_architecture_constraints=source_base_scope.repository_architecture_constraints,
     )
     _, context, episode, _, _, _, _ = source_fixture()
     historical = clone_episode(
@@ -798,7 +798,7 @@ def test_successor_family_rename_keeps_parent_evidence_historical():
         settings=settings,
         episodes=(historical,),
         current_scope_contract=successor_scope,
-        released_scope_contract=parent_scope,
+        source_base_scope_contract=source_base_scope,
         active_task_bindings=(
             task_binding("general_model_adaptation", "general_adapter"),
         ),
@@ -811,7 +811,7 @@ def test_successor_family_rename_keeps_parent_evidence_historical():
 
     malformed_scope = ExpertScopeContract.mint(
         scope_id=successor_scope.scope_id,
-        supersedes_scope_contract_id=parent_scope.scope_contract_id,
+        supersedes_scope_contract_id=source_base_scope.scope_contract_id,
         purpose=successor_scope.purpose,
         explicit_non_goals=successor_scope.explicit_non_goals,
         task_family_ontology=successor_scope.task_family_ontology,
@@ -831,12 +831,12 @@ def test_successor_family_rename_keeps_parent_evidence_historical():
         validation_policy_ref=successor_scope.validation_policy_ref,
         repository_architecture_constraints=successor_scope.repository_architecture_constraints,
     )
-    with pytest.raises(ExpertTriggerError, match="lineage source.*parent"):
+    with pytest.raises(ExpertTriggerError, match="lineage source.*source base"):
         trigger_packet(
             settings=settings,
             episodes=(historical,),
             current_scope_contract=malformed_scope,
-            released_scope_contract=parent_scope,
+            source_base_scope_contract=source_base_scope,
             active_task_bindings=(
                 task_binding("general_model_adaptation", "general_adapter"),
             ),
@@ -855,12 +855,12 @@ def test_successor_family_rename_keeps_parent_evidence_historical():
             ),
         ),
     )
-    with pytest.raises(ExpertTriggerError, match="context lineage source.*parent"):
+    with pytest.raises(ExpertTriggerError, match="context lineage source.*source base"):
         trigger_packet(
             settings=settings,
             episodes=(historical,),
             current_scope_contract=malformed_context_scope,
-            released_scope_contract=parent_scope,
+            source_base_scope_contract=source_base_scope,
             active_task_bindings=(
                 task_binding("general_model_adaptation", "general_adapter"),
             ),

@@ -288,8 +288,8 @@ class ExpertSourceReplayReservationSnapshot:
             or self.reservation.candidate_id != transition.candidate_id
             or self.reservation.candidate_tree_hash != self.request.candidate_tree_hash
             or self.reservation.candidate_tree_hash != state.candidate_tree_hash
-            or self.reservation.observed_parent_release_id
-            != self.request.parent_release_id
+            or self.reservation.expected_current_release_id
+            != self.request.source_base_release_id
         ):
             raise ExpertValidationStoreError(
                 "source replay reservation snapshot authority is inconsistent"
@@ -2459,7 +2459,7 @@ class ExpertValidationStore:
             plan_join=prepared_request.plan_join,
             stored_candidate=prepared_request.stored_candidate,
             candidate=prepared_request.candidate,
-            parent=prepared_request.parent,
+            source_base=prepared_request.source_base,
             current_release_observation=(prepared_request.current_release_observation),
             cases=prepared_request.cases,
         )
@@ -2578,7 +2578,7 @@ class ExpertValidationStore:
             or result.candidate_id != reservation.candidate_id
             or result.candidate_tree_hash != reservation.candidate_tree_hash
             or result.scope_contract_id != reservation.scope_contract_id
-            or result.parent_release_id != reservation.observed_current_release_id
+            or result.source_base_release_id != reservation.observed_current_release_id
             or result.plan_reservation_operation_id
             != reservation.plan_reservation_operation_id
             or result.validation_policy_id
@@ -2903,7 +2903,7 @@ class ExpertValidationStore:
             attempt=prepared_request.attempt,
             selection=prepared_request.selection,
             candidate=prepared_request.candidate,
-            parent=prepared_request.parent,
+            source_base=prepared_request.source_base,
             authorization_state=prepared_request.authorization_state,
             cases=prepared_request.cases,
         )
@@ -2987,7 +2987,7 @@ class ExpertValidationStore:
                 authorization_state_id=current.state.validation_state_id,
                 candidate_id=current.state.candidate_id,
                 candidate_tree_hash=current.state.candidate_tree_hash,
-                observed_parent_release_id=request.parent_release_id,
+                expected_current_release_id=request.source_base_release_id,
                 exact_dependency_ids=tuple(
                     sorted(
                         {
@@ -2996,7 +2996,7 @@ class ExpertValidationStore:
                             current.latest_attempt.validation_attempt_id,
                             current.state.validation_state_id,
                             current.state.candidate_id,
-                            request.parent_release_id,
+                            request.source_base_release_id,
                         }
                     )
                 ),
@@ -3244,7 +3244,7 @@ class ExpertValidationStore:
             plan_join=prepared_request.plan_join,
             stored_candidate=prepared_request.stored_candidate,
             candidate=prepared_request.candidate,
-            parent=prepared_request.parent,
+            source_base=prepared_request.source_base,
             current_release_observation=(prepared_request.current_release_observation),
             cases=prepared_request.cases,
         )
@@ -3309,8 +3309,8 @@ class ExpertValidationStore:
                 request.scope_contract_id,
                 observation.observation_id,
             }
-            if request.parent_release_id is not None:
-                dependencies.add(request.parent_release_id)
+            if request.source_base_release_id is not None:
+                dependencies.add(request.source_base_release_id)
             reservation = TaskEvaluationReservation.mint(
                 request_id=request.request_id,
                 plan_reservation_operation_id=(request.plan_reservation_operation_id),
@@ -3380,7 +3380,7 @@ class ExpertValidationStore:
             plan_join=prepared_request.plan_join,
             stored_candidate=prepared_request.stored_candidate,
             candidate=prepared_request.candidate,
-            parent=prepared_request.parent,
+            source_base=prepared_request.source_base,
             current_release_observation=(prepared_request.current_release_observation),
             cases=prepared_request.cases,
         )
@@ -3527,7 +3527,7 @@ class ExpertValidationStore:
             attempt=prepared_request.attempt,
             selection=prepared_request.selection,
             candidate=prepared_request.candidate,
-            parent=prepared_request.parent,
+            source_base=prepared_request.source_base,
             authorization_state=prepared_request.authorization_state,
             cases=prepared_request.cases,
         )
@@ -3612,7 +3612,7 @@ class ExpertValidationStore:
             attempt=prepared_request.attempt,
             selection=prepared_request.selection,
             candidate=prepared_request.candidate,
-            parent=prepared_request.parent,
+            source_base=prepared_request.source_base,
             authorization_state=prepared_request.authorization_state,
             cases=prepared_request.cases,
         )
@@ -3816,7 +3816,7 @@ class ExpertValidationStore:
             attempt=prepared_request.attempt,
             selection=prepared_request.selection,
             candidate=prepared_request.candidate,
-            parent=prepared_request.parent,
+            source_base=prepared_request.source_base,
             authorization_state=prepared_request.authorization_state,
             cases=prepared_request.cases,
         )
@@ -3827,7 +3827,7 @@ class ExpertValidationStore:
             or reservation.authorization_state_id != request.authorization_state_id
             or reservation.candidate_id != request.candidate_id
             or reservation.candidate_tree_hash != request.candidate_tree_hash
-            or reservation.observed_parent_release_id != request.parent_release_id
+            or reservation.expected_current_release_id != request.source_base_release_id
         ):
             raise ExpertValidationStoreError(
                 "source replay reservation differs from prepared request"
@@ -4663,7 +4663,7 @@ class ExpertValidationStore:
             or plan.scope_contract_id != attempt.scope_contract_id
             or plan.scope_contract_id != publication_result.scope_contract_id
             or plan.scope_id != publication_result.scope_id
-            or plan.lineage.source_base_release_id != attempt.parent_release_id
+            or plan.lineage.source_base_release_id != attempt.source_base_release_id
             or plan.lineage.activation_predecessor_release_id
             != publication_result.expected_current_release_id
             or plan.current_release_observation
@@ -4943,7 +4943,7 @@ class ExpertValidationStore:
             or reservation.authorization_state_id != state.validation_state_id
             or reservation.candidate_id != transition.candidate_id
             or reservation.candidate_tree_hash != transition.candidate_tree_hash
-            or reservation.observed_parent_release_id != request.parent_release_id
+            or reservation.expected_current_release_id != request.source_base_release_id
         ):
             raise ExpertValidationStoreError(
                 "source replay reservation alias closure is inconsistent"
@@ -5274,7 +5274,7 @@ class ExpertValidationStore:
             or packet.candidate_id != transition.candidate_id
             or packet.candidate_tree_hash != transition.candidate_tree_hash
             or packet.scope_contract_id != latest_attempt.scope_contract_id
-            or packet.parent_release_id != latest_attempt.parent_release_id
+            or packet.source_base_release_id != latest_attempt.source_base_release_id
             or packet.validation_policy_id != transition.validation_policy_id
             or packet.configuration_fingerprint != transition.configuration_fingerprint
             or predecessor_state.promotion_state is not ExpertPromotionState.VALIDATING
@@ -5417,7 +5417,7 @@ class ExpertValidationStore:
             or result_record.candidate_id != transition.candidate_id
             or result_record.candidate_tree_hash != transition.candidate_tree_hash
             or result_record.scope_contract_id != latest_attempt.scope_contract_id
-            or result_record.parent_release_id != latest_attempt.parent_release_id
+            or result_record.source_base_release_id != latest_attempt.source_base_release_id
             or result_record.validation_policy_id != latest_attempt.validation_policy_id
             or result_record.configuration_fingerprint
             != latest_attempt.configuration_fingerprint
@@ -5437,7 +5437,7 @@ class ExpertValidationStore:
             or request.candidate_commit_record_id
             != latest_attempt.candidate_commit_record_id
             or request.scope_contract_id != latest_attempt.scope_contract_id
-            or request.parent_release_id != latest_attempt.parent_release_id
+            or request.source_base_release_id != latest_attempt.source_base_release_id
             or request.validation_policy_id != latest_attempt.validation_policy_id
             or request.configuration_fingerprint
             != latest_attempt.configuration_fingerprint
@@ -5568,7 +5568,7 @@ class ExpertValidationStore:
             != latest_attempt.candidate_commit_record_id
             or result_record.scope_contract_id != latest_attempt.scope_contract_id
             or result_record.expected_current_release_id
-            != latest_attempt.parent_release_id
+            != latest_attempt.source_base_release_id
             or result_record.validation_policy_id != latest_attempt.validation_policy_id
             or result_record.configuration_fingerprint
             != latest_attempt.configuration_fingerprint
@@ -5720,7 +5720,7 @@ class ExpertValidationStore:
                 or latest_attempt.candidate_commit_record_id
                 != decision.candidate_commit_record_id
                 or latest_attempt.scope_contract_id != decision.scope_contract_id
-                or latest_attempt.parent_release_id != decision.parent_release_id
+                or latest_attempt.source_base_release_id != decision.source_base_release_id
                 or latest_attempt.validation_policy_id != decision.validation_policy_id
                 or latest_attempt.configuration_fingerprint
                 != decision.configuration_fingerprint
@@ -6037,7 +6037,7 @@ class ExpertValidationStore:
                 or invalidation.kind
                 is not ExpertValidationAuthorityInvalidationKind.CURRENT_RELEASE_AUTHORITY_CHANGED
                 or invalidation.expected_current_release_id
-                != latest_attempt.parent_release_id
+                != latest_attempt.source_base_release_id
                 or transition.validation_policy_id
                 != latest_attempt.validation_policy_id
                 or transition.configuration_fingerprint

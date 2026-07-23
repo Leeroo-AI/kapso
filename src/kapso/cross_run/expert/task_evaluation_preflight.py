@@ -19,7 +19,7 @@ from kapso.cross_run.expert.task_evaluation_materialization import (
     TaskEvaluationMaterializationLimits,
     VerifiedTaskEvaluationAdapterRuntime,
     VerifiedTaskEvaluationCandidate,
-    VerifiedTaskEvaluationParent,
+    VerifiedTaskEvaluationSourceBase,
     VerifiedTaskEvaluationStartingArtifact,
     materialize_task_evaluation_starting_artifacts,
 )
@@ -32,7 +32,7 @@ from kapso.cross_run.task_adapters import (
     VerifiedTaskAdapter,
     task_adapter_materialization_usage,
 )
-from kapso.cross_run.expert.triggers import ExpertParentTreeReceipt
+from kapso.cross_run.expert.triggers import ExpertSourceBaseTreeReceipt
 from kapso.cross_run.expert.validation_snapshots import (
     ExpertReleaseMatrixPlanReservationSnapshot,
 )
@@ -55,13 +55,13 @@ class TaskEvaluationCandidateReader(Protocol):
     def read(self, candidate_id: str) -> StoredExpertCandidate: ...
 
 
-class TaskEvaluationParentProvider(Protocol):
+class TaskEvaluationSourceBaseProvider(Protocol):
     def materialize_exact(
         self,
         release_manifest: ExpertBaseReleaseManifest,
-        parent_tree_receipt: ExpertParentTreeReceipt,
+        source_base_tree_receipt: ExpertSourceBaseTreeReceipt,
         limits: TaskEvaluationMaterializationLimits,
-    ) -> VerifiedTaskEvaluationParent: ...
+    ) -> VerifiedTaskEvaluationSourceBase: ...
 
 
 class TaskEvaluationAdapterProvider(Protocol):
@@ -117,7 +117,7 @@ class PreparedTaskEvaluationRequest:
     plan_join: PlanJoinedTaskEvaluationRequest
     stored_candidate: StoredExpertCandidate
     candidate: VerifiedTaskEvaluationCandidate
-    parent: VerifiedTaskEvaluationParent | None
+    source_base: VerifiedTaskEvaluationSourceBase | None
     current_release_observation: TaskEvaluationCurrentReleaseObservation
     cases: tuple[MaterializedTaskEvaluationCase, ...]
 
@@ -127,8 +127,8 @@ class PreparedTaskEvaluationRequest:
             or type(self.stored_candidate) is not StoredExpertCandidate
             or type(self.candidate) is not VerifiedTaskEvaluationCandidate
             or (
-                self.parent is not None
-                and type(self.parent) is not VerifiedTaskEvaluationParent
+                self.source_base is not None
+                and type(self.source_base) is not VerifiedTaskEvaluationSourceBase
             )
             or type(self.current_release_observation)
             is not TaskEvaluationCurrentReleaseObservation
@@ -145,7 +145,7 @@ class PreparedTaskEvaluationRequest:
             settings=self.plan_join.settings,
             stored_candidate=self.stored_candidate,
             candidate=self.candidate,
-            parent=self.parent,
+            source_base=self.source_base,
         )
         if rederived != self.plan_join:
             raise TaskEvaluationPreflightError(
@@ -155,7 +155,7 @@ class PreparedTaskEvaluationRequest:
         if (
             self.current_release_observation.scope_id != context.scope_id
             or self.current_release_observation.release_id
-            != self.plan_join.request.parent_release_id
+            != self.plan_join.request.source_base_release_id
         ):
             raise TaskEvaluationPreflightError(
                 "prepared task-evaluation current authority differs from its request"
@@ -217,7 +217,7 @@ class PreparedTaskEvaluationRequest:
     def entry_count(self) -> int:
         return task_evaluation_materialization_usage(
             candidate=self.candidate,
-            parent=self.parent,
+            source_base=self.source_base,
             adapters=self.adapters,
         )[0]
 
@@ -225,7 +225,7 @@ class PreparedTaskEvaluationRequest:
     def byte_count(self) -> int:
         return task_evaluation_materialization_usage(
             candidate=self.candidate,
-            parent=self.parent,
+            source_base=self.source_base,
             adapters=self.adapters,
         )[1]
 
@@ -239,7 +239,7 @@ class TaskEvaluationPreflightCoordinator:
         settings: ExpertValidationSettings,
         plan_reservation_authority: TaskEvaluationPlanReservationAuthority,
         candidate_reader: TaskEvaluationCandidateReader,
-        parent_provider: TaskEvaluationParentProvider,
+        source_base_provider: TaskEvaluationSourceBaseProvider,
         adapter_provider: TaskEvaluationAdapterProvider,
         current_release_authority: TaskEvaluationCurrentReleaseAuthority,
         monotonic_clock: Callable[[], float],
@@ -251,7 +251,7 @@ class TaskEvaluationPreflightCoordinator:
         self.settings = settings
         self.plan_reservation_authority = plan_reservation_authority
         self.candidate_reader = candidate_reader
-        self.parent_provider = parent_provider
+        self.source_base_provider = source_base_provider
         self.adapter_provider = adapter_provider
         self.current_release_authority = current_release_authority
         self.monotonic_clock = monotonic_clock
@@ -289,9 +289,9 @@ class TaskEvaluationPreflightCoordinator:
         )
         self._require_deadline(deadline)
         scope_id = stored_candidate.closure.validation_context.scope_id
-        current_before = self._observe_current(scope_id, plan.parent_release_id)
+        current_before = self._observe_current(scope_id, plan.source_base_release_id)
         self._require_deadline(deadline)
-        parent = self._materialize_parent(
+        source_base = self._materialize_source_base(
             stored_candidate=stored_candidate,
             candidate=candidate,
             deadline=deadline,
@@ -301,15 +301,15 @@ class TaskEvaluationPreflightCoordinator:
             settings=self.settings,
             stored_candidate=stored_candidate,
             candidate=candidate,
-            parent=parent,
+            source_base=source_base,
         )
         adapters_by_authority_id = self._materialize_adapters(
             plan_reservation=first_reservation,
             candidate=candidate,
-            parent=parent,
+            source_base=source_base,
             deadline=deadline,
         )
-        current_after = self._observe_current(scope_id, plan.parent_release_id)
+        current_after = self._observe_current(scope_id, plan.source_base_release_id)
         if current_after != current_before:
             raise TaskEvaluationPreflightError(
                 "task-evaluation current authority changed during materialization"
@@ -338,7 +338,7 @@ class TaskEvaluationPreflightCoordinator:
             plan_join=plan_join,
             stored_candidate=stored_candidate,
             candidate=candidate,
-            parent=parent,
+            source_base=source_base,
             current_release_observation=current_after,
             cases=cases,
         )
@@ -387,47 +387,47 @@ class TaskEvaluationPreflightCoordinator:
             )
         return observation
 
-    def _materialize_parent(
+    def _materialize_source_base(
         self,
         *,
         stored_candidate: StoredExpertCandidate,
         candidate: VerifiedTaskEvaluationCandidate,
         deadline: float,
-    ) -> VerifiedTaskEvaluationParent | None:
+    ) -> VerifiedTaskEvaluationSourceBase | None:
         context = stored_candidate.closure.validation_context
-        if context.parent_release is None or context.parent_tree_receipt is None:
+        if context.source_base_release is None or context.source_base_tree_receipt is None:
             if (
-                context.parent_release is not None
-                or context.parent_tree_receipt is not None
+                context.source_base_release is not None
+                or context.source_base_tree_receipt is not None
             ):
                 raise TaskEvaluationPreflightError(
-                    "task-evaluation candidate parent authority is partial"
+                    "task-evaluation candidate source-base authority is partial"
                 )
             return None
         limits = self._remaining_limits(
             candidate=candidate,
-            parent=None,
+            source_base=None,
             adapters=(),
             deadline=deadline,
         )
-        parent = self.parent_provider.materialize_exact(
-            context.parent_release,
-            context.parent_tree_receipt,
+        source_base = self.source_base_provider.materialize_exact(
+            context.source_base_release,
+            context.source_base_tree_receipt,
             limits,
         )
-        if type(parent) is not VerifiedTaskEvaluationParent:
+        if type(source_base) is not VerifiedTaskEvaluationSourceBase:
             raise TaskEvaluationPreflightError(
-                "task-evaluation parent provider returned an unverified closure"
+                "task-evaluation source-base provider returned an unverified closure"
             )
         self._require_deadline(deadline)
-        return parent
+        return source_base
 
     def _materialize_adapters(
         self,
         *,
         plan_reservation: ExpertReleaseMatrixPlanReservationSnapshot,
         candidate: VerifiedTaskEvaluationCandidate,
-        parent: VerifiedTaskEvaluationParent | None,
+        source_base: VerifiedTaskEvaluationSourceBase | None,
         deadline: float,
     ) -> dict[str, VerifiedTaskAdapter]:
         plan = plan_reservation.evaluation_plan
@@ -450,7 +450,7 @@ class TaskEvaluationPreflightCoordinator:
             authority = authorities[authority_id]
             limits = self._remaining_limits(
                 candidate=candidate,
-                parent=parent,
+                source_base=source_base,
                 adapters=tuple(resolved.values()),
                 deadline=deadline,
             )
@@ -511,14 +511,14 @@ class TaskEvaluationPreflightCoordinator:
         self,
         *,
         candidate: VerifiedTaskEvaluationCandidate,
-        parent: VerifiedTaskEvaluationParent | None,
+        source_base: VerifiedTaskEvaluationSourceBase | None,
         adapters: tuple[VerifiedTaskAdapter, ...],
         deadline: float,
     ) -> TaskEvaluationMaterializationLimits:
         limits = self._configured_limits()
         entry_count, byte_count = task_evaluation_materialization_usage(
             candidate=candidate,
-            parent=parent,
+            source_base=source_base,
             adapters=adapters,
         )
         remaining_entries = limits.maximum_entries - entry_count
@@ -544,14 +544,14 @@ class TaskEvaluationPreflightCoordinator:
 def task_evaluation_materialization_usage(
     *,
     candidate: VerifiedTaskEvaluationCandidate,
-    parent: VerifiedTaskEvaluationParent | None,
+    source_base: VerifiedTaskEvaluationSourceBase | None,
     adapters: tuple[VerifiedTaskAdapter, ...],
 ) -> tuple[int, int]:
     """Count acquired bytes once; runtime/artifact projections are not copies."""
 
     if (
         type(candidate) is not VerifiedTaskEvaluationCandidate
-        or (parent is not None and type(parent) is not VerifiedTaskEvaluationParent)
+        or (source_base is not None and type(source_base) is not VerifiedTaskEvaluationSourceBase)
         or type(adapters) is not tuple
         or any(type(adapter) is not VerifiedTaskAdapter for adapter in adapters)
     ):
@@ -586,10 +586,10 @@ def task_evaluation_materialization_usage(
     )
     return (
         candidate.entry_count
-        + (0 if parent is None else parent.entry_count)
+        + (0 if source_base is None else source_base.entry_count)
         + sum(usage[0] for usage in adapter_usages),
         candidate.byte_count
-        + (0 if parent is None else parent.byte_count)
+        + (0 if source_base is None else source_base.byte_count)
         + sum(usage[1] for usage in adapter_usages),
     )
 

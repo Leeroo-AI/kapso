@@ -1004,7 +1004,7 @@ class ExpertTaskEvaluationExecutionStore:
             plan_join=prepared_request.plan_join,
             stored_candidate=prepared_request.stored_candidate,
             candidate=prepared_request.candidate,
-            parent=prepared_request.parent,
+            source_base=prepared_request.source_base,
             current_release_observation=(prepared_request.current_release_observation),
             cases=prepared_request.cases,
         )

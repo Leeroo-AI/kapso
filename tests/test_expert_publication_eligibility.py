@@ -217,7 +217,7 @@ def _publish_matrix(
         values = {
             case.evaluation_case_id: {
                 TaskEvaluationLegKind.CANDIDATE: 0.0,
-                TaskEvaluationLegKind.PARENT_CONTROL: 1.0,
+                TaskEvaluationLegKind.SOURCE_BASE_CONTROL: 1.0,
             }
             for case in prepared.plan_join.request.cases
         }
@@ -727,27 +727,27 @@ def test_composition_candidate_security_subjects_cover_outer_and_source_authorit
         terminal.snapshot.state.candidate_id
     )
     source_closure = source.stored_candidate.closure
-    prepared_parent = case.prepared.parent
+    prepared_parent = case.prepared.source_base
     assert prepared_parent is not None
-    parent_release = _remint(
+    source_base_release = _remint(
         prepared_parent.release_manifest,
         semantic_book_digest=tree_or_blob_digest(
             prepared_parent.source_contents["EXPERT_REPO.md"]
         ),
     )
-    parent_receipt = _parent_receipt(
-        parent_release,
-        source_closure.derivation.trigger_packet.repository_map,
-        source_closure.derivation.trigger_packet.module_contracts,
+    source_base_receipt = _parent_receipt(
+        source_base_release,
+        source_closure.derivation.trigger_packet.source_base_repository_map,
+        source_closure.derivation.trigger_packet.source_base_module_contracts,
         prepared_parent.source_contents,
         cache_label="publication composition security",
     )
     parent_base = build_expert_composition_base_closure(
         scope_contract=source_closure.derivation.trigger_packet.scope_contract,
-        release_manifest=parent_release,
-        parent_tree_receipt=parent_receipt,
-        repository_map=source_closure.derivation.trigger_packet.repository_map,
-        module_contracts=source_closure.derivation.trigger_packet.module_contracts,
+        release_manifest=source_base_release,
+        source_base_tree_receipt=source_base_receipt,
+        repository_map=source_closure.derivation.trigger_packet.source_base_repository_map,
+        module_contracts=source_closure.derivation.trigger_packet.source_base_module_contracts,
         source_contents=prepared_parent.source_contents,
     )
     expert_settings = case.validation_store.reducer.candidate_store.validator.settings
@@ -856,8 +856,8 @@ def test_composition_candidate_security_subjects_cover_outer_and_source_authorit
             {
                 parent_base.reference.base_reference_id,
                 *parent_base.reference.stable_authority_ids,
-                parent_base.parent_tree_receipt.parent_tree_receipt_id,
-                parent_base.parent_tree_receipt.source_extraction_receipt.extraction_receipt_id,
+                parent_base.source_base_tree_receipt.source_base_tree_receipt_id,
+                parent_base.source_base_tree_receipt.source_extraction_receipt.extraction_receipt_id,
                 current_observation.observation_id,
                 current_observation.publication_id,
                 *current_observation.validation_closure_ids,
@@ -905,7 +905,7 @@ def test_composition_candidate_security_subjects_cover_outer_and_source_authorit
         candidate_tree_hash=closure.manifest.candidate_tree_hash,
         scope_id=parent_base.scope_contract.scope_id,
         scope_contract_id=parent_base.scope_contract.scope_contract_id,
-        expected_parent_release_id=parent_base.release_manifest.release_id,
+        expected_current_release_id=parent_base.release_manifest.release_id,
         composition_plan_id=plan.composition_plan_id,
         composition_materialization_id=(reduction.materialization.materialization_id),
         base_reference_id=parent_base.reference.base_reference_id,
@@ -953,9 +953,9 @@ def test_composition_candidate_security_subjects_cover_outer_and_source_authorit
     assert expected.issubset(subjects)
     assert set(plan.stable_authority_ids).issubset(subjects)
     assert set(provenance.validation_context.stable_dependency_ids).issubset(subjects)
-    assert provenance.validation_context.parent_release is not None
+    assert provenance.validation_context.source_base_release is not None
     assert set(
-        provenance.validation_context.parent_release.consumed_dependency_ids
+        provenance.validation_context.source_base_release.consumed_dependency_ids
     ).issubset(subjects)
 
     source = provenance.reduction_source
@@ -970,8 +970,8 @@ def test_composition_candidate_security_subjects_cover_outer_and_source_authorit
         candidate_contents=source.candidate_contents,
     )
     ancestor_subjects = _candidate_ancestor_security_subject_ids(retained_ancestor)
-    assert provenance.candidate_manifest.parent_release_id in ancestor_subjects
-    assert provenance.candidate_manifest.parent_repository_map_ref in ancestor_subjects
+    assert provenance.candidate_manifest.source_base_release_id in ancestor_subjects
+    assert provenance.candidate_manifest.source_base_repository_map_ref in ancestor_subjects
     with pytest.raises(
         ExpertPublicationEligibilityError,
         match="does not recognize its derivation",

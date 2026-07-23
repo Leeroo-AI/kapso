@@ -214,7 +214,7 @@ def bootstrap_candidate_closure(
         else candidate_tree_hash
     )
     patch = ExpertCandidatePatch.mint(
-        parent_tree_hash=EMPTY_EXPERT_TREE_DIGEST,
+        source_base_tree_hash=EMPTY_EXPERT_TREE_DIGEST,
         candidate_tree_hash=patch_tree_hash,
         changes=tuple(
             ExpertCandidatePatchChange(
@@ -291,7 +291,7 @@ def bootstrap_candidate_closure(
         packet=packet,
         decision=decision,
         operation_kind=ExpertCandidateOperationKind.BOOTSTRAP,
-        editable_parent_tree_hash=EMPTY_EXPERT_TREE_DIGEST,
+        editable_input_tree_hash=EMPTY_EXPERT_TREE_DIGEST,
         maximum_entries=configured.candidate_entry_limit,
         maximum_bytes=configured.candidate_byte_limit,
         ancestor_inputs=(),
@@ -352,7 +352,7 @@ def bootstrap_candidate_closure(
             coding_agent_mcp_configuration_fingerprint(None)
         ),
         "operation_kind": ExpertCandidateOperationKind.BOOTSTRAP.value,
-        "parent_tree_hash": EMPTY_EXPERT_TREE_DIGEST,
+        "source_base_tree_hash": EMPTY_EXPERT_TREE_DIGEST,
         "principal_id": configured.architect_id,
         "proposer_authority_id": proposer_authority.authority_id,
         "proposal_contract_version": EXPERT_PROPOSAL_CONTRACT_VERSION,
@@ -416,8 +416,8 @@ def bootstrap_candidate_closure(
     workspace_receipt = ExpertCandidateWorkspaceReceipt.mint(
         operation_receipt_id=operation_receipt.operation_receipt_id,
         operation_id=operation_id,
-        parent_tree_hash=EMPTY_EXPERT_TREE_DIGEST,
-        editable_parent_tree_hash=EMPTY_EXPERT_TREE_DIGEST,
+        source_base_tree_hash=EMPTY_EXPERT_TREE_DIGEST,
+        editable_input_tree_hash=EMPTY_EXPERT_TREE_DIGEST,
         edited_tree_hash=(
             digest("forged-workspace-tree")
             if forged_workspace_tree
@@ -430,7 +430,7 @@ def bootstrap_candidate_closure(
         operation_kind=ExpertCandidateOperationKind.BOOTSTRAP,
         trigger_decision_id=decision.trigger_decision_id,
         trigger_evidence_packet_id=packet.evidence_packet_id,
-        parent_tree_hash=EMPTY_EXPERT_TREE_DIGEST,
+        source_base_tree_hash=EMPTY_EXPERT_TREE_DIGEST,
         ancestor_candidate_ids=(),
         configuration_fingerprint=packet.configuration_fingerprint,
         proposer_authority=proposer_authority,
@@ -495,9 +495,9 @@ def bootstrap_candidate_closure(
     manifest = ExpertCandidateManifest.mint(
         scope_contract_id=packet.scope_contract.scope_contract_id,
         change_kind=CandidateChangeKind.REPOSITORY_ARCHITECTURE,
-        parent_release_id=None,
-        parent_repository_map_ref=None,
-        parent_tree_hash=EMPTY_EXPERT_TREE_DIGEST,
+        source_base_release_id=None,
+        source_base_repository_map_ref=None,
+        source_base_tree_hash=EMPTY_EXPERT_TREE_DIGEST,
         derivation_kind=ExpertCandidateDerivationKind.AGENT_PROPOSAL,
         derivation_ref=(
             content_id(
@@ -526,7 +526,7 @@ def bootstrap_candidate_closure(
         validation_context=validation_context,
         patch=patch,
         candidate_tree=candidate_tree,
-        parent_files=(),
+        source_base_files=(),
         repository_map=repository_map,
         module_contracts=(module,),
         derivation=derivation,
@@ -862,9 +862,9 @@ def two_capability_boundary_fixture(*, changed_ids, edited_capability_id):
         }
     )
     parent_second = ExpertModuleContract.mint(**second_payload)
-    parent_modules = (parent_first, parent_second)
+    source_base_modules = (parent_first, parent_second)
     current_modules = []
-    for module in parent_modules:
+    for module in source_base_modules:
         if module.module_id not in changed_ids:
             current_modules.append(module)
             continue
@@ -905,7 +905,7 @@ def two_capability_boundary_fixture(*, changed_ids, edited_capability_id):
         "validation_entrypoints": closure.repository_map.validation_entrypoints,
         "architecture_invariants": closure.repository_map.architecture_invariants,
     }
-    parent_map = ExpertRepositoryMap.mint(
+    source_base_map = ExpertRepositoryMap.mint(
         capability_nodes=parent_nodes,
         **map_fields,
     )
@@ -926,7 +926,7 @@ def two_capability_boundary_fixture(*, changed_ids, edited_capability_id):
     )
     after = replace(before, digest=digest("after"), size=5)
     patch = ExpertCandidatePatch.mint(
-        parent_tree_hash=digest("parent-two-capability-tree"),
+        source_base_tree_hash=digest("parent-two-capability-tree"),
         candidate_tree_hash=digest("candidate-two-capability-tree"),
         changes=(
             ExpertCandidatePatchChange(
@@ -938,8 +938,8 @@ def two_capability_boundary_fixture(*, changed_ids, edited_capability_id):
     )
     return SimpleNamespace(
         validation_context=SimpleNamespace(
-            parent_repository_map=parent_map,
-            parent_module_contracts=parent_modules,
+            source_base_repository_map=source_base_map,
+            source_base_module_contracts=source_base_modules,
         ),
         derivation=SimpleNamespace(
             trigger_packet=SimpleNamespace(trigger_observations=()),

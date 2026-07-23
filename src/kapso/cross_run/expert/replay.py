@@ -48,11 +48,11 @@ def _derive_expert_source_replay_selection(
         stored_candidate.commit_record.candidate_id != manifest.candidate_id
         or manifest.validation_context_ref != context.validation_context_id
         or manifest.scope_contract_id != context.scope_contract.scope_contract_id
-        or manifest.parent_release_id
+        or manifest.source_base_release_id
         != (
             None
-            if context.parent_release is None
-            else context.parent_release.release_id
+            if context.source_base_release is None
+            else context.source_base_release.release_id
         )
     ):
         raise ExpertSourceReplayError(
@@ -81,15 +81,15 @@ def _derive_expert_source_replay_selection(
         for episode_id, reasons in replay_evidence.causal_episode_reason_codes.items()
     }
     selection_evidence_ids = set(causal_episode_ids)
-    parent_contracts = {
-        contract.module_id: contract for contract in context.parent_module_contracts
+    source_base_contracts = {
+        contract.module_id: contract for contract in context.source_base_module_contracts
     }
     coverage_episode_ids: set[str] = set()
     for contract in candidate_module_contracts:
-        parent = parent_contracts.get(contract.module_id)
+        source_base_contract = source_base_contracts.get(contract.module_id)
         if (
-            parent is not None
-            and parent.module_contract_id == contract.module_contract_id
+            source_base_contract is not None
+            and source_base_contract.module_contract_id == contract.module_contract_id
         ):
             continue
         support_ids = set(contract.supporting_episode_ids)

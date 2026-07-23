@@ -379,13 +379,13 @@ class ExpertReleaseAssembler:
             evidence_manifest.evidence_manifest_id,
             matrix_summary.summary_id,
         }
-        if candidate.parent_release_id is not None:
-            direct_dependencies.add(candidate.parent_release_id)
+        if candidate.source_base_release_id is not None:
+            direct_dependencies.add(candidate.source_base_release_id)
         manifest = ExpertBaseReleaseManifest.mint(
             scope_contract_id=candidate.scope_contract_id,
             scope_id=closure.validation_context.scope_id,
             lineage=ExpertReleaseLineage(
-                source_base_release_id=candidate.parent_release_id,
+                source_base_release_id=candidate.source_base_release_id,
                 activation_predecessor_release_id=(
                     publication_result.expected_current_release_id
                 ),
@@ -871,7 +871,7 @@ class ExpertReleaseAssembler:
             or attempt.candidate_commit_record_id
             != stored_candidate.commit_record.commit_record_id
             or attempt.scope_contract_id != candidate.scope_contract_id
-            or attempt.parent_release_id != candidate.parent_release_id
+            or attempt.source_base_release_id != candidate.source_base_release_id
             or publication_result.candidate_commit_record_id
             != stored_candidate.commit_record.commit_record_id
         ):

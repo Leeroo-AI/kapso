@@ -178,8 +178,8 @@ def derive_expert_release_matrix_report(
         task_execution_evidence.task_execution_evidence_id,
         *task_execution_evidence.exact_dependency_ids,
     }
-    if plan.parent_release_id is not None:
-        dependencies.add(plan.parent_release_id)
+    if plan.source_base_release_id is not None:
+        dependencies.add(plan.source_base_release_id)
     return ExpertReleaseMatrixReport.mint(
         mode=plan.mode,
         validation_attempt_id=plan.validation_attempt_id,
@@ -187,8 +187,8 @@ def derive_expert_release_matrix_report(
         candidate_commit_record_id=plan.candidate_commit_record_id,
         candidate_tree_hash=plan.candidate_tree_hash,
         scope_contract_id=plan.scope_contract_id,
-        parent_release_id=plan.parent_release_id,
-        parent_tree_hash=plan.parent_tree_hash,
+        source_base_release_id=plan.source_base_release_id,
+        source_base_tree_hash=plan.source_base_tree_hash,
         validation_policy_id=plan.validation_policy_id,
         configuration_fingerprint=plan.configuration_fingerprint,
         plan_reservation_operation_id=plan_reservation.operation.operation_id,
@@ -271,13 +271,13 @@ def derive_expert_release_matrix_source_rows(
                 candidate_observation_event_id=(
                     case_comparison.candidate_result_accepted_event_id
                 ),
-                parent_observation_event_id=(
+                control_observation_event_id=(
                     case_comparison.control_result_accepted_event_id
                 ),
                 candidate_replicate_values=dict(
                     fingerprint_comparison.candidate_result.replicate_values
                 ),
-                parent_replicate_values=dict(
+                control_replicate_values=dict(
                     fingerprint_comparison.control_result.replicate_values
                 ),
             )
@@ -398,27 +398,27 @@ def _derive_expert_release_matrix_task_rows(
                 legs_by_kind[TaskEvaluationLegKind.CANDIDATE].leg_id,
             )
         ]
-        parent_event = None
-        if plan.mode is ExpertReleaseMatrixMode.PARENT_COMPARISON:
-            parent_event = accepted_events[
+        control_event = None
+        if plan.mode is ExpertReleaseMatrixMode.CONTROL_COMPARISON:
+            control_event = accepted_events[
                 (
                     case.evaluation_case_id,
-                    legs_by_kind[TaskEvaluationLegKind.PARENT_CONTROL].leg_id,
+                    legs_by_kind[TaskEvaluationLegKind.SOURCE_BASE_CONTROL].leg_id,
                 )
             ]
         candidate_results = _task_fingerprint_results(candidate_event, case)
-        parent_results = (
+        source_base_results = (
             None
-            if parent_event is None
-            else _task_fingerprint_results(parent_event, case)
+            if control_event is None
+            else _task_fingerprint_results(control_event, case)
         )
         case_evidence.append(
             ExpertReleaseMatrixTaskCaseEvidence(
                 evaluation_case_id=case.evaluation_case_id,
                 provenance_binding_id=case.provenance_binding_id,
                 candidate_result_accepted_event_id=candidate_event.event_id,
-                parent_result_accepted_event_id=(
-                    None if parent_event is None else parent_event.event_id
+                control_result_accepted_event_id=(
+                    None if control_event is None else control_event.event_id
                 ),
                 evaluation_fingerprint_ids=case.evaluation_fingerprint_ids,
             )
@@ -426,21 +426,21 @@ def _derive_expert_release_matrix_task_rows(
         for cell in cells:
             fingerprint_id = cell.evaluation_fingerprint.evaluation_fingerprint_id
             candidate_result = candidate_results[fingerprint_id]
-            parent_result = (
-                None if parent_results is None else parent_results[fingerprint_id]
+            source_base_result = (
+                None if source_base_results is None else source_base_results[fingerprint_id]
             )
             rows.append(
                 ExpertReleaseMatrixComparisonRow.mint(
                     evaluation_cell_id=cell.evaluation_cell_id,
                     candidate_observation_event_id=candidate_event.event_id,
-                    parent_observation_event_id=(
-                        None if parent_event is None else parent_event.event_id
+                    control_observation_event_id=(
+                        None if control_event is None else control_event.event_id
                     ),
                     candidate_replicate_values=dict(candidate_result.replicate_values),
-                    parent_replicate_values=(
+                    control_replicate_values=(
                         None
-                        if parent_result is None
-                        else dict(parent_result.replicate_values)
+                        if source_base_result is None
+                        else dict(source_base_result.replicate_values)
                     ),
                 )
             )

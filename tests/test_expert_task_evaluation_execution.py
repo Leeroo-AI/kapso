@@ -71,13 +71,13 @@ def _bootstrap_prepared(tmp_path, monkeypatch):
         prepared_plan=prepared_plan,
     ).reservation
     observation = _current_observation(prepared_plan)
-    coordinator, _candidate_reader, parent_provider, _adapter_provider = _coordinator(
+    coordinator, _candidate_reader, source_base_provider, _adapter_provider = _coordinator(
         validation_store=validation_store,
         prepared_plan=prepared_plan,
-        parent=None,
+        source_base=None,
         current_authority=_CurrentAuthority((observation, observation)),
     )
-    return coordinator.build(plan_reservation), parent_provider
+    return coordinator.build(plan_reservation), source_base_provider
 
 
 def _parent_prepared_with_additional_case(tmp_path, monkeypatch):
@@ -90,12 +90,12 @@ def _parent_prepared_with_additional_case(tmp_path, monkeypatch):
         expected_transition_id=snapshot.transition.transition_id,
         prepared_plan=prepared_plan,
     ).reservation
-    _candidate, parent = _expert_sources(prepared_plan)
+    _candidate, source_base = _expert_sources(prepared_plan)
     observation = _current_observation(prepared_plan)
     coordinator, *_providers = _coordinator(
         validation_store=validation_store,
         prepared_plan=prepared_plan,
-        parent=parent,
+        source_base=source_base,
         current_authority=_CurrentAuthority((observation, observation)),
     )
     return validation_store, snapshot, coordinator.build(plan_reservation)
@@ -181,7 +181,7 @@ def test_registry_erases_matrix_provenance_and_resolves_every_parent_case(
         and not hasattr(case, "evaluation_cell_ids")
         and {leg.authority.kind for leg in case.legs}
         == {
-            TaskEvaluationLegKind.PARENT_CONTROL,
+            TaskEvaluationLegKind.SOURCE_BASE_CONTROL,
             TaskEvaluationLegKind.CANDIDATE,
         }
         for case in executable_cases
@@ -213,7 +213,7 @@ def test_bootstrap_registry_resolves_only_candidate_legs(
     tmp_path,
     monkeypatch,
 ):
-    prepared, parent_provider = _bootstrap_prepared(tmp_path, monkeypatch)
+    prepared, source_base_provider = _bootstrap_prepared(tmp_path, monkeypatch)
     executable_cases = project_prepared_task_evaluation_cases(prepared)
     provider = _Provider(executable_cases[0].provider_key)
 
@@ -228,14 +228,14 @@ def test_bootstrap_registry_resolves_only_candidate_legs(
         == (TaskEvaluationLegKind.CANDIDATE,)
         for item in resolved
     )
-    assert parent_provider.calls == []
+    assert source_base_provider.calls == []
 
 
 def test_provider_key_excludes_case_mode_schedule_and_scientific_identity(
     tmp_path,
     monkeypatch,
 ):
-    parent_root = tmp_path / "parent"
+    parent_root = tmp_path / "source_base"
     parent_root.mkdir()
     _store, _snapshot, parent_prepared, *_providers = _parent_prepared(
         parent_root,
@@ -363,7 +363,7 @@ def test_registry_is_bound_to_one_prepared_authority_and_has_no_spawn_surface(
     tmp_path,
     monkeypatch,
 ):
-    parent_root = tmp_path / "parent"
+    parent_root = tmp_path / "source_base"
     parent_root.mkdir()
     _store, _snapshot, parent_prepared, *_providers = _parent_prepared(
         parent_root,

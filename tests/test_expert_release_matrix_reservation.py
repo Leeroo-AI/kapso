@@ -53,7 +53,7 @@ from kapso.cross_run.expert.replay_request import (
     ExpertSourceReplayPreflightCoordinator,
 )
 from kapso.cross_run.expert.task_evaluation_materialization import (
-    VerifiedTaskEvaluationParent,
+    VerifiedTaskEvaluationSourceBase,
 )
 from kapso.cross_run.expert.replay_stage import ExpertSourceReplayStageOrchestrator
 from kapso.cross_run.expert.review import ExpertAutomatedReviewCoordinator
@@ -120,10 +120,10 @@ class _ReplayParentProvider:
     def __init__(self, contents):
         self.contents = contents
 
-    def materialize_exact(self, release, parent_tree_receipt, _limits):
-        return VerifiedTaskEvaluationParent(
+    def materialize_exact(self, release, source_base_tree_receipt, _limits):
+        return VerifiedTaskEvaluationSourceBase(
             release_manifest=release,
-            parent_tree_receipt=parent_tree_receipt,
+            source_base_tree_receipt=source_base_tree_receipt,
             source_contents=self.contents,
         )
 
@@ -155,7 +155,7 @@ def _release_matrix_fixture(
         validation_settings=settings,
     )
     source_packet = source_fixture.packet
-    released_packet, materialized_parent, parent_contents = released_observation_packet(
+    released_packet, materialized_source_base, source_base_contents = released_observation_packet(
         ExpertTriggerObservationKind.MECHANICALLY_GENERAL_FIX,
         "A provenance field can be added without changing topology.",
     )
@@ -164,12 +164,12 @@ def _release_matrix_fixture(
         knowledge_record_closure_digest=(source_packet.knowledge_record_closure_digest),
         configuration_fingerprint=source_packet.configuration_fingerprint,
         scope_contract=released_packet.scope_contract,
-        parent_scope_contract=released_packet.parent_scope_contract,
-        parent_release=released_packet.parent_release,
-        parent_tree_receipt=released_packet.parent_tree_receipt,
-        parent_tree_hash=released_packet.parent_tree_hash,
-        repository_map=released_packet.repository_map,
-        module_contracts=released_packet.module_contracts,
+        source_base_scope_contract=released_packet.source_base_scope_contract,
+        source_base_release=released_packet.source_base_release,
+        source_base_tree_receipt=released_packet.source_base_tree_receipt,
+        source_base_tree_hash=released_packet.source_base_tree_hash,
+        source_base_repository_map=released_packet.source_base_repository_map,
+        source_base_module_contracts=released_packet.source_base_module_contracts,
         episodes=source_packet.episodes,
         claims=source_packet.claims,
         trigger_observations=released_packet.trigger_observations,
@@ -213,7 +213,7 @@ def _release_matrix_fixture(
             proposal_workspace_root,
             cross_run_root,
             configured_expert_settings,
-            FixtureSourceMaterializer(parent_contents),
+            FixtureSourceMaterializer(source_base_contents),
         ),
         candidate_store=candidate_store,
     )
@@ -223,7 +223,7 @@ def _release_matrix_fixture(
         .propose(
             packet=packet,
             decision=decision,
-            materialized_parent=materialized_parent,
+            materialized_source_base=materialized_source_base,
         )
         .stored_candidate
     )
@@ -269,7 +269,7 @@ def _release_matrix_fixture(
                 adapter_provider.adapter.verification_receipt.verification_receipt_id,
             )
         ] = adapter_provider.adapter
-    current_release_provider = _CurrentReleaseProvider(packet.parent_release_id)
+    current_release_provider = _CurrentReleaseProvider(packet.source_base_release_id)
     eligibility = ExpertCandidateEligibilityEvaluator(
         settings,
         candidate_store,
@@ -323,7 +323,7 @@ def _release_matrix_fixture(
         candidate_store,
         validation_store,
         current_release_provider,
-        _ReplayParentProvider(parent_contents),
+        _ReplayParentProvider(source_base_contents),
         source_fixture.bundle_provider,
         adapter_provider,
         source_fixture.context_provider,
@@ -727,7 +727,7 @@ def test_bootstrap_reservation_rejects_a_release_appearing_during_admission(
 
     with pytest.raises(
         ExpertReleaseMatrixPlanError,
-        match="parent authority changed during adapter resolution",
+        match="source-base authority changed during adapter resolution",
     ):
         validation_store.reserve_release_matrix_plan(
             expected_transition_id=snapshot.transition.transition_id,
@@ -856,13 +856,13 @@ def test_accepted_source_evidence_reopens_after_restart_without_execution_journa
         assert row.candidate_observation_event_id == (
             comparison.candidate_result_accepted_event_id
         )
-        assert row.parent_observation_event_id == (
+        assert row.control_observation_event_id == (
             comparison.control_result_accepted_event_id
         )
         assert row.candidate_replicate_values == (
             fingerprint_comparison.candidate_result.replicate_values
         )
-        assert row.parent_replicate_values == (
+        assert row.control_replicate_values == (
             fingerprint_comparison.control_result.replicate_values
         )
     accepted_object_ids = (
@@ -916,7 +916,7 @@ def test_release_matrix_reservation_rejects_a_changed_parent_authority(
         {"changed": "before-plan-admission"},
     )
 
-    with pytest.raises(ExpertReleaseMatrixPlanError, match="parent authority changed"):
+    with pytest.raises(ExpertReleaseMatrixPlanError, match="source-base authority changed"):
         validation_store.reserve_release_matrix_plan(
             expected_transition_id=snapshot.transition.transition_id,
             prepared_plan=prepared,
@@ -935,7 +935,7 @@ def test_release_matrix_reservation_rechecks_parent_after_adapter_resolution(
     )
     validation_store.reducer.current_release_provider = (
         _ParentChangingDuringAdapterResolution(
-            prepared.plan.parent_release_id,
+            prepared.plan.source_base_release_id,
             content_id(
                 "expert-base-release",
                 {"changed": "during-adapter-resolution"},
@@ -945,7 +945,7 @@ def test_release_matrix_reservation_rechecks_parent_after_adapter_resolution(
 
     with pytest.raises(
         ExpertReleaseMatrixPlanError,
-        match="parent authority changed during adapter resolution",
+        match="source-base authority changed during adapter resolution",
     ):
         validation_store.reserve_release_matrix_plan(
             expected_transition_id=snapshot.transition.transition_id,

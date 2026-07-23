@@ -626,7 +626,9 @@ ExpertRepositoryMap
 ExpertBaseReleaseManifest
   release_id                   # source tree + manifest hash
   scope_contract_id + scope_id
-  parent_release_ids
+  lineage
+    source_base_release_id?      # immutable scientific/source-byte lineage
+    activation_predecessor_release_id? # exact CURRENT ordered before publication
   repository_map_ref
   module_versions
   semantic_book_digest
@@ -646,6 +648,12 @@ explicit external adapter, never as a hidden default in the generic core.
 are semantic and independent of paths, so a directory move does not sever evidence
 lineage; splits and merges mint new IDs with explicit lineage.
 
+Release lineage separates immutable scientific origin from temporal activation
+ordering. Ordinary evolution requires `source_base_release_id` to equal the
+authenticated `activation_predecessor_release_id`; bootstrap requires both absent.
+A future clean-recovery path may separate them only through its own typed plan and
+fresh authority fence, never by weakening the ordinary join.
+
 ### 4.10 `ExpertCandidateManifest`
 
 ```text
@@ -653,7 +661,8 @@ ExpertCandidateManifest
   candidate_id
   scope_contract_id
   change_kind                  # capability | repository_architecture
-  parent_release_id? + parent_repository_map_ref? + parent_tree_hash
+  source_base_release_id? + source_base_repository_map_ref?
+  source_base_tree_hash
   trigger_decision_id + trigger_evidence_packet_id
   patch_ref + patch_digest
   candidate_tree_ref + candidate_tree_hash
@@ -669,15 +678,15 @@ ExpertCandidateManifest
 ```
 
 The referenced exact source-tree, canonical patch, sanitation report, and coding-
-agent operation are separately content-addressed. Bootstrap alone has no parent
-release/map and uses the canonical empty parent tree. Validation attempts are M8
+agent operation are separately content-addressed. Bootstrap alone has no source-base
+release/map and uses the canonical empty source-base tree. Validation attempts are M8
 attachments and never mutate candidate identity. Failed and non-dominated
 candidates remain immutable, auditable inputs to future generalization; their
 active eligibility lives in `CatalogEntryState`.
 
 The coding-agent operation retains the runner-native artifact closure, including
 its native `result.json`. A separate Kapso-minted workspace receipt binds that
-operation receipt to the verified parent tree, editable pre-tree, edited tree, and
+operation receipt to the verified source-base tree, editable pre-tree, edited tree, and
 exact changed/deleted paths. The agent's schema-validated `final.json` must declare
 the same paths. Kapso then regenerates repository-map/module controls and the book,
 recomputes the full patch, and deterministically rescans the exact candidate bytes;
@@ -687,7 +696,7 @@ The output contract is role-specific. Bootstrap/restructure returns a complete
 semantic topology and all complete module semantics, omitting framework-owned
 IDs, references, edges, hashes, and controls. Dependency edges are derived from
 module dependency IDs. Generalization returns only complete replacements for
-changed module contracts; Kapso reconstructs the parent topology with new module
+changed module contracts; Kapso reconstructs the source-base topology with new module
 references, so the agent cannot smuggle a structural change through a capability
 proposal. Candidate validation reparses `final.json` and rederives the stored map,
 modules, and lineage. It also reproduces the fixed mode prompt/schema and the
@@ -711,7 +720,7 @@ and receive at least one same-kind replacement among actually changed paths, so
 path movement cannot erase validation or replay provenance.
 
 The proposal operation identity includes the configured principal as well as the
-role-specific prompt, schema, MCP authority, trigger, ancestors, and parent tree.
+role-specific prompt, schema, MCP authority, trigger, ancestors, and source-base tree.
 The manifest's `source_dependency_ids` contains the prior selection artifact,
 source knowledge snapshot, selected record IDs, and proof record IDs in addition
 to trigger dependencies. Therefore principal rotation cannot reuse another
@@ -1413,7 +1422,7 @@ though the autonomous agent also has direct GitHub authority. For a fresh run it
 1. resolves each scientific default-branch head once and reads its `CURRENT.json`
    at that explicit commit SHA, or resolves an explicit write-once artifact
    identity; security boundaries separately live-resolve the security pointer;
-2. verifies the complete publication intent, publisher identity, source parent,
+2. verifies the complete publication intent, publisher identity, source base,
    exact globally bounded non-recursive Git tree closure, and every bounded raw
    blob;
 3. verifies the immutable tag, release record, asset closure, and attestation,
@@ -1529,8 +1538,8 @@ with one expected-parent default-branch compare-and-swap without a human gate.
 
 Candidate proposal itself is transactional: recompute the trigger; validate the
 optional knowledge packet and stored ancestor inputs; lease the exact
-parent-minus-generated-controls tree; derive the coding-agent operation identity
-from prompt, schema, MCP authority, trigger, parent, and ancestors; execute through
+source-base-minus-generated-controls tree; derive the coding-agent operation identity
+from prompt, schema, MCP authority, trigger, source base, and ancestors; execute through
 the lease's pinned descriptor; seal and replay the source delta; derive semantic
 controls; sanitize and validate the full detached closure; successfully close and
 validate the lease; then persist the quarantined candidate. Any mismatch produces no candidate and
@@ -1705,12 +1714,12 @@ Cross-run learning is valuable only if it improves matched outcomes. Record:
 - total prompt bytes, retrieval latency, and expert-base maintenance cost.
 
 Use periodic no-knowledge and prior-release controls under matched compute. Expert
-promotion compares against the parent release, not against an underfunded
+promotion compares against the source-base control release, not against an underfunded
 baseline. If a snapshot or module does not earn its token, latency, and validation
 cost, it should leave the active view while remaining auditable.
 
 Source replay instantiates that matched-compute rule as one immutable common
-case with two named legs: the candidate tree and its current parent-release
+case with two named legs: the candidate tree and its current source-base-control
 tree. The common case owns the exact historical task-adapter package, complete
 root-to-tip `RunBundle` byte lineage, evaluation fingerprints, and captured
 starting-artifact byte closures. Preparation independently reprojects every
@@ -1722,13 +1731,13 @@ adapter source tree, evaluator ABI, context allowlist, and immutable runtime
 proof. It also binds a content-addressed compute envelope: exact execution
 provider/protocol/sandbox versions, equal per-leg resource and output ceilings,
 accelerator class/count, and a deterministic counterbalanced leg order. The
-envelope contains no outcome, observed-use, task-domain, candidate, or parent
-fields. Parent/candidate tree identities remain the deliberate experimental
+envelope contains no outcome, observed-use, task-domain, candidate, or source-base
+fields. Source-base/candidate tree identities remain the deliberate experimental
 variable and are not part of that shared binding. Scientific repetition remains
 defined by the evaluation fingerprints; neither infrastructure recovery nor an
 observed first leg may add an accepted trial. One monotonic deadline and
 aggregate entry/byte budget cover
-the candidate, parent, adapters, every retained bundle generation, and contexts;
+the candidate, source base, adapters, every retained bundle generation, and contexts;
 duplicate content counts once and conflicting bytes under one identity fail.
 The self-validating prepared closure binds its exact settings and selection and
 contains both expert trees and every input byte; a sandbox may not resolve an ID
@@ -1736,8 +1745,9 @@ or follow a mutable pointer. Preparation observes `CURRENT` before and after
 materialization, but is evidence rather than a lease. A changed `CURRENT`
 produces no executable request: preflight publishes and returns the terminal
 content-addressed authority-invalidation state through validation-head CAS. The
-stale-parent candidate cannot simply be retried: evolution must create a rebased
-successor candidate with a new identity and enroll it against the current parent.
+source-base-not-current candidate cannot simply be retried: evolution must create a
+rebased successor candidate with a new identity and enroll it against the current
+source base.
 The executor must later reserve an unchanged valid head and, immediately before
 process spawn, re-observe `CURRENT`, candidate/release revocation, and every pinned
 adapter package's verifier authority, trust, and revocation state before publishing
@@ -1800,7 +1810,7 @@ never publication authority.
 Admission takes the runtime-only prepared closure, not an independently mintable
 request contract. It reconstructs that closure at the boundary, so a request with
 self-consistent IDs but substituted lineage, episode, context, artifact, adapter,
-parent, or candidate facts cannot reserve execution.
+source-base, or candidate facts cannot reserve execution.
 
 Execution is one create-only hash-chained journal per reservation, with exactly
 four positions per scheduled leg: allocation, spawn commitment, raw result

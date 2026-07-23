@@ -27,7 +27,7 @@ from kapso.cross_run.expert.composition_base import (
     ExpertCompositionBaseError,
     build_expert_composition_base_closure,
 )
-from kapso.cross_run.expert.triggers import ExpertParentTreeReceipt
+from kapso.cross_run.expert.triggers import ExpertSourceBaseTreeReceipt
 from kapso.cross_run.github.materializer import (
     SOURCE_ARCHIVE_EXTRACTOR_VERSION,
     CacheVerificationReceipt,
@@ -110,11 +110,11 @@ def _parent_receipt(
         source_tree_files=descriptors,
         extractor_version=extractor_version,
     )
-    return ExpertParentTreeReceipt.mint(
+    return ExpertSourceBaseTreeReceipt.mint(
         release_id=release.release_id,
         cache_verification_receipt=cache_receipt,
         source_extraction_receipt=extraction_receipt,
-        parent_tree_hash=tree_hash,
+        source_base_tree_hash=tree_hash,
         repository_map_id=repository_map.repository_map_id,
         module_contract_ids=tuple(
             sorted(module.module_contract_id for module in modules)
@@ -143,7 +143,7 @@ def _case():
             original_release.source_archive_ref: _digest("verified source archive"),
         },
     )
-    parent_receipt = _parent_receipt(
+    source_base_receipt = _parent_receipt(
         release,
         repository_map,
         modules,
@@ -155,7 +155,7 @@ def _case():
         modules=modules,
         repository_map=repository_map,
         release=release,
-        parent_receipt=parent_receipt,
+        source_base_receipt=source_base_receipt,
         source_contents=source_contents,
     )
 
@@ -164,7 +164,7 @@ def _build(case, **changes):
     values = {
         "scope_contract": case.scope,
         "release_manifest": case.release,
-        "parent_tree_receipt": case.parent_receipt,
+        "source_base_tree_receipt": case.source_base_receipt,
         "repository_map": case.repository_map,
         "module_contracts": case.modules,
         "source_contents": case.source_contents,
@@ -178,7 +178,7 @@ def _with_source_contents(case, source_contents):
         **{
             **vars(case),
             "source_contents": source_contents,
-            "parent_receipt": _parent_receipt(
+            "source_base_receipt": _parent_receipt(
                 case.release,
                 case.repository_map,
                 case.modules,
@@ -196,16 +196,16 @@ def test_builds_immutable_process_local_verified_base():
     mutable_contents["tests/test_resume.py"] = b"mutated after verification"
 
     assert base.reference.release_id == case.release.release_id
-    assert base.reference.source_tree_hash == case.parent_receipt.parent_tree_hash
+    assert base.reference.source_tree_hash == case.source_base_receipt.source_base_tree_hash
     assert base.reference.repository_map_id == case.repository_map.repository_map_id
     assert base.reference.module_contract_ids == (case.module.module_contract_id,)
     assert base.source_contents["tests/test_resume.py"] == (
         case.source_contents["tests/test_resume.py"]
     )
     assert base.source_files == (
-        case.parent_receipt.source_extraction_receipt.source_tree_files
+        case.source_base_receipt.source_extraction_receipt.source_tree_files
     )
-    assert base.source_tree == case.parent_receipt.source_extraction_receipt
+    assert base.source_tree == case.source_base_receipt.source_extraction_receipt
     assert not hasattr(base, "to_dict")
     with pytest.raises(TypeError):
         base.source_contents["new.py"] = b"forbidden"
@@ -227,11 +227,11 @@ def test_reference_excludes_publication_cache_and_extraction_metadata():
     republished = _build(
         case,
         release_manifest=case.release,
-        parent_tree_receipt=republished_receipt,
+        source_base_tree_receipt=republished_receipt,
     )
 
     assert republished.reference == first.reference
-    assert republished.parent_tree_receipt != first.parent_tree_receipt
+    assert republished.source_base_tree_receipt != first.source_base_tree_receipt
     assert set(first.reference.to_dict()).isdisjoint(
         {
             "publisher_attestation",
@@ -239,7 +239,7 @@ def test_reference_excludes_publication_cache_and_extraction_metadata():
             "current_pointer_digest",
             "default_branch_head_commit_sha",
             "cache_verification_receipt",
-            "parent_tree_receipt_id",
+            "source_base_tree_receipt_id",
             "source_extraction_receipt",
         }
     )
@@ -262,15 +262,15 @@ def test_reference_excludes_publication_cache_and_extraction_metadata():
         ),
         (
             {
-                "parent_tree_receipt": lambda case: _remint(
-                    case.parent_receipt,
+                "source_base_tree_receipt": lambda case: _remint(
+                    case.source_base_receipt,
                     repository_map_id=content_id(
                         "expert-repository-map",
                         {"foreign": True},
                     ),
                 )
             },
-            "parent receipt",
+            "source-base receipt",
         ),
     ),
 )
@@ -307,7 +307,7 @@ def test_rejects_release_topology_substitution(substitution):
             case.release,
             module_versions={case.module.module_id: "v2"},
         )
-    parent_receipt = _parent_receipt(
+    source_base_receipt = _parent_receipt(
         release,
         case.repository_map,
         case.modules,
@@ -318,21 +318,21 @@ def test_rejects_release_topology_substitution(substitution):
         _build(
             case,
             release_manifest=release,
-            parent_tree_receipt=parent_receipt,
+            source_base_tree_receipt=source_base_receipt,
         )
 
 
 def test_rejects_cache_manifest_and_archive_substitution():
     case = _case()
-    cache = case.parent_receipt.cache_verification_receipt
+    cache = case.source_base_receipt.cache_verification_receipt
     forged_cache = replace(cache, manifest_digest=_digest("foreign manifest"))
     forged_parent = _remint(
-        case.parent_receipt,
+        case.source_base_receipt,
         cache_verification_receipt=forged_cache,
     )
 
     with pytest.raises(ExpertCompositionBaseError, match="cache receipt"):
-        _build(case, parent_tree_receipt=forged_parent)
+        _build(case, source_base_tree_receipt=forged_parent)
 
     forged_cache = replace(
         cache,
@@ -340,7 +340,7 @@ def test_rejects_cache_manifest_and_archive_substitution():
     )
     with pytest.raises(ValueError, match="verified release asset"):
         _remint(
-            case.parent_receipt,
+            case.source_base_receipt,
             cache_verification_receipt=forged_cache,
         )
 
@@ -396,7 +396,7 @@ def test_rejects_generated_module_bytes_even_with_matching_tree_receipt():
 
 def test_rejects_executable_generated_control_mode():
     case = _case()
-    parent_receipt = _parent_receipt(
+    source_base_receipt = _parent_receipt(
         case.release,
         case.repository_map,
         case.modules,
@@ -405,7 +405,7 @@ def test_rejects_executable_generated_control_mode():
     )
 
     with pytest.raises(ExpertCompositionBaseError, match="generated controls"):
-        _build(case, parent_tree_receipt=parent_receipt)
+        _build(case, source_base_tree_receipt=source_base_receipt)
 
 
 @pytest.mark.parametrize(
@@ -442,7 +442,7 @@ def test_rejects_topology_module_bijection_mismatch():
     contents[expert_module_contract_path(changed_module.module_contract_id)] = (
         changed_module.to_json_bytes()
     )
-    parent_receipt = _parent_receipt(
+    source_base_receipt = _parent_receipt(
         case.release,
         case.repository_map,
         changed_modules,
@@ -452,7 +452,7 @@ def test_rejects_topology_module_bijection_mismatch():
     with pytest.raises(ExpertCompositionBaseError, match="bijection"):
         _build(
             case,
-            parent_tree_receipt=parent_receipt,
+            source_base_tree_receipt=source_base_receipt,
             module_contracts=changed_modules,
             source_contents=contents,
         )
@@ -471,7 +471,7 @@ def test_rejects_forged_stable_reference_on_direct_closure_construction():
             reference=forged_reference,
             scope_contract=base.scope_contract,
             release_manifest=base.release_manifest,
-            parent_tree_receipt=base.parent_tree_receipt,
+            source_base_tree_receipt=base.source_base_tree_receipt,
             repository_map=base.repository_map,
             module_contracts=base.module_contracts,
             source_contents=base.source_contents,

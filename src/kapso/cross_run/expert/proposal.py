@@ -131,14 +131,14 @@ class ExpertCandidateProposalEngine:
         *,
         packet: ExpertTriggerEvidencePacket,
         decision: ExpertEvolutionTriggerDecision,
-        materialized_parent: MaterializedArtifact | None,
+        materialized_source_base: MaterializedArtifact | None,
         prior_knowledge: PriorKnowledgeAccessMaterialization | None,
         ancestor_candidate_ids: tuple[str, ...],
     ) -> ExpertCandidateProposalResult:
         return self._propose(
             packet=packet,
             decision=decision,
-            materialized_parent=materialized_parent,
+            materialized_source_base=materialized_source_base,
             prior_knowledge=prior_knowledge,
             ancestor_candidate_ids=ancestor_candidate_ids,
             allowed_operation_kinds=(
@@ -152,14 +152,14 @@ class ExpertCandidateProposalEngine:
         *,
         packet: ExpertTriggerEvidencePacket,
         decision: ExpertEvolutionTriggerDecision,
-        materialized_parent: MaterializedArtifact,
+        materialized_source_base: MaterializedArtifact,
         prior_knowledge: PriorKnowledgeAccessMaterialization | None,
         ancestor_candidate_ids: tuple[str, ...],
     ) -> ExpertCandidateProposalResult:
         return self._propose(
             packet=packet,
             decision=decision,
-            materialized_parent=materialized_parent,
+            materialized_source_base=materialized_source_base,
             prior_knowledge=prior_knowledge,
             ancestor_candidate_ids=ancestor_candidate_ids,
             allowed_operation_kinds=(ExpertCandidateOperationKind.GENERALIZE,),
@@ -170,7 +170,7 @@ class ExpertCandidateProposalEngine:
         *,
         packet: ExpertTriggerEvidencePacket,
         decision: ExpertEvolutionTriggerDecision,
-        materialized_parent: MaterializedArtifact | None,
+        materialized_source_base: MaterializedArtifact | None,
         prior_knowledge: PriorKnowledgeAccessMaterialization | None,
         ancestor_candidate_ids: tuple[str, ...],
         allowed_operation_kinds: tuple[ExpertCandidateOperationKind, ...],
@@ -191,14 +191,14 @@ class ExpertCandidateProposalEngine:
         ancestor_inputs = self._ancestor_inputs(packet, ancestor_candidate_ids)
         lease = self.workspace_manager.lease(
             trigger_packet=packet,
-            materialized_parent=materialized_parent,
+            materialized_source_base=materialized_source_base,
         )
         with lease as prepared:
             proposal_packet = build_expert_proposal_packet(
                 packet=packet,
                 decision=decision,
                 operation_kind=operation_kind,
-                editable_parent_tree_hash=prepared.editable_snapshot.tree_hash,
+                editable_input_tree_hash=prepared.editable_snapshot.tree_hash,
                 maximum_entries=self.settings.candidate_entry_limit,
                 maximum_bytes=self.settings.candidate_byte_limit,
                 ancestor_inputs=ancestor_inputs,
@@ -304,7 +304,7 @@ class ExpertCandidateProposalEngine:
         if any(
             ancestor.manifest.scope_contract_id
             != packet.scope_contract.scope_contract_id
-            or ancestor.manifest.parent_tree_hash != packet.parent_tree_hash
+            or ancestor.manifest.source_base_tree_hash != packet.source_base_tree_hash
             for ancestor in inputs
         ):
             raise ExpertProposalContractError(
@@ -399,7 +399,7 @@ class ExpertCandidateProposalEngine:
                 coding_agent_mcp_configuration_fingerprint(prior_knowledge)
             ),
             "operation_kind": operation_kind.value,
-            "parent_tree_hash": prepared.parent_tree_hash,
+            "source_base_tree_hash": prepared.source_base_tree_hash,
             "principal_id": principal_id,
             "proposer_authority_id": proposer_authority.authority_id,
             "proposal_contract_version": EXPERT_PROPOSAL_CONTRACT_VERSION,
@@ -477,26 +477,26 @@ class ExpertCandidateProposalEngine:
             repository_map,
             modules,
         )
-        parent_files = {file.relative_path: file for file in prepared.parent_files}
+        source_base_files = {file.relative_path: file for file in prepared.source_base_files}
         candidate_files = {file.relative_path: file for file in candidate_tree.files}
         patch = ExpertCandidatePatch.mint(
-            parent_tree_hash=prepared.parent_tree_hash,
+            source_base_tree_hash=prepared.source_base_tree_hash,
             candidate_tree_hash=candidate_tree.tree_hash,
             changes=tuple(
                 ExpertCandidatePatchChange(
                     relative_path=path,
-                    before=parent_files.get(path),
+                    before=source_base_files.get(path),
                     after=candidate_files.get(path),
                 )
-                for path in sorted(set(parent_files) | set(candidate_files))
-                if parent_files.get(path) != candidate_files.get(path)
+                for path in sorted(set(source_base_files) | set(candidate_files))
+                if source_base_files.get(path) != candidate_files.get(path)
             ),
         )
         workspace_receipt = ExpertCandidateWorkspaceReceipt.mint(
             operation_receipt_id=sealed.receipt.operation_receipt_id,
             operation_id=sealed.receipt.operation_id,
-            parent_tree_hash=prepared.parent_tree_hash,
-            editable_parent_tree_hash=prepared.editable_snapshot.tree_hash,
+            source_base_tree_hash=prepared.source_base_tree_hash,
+            editable_input_tree_hash=prepared.editable_snapshot.tree_hash,
             edited_tree_hash=edited_snapshot.tree_hash,
             changed_paths=changed_paths,
             deleted_paths=deleted_paths,
@@ -506,7 +506,7 @@ class ExpertCandidateProposalEngine:
             operation_kind=operation_kind,
             trigger_decision_id=decision.trigger_decision_id,
             trigger_evidence_packet_id=packet.evidence_packet_id,
-            parent_tree_hash=prepared.parent_tree_hash,
+            source_base_tree_hash=prepared.source_base_tree_hash,
             ancestor_candidate_ids=tuple(
                 ancestor.manifest.candidate_id for ancestor in ancestor_inputs
             ),
@@ -565,17 +565,17 @@ class ExpertCandidateProposalEngine:
         manifest = ExpertCandidateManifest.mint(
             scope_contract_id=packet.scope_contract.scope_contract_id,
             change_kind=change_kind,
-            parent_release_id=(
+            source_base_release_id=(
                 None
-                if packet.parent_release is None
-                else packet.parent_release.release_id
+                if packet.source_base_release is None
+                else packet.source_base_release.release_id
             ),
-            parent_repository_map_ref=(
+            source_base_repository_map_ref=(
                 None
-                if packet.repository_map is None
-                else packet.repository_map.repository_map_id
+                if packet.source_base_repository_map is None
+                else packet.source_base_repository_map.repository_map_id
             ),
-            parent_tree_hash=prepared.parent_tree_hash,
+            source_base_tree_hash=prepared.source_base_tree_hash,
             derivation_kind=ExpertCandidateDerivationKind.AGENT_PROPOSAL,
             derivation_ref=derivation_record.derivation_id,
             validation_context_ref=validation_context.validation_context_id,
@@ -601,7 +601,7 @@ class ExpertCandidateProposalEngine:
             validation_context=validation_context,
             patch=patch,
             candidate_tree=candidate_tree,
-            parent_files=prepared.parent_files,
+            source_base_files=prepared.source_base_files,
             repository_map=repository_map,
             module_contracts=modules,
             derivation=derivation,

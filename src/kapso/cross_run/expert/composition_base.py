@@ -32,7 +32,7 @@ from kapso.cross_run.expert.topology import (
     validate_expert_repository_topology,
     validate_expert_tree_ownership,
 )
-from kapso.cross_run.expert.triggers import ExpertParentTreeReceipt
+from kapso.cross_run.expert.triggers import ExpertSourceBaseTreeReceipt
 from kapso.cross_run.github.materializer import SourceArchiveExtractionReceipt
 
 
@@ -55,14 +55,14 @@ def expert_composition_base_security_subject_ids(
         raise ExpertCompositionBaseError(
             "base security projection requires one exact current base"
         )
-    parent_receipt = closure.parent_tree_receipt
+    source_base_receipt = closure.source_base_tree_receipt
     return tuple(
         sorted(
             {
                 closure.reference.base_reference_id,
                 *closure.reference.stable_authority_ids,
-                parent_receipt.parent_tree_receipt_id,
-                parent_receipt.source_extraction_receipt.extraction_receipt_id,
+                source_base_receipt.source_base_tree_receipt_id,
+                source_base_receipt.source_extraction_receipt.extraction_receipt_id,
                 current_observation.observation_id,
                 current_observation.publication_id,
                 *current_observation.validation_closure_ids,
@@ -82,7 +82,7 @@ def _mint_base_reference(
     *,
     scope_contract: ExpertScopeContract,
     release_manifest: ExpertBaseReleaseManifest,
-    parent_tree_receipt: ExpertParentTreeReceipt,
+    source_base_tree_receipt: ExpertSourceBaseTreeReceipt,
     repository_map: ExpertRepositoryMap,
     module_contracts: tuple[ExpertModuleContract, ...],
 ) -> ExpertCompositionBaseReference:
@@ -101,7 +101,7 @@ def _mint_base_reference(
         release_id=release_manifest.release_id,
         scope_contract_id=scope_contract.scope_contract_id,
         scope_id=scope_contract.scope_id,
-        source_tree_hash=parent_tree_receipt.parent_tree_hash,
+        source_tree_hash=source_base_tree_receipt.source_base_tree_hash,
         repository_map_id=repository_map.repository_map_id,
         module_contract_ids=module_contract_ids,
         semantic_book_digest=release_manifest.semantic_book_digest,
@@ -114,14 +114,14 @@ def _require_authority_types(
     *,
     scope_contract: ExpertScopeContract,
     release_manifest: ExpertBaseReleaseManifest,
-    parent_tree_receipt: ExpertParentTreeReceipt,
+    source_base_tree_receipt: ExpertSourceBaseTreeReceipt,
     repository_map: ExpertRepositoryMap,
     module_contracts: tuple[ExpertModuleContract, ...],
 ) -> None:
     if (
         type(scope_contract) is not ExpertScopeContract
         or type(release_manifest) is not ExpertBaseReleaseManifest
-        or type(parent_tree_receipt) is not ExpertParentTreeReceipt
+        or type(source_base_tree_receipt) is not ExpertSourceBaseTreeReceipt
         or type(repository_map) is not ExpertRepositoryMap
         or type(module_contracts) is not tuple
         or any(
@@ -139,7 +139,7 @@ def _require_exact_types(
     reference: ExpertCompositionBaseReference,
     scope_contract: ExpertScopeContract,
     release_manifest: ExpertBaseReleaseManifest,
-    parent_tree_receipt: ExpertParentTreeReceipt,
+    source_base_tree_receipt: ExpertSourceBaseTreeReceipt,
     repository_map: ExpertRepositoryMap,
     module_contracts: tuple[ExpertModuleContract, ...],
 ) -> None:
@@ -150,7 +150,7 @@ def _require_exact_types(
     _require_authority_types(
         scope_contract=scope_contract,
         release_manifest=release_manifest,
-        parent_tree_receipt=parent_tree_receipt,
+        source_base_tree_receipt=source_base_tree_receipt,
         repository_map=repository_map,
         module_contracts=module_contracts,
     )
@@ -160,14 +160,14 @@ def _require_release_joins(
     *,
     scope_contract: ExpertScopeContract,
     release_manifest: ExpertBaseReleaseManifest,
-    parent_tree_receipt: ExpertParentTreeReceipt,
+    source_base_tree_receipt: ExpertSourceBaseTreeReceipt,
     repository_map: ExpertRepositoryMap,
     module_contracts: tuple[ExpertModuleContract, ...],
 ) -> None:
     module_contract_ids = _module_contract_ids(module_contracts)
     module_versions = {module.module_id: module.version for module in module_contracts}
-    cache_receipt = parent_tree_receipt.cache_verification_receipt
-    extraction_receipt = parent_tree_receipt.source_extraction_receipt
+    cache_receipt = source_base_tree_receipt.cache_verification_receipt
+    extraction_receipt = source_base_tree_receipt.source_extraction_receipt
     source_archive_ref = release_manifest.source_archive_ref
     source_archive_digest = release_manifest.checksums[source_archive_ref]
     if (
@@ -186,12 +186,12 @@ def _require_release_joins(
             "composition base release differs from its exact topology"
         )
     if (
-        parent_tree_receipt.release_id != release_manifest.release_id
-        or parent_tree_receipt.repository_map_id != repository_map.repository_map_id
-        or parent_tree_receipt.module_contract_ids != module_contract_ids
+        source_base_tree_receipt.release_id != release_manifest.release_id
+        or source_base_tree_receipt.repository_map_id != repository_map.repository_map_id
+        or source_base_tree_receipt.module_contract_ids != module_contract_ids
     ):
         raise ExpertCompositionBaseError(
-            "composition base parent receipt differs from its release topology"
+            "composition base source-base receipt differs from its release topology"
         )
     if (
         cache_receipt.artifact_kind is not PublicationArtifactKind.EXPERT_BASE_RELEASE
@@ -207,7 +207,7 @@ def _require_release_joins(
         extraction_receipt.artifact_id != release_manifest.release_id
         or extraction_receipt.source_archive_ref != source_archive_ref
         or extraction_receipt.source_archive_digest != source_archive_digest
-        or extraction_receipt.source_tree_hash != parent_tree_receipt.parent_tree_hash
+        or extraction_receipt.source_tree_hash != source_base_tree_receipt.source_base_tree_hash
     ):
         raise ExpertCompositionBaseError(
             "composition base extraction differs from its release archive"
@@ -216,10 +216,10 @@ def _require_release_joins(
 
 def _require_source_byte_closure(
     *,
-    parent_tree_receipt: ExpertParentTreeReceipt,
+    source_base_tree_receipt: ExpertSourceBaseTreeReceipt,
     source_contents: Mapping[str, bytes],
 ) -> dict[str, SourceFileDescriptor]:
-    descriptors = parent_tree_receipt.source_extraction_receipt.source_tree_files
+    descriptors = source_base_tree_receipt.source_extraction_receipt.source_tree_files
     files_by_path = {descriptor.relative_path: descriptor for descriptor in descriptors}
     if set(source_contents) != set(files_by_path):
         raise ExpertCompositionBaseError(
@@ -285,7 +285,7 @@ class ExpertCompositionBaseClosure:
     reference: ExpertCompositionBaseReference
     scope_contract: ExpertScopeContract
     release_manifest: ExpertBaseReleaseManifest
-    parent_tree_receipt: ExpertParentTreeReceipt
+    source_base_tree_receipt: ExpertSourceBaseTreeReceipt
     repository_map: ExpertRepositoryMap
     module_contracts: tuple[ExpertModuleContract, ...]
     source_contents: Mapping[str, bytes]
@@ -295,7 +295,7 @@ class ExpertCompositionBaseClosure:
             reference=self.reference,
             scope_contract=self.scope_contract,
             release_manifest=self.release_manifest,
-            parent_tree_receipt=self.parent_tree_receipt,
+            source_base_tree_receipt=self.source_base_tree_receipt,
             repository_map=self.repository_map,
             module_contracts=self.module_contracts,
         )
@@ -308,12 +308,12 @@ class ExpertCompositionBaseClosure:
         _require_release_joins(
             scope_contract=self.scope_contract,
             release_manifest=self.release_manifest,
-            parent_tree_receipt=self.parent_tree_receipt,
+            source_base_tree_receipt=self.source_base_tree_receipt,
             repository_map=self.repository_map,
             module_contracts=self.module_contracts,
         )
         files_by_path = _require_source_byte_closure(
-            parent_tree_receipt=self.parent_tree_receipt,
+            source_base_tree_receipt=self.source_base_tree_receipt,
             source_contents=frozen_contents,
         )
         validate_expert_repository_topology(
@@ -338,7 +338,7 @@ class ExpertCompositionBaseClosure:
         expected_reference = _mint_base_reference(
             scope_contract=self.scope_contract,
             release_manifest=self.release_manifest,
-            parent_tree_receipt=self.parent_tree_receipt,
+            source_base_tree_receipt=self.source_base_tree_receipt,
             repository_map=self.repository_map,
             module_contracts=self.module_contracts,
         )
@@ -349,18 +349,18 @@ class ExpertCompositionBaseClosure:
 
     @property
     def source_files(self) -> tuple[SourceFileDescriptor, ...]:
-        return self.parent_tree_receipt.source_extraction_receipt.source_tree_files
+        return self.source_base_tree_receipt.source_extraction_receipt.source_tree_files
 
     @property
     def source_tree(self) -> SourceArchiveExtractionReceipt:
-        return self.parent_tree_receipt.source_extraction_receipt
+        return self.source_base_tree_receipt.source_extraction_receipt
 
 
 def build_expert_composition_base_closure(
     *,
     scope_contract: ExpertScopeContract,
     release_manifest: ExpertBaseReleaseManifest,
-    parent_tree_receipt: ExpertParentTreeReceipt,
+    source_base_tree_receipt: ExpertSourceBaseTreeReceipt,
     repository_map: ExpertRepositoryMap,
     module_contracts: tuple[ExpertModuleContract, ...],
     source_contents: Mapping[str, bytes],
@@ -370,14 +370,14 @@ def build_expert_composition_base_closure(
     _require_authority_types(
         scope_contract=scope_contract,
         release_manifest=release_manifest,
-        parent_tree_receipt=parent_tree_receipt,
+        source_base_tree_receipt=source_base_tree_receipt,
         repository_map=repository_map,
         module_contracts=module_contracts,
     )
     reference = _mint_base_reference(
         scope_contract=scope_contract,
         release_manifest=release_manifest,
-        parent_tree_receipt=parent_tree_receipt,
+        source_base_tree_receipt=source_base_tree_receipt,
         repository_map=repository_map,
         module_contracts=module_contracts,
     )
@@ -385,7 +385,7 @@ def build_expert_composition_base_closure(
         reference=reference,
         scope_contract=scope_contract,
         release_manifest=release_manifest,
-        parent_tree_receipt=parent_tree_receipt,
+        source_base_tree_receipt=source_base_tree_receipt,
         repository_map=repository_map,
         module_contracts=module_contracts,
         source_contents=source_contents,

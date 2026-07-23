@@ -179,15 +179,15 @@ def _bootstrap_authority(tmp_path, monkeypatch):
         prepared_plan=prepared_plan,
     ).reservation
     current = _current_observation(prepared_plan)
-    coordinator, _candidate_reader, parent_provider, _adapter_provider = _coordinator(
+    coordinator, _candidate_reader, source_base_provider, _adapter_provider = _coordinator(
         validation_store=validation_store,
         prepared_plan=prepared_plan,
-        parent=None,
+        source_base=None,
         current_authority=_CurrentAuthority((current, current)),
     )
     prepared = coordinator.build(plan_reservation)
     reservation_snapshot = _reserve(validation_store, snapshot, prepared)
-    return prepared, reservation_snapshot, parent_provider
+    return prepared, reservation_snapshot, source_base_provider
 
 
 def test_parent_spawn_fence_binds_complete_exact_fresh_authority(
@@ -215,7 +215,7 @@ def test_parent_spawn_fence_binds_complete_exact_fresh_authority(
         subject_ids
     )
     assert set(prepared.plan_join.request.exact_dependency_ids).issubset(subject_ids)
-    assert set(prepared.parent.release_manifest.consumed_dependency_ids).issubset(
+    assert set(prepared.source_base.release_manifest.consumed_dependency_ids).issubset(
         subject_ids
     )
     first_case = prepared.plan_join.request.cases[0]
@@ -270,7 +270,7 @@ def test_bootstrap_spawn_fence_preserves_authenticated_absence(
     tmp_path,
     monkeypatch,
 ):
-    prepared, reservation_snapshot, parent_provider = _bootstrap_authority(
+    prepared, reservation_snapshot, source_base_provider = _bootstrap_authority(
         tmp_path,
         monkeypatch,
     )
@@ -286,7 +286,7 @@ def test_bootstrap_spawn_fence_preserves_authenticated_absence(
     assert fence.stable_current_release_observation.current_pointer_digest is None
     assert fence.task_adapter_trust_observations == adapter_observations
     assert fence.security_subject_ids == subject_ids
-    assert parent_provider.calls == []
+    assert source_base_provider.calls == []
 
 
 def test_spawn_fence_rejects_nonexact_authority_inputs(

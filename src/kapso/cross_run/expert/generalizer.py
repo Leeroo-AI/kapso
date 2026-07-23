@@ -25,14 +25,14 @@ class ExpertCapabilityGeneralizer:
         *,
         packet: ExpertTriggerEvidencePacket,
         decision: ExpertEvolutionTriggerDecision,
-        materialized_parent: MaterializedArtifact,
+        materialized_source_base: MaterializedArtifact,
         prior_knowledge: PriorKnowledgeAccessMaterialization | None = None,
         ancestor_candidate_ids: tuple[str, ...] = (),
     ) -> ExpertCandidateProposalResult:
         return self.engine.propose_generalization(
             packet=packet,
             decision=decision,
-            materialized_parent=materialized_parent,
+            materialized_source_base=materialized_source_base,
             prior_knowledge=prior_knowledge,
             ancestor_candidate_ids=ancestor_candidate_ids,
         )

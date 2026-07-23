@@ -80,7 +80,7 @@ def project_expert_composition_source_reference(
         raise ExpertCompositionSourceError(
             "composition sources must be direct agent proposals"
         )
-    if manifest.parent_release_id is None or manifest.parent_repository_map_ref is None:
+    if manifest.source_base_release_id is None or manifest.source_base_repository_map_ref is None:
         raise ExpertCompositionSourceError(
             "bootstrap candidate cannot be a composition source"
         )
@@ -99,7 +99,7 @@ def project_expert_composition_source_reference(
         or manifest.candidate_tree_hash != candidate_tree.tree_hash
         or manifest.patch_ref != patch.patch_id
         or manifest.patch_digest != tree_or_blob_digest(patch.to_json_bytes())
-        or patch.parent_tree_hash != manifest.parent_tree_hash
+        or patch.source_base_tree_hash != manifest.source_base_tree_hash
         or patch.candidate_tree_hash != manifest.candidate_tree_hash
         or manifest.proposed_repository_map_ref != repository_map.repository_map_id
         or manifest.module_contract_refs != module_contract_ids
@@ -115,8 +115,8 @@ def project_expert_composition_source_reference(
                 manifest.scope_contract_id,
                 manifest.derivation_ref,
                 manifest.validation_context_ref,
-                manifest.parent_release_id,
-                manifest.parent_repository_map_ref,
+                manifest.source_base_release_id,
+                manifest.source_base_repository_map_ref,
                 patch.patch_id,
                 repository_map.repository_map_id,
                 *module_contract_ids,
@@ -132,9 +132,9 @@ def project_expert_composition_source_reference(
         derivation_ref=manifest.derivation_ref,
         validation_context_ref=manifest.validation_context_ref,
         origin_principal_ids=stored_candidate.closure.origin_principal_ids,
-        parent_release_id=manifest.parent_release_id,
-        parent_repository_map_id=manifest.parent_repository_map_ref,
-        parent_tree_hash=manifest.parent_tree_hash,
+        source_base_release_id=manifest.source_base_release_id,
+        source_base_repository_map_id=manifest.source_base_repository_map_ref,
+        source_base_tree_hash=manifest.source_base_tree_hash,
         candidate_tree_hash=manifest.candidate_tree_hash,
         patch_id=patch.patch_id,
         patch_digest=manifest.patch_digest,
@@ -501,12 +501,12 @@ class ExpertCompositionSourceResolver:
             or manifest.scope_contract_id != source_reference.scope_contract_id
             or manifest.scope_contract_id != attempt.scope_contract_id
             or manifest.scope_contract_id != publication_result.scope_contract_id
-            or manifest.parent_release_id != source_reference.parent_release_id
-            or manifest.parent_release_id != attempt.parent_release_id
-            or manifest.parent_release_id
+            or manifest.source_base_release_id != source_reference.source_base_release_id
+            or manifest.source_base_release_id != attempt.source_base_release_id
+            or manifest.source_base_release_id
             != publication_result.expected_current_release_id
-            or manifest.parent_repository_map_ref
-            != source_reference.parent_repository_map_id
+            or manifest.source_base_repository_map_ref
+            != source_reference.source_base_repository_map_id
         ):
             raise ExpertCompositionSourceError(
                 "composition source candidate differs from approval authority"

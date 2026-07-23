@@ -119,7 +119,7 @@ class TaskEvaluationFreshAuthorityCoordinator:
         request = first_reservation.request
         current_before = self._observe_current(
             request.scope_id,
-            request.parent_release_id,
+            request.source_base_release_id,
         )
         self._reverify_adapters(prepared)
         adapter_observations = task_evaluation_adapter_trust_observations(prepared)
@@ -148,7 +148,7 @@ class TaskEvaluationFreshAuthorityCoordinator:
 
         current_after = self._observe_current(
             request.scope_id,
-            request.parent_release_id,
+            request.source_base_release_id,
         )
         if current_after != current_before:
             raise TaskEvaluationAuthorityError(
@@ -249,7 +249,7 @@ def _reconstruct_prepared_request(
         plan_join=prepared_request.plan_join,
         stored_candidate=prepared_request.stored_candidate,
         candidate=prepared_request.candidate,
-        parent=prepared_request.parent,
+        source_base=prepared_request.source_base,
         current_release_observation=prepared_request.current_release_observation,
         cases=prepared_request.cases,
     )

@@ -890,7 +890,7 @@ def build_records(
         }
     )
     candidate_patch = ExpertCandidatePatch.mint(
-        parent_tree_hash=EMPTY_EXPERT_TREE_DIGEST,
+        source_base_tree_hash=EMPTY_EXPERT_TREE_DIGEST,
         candidate_tree_hash=candidate_tree_hash,
         changes=tuple(
             ExpertCandidatePatchChange(
@@ -930,7 +930,7 @@ def build_records(
         },
         "mcp_configuration_fingerprint": digest("candidate-mcp-configuration"),
         "operation_kind": ExpertCandidateOperationKind.BOOTSTRAP.value,
-        "parent_tree_hash": EMPTY_EXPERT_TREE_DIGEST,
+        "source_base_tree_hash": EMPTY_EXPERT_TREE_DIGEST,
         "principal_id": "expert-architect",
         "proposer_authority_id": candidate_proposer_authority.authority_id,
         "proposal_contract_version": "kapso.expert_proposal.v1",
@@ -994,8 +994,8 @@ def build_records(
     candidate_workspace_receipt = ExpertCandidateWorkspaceReceipt.mint(
         operation_receipt_id=candidate_operation_receipt.operation_receipt_id,
         operation_id=candidate_operation_id,
-        parent_tree_hash=EMPTY_EXPERT_TREE_DIGEST,
-        editable_parent_tree_hash=EMPTY_EXPERT_TREE_DIGEST,
+        source_base_tree_hash=EMPTY_EXPERT_TREE_DIGEST,
+        editable_input_tree_hash=EMPTY_EXPERT_TREE_DIGEST,
         edited_tree_hash=candidate_editable_tree_hash,
         changed_paths=candidate_declared_paths,
         deleted_paths=(),
@@ -1004,7 +1004,7 @@ def build_records(
         operation_kind=ExpertCandidateOperationKind.BOOTSTRAP,
         trigger_decision_id=trigger_decision_id,
         trigger_evidence_packet_id=trigger_packet_id,
-        parent_tree_hash=EMPTY_EXPERT_TREE_DIGEST,
+        source_base_tree_hash=EMPTY_EXPERT_TREE_DIGEST,
         ancestor_candidate_ids=(),
         configuration_fingerprint=digest("expert-validation-config"),
         proposer_authority=candidate_proposer_authority,
@@ -1035,15 +1035,15 @@ def build_records(
         "expert-candidate-validation-context",
         {
             "scope_contract_id": scope.scope_contract_id,
-            "parent_tree_hash": EMPTY_EXPERT_TREE_DIGEST,
+            "source_base_tree_hash": EMPTY_EXPERT_TREE_DIGEST,
         },
     )
     candidate = ExpertCandidateManifest.mint(
         scope_contract_id=scope.scope_contract_id,
         change_kind=CandidateChangeKind.REPOSITORY_ARCHITECTURE,
-        parent_release_id=None,
-        parent_repository_map_ref=None,
-        parent_tree_hash=EMPTY_EXPERT_TREE_DIGEST,
+        source_base_release_id=None,
+        source_base_repository_map_ref=None,
+        source_base_tree_hash=EMPTY_EXPERT_TREE_DIGEST,
         derivation_kind=ExpertCandidateDerivationKind.AGENT_PROPOSAL,
         derivation_ref=candidate_derivation_id,
         validation_context_ref=candidate_validation_context_id,
@@ -1548,7 +1548,7 @@ def _source_replay_compute_binding():
         accelerator_class_id=None,
         accelerator_count=0,
         leg_order=(
-            ExpertSourceReplayExecutionLegKind.CONTROL_PARENT,
+            ExpertSourceReplayExecutionLegKind.SOURCE_BASE_CONTROL,
             ExpertSourceReplayExecutionLegKind.CANDIDATE,
         ),
     )
@@ -1580,7 +1580,7 @@ def test_source_replay_compute_binding_is_canonical_and_every_field_is_bound():
         "accelerator_count": 1,
         "leg_order": (
             ExpertSourceReplayExecutionLegKind.CANDIDATE.value,
-            ExpertSourceReplayExecutionLegKind.CONTROL_PARENT.value,
+            ExpertSourceReplayExecutionLegKind.SOURCE_BASE_CONTROL.value,
         ),
     }
 
@@ -1615,7 +1615,7 @@ def test_source_replay_compute_binding_is_canonical_and_every_field_is_bound():
         ("output_byte_limit", 4 * 1024**3 + 1, "internally inconsistent"),
         (
             "leg_order",
-            ("control_parent", "control_parent"),
+            ("source_base_control", "source_base_control"),
             "both legs exactly once",
         ),
     ),

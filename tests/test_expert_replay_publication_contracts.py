@@ -125,13 +125,13 @@ def _publication_evidence(tmp_path, aggregate_by_leg_kind=None):
         paired_comparison_receipt=receipt,
         prepared_request=prepared,
     )
-    parent = prepared.parent.release_manifest
+    source_base = prepared.source_base.release_manifest
     current = SourceReplayCurrentReleaseObservation.mint(
-        scope_id=parent.scope_id,
-        release_id=parent.release_id,
+        scope_id=source_base.scope_id,
+        release_id=source_base.release_id,
         publication_id=content_id(
             "github-publication",
-            {"final_publication": parent.release_id},
+            {"final_publication": source_base.release_id},
         ),
         repository_full_name="Leeroo-AI/kapso-expert",
         repository_node_id="expert_repo_node",
@@ -150,7 +150,7 @@ def _publication_evidence(tmp_path, aggregate_by_leg_kind=None):
         task_adapter_trust_observations=adapter_observations,
     )
     denylist = SecurityDenylistObservation.mint(
-        scope_id=parent.scope_id,
+        scope_id=source_base.scope_id,
         scope_contract_id=prepared.request.scope_contract_id,
         scope_repository_binding_hash=tree_or_blob_digest(b"scope binding"),
         snapshot_id=content_id(
@@ -179,9 +179,9 @@ def _publication_evidence(tmp_path, aggregate_by_leg_kind=None):
         validation_attempt_id=reservation.validation_attempt_id,
         candidate_id=reservation.candidate_id,
         candidate_tree_hash=reservation.candidate_tree_hash,
-        scope_id=parent.scope_id,
+        scope_id=source_base.scope_id,
         scope_contract_id=request.scope_contract_id,
-        expected_parent_release_id=request.parent_release_id,
+        expected_current_release_id=request.source_base_release_id,
         validation_policy_id=request.validation_policy_id,
         configuration_fingerprint=request.configuration_fingerprint,
         paired_comparison_receipt_id=receipt.paired_comparison_receipt_id,
@@ -373,7 +373,7 @@ def test_source_stage_reducer_failure_preserves_the_accepted_prefix(tmp_path):
     fixture, prepared, reservation, _, _, fence, result = _publication_evidence(
         tmp_path,
         aggregate_by_leg_kind={
-            ExpertSourceReplayExecutionLegKind.CONTROL_PARENT: 0.8,
+            ExpertSourceReplayExecutionLegKind.SOURCE_BASE_CONTROL: 0.8,
             ExpertSourceReplayExecutionLegKind.CANDIDATE: 0.0,
         },
     )
@@ -530,7 +530,7 @@ def test_validation_store_source_failure_preserves_prefix_and_terminalizes(tmp_p
     ) = _publication_evidence(
         tmp_path,
         aggregate_by_leg_kind={
-            ExpertSourceReplayExecutionLegKind.CONTROL_PARENT: 0.8,
+            ExpertSourceReplayExecutionLegKind.SOURCE_BASE_CONTROL: 0.8,
             ExpertSourceReplayExecutionLegKind.CANDIDATE: 0.0,
         },
     )
@@ -629,7 +629,7 @@ def test_publication_rejects_changed_current_or_nonexact_denylist(tmp_path):
         current_pointer_commit_sha="e" * 40,
     )
 
-    with pytest.raises(ExpertSourceReplayPublicationError, match="current release"):
+    with pytest.raises(ExpertSourceReplayPublicationError, match="expected CURRENT"):
         coordinator.publish_completed(
             completed_execution=completed,
             reservation=reservation,

@@ -22,7 +22,7 @@ from kapso.cross_run.expert.task_evaluation_compute import (
 )
 from kapso.cross_run.expert.task_evaluation_materialization import (
     VerifiedTaskEvaluationCandidate,
-    VerifiedTaskEvaluationParent,
+    VerifiedTaskEvaluationSourceBase,
 )
 from kapso.cross_run.expert.validation_snapshots import (
     ExpertReleaseMatrixPlanReservationSnapshot,
@@ -88,8 +88,8 @@ class PlanJoinedTaskEvaluationRequest:
                 provenance.task_context_binding.scope_id
                 for provenance in plan.provenance_bindings
             }
-            or request.parent_release_id != plan.parent_release_id
-            or request.parent_tree_hash != plan.parent_tree_hash
+            or request.source_base_release_id != plan.source_base_release_id
+            or request.source_base_tree_hash != plan.source_base_tree_hash
             or request.validation_policy_id != plan.validation_policy_id
             or request.configuration_fingerprint != plan.configuration_fingerprint
             or request.configuration_fingerprint
@@ -194,7 +194,7 @@ def prepare_task_evaluation_request(
     settings: ExpertValidationSettings,
     stored_candidate: StoredExpertCandidate,
     candidate: VerifiedTaskEvaluationCandidate,
-    parent: VerifiedTaskEvaluationParent | None,
+    source_base: VerifiedTaskEvaluationSourceBase | None,
 ) -> PlanJoinedTaskEvaluationRequest:
     """Derive the only request admitted by one reserved matrix plan."""
 
@@ -206,26 +206,26 @@ def prepare_task_evaluation_request(
     )
     plan = plan_reservation.evaluation_plan
     context = stored_candidate.closure.validation_context
-    if (plan.parent_release_id is None) != (parent is None):
+    if (plan.source_base_release_id is None) != (source_base is None):
         raise TaskEvaluationRequestPreparationError(
-            "task evaluation parent authority differs from matrix mode"
+            "task evaluation source-base authority differs from matrix mode"
         )
-    if parent is not None and (
-        type(parent) is not VerifiedTaskEvaluationParent
-        or parent.release_manifest != context.parent_release
-        or parent.parent_tree_receipt != context.parent_tree_receipt
-        or parent.release_manifest.release_id != plan.parent_release_id
-        or parent.release_manifest.scope_contract_id != plan.scope_contract_id
-        or parent.parent_tree_receipt.parent_tree_hash != plan.parent_tree_hash
+    if source_base is not None and (
+        type(source_base) is not VerifiedTaskEvaluationSourceBase
+        or source_base.release_manifest != context.source_base_release
+        or source_base.source_base_tree_receipt != context.source_base_tree_receipt
+        or source_base.release_manifest.release_id != plan.source_base_release_id
+        or source_base.release_manifest.scope_contract_id != plan.scope_contract_id
+        or source_base.source_base_tree_receipt.source_base_tree_hash != plan.source_base_tree_hash
     ):
         raise TaskEvaluationRequestPreparationError(
-            "task evaluation parent differs from reserved plan authority"
+            "task evaluation source-base differs from reserved plan authority"
         )
-    if parent is None and (
-        context.parent_release is not None or context.parent_tree_receipt is not None
+    if source_base is None and (
+        context.source_base_release is not None or context.source_base_tree_receipt is not None
     ):
         raise TaskEvaluationRequestPreparationError(
-            "task evaluation bootstrap candidate contains parent authority"
+            "task evaluation bootstrap candidate contains source-base authority"
         )
     evaluators = tuple(
         evaluator
@@ -239,7 +239,7 @@ def prepare_task_evaluation_request(
     evaluator = evaluators[0]
     legs = _task_evaluation_legs(
         candidate=candidate,
-        parent=parent,
+        source_base=source_base,
     )
     provenances = tuple(
         provenance
@@ -286,8 +286,8 @@ def prepare_task_evaluation_request(
             for dependency_id in case.exact_dependency_ids
         ),
     }
-    if plan.parent_release_id is not None:
-        dependencies.add(plan.parent_release_id)
+    if plan.source_base_release_id is not None:
+        dependencies.add(plan.source_base_release_id)
     request = TaskEvaluationRequest.mint(
         request_contract_version=TASK_EVALUATION_REQUEST_CONTRACT_VERSION,
         plan_reservation_operation_id=plan_reservation.operation.operation_id,
@@ -301,8 +301,8 @@ def prepare_task_evaluation_request(
         candidate_tree_hash=plan.candidate_tree_hash,
         scope_contract_id=plan.scope_contract_id,
         scope_id=context.scope_id,
-        parent_release_id=plan.parent_release_id,
-        parent_tree_hash=plan.parent_tree_hash,
+        source_base_release_id=plan.source_base_release_id,
+        source_base_tree_hash=plan.source_base_tree_hash,
         validation_policy_id=plan.validation_policy_id,
         configuration_fingerprint=plan.configuration_fingerprint,
         release_matrix_evaluator_id=evaluator.evaluator_id,
@@ -349,21 +349,21 @@ def validate_task_evaluation_candidate_authority(
         or candidate.manifest.validation_context_ref != context.validation_context_id
         or candidate.manifest.scope_contract_id
         != context.scope_contract.scope_contract_id
-        or candidate.manifest.parent_release_id
+        or candidate.manifest.source_base_release_id
         != (
             None
-            if context.parent_release is None
-            else context.parent_release.release_id
+            if context.source_base_release is None
+            else context.source_base_release.release_id
         )
-        or candidate.manifest.parent_tree_hash != context.parent_tree_hash
+        or candidate.manifest.source_base_tree_hash != context.source_base_tree_hash
         or candidate.commit_record.commit_record_id != plan.candidate_commit_record_id
         or candidate.source_tree.tree_hash != plan.candidate_tree_hash
         or candidate.manifest.scope_contract_id != plan.scope_contract_id
-        or candidate.manifest.parent_release_id != plan.parent_release_id
+        or candidate.manifest.source_base_release_id != plan.source_base_release_id
         or plan.configuration_fingerprint != settings.configuration_fingerprint
         or (
-            plan.parent_tree_hash is not None
-            and candidate.manifest.parent_tree_hash != plan.parent_tree_hash
+            plan.source_base_tree_hash is not None
+            and candidate.manifest.source_base_tree_hash != plan.source_base_tree_hash
         )
     ):
         raise TaskEvaluationRequestPreparationError(
@@ -374,7 +374,7 @@ def validate_task_evaluation_candidate_authority(
 def _task_evaluation_legs(
     *,
     candidate: VerifiedTaskEvaluationCandidate,
-    parent: VerifiedTaskEvaluationParent | None,
+    source_base: VerifiedTaskEvaluationSourceBase | None,
 ) -> tuple[TaskEvaluationExpertLeg, ...]:
     candidate_leg = TaskEvaluationExpertLeg.mint(
         kind=TaskEvaluationLegKind.CANDIDATE,
@@ -390,24 +390,26 @@ def _task_evaluation_legs(
             )
         ),
     )
-    if parent is None:
+    if source_base is None:
         return (candidate_leg,)
-    parent_receipt = parent.parent_tree_receipt
-    parent_leg = TaskEvaluationExpertLeg.mint(
-        kind=TaskEvaluationLegKind.PARENT_CONTROL,
-        expert_artifact_id=parent.release_manifest.release_id,
-        expert_source_receipt_id=parent_receipt.parent_tree_receipt_id,
-        expert_tree_hash=parent_receipt.parent_tree_hash,
+    source_base_receipt = source_base.source_base_tree_receipt
+    source_base_control_leg = TaskEvaluationExpertLeg.mint(
+        kind=TaskEvaluationLegKind.SOURCE_BASE_CONTROL,
+        expert_artifact_id=source_base.release_manifest.release_id,
+        expert_source_receipt_id=source_base_receipt.source_base_tree_receipt_id,
+        expert_tree_hash=source_base_receipt.source_base_tree_hash,
         exact_dependency_ids=tuple(
             sorted(
                 (
-                    parent.release_manifest.release_id,
-                    parent_receipt.parent_tree_receipt_id,
+                    source_base.release_manifest.release_id,
+                    source_base_receipt.source_base_tree_receipt_id,
                 )
             )
         ),
     )
-    return tuple(sorted((candidate_leg, parent_leg), key=lambda leg: leg.leg_id))
+    return tuple(
+        sorted((candidate_leg, source_base_control_leg), key=lambda leg: leg.leg_id)
+    )
 
 
 def _task_evaluation_case(

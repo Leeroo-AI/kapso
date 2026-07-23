@@ -35,7 +35,7 @@ from kapso.cross_run.expert.task_evaluation_execution import (
 )
 from kapso.cross_run.expert.task_evaluation_materialization import (
     VerifiedTaskEvaluationCandidate,
-    VerifiedTaskEvaluationParent,
+    VerifiedTaskEvaluationSourceBase,
 )
 from kapso.cross_run.expert.task_evaluator_protocol import (
     TASK_ADAPTER_RUNTIME_PROTOCOL_VERSION,
@@ -901,9 +901,9 @@ def _expert_source_closure(
     source = invocation.selected_leg.expert_source
     if type(source) is VerifiedTaskEvaluationCandidate:
         return source.source_tree.files, source.source_contents
-    if type(source) is VerifiedTaskEvaluationParent:
+    if type(source) is VerifiedTaskEvaluationSourceBase:
         return (
-            source.parent_tree_receipt.source_extraction_receipt.source_tree_files,
+            source.source_base_tree_receipt.source_extraction_receipt.source_tree_files,
             source.source_contents,
         )
     raise TaskEvaluationDockerProviderError(

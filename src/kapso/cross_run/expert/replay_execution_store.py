@@ -280,7 +280,7 @@ def _validate_reservation_request(
         or reservation.authorization_state_id != request.authorization_state_id
         or reservation.candidate_id != request.candidate_id
         or reservation.candidate_tree_hash != request.candidate_tree_hash
-        or reservation.observed_parent_release_id != request.parent_release_id
+        or reservation.expected_current_release_id != request.source_base_release_id
     ):
         raise ExecutionJournalStoreError(
             "execution journal reservation differs from its request"
@@ -297,7 +297,7 @@ def source_replay_execution_schedule(
     schedule = []
     for case in request.cases:
         legs = {
-            ExpertSourceReplayExecutionLegKind.CONTROL_PARENT: case.control_leg,
+            ExpertSourceReplayExecutionLegKind.SOURCE_BASE_CONTROL: case.control_leg,
             ExpertSourceReplayExecutionLegKind.CANDIDATE: case.candidate_leg,
         }
         schedule.extend(
@@ -1179,7 +1179,7 @@ class ExpertSourceReplayExecutionStore:
             attempt=prepared_request.attempt,
             selection=prepared_request.selection,
             candidate=prepared_request.candidate,
-            parent=prepared_request.parent,
+            source_base=prepared_request.source_base,
             authorization_state=prepared_request.authorization_state,
             cases=prepared_request.cases,
         )
@@ -1446,8 +1446,8 @@ class ExpertSourceReplayExecutionStore:
                     != reservation.authorization_state_id
                     or fence.candidate_id != reservation.candidate_id
                     or fence.scope_id
-                    != prepared_request.parent.release_manifest.scope_id
-                    or fence.expected_parent_release_id != request.parent_release_id
+                    != prepared_request.source_base.release_manifest.scope_id
+                    or fence.expected_current_release_id != request.source_base_release_id
                     or fence.scope_contract_id != request.scope_contract_id
                     or fence.task_adapter_trust_observations
                     != source_replay_task_adapter_trust_observations(prepared_request)

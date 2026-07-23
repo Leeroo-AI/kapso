@@ -43,7 +43,7 @@ from kapso.cross_run.expert.replay_request import (
     _source_replay_compute_bindings,
 )
 from kapso.cross_run.expert.task_evaluation_materialization import (
-    VerifiedTaskEvaluationParent,
+    VerifiedTaskEvaluationSourceBase,
 )
 from kapso.cross_run.expert.triggers import (
     ExpertTriggerEvaluator,
@@ -179,12 +179,12 @@ class _ParentProvider:
     def __init__(self):
         self.materializations = []
 
-    def materialize_exact(self, release, parent_tree_receipt, limits):
+    def materialize_exact(self, release, source_base_tree_receipt, limits):
         self.materializations.append((release.release_id, limits))
-        return VerifiedTaskEvaluationParent(
+        return VerifiedTaskEvaluationSourceBase(
             release_manifest=release,
-            parent_tree_receipt=parent_tree_receipt,
-            source_contents={"src/expert.py": b"verified parent source"},
+            source_base_tree_receipt=source_base_tree_receipt,
+            source_contents={"src/expert.py": b"verified source-base source"},
         )
 
 
@@ -268,13 +268,13 @@ def _request_fixture(
         knowledge_extra_facts=knowledge_extra_facts,
         knowledge_projection_derivation_ids=knowledge_projection_derivation_ids,
     )
-    module = packet_without_observation.module_contracts[0]
+    module = packet_without_observation.source_base_module_contracts[0]
     observation = _observation(
         settings=trigger_policy,
         kind=ExpertTriggerObservationKind.MECHANICALLY_GENERAL_FIX,
         module_id=module.module_id,
         exact_evidence_ids=(
-            packet_without_observation.repository_map.repository_map_id,
+            packet_without_observation.source_base_repository_map.repository_map_id,
         ),
         affected_paths=("src/reproducible_execution/__init__.py",),
     )
@@ -289,7 +289,7 @@ def _request_fixture(
     )
     decision = ExpertTriggerEvaluator(trigger_policy).evaluate(packet)
     changed_module = _changed_module(
-        packet.module_contracts[0],
+        packet.source_base_module_contracts[0],
         supporting_episode_ids=(episode.episode_id,),
     )
     stored = _stored_candidate(
@@ -327,7 +327,7 @@ def _request_fixture(
         source_adapter=source_adapter,
         rotate_active=rotate_active_adapter,
     )
-    current_release_provider = _CurrentReleaseProvider(packet.parent_release_id)
+    current_release_provider = _CurrentReleaseProvider(packet.source_base_release_id)
     eligibility = ExpertCandidateEligibilityEvaluator(
         settings,
         _CandidateReader(stored),
@@ -382,13 +382,13 @@ def _request_fixture(
         settings,
         episode.task_context_binding,
     )
-    parent_provider = _ParentProvider()
+    source_base_provider = _ParentProvider()
     coordinator = ExpertSourceReplayPreflightCoordinator(
         settings,
         _CandidateReader(stored),
         validation_store,
         current_release_provider,
-        parent_provider,
+        source_base_provider,
         bundle_provider,
         adapter_provider,
         context_provider,
@@ -406,7 +406,7 @@ def _request_fixture(
         adapter_provider=adapter_provider,
         bundle_provider=bundle_provider,
         context_provider=context_provider,
-        parent_provider=parent_provider,
+        source_base_provider=source_base_provider,
         current_release_provider=current_release_provider,
         packet=packet,
     )
@@ -434,7 +434,7 @@ def test_compute_schedule_is_balanced_and_input_order_invariant(episode_count):
     )
     ordered_bindings = tuple(schedule[episode_id] for episode_id in sorted(episode_ids))
     control_first_count = sum(
-        binding.leg_order[0] is ExpertSourceReplayExecutionLegKind.CONTROL_PARENT
+        binding.leg_order[0] is ExpertSourceReplayExecutionLegKind.SOURCE_BASE_CONTROL
         for binding in ordered_bindings
     )
 
@@ -475,7 +475,7 @@ def test_request_materializes_exact_candidate_bundle_episode_adapter_and_context
         fixture.settings.policy.task_evaluation_materialization_byte_limit
     )
     assert request_case.control_leg.expert_artifact_id == (
-        prepared.parent.release_manifest.release_id
+        prepared.source_base.release_manifest.release_id
     )
     assert request_case.candidate_leg.expert_artifact_id == (
         prepared.candidate.manifest.candidate_id
@@ -513,9 +513,9 @@ def test_request_materializes_exact_candidate_bundle_episode_adapter_and_context
         prepared.request.candidate_id,
         prepared.request.candidate_commit_record_id,
         prepared.request.scope_contract_id,
-        prepared.request.parent_release_id,
-        prepared.request.parent_tree_receipt_id,
-        prepared.request.parent_source_extraction_receipt_id,
+        prepared.request.source_base_release_id,
+        prepared.request.source_base_tree_receipt_id,
+        prepared.request.source_base_extraction_receipt_id,
         prepared.request.candidate_source_tree_manifest_id,
         prepared.request.validation_policy_id,
         *prepared.request.attempt_dependency_ids,
@@ -644,7 +644,7 @@ def test_aggregate_limit_counts_candidate_parent_adapter_bundle_and_context(tmp_
     )
     entry_count, byte_count = fixture.coordinator._materialization_usage(
         candidate=prepared.candidate,
-        parent=prepared.parent,
+        source_base=prepared.source_base,
         adapters=adapters,
         lineages=lineages,
         contexts=contexts,
@@ -662,7 +662,7 @@ def test_aggregate_limit_counts_candidate_parent_adapter_bundle_and_context(tmp_
         fixture.coordinator.candidate_store,
         fixture.coordinator.validation_authority,
         fixture.coordinator.current_release_provider,
-        fixture.coordinator.parent_provider,
+        fixture.coordinator.source_base_provider,
         fixture.coordinator.bundle_provider,
         fixture.coordinator.task_adapter_provider,
         fixture.coordinator.task_context_provider,
@@ -672,7 +672,7 @@ def test_aggregate_limit_counts_candidate_parent_adapter_bundle_and_context(tmp_
     with pytest.raises(ExpertSourceReplayRequestError, match="aggregate"):
         limited_coordinator._check_materialization_totals(
             candidate=prepared.candidate,
-            parent=prepared.parent,
+            source_base=prepared.source_base,
             adapters=adapters,
             lineages=lineages,
             contexts=contexts,
@@ -719,7 +719,7 @@ def test_aggregate_limit_deduplicates_starting_artifact_content_across_contexts(
     )
     arguments = {
         "candidate": prepared.candidate,
-        "parent": prepared.parent,
+        "source_base": prepared.source_base,
         "adapters": (replay_case.task_adapter,),
         "lineages": (replay_case.bundle_lineage,),
     }
@@ -751,7 +751,7 @@ def test_preflight_uses_one_decreasing_materialization_deadline(tmp_path):
     clock = _AdvancingClock()
     fixture.coordinator.monotonic_clock = clock
     _prepared(fixture)
-    parent_timeout = fixture.parent_provider.materializations[0][1].timeout_seconds
+    parent_timeout = fixture.source_base_provider.materializations[0][1].timeout_seconds
     adapter_timeout = fixture.adapter_provider.timeouts_seen[0]
     bundle_timeout = fixture.bundle_provider.timeouts_seen[0]
     context_timeout = fixture.context_provider.limits_seen[0].timeout_seconds
@@ -768,21 +768,21 @@ def test_preflight_uses_one_decreasing_materialization_deadline(tmp_path):
             return self.value
 
     controlled_clock = _ControlledClock()
-    original_parent_provider = expired.parent_provider
+    original_parent_provider = expired.source_base_provider
 
     class _ExpiringParentProvider:
-        def materialize_exact(self, release, parent_tree_receipt, limits):
-            parent = original_parent_provider.materialize_exact(
+        def materialize_exact(self, release, source_base_tree_receipt, limits):
+            source_base = original_parent_provider.materialize_exact(
                 release,
-                parent_tree_receipt,
+                source_base_tree_receipt,
                 limits,
             )
             controlled_clock.value = float(
                 expired.settings.policy.task_evaluation_materialization_timeout_seconds
             )
-            return parent
+            return source_base
 
-    expired.coordinator.parent_provider = _ExpiringParentProvider()
+    expired.coordinator.source_base_provider = _ExpiringParentProvider()
     expired.coordinator.monotonic_clock = controlled_clock
     with pytest.raises(ExpertSourceReplayRequestError, match="deadline expired"):
         expired.coordinator.build(expired.attempt)
@@ -796,14 +796,14 @@ def test_preflight_retains_replays_and_counts_the_complete_bundle_lineage(tmp_pa
     assert len(lineage.bundles) == 2
     _, total_bytes = fixture.coordinator._materialization_usage(
         candidate=prepared.candidate,
-        parent=prepared.parent,
+        source_base=prepared.source_base,
         adapters=(prepared.cases[0].task_adapter,),
         lineages=(lineage,),
         contexts=(prepared.cases[0].task_context,),
     )
     non_bundle_bytes = (
         prepared.candidate.byte_count
-        + prepared.parent.byte_count
+        + prepared.source_base.byte_count
         + sum(
             descriptor.size
             for descriptor in prepared.cases[
@@ -830,7 +830,7 @@ def test_preflight_retains_replays_and_counts_the_complete_bundle_lineage(tmp_pa
     assert (
         fixture.coordinator._materialization_usage(
             candidate=prepared.candidate,
-            parent=prepared.parent,
+            source_base=prepared.source_base,
             adapters=(prepared.cases[0].task_adapter,),
             lineages=(lineage, lineage),
             contexts=(prepared.cases[0].task_context,),
@@ -1048,7 +1048,7 @@ def test_request_uses_historical_adapter_after_active_package_rotation(tmp_path)
     )
 
 
-def test_request_rechecks_current_parent_after_materialization(tmp_path):
+def test_request_rechecks_current_source_base_after_materialization(tmp_path):
     fixture = _request_fixture(tmp_path)
 
     class _RotatingCurrentRelease:
@@ -1059,7 +1059,7 @@ def test_request_rechecks_current_parent_after_materialization(tmp_path):
             assert scope_id == "ml_ai"
             self.calls += 1
             if self.calls == 1:
-                return fixture.attempt.parent_release_id
+                return fixture.attempt.source_base_release_id
             return content_id("expert-base-release", {"label": "advanced"})
 
     rotating_current = _RotatingCurrentRelease()

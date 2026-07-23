@@ -134,8 +134,8 @@ class ExpertCompositionReductionSource:
         contents = MappingProxyType(dict(self.candidate_contents))
         object.__setattr__(self, "candidate_contents", contents)
         source = self.source_reference
-        parent_release = self.validation_context.parent_release
-        parent_map = self.validation_context.parent_repository_map
+        source_base_release = self.validation_context.source_base_release
+        source_base_map = self.validation_context.source_base_repository_map
         module_contract_ids = tuple(
             sorted(module.module_contract_id for module in self.module_contracts)
         )
@@ -144,15 +144,15 @@ class ExpertCompositionReductionSource:
             for descriptor in self.candidate_tree.files
         }
         if (
-            parent_release is None
-            or parent_map is None
+            source_base_release is None
+            or source_base_map is None
             or source.validation_context_ref
             != self.validation_context.validation_context_id
             or source.scope_contract_id
             != self.validation_context.scope_contract.scope_contract_id
-            or source.parent_release_id != parent_release.release_id
-            or source.parent_repository_map_id != parent_map.repository_map_id
-            or source.parent_tree_hash != self.validation_context.parent_tree_hash
+            or source.source_base_release_id != source_base_release.release_id
+            or source.source_base_repository_map_id != source_base_map.repository_map_id
+            or source.source_base_tree_hash != self.validation_context.source_base_tree_hash
             or source.candidate_tree_hash != self.candidate_tree.tree_hash
             or source.patch_id != self.patch.patch_id
             or source.patch_digest != tree_or_blob_digest(self.patch.to_json_bytes())
@@ -378,7 +378,7 @@ class ExpertCompositionReducer:
             already_present_source_reference_ids=already_present_ids,
             conflicts=(),
         )
-        parent_tree = ExpertSourceTreeManifest.mint(
+        source_base_tree = ExpertSourceTreeManifest.mint(
             tree_hash=current_base.reference.source_tree_hash,
             files=current_base.source_files,
         )
@@ -387,7 +387,7 @@ class ExpertCompositionReducer:
                 {
                     assessment.assessment_id,
                     *assessment.stable_authority_ids,
-                    parent_tree.source_tree_manifest_id,
+                    source_base_tree.source_tree_manifest_id,
                     composed.patch.patch_id,
                     composed.source_tree.source_tree_manifest_id,
                     composed.repository_map.repository_map_id,
@@ -400,7 +400,7 @@ class ExpertCompositionReducer:
         )
         materialization = ExpertCompositionMaterialization.mint(
             composition_assessment=assessment,
-            parent_tree=parent_tree,
+            source_base_tree=source_base_tree,
             patch=composed.patch,
             source_tree=composed.source_tree,
             repository_map=composed.repository_map,
@@ -485,39 +485,39 @@ class ExpertCompositionReducer:
             raise ExpertCompositionError(
                 "composition source uses an unknown candidate change kind"
             )
-        parent_map = source.validation_context.parent_repository_map
-        if parent_map is None:
+        source_base_map = source.validation_context.source_base_repository_map
+        if source_base_map is None:
             raise ExpertCompositionError(
-                "capability composition source lacks parent topology"
+                "capability composition source lacks source-base topology"
             )
-        parent_modules = {
+        source_base_modules = {
             module.module_id: module
-            for module in source.validation_context.parent_module_contracts
+            for module in source.validation_context.source_base_module_contracts
         }
         candidate_modules = {
             module.module_id: module for module in source.module_contracts
         }
-        if set(parent_modules) != set(candidate_modules):
+        if set(source_base_modules) != set(candidate_modules):
             raise ExpertCompositionError(
                 "capability composition source changes module identity"
             )
         module_effects = tuple(
             _ModuleEffect(
                 module_id=module_id,
-                before=parent_modules[module_id],
+                before=source_base_modules[module_id],
                 after=candidate_modules[module_id],
             )
-            for module_id in sorted(parent_modules)
-            if parent_modules[module_id] != candidate_modules[module_id]
+            for module_id in sorted(source_base_modules)
+            if source_base_modules[module_id] != candidate_modules[module_id]
         )
-        parent_controls = set(
-            expert_control_paths(source.validation_context.parent_module_contracts)
+        source_base_controls = set(
+            expert_control_paths(source.validation_context.source_base_module_contracts)
         )
         candidate_controls = set(expert_control_paths(source.module_contracts))
         editable_changes = tuple(
             change
             for change in source.patch.changes
-            if change.relative_path not in parent_controls | candidate_controls
+            if change.relative_path not in source_base_controls | candidate_controls
         )
         if not editable_changes or not module_effects:
             raise ExpertCompositionError(
@@ -574,7 +574,7 @@ class ExpertCompositionReducer:
         conflicts.extend(
             self._topology_conflicts(
                 source_reference_id=source_reference.source_reference_id,
-                parent_map=parent_map,
+                source_base_map=source_base_map,
                 current_map=current_base.repository_map,
             )
         )
@@ -605,12 +605,12 @@ class ExpertCompositionReducer:
         self,
         *,
         source_reference_id: str,
-        parent_map: ExpertRepositoryMap,
+        source_base_map: ExpertRepositoryMap,
         current_map: ExpertRepositoryMap,
     ) -> tuple[ExpertCompositionConflict, ...]:
         conflicts: list[ExpertCompositionConflict] = []
-        parent_nodes = {
-            node.capability_id: node for node in parent_map.capability_nodes
+        source_base_nodes = {
+            node.capability_id: node for node in source_base_map.capability_nodes
         }
         current_nodes = {
             node.capability_id: node for node in current_map.capability_nodes
@@ -618,12 +618,12 @@ class ExpertCompositionReducer:
         changed_capabilities = tuple(
             sorted(
                 capability_id
-                for capability_id in set(parent_nodes) | set(current_nodes)
-                if capability_id not in parent_nodes
+                for capability_id in set(source_base_nodes) | set(current_nodes)
+                if capability_id not in source_base_nodes
                 or capability_id not in current_nodes
                 or (
-                    parent_nodes[capability_id].owned_paths,
-                    parent_nodes[capability_id].task_family_bindings,
+                    source_base_nodes[capability_id].owned_paths,
+                    source_base_nodes[capability_id].task_family_bindings,
                 )
                 != (
                     current_nodes[capability_id].owned_paths,
@@ -640,13 +640,13 @@ class ExpertCompositionReducer:
                     source_reference_ids=(source_reference_id,),
                 )
             )
-        if parent_map.dependency_edges != current_map.dependency_edges:
+        if source_base_map.dependency_edges != current_map.dependency_edges:
             dependency_capabilities = tuple(
                 sorted(
                     {
                         capability_id
                         for edge in (
-                            *parent_map.dependency_edges,
+                            *source_base_map.dependency_edges,
                             *current_map.dependency_edges,
                         )
                         for capability_id in (
@@ -664,13 +664,13 @@ class ExpertCompositionReducer:
                     source_reference_ids=(source_reference_id,),
                 )
             )
-        if parent_map.task_adapter_boundary != current_map.task_adapter_boundary:
+        if source_base_map.task_adapter_boundary != current_map.task_adapter_boundary:
             adapter_paths = tuple(
                 sorted(
                     {
-                        parent_map.task_adapter_boundary.adapter_mount_path,
+                        source_base_map.task_adapter_boundary.adapter_mount_path,
                         current_map.task_adapter_boundary.adapter_mount_path,
-                        *parent_map.task_adapter_boundary.interface_entrypoint_refs,
+                        *source_base_map.task_adapter_boundary.interface_entrypoint_refs,
                         *current_map.task_adapter_boundary.interface_entrypoint_refs,
                     }
                 )
@@ -684,8 +684,8 @@ class ExpertCompositionReducer:
                 )
             )
         if (
-            parent_map.validation_entrypoints != current_map.validation_entrypoints
-            or parent_map.architecture_invariants != current_map.architecture_invariants
+            source_base_map.validation_entrypoints != current_map.validation_entrypoints
+            or source_base_map.architecture_invariants != current_map.architecture_invariants
         ):
             conflicts.append(
                 self._conflict(
@@ -962,7 +962,7 @@ class ExpertCompositionReducer:
             descriptor.relative_path: descriptor for descriptor in descriptors
         }
         patch = ExpertCandidatePatch.mint(
-            parent_tree_hash=current_base.reference.source_tree_hash,
+            source_base_tree_hash=current_base.reference.source_tree_hash,
             candidate_tree_hash=source_tree.tree_hash,
             changes=tuple(
                 ExpertCandidatePatchChange(

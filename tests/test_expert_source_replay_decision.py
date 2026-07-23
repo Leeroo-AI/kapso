@@ -301,7 +301,7 @@ def test_hard_regression_bound_is_strict_and_never_uses_noise_floor(tmp_path):
         tmp_path,
         settings,
         {
-            ExpertSourceReplayExecutionLegKind.CONTROL_PARENT: 0.0,
+            ExpertSourceReplayExecutionLegKind.SOURCE_BASE_CONTROL: 0.0,
             ExpertSourceReplayExecutionLegKind.CANDIDATE: -0.125,
         },
     )

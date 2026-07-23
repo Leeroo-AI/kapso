@@ -73,9 +73,9 @@ def test_resolver_projects_exact_terminal_approval_and_revalidates_freshness(
     assert reference.candidate_id == manifest.candidate_id
     assert reference.candidate_commit_record_id == stored.commit_record.commit_record_id
     assert reference.scope_contract_id == manifest.scope_contract_id
-    assert reference.parent_release_id == manifest.parent_release_id
-    assert reference.parent_repository_map_id == manifest.parent_repository_map_ref
-    assert reference.parent_tree_hash == manifest.parent_tree_hash
+    assert reference.source_base_release_id == manifest.source_base_release_id
+    assert reference.source_base_repository_map_id == manifest.source_base_repository_map_ref
+    assert reference.source_base_tree_hash == manifest.source_base_tree_hash
     assert reference.candidate_tree_hash == manifest.candidate_tree_hash
     assert reference.patch_id == stored.closure.patch.patch_id
     assert reference.patch_digest == manifest.patch_digest

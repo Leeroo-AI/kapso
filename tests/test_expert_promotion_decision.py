@@ -167,8 +167,8 @@ def _stage_dependencies(report, stage_result):
         report.release_matrix_report_id,
         *report.exact_dependency_ids,
     }
-    if report.parent_release_id is not None:
-        dependencies.add(report.parent_release_id)
+    if report.source_base_release_id is not None:
+        dependencies.add(report.source_base_release_id)
     return tuple(sorted(dependencies))
 
 
@@ -196,8 +196,8 @@ def _report_dependencies(
         *(row.comparison_row_id for row in rows),
         *(dependency for row in rows for dependency in row.exact_dependency_ids),
     }
-    if report.parent_release_id is not None:
-        dependencies.add(report.parent_release_id)
+    if report.source_base_release_id is not None:
+        dependencies.add(report.source_base_release_id)
     if task_evidence is not None:
         dependencies.update(
             {
@@ -218,7 +218,7 @@ def _stage_with_normalized_effects(stage_result, normalized_effects):
         strict=True,
     ):
         candidate_values = {}
-        parent_values = {}
+        source_base_values = {}
         binding = cell.metric_comparison_binding
         for replicate_id in cell.evaluation_fingerprint.seed_or_replicate_ids:
             normalized_effect = next(effect_iterator)
@@ -229,12 +229,12 @@ def _stage_with_normalized_effects(stage_result, normalized_effects):
                 else -aligned_effect
             )
             candidate_values[replicate_id] = raw_effect
-            parent_values[replicate_id] = 0.0
+            source_base_values[replicate_id] = 0.0
         rows.append(
             _remint(
                 row,
                 candidate_replicate_values=candidate_values,
-                parent_replicate_values=parent_values,
+                control_replicate_values=source_base_values,
             )
         )
     with pytest.raises(StopIteration):
@@ -401,7 +401,7 @@ def test_replicate_math_aligns_direction_scale_and_signed_zero(
     )
     row = SimpleNamespace(
         candidate_replicate_values={"repeat_1": candidate_value},
-        parent_replicate_values={"repeat_1": parent_value},
+        control_replicate_values={"repeat_1": parent_value},
     )
     stage_result = SimpleNamespace(
         release_matrix_report=SimpleNamespace(
@@ -490,7 +490,7 @@ def test_nonfinite_derived_effect_fails_loud(accepted_release_matrices):
     overflow_row = _remint(
         first_row,
         candidate_replicate_values={replicate_id: sys.float_info.max},
-        parent_replicate_values={replicate_id: -sys.float_info.max},
+        control_replicate_values={replicate_id: -sys.float_info.max},
     )
     rows = (overflow_row, *report.evidence_rows[1:])
     overflow_report = _remint(

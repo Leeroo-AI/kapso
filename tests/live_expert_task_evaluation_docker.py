@@ -448,7 +448,7 @@ def test_real_docker_executes_parent_and_bootstrap_task_evaluations(
             parent_authority[2],
         ) == {
             TaskEvaluationLegKind.CANDIDATE: 0.8,
-            TaskEvaluationLegKind.PARENT_CONTROL: 0.7,
+            TaskEvaluationLegKind.SOURCE_BASE_CONTROL: 0.7,
         }
         assert _accepted_values_by_leg_kind(
             bootstrap_execution,

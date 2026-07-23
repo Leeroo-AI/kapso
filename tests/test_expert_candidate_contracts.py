@@ -169,12 +169,12 @@ def test_source_tree_rejects_file_directory_collision():
         ExpertSourceTreeManifest.mint(tree_hash=tree_hash, files=files)
 
 
-def test_candidate_parent_is_optional_only_as_one_complete_pair():
+def test_candidate_source_base_is_optional_only_as_one_complete_set():
     candidate = record(ExpertCandidateManifest)
 
     with pytest.raises(ContractValidationError, match="must appear together"):
-        replace(candidate, parent_release_id=content_id("fixture", {"parent": 1}))
-    assert candidate.parent_release_id is None
+        replace(candidate, source_base_release_id=content_id("fixture", {"parent": 1}))
+    assert candidate.source_base_release_id is None
 
     release = record(ExpertBaseReleaseManifest)
     repository_map = record(ExpertRepositoryMap)
@@ -186,17 +186,17 @@ def test_candidate_parent_is_optional_only_as_one_complete_pair():
             not in {
                 "candidate_id",
                 "change_kind",
-                "parent_release_id",
-                "parent_repository_map_ref",
-                "parent_tree_hash",
+                "source_base_release_id",
+                "source_base_repository_map_ref",
+                "source_base_tree_hash",
             }
         },
         change_kind=CandidateChangeKind.CAPABILITY,
-        parent_release_id=release.release_id,
-        parent_repository_map_ref=repository_map.repository_map_id,
-        parent_tree_hash=digest("released-parent-tree"),
+        source_base_release_id=release.release_id,
+        source_base_repository_map_ref=repository_map.repository_map_id,
+        source_base_tree_hash=digest("released-parent-tree"),
     )
-    assert non_bootstrap.parent_release_id == release.release_id
+    assert non_bootstrap.source_base_release_id == release.release_id
 
     with pytest.raises(ContractValidationError, match="bootstrap"):
         ExpertCandidateManifest.mint(
@@ -209,7 +209,12 @@ def test_candidate_parent_is_optional_only_as_one_complete_pair():
         )
 
     legacy_payload = candidate.to_dict()
-    legacy_payload["validation_attempt_refs"] = ("validation/legacy",)
+    legacy_payload.pop("source_base_release_id")
+    legacy_payload.pop("source_base_repository_map_ref")
+    legacy_payload.pop("source_base_tree_hash")
+    legacy_payload["parent_release_id"] = None
+    legacy_payload["parent_repository_map_ref"] = None
+    legacy_payload["parent_tree_hash"] = candidate.source_base_tree_hash
     with pytest.raises(ContractValidationError, match="unknown"):
         ExpertCandidateManifest.from_dict(legacy_payload)
 

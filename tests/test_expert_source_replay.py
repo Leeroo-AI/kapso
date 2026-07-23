@@ -55,7 +55,7 @@ from test_expert_triggers import (
     supported_claim,
     trigger_packet,
     trigger_settings,
-    verified_parent_tree_hash,
+    verified_source_base_tree_hash,
 )
 
 CANONICAL_CONFIG_PATH = "src/kapso/config.yaml"
@@ -131,13 +131,13 @@ def _stored_candidate(candidate_id, packet, decision, candidate_modules):
             sorted(module.module_contract_id for module in candidate_modules)
         ),
         scope_contract_id=packet.scope_contract.scope_contract_id,
-        parent_release_id=packet.parent_release_id,
-        parent_repository_map_ref=packet.repository_map.repository_map_id,
-        parent_tree_hash=packet.parent_tree_hash,
+        source_base_release_id=packet.source_base_release_id,
+        source_base_repository_map_ref=packet.source_base_repository_map.repository_map_id,
+        source_base_tree_hash=packet.source_base_tree_hash,
         change_kind=decision.change_kind,
         patch_ref=content_id("expert-candidate-patch", {"seed": candidate_id}),
         patch_digest=tree_or_blob_digest(f"patch:{candidate_id}".encode()),
-        proposed_repository_map_ref=packet.repository_map.repository_map_id,
+        proposed_repository_map_ref=packet.source_base_repository_map.repository_map_id,
         semantic_book_digest=tree_or_blob_digest(b"candidate-semantic-book"),
         source_dependency_ids=tuple(
             sorted((packet.evidence_packet_id, decision.trigger_decision_id))
@@ -170,10 +170,10 @@ def _stored_candidate(candidate_id, packet, decision, candidate_modules):
             module_contracts=candidate_modules,
             candidate_tree=candidate_tree,
             candidate_contents={candidate_file.relative_path: candidate_content},
-            parent_files=(
+            source_base_files=(
                 ()
-                if packet.parent_tree_receipt is None
-                else packet.parent_tree_receipt.source_extraction_receipt.source_tree_files
+                if packet.source_base_tree_receipt is None
+                else packet.source_base_tree_receipt.source_extraction_receipt.source_tree_files
             ),
         ),
         commit_record=commit_record,
@@ -346,13 +346,13 @@ def _observation(
         "inspection_policy_version": settings.inspection_policy_version,
         "kind": kind.value,
         "occurrence_count": 1,
-        "parent_tree_hash": verified_parent_tree_hash(),
+        "source_base_tree_hash": verified_source_base_tree_hash(),
         "task_context_binding_ids": [],
     }
     final_output = json.dumps(payload, indent=2) + "\n"
     return ExpertTriggerObservation.mint(
         kind=kind,
-        parent_tree_hash=verified_parent_tree_hash(),
+        source_base_tree_hash=verified_source_base_tree_hash(),
         inspection_policy_version=settings.inspection_policy_version,
         configuration_fingerprint=configuration_fingerprint(settings),
         inspection_operation=inspection_operation(settings, final_output),
@@ -398,7 +398,7 @@ def test_repeated_success_selects_causal_episodes_in_their_shared_exact_bundle()
         _candidate_id("repeated-success"),
         packet,
         decision,
-        packet.module_contracts,
+        packet.source_base_module_contracts,
         validation=validation,
     )
 
@@ -448,7 +448,7 @@ def test_repeated_success_selects_causal_episodes_in_their_shared_exact_bundle()
         _candidate_id("repeated-success"),
         packet,
         decision,
-        packet.module_contracts,
+        packet.source_base_module_contracts,
         validation=altered_validation,
     )
     assert altered.selection is not None
@@ -496,7 +496,7 @@ def test_eligibility_enrolls_and_replays_the_exact_source_selection():
         _candidate_id("eligibility"),
         packet,
         decision,
-        packet.module_contracts,
+        packet.source_base_module_contracts,
     )
     validation = _validation_policy()
     adapter_provider = _AdapterProvider(packet)
@@ -504,7 +504,7 @@ def test_eligibility_enrolls_and_replays_the_exact_source_selection():
         validation,
         _CandidateReader(stored),
         adapter_provider,
-        _CurrentReleaseProvider(packet.parent_release_id),
+        _CurrentReleaseProvider(packet.source_base_release_id),
     ).decide(candidate_id=stored.closure.manifest.candidate_id)
     assert unavailable.decision.eligible is False
     assert unavailable.decision.reason_code == (
@@ -522,7 +522,7 @@ def test_eligibility_enrolls_and_replays_the_exact_source_selection():
         validation,
         _CandidateReader(stored),
         adapter_provider,
-        _CurrentReleaseProvider(packet.parent_release_id),
+        _CurrentReleaseProvider(packet.source_base_release_id),
     )
 
     enrollment = evaluator.decide(candidate_id=stored.closure.manifest.candidate_id)
@@ -587,7 +587,7 @@ def test_contradiction_claim_traversal_selects_only_contradicting_episodes():
         _candidate_id("contradiction"),
         packet,
         decision,
-        packet.module_contracts,
+        packet.source_base_module_contracts,
     )
 
     assert result.selection is not None
@@ -600,13 +600,13 @@ def test_changed_module_evidence_supplies_explicit_noncausal_replay_coverage():
     _, _, template, _, _, _, _ = source_fixture()
     episode = outcome_episodes(template)[0]
     packet_without_observation = trigger_packet(settings=settings, episodes=(episode,))
-    module = packet_without_observation.module_contracts[0]
+    module = packet_without_observation.source_base_module_contracts[0]
     observation = _observation(
         settings=settings,
         kind=ExpertTriggerObservationKind.MECHANICALLY_GENERAL_FIX,
         module_id=module.module_id,
         exact_evidence_ids=(
-            packet_without_observation.repository_map.repository_map_id,
+            packet_without_observation.source_base_repository_map.repository_map_id,
         ),
         affected_paths=("src/reproducible_execution/__init__.py",),
     )
@@ -617,7 +617,7 @@ def test_changed_module_evidence_supplies_explicit_noncausal_replay_coverage():
     )
     decision = ExpertTriggerEvaluator(settings).evaluate(packet)
     changed = _changed_module(
-        packet.module_contracts[0],
+        packet.source_base_module_contracts[0],
         supporting_episode_ids=(episode.episode_id,),
     )
 
@@ -640,13 +640,13 @@ def test_changed_module_evidence_supplies_explicit_noncausal_replay_coverage():
 def test_noncausal_trigger_without_explicit_module_coverage_is_unavailable():
     settings = trigger_settings()
     packet_without_observation = trigger_packet(settings=settings)
-    module = packet_without_observation.module_contracts[0]
+    module = packet_without_observation.source_base_module_contracts[0]
     observation = _observation(
         settings=settings,
         kind=ExpertTriggerObservationKind.MECHANICALLY_GENERAL_FIX,
         module_id=module.module_id,
         exact_evidence_ids=(
-            packet_without_observation.repository_map.repository_map_id,
+            packet_without_observation.source_base_repository_map.repository_map_id,
         ),
         affected_paths=("src/reproducible_execution/__init__.py",),
     )
@@ -657,7 +657,7 @@ def test_noncausal_trigger_without_explicit_module_coverage_is_unavailable():
         _candidate_id("no-replay-evidence"),
         packet,
         decision,
-        packet.module_contracts,
+        packet.source_base_module_contracts,
     )
 
     assert result.selection is None
@@ -667,13 +667,13 @@ def test_noncausal_trigger_without_explicit_module_coverage_is_unavailable():
         _candidate_id("no-replay-evidence"),
         packet,
         decision,
-        packet.module_contracts,
+        packet.source_base_module_contracts,
     )
     enrollment = ExpertCandidateEligibilityEvaluator(
         _validation_policy(),
         _CandidateReader(stored),
         _AdapterProvider(packet),
-        _CurrentReleaseProvider(packet.parent_release_id),
+        _CurrentReleaseProvider(packet.source_base_release_id),
     ).decide(candidate_id=stored.closure.manifest.candidate_id)
     assert enrollment.decision.eligible is False
     assert enrollment.decision.required_stages == ()
@@ -718,7 +718,7 @@ def test_replay_selection_limits_fail_enrollment_without_clipping_evidence():
         _candidate_id("bounded"),
         packet,
         decision,
-        packet.module_contracts,
+        packet.source_base_module_contracts,
         validation=bounded_validation,
     )
 
@@ -729,13 +729,13 @@ def test_replay_selection_limits_fail_enrollment_without_clipping_evidence():
         _candidate_id("bounded"),
         packet,
         decision,
-        packet.module_contracts,
+        packet.source_base_module_contracts,
     )
     enrollment = ExpertCandidateEligibilityEvaluator(
         bounded_validation,
         _CandidateReader(stored),
         _AdapterProvider(packet),
-        _CurrentReleaseProvider(packet.parent_release_id),
+        _CurrentReleaseProvider(packet.source_base_release_id),
     ).decide(candidate_id=stored.closure.manifest.candidate_id)
     assert enrollment.decision.eligible is False
     assert enrollment.decision.source_replay_selection is None

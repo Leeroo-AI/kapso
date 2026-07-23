@@ -18,7 +18,7 @@ from kapso.cross_run.contracts import (
     TaskAdapterReleaseMatrixCase,
     TaskAdapterReleaseMatrixStartingArtifact,
 )
-from kapso.cross_run.expert.triggers import ExpertParentTreeReceipt
+from kapso.cross_run.expert.triggers import ExpertSourceBaseTreeReceipt
 from kapso.cross_run.github.materializer import SourceArchiveExtractionReceipt
 from kapso.cross_run.task_adapters import (
     TaskAdapterVerificationReceipt,
@@ -119,26 +119,26 @@ class VerifiedTaskEvaluationCandidate:
 
 
 @dataclass(frozen=True)
-class VerifiedTaskEvaluationParent:
+class VerifiedTaskEvaluationSourceBase:
     release_manifest: ExpertBaseReleaseManifest
-    parent_tree_receipt: ExpertParentTreeReceipt
+    source_base_tree_receipt: ExpertSourceBaseTreeReceipt
     source_contents: Mapping[str, bytes]
 
     def __post_init__(self) -> None:
         if (
             type(self.release_manifest) is not ExpertBaseReleaseManifest
-            or type(self.parent_tree_receipt) is not ExpertParentTreeReceipt
+            or type(self.source_base_tree_receipt) is not ExpertSourceBaseTreeReceipt
         ):
             raise TaskEvaluationMaterializationError(
-                "parent task-evaluation source requires typed immutable authorities"
+                "source-base task-evaluation source requires typed immutable authorities"
             )
-        receipt = self.parent_tree_receipt
+        receipt = self.source_base_tree_receipt
         extraction = receipt.source_extraction_receipt
         archive_ref = self.release_manifest.source_archive_ref
         archive_digest = self.release_manifest.checksums[archive_ref]
         if (
             receipt.release_id != self.release_manifest.release_id
-            or receipt.parent_tree_hash != extraction.source_tree_hash
+            or receipt.source_base_tree_hash != extraction.source_tree_hash
             or extraction.artifact_id != self.release_manifest.release_id
             or extraction.source_archive_ref != archive_ref
             or extraction.source_archive_digest != archive_digest
@@ -146,7 +146,7 @@ class VerifiedTaskEvaluationParent:
             != archive_digest
         ):
             raise TaskEvaluationMaterializationError(
-                "parent task-evaluation source differs from its immutable authority"
+                "source-base task-evaluation source differs from its immutable authority"
             )
         object.__setattr__(
             self,
@@ -154,20 +154,20 @@ class VerifiedTaskEvaluationParent:
             _verified_source_contents(
                 extraction.source_tree_files,
                 self.source_contents,
-                "parent task-evaluation source",
+                "source-base task-evaluation source",
             ),
         )
 
     @property
     def entry_count(self) -> int:
-        return len(self.parent_tree_receipt.source_extraction_receipt.source_tree_files)
+        return len(self.source_base_tree_receipt.source_extraction_receipt.source_tree_files)
 
     @property
     def byte_count(self) -> int:
         return sum(
             descriptor.size
             for descriptor in (
-                self.parent_tree_receipt.source_extraction_receipt.source_tree_files
+                self.source_base_tree_receipt.source_extraction_receipt.source_tree_files
             )
         )
 

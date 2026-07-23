@@ -296,9 +296,9 @@ def test_candidate_and_parent_authorities_reject_substituted_source_bytes(tmp_pa
     candidate_contents = dict(prepared.candidate.source_contents)
     candidate_path = next(iter(candidate_contents))
     candidate_contents[candidate_path] += b"substituted"
-    parent_contents = dict(prepared.parent.source_contents)
-    parent_path = next(iter(parent_contents))
-    parent_contents[parent_path] += b"substituted"
+    source_base_contents = dict(prepared.source_base.source_contents)
+    parent_path = next(iter(source_base_contents))
+    source_base_contents[parent_path] += b"substituted"
 
     with pytest.raises(
         TaskEvaluationMaterializationError,
@@ -307,6 +307,6 @@ def test_candidate_and_parent_authorities_reject_substituted_source_bytes(tmp_pa
         replace(prepared.candidate, source_contents=candidate_contents)
     with pytest.raises(
         TaskEvaluationMaterializationError,
-        match="parent task-evaluation source bytes differ",
+        match="source-base task-evaluation source bytes differ",
     ):
-        replace(prepared.parent, source_contents=parent_contents)
+        replace(prepared.source_base, source_contents=source_base_contents)

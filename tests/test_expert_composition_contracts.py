@@ -83,16 +83,16 @@ def _base_reference(scope, module, repository_map, release, source_tree_hash):
 def _source_reference(scope, module, *, label):
     candidate_id = _id("expert-candidate", label)
     commit_id = _id("expert-candidate-commit", label)
-    parent_release_id = _id("expert-base-release", f"{label} stale parent")
-    parent_map_id = _id("expert-repository-map", f"{label} stale parent")
+    source_base_release_id = _id("expert-base-release", f"{label} stale parent")
+    source_base_map_id = _id("expert-repository-map", f"{label} stale parent")
     patch_id = _id("expert-candidate-patch", label)
     proposed_map_id = _id("expert-repository-map", f"{label} proposed")
     authorities = {
         candidate_id,
         commit_id,
         scope.scope_contract_id,
-        parent_release_id,
-        parent_map_id,
+        source_base_release_id,
+        source_base_map_id,
         patch_id,
         proposed_map_id,
         module.module_contract_id,
@@ -109,9 +109,9 @@ def _source_reference(scope, module, *, label):
         derivation_ref=derivation_ref,
         validation_context_ref=validation_context_ref,
         origin_principal_ids=("expert.generalizer",),
-        parent_release_id=parent_release_id,
-        parent_repository_map_id=parent_map_id,
-        parent_tree_hash=_digest(f"{label} parent tree"),
+        source_base_release_id=source_base_release_id,
+        source_base_repository_map_id=source_base_map_id,
+        source_base_tree_hash=_digest(f"{label} source-base tree"),
         candidate_tree_hash=_digest(f"{label} candidate tree"),
         patch_id=patch_id,
         patch_digest=_digest(f"{label} patch"),
@@ -255,7 +255,7 @@ def _materialization(composition_case, assessment):
         composition_case.repository_map,
         (composition_case.module,),
     )
-    contents = dict(composition_case.parent_contents)
+    contents = dict(composition_case.source_base_contents)
     contents["src/reproducible_execution/__init__.py"] = b"changed source"
     descriptors = tuple(
         SourceFileDescriptor(
@@ -280,30 +280,30 @@ def _materialization(composition_case, assessment):
         tree_hash=tree_hash,
         files=descriptors,
     )
-    parent_files = {
+    source_base_files = {
         descriptor.relative_path: descriptor
-        for descriptor in composition_case.parent_tree.files
+        for descriptor in composition_case.source_base_tree.files
     }
     source_files = {
         descriptor.relative_path: descriptor for descriptor in source_tree.files
     }
     patch = ExpertCandidatePatch.mint(
-        parent_tree_hash=composition_case.base.source_tree_hash,
+        source_base_tree_hash=composition_case.base.source_tree_hash,
         candidate_tree_hash=tree_hash,
         changes=tuple(
             ExpertCandidatePatchChange(
                 relative_path=path,
-                before=parent_files.get(path),
+                before=source_base_files.get(path),
                 after=source_files.get(path),
             )
-            for path in sorted(set(parent_files) | set(source_files))
-            if parent_files.get(path) != source_files.get(path)
+            for path in sorted(set(source_base_files) | set(source_files))
+            if source_base_files.get(path) != source_files.get(path)
         ),
     )
     authorities = {
         assessment.assessment_id,
         *assessment.stable_authority_ids,
-        composition_case.parent_tree.source_tree_manifest_id,
+        composition_case.source_base_tree.source_tree_manifest_id,
         patch.patch_id,
         source_tree.source_tree_manifest_id,
         composition_case.repository_map.repository_map_id,
@@ -311,7 +311,7 @@ def _materialization(composition_case, assessment):
     }
     return ExpertCompositionMaterialization.mint(
         composition_assessment=assessment,
-        parent_tree=composition_case.parent_tree,
+        source_base_tree=composition_case.source_base_tree,
         patch=patch,
         source_tree=source_tree,
         repository_map=composition_case.repository_map,
@@ -322,9 +322,9 @@ def _materialization(composition_case, assessment):
 
 
 def _remint_materialization_tree(materialization, source_tree):
-    parent_files = {
+    source_base_files = {
         descriptor.relative_path: descriptor
-        for descriptor in materialization.parent_tree.files
+        for descriptor in materialization.source_base_tree.files
     }
     source_files = {
         descriptor.relative_path: descriptor for descriptor in source_tree.files
@@ -335,11 +335,11 @@ def _remint_materialization_tree(materialization, source_tree):
         changes=tuple(
             ExpertCandidatePatchChange(
                 relative_path=path,
-                before=parent_files.get(path),
+                before=source_base_files.get(path),
                 after=source_files.get(path),
             )
-            for path in sorted(set(parent_files) | set(source_files))
-            if parent_files.get(path) != source_files.get(path)
+            for path in sorted(set(source_base_files) | set(source_files))
+            if source_base_files.get(path) != source_files.get(path)
         ),
     )
     authorities = tuple(
@@ -367,24 +367,24 @@ def _remint_materialization_tree(materialization, source_tree):
 def composition_case():
     scope, module, repository_map, release = expert_records()
     book = compile_expert_semantic_book(scope, repository_map, (module,))
-    parent_contents = {
-        "src/reproducible_execution/__init__.py": b"parent source",
+    source_base_contents = {
+        "src/reproducible_execution/__init__.py": b"source-base source",
         "tests/test_resume.py": b"def test_resume():\n    pass\n",
         "tests/replay_resume.py": b"def replay_resume():\n    pass\n",
         EXPERT_BOOK_PATH: book,
         EXPERT_REPOSITORY_MAP_PATH: repository_map.to_json_bytes(),
         expert_module_contract_path(module.module_contract_id): module.to_json_bytes(),
     }
-    parent_descriptors = tuple(
+    source_base_descriptors = tuple(
         SourceFileDescriptor(
             relative_path=path,
             digest=tree_or_blob_digest(payload),
             mode="100644",
             size=len(payload),
         )
-        for path, payload in sorted(parent_contents.items())
+        for path, payload in sorted(source_base_contents.items())
     )
-    parent_tree = ExpertSourceTreeManifest.mint(
+    source_base_tree = ExpertSourceTreeManifest.mint(
         tree_hash=source_tree_digest(
             {
                 descriptor.relative_path: (
@@ -392,17 +392,17 @@ def composition_case():
                     descriptor.mode,
                     descriptor.size,
                 )
-                for descriptor in parent_descriptors
+                for descriptor in source_base_descriptors
             }
         ),
-        files=parent_descriptors,
+        files=source_base_descriptors,
     )
     base = _base_reference(
         scope,
         module,
         repository_map,
         release,
-        parent_tree.tree_hash,
+        source_base_tree.tree_hash,
     )
     sources = tuple(
         _source_reference(scope, module, label=label) for label in ("first", "second")
@@ -414,8 +414,8 @@ def composition_case():
         repository_map=repository_map,
         release=release,
         base=base,
-        parent_contents=parent_contents,
-        parent_tree=parent_tree,
+        source_base_contents=source_base_contents,
+        source_base_tree=source_base_tree,
         sources=plan.sources,
         plan=plan,
     )
@@ -560,9 +560,9 @@ def test_plan_deliberately_accepts_sources_from_stale_parents(
     plan = composition_case.plan
 
     assert all(
-        source.parent_release_id != plan.current_base.release_id
-        and source.parent_repository_map_id != plan.current_base.repository_map_id
-        and source.parent_tree_hash != plan.current_base.source_tree_hash
+        source.source_base_release_id != plan.current_base.release_id
+        and source.source_base_repository_map_id != plan.current_base.repository_map_id
+        and source.source_base_tree_hash != plan.current_base.source_tree_hash
         for source in plan.sources
     )
     assert ExpertCompositionPlan.from_json_bytes(plan.to_json_bytes()) == plan
@@ -654,7 +654,7 @@ def test_conflict_rejects_kind_subject_mismatch_and_noncanonical_syntax(
 
 def test_assessment_requires_an_exact_disjoint_full_partition(composition_case):
     plan = composition_case.plan
-    first, second = plan.source_reference_ids
+    first, second = sorted(plan.source_reference_ids)
     valid = _assessment(
         plan,
         ExpertCompositionDisposition.CLEAN,
@@ -799,7 +799,7 @@ def test_conflict_kind_deterministically_selects_conflict_disposition(
 
 def test_already_present_requires_the_entire_plan_partition(composition_case):
     plan = composition_case.plan
-    first, second = plan.source_reference_ids
+    first, second = sorted(plan.source_reference_ids)
 
     complete = _assessment(
         plan,
@@ -851,7 +851,7 @@ def test_clean_materialization_roundtrips_and_binds_exact_output(composition_cas
         == materialization
     )
     assert (
-        materialization.patch.parent_tree_hash
+        materialization.patch.source_base_tree_hash
         == composition_case.plan.current_base.source_tree_hash
     )
     assert (
@@ -887,7 +887,7 @@ def test_materialization_requires_clean_assessment_and_exact_tree_binding(
             materialization,
             patch=_remint(
                 materialization.patch,
-                parent_tree_hash=_digest("other parent"),
+                source_base_tree_hash=_digest("other parent"),
             ),
         )
 

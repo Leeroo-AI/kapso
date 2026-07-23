@@ -50,7 +50,7 @@ class ExpertReleaseMatrixStageResultRecord(StrictContract):
     candidate_id: str
     candidate_tree_hash: str
     scope_contract_id: str
-    parent_release_id: str | None
+    source_base_release_id: str | None
     validation_policy_id: str
     configuration_fingerprint: str
     plan_reservation_operation_id: str
@@ -105,11 +105,11 @@ class ExpertReleaseMatrixStageResultRecord(StrictContract):
             ),
         ):
             _require_namespaced_id(value, namespace, name)
-        if self.parent_release_id is not None:
+        if self.source_base_release_id is not None:
             _require_namespaced_id(
-                self.parent_release_id,
+                self.source_base_release_id,
                 "expert-base-release",
-                "release matrix stage parent release",
+                "release matrix stage source-base release",
             )
         _require_digest(
             self.candidate_tree_hash,
@@ -125,7 +125,7 @@ class ExpertReleaseMatrixStageResultRecord(StrictContract):
             self.candidate_id,
             self.candidate_tree_hash,
             self.scope_contract_id,
-            self.parent_release_id,
+            self.source_base_release_id,
             self.validation_policy_id,
             self.configuration_fingerprint,
             self.plan_reservation_operation_id,
@@ -134,7 +134,7 @@ class ExpertReleaseMatrixStageResultRecord(StrictContract):
             report.candidate_id,
             report.candidate_tree_hash,
             report.scope_contract_id,
-            report.parent_release_id,
+            report.source_base_release_id,
             report.validation_policy_id,
             report.configuration_fingerprint,
             report.plan_reservation_operation_id,
@@ -179,8 +179,8 @@ class ExpertReleaseMatrixStageResultRecord(StrictContract):
             report.release_matrix_report_id,
             *report.exact_dependency_ids,
         }
-        if self.parent_release_id is not None:
-            expected_dependencies.add(self.parent_release_id)
+        if self.source_base_release_id is not None:
+            expected_dependencies.add(self.source_base_release_id)
         if set(self.exact_dependency_ids) != expected_dependencies:
             raise ExpertReleaseMatrixStageContractError(
                 "release matrix stage dependency closure is not exact"

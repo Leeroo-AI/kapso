@@ -57,7 +57,7 @@ def decide_expert_release_matrix_promotion(
         or stage_result.candidate_id != attempt.candidate_id
         or stage_result.candidate_tree_hash != attempt.candidate_tree_hash
         or stage_result.scope_contract_id != attempt.scope_contract_id
-        or stage_result.parent_release_id != attempt.parent_release_id
+        or stage_result.source_base_release_id != attempt.source_base_release_id
         or stage_result.validation_policy_id != attempt.validation_policy_id
         or stage_result.configuration_fingerprint != attempt.configuration_fingerprint
         or report.candidate_commit_record_id != attempt.candidate_commit_record_id
@@ -196,7 +196,7 @@ def _decide_bootstrap_promotion(
 ) -> ExpertReleaseMatrixPromotionDecision:
     if (
         attempt.validation_track is not ExpertValidationTrack.REPOSITORY_ARCHITECTURE
-        or attempt.parent_release_id is not None
+        or attempt.source_base_release_id is not None
     ):
         raise ExpertReleaseMatrixPromotionError(
             "bootstrap promotion requires repository-architecture authority"
@@ -240,17 +240,17 @@ def _derive_replicate_assessments(
         report.evidence_rows,
         strict=True,
     ):
-        parent_values = row.parent_replicate_values
-        if parent_values is None:
+        source_base_values = row.control_replicate_values
+        if source_base_values is None:
             raise ExpertReleaseMatrixPromotionError(
-                "parent comparison lacks paired control replicates"
+                "control comparison lacks paired control replicates"
             )
         binding = cell.metric_comparison_binding
         dimension = dimensions[binding.comparison_dimension_id]
         for replicate_id in cell.evaluation_fingerprint.seed_or_replicate_ids:
             candidate_value = row.candidate_replicate_values[replicate_id]
-            parent_value = parent_values[replicate_id]
-            raw_effect = candidate_value - parent_value
+            control_value = source_base_values[replicate_id]
+            raw_effect = candidate_value - control_value
             if not math.isfinite(raw_effect):
                 raise ExpertReleaseMatrixPromotionError(
                     "release matrix replicate subtraction is nonfinite"

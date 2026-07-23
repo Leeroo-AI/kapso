@@ -94,7 +94,7 @@ the candidate tree and commit, trigger packet and deterministic decision,
 KnowledgeSnapshot, validation policy, configuration fingerprint, selected
 episodes, reasons, and source bundles. Eligibility and the validation attempt
 embed that exact selection, and reducer replay reopens the validated candidate
-store and re-derives it. A stale parent or unavailable validation facility takes
+store and re-derives it. A source base that is not current, or an unavailable validation facility, takes
 precedence and produces no selection. Generic evaluator-result construction and
 reduction reject source replay until the typed executor can prove exact
 episode-and-adapter coverage for every selected case.
@@ -108,8 +108,8 @@ multiple versions of one logical adapter may coexist. Missing historical bytes
 fail before an attempt can become eligible.
 
 Once the source stage is current, deterministic preflight reopens the candidate
-and validation state, observes the current parent release, resolves concrete
-verified bundle lineages, materializes the exact parent tree, copies the candidate
+and validation state, observes CURRENT, resolves concrete verified bundle lineages,
+materializes the exact source-base tree, copies the candidate
 tree into an immutable byte closure, and materializes every captured starting
 artifact. A lineage provider must retain every root-to-tip `RunBundle` byte
 closure; preflight ignores its claimed projection and deterministically rebuilds
@@ -119,10 +119,10 @@ constructed.
 
 One monotonic deadline and one aggregate entry/byte budget govern the whole
 preflight, not each provider call. Every provider receives only the remaining
-time and capacity; candidate, parent, historical adapter packages, all retained
+time and capacity; candidate, source base, historical adapter packages, all retained
 bundle generations, and deduplicated contexts debit that same budget. Reused
 content IDs count once, while the same ID with different bytes fails loud. Each
-case is an explicit matched pair: a parent-control leg and candidate leg share
+case is an explicit matched pair: a source-base-control leg and candidate leg share
 one historical adapter, context, evaluator binding, and artifact closure. The
 aggregate request, every case, and every leg are content-addressed with exact
 dependency closure. The prepared object rechecks its settings/config identity,
@@ -158,7 +158,7 @@ after execution so registry mutation or provider substitution cannot bypass
 dispatch. Resolution keeps the provider private. After the durable spawn marker,
 a guarded one-shot capability invokes that exact provider with no caller-supplied
 arguments; the registry binds both verified expert trees, while the capability
-passes only the exact parent or candidate byte closure selected by the allocated
+passes only the exact source-base or candidate byte closure selected by the allocated
 leg. Only its session-registered sealed completion may enter the journal.
 
 The Docker provider executes a digest-namespaced private copy of the pinned CLI
@@ -210,7 +210,7 @@ The explicitly invoked production check is
 digest-addressed scratch image from a loopback-only OCI registry, pulls that
 exact digest once, then runs both counterbalanced legs through the request-bound
 registry, fresh-authority coordinator, journal, and concrete Docker provider. It
-requires zero subsequent registry requests, accepts the exact parent and
+requires zero subsequent registry requests, accepts the exact source-base-control and
 candidate scores, publishes the typed source-stage result into the validation
 journal, replays the completed stage without another provider bootstrap, and
 proves that every handle-owned container, volume, and workspace is gone. The
@@ -219,7 +219,7 @@ not exercise their production GitHub transports.
 
 The corresponding task-matrix production check is
 `pytest -q tests/live_expert_task_evaluation_docker.py -s`. One digest-pinned
-loopback image executes both semantic legs of a parent comparison and the sole
+loopback image executes both semantic legs of a control comparison and the sole
 candidate leg of a bootstrap matrix through the request-bound concrete registry,
 double-reopen fresh authority, and four-event durable journal. It asserts the
 candidate/control values by semantic leg kind, reconstructs each completed store
@@ -250,7 +250,7 @@ source `EvaluationFingerprint` records, the exact transfer dimensions named by
 the adapter's `consumed_dimension_ids`, and logical starting-artifact
 reference/mount pairs. Bundle history, source scores and effects, score-of-record
 selection, episode and validation provenance, compute policy, leg order/kind,
-and candidate/parent/tree identities remain in trusted Kapso receipts and never
+and candidate/source-base/tree identities remain in trusted Kapso receipts and never
 enter the adapter sandbox.
 
 The sole native evaluator result echoes the protocol and opaque invocation ID
@@ -278,10 +278,10 @@ reducer divides direction-aligned deltas by the bound scale; it must never
 infer that a metric such as accuracy is `quality`, divide by an observed control
 score, or reinterpret aggregate-recomputation tolerance as scientific noise.
 
-Preflight re-observes the current parent after materialization, but its request
+Preflight re-observes CURRENT after source-base materialization, but its request
 is evidence, not an execution lease. Source execution remains fail-closed until
 the executor can atomically reserve the unchanged validation head and, immediately
-before process spawn, recheck the current parent, candidate/release revocation,
+before process spawn, recheck CURRENT, candidate/release revocation,
 and every historical adapter package's verifier authority, trust, and revocation
 state. It must produce exactly one result for each named leg and publish a typed
 paired-comparison receipt against the same reservation. If `CURRENT` changes
@@ -290,7 +290,7 @@ publishes a typed authority-invalidation record against the observed validation
 state ID and returns the resulting terminal state. That content-addressed,
 compare-and-swap transition closes the attempt as `FAILED`; the candidate can
 no longer execute or be re-enrolled as valid because its immutable manifest pins
-the stale parent. Evolution must rebase the change into a new successor candidate
+the source base that is no longer current. Evolution must rebase the change into a new successor candidate
 against current authority and enroll that new identity; retrying the old candidate
 deterministically remains ineligible.
 
@@ -370,7 +370,7 @@ publication step.
 That final step uses a distinct `SourceReplayDecisionPublicationFence`; a
 per-leg spawn fence cannot authorize it because it predates the scientific
 result and binds only one invocation. The final fence has no invocation
-allocation. It records a newly fetched parent `CURRENT`, freshly reverified
+allocation. It records a newly fetched `CURRENT`, freshly reverified
 historical adapters and verifier identities, and one exact denylist observation
 covering the reservation/request, full factual receipt and decision, every
 execution event, and every nested spawn-fence, adapter, verifier, provider-handle,
@@ -410,13 +410,13 @@ The executor reopens a reservation through a public read-only store boundary.
 The journal itself requires and reconstructs the complete prepared byte authority
 and exact pinned policy before taking its lock; one short shared-lock
 read then requires the exact journal-bound reservation, stored request, current
-transition/state/attempt, candidate, and observed parent. GitHub `CURRENT`,
+transition/state/attempt, candidate, and observed CURRENT. GitHub `CURRENT`,
 historical adapter re-verification, and the live security denylist are checked
 outside the validation lock. A second identical reopen after those external
 checks closes validation-head races before the local spawn boundary is written.
 The store lock is global, so it never encloses archive verification, network
 access, an execution-journal lock, a callback, workspace work, or provider start.
-Enrollment, evaluator-result publication, reservation admission, and parent
+Enrollment, evaluator-result publication, reservation admission, and source-base
 invalidation all use the same pattern: shared exact-replay and head observation,
 unlocked reducer/provider/verifier work, then exclusive exact-replay-first and
 unchanged-snapshot compare-and-swap before any write. Identical concurrent
@@ -433,7 +433,7 @@ identity, and validation closure; reopens every unique prepared historical
 adapter and records its verifier/version and complete proof dependency closure;
 and submits an internally derived subject set to one authenticated denylist
 provider. That set includes the reservation and request, the request's entire
-dependency closure, parent-release and candidate dependencies, adapter proofs,
+dependency closure, source-base-release and candidate dependencies, adapter proofs,
 and a content-addressed synthetic identity for each verifier authority. The
 provider must echo the exact sorted subject set with no denied subject. The
 resulting content-addressed fence persists the exact checked-subject tuple and
@@ -449,7 +449,7 @@ security subject tuple from the prepared closure on every reopen; possession of
 serialized fence bytes is not runtime authority.
 
 The reservation API accepts only the runtime-only prepared closure, reconstructs
-it to rerun all byte, lineage, context, artifact, adapter, parent, candidate, and
+it to rerun all byte, lineage, context, artifact, adapter, source-base, candidate, and
 aggregate-budget invariants, independently re-derives every compute binding from
 the persisted settings, and then persists its request. A self-consistent
 content contract without those prepared authorities is not executable admission.
@@ -463,7 +463,7 @@ final exclusive-lock compare-and-swap either binds the unchanged head or replays
 an identical concurrently committed reservation. A changed head or different
 request fails rather than carrying stale external validation into admission. A
 historical reservation stays auditable after authority changes, while execution
-must perform fresh parent, revocation, and verifier observations immediately
+must perform fresh CURRENT, revocation, and verifier observations immediately
 before each spawn and again before receipt publication. Adapter dependency
 closure includes every sanitation and validation proof reference, so later taint
 or revocation cannot miss a proof that package verification consumed.
@@ -608,7 +608,7 @@ Implemented validation substrate:
   appending a passed-stage reference; and
 - current-release-authority invalidation is a content-addressed terminal transition
   that preserves accepted-stage history and proves expected versus observed
-  `CURRENT`. It covers parent advancement or disappearance and a release appearing
+  `CURRENT`. It covers source-base advancement or disappearance and a release appearing
   after bootstrap absence, so stale attempts cannot accept their remaining work.
 
 Terminal publication eligibility, composition, and release remain separate later
@@ -699,8 +699,8 @@ contract/schema
       exists.
 
 Stage applicability is deterministic. Bootstrap omits replay, anchors, transfer,
-and canary because no parent evidence exists. Mechanical fixes use deterministic
-gates, fresh-task smoke, source replay when a parent exists, review, release
+and canary because no source-base evidence exists. Mechanical fixes use deterministic
+gates, fresh-task smoke, source replay when a source base exists, review, release
 matrix, and publication. Behavioral changes additionally require development
 anchors, cross-family transfer when more than one family is bound, and a sealed
 canary. Architecture changes use the release-wide path and require a canary only
@@ -710,7 +710,7 @@ ineligible; it is never treated as a skipped or passed stage.
 ## Automated review and decision
 
 - [x] Accept reviewer assertions only from configured autonomous identities/roles.
-- [x] Require exact candidate, evidence, evaluator-run, rubric, and parent-release
+- [x] Require exact candidate, evidence, evaluator-run, rubric, and source-base-release
       references.
 - [x] Preserve conflicting reviews as disputed; do not overwrite by time.
 - [x] A separate coding-agent/service role reviews each proposal; the proposing
@@ -752,7 +752,7 @@ Minimal ownership:
 - `promotion_evidence.py` requires a store/process-sealed completed task journal,
   independently reopens its exact durable reservation, resolves every referenced
   accepted event, reuses a source comparison only on exact
-  candidate/parent/adapter/context/fingerprint identity, and mints the report; it
+  candidate/source-base/adapter/context/fingerprint identity, and mints the report; it
   never accepts evaluator-authored rows or effects;
 - `promotion_stage_contracts.py` embeds that report in the exact accepted-stage
   authority, while `promotion_stage.py` preserves the process-local execution
@@ -805,11 +805,11 @@ temporal precommit authority.
 Operational stage publication additionally requires adapter-owned task evidence;
 therefore a structurally valid source-only factual report remains useful for
 analysis but cannot become the accepted `RELEASE_MATRIX` result.
-The plan binds the exact candidate and optional parent trees, full verified adapter
+The plan binds the exact candidate and optional source-base trees, full verified adapter
 packages, task contexts, source lineage or adapter-owned case, complete
 `EvaluationFingerprint` including every seed/replicate, metric authority, and exact
 dependency closure. Source replay and adapter-owned-case provenance are orthogonal
-to parent-comparison versus bootstrap mode: a parent matrix may mix both channels,
+to control-comparison versus bootstrap mode: a control matrix may mix both channels,
 while bootstrap requires adapter-owned standalone cases and never fabricates a zero
 control. Fresh provider verification is required at plan admission, before each
 spawn, and before terminal publication; embedded authority exists for durable
@@ -818,26 +818,26 @@ offline revalidation, not as a substitute for freshness.
 Adapter-owned execution uses neutral `task-evaluation-*` contracts rather than a
 second source-replay dialect. One content-addressed case binds its adapter/provenance,
 signed case, context, independence identity, complete cell/fingerprint set, artifact
-IDs, compute envelope, and semantic expert legs. Parent requests require exactly one
-candidate and one parent-control leg per case; bootstrap requests require exactly one
-candidate leg and prohibit every parent-shaped field. Each leg is bound to the exact
-candidate or parent artifact, source receipt, and tree. A reservation in turn binds
+IDs, compute envelope, and semantic expert legs. Control-comparison requests require
+exactly one candidate and one source-base-control leg per case; bootstrap requests
+require exactly one candidate leg and prohibit every source-base/control field. Each
+leg is bound to the exact candidate or source-base artifact, source receipt, and tree. A reservation in turn binds
 the unchanged matrix-plan operation, request, validation head, candidate, and
-authenticated present/absent parent state before any execution can begin.
+authenticated present/absent CURRENT state before any execution can begin.
 The durable request binds the configured evaluator ID, role, and version. A separate
 runtime closure joins it to the exact reserved plan and rejects omitted, substituted,
 or foreign adapter provenances, cells, fingerprints, cases, contexts, independence
 identities, artifacts, or compute. Compute is derived only from the release-matrix
 evaluator timeout and the shared configured provider, sandbox, resource, output,
-stream, and accelerator authority. Bootstrap has one candidate leg; parent comparison
-counterbalances candidate-first and parent-first order deterministically across the
+stream, and accelerator authority. Bootstrap has one candidate leg; control comparison
+counterbalances candidate-first and source-base-control-first order deterministically across the
 complete adapter-provenance set. That plan join is deliberately not a spawn
 capability: materialization must still prove exact package bytes and fresh adapter
 authority.
 
 Request construction is also derived rather than caller-authored. The reserved plan,
 configured release-matrix evaluator, immutable stored candidate, exact candidate
-bytes, and optional candidate-bound parent receipt/bytes produce the complete
+bytes, and optional candidate-bound source-base receipt/bytes produce the complete
 canonical request, cases, legs, compute bindings, and dependency closure; the result
 is immediately rejoined to the plan. Source-reuse provenances never become new
 evaluator cases because their already-accepted rows are reduced separately.
@@ -883,7 +883,7 @@ materialized historical task context. This prevents one case or source replay fr
 reading another signed case's fixtures through the adapter mount.
 
 The byte boundary is now shared without conflating authorization producers.
-`VerifiedTaskEvaluationCandidate` and `VerifiedTaskEvaluationParent` prove exact
+`VerifiedTaskEvaluationCandidate` and `VerifiedTaskEvaluationSourceBase` prove exact
 expert-tree bytes for both source replay and matrix execution.
 `VerifiedTaskEvaluationAdapterRuntime` revalidates the manifest, verification
 receipt, extraction receipt, executable, lock, and exact fixture-free runtime
@@ -897,7 +897,7 @@ and fresh provider observation before they become a spawn capability.
 request case retains its full `VerifiedTaskAdapter`, proves the exact embedded plan
 authority, derives the fixture-free runtime again, and matches only the signed case's
 artifact closures. Historical source-only adapter versions are not executable cases.
-Aggregate accounting includes candidate, optional parent, and each distinct full
+Aggregate accounting includes candidate, optional source base, and each distinct full
 adapter package exactly once; runtime and fixture projections are views of already
 counted package bytes. It also retains the exact typed current-release observation on
 which preflight relied. This prepared object is still neither a durable reservation
@@ -906,8 +906,8 @@ nor an execution capability.
 Provider resolution now begins from that exact prepared closure. Its executable-case
 projection removes plan, provenance, cell, and validation identities while retaining
 the signed context, fingerprints, selected fixture bytes, fixture-free adapter
-runtime, compute envelope, and semantic candidate/parent legs. Bootstrap projects
-only a candidate leg; parent mode binds each semantic leg to its exact verified tree
+runtime, compute envelope, and semantic candidate/source-base legs. Bootstrap projects
+only a candidate leg; control-comparison mode binds each semantic leg to its exact verified tree
 and receipt. A full-key registry resolves every case and runs deterministic support
 checks before reservation. The key contains only implementation-selecting protocol,
 provider/settings, sandbox, adapter-runtime, and evaluator-protocol identities; mode,
@@ -925,13 +925,13 @@ formats are removed. A minimal matrix spawn fence binds only the reservation, re
 allocation, one stable fresh current-or-absent observation, the exact sorted set of
 all prepared adapter trust observations, and the exact denylist observation. Its pure
 projection derives the complete checked-subject set from the reservation/request
-closures, allocated case/leg pair, candidate and optional parent dependencies,
+closures, allocated case/leg pair, candidate and optional source-base dependencies,
 current publication/validation closure, and every adapter/verifier dependency. Missing
 or extra checked subjects, denied subjects, foreign scope/release/absence, substituted
 adapters, or a cross-case allocation fail closed. A harmless branch-head advance after
 admission may produce a new observation; the later coordinator must require its two
 fresh observations to equal each other while preserving the reservation's exact
-parent release or bootstrap absence.
+source-base release or bootstrap absence.
 
 `TaskEvaluationPreflightCoordinator` is the sole producer that turns a reserved plan
 into that byte-closed request. Its order is fixed:
@@ -939,10 +939,10 @@ into that byte-closed request. Its order is fixed:
 1. reopen the exact plan alias at the unchanged local validation head;
 2. reopen the exact candidate and join its manifest, trigger packet, decision, commit,
    tree, plan subjects, and configured validation fingerprint before any external read;
-3. authenticate `C0`, which is either the expected parent `CURRENT` or repository-head-
+3. authenticate `C0`, which is either the expected source-base `CURRENT` or repository-head-
    bound bootstrap absence;
-4. materialize the exact parent only in parent mode, then derive the request immediately
-   so a substituted parent fails before adapter acquisition;
+4. materialize the exact source base only in control-comparison mode, then derive the
+   request immediately so a substituted source base fails before adapter acquisition;
 5. resolve each distinct adapter-case package by its pinned manifest and receipt under
    the one configured entry, byte, and monotonic deadline budget; source-only historical
    packages are evidence and are not reacquired as executable packages;
@@ -951,8 +951,8 @@ into that byte-closed request. Its order is fixed:
 7. reopen the exact plan alias again and require it to equal the first reopen; and
 8. derive fixture-free runtimes and only the selected signed-case artifacts.
 
-Bootstrap never calls the parent provider. Exact observation equality detects a
-release appearing during bootstrap and a parent restored under a new branch head
+Bootstrap never calls the source-base provider. Exact observation equality detects a
+release appearing during bootstrap and a source base restored under a new branch head
 after intermediate movement. No network call occurs under the validation-store lock.
 `TaskEvaluationReservation` then durably binds the exact request, plan alias,
 authorization transition/state/attempt, candidate tree, scope contract and logical
@@ -967,14 +967,14 @@ commit produced a newer observation; spawn freshness is a separate authority. A
 different request or changed validation/plan head conflicts. Every later spawn must
 still reacquire live package, current-release, and denylist authority.
 
-The planner now derives a mixed parent matrix from the complete accepted source
+The planner now derives a mixed control matrix from the complete accepted source
 replay plus every signed case in every immutable attempt-pinned active adapter.
 Historical package versions needed by source evidence remain exact authorities but
 do not contribute adapter-owned cases unless they are also active pins. Bootstrap
-derives only active adapter cases, names no parent or control, needs no source request,
-and reserves/reopens through the same unchanged-head journal alias. Parent mode
-requires accepted source authority and directly binds the plan parent tree to the
-candidate's verified parent closure.
+derives only active adapter cases, names no source base or control, needs no source
+request, and reserves/reopens through the same unchanged-head journal alias.
+Control-comparison mode requires accepted source authority and directly binds the
+plan source-base tree to the candidate's verified source-base closure.
 
 Plan reservation performs no evaluator spend. Admission reopens the candidate and
 every exact package, checks current release authority before and after adapter
@@ -991,13 +991,13 @@ matrix-plan alias, the complete accepted transition history, the historical sour
 reservation alias, and the separately persisted request, reservation, receipt, and
 stage-result objects. The source-row reducer then copies only the accepted event IDs
 and exact replicate maps for cells whose case, context, adapter, fingerprint, metric
-binding, candidate, and parent all match the reserved plan. It performs no preflight,
+binding, candidate, and source base all match the reserved plan. It performs no preflight,
 provider call, freshness lookup, or fallback. Missing or corrupt accepted objects
 fail loud, while loss of the already-published execution journal does not erase or
 rerun accepted scientific evidence.
 
 The report covers reserved cells exactly once and in canonical order, with complete
-candidate and, when parent-backed, control replicate maps. Observation-event
+candidate and, when source-base-backed, control replicate maps. Observation-event
 namespaces must match their provenance channel. Every fingerprint from one case
 shares the case's single candidate/control accepted-event pair; an event cannot be
 reused by another case or leg role. Adapter-owned rows additionally retain the
@@ -1012,8 +1012,8 @@ values; metric direction/scale substitution; stale packages; or omitted dependen
 fail loud. Effects, thresholds, winner labels, and promotion state are absent from
 the factual report and derived only by the trusted decision reducer.
 
-For a parent-backed cell and exact replicate ID, the decision reducer computes
-`raw = candidate - parent`, multiplies by `+1` for maximize or `-1` for minimize,
+For a source-base-backed cell and exact replicate ID, the decision reducer computes
+`raw = candidate - control`, multiplies by `+1` for maximize or `-1` for minimize,
 then divides by the adapter-owned positive comparison scale. It normalizes
 mathematical zero to positive zero and rejects nonfinite arithmetic. It never uses
 the control value as a denominator, reapplies direction, or aggregates before the
@@ -1035,7 +1035,7 @@ Decision order is fixed:
 5. call a cell gain-supporting only when every one of its precommitted replicates is
    a strict gain. A dimension is confirmed only when its gain-supporting cells admit
    the same configured context-lineage matching; and
-6. approve parent-backed evidence only with no material regression and at least one
+6. approve source-base-backed evidence only with no material regression and at least one
    confirmed dimension. A trusted `MECHANICAL_GENERAL_FIX` attempt is the sole
    exception: once fully powered, complete non-regression is sufficient.
 
@@ -1046,7 +1046,7 @@ powered material regression without gain, or fully powered all-tie evidence, is
 `FAILED`. Malformed or noncomparable input raises and produces no decision; it is
 not converted into a retained candidate.
 
-Bootstrap never fabricates a parent, zero control, delta, or effect. It establishes
+Bootstrap never fabricates a source base, zero control, delta, or effect. It establishes
 the first baseline only when every candidate-only cell meets the replicate minimum
 and every dimension meets the same independent context-lineage matching, yielding
 `APPROVED` with an explicit standalone-coverage reason; insufficient bootstrap
@@ -1060,7 +1060,7 @@ interval. This strict precedence is intentional and tested.
 Only `APPROVED` appends an
 accepted `PUBLICATION_ELIGIBILITY` reference; retained/failed candidates preserve
 the accepted prefix and cite the decision as terminal evidence. `PARETO_RETAINED`
-means retained relative to the named parent and matrix, never membership in a
+means retained relative to the named source base and matrix, never membership in a
 mutable global frontier and never permission to publish. Approval is also not a
 release lease: a later expected-parent GitHub CAS may still lose, requiring a new
 rebased/composed candidate and full revalidation.
@@ -1073,8 +1073,8 @@ foundation separates scientific identity from time-sensitive admission:
 - `ExpertCompositionBaseReference` is a stable release projection: release, scope,
   source-tree, map, module, semantic-book, and configuration identities, with no
   publisher attestation, branch head, cache receipt, or pointer metadata.
-- `ExpertCompositionSourceReference` is the stable candidate/commit/parent/patch/
-  proposed-topology projection. Different historical parents are intentional: this
+- `ExpertCompositionSourceReference` is the stable candidate/commit/source-base/patch/
+  proposed-topology projection. Different historical source bases are intentional: this
   is the input required to rebase an approved stale candidate, not a claim that it
   was built from current source.
 - `ExpertCompositionPlan` binds one base and a canonical non-empty source set. It
@@ -1114,7 +1114,7 @@ dependency cycles, adapter leakage, cross-source capability incompatibility, or 
 aggregate source limit require a fresh architect/generalizer proposal. A coding agent
 that resolves any conflict also
 creates a fresh proposal rather than laundering that judgment through the pure
-reducer. A clean materialization embeds both parent and successor tree manifests,
+reducer. A clean materialization embeds both source-base and successor tree manifests,
 rederives the exact patch, regenerates every control file and semantic book, and reruns
 the shared topology and ownership validators. Module resource-bound maps remain opaque
 domain contracts; the generic reducer enforces configured aggregate tree limits rather
@@ -1124,7 +1124,7 @@ Clean reductions now project to a distinct deterministic-composition candidate
 derivation; they never fabricate a coding-agent invocation. The composition plan owns
 the active task-binding set and a distinct bounded source count, and every source reference binds its agent derivation,
 validation context, and origin principal. The candidate package codec retains exact
-commit-checked source packages plus the current parent bytes. Reopen recomputes the full
+commit-checked source packages plus the current source-base bytes. Reopen recomputes the full
 replay-evidence union, reconstructs the verified base, reruns the pure reducer, and
 requires its assessment, materialization, and successor bytes to match exactly. This
 also makes arbitrary sanitized edits and causal-evidence omission fail closed. Sources
@@ -1169,8 +1169,8 @@ Before release:
 - [x] Resolve every source reference through the candidate/validation stores and
       issue process-local approved-source capabilities.
 - [x] Resolve the latest stable expert release through M2 and compare it with every
-      candidate's parent commit/tree.
-- [x] If the parent moved, deterministically rebase compatible capability effects into
+      candidate's source-base commit/tree.
+- [x] If the source base moved, deterministically rebase compatible capability effects into
       an exact new tree identity; never patch the old release in place.
 - [x] Detect overlapping paths, module-contract conflicts, topology drift, adapter
       leakage, cross-source capability incompatibility, and configured aggregate tree
@@ -1247,8 +1247,21 @@ plan reproduces that exact lineage, binds `CURRENT` and its pointer only to the
 activation predecessor, and derives generation from that predecessor. Ordinary
 manifests and plans require both IDs to be equal; bootstrap requires both absent.
 The old `parent_release_id`/`parent_pointer` release fields are removed rather
-than retained as aliases. Candidate and evaluation parent fields still denote
-the scientific source base until their dedicated semantic-rename slice.
+than retained as aliases. The same semantic split now runs through candidate,
+proposal, composition, validation, task-evaluation, source-replay, and promotion
+contracts: `source_base_*` always names immutable scientific inputs;
+`expected_current_*` names a planned temporal fence; `observed_current_*` names a
+fresh authority observation. Experimental rows and legs use `control_*` and
+`source_base_control`, never `parent`, for the comparison arm. Superseded wire keys,
+enum values, and package paths are rejected rather than aliased.
+
+Source-replay execution reservation deliberately stores
+`expected_current_release_id`: reserving the already prepared request performs no
+new GitHub read and therefore cannot claim an observation. Task-evaluation
+reservation stores `observed_current_release_id` because its coordinator obtains
+and binds the fresh CURRENT observation at that boundary. Ordinary validation
+still requires candidate source base, reserved/observed CURRENT, and the final
+fresh CURRENT to be equal; clean recovery must enter through its own typed path.
 
 Publication-plan construction is production-owned. The only orchestration entry
 point is `ExpertReleasePublisher.reserve(candidate_id, committed_at)`: it reopens
@@ -1343,6 +1356,8 @@ fails before touching GitHub.
       retaining the ordinary equality invariant.
 - [x] Make release-plan construction and first-writer reservation a bound publisher
       operation with offline durable replay.
+- [x] Name immutable scientific inputs, temporal CURRENT authority, and experimental
+      controls distinctly across all expert contracts and persisted artifacts.
 - [ ] Publish a clean successor/rollback pointer; never move or delete the old
       immutable release as the history mechanism.
 
@@ -1354,7 +1369,7 @@ fails before touching GitHub.
 - Test noisy gain, mean gain with hard regression, cost regression, task-specific
   winner, mechanically provable fix, and architecture benefit fixtures.
 - Compose disjoint candidates; reject overlapping/conflicting/cyclic candidates.
-- Force parent advancement and require new identity plus full revalidation.
+- Force source-base advancement and require new identity plus full revalidation.
 - Build the same approved release twice and require identical archive/manifest IDs.
 - Inject release publication/CAS failures and prove old current remains launchable.
 - Exercise performance versus security revocation and complete taint closure.

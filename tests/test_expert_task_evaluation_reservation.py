@@ -30,13 +30,13 @@ def _parent_prepared(tmp_path, monkeypatch):
         expected_transition_id=snapshot.transition.transition_id,
         prepared_plan=prepared_plan,
     ).reservation
-    _candidate, parent = _expert_sources(prepared_plan)
+    _candidate, source_base = _expert_sources(prepared_plan)
     observation = _current_observation(prepared_plan)
     current_authority = _CurrentAuthority((observation, observation))
-    coordinator, candidate_reader, parent_provider, adapter_provider = _coordinator(
+    coordinator, candidate_reader, source_base_provider, adapter_provider = _coordinator(
         validation_store=validation_store,
         prepared_plan=prepared_plan,
-        parent=parent,
+        source_base=source_base,
         current_authority=current_authority,
     )
     prepared = coordinator.build(plan_reservation)
@@ -46,7 +46,7 @@ def _parent_prepared(tmp_path, monkeypatch):
         prepared,
         current_authority,
         candidate_reader,
-        parent_provider,
+        source_base_provider,
         adapter_provider,
     )
 
@@ -61,13 +61,13 @@ def test_parent_task_evaluation_reserves_replays_and_reopens_offline(
         prepared,
         current_authority,
         candidate_reader,
-        parent_provider,
+        source_base_provider,
         adapter_provider,
     ) = _parent_prepared(tmp_path, monkeypatch)
     provider_call_counts = (
         len(current_authority.calls),
         len(candidate_reader.calls),
-        len(parent_provider.calls),
+        len(source_base_provider.calls),
         len(adapter_provider.calls),
     )
 
@@ -104,12 +104,12 @@ def test_parent_task_evaluation_reserves_replays_and_reopens_offline(
         == prepared.plan_join.request.scope_id
     )
     assert committed.reservation.reservation.observed_current_release_id == (
-        prepared.plan_join.request.parent_release_id
+        prepared.plan_join.request.source_base_release_id
     )
     assert provider_call_counts == (
         len(current_authority.calls),
         len(candidate_reader.calls),
-        len(parent_provider.calls),
+        len(source_base_provider.calls),
         len(adapter_provider.calls),
     )
 
@@ -127,10 +127,10 @@ def test_bootstrap_reservation_persists_authenticated_absence(
     ).reservation
     observation = _current_observation(prepared_plan)
     current_authority = _CurrentAuthority((observation, observation))
-    coordinator, _candidate_reader, parent_provider, _adapter_provider = _coordinator(
+    coordinator, _candidate_reader, source_base_provider, _adapter_provider = _coordinator(
         validation_store=validation_store,
         prepared_plan=prepared_plan,
-        parent=None,
+        source_base=None,
         current_authority=current_authority,
     )
     prepared = coordinator.build(plan_reservation)
@@ -140,7 +140,7 @@ def test_bootstrap_reservation_persists_authenticated_absence(
         prepared_request=prepared,
     )
 
-    assert parent_provider.calls == []
+    assert source_base_provider.calls == []
     assert committed.reservation.current_release_observation.release_id is None
     assert (
         committed.reservation.reservation.current_release_observation_id

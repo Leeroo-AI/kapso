@@ -26,11 +26,10 @@ from kapso.cross_run.expert.task_evaluation_request import (
 )
 from kapso.cross_run.expert.task_evaluation_materialization import (
     VerifiedTaskEvaluationCandidate,
-    VerifiedTaskEvaluationParent,
+    VerifiedTaskEvaluationSourceBase,
 )
 from kapso.cross_run.expert.triggers import (
-    ExpertParentTreeReceipt,
-    ExpertTriggerEvidencePacket,
+    ExpertSourceBaseTreeReceipt,
 )
 from test_expert_candidate_workspace import released_workspace_fixture
 from test_expert_release_matrix_reservation import (
@@ -55,15 +54,15 @@ def _remint(contract, **updates):
 
 
 def _leg(kind: TaskEvaluationLegKind) -> TaskEvaluationExpertLeg:
-    if kind is TaskEvaluationLegKind.PARENT_CONTROL:
-        artifact_id = _id("expert-base-release", "parent")
-        receipt_id = _id("expert-parent-tree-receipt", "parent")
+    if kind is TaskEvaluationLegKind.SOURCE_BASE_CONTROL:
+        artifact_id = _id("expert-base-release", "source_base")
+        receipt_id = _id("expert-source-base-tree-receipt", "source_base")
     else:
         artifact_id = _id("expert-candidate", "candidate")
         receipt_id = _id("expert-candidate-commit", "candidate")
     tree_label = (
-        "parent-tree"
-        if kind is TaskEvaluationLegKind.PARENT_CONTROL
+        "source_base-tree"
+        if kind is TaskEvaluationLegKind.SOURCE_BASE_CONTROL
         else "candidate-tree"
     )
     return TaskEvaluationExpertLeg.mint(
@@ -110,7 +109,7 @@ def _case(
         (TaskEvaluationLegKind.CANDIDATE,)
         if mode is ExpertReleaseMatrixMode.BOOTSTRAP
         else (
-            TaskEvaluationLegKind.PARENT_CONTROL,
+            TaskEvaluationLegKind.SOURCE_BASE_CONTROL,
             TaskEvaluationLegKind.CANDIDATE,
         )
     )
@@ -189,7 +188,7 @@ def _request(mode: ExpertReleaseMatrixMode) -> TaskEvaluationRequest:
     parent_id = (
         None
         if mode is ExpertReleaseMatrixMode.BOOTSTRAP
-        else _id("expert-base-release", "parent")
+        else _id("expert-base-release", "source_base")
     )
     plan_dependencies = tuple(
         sorted(
@@ -229,8 +228,8 @@ def _request(mode: ExpertReleaseMatrixMode) -> TaskEvaluationRequest:
         candidate_tree_hash=_digest("candidate-tree"),
         scope_contract_id=scope_contract_id,
         scope_id="ml_ai",
-        parent_release_id=parent_id,
-        parent_tree_hash=(None if parent_id is None else _digest("parent-tree")),
+        source_base_release_id=parent_id,
+        source_base_tree_hash=(None if parent_id is None else _digest("source_base-tree")),
         validation_policy_id=policy_id,
         configuration_fingerprint=_digest("configuration"),
         release_matrix_evaluator_id="expert_release_matrix_evaluator",
@@ -258,8 +257,8 @@ def _reservation(request: TaskEvaluationRequest) -> TaskEvaluationReservation:
         request.scope_contract_id,
         observation_id,
     }
-    if request.parent_release_id is not None:
-        dependencies.add(request.parent_release_id)
+    if request.source_base_release_id is not None:
+        dependencies.add(request.source_base_release_id)
     return TaskEvaluationReservation.mint(
         request_id=request.request_id,
         plan_reservation_operation_id=request.plan_reservation_operation_id,
@@ -273,7 +272,7 @@ def _reservation(request: TaskEvaluationRequest) -> TaskEvaluationReservation:
         scope_contract_id=request.scope_contract_id,
         scope_id=request.scope_id,
         current_release_observation_id=observation_id,
-        observed_current_release_id=request.parent_release_id,
+        observed_current_release_id=request.source_base_release_id,
         exact_dependency_ids=tuple(sorted(dependencies)),
     )
 
@@ -291,21 +290,21 @@ def _request_for_reserved_plan(
         source_contents=stored.closure.candidate_contents,
     )
     packet = stored.closure.derivation.trigger_packet
-    if packet.parent_release is None or packet.parent_tree_receipt is None:
-        parent = None
+    if packet.source_base_release is None or packet.source_base_tree_receipt is None:
+        source_base = None
     else:
-        _released_packet, _materialized, parent_contents = released_workspace_fixture()
-        parent = VerifiedTaskEvaluationParent(
-            release_manifest=packet.parent_release,
-            parent_tree_receipt=packet.parent_tree_receipt,
-            source_contents=parent_contents,
+        _released_packet, _materialized, source_base_contents = released_workspace_fixture()
+        source_base = VerifiedTaskEvaluationSourceBase(
+            release_manifest=packet.source_base_release,
+            source_base_tree_receipt=packet.source_base_tree_receipt,
+            source_contents=source_base_contents,
         )
     return prepare_task_evaluation_request(
         plan_reservation=plan_reservation,
         settings=settings,
         stored_candidate=stored,
         candidate=candidate,
-        parent=parent,
+        source_base=source_base,
     ).request
 
 
@@ -376,7 +375,7 @@ def _case_with_updates(
             {TaskEvaluationLegKind.CANDIDATE},
         ),
         (
-            ExpertReleaseMatrixMode.PARENT_COMPARISON,
+            ExpertReleaseMatrixMode.CONTROL_COMPARISON,
             set(TaskEvaluationLegKind),
         ),
     ),
@@ -402,18 +401,18 @@ def test_request_round_trips_one_case_with_all_fingerprints_and_exact_legs(
 
 def test_bootstrap_cannot_name_or_schedule_a_parent():
     bootstrap = _request(ExpertReleaseMatrixMode.BOOTSTRAP)
-    parent = _request(ExpertReleaseMatrixMode.PARENT_COMPARISON)
+    source_base = _request(ExpertReleaseMatrixMode.CONTROL_COMPARISON)
 
-    with pytest.raises(TaskEvaluationContractError, match="cannot name a parent"):
+    with pytest.raises(TaskEvaluationContractError, match="cannot name a source base"):
         _remint(
             bootstrap,
-            parent_release_id=parent.parent_release_id,
-            parent_tree_hash=parent.parent_tree_hash,
+            source_base_release_id=source_base.source_base_release_id,
+            source_base_tree_hash=source_base.source_base_tree_hash,
         )
     with pytest.raises(TaskEvaluationContractError, match="mode-specific legs"):
         _remint(
             bootstrap,
-            cases=parent.cases,
+            cases=source_base.cases,
         )
     with pytest.raises(TaskEvaluationContractError, match="dependency closure"):
         _remint(
@@ -426,15 +425,15 @@ def test_bootstrap_cannot_name_or_schedule_a_parent():
 
 
 def test_parent_mode_requires_both_semantic_legs():
-    parent = _request(ExpertReleaseMatrixMode.PARENT_COMPARISON)
+    source_base = _request(ExpertReleaseMatrixMode.CONTROL_COMPARISON)
     candidate_case = _case(ExpertReleaseMatrixMode.BOOTSTRAP)
 
-    with pytest.raises(TaskEvaluationContractError, match="requires a parent"):
-        _remint(parent, parent_release_id=None, parent_tree_hash=None)
+    with pytest.raises(TaskEvaluationContractError, match="requires a source base"):
+        _remint(source_base, source_base_release_id=None, source_base_tree_hash=None)
     with pytest.raises(TaskEvaluationContractError, match="mode-specific legs"):
-        _remint(parent, cases=(candidate_case,))
+        _remint(source_base, cases=(candidate_case,))
     with pytest.raises(TaskEvaluationContractError, match="expert authority"):
-        _remint(parent, parent_tree_hash=_digest("substituted-parent-tree"))
+        _remint(source_base, source_base_tree_hash=_digest("substituted-source-base-tree"))
 
 
 def test_request_legs_cannot_substitute_the_candidate_tree():
@@ -448,7 +447,7 @@ def test_request_legs_cannot_substitute_the_candidate_tree():
 
 
 def test_request_contract_version_and_provenance_roles_are_exact():
-    request = _request(ExpertReleaseMatrixMode.PARENT_COMPARISON)
+    request = _request(ExpertReleaseMatrixMode.CONTROL_COMPARISON)
     with pytest.raises(TaskEvaluationContractError, match="version is unsupported"):
         _remint(
             request,
@@ -473,7 +472,7 @@ def test_request_contract_version_and_provenance_roles_are_exact():
 
 
 def test_case_schedule_and_dependency_closures_fail_loud():
-    case = _case(ExpertReleaseMatrixMode.PARENT_COMPARISON)
+    case = _case(ExpertReleaseMatrixMode.CONTROL_COMPARISON)
     compute = case.compute_binding
 
     with pytest.raises(TaskEvaluationContractError, match="no duplicates"):
@@ -488,7 +487,7 @@ def test_case_schedule_and_dependency_closures_fail_loud():
         _remint(case, evaluation_cell_ids=case.evaluation_cell_ids[:1])
     with pytest.raises(TaskEvaluationContractError, match="dependency closure"):
         _remint(case, exact_dependency_ids=case.exact_dependency_ids[:-1])
-    request = _request(ExpertReleaseMatrixMode.PARENT_COMPARISON)
+    request = _request(ExpertReleaseMatrixMode.CONTROL_COMPARISON)
     with pytest.raises(TaskEvaluationContractError, match="dependency closure"):
         _remint(request, exact_dependency_ids=request.exact_dependency_ids[:-1])
     reservation = _reservation(request)
@@ -536,12 +535,12 @@ def test_plan_join_requires_exact_adapter_case_projection_and_evaluator_role(
     } == expected_compute
     assert {case.compute_binding.leg_order for case in request.cases} == {
         (
-            TaskEvaluationLegKind.PARENT_CONTROL,
+            TaskEvaluationLegKind.SOURCE_BASE_CONTROL,
             TaskEvaluationLegKind.CANDIDATE,
         ),
         (
             TaskEvaluationLegKind.CANDIDATE,
-            TaskEvaluationLegKind.PARENT_CONTROL,
+            TaskEvaluationLegKind.SOURCE_BASE_CONTROL,
         ),
     }
     assert all(
@@ -562,7 +561,7 @@ def test_plan_join_requires_exact_adapter_case_projection_and_evaluator_role(
     with pytest.raises(TaskEvaluationComputeError, match="exact matrix mode"):
         derive_release_matrix_compute_bindings(
             settings=validation_store.settings,
-            mode="parent_comparison",
+            mode="control_comparison",
             provenance_binding_ids=provenance_ids,
         )
 
@@ -691,7 +690,7 @@ def test_request_derivation_enforces_parent_receipt_mode(
     tmp_path,
     monkeypatch,
 ):
-    parent_root = tmp_path / "parent"
+    parent_root = tmp_path / "source_base"
     bootstrap_root = tmp_path / "bootstrap"
     parent_root.mkdir()
     bootstrap_root.mkdir()
@@ -713,7 +712,7 @@ def test_request_derivation_enforces_parent_receipt_mode(
 
     with pytest.raises(
         TaskEvaluationRequestPreparationError,
-        match="parent authority differs from matrix mode",
+        match="source-base authority differs from matrix mode",
     ):
         parent_candidate = VerifiedTaskEvaluationCandidate(
             manifest=parent_prepared.stored_candidate.closure.manifest,
@@ -728,7 +727,7 @@ def test_request_derivation_enforces_parent_receipt_mode(
             settings=parent_store.settings,
             stored_candidate=parent_prepared.stored_candidate,
             candidate=parent_candidate,
-            parent=None,
+            source_base=None,
         )
     bootstrap_candidate = VerifiedTaskEvaluationCandidate(
         manifest=bootstrap_prepared.stored_candidate.closure.manifest,
@@ -736,54 +735,31 @@ def test_request_derivation_enforces_parent_receipt_mode(
         source_tree=bootstrap_prepared.stored_candidate.closure.candidate_tree,
         source_contents=bootstrap_prepared.stored_candidate.closure.candidate_contents,
     )
-    _released_packet, _materialized, parent_contents = released_workspace_fixture()
+    _released_packet, _materialized, source_base_contents = released_workspace_fixture()
     parent_packet = parent_prepared.stored_candidate.closure.derivation.trigger_packet
-    assert parent_packet.parent_release is not None
-    assert parent_packet.parent_tree_receipt is not None
-    exact_parent = VerifiedTaskEvaluationParent(
-        release_manifest=parent_packet.parent_release,
-        parent_tree_receipt=parent_packet.parent_tree_receipt,
-        source_contents=parent_contents,
+    assert parent_packet.source_base_release is not None
+    assert parent_packet.source_base_tree_receipt is not None
+    exact_parent = VerifiedTaskEvaluationSourceBase(
+        release_manifest=parent_packet.source_base_release,
+        source_base_tree_receipt=parent_packet.source_base_tree_receipt,
+        source_contents=source_base_contents,
     )
-    parent_receipt = exact_parent.parent_tree_receipt
-    substituted_receipt = ExpertParentTreeReceipt.mint(
-        release_id=parent_receipt.release_id,
-        cache_verification_receipt=parent_receipt.cache_verification_receipt,
-        source_extraction_receipt=parent_receipt.source_extraction_receipt,
-        parent_tree_hash=parent_receipt.parent_tree_hash,
-        repository_map_id=parent_receipt.repository_map_id,
-        module_contract_ids=parent_receipt.module_contract_ids,
+    source_base_receipt = exact_parent.source_base_tree_receipt
+    substituted_receipt = ExpertSourceBaseTreeReceipt.mint(
+        release_id=source_base_receipt.release_id,
+        cache_verification_receipt=source_base_receipt.cache_verification_receipt,
+        source_extraction_receipt=source_base_receipt.source_extraction_receipt,
+        source_base_tree_hash=source_base_receipt.source_base_tree_hash,
+        repository_map_id=source_base_receipt.repository_map_id,
+        module_contract_ids=source_base_receipt.module_contract_ids,
         materializer_version="substituted.materializer.v1",
     )
-    substituted_parent = VerifiedTaskEvaluationParent(
-        release_manifest=parent_packet.parent_release,
-        parent_tree_receipt=substituted_receipt,
-        source_contents=parent_contents,
+    substituted_parent = VerifiedTaskEvaluationSourceBase(
+        release_manifest=parent_packet.source_base_release,
+        source_base_tree_receipt=substituted_receipt,
+        source_contents=source_base_contents,
     )
-    substituted_packet = ExpertTriggerEvidencePacket.mint(
-        knowledge_snapshot_manifest=parent_packet.knowledge_snapshot_manifest,
-        knowledge_record_closure_digest=(parent_packet.knowledge_record_closure_digest),
-        configuration_fingerprint=parent_packet.configuration_fingerprint,
-        scope_contract=parent_packet.scope_contract,
-        parent_scope_contract=parent_packet.parent_scope_contract,
-        parent_release=parent_packet.parent_release,
-        parent_tree_receipt=substituted_receipt,
-        parent_tree_hash=parent_packet.parent_tree_hash,
-        repository_map=parent_packet.repository_map,
-        module_contracts=parent_packet.module_contracts,
-        episodes=parent_packet.episodes,
-        claims=parent_packet.claims,
-        trigger_observations=parent_packet.trigger_observations,
-        active_task_bindings=parent_packet.active_task_bindings,
-        proof_reference_ids=parent_packet.proof_reference_ids,
-    )
-    substituted_stored_candidate = replace(
-        parent_prepared.stored_candidate,
-        closure=replace(
-            parent_prepared.stored_candidate.closure,
-            trigger_packet=substituted_packet,
-        ),
-    )
+    substituted_stored_candidate = bootstrap_prepared.stored_candidate
     with pytest.raises(
         TaskEvaluationRequestPreparationError,
         match="candidate differs from reserved plan authority",
@@ -793,49 +769,49 @@ def test_request_derivation_enforces_parent_receipt_mode(
             settings=parent_store.settings,
             stored_candidate=substituted_stored_candidate,
             candidate=parent_candidate,
-            parent=substituted_parent,
+            source_base=substituted_parent,
         )
     with pytest.raises(
         TaskEvaluationRequestPreparationError,
-        match="parent differs from reserved plan authority",
+        match="source-base differs from reserved plan authority",
     ):
         prepare_task_evaluation_request(
             plan_reservation=parent_reservation,
             settings=parent_store.settings,
             stored_candidate=parent_prepared.stored_candidate,
             candidate=parent_candidate,
-            parent=substituted_parent,
+            source_base=substituted_parent,
         )
     parent_request = prepare_task_evaluation_request(
         plan_reservation=parent_reservation,
         settings=parent_store.settings,
         stored_candidate=parent_prepared.stored_candidate,
         candidate=parent_candidate,
-        parent=exact_parent,
+        source_base=exact_parent,
     ).request
     assert {
         leg.expert_source_receipt_id
         for case in parent_request.cases
         for leg in case.legs
-        if leg.kind is TaskEvaluationLegKind.PARENT_CONTROL
-    } == {parent_receipt.parent_tree_receipt_id}
+        if leg.kind is TaskEvaluationLegKind.SOURCE_BASE_CONTROL
+    } == {source_base_receipt.source_base_tree_receipt_id}
     with pytest.raises(
         TaskEvaluationRequestPreparationError,
-        match="parent authority differs from matrix mode",
+        match="source-base authority differs from matrix mode",
     ):
         prepare_task_evaluation_request(
             plan_reservation=bootstrap_reservation,
             settings=bootstrap_store.settings,
             stored_candidate=bootstrap_prepared.stored_candidate,
             candidate=bootstrap_candidate,
-            parent=exact_parent,
+            source_base=exact_parent,
         )
     bootstrap_request = prepare_task_evaluation_request(
         plan_reservation=bootstrap_reservation,
         settings=bootstrap_store.settings,
         stored_candidate=bootstrap_prepared.stored_candidate,
         candidate=bootstrap_candidate,
-        parent=None,
+        source_base=None,
     ).request
     assert all(
         tuple(leg.kind for leg in case.legs) == (TaskEvaluationLegKind.CANDIDATE,)

@@ -80,7 +80,7 @@ def _digest(label):
 
 
 def _resolved(case, *, head_commit_sha="a" * 40, pointer=None):
-    receipt = case.parent_receipt.cache_verification_receipt
+    receipt = case.source_base_receipt.cache_verification_receipt
     repository = "Leeroo-AI/kapso-expert"
     publication = GitHubPublicationRecord.mint(
         artifact_kind=PublicationArtifactKind.EXPERT_BASE_RELEASE,
@@ -149,12 +149,12 @@ def _provider_case(*resolved):
         root=Path("/verified/expert"),
         content=Path("/verified/expert/content"),
         assets=Path("/verified/expert/assets"),
-        receipt=case.parent_receipt.cache_verification_receipt,
+        receipt=case.source_base_receipt.cache_verification_receipt,
         reused=False,
     )
     source_snapshot = ExpertReleaseSourceSnapshot(
         release_manifest=case.release,
-        source_extraction_receipt=(case.parent_receipt.source_extraction_receipt),
+        source_extraction_receipt=(case.source_base_receipt.source_extraction_receipt),
         source_contents=case.source_contents,
     )
     resolver = _Resolver(*authority)
@@ -179,7 +179,7 @@ def test_current_base_is_sealed_after_materialization_between_two_observations()
     assert capability.current_observation.observation_id in (
         capability.security_subject_ids
     )
-    assert capability.closure.parent_tree_receipt.parent_tree_receipt_id in (
+    assert capability.closure.source_base_tree_receipt.source_base_tree_receipt_id in (
         capability.security_subject_ids
     )
     assert materializer.inspect_calls == [

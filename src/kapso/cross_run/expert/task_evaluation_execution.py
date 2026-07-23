@@ -24,7 +24,7 @@ from kapso.cross_run.expert.task_evaluation_contracts import (
 from kapso.cross_run.expert.task_evaluation_materialization import (
     VerifiedTaskEvaluationAdapterRuntime,
     VerifiedTaskEvaluationCandidate,
-    VerifiedTaskEvaluationParent,
+    VerifiedTaskEvaluationSourceBase,
     VerifiedTaskEvaluationStartingArtifact,
 )
 from kapso.cross_run.expert.task_evaluation_preflight import (
@@ -164,7 +164,7 @@ class TaskEvaluationProviderSupportRequirements:
 @dataclass(frozen=True)
 class ExecutableTaskEvaluationLeg:
     authority: TaskEvaluationExpertLeg
-    expert_source: VerifiedTaskEvaluationCandidate | VerifiedTaskEvaluationParent
+    expert_source: VerifiedTaskEvaluationCandidate | VerifiedTaskEvaluationSourceBase
 
     def __post_init__(self) -> None:
         if type(self.authority) is not TaskEvaluationExpertLeg or not (
@@ -792,10 +792,10 @@ def _project_materialized_case(
     signed_case = signed_cases[0]
     sources_by_kind: dict[
         TaskEvaluationLegKind,
-        VerifiedTaskEvaluationCandidate | VerifiedTaskEvaluationParent,
+        VerifiedTaskEvaluationCandidate | VerifiedTaskEvaluationSourceBase,
     ] = {TaskEvaluationLegKind.CANDIDATE: prepared.candidate}
-    if prepared.parent is not None:
-        sources_by_kind[TaskEvaluationLegKind.PARENT_CONTROL] = prepared.parent
+    if prepared.source_base is not None:
+        sources_by_kind[TaskEvaluationLegKind.SOURCE_BASE_CONTROL] = prepared.source_base
     if (
         signed_case.evaluation_fingerprint_ids
         != request_case.evaluation_fingerprint_ids
@@ -826,7 +826,7 @@ def _project_materialized_case(
 
 def _task_evaluation_source_matches_leg(
     leg: TaskEvaluationExpertLeg,
-    expert_source: VerifiedTaskEvaluationCandidate | VerifiedTaskEvaluationParent,
+    expert_source: VerifiedTaskEvaluationCandidate | VerifiedTaskEvaluationSourceBase,
 ) -> bool:
     if (
         leg.kind is TaskEvaluationLegKind.CANDIDATE
@@ -839,14 +839,14 @@ def _task_evaluation_source_matches_leg(
             and expert_source.source_tree.tree_hash == leg.expert_tree_hash
         )
     if (
-        leg.kind is TaskEvaluationLegKind.PARENT_CONTROL
-        and type(expert_source) is VerifiedTaskEvaluationParent
+        leg.kind is TaskEvaluationLegKind.SOURCE_BASE_CONTROL
+        and type(expert_source) is VerifiedTaskEvaluationSourceBase
     ):
         return (
             expert_source.release_manifest.release_id == leg.expert_artifact_id
-            and expert_source.parent_tree_receipt.parent_tree_receipt_id
+            and expert_source.source_base_tree_receipt.source_base_tree_receipt_id
             == leg.expert_source_receipt_id
-            and expert_source.parent_tree_receipt.parent_tree_hash
+            and expert_source.source_base_tree_receipt.source_base_tree_hash
             == leg.expert_tree_hash
         )
     return False
@@ -863,7 +863,7 @@ def _reconstruct_prepared_request(
         plan_join=prepared_request.plan_join,
         stored_candidate=prepared_request.stored_candidate,
         candidate=prepared_request.candidate,
-        parent=prepared_request.parent,
+        source_base=prepared_request.source_base,
         current_release_observation=prepared_request.current_release_observation,
         cases=prepared_request.cases,
     )

@@ -24,7 +24,7 @@ from kapso.cross_run.contracts import (
 )
 from kapso.cross_run.expert.triggers import (
     ExpertEvolutionTriggerDecision,
-    ExpertParentTreeReceipt,
+    ExpertSourceBaseTreeReceipt,
     ExpertTriggerEvidencePacket,
     episode_lineage_id,
 )
@@ -245,12 +245,12 @@ class ExpertCandidateValidationContext(StrictContract):
 
     validation_context_id: str
     scope_contract: ExpertScopeContract
-    parent_scope_contract: ExpertScopeContract | None
-    parent_release: ExpertBaseReleaseManifest | None
-    parent_tree_receipt: ExpertParentTreeReceipt | None
-    parent_tree_hash: str
-    parent_repository_map: ExpertRepositoryMap | None
-    parent_module_contracts: tuple[ExpertModuleContract, ...]
+    source_base_scope_contract: ExpertScopeContract | None
+    source_base_release: ExpertBaseReleaseManifest | None
+    source_base_tree_receipt: ExpertSourceBaseTreeReceipt | None
+    source_base_tree_hash: str
+    source_base_repository_map: ExpertRepositoryMap | None
+    source_base_module_contracts: tuple[ExpertModuleContract, ...]
     active_task_bindings: tuple[CrossRunTaskBindingSettings, ...]
     replay_evidence: ExpertCandidateReplayEvidence
     stable_dependency_ids: tuple[str, ...]
@@ -261,10 +261,10 @@ class ExpertCandidateValidationContext(StrictContract):
     def _validate(self) -> None:
         if (
             type(self.scope_contract) is not ExpertScopeContract
-            or type(self.parent_module_contracts) is not tuple
+            or type(self.source_base_module_contracts) is not tuple
             or any(
                 type(module) is not ExpertModuleContract
-                for module in self.parent_module_contracts
+                for module in self.source_base_module_contracts
             )
             or type(self.active_task_bindings) is not tuple
             or any(
@@ -276,66 +276,66 @@ class ExpertCandidateValidationContext(StrictContract):
             raise ExpertCandidateContextError(
                 "candidate validation context requires exact typed records"
             )
-        if self.parent_release is None:
+        if self.source_base_release is None:
             if (
-                self.parent_tree_hash != EMPTY_EXPERT_TREE_DIGEST
-                or self.parent_scope_contract is not None
-                or self.parent_tree_receipt is not None
-                or self.parent_repository_map is not None
-                or self.parent_module_contracts
+                self.source_base_tree_hash != EMPTY_EXPERT_TREE_DIGEST
+                or self.source_base_scope_contract is not None
+                or self.source_base_tree_receipt is not None
+                or self.source_base_repository_map is not None
+                or self.source_base_module_contracts
             ):
                 raise ExpertCandidateContextError(
-                    "bootstrap validation context must have an explicit empty parent"
+                    "bootstrap validation context must have an explicit empty source base"
                 )
         elif (
-            type(self.parent_release) is not ExpertBaseReleaseManifest
-            or type(self.parent_scope_contract) is not ExpertScopeContract
-            or type(self.parent_tree_receipt) is not ExpertParentTreeReceipt
-            or type(self.parent_repository_map) is not ExpertRepositoryMap
-            or self.parent_release.scope_contract_id
-            != self.parent_scope_contract.scope_contract_id
-            or self.parent_release.scope_id != self.parent_scope_contract.scope_id
-            or self.parent_scope_contract.scope_id != self.scope_contract.scope_id
-            or self.parent_release.release_id != self.parent_tree_receipt.release_id
-            or self.parent_release.repository_map_ref
-            != self.parent_repository_map.repository_map_id
-            or self.parent_tree_hash != self.parent_tree_receipt.parent_tree_hash
-            or self.parent_repository_map.scope_contract_id
-            != self.parent_scope_contract.scope_contract_id
-            or dict(self.parent_release.module_versions)
+            type(self.source_base_release) is not ExpertBaseReleaseManifest
+            or type(self.source_base_scope_contract) is not ExpertScopeContract
+            or type(self.source_base_tree_receipt) is not ExpertSourceBaseTreeReceipt
+            or type(self.source_base_repository_map) is not ExpertRepositoryMap
+            or self.source_base_release.scope_contract_id
+            != self.source_base_scope_contract.scope_contract_id
+            or self.source_base_release.scope_id != self.source_base_scope_contract.scope_id
+            or self.source_base_scope_contract.scope_id != self.scope_contract.scope_id
+            or self.source_base_release.release_id != self.source_base_tree_receipt.release_id
+            or self.source_base_release.repository_map_ref
+            != self.source_base_repository_map.repository_map_id
+            or self.source_base_tree_hash != self.source_base_tree_receipt.source_base_tree_hash
+            or self.source_base_repository_map.scope_contract_id
+            != self.source_base_scope_contract.scope_contract_id
+            or dict(self.source_base_release.module_versions)
             != {
                 module.module_id: module.version
-                for module in self.parent_module_contracts
+                for module in self.source_base_module_contracts
             }
         ):
             raise ExpertCandidateContextError(
-                "released validation context parent authority is inconsistent"
+                "released validation context source-base authority is inconsistent"
             )
-        if self.parent_release is not None:
-            if self.parent_tree_hash == EMPTY_EXPERT_TREE_DIGEST:
+        if self.source_base_release is not None:
+            if self.source_base_tree_hash == EMPTY_EXPERT_TREE_DIGEST:
                 raise ExpertCandidateContextError(
                     "released validation context cannot use the empty tree"
                 )
             if (
                 self.scope_contract.scope_contract_id
-                != self.parent_scope_contract.scope_contract_id
+                != self.source_base_scope_contract.scope_contract_id
                 and self.scope_contract.supersedes_scope_contract_id
-                != self.parent_scope_contract.scope_contract_id
+                != self.source_base_scope_contract.scope_contract_id
             ):
                 raise ExpertCandidateContextError(
                     "candidate scope must equal or directly supersede its parent"
                 )
             if (
                 self.scope_contract.scope_contract_id
-                != self.parent_scope_contract.scope_contract_id
+                != self.source_base_scope_contract.scope_contract_id
             ):
                 parent_family_ids = {
                     family.task_family_id
-                    for family in self.parent_scope_contract.task_family_ontology
+                    for family in self.source_base_scope_contract.task_family_ontology
                 }
                 parent_dimension_ids = {
                     schema.dimension_id
-                    for schema in self.parent_scope_contract.context_dimension_schemas
+                    for schema in self.source_base_scope_contract.context_dimension_schemas
                 }
                 if any(
                     not set(edge.source_ids).issubset(parent_family_ids)
@@ -349,36 +349,36 @@ class ExpertCandidateValidationContext(StrictContract):
                     )
             module_contract_ids = tuple(
                 sorted(
-                    module.module_contract_id for module in self.parent_module_contracts
+                    module.module_contract_id for module in self.source_base_module_contracts
                 )
             )
             map_contract_ids = tuple(
                 sorted(
                     node.module_contract_ref
-                    for node in self.parent_repository_map.capability_nodes
+                    for node in self.source_base_repository_map.capability_nodes
                 )
             )
-            receipt = self.parent_tree_receipt
+            receipt = self.source_base_tree_receipt
             cache_receipt = receipt.cache_verification_receipt
             extraction_receipt = receipt.source_extraction_receipt
-            archive_ref = self.parent_release.source_archive_ref
-            archive_digest = self.parent_release.checksums[archive_ref]
+            archive_ref = self.source_base_release.source_archive_ref
+            archive_digest = self.source_base_release.checksums[archive_ref]
             if (
                 map_contract_ids != module_contract_ids
                 or receipt.repository_map_id
-                != self.parent_repository_map.repository_map_id
+                != self.source_base_repository_map.repository_map_id
                 or receipt.module_contract_ids != module_contract_ids
                 or cache_receipt.artifact_kind
                 is not PublicationArtifactKind.EXPERT_BASE_RELEASE
-                or cache_receipt.artifact_id != self.parent_release.release_id
+                or cache_receipt.artifact_id != self.source_base_release.release_id
                 or cache_receipt.asset_digests.get(archive_ref) != archive_digest
-                or extraction_receipt.artifact_id != self.parent_release.release_id
+                or extraction_receipt.artifact_id != self.source_base_release.release_id
                 or extraction_receipt.source_archive_ref != archive_ref
                 or extraction_receipt.source_archive_digest != archive_digest
-                or extraction_receipt.source_tree_hash != self.parent_tree_hash
+                or extraction_receipt.source_tree_hash != self.source_base_tree_hash
             ):
                 raise ExpertCandidateContextError(
-                    "candidate parent release closure is inconsistent"
+                    "candidate source-base release closure is inconsistent"
                 )
         binding_keys = tuple(
             (binding.task_family_id, binding.task_adapter_id)
@@ -391,9 +391,9 @@ class ExpertCandidateValidationContext(StrictContract):
         for binding in self.active_task_bindings:
             self.scope_contract.validate_binding(binding)
         allowed_replay_scope_contract_ids = {self.scope_contract.scope_contract_id}
-        if self.parent_scope_contract is not None:
+        if self.source_base_scope_contract is not None:
             allowed_replay_scope_contract_ids.add(
-                self.parent_scope_contract.scope_contract_id
+                self.source_base_scope_contract.scope_contract_id
             )
         if any(
             replay_scope.scope_id != self.scope_contract.scope_id
@@ -401,7 +401,7 @@ class ExpertCandidateValidationContext(StrictContract):
             for replay_scope in self.replay_evidence.scope_contracts
         ):
             raise ExpertCandidateContextError(
-                "candidate replay scope leaves current or parent scope authority"
+                "candidate replay scope leaves current or source-base scope authority"
             )
         _require_sorted_content_ids(
             self.stable_dependency_ids,
@@ -413,17 +413,17 @@ class ExpertCandidateValidationContext(StrictContract):
             self.replay_evidence.replay_evidence_id,
             *self.replay_evidence.stable_dependency_ids,
         }
-        if self.parent_release is not None:
+        if self.source_base_release is not None:
             expected_dependencies.update(
                 {
-                    self.parent_scope_contract.scope_contract_id,
-                    self.parent_release.release_id,
-                    self.parent_tree_receipt.parent_tree_receipt_id,
-                    self.parent_tree_receipt.source_extraction_receipt.extraction_receipt_id,
-                    self.parent_repository_map.repository_map_id,
+                    self.source_base_scope_contract.scope_contract_id,
+                    self.source_base_release.release_id,
+                    self.source_base_tree_receipt.source_base_tree_receipt_id,
+                    self.source_base_tree_receipt.source_extraction_receipt.extraction_receipt_id,
+                    self.source_base_repository_map.repository_map_id,
                     *(
                         module.module_contract_id
-                        for module in self.parent_module_contracts
+                        for module in self.source_base_module_contracts
                     ),
                 }
             )
@@ -675,7 +675,7 @@ def project_agent_candidate_validation_context(
         packet.scope_contract
         if packet.knowledge_snapshot_manifest.scope_contract_id
         == packet.scope_contract.scope_contract_id
-        else packet.parent_scope_contract
+        else packet.source_base_scope_contract
     )
     evidence_authority_ids = tuple(
         sorted(
@@ -716,25 +716,25 @@ def project_agent_candidate_validation_context(
         replay_evidence.replay_evidence_id,
         *replay_evidence.stable_dependency_ids,
     }
-    if packet.parent_release is not None:
+    if packet.source_base_release is not None:
         context_dependencies.update(
             {
-                packet.parent_scope_contract.scope_contract_id,
-                packet.parent_release.release_id,
-                packet.parent_tree_receipt.parent_tree_receipt_id,
-                packet.parent_tree_receipt.source_extraction_receipt.extraction_receipt_id,
-                packet.repository_map.repository_map_id,
-                *(module.module_contract_id for module in packet.module_contracts),
+                packet.source_base_scope_contract.scope_contract_id,
+                packet.source_base_release.release_id,
+                packet.source_base_tree_receipt.source_base_tree_receipt_id,
+                packet.source_base_tree_receipt.source_extraction_receipt.extraction_receipt_id,
+                packet.source_base_repository_map.repository_map_id,
+                *(module.module_contract_id for module in packet.source_base_module_contracts),
             }
         )
     return ExpertCandidateValidationContext.mint(
         scope_contract=packet.scope_contract,
-        parent_scope_contract=packet.parent_scope_contract,
-        parent_release=packet.parent_release,
-        parent_tree_receipt=packet.parent_tree_receipt,
-        parent_tree_hash=packet.parent_tree_hash,
-        parent_repository_map=packet.repository_map,
-        parent_module_contracts=packet.module_contracts,
+        source_base_scope_contract=packet.source_base_scope_contract,
+        source_base_release=packet.source_base_release,
+        source_base_tree_receipt=packet.source_base_tree_receipt,
+        source_base_tree_hash=packet.source_base_tree_hash,
+        source_base_repository_map=packet.source_base_repository_map,
+        source_base_module_contracts=packet.source_base_module_contracts,
         active_task_bindings=packet.active_task_bindings,
         replay_evidence=replay_evidence,
         stable_dependency_ids=tuple(sorted(context_dependencies)),

@@ -111,7 +111,7 @@ class ExpertSourceReplayFreshAuthorityCoordinator:
             attempt=prepared_request.attempt,
             selection=prepared_request.selection,
             candidate=prepared_request.candidate,
-            parent=prepared_request.parent,
+            source_base=prepared_request.source_base,
             authorization_state=prepared_request.authorization_state,
             cases=prepared_request.cases,
         )
@@ -155,13 +155,13 @@ class ExpertSourceReplayFreshAuthorityCoordinator:
                 "fresh spawn provider resolution differs from the allocated case"
             )
         resolved_case.require_current_provider_identity()
-        scope_id = prepared.parent.release_manifest.scope_id
+        scope_id = prepared.source_base.release_manifest.scope_id
         if (
-            prepared.parent.release_manifest.scope_contract_id
+            prepared.source_base.release_manifest.scope_contract_id
             != request.scope_contract_id
         ):
             raise ExpertSourceReplayFreshAuthorityError(
-                "fresh spawn parent uses another scope contract"
+                "fresh spawn source base uses another scope contract"
             )
         current_observation = (
             self.current_release_authority.current_release_observation(scope_id)
@@ -172,7 +172,7 @@ class ExpertSourceReplayFreshAuthorityCoordinator:
                 SourceReplayCurrentReleaseObservation,
             )
             or current_observation.scope_id != scope_id
-            or current_observation.release_id != request.parent_release_id
+            or current_observation.release_id != request.source_base_release_id
         ):
             raise ExpertSourceReplayFreshAuthorityError(
                 "fresh spawn current release differs from reserved authority"
@@ -229,7 +229,7 @@ class ExpertSourceReplayFreshAuthorityCoordinator:
             candidate_id=reservation.candidate_id,
             scope_id=scope_id,
             scope_contract_id=request.scope_contract_id,
-            expected_parent_release_id=request.parent_release_id,
+            expected_current_release_id=request.source_base_release_id,
             invocation_allocation=invocation_allocation,
             current_release_observation=current_observation,
             task_adapter_trust_observations=adapter_observations,

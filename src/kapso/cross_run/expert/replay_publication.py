@@ -100,7 +100,7 @@ class ExpertSourceReplayDecisionPublicationCoordinator:
             attempt=prepared_request.attempt,
             selection=prepared_request.selection,
             candidate=prepared_request.candidate,
-            parent=prepared_request.parent,
+            source_base=prepared_request.source_base,
             authorization_state=prepared_request.authorization_state,
             cases=prepared_request.cases,
         )
@@ -131,17 +131,17 @@ class ExpertSourceReplayDecisionPublicationCoordinator:
             prepared_request=prepared,
         )
         request = prepared.request
-        parent = prepared.parent.release_manifest
+        source_base_release = prepared.source_base.release_manifest
         current = self.current_release_authority.current_release_observation(
-            parent.scope_id
+            source_base_release.scope_id
         )
         if (
             not isinstance(current, SourceReplayCurrentReleaseObservation)
-            or current.scope_id != parent.scope_id
-            or current.release_id != request.parent_release_id
+            or current.scope_id != source_base_release.scope_id
+            or current.release_id != request.source_base_release_id
         ):
             raise ExpertSourceReplayPublicationError(
-                "source replay publication current release differs from its parent"
+                "source replay publication release differs from expected CURRENT"
             )
         adapter_observations = self._reverify_adapters(prepared)
         events = completed_execution.require_exact(
@@ -159,7 +159,7 @@ class ExpertSourceReplayDecisionPublicationCoordinator:
             task_adapter_trust_observations=adapter_observations,
         )
         denylist = self.security_denylist_authority.observe_exact(
-            scope_id=parent.scope_id,
+            scope_id=source_base_release.scope_id,
             scope_contract_id=request.scope_contract_id,
             checked_subject_ids=security_subject_ids,
         )
@@ -195,9 +195,9 @@ class ExpertSourceReplayDecisionPublicationCoordinator:
             validation_attempt_id=reservation.validation_attempt_id,
             candidate_id=reservation.candidate_id,
             candidate_tree_hash=reservation.candidate_tree_hash,
-            scope_id=parent.scope_id,
+            scope_id=source_base_release.scope_id,
             scope_contract_id=request.scope_contract_id,
-            expected_parent_release_id=request.parent_release_id,
+            expected_current_release_id=request.source_base_release_id,
             validation_policy_id=request.validation_policy_id,
             configuration_fingerprint=request.configuration_fingerprint,
             paired_comparison_receipt_id=receipt.paired_comparison_receipt_id,

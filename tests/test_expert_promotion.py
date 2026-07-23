@@ -327,7 +327,7 @@ def _cell(
     provenance: ExpertReleaseMatrixProvenanceBinding,
     metric_name: str,
     *,
-    mode: ExpertReleaseMatrixMode = ExpertReleaseMatrixMode.PARENT_COMPARISON,
+    mode: ExpertReleaseMatrixMode = ExpertReleaseMatrixMode.CONTROL_COMPARISON,
     seeds: tuple[str, ...] = ("repeat_1", "repeat_2"),
 ) -> ExpertReleaseMatrixEvaluationCell:
     fingerprint = _fingerprint(metric_name, seeds)
@@ -336,12 +336,12 @@ def _cell(
         for binding in authority.task_adapter_manifest.task_evaluator.metric_comparison_bindings
         if binding.metric_name == metric_name
     )
-    parent_release_id = (
+    source_base_release_id = (
         None
         if mode is ExpertReleaseMatrixMode.BOOTSTRAP
         else _id("expert-base-release", "parent")
     )
-    parent_tree_hash = (
+    source_base_tree_hash = (
         None if mode is ExpertReleaseMatrixMode.BOOTSTRAP else _digest("parent-tree")
     )
     dependencies = {
@@ -353,15 +353,15 @@ def _cell(
         provenance.independence_identity_id,
         fingerprint.evaluation_fingerprint_id,
     }
-    if parent_release_id is not None:
-        dependencies.add(parent_release_id)
+    if source_base_release_id is not None:
+        dependencies.add(source_base_release_id)
     return ExpertReleaseMatrixEvaluationCell.mint(
         mode=mode,
         validation_attempt_id=_id("expert-validation-attempt", "attempt"),
         candidate_id=_id("expert-candidate", "candidate"),
         candidate_tree_hash=_digest("candidate-tree"),
-        parent_release_id=parent_release_id,
-        parent_tree_hash=parent_tree_hash,
+        source_base_release_id=source_base_release_id,
+        source_base_tree_hash=source_base_tree_hash,
         adapter_authority_id=authority.adapter_authority_id,
         provenance_binding_id=provenance.provenance_binding_id,
         task_context_binding=provenance.task_context_binding,
@@ -377,7 +377,7 @@ def _plan(
     provenances: tuple[ExpertReleaseMatrixProvenanceBinding, ...],
     cells: tuple[ExpertReleaseMatrixEvaluationCell, ...],
     *,
-    mode: ExpertReleaseMatrixMode = ExpertReleaseMatrixMode.PARENT_COMPARISON,
+    mode: ExpertReleaseMatrixMode = ExpertReleaseMatrixMode.CONTROL_COMPARISON,
 ) -> ExpertReleaseMatrixEvaluationPlan:
     ordered_authorities = tuple(
         sorted(authorities, key=lambda authority: authority.canonical_key)
@@ -422,8 +422,8 @@ def _plan(
         candidate_commit_record_id=_id("expert-candidate-commit", "candidate"),
         candidate_tree_hash=ordered_cells[0].candidate_tree_hash,
         scope_contract_id=_id("expert-scope-contract", "scope"),
-        parent_release_id=ordered_cells[0].parent_release_id,
-        parent_tree_hash=ordered_cells[0].parent_tree_hash,
+        source_base_release_id=ordered_cells[0].source_base_release_id,
+        source_base_tree_hash=ordered_cells[0].source_base_tree_hash,
         validation_policy_id=_id("expert-validation-policy", "policy"),
         configuration_fingerprint=_digest("configuration"),
         adapter_authorities=ordered_authorities,
@@ -438,7 +438,7 @@ def _row(
     provenance: ExpertReleaseMatrixProvenanceBinding,
     *,
     candidate_values: dict[str, float] | None = None,
-    parent_values: dict[str, float] | None = None,
+    source_base_values: dict[str, float] | None = None,
 ) -> ExpertReleaseMatrixComparisonRow:
     selected_candidate_values = candidate_values or {
         replicate_id: 0.6 + position / 100.0
@@ -446,10 +446,10 @@ def _row(
             cell.evaluation_fingerprint.seed_or_replicate_ids
         )
     }
-    selected_parent_values = parent_values
+    selected_parent_values = source_base_values
     if (
         selected_parent_values is None
-        and cell.mode is ExpertReleaseMatrixMode.PARENT_COMPARISON
+        and cell.mode is ExpertReleaseMatrixMode.CONTROL_COMPARISON
     ):
         selected_parent_values = {
             replicate_id: 0.4 + position / 100.0
@@ -468,7 +468,7 @@ def _row(
             ),
             f"candidate-{provenance.provenance_binding_id}",
         ),
-        parent_observation_event_id=(
+        control_observation_event_id=(
             None
             if cell.mode is ExpertReleaseMatrixMode.BOOTSTRAP
             else _id(
@@ -482,7 +482,7 @@ def _row(
             )
         ),
         candidate_replicate_values=selected_candidate_values,
-        parent_replicate_values=selected_parent_values,
+        control_replicate_values=selected_parent_values,
     )
 
 
@@ -512,13 +512,13 @@ def _report(
     task_event_ids = []
     for provenance_id, provenance_rows in rows_by_provenance_id.items():
         candidate_event_id = provenance_rows[0].candidate_observation_event_id
-        parent_event_id = provenance_rows[0].parent_observation_event_id
+        parent_event_id = provenance_rows[0].control_observation_event_id
         task_case_evidence.append(
             ExpertReleaseMatrixTaskCaseEvidence(
                 evaluation_case_id=_id("task-evaluation-case", provenance_id),
                 provenance_binding_id=provenance_id,
                 candidate_result_accepted_event_id=candidate_event_id,
-                parent_result_accepted_event_id=parent_event_id,
+                control_result_accepted_event_id=parent_event_id,
                 evaluation_fingerprint_ids=(
                     provenance_by_id[provenance_id].evaluation_fingerprint_ids
                 ),
@@ -605,8 +605,8 @@ def _report(
                 *task_execution_evidence.exact_dependency_ids,
             }
         )
-    if first_cell.parent_release_id is not None:
-        dependencies.add(first_cell.parent_release_id)
+    if first_cell.source_base_release_id is not None:
+        dependencies.add(first_cell.source_base_release_id)
     return ExpertReleaseMatrixReport.mint(
         mode=plan.mode,
         validation_attempt_id=first_cell.validation_attempt_id,
@@ -614,8 +614,8 @@ def _report(
         candidate_commit_record_id=_id("expert-candidate-commit", "candidate"),
         candidate_tree_hash=first_cell.candidate_tree_hash,
         scope_contract_id=_id("expert-scope-contract", "scope"),
-        parent_release_id=first_cell.parent_release_id,
-        parent_tree_hash=first_cell.parent_tree_hash,
+        source_base_release_id=first_cell.source_base_release_id,
+        source_base_tree_hash=first_cell.source_base_tree_hash,
         validation_policy_id=_id("expert-validation-policy", "policy"),
         configuration_fingerprint=_digest("configuration"),
         plan_reservation_operation_id=reservation_operation_id,
@@ -627,7 +627,7 @@ def _report(
 
 
 def _matrix(
-    mode: ExpertReleaseMatrixMode = ExpertReleaseMatrixMode.PARENT_COMPARISON,
+    mode: ExpertReleaseMatrixMode = ExpertReleaseMatrixMode.CONTROL_COMPARISON,
 ) -> tuple[
     ExpertReleaseMatrixAdapterAuthority,
     ExpertReleaseMatrixProvenanceBinding,
@@ -656,7 +656,7 @@ def _matrix(
 def test_parent_report_round_trips_self_contained_precommitted_plan():
     authority, provenance, plan, report = _matrix()
 
-    assert report.parent_tree_hash == _digest("parent-tree")
+    assert report.source_base_tree_hash == _digest("parent-tree")
     assert authority.adapter_authority_id in report.exact_dependency_ids
     assert provenance.provenance_binding_id in report.exact_dependency_ids
     assert provenance.independence_identity_id == provenance.bundle_lineage_ids[0]
@@ -675,8 +675,8 @@ def test_parent_report_round_trips_self_contained_precommitted_plan():
 def test_bootstrap_plan_and_rows_forbid_parent_authority():
     _, provenance, plan, report = _matrix(ExpertReleaseMatrixMode.BOOTSTRAP)
 
-    assert report.parent_release_id is None
-    assert report.parent_tree_hash is None
+    assert report.source_base_release_id is None
+    assert report.source_base_tree_hash is None
     assert provenance.provenance_kind is ExpertReleaseMatrixProvenanceKind.ADAPTER_CASE
     assert provenance.bundle_lineage_ids == ()
     assert provenance.adapter_case is not None
@@ -690,9 +690,9 @@ def test_bootstrap_plan_and_rows_forbid_parent_authority():
         )
         for row in report.evidence_rows
     )
-    assert all(row.parent_replicate_values is None for row in report.evidence_rows)
-    with pytest.raises(ExpertReleaseMatrixContractError, match="cannot name a parent"):
-        replace(plan.evaluation_cells[0], parent_tree_hash=_digest("substituted"))
+    assert all(row.control_replicate_values is None for row in report.evidence_rows)
+    with pytest.raises(ExpertReleaseMatrixContractError, match="cannot name a source base"):
+        replace(plan.evaluation_cells[0], source_base_tree_hash=_digest("substituted"))
 
 
 def test_parent_plan_mixes_source_replay_and_adapter_owned_cases():
@@ -979,14 +979,14 @@ def test_one_fingerprint_cell_owns_its_complete_replicate_map():
         _report(
             plan,
             (
-                _remint(first, parent_replicate_values=None),
+                _remint(first, control_replicate_values=None),
                 report.evidence_rows[1],
             ),
         )
     with pytest.raises(ExpertReleaseMatrixContractError, match="must be distinct"):
         _remint(
             first,
-            parent_observation_event_id=first.candidate_observation_event_id,
+            control_observation_event_id=first.candidate_observation_event_id,
         )
 
 
@@ -996,13 +996,13 @@ def test_fingerprint_rows_share_one_case_event_pair_without_cross_case_reuse():
     assert {
         (
             row.candidate_observation_event_id,
-            row.parent_observation_event_id,
+            row.control_observation_event_id,
         )
         for row in report.evidence_rows
     } == {
         (
             report.evidence_rows[0].candidate_observation_event_id,
-            report.evidence_rows[0].parent_observation_event_id,
+            report.evidence_rows[0].control_observation_event_id,
         )
     }
     with pytest.raises(ExpertReleaseMatrixContractError, match="share one"):

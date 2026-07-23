@@ -36,14 +36,14 @@ _WORKSPACE_NAME_PREFIX = "workspace-"
 
 
 class ExpertCandidateWorkspaceError(ValueError):
-    """An expert candidate workspace is unsafe or differs from its parent."""
+    """An expert candidate workspace is unsafe or differs from its source base."""
 
 
 @dataclass(frozen=True)
 class PreparedExpertCandidateWorkspace:
     path: Path
-    parent_tree_hash: str
-    parent_files: tuple[SourceFileDescriptor, ...]
+    source_base_tree_hash: str
+    source_base_files: tuple[SourceFileDescriptor, ...]
     editable_snapshot: CodingAgentWorkspaceSnapshot
 
 
@@ -183,7 +183,7 @@ class ExpertCandidateWorkspaceLease:
 
 
 class ExpertCandidateWorkspaceManager:
-    """Prepare exact empty or released-parent workspaces under one private root."""
+    """Prepare exact empty or released-source-base workspaces under one private root."""
 
     def __init__(
         self,
@@ -221,7 +221,7 @@ class ExpertCandidateWorkspaceManager:
         self,
         *,
         trigger_packet: ExpertTriggerEvidencePacket,
-        materialized_parent: MaterializedArtifact | None,
+        materialized_source_base: MaterializedArtifact | None,
     ) -> ExpertCandidateWorkspaceLease:
         workspace_name = _WORKSPACE_NAME_PREFIX + secrets.token_hex(16)
         workspace_path = self.root / workspace_name
@@ -271,16 +271,16 @@ class ExpertCandidateWorkspaceManager:
                 workspace_name,
             )
             preparation.callback(construction_cleanup.remove)
-            if trigger_packet.parent_release is None:
-                if materialized_parent is not None:
+            if trigger_packet.source_base_release is None:
+                if materialized_source_base is not None:
                     raise ExpertCandidateWorkspaceError(
-                        "bootstrap workspace cannot receive a materialized parent"
+                        "bootstrap workspace cannot receive a materialized source base"
                     )
                 os.mkdir(workspace_name, mode=0o700, dir_fd=parent_descriptor)
             else:
                 self._materialize_released_parent(
                     trigger_packet,
-                    materialized_parent,
+                    materialized_source_base,
                     workspace_path,
                     parent_descriptor,
                 )
@@ -351,26 +351,26 @@ class ExpertCandidateWorkspaceManager:
     def _materialize_released_parent(
         self,
         packet: ExpertTriggerEvidencePacket,
-        materialized_parent: MaterializedArtifact | None,
+        materialized_source_base: MaterializedArtifact | None,
         workspace_path: Path,
         workspace_parent_descriptor: int,
     ) -> None:
         if (
-            materialized_parent is None
-            or packet.parent_tree_receipt is None
-            or materialized_parent.receipt
-            != packet.parent_tree_receipt.cache_verification_receipt
+            materialized_source_base is None
+            or packet.source_base_tree_receipt is None
+            or materialized_source_base.receipt
+            != packet.source_base_tree_receipt.cache_verification_receipt
         ):
             raise ExpertCandidateWorkspaceError(
-                "released workspace requires its exact materialized parent"
+                "released workspace requires its exact materialized source base"
             )
         observed = self.materializer.extract_verified_source_archive(
-            materialized=materialized_parent,
-            expected=packet.parent_tree_receipt.source_extraction_receipt,
+            materialized=materialized_source_base,
+            expected=packet.source_base_tree_receipt.source_extraction_receipt,
             destination=workspace_path,
             destination_parent_descriptor=workspace_parent_descriptor,
         )
-        if observed != packet.parent_tree_receipt.source_extraction_receipt:
+        if observed != packet.source_base_tree_receipt.source_extraction_receipt:
             raise ExpertCandidateWorkspaceError(
                 "released workspace extraction differs from its trigger receipt"
             )
@@ -386,20 +386,20 @@ class ExpertCandidateWorkspaceManager:
             maximum_entries=self.settings.candidate_entry_limit,
             maximum_bytes=self.settings.candidate_byte_limit,
         )
-        if packet.parent_release is None:
+        if packet.source_base_release is None:
             if full_snapshot.tree_hash != EMPTY_EXPERT_TREE_DIGEST:
                 raise ExpertCandidateWorkspaceError(
                     "bootstrap workspace differs from the canonical empty tree"
                 )
             return PreparedExpertCandidateWorkspace(
                 path=workspace_path,
-                parent_tree_hash=EMPTY_EXPERT_TREE_DIGEST,
-                parent_files=(),
+                source_base_tree_hash=EMPTY_EXPERT_TREE_DIGEST,
+                source_base_files=(),
                 editable_snapshot=full_snapshot,
             )
         self._validate_released_parent(packet, full_snapshot)
-        parent_files = tuple(file.descriptor for file in full_snapshot.files)
-        control_paths = set(expert_control_paths(packet.module_contracts))
+        source_base_files = tuple(file.descriptor for file in full_snapshot.files)
+        control_paths = set(expert_control_paths(packet.source_base_module_contracts))
         expected_editable_files = tuple(
             file.descriptor
             for file in full_snapshot.files
@@ -420,8 +420,8 @@ class ExpertCandidateWorkspaceManager:
             )
         return PreparedExpertCandidateWorkspace(
             path=workspace_path,
-            parent_tree_hash=packet.parent_tree_hash,
-            parent_files=parent_files,
+            source_base_tree_hash=packet.source_base_tree_hash,
+            source_base_files=source_base_files,
             editable_snapshot=editable_snapshot,
         )
 
@@ -431,25 +431,25 @@ class ExpertCandidateWorkspaceManager:
         snapshot: CodingAgentWorkspaceSnapshot,
     ) -> None:
         if (
-            packet.parent_tree_receipt is None
-            or packet.parent_scope_contract is None
-            or packet.repository_map is None
+            packet.source_base_tree_receipt is None
+            or packet.source_base_scope_contract is None
+            or packet.source_base_repository_map is None
         ):
             raise ExpertCandidateWorkspaceError(
-                "released workspace packet omits its parent topology"
+                "released workspace packet omits its source-base topology"
             )
-        expected_extraction = packet.parent_tree_receipt.source_extraction_receipt
+        expected_extraction = packet.source_base_tree_receipt.source_extraction_receipt
         descriptors = tuple(file.descriptor for file in snapshot.files)
         if (
             descriptors != expected_extraction.source_tree_files
             or snapshot.tree_hash != expected_extraction.source_tree_hash
-            or snapshot.tree_hash != packet.parent_tree_hash
+            or snapshot.tree_hash != packet.source_base_tree_hash
         ):
             raise ExpertCandidateWorkspaceError(
                 "released workspace differs from its exact source receipt"
             )
         files = snapshot.by_path()
-        controls = set(expert_control_paths(packet.module_contracts))
+        controls = set(expert_control_paths(packet.source_base_module_contracts))
         control_root = PurePosixPath(EXPERT_REPOSITORY_MAP_PATH).parent
         observed_controls = {
             path
@@ -464,16 +464,16 @@ class ExpertCandidateWorkspaceManager:
             )
         expected_control_bytes = {
             EXPERT_BOOK_PATH: compile_expert_semantic_book(
-                packet.parent_scope_contract,
-                packet.repository_map,
-                packet.module_contracts,
+                packet.source_base_scope_contract,
+                packet.source_base_repository_map,
+                packet.source_base_module_contracts,
             ),
-            EXPERT_REPOSITORY_MAP_PATH: packet.repository_map.to_json_bytes(),
+            EXPERT_REPOSITORY_MAP_PATH: packet.source_base_repository_map.to_json_bytes(),
             **{
                 expert_module_contract_path(module.module_contract_id): (
                     module.to_json_bytes()
                 )
-                for module in packet.module_contracts
+                for module in packet.source_base_module_contracts
             },
         }
         if any(
@@ -484,8 +484,8 @@ class ExpertCandidateWorkspaceManager:
                 "released workspace control bytes differ from typed topology"
             )
         validate_expert_tree_ownership(
-            packet.repository_map,
-            packet.module_contracts,
+            packet.source_base_repository_map,
+            packet.source_base_module_contracts,
             {path: file.descriptor for path, file in files.items()},
             validation_error_type=ExpertCandidateValidationError,
         )
@@ -499,7 +499,7 @@ class ExpertCandidateWorkspaceManager:
             PurePosixPath(
                 expert_module_contract_path(module.module_contract_id)
             ).name: module.to_json_bytes()
-            for module in packet.module_contracts
+            for module in packet.source_base_module_contracts
         }
         with ExitStack() as descriptors:
             kapso_descriptor, kapso_identity = _open_real_directory_at(
@@ -542,9 +542,9 @@ class ExpertCandidateWorkspaceManager:
                     "released workspace module controls changed before removal"
                 )
             expected_book = compile_expert_semantic_book(
-                packet.parent_scope_contract,
-                packet.repository_map,
-                packet.module_contracts,
+                packet.source_base_scope_contract,
+                packet.source_base_repository_map,
+                packet.source_base_module_contracts,
             )
             if (
                 _read_regular_file_at(
@@ -561,7 +561,7 @@ class ExpertCandidateWorkspaceManager:
                     expert_descriptor,
                     "repository-map.json",
                 )
-                != packet.repository_map.to_json_bytes()
+                != packet.source_base_repository_map.to_json_bytes()
             ):
                 raise ExpertCandidateWorkspaceError(
                     "released workspace repository map changed before removal"

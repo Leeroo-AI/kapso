@@ -177,7 +177,7 @@ class ExpertReleaseMatrixStageCoordinator:
             candidate_id=reservation.candidate_id,
             candidate_tree_hash=reservation.candidate_tree_hash,
             scope_contract_id=reservation.scope_contract_id,
-            parent_release_id=reservation.observed_current_release_id,
+            source_base_release_id=reservation.observed_current_release_id,
             validation_policy_id=request.validation_policy_id,
             configuration_fingerprint=request.configuration_fingerprint,
             plan_reservation_operation_id=(reservation.plan_reservation_operation_id),

@@ -286,7 +286,7 @@ class ExpertCompositionSourceProvenance:
     candidate_commit_record: ExpertCandidateCommitRecord
     validation_context: ExpertCandidateValidationContext
     reduction_source: ExpertCompositionReductionSource
-    parent_files: tuple[SourceFileDescriptor, ...]
+    source_base_files: tuple[SourceFileDescriptor, ...]
     agent_derivation: ExpertAgentProposalDerivation
     sanitation_report: ExpertCandidateSanitationReport
 
@@ -296,10 +296,10 @@ class ExpertCompositionSourceProvenance:
             or type(self.candidate_commit_record) is not ExpertCandidateCommitRecord
             or type(self.validation_context) is not ExpertCandidateValidationContext
             or type(self.reduction_source) is not ExpertCompositionReductionSource
-            or type(self.parent_files) is not tuple
+            or type(self.source_base_files) is not tuple
             or any(
                 type(descriptor) is not SourceFileDescriptor
-                for descriptor in self.parent_files
+                for descriptor in self.source_base_files
             )
             or type(self.agent_derivation) is not ExpertAgentProposalDerivation
             or type(self.sanitation_report) is not ExpertCandidateSanitationReport
@@ -365,12 +365,12 @@ class ExpertCompositionSourceProvenance:
             != self.derivation_record.origin_principal_ids
             or reduction_source.source_reference.candidate_configuration_fingerprint
             != manifest.configuration_fingerprint
-            or reduction_source.source_reference.parent_release_id
-            != manifest.parent_release_id
-            or reduction_source.source_reference.parent_repository_map_id
-            != manifest.parent_repository_map_ref
-            or reduction_source.source_reference.parent_tree_hash
-            != manifest.parent_tree_hash
+            or reduction_source.source_reference.source_base_release_id
+            != manifest.source_base_release_id
+            or reduction_source.source_reference.source_base_repository_map_id
+            != manifest.source_base_repository_map_ref
+            or reduction_source.source_reference.source_base_tree_hash
+            != manifest.source_base_tree_hash
             or reduction_source.source_reference.candidate_tree_hash
             != manifest.candidate_tree_hash
             or reduction_source.candidate_tree.source_tree_manifest_id
@@ -410,7 +410,7 @@ class ExpertDeterministicCompositionDerivation:
     record: ExpertDeterministicCompositionDerivationRecord
     materialization: ExpertCompositionMaterialization
     source_provenance: tuple[ExpertCompositionSourceProvenance, ...]
-    parent_contents: Mapping[str, bytes]
+    source_base_contents: Mapping[str, bytes]
 
     def __post_init__(self) -> None:
         if (
@@ -421,30 +421,30 @@ class ExpertDeterministicCompositionDerivation:
                 type(provenance) is not ExpertCompositionSourceProvenance
                 for provenance in self.source_provenance
             )
-            or not isinstance(self.parent_contents, Mapping)
+            or not isinstance(self.source_base_contents, Mapping)
         ):
             raise ExpertCandidateDerivationError(
                 "composition derivation requires exact typed authorities"
             )
-        frozen_parent_contents = MappingProxyType(dict(self.parent_contents))
-        object.__setattr__(self, "parent_contents", frozen_parent_contents)
-        parent_descriptors = {
+        frozen_source_base_contents = MappingProxyType(dict(self.source_base_contents))
+        object.__setattr__(self, "source_base_contents", frozen_source_base_contents)
+        source_base_descriptors = {
             descriptor.relative_path: descriptor
-            for descriptor in self.materialization.parent_tree.files
+            for descriptor in self.materialization.source_base_tree.files
         }
-        if set(frozen_parent_contents) != set(parent_descriptors):
+        if set(frozen_source_base_contents) != set(source_base_descriptors):
             raise ExpertCandidateDerivationError(
-                "composition derivation parent bytes differ from its tree closure"
+                "composition derivation source-base bytes differ from its tree closure"
             )
-        for path, descriptor in parent_descriptors.items():
-            payload = frozen_parent_contents[path]
+        for path, descriptor in source_base_descriptors.items():
+            payload = frozen_source_base_contents[path]
             if (
                 type(payload) is not bytes
                 or len(payload) != descriptor.size
                 or tree_or_blob_digest(payload) != descriptor.digest
             ):
                 raise ExpertCandidateDerivationError(
-                    f"composition derivation parent bytes differ: {path}"
+                    f"composition derivation source-base bytes differ: {path}"
                 )
         plan = self.materialization.composition_assessment.composition_plan
         source_candidate_ids = tuple(source.candidate_id for source in plan.sources)

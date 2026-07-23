@@ -13,7 +13,7 @@ from kapso.cross_run.expert import (
     EMPTY_EXPERT_TREE_DIGEST,
     ExpertCandidateWorkspaceError,
     ExpertCandidateWorkspaceManager,
-    ExpertParentTreeReceipt,
+    ExpertSourceBaseTreeReceipt,
     ExpertTriggerEvidencePacket,
     compile_expert_semantic_book,
 )
@@ -53,7 +53,7 @@ class FixtureSourceMaterializer:
             opened_parent.st_ino,
         ):
             raise ExpertCandidateWorkspaceError(
-                "fixture extraction parent differs from its pinned descriptor"
+                "fixture extraction source base differs from its pinned descriptor"
             )
         self.calls.append(
             (
@@ -159,12 +159,12 @@ def tree_hash(source_files):
 
 def released_workspace_fixture(*, manual_book=False):
     packet = trigger_packet(settings=trigger_settings())
-    repository_map = packet.repository_map
-    module = packet.module_contracts[0]
+    repository_map = packet.source_base_repository_map
+    module = packet.source_base_module_contracts[0]
     generated_book = compile_expert_semantic_book(
-        packet.parent_scope_contract,
+        packet.source_base_scope_contract,
         repository_map,
-        packet.module_contracts,
+        packet.source_base_module_contracts,
     )
     contents = {
         "src/reproducible_execution/__init__.py": b"def execute(task):\n    return task.run()\n",
@@ -177,41 +177,41 @@ def released_workspace_fixture(*, manual_book=False):
     source_files = descriptors(contents)
     parent_hash = tree_hash(source_files)
     extraction = SourceArchiveExtractionReceipt.mint(
-        artifact_id=packet.parent_release.release_id,
-        source_archive_ref=packet.parent_release.source_archive_ref,
-        source_archive_digest=packet.parent_release.checksums[
-            packet.parent_release.source_archive_ref
+        artifact_id=packet.source_base_release.release_id,
+        source_archive_ref=packet.source_base_release.source_archive_ref,
+        source_archive_digest=packet.source_base_release.checksums[
+            packet.source_base_release.source_archive_ref
         ],
         source_tree_hash=parent_hash,
         source_tree_files=source_files,
         extractor_version=(
-            packet.parent_tree_receipt.source_extraction_receipt.extractor_version
+            packet.source_base_tree_receipt.source_extraction_receipt.extractor_version
         ),
     )
-    parent_receipt = ExpertParentTreeReceipt.mint(
-        release_id=packet.parent_release.release_id,
+    source_base_receipt = ExpertSourceBaseTreeReceipt.mint(
+        release_id=packet.source_base_release.release_id,
         cache_verification_receipt=(
-            packet.parent_tree_receipt.cache_verification_receipt
+            packet.source_base_tree_receipt.cache_verification_receipt
         ),
         source_extraction_receipt=extraction,
-        parent_tree_hash=parent_hash,
+        source_base_tree_hash=parent_hash,
         repository_map_id=repository_map.repository_map_id,
         module_contract_ids=tuple(
-            module.module_contract_id for module in packet.module_contracts
+            module.module_contract_id for module in packet.source_base_module_contracts
         ),
-        materializer_version=packet.parent_tree_receipt.materializer_version,
+        materializer_version=packet.source_base_tree_receipt.materializer_version,
     )
     released_packet = ExpertTriggerEvidencePacket.mint(
         knowledge_snapshot_manifest=packet.knowledge_snapshot_manifest,
         knowledge_record_closure_digest=packet.knowledge_record_closure_digest,
         configuration_fingerprint=packet.configuration_fingerprint,
         scope_contract=packet.scope_contract,
-        parent_scope_contract=packet.parent_scope_contract,
-        parent_release=packet.parent_release,
-        parent_tree_receipt=parent_receipt,
-        parent_tree_hash=parent_hash,
-        repository_map=packet.repository_map,
-        module_contracts=packet.module_contracts,
+        source_base_scope_contract=packet.source_base_scope_contract,
+        source_base_release=packet.source_base_release,
+        source_base_tree_receipt=source_base_receipt,
+        source_base_tree_hash=parent_hash,
+        source_base_repository_map=packet.source_base_repository_map,
+        source_base_module_contracts=packet.source_base_module_contracts,
         episodes=packet.episodes,
         claims=packet.claims,
         trigger_observations=packet.trigger_observations,
@@ -222,7 +222,7 @@ def released_workspace_fixture(*, manual_book=False):
         root=Path("/unused/materialized"),
         content=Path("/unused/materialized/content"),
         assets=Path("/unused/materialized/assets"),
-        receipt=parent_receipt.cache_verification_receipt,
+        receipt=source_base_receipt.cache_verification_receipt,
         reused=True,
     )
     return released_packet, materialized, contents
@@ -245,11 +245,11 @@ def test_bootstrap_workspace_is_exact_empty_and_removed_after_lease(tmp_path):
 
     with manager.lease(
         trigger_packet=packet,
-        materialized_parent=None,
+        materialized_source_base=None,
     ) as prepared:
         workspace_path = prepared.path
-        assert prepared.parent_tree_hash == EMPTY_EXPERT_TREE_DIGEST
-        assert prepared.parent_files == ()
+        assert prepared.source_base_tree_hash == EMPTY_EXPERT_TREE_DIGEST
+        assert prepared.source_base_files == ()
         assert prepared.editable_snapshot.tree_hash == EMPTY_EXPERT_TREE_DIGEST
         assert tuple(workspace_path.iterdir()) == ()
 
@@ -262,11 +262,11 @@ def test_concurrent_workspace_leases_have_distinct_private_roots(tmp_path):
     manager = workspace_manager(tmp_path, FixtureSourceMaterializer({}))
     first_lease = manager.lease(
         trigger_packet=packet,
-        materialized_parent=None,
+        materialized_source_base=None,
     )
     second_lease = manager.lease(
         trigger_packet=packet,
-        materialized_parent=None,
+        materialized_source_base=None,
     )
 
     with first_lease as first, second_lease as second:
@@ -283,7 +283,7 @@ def test_workspace_authority_descriptor_exists_only_during_active_lease(tmp_path
     manager = workspace_manager(tmp_path, FixtureSourceMaterializer({}))
     lease = manager.lease(
         trigger_packet=packet,
-        materialized_parent=None,
+        materialized_source_base=None,
     )
 
     with pytest.raises(ExpertCandidateWorkspaceError, match="active lease"):
@@ -306,15 +306,15 @@ def test_released_workspace_validates_controls_then_exposes_editable_parent(tmp_
 
     with manager.lease(
         trigger_packet=packet,
-        materialized_parent=materialized,
+        materialized_source_base=materialized,
     ) as prepared:
         workspace_path = prepared.path
         editable_paths = tuple(
             file.descriptor.relative_path for file in prepared.editable_snapshot.files
         )
-        assert prepared.parent_tree_hash == packet.parent_tree_hash
-        assert prepared.parent_files == (
-            packet.parent_tree_receipt.source_extraction_receipt.source_tree_files
+        assert prepared.source_base_tree_hash == packet.source_base_tree_hash
+        assert prepared.source_base_files == (
+            packet.source_base_tree_receipt.source_extraction_receipt.source_tree_files
         )
         assert editable_paths == (
             "src/reproducible_execution/__init__.py",
@@ -323,12 +323,12 @@ def test_released_workspace_validates_controls_then_exposes_editable_parent(tmp_
         )
         assert not any(
             (workspace_path / relative_path).exists()
-            for relative_path in expert_control_paths(packet.module_contracts)
+            for relative_path in expert_control_paths(packet.source_base_module_contracts)
         )
 
     assert not workspace_path.exists()
     assert materializer.calls[0][1] == (
-        packet.parent_tree_receipt.source_extraction_receipt
+        packet.source_base_tree_receipt.source_extraction_receipt
     )
 
 
@@ -342,7 +342,7 @@ def test_invalid_released_controls_fail_before_lease_and_leave_no_workspace(tmp_
     ):
         manager.lease(
             trigger_packet=packet,
-            materialized_parent=materialized,
+            materialized_source_base=materialized,
         )
 
     assert tuple(manager.root.iterdir()) == ()
@@ -375,7 +375,7 @@ def test_released_workspace_construction_failures_remove_created_destination(
     with pytest.raises(error_type, match=message):
         manager.lease(
             trigger_packet=packet,
-            materialized_parent=materialized,
+            materialized_source_base=materialized,
         )
 
     assert tuple(manager.root.iterdir()) == ()
@@ -422,7 +422,7 @@ def test_generated_control_removal_rejects_raced_symlink_without_following_it(
     with pytest.raises(ExpertCandidateWorkspaceError, match="real directory"):
         manager.lease(
             trigger_packet=packet,
-            materialized_parent=materialized,
+            materialized_source_base=materialized,
         )
 
     assert tuple(manager.root.iterdir()) == ()
@@ -457,7 +457,7 @@ def test_released_workspace_rejects_source_mutation_during_control_removal(
     ):
         manager.lease(
             trigger_packet=packet,
-            materialized_parent=materialized,
+            materialized_source_base=materialized,
         )
 
     assert tuple(manager.root.iterdir()) == ()
@@ -496,7 +496,7 @@ def test_workspace_manager_rejects_root_replacement_during_preparation(
     with pytest.raises(ExpertCandidateWorkspaceError, match="root identity changed"):
         manager.lease(
             trigger_packet=packet,
-            materialized_parent=None,
+            materialized_source_base=None,
         )
 
     assert tuple(moved_root.iterdir()) == ()
@@ -531,7 +531,7 @@ def test_released_extraction_rejects_root_replacement_before_writing(
     with pytest.raises(ExpertCandidateWorkspaceError, match="pinned descriptor"):
         manager.lease(
             trigger_packet=packet,
-            materialized_parent=materialized,
+            materialized_source_base=materialized,
         )
 
     assert tuple(moved_root.iterdir()) == ()
@@ -548,7 +548,7 @@ def test_workspace_cleanup_unlinks_hostile_entries_without_following_them(tmp_pa
 
     with manager.lease(
         trigger_packet=packet,
-        materialized_parent=None,
+        materialized_source_base=None,
     ) as prepared:
         workspace_path = prepared.path
         (workspace_path / "linked").symlink_to(outside)
@@ -578,7 +578,7 @@ def test_workspace_cleanup_rejects_root_replacement_without_deleting_it(tmp_path
     manager = workspace_manager(tmp_path, FixtureSourceMaterializer({}))
     lease = manager.lease(
         trigger_packet=packet,
-        materialized_parent=None,
+        materialized_source_base=None,
     )
     prepared = lease.__enter__()
     moved = prepared.path.with_name("moved-original")
@@ -604,7 +604,7 @@ def test_workspace_cleanup_does_not_chmod_a_raced_directory_symlink(
     outside.chmod(0o755)
     lease = manager.lease(
         trigger_packet=packet,
-        materialized_parent=None,
+        materialized_source_base=None,
     )
     prepared = lease.__enter__()
     nested = prepared.path / "nested"
@@ -651,7 +651,7 @@ def test_active_lease_rejects_root_substitution_before_successful_exit(tmp_path)
     moved_root = tmp_path / "moved-workspaces"
     lease = manager.lease(
         trigger_packet=packet,
-        materialized_parent=None,
+        materialized_source_base=None,
     )
 
     with pytest.raises(ExpertCandidateWorkspaceError, match="root identity changed"):
@@ -677,7 +677,7 @@ def test_failed_lease_entry_closes_descriptors_and_removes_original_workspace(
     moved_root = tmp_path / "moved-workspaces"
     lease = manager.lease(
         trigger_packet=packet,
-        materialized_parent=None,
+        materialized_source_base=None,
     )
     manager.root.rename(moved_root)
     manager.root.mkdir(mode=0o700)

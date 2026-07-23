@@ -15,7 +15,7 @@ from kapso.cross_run.expert.task_evaluation_materialization import (
     TaskEvaluationMaterializationLimits,
     VerifiedTaskEvaluationAdapterRuntime,
     VerifiedTaskEvaluationCandidate,
-    VerifiedTaskEvaluationParent,
+    VerifiedTaskEvaluationSourceBase,
     materialize_task_evaluation_starting_artifacts,
 )
 from kapso.cross_run.expert.task_evaluation_preflight import (
@@ -46,19 +46,19 @@ def _expert_sources(prepared_plan):
         source_contents=stored.closure.candidate_contents,
     )
     packet = stored.closure.derivation.trigger_packet
-    if packet.parent_release is None or packet.parent_tree_receipt is None:
+    if packet.source_base_release is None or packet.source_base_tree_receipt is None:
         return candidate, None
-    _released_packet, _materialized, parent_contents = released_workspace_fixture()
-    return candidate, VerifiedTaskEvaluationParent(
-        release_manifest=packet.parent_release,
-        parent_tree_receipt=packet.parent_tree_receipt,
-        source_contents=parent_contents,
+    _released_packet, _materialized, source_base_contents = released_workspace_fixture()
+    return candidate, VerifiedTaskEvaluationSourceBase(
+        release_manifest=packet.source_base_release,
+        source_base_tree_receipt=packet.source_base_tree_receipt,
+        source_contents=source_base_contents,
     )
 
 
 def _current_observation(prepared_plan, *, head_commit_sha="a" * 40):
     packet = prepared_plan.stored_candidate.closure.derivation.trigger_packet
-    release = packet.parent_release
+    release = packet.source_base_release
     return TaskEvaluationCurrentReleaseObservation.mint(
         scope_id=packet.scope_contract.scope_id,
         release_id=None if release is None else release.release_id,
@@ -90,15 +90,15 @@ class _CandidateReader:
 
 
 class _ParentProvider:
-    def __init__(self, parent):
-        self.parent = parent
+    def __init__(self, source_base):
+        self.source_base = source_base
         self.calls = []
 
-    def materialize_exact(self, release_manifest, parent_tree_receipt, limits):
-        self.calls.append((release_manifest, parent_tree_receipt, limits))
-        if self.parent is None:
-            raise AssertionError("bootstrap must not materialize a parent")
-        return self.parent
+    def materialize_exact(self, release_manifest, source_base_tree_receipt, limits):
+        self.calls.append((release_manifest, source_base_tree_receipt, limits))
+        if self.source_base is None:
+            raise AssertionError("bootstrap must not materialize a source base")
+        return self.source_base
 
 
 class _ExactAdapterProvider:
@@ -158,13 +158,13 @@ def _coordinator(
     *,
     validation_store,
     prepared_plan,
-    parent,
+    source_base,
     current_authority,
     adapter_provider=None,
     clock=None,
 ):
     candidate_reader = _CandidateReader(prepared_plan.stored_candidate)
-    parent_provider = _ParentProvider(parent)
+    source_base_provider = _ParentProvider(source_base)
     exact_adapter_provider = adapter_provider or _ExactAdapterProvider(
         prepared_plan.verified_adapters
     )
@@ -172,12 +172,12 @@ def _coordinator(
         settings=validation_store.settings,
         plan_reservation_authority=validation_store,
         candidate_reader=candidate_reader,
-        parent_provider=parent_provider,
+        source_base_provider=source_base_provider,
         adapter_provider=exact_adapter_provider,
         current_release_authority=current_authority,
         monotonic_clock=clock or _Clock(),
     )
-    return coordinator, candidate_reader, parent_provider, exact_adapter_provider
+    return coordinator, candidate_reader, source_base_provider, exact_adapter_provider
 
 
 def _materialized_cases(plan_join, verified_adapters):
@@ -242,20 +242,20 @@ def _parent_preflight(
         expected_transition_id=snapshot.transition.transition_id,
         prepared_plan=prepared_plan,
     ).reservation
-    candidate, parent = _expert_sources(prepared_plan)
+    candidate, source_base = _expert_sources(prepared_plan)
     plan_join = prepare_task_evaluation_request(
         plan_reservation=plan_reservation,
         settings=validation_store.settings,
         stored_candidate=prepared_plan.stored_candidate,
         candidate=candidate,
-        parent=parent,
+        source_base=source_base,
     )
     return (
         PreparedTaskEvaluationRequest(
             plan_join=plan_join,
             stored_candidate=prepared_plan.stored_candidate,
             candidate=candidate,
-            parent=parent,
+            source_base=source_base,
             current_release_observation=_current_observation(prepared_plan),
             cases=_materialized_cases(plan_join, prepared_plan.verified_adapters),
         ),
@@ -288,16 +288,16 @@ def test_prepared_request_keeps_only_executable_packages_and_counts_each_once(
     assert len(prepared.cases) == 1
     assert len(plan_authority.plan.adapter_authorities) == 2
     assert len(prepared.adapters) == 1
-    assert prepared.parent is not None
+    assert prepared.source_base is not None
     assert prepared.entry_count == (
-        prepared.candidate.entry_count + prepared.parent.entry_count + adapter_usage[0]
+        prepared.candidate.entry_count + prepared.source_base.entry_count + adapter_usage[0]
     )
     assert prepared.byte_count == (
-        prepared.candidate.byte_count + prepared.parent.byte_count + adapter_usage[1]
+        prepared.candidate.byte_count + prepared.source_base.byte_count + adapter_usage[1]
     )
     assert task_evaluation_materialization_usage(
         candidate=prepared.candidate,
-        parent=prepared.parent,
+        source_base=prepared.source_base,
         adapters=(adapter, adapter),
     ) == (prepared.entry_count, prepared.byte_count)
 
@@ -363,26 +363,26 @@ def test_bootstrap_preflight_has_candidate_only_and_no_parent_usage(
         expected_transition_id=snapshot.transition.transition_id,
         prepared_plan=prepared_plan,
     ).reservation
-    candidate, parent = _expert_sources(prepared_plan)
-    assert parent is None
+    candidate, source_base = _expert_sources(prepared_plan)
+    assert source_base is None
     plan_join = prepare_task_evaluation_request(
         plan_reservation=plan_reservation,
         settings=validation_store.settings,
         stored_candidate=prepared_plan.stored_candidate,
         candidate=candidate,
-        parent=None,
+        source_base=None,
     )
 
     prepared = PreparedTaskEvaluationRequest(
         plan_join=plan_join,
         stored_candidate=prepared_plan.stored_candidate,
         candidate=candidate,
-        parent=None,
+        source_base=None,
         current_release_observation=_current_observation(prepared_plan),
         cases=_materialized_cases(plan_join, prepared_plan.verified_adapters),
     )
 
-    assert prepared.parent is None
+    assert prepared.source_base is None
     assert prepared.entry_count > prepared.candidate.entry_count
     assert all(len(case.request_case.legs) == 1 for case in prepared.cases)
 
@@ -400,13 +400,13 @@ def test_coordinator_materializes_exact_active_package_under_three_fences(
         expected_transition_id=snapshot.transition.transition_id,
         prepared_plan=prepared_plan,
     ).reservation
-    _candidate, parent = _expert_sources(prepared_plan)
+    _candidate, source_base = _expert_sources(prepared_plan)
     observation = _current_observation(prepared_plan)
     current_authority = _CurrentAuthority((observation, observation))
-    coordinator, candidate_reader, parent_provider, adapter_provider = _coordinator(
+    coordinator, candidate_reader, source_base_provider, adapter_provider = _coordinator(
         validation_store=validation_store,
         prepared_plan=prepared_plan,
-        parent=parent,
+        source_base=source_base,
         current_authority=current_authority,
     )
 
@@ -423,8 +423,8 @@ def test_coordinator_materializes_exact_active_package_under_three_fences(
         )
     }
     assert candidate_reader.calls == [prepared_plan.plan.candidate_id]
-    assert len(parent_provider.calls) == 1
-    assert type(parent_provider.calls[0][2]) is TaskEvaluationMaterializationLimits
+    assert len(source_base_provider.calls) == 1
+    assert type(source_base_provider.calls[0][2]) is TaskEvaluationMaterializationLimits
     assert current_authority.calls == [observation.scope_id, observation.scope_id]
     assert {call[0] for call in adapter_provider.calls} == executable_manifest_ids
     assert len(adapter_provider.calls) == len(executable_manifest_ids) == 1
@@ -446,17 +446,17 @@ def test_bootstrap_coordinator_never_calls_parent_provider(
     ).reservation
     observation = _current_observation(prepared_plan)
     current_authority = _CurrentAuthority((observation, observation))
-    coordinator, _candidate_reader, parent_provider, adapter_provider = _coordinator(
+    coordinator, _candidate_reader, source_base_provider, adapter_provider = _coordinator(
         validation_store=validation_store,
         prepared_plan=prepared_plan,
-        parent=None,
+        source_base=None,
         current_authority=current_authority,
     )
 
     prepared = coordinator.build(plan_reservation)
 
-    assert prepared.parent is None
-    assert parent_provider.calls == []
+    assert prepared.source_base is None
+    assert source_base_provider.calls == []
     assert len(adapter_provider.calls) == 1
     assert current_authority.calls == [observation.scope_id, observation.scope_id]
 
@@ -473,14 +473,14 @@ def test_coordinator_rejects_current_restoration_on_a_new_branch_head(
         expected_transition_id=snapshot.transition.transition_id,
         prepared_plan=prepared_plan,
     ).reservation
-    _candidate, parent = _expert_sources(prepared_plan)
+    _candidate, source_base = _expert_sources(prepared_plan)
     before = _current_observation(prepared_plan, head_commit_sha="a" * 40)
     restored = _current_observation(prepared_plan, head_commit_sha="c" * 40)
     current_authority = _CurrentAuthority((before, restored))
     coordinator, _reader, _parent_provider, _adapter_provider = _coordinator(
         validation_store=validation_store,
         prepared_plan=prepared_plan,
-        parent=parent,
+        source_base=source_base,
         current_authority=current_authority,
     )
 
@@ -512,8 +512,8 @@ def test_coordinator_rejects_foreign_candidate_before_external_reads(
         ),
     )
     candidate_reader = _CandidateReader(foreign_candidate)
-    _candidate, parent = _expert_sources(prepared_plan)
-    parent_provider = _ParentProvider(parent)
+    _candidate, source_base = _expert_sources(prepared_plan)
+    source_base_provider = _ParentProvider(source_base)
     adapter_provider = _ExactAdapterProvider(prepared_plan.verified_adapters)
     observation = _current_observation(prepared_plan)
     current_authority = _CurrentAuthority((observation, observation))
@@ -521,7 +521,7 @@ def test_coordinator_rejects_foreign_candidate_before_external_reads(
         settings=validation_store.settings,
         plan_reservation_authority=validation_store,
         candidate_reader=candidate_reader,
-        parent_provider=parent_provider,
+        source_base_provider=source_base_provider,
         adapter_provider=adapter_provider,
         current_release_authority=current_authority,
         monotonic_clock=_Clock(),
@@ -530,7 +530,7 @@ def test_coordinator_rejects_foreign_candidate_before_external_reads(
     with pytest.raises(ValueError, match="candidate differs"):
         coordinator.build(plan_reservation)
 
-    assert parent_provider.calls == []
+    assert source_base_provider.calls == []
     assert adapter_provider.calls == []
     assert current_authority.calls == []
 
@@ -548,7 +548,7 @@ def test_coordinator_rejects_adapter_package_substitution(
         expected_transition_id=snapshot.transition.transition_id,
         prepared_plan=prepared_plan,
     ).reservation
-    _candidate, parent = _expert_sources(prepared_plan)
+    _candidate, source_base = _expert_sources(prepared_plan)
     observation = _current_observation(prepared_plan)
     current_authority = _CurrentAuthority((observation, observation))
     adapter_provider = _ExactAdapterProvider(prepared_plan.verified_adapters)
@@ -574,7 +574,7 @@ def test_coordinator_rejects_adapter_package_substitution(
     coordinator, _reader, _parent_provider, _adapter_provider = _coordinator(
         validation_store=validation_store,
         prepared_plan=prepared_plan,
-        parent=parent,
+        source_base=source_base,
         current_authority=current_authority,
         adapter_provider=adapter_provider,
     )
@@ -605,13 +605,13 @@ def test_coordinator_rejects_stale_plan_before_external_provider_calls(
         candidate_id=prepared_plan.plan.candidate_id,
         expected_validation_state_id=snapshot.state.validation_state_id,
     )
-    _candidate, parent = _expert_sources(prepared_plan)
+    _candidate, source_base = _expert_sources(prepared_plan)
     observation = _current_observation(prepared_plan)
     current_authority = _CurrentAuthority((observation, observation))
-    coordinator, candidate_reader, parent_provider, adapter_provider = _coordinator(
+    coordinator, candidate_reader, source_base_provider, adapter_provider = _coordinator(
         validation_store=validation_store,
         prepared_plan=prepared_plan,
-        parent=parent,
+        source_base=source_base,
         current_authority=current_authority,
     )
 
@@ -619,7 +619,7 @@ def test_coordinator_rejects_stale_plan_before_external_provider_calls(
         coordinator.build(plan_reservation)
 
     assert candidate_reader.calls == []
-    assert parent_provider.calls == []
+    assert source_base_provider.calls == []
     assert adapter_provider.calls == []
     assert current_authority.calls == []
 
@@ -636,7 +636,7 @@ def test_coordinator_rejects_plan_head_advance_during_materialization(
         expected_transition_id=snapshot.transition.transition_id,
         prepared_plan=prepared_plan,
     ).reservation
-    _candidate, parent = _expert_sources(prepared_plan)
+    _candidate, source_base = _expert_sources(prepared_plan)
     observation = _current_observation(prepared_plan)
     current_authority = _CurrentAuthority((observation, observation))
 
@@ -654,10 +654,10 @@ def test_coordinator_rejects_plan_head_advance_during_materialization(
         prepared_plan.verified_adapters,
         callback=advance_validation_head,
     )
-    coordinator, _reader, parent_provider, _adapter_provider = _coordinator(
+    coordinator, _reader, source_base_provider, _adapter_provider = _coordinator(
         validation_store=validation_store,
         prepared_plan=prepared_plan,
-        parent=parent,
+        source_base=source_base,
         current_authority=current_authority,
         adapter_provider=adapter_provider,
     )
@@ -665,7 +665,7 @@ def test_coordinator_rejects_plan_head_advance_during_materialization(
     with pytest.raises(ValueError, match="head changed"):
         coordinator.build(plan_reservation)
 
-    assert len(parent_provider.calls) == 1
+    assert len(source_base_provider.calls) == 1
     assert len(adapter_provider.calls) == 1
     assert len(current_authority.calls) == 2
 
@@ -682,7 +682,7 @@ def test_coordinator_rejects_timeout_during_exact_package_resolution(
         expected_transition_id=snapshot.transition.transition_id,
         prepared_plan=prepared_plan,
     ).reservation
-    _candidate, parent = _expert_sources(prepared_plan)
+    _candidate, source_base = _expert_sources(prepared_plan)
     observation = _current_observation(prepared_plan)
     current_authority = _CurrentAuthority((observation, observation))
     clock = _Clock()
@@ -697,7 +697,7 @@ def test_coordinator_rejects_timeout_during_exact_package_resolution(
     coordinator, _reader, _parent_provider, _adapter_provider = _coordinator(
         validation_store=validation_store,
         prepared_plan=prepared_plan,
-        parent=parent,
+        source_base=source_base,
         current_authority=current_authority,
         adapter_provider=adapter_provider,
         clock=clock,

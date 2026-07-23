@@ -101,7 +101,7 @@ class SourceReplaySpawnAuthorityFence(StrictContract):
     candidate_id: str
     scope_id: str
     scope_contract_id: str
-    expected_parent_release_id: str
+    expected_current_release_id: str
     invocation_allocation: ExpertSourceReplayInvocationAllocation
     current_release_observation: SourceReplayCurrentReleaseObservation
     task_adapter_trust_observations: tuple[TaskAdapterTrustObservation, ...]
@@ -140,9 +140,9 @@ class SourceReplaySpawnAuthorityFence(StrictContract):
                 "scope_contract_id",
             ),
             (
-                self.expected_parent_release_id,
+                self.expected_current_release_id,
                 "expert-base-release",
-                "expected_parent_release_id",
+                "expected_current_release_id",
             ),
         ):
             require_content_id(value, f"source replay spawn fence {name}")
@@ -157,10 +157,10 @@ class SourceReplaySpawnAuthorityFence(StrictContract):
         current = self.current_release_observation
         if (
             current.scope_id != self.scope_id
-            or current.release_id != self.expected_parent_release_id
+            or current.release_id != self.expected_current_release_id
         ):
             raise ExpertSourceReplayFreshAuthorityError(
-                "source replay spawn current release differs from its parent"
+                "source replay spawn release differs from expected CURRENT"
             )
         observation_ids = tuple(
             observation.observation_id
@@ -191,7 +191,7 @@ class SourceReplaySpawnAuthorityFence(StrictContract):
             self.authorization_state_id,
             self.candidate_id,
             self.scope_contract_id,
-            self.expected_parent_release_id,
+            self.expected_current_release_id,
             self.invocation_allocation.execution_case_id,
             self.invocation_allocation.execution_leg_id,
             current.observation_id,
@@ -253,7 +253,7 @@ def source_replay_spawn_security_subject_ids(
 ) -> tuple[str, ...]:
     request = prepared.request
     candidate = prepared.candidate.manifest
-    parent = prepared.parent.release_manifest
+    source_base_release = prepared.source_base.release_manifest
     subject_ids = {
         reservation.reservation_id,
         *reservation.exact_dependency_ids,
@@ -262,7 +262,7 @@ def source_replay_spawn_security_subject_ids(
         current.observation_id,
         current.publication_id,
         *current.validation_closure_ids,
-        *parent.consumed_dependency_ids,
+        *source_base_release.consumed_dependency_ids,
         *candidate.source_dependency_ids,
         *candidate.ancestor_candidate_ids,
         candidate.sanitation_report_id,

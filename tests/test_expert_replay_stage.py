@@ -236,7 +236,7 @@ def test_stage_orchestrator_returns_current_invalidation_before_provider_work(
             assert scope_id == "ml_ai"
             self.calls += 1
             if self.calls == 1:
-                return stage.fixture.attempt.parent_release_id
+                return stage.fixture.attempt.source_base_release_id
             return content_id("expert-base-release", {"label": "advanced"})
 
     rotating_current = _RotatingCurrentRelease()

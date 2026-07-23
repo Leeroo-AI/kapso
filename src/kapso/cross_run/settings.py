@@ -1100,7 +1100,7 @@ class ExpertValidationPolicySettings(StrictContract):
         validation_track: ExpertValidationTrack,
         configured_task_family_ids: tuple[str, ...],
         *,
-        has_parent_release: bool,
+        has_source_base_release: bool,
     ) -> tuple[ExpertValidationStage, ...]:
         if not configured_task_family_ids or configured_task_family_ids != tuple(
             sorted(set(configured_task_family_ids))
@@ -1109,11 +1109,11 @@ class ExpertValidationPolicySettings(StrictContract):
                 "configured task families must be non-empty, sorted, and unique"
             )
         if (
-            not has_parent_release
+            not has_source_base_release
             and validation_track is not ExpertValidationTrack.REPOSITORY_ARCHITECTURE
         ):
             raise CrossRunConfigurationError(
-                "only repository architecture may validate without a parent release"
+                "only repository architecture may validate without a source-base release"
             )
         mechanical_stages = {
             ExpertValidationStage.CONTRACT_SCHEMA,
@@ -1124,11 +1124,11 @@ class ExpertValidationPolicySettings(StrictContract):
             ExpertValidationStage.RELEASE_MATRIX,
             ExpertValidationStage.PUBLICATION_ELIGIBILITY,
         }
-        if has_parent_release:
+        if has_source_base_release:
             mechanical_stages.add(ExpertValidationStage.SOURCE_RUN_REPLAY)
         if validation_track is ExpertValidationTrack.MECHANICAL_GENERAL_FIX:
             selected = mechanical_stages
-        elif not has_parent_release:
+        elif not has_source_base_release:
             selected = mechanical_stages
         else:
             selected = set(mechanical_stages)
@@ -1147,12 +1147,12 @@ class ExpertValidationPolicySettings(StrictContract):
         validation_track: ExpertValidationTrack,
         configured_task_family_ids: tuple[str, ...],
         *,
-        has_parent_release: bool,
+        has_source_base_release: bool,
     ) -> bool:
         required_stages = self.required_stages(
             validation_track,
             configured_task_family_ids,
-            has_parent_release=has_parent_release,
+            has_source_base_release=has_source_base_release,
         )
         return (
             ExpertValidationStage.SEALED_CANARY not in required_stages

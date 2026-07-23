@@ -57,7 +57,7 @@ from kapso.cross_run.expert.candidate_package import (
     AGENT_TRIGGER_DECISION_PACKAGE_PATH,
     AGENT_TRIGGER_PACKET_PACKAGE_PATH,
     AGENT_WORKSPACE_DELTA_PACKAGE_PATH,
-    PARENT_FILES_PACKAGE_PATH,
+    SOURCE_BASE_FILES_PACKAGE_PATH,
     SANITATION_REPORT_PACKAGE_PATH,
     contract_tuple_package_bytes,
     direct_agent_candidate_package_files,
@@ -102,7 +102,7 @@ _MANIFEST_PATH = CANDIDATE_MANIFEST_PACKAGE_PATH
 _VALIDATION_CONTEXT_PATH = CANDIDATE_VALIDATION_CONTEXT_PACKAGE_PATH
 _PATCH_PATH = CANDIDATE_PATCH_PACKAGE_PATH
 _SOURCE_TREE_PATH = CANDIDATE_SOURCE_TREE_PACKAGE_PATH
-_PARENT_FILES_PATH = PARENT_FILES_PACKAGE_PATH
+_SOURCE_BASE_FILES_PATH = SOURCE_BASE_FILES_PACKAGE_PATH
 _REPOSITORY_MAP_PATH = CANDIDATE_REPOSITORY_MAP_PACKAGE_PATH
 _SANITATION_PATH = SANITATION_REPORT_PACKAGE_PATH
 _MODULE_ROOT = CANDIDATE_MODULE_PACKAGE_ROOT
@@ -120,7 +120,7 @@ _COMPOSITION_DERIVATION_RECORD_PATH = COMPOSITION_DERIVATION_RECORD_PACKAGE_PATH
 _COMPOSITION_MATERIALIZATION_PATH = (
     f"{_COMPOSITION_DERIVATION_ROOT}/materialization.json"
 )
-_COMPOSITION_PARENT_SOURCE_ROOT = f"{_COMPOSITION_DERIVATION_ROOT}/parent-source"
+_COMPOSITION_SOURCE_BASE_ROOT = f"{_COMPOSITION_DERIVATION_ROOT}/source-base"
 _COMPOSITION_SOURCE_PROVENANCE_ROOT = (
     f"{_COMPOSITION_DERIVATION_ROOT}/source-provenance"
 )
@@ -482,7 +482,7 @@ class ExpertCandidateStore:
         elif type(derivation) is ExpertDeterministicCompositionDerivation:
             snapshot_derivation = replace(
                 derivation,
-                parent_contents=dict(derivation.parent_contents),
+                source_base_contents=dict(derivation.source_base_contents),
                 source_provenance=tuple(
                     replace(
                         provenance,
@@ -600,7 +600,7 @@ class ExpertCandidateStore:
                 validation_context=closure.validation_context,
                 patch=closure.patch,
                 candidate_tree=closure.candidate_tree,
-                parent_files=closure.parent_files,
+                source_base_files=closure.source_base_files,
                 repository_map=closure.repository_map,
                 module_contracts=closure.module_contracts,
                 derivation=closure.derivation,
@@ -612,7 +612,7 @@ class ExpertCandidateStore:
             _VALIDATION_CONTEXT_PATH: closure.validation_context.to_json_bytes(),
             _PATCH_PATH: closure.patch.to_json_bytes(),
             _SOURCE_TREE_PATH: closure.candidate_tree.to_json_bytes(),
-            _PARENT_FILES_PATH: contract_tuple_package_bytes(closure.parent_files),
+            _SOURCE_BASE_FILES_PATH: contract_tuple_package_bytes(closure.source_base_files),
             _REPOSITORY_MAP_PATH: closure.repository_map.to_json_bytes(),
             _SANITATION_PATH: closure.sanitation_report.to_json_bytes(),
         }
@@ -644,8 +644,8 @@ class ExpertCandidateStore:
                 derivation.materialization.to_json_bytes()
             ),
         }
-        for path, payload in derivation.parent_contents.items():
-            files[f"{_COMPOSITION_PARENT_SOURCE_ROOT}/{path}"] = payload
+        for path, payload in derivation.source_base_contents.items():
+            files[f"{_COMPOSITION_SOURCE_BASE_ROOT}/{path}"] = payload
         for provenance in derivation.source_provenance:
             root = ExpertCandidateStore._composition_source_root(
                 provenance.candidate_id
@@ -679,10 +679,10 @@ class ExpertCandidateStore:
             file.relative_path: payloads[f"{_SOURCE_ROOT}/{file.relative_path}"]
             for file in tree.files
         }
-        parent_files = ExpertCandidateStore._parse_contract_tuple(
-            payloads[_PARENT_FILES_PATH],
+        source_base_files = ExpertCandidateStore._parse_contract_tuple(
+            payloads[_SOURCE_BASE_FILES_PATH],
             SourceFileDescriptor,
-            "parent files",
+            "source-base files",
         )
         closure = ExpertCandidateClosure(
             manifest=manifest,
@@ -691,7 +691,7 @@ class ExpertCandidateStore:
             ),
             patch=ExpertCandidatePatch.from_json_bytes(payloads[_PATCH_PATH]),
             candidate_tree=tree,
-            parent_files=parent_files,
+            source_base_files=source_base_files,
             repository_map=ExpertRepositoryMap.from_json_bytes(
                 payloads[_REPOSITORY_MAP_PATH]
             ),
@@ -767,11 +767,11 @@ class ExpertCandidateStore:
             )
             for source_reference in plan.sources
         )
-        parent_contents = {
+        source_base_contents = {
             descriptor.relative_path: payloads[
-                f"{_COMPOSITION_PARENT_SOURCE_ROOT}/{descriptor.relative_path}"
+                f"{_COMPOSITION_SOURCE_BASE_ROOT}/{descriptor.relative_path}"
             ]
-            for descriptor in materialization.parent_tree.files
+            for descriptor in materialization.source_base_tree.files
         }
         return ExpertDeterministicCompositionDerivation(
             record=ExpertDeterministicCompositionDerivationRecord.from_json_bytes(
@@ -779,7 +779,7 @@ class ExpertCandidateStore:
             ),
             materialization=materialization,
             source_provenance=provenance,
-            parent_contents=parent_contents,
+            source_base_contents=source_base_contents,
         )
 
     @staticmethod
@@ -822,7 +822,7 @@ class ExpertCandidateStore:
             candidate_commit_record=commit,
             validation_context=source_closure.validation_context,
             reduction_source=reduction_source,
-            parent_files=source_closure.parent_files,
+            source_base_files=source_closure.source_base_files,
             agent_derivation=source_closure.derivation,
             sanitation_report=source_closure.sanitation_report,
         )

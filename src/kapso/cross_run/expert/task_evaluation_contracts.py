@@ -25,7 +25,7 @@ TASK_EVALUATION_REQUEST_CONTRACT_VERSION = "kapso.task_evaluation_request.v1"
 
 
 class TaskEvaluationLegKind(str, Enum):
-    PARENT_CONTROL = "parent_control"
+    SOURCE_BASE_CONTROL = "source_base_control"
     CANDIDATE = "candidate"
 
 
@@ -80,9 +80,9 @@ class TaskEvaluationExpertLeg(StrictContract):
     IDENTITY_FIELD: ClassVar[str] = "leg_id"
 
     def _validate(self) -> None:
-        if self.kind is TaskEvaluationLegKind.PARENT_CONTROL:
+        if self.kind is TaskEvaluationLegKind.SOURCE_BASE_CONTROL:
             artifact_namespace = "expert-base-release"
-            receipt_namespace = "expert-parent-tree-receipt"
+            receipt_namespace = "expert-source-base-tree-receipt"
         else:
             artifact_namespace = "expert-candidate"
             receipt_namespace = "expert-candidate-commit"
@@ -322,8 +322,8 @@ class TaskEvaluationRequest(StrictContract):
     candidate_tree_hash: str
     scope_contract_id: str
     scope_id: str
-    parent_release_id: str | None
-    parent_tree_hash: str | None
+    source_base_release_id: str | None
+    source_base_tree_hash: str | None
     validation_policy_id: str
     configuration_fingerprint: str
     release_matrix_evaluator_id: str
@@ -408,22 +408,22 @@ class TaskEvaluationRequest(StrictContract):
             "task evaluation configuration fingerprint",
         )
         if self.mode is ExpertReleaseMatrixMode.BOOTSTRAP:
-            if self.parent_release_id is not None or self.parent_tree_hash is not None:
+            if self.source_base_release_id is not None or self.source_base_tree_hash is not None:
                 raise TaskEvaluationContractError(
-                    "bootstrap task evaluation cannot name a parent"
+                    "bootstrap task evaluation cannot name a source base"
                 )
             expected_leg_kinds = {TaskEvaluationLegKind.CANDIDATE}
         else:
-            if self.parent_release_id is None or self.parent_tree_hash is None:
+            if self.source_base_release_id is None or self.source_base_tree_hash is None:
                 raise TaskEvaluationContractError(
-                    "parent task evaluation requires a parent"
+                    "source-base task evaluation requires a source base"
                 )
             _require_namespaced_id(
-                self.parent_release_id,
+                self.source_base_release_id,
                 "expert-base-release",
-                "task evaluation parent release",
+                "task evaluation source-base release",
             )
-            _require_digest(self.parent_tree_hash, "task evaluation parent tree")
+            _require_digest(self.source_base_tree_hash, "task evaluation source-base tree")
             expected_leg_kinds = set(TaskEvaluationLegKind)
         case_keys = tuple(case.canonical_key for case in self.cases)
         case_ids = tuple(case.evaluation_case_id for case in self.cases)
@@ -444,7 +444,7 @@ class TaskEvaluationRequest(StrictContract):
             raise TaskEvaluationContractError(
                 "task evaluation cases must name unique provenances"
             )
-        parent_source_receipt_ids = set()
+        control_source_receipt_ids = set()
         for case in self.cases:
             for leg in case.legs:
                 if leg.kind is TaskEvaluationLegKind.CANDIDATE:
@@ -456,17 +456,17 @@ class TaskEvaluationRequest(StrictContract):
                     )
                 else:
                     matches_expert_authority = (
-                        leg.expert_artifact_id == self.parent_release_id
-                        and leg.expert_tree_hash == self.parent_tree_hash
+                        leg.expert_artifact_id == self.source_base_release_id
+                        and leg.expert_tree_hash == self.source_base_tree_hash
                     )
-                    parent_source_receipt_ids.add(leg.expert_source_receipt_id)
+                    control_source_receipt_ids.add(leg.expert_source_receipt_id)
                 if not matches_expert_authority:
                     raise TaskEvaluationContractError(
                         "task evaluation leg differs from request expert authority"
                     )
-        if len(parent_source_receipt_ids) > 1:
+        if len(control_source_receipt_ids) > 1:
             raise TaskEvaluationContractError(
-                "task evaluation cases disagree on parent source authority"
+                "task evaluation cases disagree on source-base authority"
             )
         cell_ids = tuple(
             cell_id for case in self.cases for cell_id in case.evaluation_cell_ids
@@ -497,8 +497,8 @@ class TaskEvaluationRequest(StrictContract):
                 for dependency_id in case.exact_dependency_ids
             ),
         }
-        if self.parent_release_id is not None:
-            expected_dependencies.add(self.parent_release_id)
+        if self.source_base_release_id is not None:
+            expected_dependencies.add(self.source_base_release_id)
         if self.exact_dependency_ids != tuple(sorted(expected_dependencies)):
             raise TaskEvaluationContractError(
                 "task evaluation request dependency closure is not exact"

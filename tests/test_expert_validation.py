@@ -321,7 +321,7 @@ def _eligibility_decision(
     stages = settings.policy.required_stages(
         track,
         ("family",),
-        has_parent_release=True,
+        has_source_base_release=True,
     )
     candidate_id = content_id("expert-candidate", {"label": "candidate"})
     candidate_commit_record_id = content_id(
@@ -404,7 +404,7 @@ def _eligibility_decision(
         candidate_tree_hash=_digest("candidate-tree"),
         candidate_commit_record_id=candidate_commit_record_id,
         scope_contract_id=_content_id("scope"),
-        parent_release_id=_content_id("parent-release"),
+        source_base_release_id=_content_id("parent-release"),
         validation_policy_id=policy.validation_policy_id,
         configuration_fingerprint=settings.configuration_fingerprint,
         eligible=True,
@@ -440,7 +440,7 @@ def _attempt(
         candidate_tree_hash=decision.candidate_tree_hash,
         candidate_commit_record_id=decision.candidate_commit_record_id,
         scope_contract_id=decision.scope_contract_id,
-        parent_release_id=decision.parent_release_id,
+        source_base_release_id=decision.source_base_release_id,
         eligibility_decision_id=decision.eligibility_decision_id,
         validation_policy_id=decision.validation_policy_id,
         configuration_fingerprint=decision.configuration_fingerprint,
@@ -486,17 +486,17 @@ def test_stage_plan_is_track_parent_and_family_aware_and_fails_closed():
     bootstrap = policy.required_stages(
         ExpertValidationTrack.REPOSITORY_ARCHITECTURE,
         ("family",),
-        has_parent_release=False,
+        has_source_base_release=False,
     )
     mechanical = policy.required_stages(
         ExpertValidationTrack.MECHANICAL_GENERAL_FIX,
         ("family",),
-        has_parent_release=True,
+        has_source_base_release=True,
     )
     behavioral = policy.required_stages(
         ExpertValidationTrack.BEHAVIORAL_CAPABILITY,
         ("family", "second_family"),
-        has_parent_release=True,
+        has_source_base_release=True,
     )
 
     assert ExpertValidationStage.SOURCE_RUN_REPLAY not in bootstrap
@@ -505,21 +505,21 @@ def test_stage_plan_is_track_parent_and_family_aware_and_fails_closed():
     assert policy.can_validate(
         ExpertValidationTrack.REPOSITORY_ARCHITECTURE,
         ("family",),
-        has_parent_release=False,
+        has_source_base_release=False,
     )
     assert ExpertValidationStage.SOURCE_RUN_REPLAY in mechanical
     assert ExpertValidationStage.SEALED_CANARY not in mechanical
     assert policy.can_validate(
         ExpertValidationTrack.MECHANICAL_GENERAL_FIX,
         ("family",),
-        has_parent_release=True,
+        has_source_base_release=True,
     )
     assert ExpertValidationStage.CROSS_FAMILY_TRANSFER in behavioral
     assert ExpertValidationStage.SEALED_CANARY in behavioral
     assert not policy.can_validate(
         ExpertValidationTrack.BEHAVIORAL_CAPABILITY,
         ("family", "second_family"),
-        has_parent_release=True,
+        has_source_base_release=True,
     )
     with pytest.raises(
         CrossRunConfigurationError,
@@ -528,7 +528,7 @@ def test_stage_plan_is_track_parent_and_family_aware_and_fails_closed():
         policy.required_stages(
             ExpertValidationTrack.BEHAVIORAL_CAPABILITY,
             ("family",),
-            has_parent_release=False,
+            has_source_base_release=False,
         )
 
 
@@ -1327,7 +1327,7 @@ def test_stale_bootstrap_and_forged_track_are_ineligible_or_rejected(tmp_path):
     )
 
     assert stale.decision.eligible is False
-    assert stale.decision.reason_code == "stale_parent_release"
+    assert stale.decision.reason_code == "source_base_not_current"
     assert stale.decision.required_stages == ()
 
     valid = _eligibility_evaluator(settings, store, adapter).decide(

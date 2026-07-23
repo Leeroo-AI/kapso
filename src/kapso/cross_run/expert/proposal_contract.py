@@ -239,42 +239,42 @@ class ExpertCandidateAncestorInput(StrictContract):
                 raise ExpertProposalContractError(
                     f"ancestor source differs from its descriptor: {path}"
                 )
-        parent_descriptors = dict(descriptors)
+        source_base_descriptors = dict(descriptors)
         for change in self.patch.changes:
             if descriptors.get(change.relative_path) != change.after:
                 raise ExpertProposalContractError(
                     "ancestor patch differs from its candidate tree"
                 )
             if change.before is None:
-                parent_descriptors.pop(change.relative_path, None)
+                source_base_descriptors.pop(change.relative_path, None)
             else:
-                parent_descriptors[change.relative_path] = change.before
-        parent_tree_hash = (
+                source_base_descriptors[change.relative_path] = change.before
+        source_base_tree_hash = (
             EMPTY_EXPERT_TREE_DIGEST
-            if not parent_descriptors
+            if not source_base_descriptors
             else source_tree_digest(
                 {
                     path: (descriptor.digest, descriptor.mode, descriptor.size)
-                    for path, descriptor in parent_descriptors.items()
+                    for path, descriptor in source_base_descriptors.items()
                 }
             )
         )
         expected_changes = tuple(
             ExpertCandidatePatchChange(
                 relative_path=path,
-                before=parent_descriptors.get(path),
+                before=source_base_descriptors.get(path),
                 after=descriptors.get(path),
             )
-            for path in sorted(set(parent_descriptors) | set(descriptors))
-            if parent_descriptors.get(path) != descriptors.get(path)
+            for path in sorted(set(source_base_descriptors) | set(descriptors))
+            if source_base_descriptors.get(path) != descriptors.get(path)
         )
         if (
-            self.patch.parent_tree_hash != self.manifest.parent_tree_hash
-            or self.patch.parent_tree_hash != parent_tree_hash
+            self.patch.source_base_tree_hash != self.manifest.source_base_tree_hash
+            or self.patch.source_base_tree_hash != source_base_tree_hash
             or self.patch.changes != expected_changes
         ):
             raise ExpertProposalContractError(
-                "ancestor patch does not transform its exact parent tree"
+                "ancestor patch does not transform its exact source-base tree"
             )
         self._validate_generated_controls(contents)
 
@@ -343,7 +343,7 @@ def expert_candidate_operation_kind(
         raise ExpertProposalContractError(
             "expert proposal requires an affirmative trigger decision"
         )
-    if packet.parent_release is None:
+    if packet.source_base_release is None:
         return ExpertCandidateOperationKind.BOOTSTRAP
     if decision.change_kind.value == "repository_architecture":
         return ExpertCandidateOperationKind.RESTRUCTURE
@@ -407,7 +407,7 @@ def build_expert_proposal_packet(
     packet: ExpertTriggerEvidencePacket,
     decision: ExpertEvolutionTriggerDecision,
     operation_kind: ExpertCandidateOperationKind,
-    editable_parent_tree_hash: str,
+    editable_input_tree_hash: str,
     maximum_entries: int,
     maximum_bytes: int,
     ancestor_inputs: tuple[ExpertCandidateAncestorInput, ...],
@@ -417,7 +417,7 @@ def build_expert_proposal_packet(
         "operation_kind": operation_kind.value,
         "trigger_packet": packet.to_dict(),
         "trigger_decision": decision.to_dict(),
-        "editable_parent_tree_hash": editable_parent_tree_hash,
+        "editable_input_tree_hash": editable_input_tree_hash,
         "workspace_limits": {
             "maximum_entries": maximum_entries,
             "maximum_bytes": maximum_bytes,
@@ -554,25 +554,25 @@ def _validate_restructure_authority(
     modules: tuple[ExpertModuleContract, ...],
     proposal: ExpertArchitectProposal,
 ) -> None:
-    if packet.repository_map is None:
+    if packet.source_base_repository_map is None:
         raise ExpertProposalContractError(
-            "restructure requires a released parent repository map"
+            "restructure requires a released source-base repository map"
         )
-    parent_modules = {module.module_id: module for module in packet.module_contracts}
+    source_base_modules = {module.module_id: module for module in packet.source_base_module_contracts}
     current_modules = {module.module_id: module for module in modules}
-    for module_id in sorted(set(parent_modules) & set(current_modules)):
-        parent = parent_modules[module_id]
+    for module_id in sorted(set(source_base_modules) & set(current_modules)):
+        source_base_module = source_base_modules[module_id]
         current = current_modules[module_id]
-        if parent.module_contract_id != current.module_contract_id:
+        if source_base_module.module_contract_id != current.module_contract_id:
             _validate_preserved_module_change(
-                parent,
+                source_base_module,
                 current,
                 allow_path_reference_replacement=True,
             )
-            _validate_restructure_path_references(parent, current, proposal)
+            _validate_restructure_path_references(source_base_module, current, proposal)
     if _repository_architecture_signature(
-        packet.repository_map,
-        packet.module_contracts,
+        packet.source_base_repository_map,
+        packet.source_base_module_contracts,
     ) == _repository_architecture_signature(repository_map, modules):
         raise ExpertProposalContractError(
             "restructure must change repository structure or path interfaces"
@@ -580,15 +580,15 @@ def _validate_restructure_authority(
 
 
 def _validate_restructure_path_references(
-    parent: ExpertModuleContract,
+    source_base_module: ExpertModuleContract,
     changed: ExpertModuleContract,
     proposal: ExpertArchitectProposal,
 ) -> None:
     for field_name in ("entrypoint_refs", "test_refs", "replay_refs"):
-        parent_refs = set(getattr(parent, field_name))
+        source_base_refs = set(getattr(source_base_module, field_name))
         changed_refs = set(getattr(changed, field_name))
-        removed_refs = parent_refs - changed_refs
-        added_refs = changed_refs - parent_refs
+        removed_refs = source_base_refs - changed_refs
+        added_refs = changed_refs - source_base_refs
         if not removed_refs:
             continue
         if (
@@ -638,22 +638,22 @@ def _derive_generalized_topology(
     tuple[ExpertModuleContract, ...],
     tuple[ExpertCapabilityLineage, ...],
 ]:
-    if packet.repository_map is None:
+    if packet.source_base_repository_map is None:
         raise ExpertProposalContractError(
-            "generalization requires a released parent repository map"
+            "generalization requires a released source-base repository map"
         )
-    parent_modules = {module.module_id: module for module in packet.module_contracts}
+    source_base_modules = {module.module_id: module for module in packet.source_base_module_contracts}
     changed_modules = {
         module.module_id: module.mint_contract()
         for module in proposal.changed_module_contracts
     }
-    if not set(changed_modules).issubset(parent_modules):
+    if not set(changed_modules).issubset(source_base_modules):
         raise ExpertProposalContractError(
             "generalization changes an unknown capability"
         )
     if any(
         changed_modules[module_id].module_contract_id
-        == parent_modules[module_id].module_contract_id
+        == source_base_modules[module_id].module_contract_id
         for module_id in changed_modules
     ):
         raise ExpertProposalContractError(
@@ -661,16 +661,16 @@ def _derive_generalized_topology(
         )
     for module_id, changed_module in changed_modules.items():
         _validate_preserved_module_change(
-            parent_modules[module_id],
+            source_base_modules[module_id],
             changed_module,
             allow_path_reference_replacement=False,
         )
     modules = tuple(
-        changed_modules.get(module_id, parent_modules[module_id])
-        for module_id in sorted(parent_modules)
+        changed_modules.get(module_id, source_base_modules[module_id])
+        for module_id in sorted(source_base_modules)
     )
     module_refs = {module.module_id: module.module_contract_id for module in modules}
-    parent_map = packet.repository_map
+    source_base_map = packet.source_base_repository_map
     repository_map = ExpertRepositoryMap.mint(
         scope_contract_id=packet.scope_contract.scope_contract_id,
         capability_nodes=tuple(
@@ -680,27 +680,27 @@ def _derive_generalized_topology(
                 owned_paths=node.owned_paths,
                 task_family_bindings=node.task_family_bindings,
             )
-            for node in parent_map.capability_nodes
+            for node in source_base_map.capability_nodes
         ),
-        dependency_edges=parent_map.dependency_edges,
-        task_adapter_boundary=parent_map.task_adapter_boundary,
-        validation_entrypoints=parent_map.validation_entrypoints,
-        architecture_invariants=parent_map.architecture_invariants,
+        dependency_edges=source_base_map.dependency_edges,
+        task_adapter_boundary=source_base_map.task_adapter_boundary,
+        validation_entrypoints=source_base_map.validation_entrypoints,
+        architecture_invariants=source_base_map.architecture_invariants,
     )
     return repository_map, modules, ()
 
 
 def _validate_preserved_module_change(
-    parent: ExpertModuleContract,
+    source_base_module: ExpertModuleContract,
     changed: ExpertModuleContract,
     *,
     allow_path_reference_replacement: bool,
 ) -> None:
-    parent_version = parent.version[1:]
+    source_base_version = source_base_module.version[1:]
     changed_version = changed.version[1:]
-    if len(changed_version) < len(parent_version) or (
-        len(changed_version) == len(parent_version)
-        and changed_version <= parent_version
+    if len(changed_version) < len(source_base_version) or (
+        len(changed_version) == len(source_base_version)
+        and changed_version <= source_base_version
     ):
         raise ExpertProposalContractError(
             "generalization must advance the changed module version"
@@ -711,7 +711,10 @@ def _validate_preserved_module_change(
         "incompatible_capability_ids",
         "resource_bounds",
     )
-    if any(getattr(changed, name) != getattr(parent, name) for name in exact_fields):
+    if any(
+        getattr(changed, name) != getattr(source_base_module, name)
+        for name in exact_fields
+    ):
         raise ExpertProposalContractError(
             "generalization changes a fixed module safety envelope"
         )
@@ -727,7 +730,7 @@ def _validate_preserved_module_change(
     if not allow_path_reference_replacement:
         monotonic_fields.extend(("entrypoint_refs", "test_refs", "replay_refs"))
     if any(
-        not set(getattr(parent, name)).issubset(getattr(changed, name))
+        not set(getattr(source_base_module, name)).issubset(getattr(changed, name))
         for name in monotonic_fields
     ):
         raise ExpertProposalContractError(
@@ -736,8 +739,8 @@ def _validate_preserved_module_change(
     if any(
         key not in changed.dependency_license_manifest
         or changed.dependency_license_manifest[key]
-        != parent.dependency_license_manifest[key]
-        for key in parent.dependency_license_manifest
+        != source_base_module.dependency_license_manifest[key]
+        for key in source_base_module.dependency_license_manifest
     ):
         raise ExpertProposalContractError(
             "generalization removes or rewrites dependency license metadata"

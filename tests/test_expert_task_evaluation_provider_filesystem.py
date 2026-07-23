@@ -131,7 +131,7 @@ def _matched_invocation(prepared, leg_name):
     return ExpertSourceReplayMatchedLegInvocation(
         materialized_case=materialized_case,
         expert_source=(
-            prepared.parent if leg_name == "control_leg" else prepared.candidate
+            prepared.source_base if leg_name == "control_leg" else prepared.candidate
         ),
         invocation_allocation=allocation,
         task_evaluator_request=request,
@@ -495,7 +495,7 @@ def test_matched_leg_inputs_materialize_exact_closures_and_freeze_read_only(
     expert_descriptors = (
         expert.source_tree.files
         if leg_name == "candidate_leg"
-        else expert.parent_tree_receipt.source_extraction_receipt.source_tree_files
+        else expert.source_base_tree_receipt.source_extraction_receipt.source_tree_files
     )
     adapter = invocation.materialized_case.task_adapter
     layout = materialize_task_evaluation_provider_inputs(

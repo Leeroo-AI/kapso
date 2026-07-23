@@ -148,7 +148,7 @@ def _validate_active_prefix(
             plan.candidate_tree_hash,
             plan.candidate_commit_record_id,
             plan.scope_contract_id,
-            plan.parent_release_id,
+            plan.source_base_release_id,
             plan.validation_policy_id,
             plan.configuration_fingerprint,
         )
@@ -158,7 +158,7 @@ def _validate_active_prefix(
             attempt.candidate_tree_hash,
             attempt.candidate_commit_record_id,
             attempt.scope_contract_id,
-            attempt.parent_release_id,
+            attempt.source_base_release_id,
             attempt.validation_policy_id,
             attempt.configuration_fingerprint,
         )
@@ -188,7 +188,7 @@ def validate_expert_release_matrix_source_joins(
         provenance.source_execution_case_id for provenance in provenances
     )
     if (
-        plan.mode is not ExpertReleaseMatrixMode.PARENT_COMPARISON
+        plan.mode is not ExpertReleaseMatrixMode.CONTROL_COMPARISON
         or set(provenance_case_ids) != set(request_cases)
         or len(provenance_case_ids) != len(set(provenance_case_ids))
         or set(comparison_cases) != set(request_cases)
@@ -412,14 +412,14 @@ def validate_expert_release_matrix_plan_store_shape(
     result = _source_result(accepted_stage_results)
     expected_mode = (
         ExpertReleaseMatrixMode.BOOTSTRAP
-        if attempt.parent_release_id is None
-        else ExpertReleaseMatrixMode.PARENT_COMPARISON
+        if attempt.source_base_release_id is None
+        else ExpertReleaseMatrixMode.CONTROL_COMPARISON
     )
     if (
         plan.mode is not expected_mode
         or ((result is None) != (source_replay_request is None))
         or (
-            expected_mode is ExpertReleaseMatrixMode.PARENT_COMPARISON
+            expected_mode is ExpertReleaseMatrixMode.CONTROL_COMPARISON
             and source_replay_request is None
         )
     ):
@@ -429,7 +429,7 @@ def validate_expert_release_matrix_plan_store_shape(
     if result is not None and source_replay_request is not None:
         receipt = result.paired_comparison_receipt
         if (
-            plan.mode is not ExpertReleaseMatrixMode.PARENT_COMPARISON
+            plan.mode is not ExpertReleaseMatrixMode.CONTROL_COMPARISON
             or result.outcome is not ExpertEvaluatorOutcome.PASSED
             or result.validation_attempt_id != attempt.validation_attempt_id
             or result.candidate_id != attempt.candidate_id
@@ -446,8 +446,8 @@ def validate_expert_release_matrix_plan_store_shape(
             or source_replay_request.candidate_commit_record_id
             != attempt.candidate_commit_record_id
             or source_replay_request.scope_contract_id != attempt.scope_contract_id
-            or source_replay_request.parent_release_id != attempt.parent_release_id
-            or source_replay_request.parent_tree_hash != plan.parent_tree_hash
+            or source_replay_request.source_base_release_id != attempt.source_base_release_id
+            or source_replay_request.source_base_tree_hash != plan.source_base_tree_hash
             or source_replay_request.validation_policy_id
             != attempt.validation_policy_id
             or source_replay_request.configuration_fingerprint
@@ -504,12 +504,12 @@ def validate_expert_release_matrix_plan_durable_shape(
         or stored_candidate.commit_record.commit_record_id
         != attempt.candidate_commit_record_id
         or manifest.scope_contract_id != attempt.scope_contract_id
-        or manifest.parent_release_id != attempt.parent_release_id
-        or plan.parent_tree_hash
-        != (None if attempt.parent_release_id is None else manifest.parent_tree_hash)
+        or manifest.source_base_release_id != attempt.source_base_release_id
+        or plan.source_base_tree_hash
+        != (None if attempt.source_base_release_id is None else manifest.source_base_tree_hash)
         or (
-            attempt.parent_release_id is not None
-            and context.parent_tree_hash != manifest.parent_tree_hash
+            attempt.source_base_release_id is not None
+            and context.source_base_tree_hash != manifest.source_base_tree_hash
         )
     ):
         raise ExpertReleaseMatrixPlanError(
@@ -706,12 +706,12 @@ def prepare_expert_release_matrix_plan_for_admission(
     plan = prepared_plan.plan
     stored_candidate = candidate_store.read(plan.candidate_id)
     scope_id = stored_candidate.closure.validation_context.scope_id
-    current_parent_before_adapter_resolution = (
+    observed_current_before_adapter_resolution = (
         current_release_provider.current_release_id(scope_id)
     )
-    if current_parent_before_adapter_resolution != attempt.parent_release_id:
+    if observed_current_before_adapter_resolution != attempt.source_base_release_id:
         raise ExpertReleaseMatrixPlanError(
-            "release matrix parent authority changed before reservation"
+            "release matrix source-base authority changed before reservation"
         )
     verified_adapters = tuple(
         task_adapter_provider.resolve_exact(
@@ -724,12 +724,12 @@ def prepare_expert_release_matrix_plan_for_admission(
         )
         for authority in plan.adapter_authorities
     )
-    current_parent_after_adapter_resolution = (
+    observed_current_after_adapter_resolution = (
         current_release_provider.current_release_id(scope_id)
     )
-    if current_parent_after_adapter_resolution != attempt.parent_release_id:
+    if observed_current_after_adapter_resolution != attempt.source_base_release_id:
         raise ExpertReleaseMatrixPlanError(
-            "release matrix parent authority changed during adapter resolution"
+            "release matrix source-base authority changed during adapter resolution"
         )
     return PreparedExpertReleaseMatrixPlan(
         plan=plan,
@@ -781,31 +781,31 @@ def derive_expert_release_matrix_plan(
         )
     mode = (
         ExpertReleaseMatrixMode.BOOTSTRAP
-        if attempt.parent_release_id is None
-        else ExpertReleaseMatrixMode.PARENT_COMPARISON
+        if attempt.source_base_release_id is None
+        else ExpertReleaseMatrixMode.CONTROL_COMPARISON
     )
     if mode is ExpertReleaseMatrixMode.BOOTSTRAP and source_replay_request is not None:
         raise ExpertReleaseMatrixPlanError(
-            "bootstrap release matrix cannot reuse parent comparison evidence"
+            "bootstrap release matrix cannot reuse control comparison evidence"
         )
     if (
-        mode is ExpertReleaseMatrixMode.PARENT_COMPARISON
+        mode is ExpertReleaseMatrixMode.CONTROL_COMPARISON
         and source_replay_request is None
     ):
         raise ExpertReleaseMatrixPlanError(
-            "parent release matrix requires accepted source replay authority"
+            "source-base release matrix requires accepted source replay authority"
         )
-    parent_tree_hash = (
+    source_base_tree_hash = (
         None
         if mode is ExpertReleaseMatrixMode.BOOTSTRAP
-        else stored_candidate.closure.manifest.parent_tree_hash
+        else stored_candidate.closure.manifest.source_base_tree_hash
     )
     if (
         source_replay_request is not None
-        and source_replay_request.parent_tree_hash != parent_tree_hash
+        and source_replay_request.source_base_tree_hash != source_base_tree_hash
     ):
         raise ExpertReleaseMatrixPlanError(
-            "release matrix source request differs from the candidate parent tree"
+            "release matrix source request differs from the candidate source-base tree"
         )
     canonical_adapters = _canonical_verified_adapters(verified_adapters)
     episodes = {
@@ -864,16 +864,16 @@ def derive_expert_release_matrix_plan(
                 provenance.independence_identity_id,
                 fingerprint.evaluation_fingerprint_id,
             }
-            if attempt.parent_release_id is not None:
-                dependencies.add(attempt.parent_release_id)
+            if attempt.source_base_release_id is not None:
+                dependencies.add(attempt.source_base_release_id)
             cells.append(
                 ExpertReleaseMatrixEvaluationCell.mint(
                     mode=mode,
                     validation_attempt_id=attempt.validation_attempt_id,
                     candidate_id=attempt.candidate_id,
                     candidate_tree_hash=attempt.candidate_tree_hash,
-                    parent_release_id=attempt.parent_release_id,
-                    parent_tree_hash=parent_tree_hash,
+                    source_base_release_id=attempt.source_base_release_id,
+                    source_base_tree_hash=source_base_tree_hash,
                     adapter_authority_id=authority.adapter_authority_id,
                     provenance_binding_id=provenance.provenance_binding_id,
                     task_context_binding=provenance.task_context_binding,
@@ -1045,8 +1045,8 @@ def derive_expert_release_matrix_plan(
             attempt.validation_policy_id,
         }
     )
-    if attempt.parent_release_id is not None:
-        external.add(attempt.parent_release_id)
+    if attempt.source_base_release_id is not None:
+        external.add(attempt.source_base_release_id)
     plan = ExpertReleaseMatrixEvaluationPlan.mint(
         mode=mode,
         validation_attempt_id=attempt.validation_attempt_id,
@@ -1054,8 +1054,8 @@ def derive_expert_release_matrix_plan(
         candidate_commit_record_id=attempt.candidate_commit_record_id,
         candidate_tree_hash=attempt.candidate_tree_hash,
         scope_contract_id=attempt.scope_contract_id,
-        parent_release_id=attempt.parent_release_id,
-        parent_tree_hash=parent_tree_hash,
+        source_base_release_id=attempt.source_base_release_id,
+        source_base_tree_hash=source_base_tree_hash,
         validation_policy_id=attempt.validation_policy_id,
         configuration_fingerprint=attempt.configuration_fingerprint,
         adapter_authorities=ordered_authorities,

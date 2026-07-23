@@ -8,6 +8,7 @@ import pytest
 from kapso.cross_run.canonical import content_id, tree_or_blob_digest
 from kapso.cross_run.contracts import (
     ExpertCandidatePatchChange,
+    ExpertReleaseLineage,
     SourceFileDescriptor,
 )
 from kapso.cross_run.expert.composition import (
@@ -104,17 +105,20 @@ def _released_base(
     label,
 ):
     closure = source.stored_candidate.closure
-    parent_release = closure.derivation.trigger_packet.parent_release
-    if parent_release is None:
+    source_base_release = closure.derivation.trigger_packet.source_base_release
+    if source_base_release is None:
         raise AssertionError("composition test source unexpectedly bootstraps")
     book = source_contents["EXPERT_REPO.md"]
-    dependency_closure = set(parent_release.consumed_dependency_ids)
+    dependency_closure = set(source_base_release.consumed_dependency_ids)
     dependency_closure.add(repository_map.repository_map_id)
-    dependency_closure.add(parent_release.release_id)
+    dependency_closure.add(source_base_release.release_id)
     dependency_closure.update(module.module_contract_id for module in module_contracts)
     release = _remint(
-        parent_release,
-        parent_release_id=parent_release.release_id,
+        source_base_release,
+        lineage=ExpertReleaseLineage(
+            source_base_release_id=source_base_release.release_id,
+            activation_predecessor_release_id=source_base_release.release_id,
+        ),
         repository_map_ref=repository_map.repository_map_id,
         module_contract_refs=tuple(
             sorted(module.module_contract_id for module in module_contracts)
@@ -125,8 +129,8 @@ def _released_base(
         semantic_book_digest=tree_or_blob_digest(book),
         consumed_dependency_ids=tuple(sorted(dependency_closure)),
         checksums={
-            **parent_release.checksums,
-            parent_release.source_archive_ref: _digest(f"{label} source archive"),
+            **source_base_release.checksums,
+            source_base_release.source_archive_ref: _digest(f"{label} source archive"),
         },
     )
     receipt = _parent_receipt(
@@ -139,7 +143,7 @@ def _released_base(
     return build_expert_composition_base_closure(
         scope_contract=closure.derivation.trigger_packet.scope_contract,
         release_manifest=release,
-        parent_tree_receipt=receipt,
+        source_base_tree_receipt=receipt,
         repository_map=repository_map,
         module_contracts=module_contracts,
         source_contents=source_contents,
@@ -153,29 +157,29 @@ def reducer_case(terminal_cases):
         terminal_cases.parent_approved.validation_store
     )
     source = resolver.resolve(terminal.snapshot.state.candidate_id)
-    prepared_parent = terminal_cases.parent_approved.prepared.parent
+    prepared_parent = terminal_cases.parent_approved.prepared.source_base
     if prepared_parent is None:
-        raise AssertionError("composition test source lacks its released parent")
+        raise AssertionError("composition test source lacks its released source base")
     closure = source.stored_candidate.closure
-    parent_release = _remint(
+    source_base_release = _remint(
         prepared_parent.release_manifest,
         semantic_book_digest=tree_or_blob_digest(
             prepared_parent.source_contents["EXPERT_REPO.md"]
         ),
     )
-    parent_receipt = _parent_receipt(
-        parent_release,
-        closure.derivation.trigger_packet.repository_map,
-        closure.derivation.trigger_packet.module_contracts,
+    source_base_receipt = _parent_receipt(
+        source_base_release,
+        closure.derivation.trigger_packet.source_base_repository_map,
+        closure.derivation.trigger_packet.source_base_module_contracts,
         prepared_parent.source_contents,
         cache_label="composition parent",
     )
     parent_base = build_expert_composition_base_closure(
         scope_contract=closure.derivation.trigger_packet.scope_contract,
-        release_manifest=parent_release,
-        parent_tree_receipt=parent_receipt,
-        repository_map=closure.derivation.trigger_packet.repository_map,
-        module_contracts=closure.derivation.trigger_packet.module_contracts,
+        release_manifest=source_base_release,
+        source_base_tree_receipt=source_base_receipt,
+        repository_map=closure.derivation.trigger_packet.source_base_repository_map,
+        module_contracts=closure.derivation.trigger_packet.source_base_module_contracts,
         source_contents=prepared_parent.source_contents,
     )
     reducer = ExpertCompositionReducer(
@@ -244,7 +248,7 @@ def test_partially_present_source_applies_only_missing_module_effect(reducer_cas
     case = reducer_case
     closure = case.source.stored_candidate.closure
     controls = set(
-        expert_control_paths(closure.derivation.trigger_packet.module_contracts)
+        expert_control_paths(closure.derivation.trigger_packet.source_base_module_contracts)
     )
     controls.update(expert_control_paths(closure.module_contracts))
     partially_installed_contents = dict(case.parent_base.source_contents)
@@ -284,14 +288,14 @@ def test_third_current_path_value_conflicts_without_partial_materialization(
 ):
     case = reducer_case
     closure = case.source.stored_candidate.closure
-    parent_controls = {
+    source_base_controls = {
         "EXPERT_REPO.md",
         ".kapso/expert/repository-map.json",
     }
     changed_path = next(
         change.relative_path
         for change in closure.patch.changes
-        if change.relative_path not in parent_controls
+        if change.relative_path not in source_base_controls
         and not change.relative_path.startswith(".kapso/expert/module-contracts/")
     )
     divergent_contents = dict(case.parent_base.source_contents)

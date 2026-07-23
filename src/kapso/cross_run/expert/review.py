@@ -208,12 +208,12 @@ class PreparedExpertAutomatedReviewPacket:
             or packet.candidate_tree_hash != attempt.candidate_tree_hash
             or packet.candidate_commit_record_id != attempt.candidate_commit_record_id
             or packet.scope_contract_id != attempt.scope_contract_id
-            or packet.parent_release_id != attempt.parent_release_id
+            or packet.source_base_release_id != attempt.source_base_release_id
             or packet.configuration_fingerprint != attempt.configuration_fingerprint
             or candidate_manifest.candidate_id != packet.candidate_id
             or candidate_manifest.candidate_tree_hash != packet.candidate_tree_hash
             or candidate_manifest.scope_contract_id != packet.scope_contract_id
-            or candidate_manifest.parent_release_id != packet.parent_release_id
+            or candidate_manifest.source_base_release_id != packet.source_base_release_id
             or candidate_manifest.derivation_kind
             is not packet.candidate_derivation_kind
             or candidate_manifest.derivation_ref != packet.candidate_derivation_ref
@@ -447,8 +447,8 @@ class ExpertAutomatedReviewCoordinator:
                 for result in authorization_state.accepted_stage_results
             ),
         }
-        if validation_attempt.parent_release_id is not None:
-            dependencies.add(validation_attempt.parent_release_id)
+        if validation_attempt.source_base_release_id is not None:
+            dependencies.add(validation_attempt.source_base_release_id)
         packet = ExpertAutomatedReviewPacket.mint(
             validation_attempt_id=validation_attempt.validation_attempt_id,
             authorization_transition_id=authorization_transition_id,
@@ -462,7 +462,7 @@ class ExpertAutomatedReviewCoordinator:
             candidate_origin_principal_ids=closure.origin_principal_ids,
             candidate_derivation_evidence_ids=derivation_evidence_ids,
             scope_contract_id=validation_attempt.scope_contract_id,
-            parent_release_id=validation_attempt.parent_release_id,
+            source_base_release_id=validation_attempt.source_base_release_id,
             validation_policy_id=validation_attempt.validation_policy_id,
             configuration_fingerprint=(validation_attempt.configuration_fingerprint),
             agent_artifact_byte_limit=self.settings.agent_artifact_byte_limit,
@@ -779,7 +779,7 @@ class ExpertAutomatedReviewCoordinator:
             validation_attempt_id=packet.validation_attempt_id,
             candidate_id=packet.candidate_id,
             candidate_tree_hash=packet.candidate_tree_hash,
-            parent_release_id=packet.parent_release_id,
+            source_base_release_id=packet.source_base_release_id,
             reviewer_id=reviewer.reviewer_id,
             reviewer_role=reviewer.reviewer_role,
             rubric_version=reviewer.rubric_version,
@@ -852,7 +852,7 @@ class ExpertAutomatedReviewCoordinator:
             or attempt.candidate_commit_record_id
             != stored_candidate.commit_record.commit_record_id
             or attempt.scope_contract_id != closure.manifest.scope_contract_id
-            or attempt.parent_release_id != closure.manifest.parent_release_id
+            or attempt.source_base_release_id != closure.manifest.source_base_release_id
             or attempt.validation_policy_id != policy.validation_policy_id
             or attempt.configuration_fingerprint
             != self.settings.validation.configuration_fingerprint
@@ -1183,7 +1183,7 @@ def validate_expert_automated_review_operation(
         or assertion.validation_attempt_id != packet.validation_attempt_id
         or assertion.candidate_id != packet.candidate_id
         or assertion.candidate_tree_hash != packet.candidate_tree_hash
-        or assertion.parent_release_id != packet.parent_release_id
+        or assertion.source_base_release_id != packet.source_base_release_id
         or assertion.reviewer_id != reviewer.reviewer_id
         or assertion.reviewer_role != reviewer.reviewer_role
         or assertion.rubric_version != reviewer.rubric_version
@@ -1227,8 +1227,8 @@ def _validate_prepared_review_stage_results(
                 or result.configuration_fingerprint != attempt.configuration_fingerprint
                 or result.publication_authority_fence.scope_contract_id
                 != attempt.scope_contract_id
-                or result.publication_authority_fence.expected_parent_release_id
-                != attempt.parent_release_id
+                or result.publication_authority_fence.expected_current_release_id
+                != attempt.source_base_release_id
             ):
                 raise ExpertAutomatedReviewError(
                     "prepared source replay evidence differs from its reference"
@@ -1366,8 +1366,8 @@ def build_expert_automated_review_stage_result(
         *operation_ids,
         *receipt_ids,
     }
-    if packet.parent_release_id is not None:
-        dependencies.add(packet.parent_release_id)
+    if packet.source_base_release_id is not None:
+        dependencies.add(packet.source_base_release_id)
     return ExpertAutomatedReviewStageResultRecord.mint(
         validation_attempt_id=packet.validation_attempt_id,
         authorization_transition_id=packet.authorization_transition_id,
@@ -1375,7 +1375,7 @@ def build_expert_automated_review_stage_result(
         candidate_id=packet.candidate_id,
         candidate_tree_hash=packet.candidate_tree_hash,
         scope_contract_id=packet.scope_contract_id,
-        parent_release_id=packet.parent_release_id,
+        source_base_release_id=packet.source_base_release_id,
         validation_policy_id=packet.validation_policy_id,
         configuration_fingerprint=packet.configuration_fingerprint,
         review_packet_id=packet.review_packet_id,

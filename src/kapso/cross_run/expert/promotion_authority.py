@@ -221,7 +221,7 @@ class ExpertPublicationEligibilityCoordinator:
         fence = None
         if decision.outcome is ExpertReleaseMatrixDecisionOutcome.APPROVED:
             current_before = self._observe_current(stored_candidate)
-            if current_before.release_id != attempt.parent_release_id:
+            if current_before.release_id != attempt.source_base_release_id:
                 return self._invalidate_current_authority(input_snapshot)
             adapter_observations = self._reverify_adapters(input_snapshot)
             security_subject_ids = publication_eligibility_security_subject_ids(
@@ -248,7 +248,7 @@ class ExpertPublicationEligibilityCoordinator:
                     "publication eligibility denylist differs from exact authority"
                 )
             current_after = self._observe_current(stored_candidate)
-            if current_after.release_id != attempt.parent_release_id:
+            if current_after.release_id != attempt.source_base_release_id:
                 return self._invalidate_current_authority(input_snapshot)
             if current_after != current_before:
                 raise ExpertPublicationEligibilityError(
@@ -287,7 +287,7 @@ class ExpertPublicationEligibilityCoordinator:
                 candidate_commit_record_id=attempt.candidate_commit_record_id,
                 scope_contract_id=attempt.scope_contract_id,
                 scope_id=(stored_candidate.closure.validation_context.scope_id),
-                expected_current_release_id=attempt.parent_release_id,
+                expected_current_release_id=attempt.source_base_release_id,
                 validation_policy_id=attempt.validation_policy_id,
                 configuration_fingerprint=attempt.configuration_fingerprint,
                 release_matrix_stage_result_id=(
@@ -354,7 +354,7 @@ class ExpertPublicationEligibilityCoordinator:
             or stored.commit_record.commit_record_id
             != attempt.candidate_commit_record_id
             or manifest.scope_contract_id != attempt.scope_contract_id
-            or manifest.parent_release_id != attempt.parent_release_id
+            or manifest.source_base_release_id != attempt.source_base_release_id
             or scope_contract.scope_contract_id != attempt.scope_contract_id
             or not set(stored_candidate_admission_dependency_ids(stored)).issubset(
                 attempt.eligibility_dependency_ids
@@ -493,7 +493,7 @@ def publication_eligibility_security_subject_ids(
         or stored_candidate.closure.manifest.candidate_id != attempt.candidate_id
         or current_release_observation.scope_id
         != stored_candidate.closure.validation_context.scope_id
-        or current_release_observation.release_id != attempt.parent_release_id
+        or current_release_observation.release_id != attempt.source_base_release_id
         or task_adapter_trust_observations
         != publication_eligibility_task_adapter_trust_observations(input_snapshot)
     ):
@@ -512,11 +512,11 @@ def publication_eligibility_security_subject_ids(
         current_release_observation.observation_id,
         *current_release_observation.validation_closure_ids,
     }
-    if attempt.parent_release_id is not None:
-        subjects.add(attempt.parent_release_id)
-    parent_release = validation_context.parent_release
-    if parent_release is not None:
-        subjects.update(parent_release.consumed_dependency_ids)
+    if attempt.source_base_release_id is not None:
+        subjects.add(attempt.source_base_release_id)
+    source_base_release = validation_context.source_base_release
+    if source_base_release is not None:
+        subjects.update(source_base_release.consumed_dependency_ids)
     if current_release_observation.publication_id is not None:
         subjects.add(current_release_observation.publication_id)
     for result in snapshot.accepted_stage_results:
@@ -709,10 +709,10 @@ def _composition_source_security_subject_ids(
             "composition security projection rejects unknown or nested sources"
         )
     source_reference = provenance.reduction_source.source_reference
-    parent_release = provenance.validation_context.parent_release
-    if parent_release is None:
+    source_base_release = provenance.validation_context.source_base_release
+    if source_base_release is None:
         raise ExpertPublicationEligibilityError(
-            "composition security source lacks its parent release"
+            "composition security source lacks its source-base release"
         )
     subjects = _candidate_manifest_security_subject_ids(
         manifest=provenance.candidate_manifest,
@@ -727,7 +727,7 @@ def _composition_source_security_subject_ids(
         {
             source_reference.source_reference_id,
             *source_reference.stable_authority_ids,
-            *parent_release.consumed_dependency_ids,
+            *source_base_release.consumed_dependency_ids,
             *_agent_derivation_security_subject_ids(provenance.agent_derivation),
         }
     )
@@ -758,10 +758,10 @@ def _candidate_ancestor_security_subject_ids(
         *manifest.source_dependency_ids,
         *manifest.ancestor_candidate_ids,
     }
-    if manifest.parent_release_id is not None:
-        subjects.add(manifest.parent_release_id)
-    if manifest.parent_repository_map_ref is not None:
-        subjects.add(manifest.parent_repository_map_ref)
+    if manifest.source_base_release_id is not None:
+        subjects.add(manifest.source_base_release_id)
+    if manifest.source_base_repository_map_ref is not None:
+        subjects.add(manifest.source_base_repository_map_ref)
     return subjects
 
 
@@ -794,8 +794,8 @@ def build_publication_eligibility_stage_result(
         decision.promotion_decision_id,
         *decision.exact_dependency_ids,
     }
-    if attempt.parent_release_id is not None:
-        dependencies.add(attempt.parent_release_id)
+    if attempt.source_base_release_id is not None:
+        dependencies.add(attempt.source_base_release_id)
     if publication_authority_fence is not None:
         dependencies.update(
             {
@@ -812,7 +812,7 @@ def build_publication_eligibility_stage_result(
         candidate_commit_record_id=attempt.candidate_commit_record_id,
         scope_contract_id=attempt.scope_contract_id,
         scope_id=scope_id,
-        expected_current_release_id=attempt.parent_release_id,
+        expected_current_release_id=attempt.source_base_release_id,
         validation_policy_id=attempt.validation_policy_id,
         configuration_fingerprint=attempt.configuration_fingerprint,
         accepted_stage_results=snapshot.state.accepted_stage_results,

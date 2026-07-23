@@ -85,7 +85,7 @@ class ExpertTriggerObservation(StrictContract):
 
     observation_id: str
     kind: ExpertTriggerObservationKind
-    parent_tree_hash: str
+    source_base_tree_hash: str
     inspection_policy_version: str
     configuration_fingerprint: str
     inspection_operation: CodingAgentOperationReceipt
@@ -104,7 +104,7 @@ class ExpertTriggerObservation(StrictContract):
     IDENTITY_FIELD = "observation_id"
 
     def _validate(self) -> None:
-        _require_digest(self.parent_tree_hash, "trigger observation parent tree hash")
+        _require_digest(self.source_base_tree_hash, "trigger observation source-base tree hash")
         require_identifier(
             self.inspection_policy_version,
             "trigger observation inspection policy version",
@@ -144,7 +144,7 @@ class ExpertTriggerObservation(StrictContract):
             "inspection_policy_version": self.inspection_policy_version,
             "kind": self.kind.value,
             "occurrence_count": self.occurrence_count,
-            "parent_tree_hash": self.parent_tree_hash,
+            "source_base_tree_hash": self.source_base_tree_hash,
             "task_context_binding_ids": self.task_context_binding_ids,
         }
         if canonical_json_bytes(inspected_payload) != canonical_json_bytes(
@@ -223,40 +223,40 @@ class ExpertTriggerObservation(StrictContract):
 
 
 @dataclass(frozen=True)
-class ExpertParentTreeReceipt(StrictContract):
-    """Verified binding from a released archive to one exact candidate parent tree."""
+class ExpertSourceBaseTreeReceipt(StrictContract):
+    """Verified binding from a released archive to one exact candidate source-base tree."""
 
-    parent_tree_receipt_id: str
+    source_base_tree_receipt_id: str
     release_id: str
     cache_verification_receipt: CacheVerificationReceipt
     source_extraction_receipt: SourceArchiveExtractionReceipt
-    parent_tree_hash: str
+    source_base_tree_hash: str
     repository_map_id: str
     module_contract_ids: tuple[str, ...]
     materializer_version: str
 
-    CONTENT_NAMESPACE = "expert-parent-tree-receipt"
-    IDENTITY_FIELD = "parent_tree_receipt_id"
+    CONTENT_NAMESPACE = "expert-source-base-tree-receipt"
+    IDENTITY_FIELD = "source_base_tree_receipt_id"
 
     def _validate(self) -> None:
-        require_content_id(self.release_id, "parent tree receipt release_id")
+        require_content_id(self.release_id, "source-base tree receipt release_id")
         require_content_id(
             self.repository_map_id,
-            "parent tree receipt repository_map_id",
+            "source-base tree receipt repository_map_id",
         )
-        _require_digest(self.parent_tree_hash, "parent tree hash")
+        _require_digest(self.source_base_tree_hash, "source-base tree hash")
         if (
             self.cache_verification_receipt.artifact_kind
             is not PublicationArtifactKind.EXPERT_BASE_RELEASE
             or self.cache_verification_receipt.artifact_id != self.release_id
         ):
             raise ExpertTriggerError(
-                "parent tree cache receipt belongs to another release"
+                "source-base tree cache receipt belongs to another release"
             )
         extraction = self.source_extraction_receipt
         if extraction.artifact_id != self.release_id:
             raise ExpertTriggerError(
-                "parent source extraction belongs to another release"
+                "source-base extraction belongs to another release"
             )
         if (
             self.cache_verification_receipt.asset_digests.get(
@@ -265,15 +265,15 @@ class ExpertParentTreeReceipt(StrictContract):
             != extraction.source_archive_digest
         ):
             raise ExpertTriggerError(
-                "parent source extraction differs from the verified release asset"
+                "source-base extraction differs from the verified release asset"
             )
-        if self.parent_tree_hash != extraction.source_tree_hash:
+        if self.source_base_tree_hash != extraction.source_tree_hash:
             raise ExpertTriggerError(
-                "parent tree differs from the verified source extraction"
+                "source-base tree differs from the verified source extraction"
             )
         _require_sorted_content_ids(
             self.module_contract_ids,
-            "parent tree receipt module contract IDs",
+            "source-base tree receipt module contract IDs",
             required=True,
         )
         require_identifier(self.materializer_version, "materializer_version")
@@ -370,19 +370,19 @@ def _transfer_context_signature(episode: TransferEpisode) -> str:
 
 @dataclass(frozen=True)
 class ExpertTriggerEvidencePacket(StrictContract):
-    """Complete exhaustive evidence and parent topology for one decision."""
+    """Complete exhaustive evidence and source-base topology for one decision."""
 
     evidence_packet_id: str
     knowledge_snapshot_manifest: KnowledgeSnapshotManifest
     knowledge_record_closure_digest: str
     configuration_fingerprint: str
     scope_contract: ExpertScopeContract
-    parent_scope_contract: ExpertScopeContract | None
-    parent_release: ExpertBaseReleaseManifest | None
-    parent_tree_receipt: ExpertParentTreeReceipt | None
-    parent_tree_hash: str
-    repository_map: ExpertRepositoryMap | None
-    module_contracts: tuple[ExpertModuleContract, ...]
+    source_base_scope_contract: ExpertScopeContract | None
+    source_base_release: ExpertBaseReleaseManifest | None
+    source_base_tree_receipt: ExpertSourceBaseTreeReceipt | None
+    source_base_tree_hash: str
+    source_base_repository_map: ExpertRepositoryMap | None
+    source_base_module_contracts: tuple[ExpertModuleContract, ...]
     episodes: tuple[TransferEpisode, ...]
     claims: tuple[KnowledgeClaim, ...]
     trigger_observations: tuple[ExpertTriggerObservation, ...]
@@ -397,8 +397,8 @@ class ExpertTriggerEvidencePacket(StrictContract):
         return self.knowledge_snapshot_manifest.snapshot_id
 
     @property
-    def parent_release_id(self) -> str | None:
-        return None if self.parent_release is None else self.parent_release.release_id
+    def source_base_release_id(self) -> str | None:
+        return None if self.source_base_release is None else self.source_base_release.release_id
 
     @property
     def active_task_family_ids(self) -> tuple[str, ...]:
@@ -422,9 +422,9 @@ class ExpertTriggerEvidencePacket(StrictContract):
             "knowledge record closure digest",
         )
         _require_digest(self.configuration_fingerprint, "configuration fingerprint")
-        _require_digest(self.parent_tree_hash, "expert trigger parent tree hash")
+        _require_digest(self.source_base_tree_hash, "expert trigger source-base tree hash")
         module_ids = _sorted_contract_ids(
-            self.module_contracts,
+            self.source_base_module_contracts,
             "module_contract_id",
             "expert trigger module contracts",
         )
@@ -445,139 +445,139 @@ class ExpertTriggerEvidencePacket(StrictContract):
         )
         if self.knowledge_snapshot_manifest.scope_id != self.scope_contract.scope_id:
             raise ExpertTriggerError("knowledge snapshot belongs to another scope")
-        if self.parent_release is None:
+        if self.source_base_release is None:
             if (
-                self.parent_tree_hash != EMPTY_EXPERT_TREE_DIGEST
-                or self.parent_scope_contract is not None
-                or self.parent_tree_receipt is not None
-                or self.repository_map is not None
-                or self.module_contracts
+                self.source_base_tree_hash != EMPTY_EXPERT_TREE_DIGEST
+                or self.source_base_scope_contract is not None
+                or self.source_base_tree_receipt is not None
+                or self.source_base_repository_map is not None
+                or self.source_base_module_contracts
             ):
                 raise ExpertTriggerError(
-                    "bootstrap requires the explicit canonical empty parent"
+                    "bootstrap requires the explicit canonical empty source base"
                 )
         else:
             if (
-                self.parent_scope_contract is None
-                or self.parent_tree_receipt is None
-                or self.repository_map is None
+                self.source_base_scope_contract is None
+                or self.source_base_tree_receipt is None
+                or self.source_base_repository_map is None
             ):
                 raise ExpertTriggerError(
-                    "non-bootstrap trigger requires parent scope, tree receipt, and map"
+                    "non-bootstrap trigger requires source-base scope, tree receipt, and map"
                 )
-            if self.parent_tree_hash == EMPTY_EXPERT_TREE_DIGEST:
+            if self.source_base_tree_hash == EMPTY_EXPERT_TREE_DIGEST:
                 raise ExpertTriggerError(
-                    "a released parent cannot use the canonical empty tree"
+                    "a released source base cannot use the canonical empty tree"
                 )
             if (
-                self.parent_release.scope_contract_id
-                != self.parent_scope_contract.scope_contract_id
-                or self.parent_release.scope_id != self.parent_scope_contract.scope_id
-                or self.parent_scope_contract.scope_id != self.scope_contract.scope_id
+                self.source_base_release.scope_contract_id
+                != self.source_base_scope_contract.scope_contract_id
+                or self.source_base_release.scope_id != self.source_base_scope_contract.scope_id
+                or self.source_base_scope_contract.scope_id != self.scope_contract.scope_id
             ):
-                raise ExpertTriggerError("parent release belongs to another scope")
+                raise ExpertTriggerError("source-base release belongs to another scope")
             if (
                 self.scope_contract.scope_contract_id
-                != self.parent_scope_contract.scope_contract_id
+                != self.source_base_scope_contract.scope_contract_id
                 and self.scope_contract.supersedes_scope_contract_id
-                != self.parent_scope_contract.scope_contract_id
+                != self.source_base_scope_contract.scope_contract_id
             ):
                 raise ExpertTriggerError(
-                    "current scope must equal or directly supersede the parent scope"
+                    "current scope must equal or directly supersede the source-base scope"
                 )
             if (
                 self.scope_contract.scope_contract_id
-                != self.parent_scope_contract.scope_contract_id
+                != self.source_base_scope_contract.scope_contract_id
             ):
                 parent_family_ids = {
                     family.task_family_id
-                    for family in self.parent_scope_contract.task_family_ontology
+                    for family in self.source_base_scope_contract.task_family_ontology
                 }
                 parent_dimension_ids = {
                     schema.dimension_id
-                    for schema in self.parent_scope_contract.context_dimension_schemas
+                    for schema in self.source_base_scope_contract.context_dimension_schemas
                 }
                 if any(
                     not set(edge.source_ids).issubset(parent_family_ids)
                     for edge in self.scope_contract.task_family_lineage
                 ):
                     raise ExpertTriggerError(
-                        "successor task-family lineage source is absent from parent"
+                        "successor task-family lineage source is absent from source base"
                     )
                 if any(
                     not set(edge.source_ids).issubset(parent_dimension_ids)
                     for edge in self.scope_contract.context_dimension_lineage
                 ):
                     raise ExpertTriggerError(
-                        "successor context lineage source is absent from parent"
+                        "successor context lineage source is absent from source base"
                     )
         evidence_scope_contract = (
             self.scope_contract
             if self.knowledge_snapshot_manifest.scope_contract_id
             == self.scope_contract.scope_contract_id
-            else self.parent_scope_contract
+            else self.source_base_scope_contract
         )
         if evidence_scope_contract is None or (
             self.knowledge_snapshot_manifest.scope_contract_id
             != evidence_scope_contract.scope_contract_id
         ):
             raise ExpertTriggerError(
-                "knowledge snapshot scope is neither current nor parent"
+                "knowledge snapshot scope is neither current nor source base"
             )
-        if self.repository_map is not None:
+        if self.source_base_repository_map is not None:
             if (
-                self.repository_map.scope_contract_id
-                != self.parent_scope_contract.scope_contract_id
+                self.source_base_repository_map.scope_contract_id
+                != self.source_base_scope_contract.scope_contract_id
             ):
-                raise ExpertTriggerError("repository map differs from parent scope")
+                raise ExpertTriggerError("repository map differs from source-base scope")
             map_contract_ids = tuple(
                 sorted(
                     node.module_contract_ref
-                    for node in self.repository_map.capability_nodes
+                    for node in self.source_base_repository_map.capability_nodes
                 )
             )
             if map_contract_ids != module_ids:
                 raise MissingReferenceError(
                     "trigger packet module contracts differ from the repository map"
                 )
-            if self.parent_release is not None:
+            if self.source_base_release is not None:
                 if (
-                    self.parent_release.repository_map_ref
-                    != self.repository_map.repository_map_id
+                    self.source_base_release.repository_map_ref
+                    != self.source_base_repository_map.repository_map_id
                 ):
                     raise MissingReferenceError(
-                        "parent release names another repository map"
+                        "source-base release names another repository map"
                     )
                 module_versions = {
                     contract.module_id: contract.version
-                    for contract in self.module_contracts
+                    for contract in self.source_base_module_contracts
                 }
-                if dict(self.parent_release.module_versions) != module_versions:
+                if dict(self.source_base_release.module_versions) != module_versions:
                     raise MissingReferenceError(
-                        "parent release module versions differ from packet contracts"
+                        "source-base release module versions differ from packet contracts"
                     )
-                expected_archive_digest = self.parent_release.checksums[
-                    self.parent_release.source_archive_ref
+                expected_archive_digest = self.source_base_release.checksums[
+                    self.source_base_release.source_archive_ref
                 ]
                 if (
-                    self.parent_tree_receipt.release_id
-                    != self.parent_release.release_id
-                    or self.parent_tree_receipt.cache_verification_receipt.asset_digests.get(
-                        self.parent_release.source_archive_ref
+                    self.source_base_tree_receipt.release_id
+                    != self.source_base_release.release_id
+                    or self.source_base_tree_receipt.cache_verification_receipt.asset_digests.get(
+                        self.source_base_release.source_archive_ref
                     )
                     != expected_archive_digest
-                    or self.parent_tree_receipt.source_extraction_receipt.source_archive_ref
-                    != self.parent_release.source_archive_ref
-                    or self.parent_tree_receipt.source_extraction_receipt.source_archive_digest
+                    or self.source_base_tree_receipt.source_extraction_receipt.source_archive_ref
+                    != self.source_base_release.source_archive_ref
+                    or self.source_base_tree_receipt.source_extraction_receipt.source_archive_digest
                     != expected_archive_digest
-                    or self.parent_tree_receipt.parent_tree_hash
-                    != self.parent_tree_hash
-                    or self.parent_tree_receipt.repository_map_id
-                    != self.repository_map.repository_map_id
-                    or self.parent_tree_receipt.module_contract_ids != module_ids
+                    or self.source_base_tree_receipt.source_base_tree_hash
+                    != self.source_base_tree_hash
+                    or self.source_base_tree_receipt.repository_map_id
+                    != self.source_base_repository_map.repository_map_id
+                    or self.source_base_tree_receipt.module_contract_ids != module_ids
                 ):
                     raise ExpertTriggerError(
-                        "parent tree receipt differs from released topology"
+                        "source-base tree receipt differs from released topology"
                     )
         known_families = {
             family.task_family_id for family in self.scope_contract.task_family_ontology
@@ -668,8 +668,8 @@ class ExpertTriggerEvidencePacket(StrictContract):
                 )
         known_capability_ids = (
             set()
-            if self.repository_map is None
-            else {node.capability_id for node in self.repository_map.capability_nodes}
+            if self.source_base_repository_map is None
+            else {node.capability_id for node in self.source_base_repository_map.capability_nodes}
         )
         known_evidence_ids = {
             self.scope_contract.scope_contract_id,
@@ -684,17 +684,17 @@ class ExpertTriggerEvidencePacket(StrictContract):
             ),
             *self.proof_reference_ids,
         }
-        if self.repository_map is not None:
-            known_evidence_ids.add(self.repository_map.repository_map_id)
-        if self.parent_release is not None:
-            known_evidence_ids.add(self.parent_release.release_id)
-        if self.parent_tree_receipt is not None:
-            known_evidence_ids.add(self.parent_tree_receipt.parent_tree_receipt_id)
-        if self.parent_scope_contract is not None:
-            known_evidence_ids.add(self.parent_scope_contract.scope_contract_id)
+        if self.source_base_repository_map is not None:
+            known_evidence_ids.add(self.source_base_repository_map.repository_map_id)
+        if self.source_base_release is not None:
+            known_evidence_ids.add(self.source_base_release.release_id)
+        if self.source_base_tree_receipt is not None:
+            known_evidence_ids.add(self.source_base_tree_receipt.source_base_tree_receipt_id)
+        if self.source_base_scope_contract is not None:
+            known_evidence_ids.add(self.source_base_scope_contract.scope_contract_id)
         for observation in self.trigger_observations:
-            if observation.parent_tree_hash != self.parent_tree_hash:
-                raise ExpertTriggerError("trigger observation uses another parent tree")
+            if observation.source_base_tree_hash != self.source_base_tree_hash:
+                raise ExpertTriggerError("trigger observation uses another source-base tree")
             if not set(observation.affected_capability_ids).issubset(
                 known_capability_ids
             ):
@@ -727,7 +727,7 @@ class ExpertTriggerEvidencePacket(StrictContract):
                     path = PurePosixPath(affected_path)
                     owners = {
                         node.capability_id
-                        for node in self.repository_map.capability_nodes
+                        for node in self.source_base_repository_map.capability_nodes
                         if any(
                             path == PurePosixPath(owned_path)
                             or PurePosixPath(owned_path) in path.parents
@@ -844,12 +844,12 @@ class ExpertTriggerEvidencePacketBuilder:
         *,
         knowledge_snapshot: KnowledgeSnapshotPackage,
         scope_contract: ExpertScopeContract,
-        parent_scope_contract: ExpertScopeContract | None,
-        parent_release: ExpertBaseReleaseManifest | None,
-        parent_tree_receipt: ExpertParentTreeReceipt | None,
-        parent_tree_hash: str,
-        repository_map: ExpertRepositoryMap | None,
-        module_contracts: tuple[ExpertModuleContract, ...],
+        source_base_scope_contract: ExpertScopeContract | None,
+        source_base_release: ExpertBaseReleaseManifest | None,
+        source_base_tree_receipt: ExpertSourceBaseTreeReceipt | None,
+        source_base_tree_hash: str,
+        source_base_repository_map: ExpertRepositoryMap | None,
+        source_base_module_contracts: tuple[ExpertModuleContract, ...],
         active_task_bindings: tuple[CrossRunTaskBindingSettings, ...],
         trigger_observations: tuple[ExpertTriggerObservation, ...] = (),
     ) -> ExpertTriggerEvidencePacket:
@@ -909,14 +909,14 @@ class ExpertTriggerEvidencePacketBuilder:
             knowledge_record_closure_digest=prepared.record_closure_digest,
             configuration_fingerprint=configuration_fingerprint,
             scope_contract=scope_contract,
-            parent_scope_contract=parent_scope_contract,
-            parent_release=parent_release,
-            parent_tree_receipt=parent_tree_receipt,
-            parent_tree_hash=parent_tree_hash,
-            repository_map=repository_map,
-            module_contracts=tuple(
+            source_base_scope_contract=source_base_scope_contract,
+            source_base_release=source_base_release,
+            source_base_tree_receipt=source_base_tree_receipt,
+            source_base_tree_hash=source_base_tree_hash,
+            source_base_repository_map=source_base_repository_map,
+            source_base_module_contracts=tuple(
                 sorted(
-                    module_contracts,
+                    source_base_module_contracts,
                     key=lambda contract: contract.module_contract_id,
                 )
             ),
@@ -1094,7 +1094,7 @@ class ExpertTriggerEvaluator:
     def _bootstrap(
         packet: ExpertTriggerEvidencePacket,
     ) -> _EligibleTrigger | None:
-        if packet.parent_release_id is not None:
+        if packet.source_base_release_id is not None:
             return None
         return _EligibleTrigger(
             change_kind=CandidateChangeKind.REPOSITORY_ARCHITECTURE,
@@ -1184,22 +1184,23 @@ class ExpertTriggerEvaluator:
     def _scope_expansion(
         packet: ExpertTriggerEvidencePacket,
     ) -> _EligibleTrigger | None:
-        parent = packet.parent_scope_contract
+        source_base_scope = packet.source_base_scope_contract
         if (
-            parent is None
-            or parent.scope_contract_id == packet.scope_contract.scope_contract_id
+            source_base_scope is None
+            or source_base_scope.scope_contract_id
+            == packet.scope_contract.scope_contract_id
         ):
             return None
-        parent_families = {
-            family.task_family_id for family in parent.task_family_ontology
+        source_base_families = {
+            family.task_family_id for family in source_base_scope.task_family_ontology
         }
         active_added_families = tuple(
-            sorted(set(packet.active_task_family_ids) - parent_families)
+            sorted(set(packet.active_task_family_ids) - source_base_families)
         )
         added_artifact_classes = tuple(
             sorted(
                 set(packet.scope_contract.artifact_classes)
-                - set(parent.artifact_classes)
+                - set(source_base_scope.artifact_classes)
             )
         )
         if not active_added_families and not added_artifact_classes:
@@ -1216,7 +1217,7 @@ class ExpertTriggerEvaluator:
             evidence_ids=tuple(
                 sorted(
                     {
-                        parent.scope_contract_id,
+                        source_base_scope.scope_contract_id,
                         packet.scope_contract.scope_contract_id,
                         packet.knowledge_snapshot_id,
                     }
@@ -1234,11 +1235,11 @@ class ExpertTriggerEvaluator:
     def _new_task_family(
         packet: ExpertTriggerEvidencePacket,
     ) -> _EligibleTrigger | None:
-        if packet.repository_map is None:
+        if packet.source_base_repository_map is None:
             return None
         bound = {
             family_id
-            for node in packet.repository_map.capability_nodes
+            for node in packet.source_base_repository_map.capability_nodes
             for family_id in node.task_family_bindings
         }
         uncovered = tuple(sorted(set(packet.active_task_family_ids) - bound))
@@ -1390,7 +1391,7 @@ class ExpertTriggerDecisionStore:
         packet_known_ids = {
             packet.scope_contract.scope_contract_id,
             packet.knowledge_snapshot_id,
-            *(module.module_contract_id for module in packet.module_contracts),
+            *(module.module_contract_id for module in packet.source_base_module_contracts),
             *(episode.episode_id for episode in packet.episodes),
             *(claim.revision_id for claim in packet.claims),
             *(
@@ -1403,14 +1404,14 @@ class ExpertTriggerDecisionStore:
             ),
             *packet.proof_reference_ids,
         }
-        if packet.parent_release_id is not None:
-            packet_known_ids.add(packet.parent_release_id)
-        if packet.repository_map is not None:
-            packet_known_ids.add(packet.repository_map.repository_map_id)
-        if packet.parent_scope_contract is not None:
-            packet_known_ids.add(packet.parent_scope_contract.scope_contract_id)
-        if packet.parent_tree_receipt is not None:
-            packet_known_ids.add(packet.parent_tree_receipt.parent_tree_receipt_id)
+        if packet.source_base_release_id is not None:
+            packet_known_ids.add(packet.source_base_release_id)
+        if packet.source_base_repository_map is not None:
+            packet_known_ids.add(packet.source_base_repository_map.repository_map_id)
+        if packet.source_base_scope_contract is not None:
+            packet_known_ids.add(packet.source_base_scope_contract.scope_contract_id)
+        if packet.source_base_tree_receipt is not None:
+            packet_known_ids.add(packet.source_base_tree_receipt.source_base_tree_receipt_id)
         if not set(decision.trigger_evidence_ids).issubset(packet_known_ids):
             raise MissingReferenceError(
                 "trigger decision evidence leaves its persisted packet"

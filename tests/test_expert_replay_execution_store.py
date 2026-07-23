@@ -172,13 +172,13 @@ class _SecurityDenylistAuthority:
 
 
 def _coordinator(fixture, prepared, store):
-    parent = prepared.parent.release_manifest
+    source_base = prepared.source_base.release_manifest
     current = SourceReplayCurrentReleaseObservation.mint(
-        scope_id=parent.scope_id,
-        release_id=parent.release_id,
+        scope_id=source_base.scope_id,
+        release_id=source_base.release_id,
         publication_id=content_id(
             "github-publication",
-            {"release_id": parent.release_id},
+            {"release_id": source_base.release_id},
         ),
         repository_full_name="Leeroo-AI/kapso-expert",
         repository_node_id="expert_repo_node",
@@ -601,7 +601,7 @@ def test_durable_spawn_result_acceptance_advances_the_exact_schedule(tmp_path):
         completion = execution.execute()
         first_case = prepared.cases[0].request_case
         expected_expert_source = (
-            prepared.parent
+            prepared.source_base
             if schedule[0][1] == first_case.control_leg.execution_leg_id
             else prepared.candidate
         )
@@ -830,7 +830,7 @@ def test_complete_schedule_never_reallocates_or_reuses_an_invocation(tmp_path):
     }
     assert tuple(observed_expert_sources) == tuple(
         (
-            prepared.parent
+            prepared.source_base
             if execution_leg_id
             == cases_by_id[execution_case_id].control_leg.execution_leg_id
             else prepared.candidate

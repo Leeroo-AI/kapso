@@ -437,7 +437,7 @@ class ExpertValidationStage(str, Enum):
 
 
 class ExpertSourceReplayExecutionLegKind(str, Enum):
-    CONTROL_PARENT = "control_parent"
+    SOURCE_BASE_CONTROL = "source_base_control"
     CANDIDATE = "candidate"
 
 
@@ -2213,7 +2213,7 @@ class ExpertCandidatePatchChange(StrictContract):
 @dataclass(frozen=True)
 class ExpertCandidatePatch(StrictContract):
     patch_id: str
-    parent_tree_hash: str
+    source_base_tree_hash: str
     candidate_tree_hash: str
     changes: tuple[ExpertCandidatePatchChange, ...]
 
@@ -2221,9 +2221,9 @@ class ExpertCandidatePatch(StrictContract):
     IDENTITY_FIELD: ClassVar[str] = "patch_id"
 
     def _validate(self) -> None:
-        _require_digest(self.parent_tree_hash, "candidate patch parent_tree_hash")
+        _require_digest(self.source_base_tree_hash, "candidate patch source_base_tree_hash")
         _require_digest(self.candidate_tree_hash, "candidate patch candidate_tree_hash")
-        if self.parent_tree_hash == self.candidate_tree_hash:
+        if self.source_base_tree_hash == self.candidate_tree_hash:
             raise ContractValidationError("candidate patch must change the tree")
         paths = tuple(change.relative_path for change in self.changes)
         if not paths or paths != tuple(sorted(set(paths))):
@@ -2268,8 +2268,8 @@ class ExpertCandidateWorkspaceReceipt(StrictContract):
     workspace_receipt_id: str
     operation_receipt_id: str
     operation_id: str
-    parent_tree_hash: str
-    editable_parent_tree_hash: str
+    source_base_tree_hash: str
+    editable_input_tree_hash: str
     edited_tree_hash: str
     changed_paths: tuple[str, ...]
     deleted_paths: tuple[str, ...]
@@ -2282,8 +2282,8 @@ class ExpertCandidateWorkspaceReceipt(StrictContract):
         if _CODING_AGENT_OPERATION_PATTERN.fullmatch(self.operation_id) is None:
             raise ContractValidationError("invalid workspace operation ID")
         for value, name in (
-            (self.parent_tree_hash, "workspace parent_tree_hash"),
-            (self.editable_parent_tree_hash, "workspace editable_parent_tree_hash"),
+            (self.source_base_tree_hash, "workspace source_base_tree_hash"),
+            (self.editable_input_tree_hash, "workspace editable_input_tree_hash"),
             (self.edited_tree_hash, "workspace edited_tree_hash"),
         ):
             _require_digest(value, name)
@@ -2366,7 +2366,7 @@ class ExpertCandidateOperationRecord(StrictContract):
     operation_kind: ExpertCandidateOperationKind
     trigger_decision_id: str
     trigger_evidence_packet_id: str
-    parent_tree_hash: str
+    source_base_tree_hash: str
     ancestor_candidate_ids: tuple[str, ...]
     configuration_fingerprint: str
     proposer_authority: ExpertProposerAuthority
@@ -2386,7 +2386,7 @@ class ExpertCandidateOperationRecord(StrictContract):
             (self.trigger_evidence_packet_id, "trigger_evidence_packet_id"),
         ):
             require_content_id(value, name)
-        _require_digest(self.parent_tree_hash, "operation parent_tree_hash")
+        _require_digest(self.source_base_tree_hash, "operation source_base_tree_hash")
         _require_digest(
             self.configuration_fingerprint,
             "operation configuration_fingerprint",
@@ -2406,7 +2406,7 @@ class ExpertCandidateOperationRecord(StrictContract):
             "input_artifact_checksums",
             "mcp_configuration_fingerprint",
             "operation_kind",
-            "parent_tree_hash",
+            "source_base_tree_hash",
             "principal_id",
             "proposer_authority_id",
             "proposal_contract_version",
@@ -2456,7 +2456,7 @@ class ExpertCandidateOperationRecord(StrictContract):
             "ancestor_candidate_ids": self.ancestor_candidate_ids,
             "configuration_fingerprint": self.configuration_fingerprint,
             "operation_kind": self.operation_kind.value,
-            "parent_tree_hash": self.parent_tree_hash,
+            "source_base_tree_hash": self.source_base_tree_hash,
             "trigger_decision_id": self.trigger_decision_id,
             "trigger_evidence_packet_id": self.trigger_evidence_packet_id,
         }
@@ -2493,7 +2493,7 @@ class ExpertCandidateOperationRecord(StrictContract):
             != self.operation_receipt.operation_receipt_id
             or self.workspace_receipt.operation_id
             != self.operation_receipt.operation_id
-            or self.workspace_receipt.parent_tree_hash != self.parent_tree_hash
+            or self.workspace_receipt.source_base_tree_hash != self.source_base_tree_hash
         ):
             raise ContractValidationError(
                 "candidate workspace receipt differs from its operation"
@@ -2623,9 +2623,9 @@ class ExpertCandidateManifest(StrictContract):
     candidate_id: str
     scope_contract_id: str
     change_kind: CandidateChangeKind
-    parent_release_id: str | None
-    parent_repository_map_ref: str | None
-    parent_tree_hash: str
+    source_base_release_id: str | None
+    source_base_repository_map_ref: str | None
+    source_base_tree_hash: str
     derivation_kind: ExpertCandidateDerivationKind
     derivation_ref: str
     validation_context_ref: str
@@ -2647,29 +2647,29 @@ class ExpertCandidateManifest(StrictContract):
 
     def _validate(self) -> None:
         require_content_id(self.scope_contract_id, "scope_contract_id")
-        if (self.parent_release_id is None) != (self.parent_repository_map_ref is None):
+        if (self.source_base_release_id is None) != (self.source_base_repository_map_ref is None):
             raise ContractValidationError(
-                "candidate parent release and repository map must appear together"
+                "candidate source-base release and repository map must appear together"
             )
-        if self.parent_release_id is None:
+        if self.source_base_release_id is None:
             if (
                 self.change_kind is not CandidateChangeKind.REPOSITORY_ARCHITECTURE
-                or self.parent_tree_hash != EMPTY_EXPERT_TREE_DIGEST
+                or self.source_base_tree_hash != EMPTY_EXPERT_TREE_DIGEST
             ):
                 raise ContractValidationError(
                     "parentless candidate must bootstrap the canonical empty tree"
                 )
-        elif self.parent_tree_hash == EMPTY_EXPERT_TREE_DIGEST:
+        elif self.source_base_tree_hash == EMPTY_EXPERT_TREE_DIGEST:
             raise ContractValidationError(
                 "released parent candidate cannot use the canonical empty tree"
             )
         for value, name in (
-            (self.parent_release_id, "parent_release_id"),
-            (self.parent_repository_map_ref, "parent_repository_map_ref"),
+            (self.source_base_release_id, "source_base_release_id"),
+            (self.source_base_repository_map_ref, "source_base_repository_map_ref"),
         ):
             if value is not None:
                 require_content_id(value, name)
-        _require_digest(self.parent_tree_hash, "parent_tree_hash")
+        _require_digest(self.source_base_tree_hash, "source_base_tree_hash")
         for value, name in (
             (self.derivation_ref, "derivation_ref"),
             (self.validation_context_ref, "validation_context_ref"),
@@ -3098,9 +3098,9 @@ class ExpertSourceReplayExecutionLeg(StrictContract):
     IDENTITY_FIELD: ClassVar[str] = "execution_leg_id"
 
     def _validate(self) -> None:
-        if self.kind is ExpertSourceReplayExecutionLegKind.CONTROL_PARENT:
+        if self.kind is ExpertSourceReplayExecutionLegKind.SOURCE_BASE_CONTROL:
             artifact_namespace = "expert-base-release"
-            receipt_namespace = "expert-parent-tree-receipt"
+            receipt_namespace = "expert-source-base-tree-receipt"
         else:
             artifact_namespace = "expert-candidate"
             receipt_namespace = "expert-candidate-commit"
@@ -3492,7 +3492,7 @@ class ExpertSourceReplayExecutionCase(StrictContract):
             )
         if (
             self.control_leg.kind
-            is not ExpertSourceReplayExecutionLegKind.CONTROL_PARENT
+            is not ExpertSourceReplayExecutionLegKind.SOURCE_BASE_CONTROL
             or self.candidate_leg.kind
             is not ExpertSourceReplayExecutionLegKind.CANDIDATE
             or self.control_leg.expert_artifact_id
@@ -3541,10 +3541,10 @@ class ExpertSourceReplayExecutionRequest(StrictContract):
     candidate_commit_record_id: str
     candidate_source_tree_manifest_id: str
     scope_contract_id: str
-    parent_release_id: str
-    parent_tree_receipt_id: str
-    parent_source_extraction_receipt_id: str
-    parent_tree_hash: str
+    source_base_release_id: str
+    source_base_tree_receipt_id: str
+    source_base_extraction_receipt_id: str
+    source_base_tree_hash: str
     validation_policy_id: str
     configuration_fingerprint: str
     request_policy_version: str
@@ -3592,19 +3592,19 @@ class ExpertSourceReplayExecutionRequest(StrictContract):
                 "source replay scope_contract_id",
             ),
             (
-                self.parent_release_id,
+                self.source_base_release_id,
                 "expert-base-release",
-                "source replay parent_release_id",
+                "source replay source_base_release_id",
             ),
             (
-                self.parent_tree_receipt_id,
-                "expert-parent-tree-receipt",
-                "source replay parent_tree_receipt_id",
+                self.source_base_tree_receipt_id,
+                "expert-source-base-tree-receipt",
+                "source replay source_base_tree_receipt_id",
             ),
             (
-                self.parent_source_extraction_receipt_id,
+                self.source_base_extraction_receipt_id,
                 "source-archive-extraction-receipt",
-                "source replay parent_source_extraction_receipt_id",
+                "source replay source_base_extraction_receipt_id",
             ),
             (
                 self.validation_policy_id,
@@ -3616,7 +3616,7 @@ class ExpertSourceReplayExecutionRequest(StrictContract):
             if value.split(":sha256:", 1)[0] != namespace:
                 raise ContractValidationError(f"{name} must name a {namespace} record")
         _require_digest(self.candidate_tree_hash, "source replay candidate_tree_hash")
-        _require_digest(self.parent_tree_hash, "source replay parent_tree_hash")
+        _require_digest(self.source_base_tree_hash, "source replay source_base_tree_hash")
         _require_digest(
             self.configuration_fingerprint,
             "source replay configuration_fingerprint",
@@ -3644,10 +3644,10 @@ class ExpertSourceReplayExecutionRequest(StrictContract):
                 or case.candidate_leg.expert_source_receipt_id
                 != self.candidate_commit_record_id
                 or case.candidate_leg.expert_tree_hash != self.candidate_tree_hash
-                or case.control_leg.expert_artifact_id != self.parent_release_id
+                or case.control_leg.expert_artifact_id != self.source_base_release_id
                 or case.control_leg.expert_source_receipt_id
-                != self.parent_tree_receipt_id
-                or case.control_leg.expert_tree_hash != self.parent_tree_hash
+                != self.source_base_tree_receipt_id
+                or case.control_leg.expert_tree_hash != self.source_base_tree_hash
             ):
                 raise ContractValidationError(
                     "source replay request legs differ from aggregate authority"
@@ -3673,9 +3673,9 @@ class ExpertSourceReplayExecutionRequest(StrictContract):
             self.candidate_commit_record_id,
             self.candidate_source_tree_manifest_id,
             self.scope_contract_id,
-            self.parent_release_id,
-            self.parent_tree_receipt_id,
-            self.parent_source_extraction_receipt_id,
+            self.source_base_release_id,
+            self.source_base_tree_receipt_id,
+            self.source_base_extraction_receipt_id,
             self.validation_policy_id,
             *self.attempt_dependency_ids,
             *(
@@ -3702,7 +3702,7 @@ class ExpertSourceReplayExecutionReservation(StrictContract):
     authorization_state_id: str
     candidate_id: str
     candidate_tree_hash: str
-    observed_parent_release_id: str
+    expected_current_release_id: str
     exact_dependency_ids: tuple[str, ...]
 
     CONTENT_NAMESPACE: ClassVar[str] = "expert-source-replay-execution-reservation"
@@ -3732,9 +3732,9 @@ class ExpertSourceReplayExecutionReservation(StrictContract):
             ),
             (self.candidate_id, "expert-candidate", "candidate_id"),
             (
-                self.observed_parent_release_id,
+                self.expected_current_release_id,
                 "expert-base-release",
-                "observed_parent_release_id",
+                "expected_current_release_id",
             ),
         ):
             require_content_id(value, f"source replay reservation {name}")
@@ -3756,7 +3756,7 @@ class ExpertSourceReplayExecutionReservation(StrictContract):
             self.validation_attempt_id,
             self.authorization_state_id,
             self.candidate_id,
-            self.observed_parent_release_id,
+            self.expected_current_release_id,
         }
         if set(self.exact_dependency_ids) != expected_dependencies:
             raise MissingReferenceError(
@@ -3786,7 +3786,7 @@ class ExpertCandidateEligibilityDecision(StrictContract):
     candidate_tree_hash: str
     candidate_commit_record_id: str
     scope_contract_id: str
-    parent_release_id: str | None
+    source_base_release_id: str | None
     validation_policy_id: str
     configuration_fingerprint: str
     eligible: bool
@@ -3809,8 +3809,8 @@ class ExpertCandidateEligibilityDecision(StrictContract):
             (self.validation_policy_id, "validation_policy_id"),
         ):
             require_content_id(value, name)
-        if self.parent_release_id is not None:
-            require_content_id(self.parent_release_id, "parent_release_id")
+        if self.source_base_release_id is not None:
+            require_content_id(self.source_base_release_id, "source_base_release_id")
         _require_digest(self.candidate_tree_hash, "candidate_tree_hash")
         _require_digest(
             self.configuration_fingerprint,
@@ -3853,8 +3853,8 @@ class ExpertCandidateEligibilityDecision(StrictContract):
             *manifest_ids,
             *receipt_ids,
         }
-        if self.parent_release_id is not None:
-            required_dependencies.add(self.parent_release_id)
+        if self.source_base_release_id is not None:
+            required_dependencies.add(self.source_base_release_id)
         source_replay_required = (
             self.eligible
             and ExpertValidationStage.SOURCE_RUN_REPLAY in self.required_stages
@@ -3911,7 +3911,7 @@ class ExpertValidationAttempt(StrictContract):
     candidate_tree_hash: str
     candidate_commit_record_id: str
     scope_contract_id: str
-    parent_release_id: str | None
+    source_base_release_id: str | None
     eligibility_decision_id: str
     validation_policy_id: str
     configuration_fingerprint: str
@@ -3936,8 +3936,8 @@ class ExpertValidationAttempt(StrictContract):
             (self.validation_policy_id, "validation_policy_id"),
         ):
             require_content_id(value, name)
-        if self.parent_release_id is not None:
-            require_content_id(self.parent_release_id, "parent_release_id")
+        if self.source_base_release_id is not None:
+            require_content_id(self.source_base_release_id, "source_base_release_id")
         _require_digest(self.candidate_tree_hash, "candidate_tree_hash")
         _require_digest(
             self.configuration_fingerprint,
@@ -4006,8 +4006,8 @@ class ExpertValidationAttempt(StrictContract):
             *manifest_ids,
             *receipt_ids,
         }
-        if self.parent_release_id is not None:
-            required_dependencies.add(self.parent_release_id)
+        if self.source_base_release_id is not None:
+            required_dependencies.add(self.source_base_release_id)
         source_replay_required = (
             ExpertValidationStage.SOURCE_RUN_REPLAY in self.required_stages
         )

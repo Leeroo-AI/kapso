@@ -107,7 +107,7 @@ class ExpertCandidateClosure:
     validation_context: ExpertCandidateValidationContext
     patch: ExpertCandidatePatch
     candidate_tree: ExpertSourceTreeManifest
-    parent_files: tuple[SourceFileDescriptor, ...]
+    source_base_files: tuple[SourceFileDescriptor, ...]
     repository_map: ExpertRepositoryMap
     module_contracts: tuple[ExpertModuleContract, ...]
     derivation: ExpertCandidateDerivation
@@ -152,7 +152,7 @@ def composition_source_candidate_closure(
         validation_context=provenance.validation_context,
         patch=source.patch,
         candidate_tree=source.candidate_tree,
-        parent_files=provenance.parent_files,
+        source_base_files=provenance.source_base_files,
         repository_map=source.repository_map,
         module_contracts=source.module_contracts,
         derivation=provenance.agent_derivation,
@@ -189,7 +189,7 @@ class ExpertCandidateValidator:
             require_active_authority=require_active_authority,
         )
         candidate_files = self._validate_candidate_tree(closure)
-        parent_files = self._validate_parent_tree(closure)
+        source_base_files = self._validate_source_base_tree(closure)
         if type(closure.derivation) is ExpertAgentProposalDerivation:
             prior_knowledge = self._validate_operation(
                 closure,
@@ -198,12 +198,12 @@ class ExpertCandidateValidator:
             self._validate_agent_source_dependencies(closure, prior_knowledge)
             self._validate_operation_tree_delta(
                 closure,
-                parent_files,
+                source_base_files,
                 candidate_files,
             )
         else:
             self._validate_composition_derivation(closure)
-        self._validate_patch(closure, parent_files, candidate_files)
+        self._validate_patch(closure, source_base_files, candidate_files)
         self._validate_sanitation(closure)
         modules = self._validate_topology(closure, candidate_files)
         self._validate_evidence_and_lineage(closure, modules)
@@ -271,27 +271,27 @@ class ExpertCandidateValidator:
             raise ExpertCandidateValidationError(
                 "trigger decision does not authorize this candidate class"
             )
-        if packet.parent_release is None:
+        if packet.source_base_release is None:
             if (
-                manifest.parent_release_id is not None
-                or manifest.parent_repository_map_ref is not None
-                or manifest.parent_tree_hash != EMPTY_EXPERT_TREE_DIGEST
-                or closure.parent_files
+                manifest.source_base_release_id is not None
+                or manifest.source_base_repository_map_ref is not None
+                or manifest.source_base_tree_hash != EMPTY_EXPERT_TREE_DIGEST
+                or closure.source_base_files
                 or manifest.change_kind
                 is not CandidateChangeKind.REPOSITORY_ARCHITECTURE
                 or decision.reason_code != "empty_scope_bootstrap"
             ):
                 raise ExpertCandidateValidationError(
-                    "bootstrap candidate differs from the explicit empty parent"
+                    "bootstrap candidate differs from the explicit empty source base"
                 )
         elif (
-            manifest.parent_release_id != packet.parent_release.release_id
-            or manifest.parent_repository_map_ref
-            != packet.repository_map.repository_map_id
-            or manifest.parent_tree_hash != packet.parent_tree_hash
+            manifest.source_base_release_id != packet.source_base_release.release_id
+            or manifest.source_base_repository_map_ref
+            != packet.source_base_repository_map.repository_map_id
+            or manifest.source_base_tree_hash != packet.source_base_tree_hash
         ):
             raise ExpertCandidateValidationError(
-                "candidate parent differs from the verified trigger parent"
+                "candidate source base differs from the verified trigger source base"
             )
 
     def _validate_operation(
@@ -308,14 +308,14 @@ class ExpertCandidateValidator:
             or operation.trigger_decision_id != derivation_record.trigger_decision_id
             or operation.trigger_evidence_packet_id
             != derivation_record.trigger_evidence_packet_id
-            or operation.parent_tree_hash != manifest.parent_tree_hash
+            or operation.source_base_tree_hash != manifest.source_base_tree_hash
             or operation.ancestor_candidate_ids != manifest.ancestor_candidate_ids
             or operation.configuration_fingerprint != manifest.configuration_fingerprint
         ):
             raise ExpertCandidateValidationError(
                 "candidate operation differs from the manifest authority"
             )
-        if manifest.parent_release_id is None:
+        if manifest.source_base_release_id is None:
             expected_kind = ExpertCandidateOperationKind.BOOTSTRAP
         elif manifest.change_kind is CandidateChangeKind.REPOSITORY_ARCHITECTURE:
             expected_kind = ExpertCandidateOperationKind.RESTRUCTURE
@@ -427,7 +427,7 @@ class ExpertCandidateValidator:
             packet=closure.derivation.trigger_packet,
             decision=closure.derivation.trigger_decision,
             operation_kind=operation.operation_kind,
-            editable_parent_tree_hash=closure.derivation.workspace_delta.baseline_tree_hash,
+            editable_input_tree_hash=closure.derivation.workspace_delta.baseline_tree_hash,
             maximum_entries=authority.workspace_maximum_entries,
             maximum_bytes=authority.workspace_maximum_bytes,
             ancestor_inputs=closure.derivation.ancestor_inputs,
@@ -525,27 +525,27 @@ class ExpertCandidateValidator:
             or manifest.scope_contract_id != plan.scope_contract.scope_contract_id
             or manifest.configuration_fingerprint != plan.configuration_fingerprint
             or manifest.change_kind is not CandidateChangeKind.CAPABILITY
-            or manifest.parent_release_id != base.release_id
-            or manifest.parent_repository_map_ref != base.repository_map_id
-            or manifest.parent_tree_hash != base.source_tree_hash
+            or manifest.source_base_release_id != base.release_id
+            or manifest.source_base_repository_map_ref != base.repository_map_id
+            or manifest.source_base_tree_hash != base.source_tree_hash
             or context.scope_contract != plan.scope_contract
-            or context.parent_scope_contract != plan.scope_contract
-            or context.parent_release is None
-            or context.parent_release.release_id != base.release_id
-            or context.parent_repository_map is None
-            or context.parent_repository_map.repository_map_id != base.repository_map_id
-            or context.parent_tree_hash != base.source_tree_hash
+            or context.source_base_scope_contract != plan.scope_contract
+            or context.source_base_release is None
+            or context.source_base_release.release_id != base.release_id
+            or context.source_base_repository_map is None
+            or context.source_base_repository_map.repository_map_id != base.repository_map_id
+            or context.source_base_tree_hash != base.source_tree_hash
             or tuple(
                 sorted(
                     module.module_contract_id
-                    for module in context.parent_module_contracts
+                    for module in context.source_base_module_contracts
                 )
             )
             != base.module_contract_ids
             or plan.configuration_fingerprint != expected_configuration_fingerprint
         ):
             raise ExpertCandidateValidationError(
-                "composition candidate parent differs from its exact plan"
+                "composition candidate source base differs from its exact plan"
             )
         if require_active_authority and (
             plan.composition_policy_version != self.settings.composition_policy_version
@@ -591,21 +591,21 @@ class ExpertCandidateValidator:
         )
         context = closure.validation_context
         if (
-            context.parent_scope_contract is None
-            or context.parent_release is None
-            or context.parent_tree_receipt is None
-            or context.parent_repository_map is None
+            context.source_base_scope_contract is None
+            or context.source_base_release is None
+            or context.source_base_tree_receipt is None
+            or context.source_base_repository_map is None
         ):
             raise ExpertCandidateValidationError(
-                "composition candidate requires a released parent closure"
+                "composition candidate requires a released source-base closure"
             )
         reconstructed_base = build_expert_composition_base_closure(
-            scope_contract=context.parent_scope_contract,
-            release_manifest=context.parent_release,
-            parent_tree_receipt=context.parent_tree_receipt,
-            repository_map=context.parent_repository_map,
-            module_contracts=context.parent_module_contracts,
-            source_contents=derivation.parent_contents,
+            scope_contract=context.source_base_scope_contract,
+            release_manifest=context.source_base_release,
+            source_base_tree_receipt=context.source_base_tree_receipt,
+            repository_map=context.source_base_repository_map,
+            module_contracts=context.source_base_module_contracts,
+            source_contents=derivation.source_base_contents,
         )
         recomputed_reduction = ExpertCompositionReducer(
             candidate_entry_limit=plan.candidate_entry_limit,
@@ -629,7 +629,7 @@ class ExpertCandidateValidator:
                 validation_context=source_closure.validation_context,
                 patch=source_closure.patch,
                 candidate_tree=source_closure.candidate_tree,
-                parent_files=source_closure.parent_files,
+                source_base_files=source_closure.source_base_files,
                 repository_map=source_closure.repository_map,
                 module_contracts=source_closure.module_contracts,
                 derivation=provenance.agent_derivation,
@@ -664,7 +664,7 @@ class ExpertCandidateValidator:
             or manifest.capability_lineage
             or closure.patch != materialization.patch
             or closure.candidate_tree != materialization.source_tree
-            or closure.parent_files != materialization.parent_tree.files
+            or closure.source_base_files != materialization.source_base_tree.files
             or closure.repository_map != materialization.repository_map
             or closure.module_contracts != materialization.module_contracts
             or manifest.semantic_book_digest != materialization.semantic_book_digest
@@ -761,42 +761,42 @@ class ExpertCandidateValidator:
         return files
 
     @staticmethod
-    def _validate_parent_tree(
+    def _validate_source_base_tree(
         closure: ExpertCandidateClosure,
     ) -> dict[str, SourceFileDescriptor]:
-        paths = tuple(file.relative_path for file in closure.parent_files)
+        paths = tuple(file.relative_path for file in closure.source_base_files)
         if paths != tuple(sorted(set(paths))):
             raise ExpertCandidateValidationError(
-                "parent files must be sorted and uniquely identified"
+                "source-base files must be sorted and uniquely identified"
             )
         observed_hash = (
             EMPTY_EXPERT_TREE_DIGEST
-            if not closure.parent_files
+            if not closure.source_base_files
             else source_tree_digest(
                 {
                     file.relative_path: (file.digest, file.mode, file.size)
-                    for file in closure.parent_files
+                    for file in closure.source_base_files
                 }
             )
         )
-        if observed_hash != closure.manifest.parent_tree_hash:
+        if observed_hash != closure.manifest.source_base_tree_hash:
             raise ExpertCandidateValidationError(
-                "parent file descriptor differs from the verified parent tree"
+                "source-base file descriptor differs from the verified source-base tree"
             )
-        parent_receipt = closure.validation_context.parent_tree_receipt
-        if parent_receipt is not None and (
-            parent_receipt.source_extraction_receipt.source_tree_files
-            != closure.parent_files
+        source_base_receipt = closure.validation_context.source_base_tree_receipt
+        if source_base_receipt is not None and (
+            source_base_receipt.source_extraction_receipt.source_tree_files
+            != closure.source_base_files
         ):
             raise ExpertCandidateValidationError(
-                "parent files differ from the source extraction receipt"
+                "source-base files differ from the source extraction receipt"
             )
-        return {file.relative_path: file for file in closure.parent_files}
+        return {file.relative_path: file for file in closure.source_base_files}
 
     @staticmethod
     def _validate_patch(
         closure: ExpertCandidateClosure,
-        parent_files: Mapping[str, SourceFileDescriptor],
+        source_base_files: Mapping[str, SourceFileDescriptor],
         candidate_files: Mapping[str, SourceFileDescriptor],
     ) -> None:
         manifest = closure.manifest
@@ -804,7 +804,7 @@ class ExpertCandidateValidator:
         if (
             manifest.patch_ref != patch.patch_id
             or manifest.patch_digest != tree_or_blob_digest(patch.to_json_bytes())
-            or patch.parent_tree_hash != manifest.parent_tree_hash
+            or patch.source_base_tree_hash != manifest.source_base_tree_hash
             or patch.candidate_tree_hash != manifest.candidate_tree_hash
         ):
             raise ExpertCandidateValidationError(
@@ -813,31 +813,31 @@ class ExpertCandidateValidator:
         expected_changes = tuple(
             ExpertCandidatePatchChange(
                 relative_path=path,
-                before=parent_files.get(path),
+                before=source_base_files.get(path),
                 after=candidate_files.get(path),
             )
-            for path in sorted(set(parent_files) | set(candidate_files))
-            if parent_files.get(path) != candidate_files.get(path)
+            for path in sorted(set(source_base_files) | set(candidate_files))
+            if source_base_files.get(path) != candidate_files.get(path)
         )
         if patch.changes != expected_changes:
             raise ExpertCandidateValidationError(
-                "candidate patch does not transform parent into candidate tree"
+                "candidate patch does not transform source base into candidate tree"
             )
 
     @staticmethod
     def _validate_operation_tree_delta(
         closure: ExpertCandidateClosure,
-        parent_files: Mapping[str, SourceFileDescriptor],
+        source_base_files: Mapping[str, SourceFileDescriptor],
         candidate_files: Mapping[str, SourceFileDescriptor],
     ) -> None:
-        parent_control = set(
-            expert_control_paths(closure.validation_context.parent_module_contracts)
+        source_base_control = set(
+            expert_control_paths(closure.validation_context.source_base_module_contracts)
         )
         candidate_control = set(expert_control_paths(closure.module_contracts))
         editable_parent = {
             path: descriptor
-            for path, descriptor in parent_files.items()
-            if path not in parent_control
+            for path, descriptor in source_base_files.items()
+            if path not in source_base_control
         }
         editable_candidate = {
             path: descriptor
@@ -864,7 +864,7 @@ class ExpertCandidateValidator:
         )
         operation = closure.derivation.operation
         workspace_receipt = operation.workspace_receipt
-        editable_parent_tree_hash = (
+        editable_input_tree_hash = (
             EMPTY_EXPERT_TREE_DIGEST
             if not editable_parent
             else source_tree_digest(
@@ -875,7 +875,7 @@ class ExpertCandidateValidator:
             )
         )
         expected_delta = CodingAgentWorkspaceDelta.mint(
-            baseline_tree_hash=editable_parent_tree_hash,
+            baseline_tree_hash=editable_input_tree_hash,
             edited_tree_hash=edited_tree_hash,
             changed_files=tuple(
                 CodingAgentWorkspaceChangedFile(
@@ -891,7 +891,7 @@ class ExpertCandidateValidator:
         )
         if (
             closure.derivation.workspace_delta != expected_delta
-            or workspace_receipt.editable_parent_tree_hash != editable_parent_tree_hash
+            or workspace_receipt.editable_input_tree_hash != editable_input_tree_hash
             or workspace_receipt.edited_tree_hash != edited_tree_hash
             or workspace_receipt.changed_paths != changed_paths
             or workspace_receipt.deleted_paths != deleted_paths
@@ -974,7 +974,7 @@ class ExpertCandidateValidator:
             raise ExpertCandidateValidationError(
                 "candidate task-family coverage differs from active scope"
             )
-        if context.parent_release is None and bound_families != set(
+        if context.source_base_release is None and bound_families != set(
             context.active_task_family_ids
         ):
             raise ExpertCandidateValidationError(
@@ -994,24 +994,24 @@ class ExpertCandidateValidator:
     def _validate_capability_change_boundary(
         closure: ExpertCandidateClosure,
     ) -> None:
-        parent_map = closure.validation_context.parent_repository_map
-        if parent_map is None:
+        source_base_map = closure.validation_context.source_base_repository_map
+        if source_base_map is None:
             raise ExpertCandidateValidationError(
-                "capability candidate requires a released parent topology"
+                "capability candidate requires a released source-base topology"
             )
         current_map = closure.repository_map
-        parent_nodes = {
-            node.capability_id: node for node in parent_map.capability_nodes
+        source_base_nodes = {
+            node.capability_id: node for node in source_base_map.capability_nodes
         }
         current_nodes = {
             node.capability_id: node for node in current_map.capability_nodes
         }
         if (
-            set(parent_nodes) != set(current_nodes)
+            set(source_base_nodes) != set(current_nodes)
             or any(
                 (
-                    parent_nodes[capability_id].owned_paths,
-                    parent_nodes[capability_id].task_family_bindings,
+                    source_base_nodes[capability_id].owned_paths,
+                    source_base_nodes[capability_id].task_family_bindings,
                 )
                 != (
                     current_nodes[capability_id].owned_paths,
@@ -1019,18 +1019,18 @@ class ExpertCandidateValidator:
                 )
                 for capability_id in current_nodes
             )
-            or parent_map.dependency_edges != current_map.dependency_edges
-            or parent_map.task_adapter_boundary != current_map.task_adapter_boundary
-            or parent_map.validation_entrypoints != current_map.validation_entrypoints
-            or parent_map.architecture_invariants != current_map.architecture_invariants
+            or source_base_map.dependency_edges != current_map.dependency_edges
+            or source_base_map.task_adapter_boundary != current_map.task_adapter_boundary
+            or source_base_map.validation_entrypoints != current_map.validation_entrypoints
+            or source_base_map.architecture_invariants != current_map.architecture_invariants
             or closure.manifest.capability_lineage
         ):
             raise ExpertCandidateValidationError(
                 "capability candidate cannot change repository topology"
             )
-        parent_contracts = {
+        source_base_contracts = {
             module.module_id: module
-            for module in closure.validation_context.parent_module_contracts
+            for module in closure.validation_context.source_base_module_contracts
         }
         current_contracts = {
             module.module_id: module for module in closure.module_contracts
@@ -1039,7 +1039,7 @@ class ExpertCandidateValidator:
             module_id
             for module_id in current_contracts
             if current_contracts[module_id].module_contract_id
-            != parent_contracts[module_id].module_contract_id
+            != source_base_contracts[module_id].module_contract_id
         }
         if not changed_capabilities:
             raise ExpertCandidateValidationError(
@@ -1048,18 +1048,18 @@ class ExpertCandidateValidator:
         for module_id in changed_capabilities:
             if (
                 current_contracts[module_id].version
-                == parent_contracts[module_id].version
+                == source_base_contracts[module_id].version
             ):
                 raise ExpertCandidateValidationError(
                     "changed capability contract must advance its version"
                 )
         current_control = set(expert_control_paths(closure.module_contracts))
-        parent_control = set(
-            expert_control_paths(closure.validation_context.parent_module_contracts)
+        source_base_control = set(
+            expert_control_paths(closure.validation_context.source_base_module_contracts)
         )
         edited_capabilities: set[str] = set()
         for change in closure.patch.changes:
-            if change.relative_path in current_control | parent_control:
+            if change.relative_path in current_control | source_base_control:
                 continue
             owners = {
                 capability_id
@@ -1117,17 +1117,17 @@ class ExpertCandidateValidator:
                 raise ExpertCandidateValidationError(
                     "module evidence leaves the trigger episode closure"
                 )
-        parent_capabilities = (
+        source_base_capabilities = (
             set()
-            if context.parent_repository_map is None
+            if context.source_base_repository_map is None
             else {
                 node.capability_id
-                for node in context.parent_repository_map.capability_nodes
+                for node in context.source_base_repository_map.capability_nodes
             }
         )
         candidate_capabilities = set(modules)
-        removed = parent_capabilities - candidate_capabilities
-        new = candidate_capabilities - parent_capabilities
+        removed = source_base_capabilities - candidate_capabilities
+        new = candidate_capabilities - source_base_capabilities
         lineage_sources: list[str] = []
         lineage_targets: list[str] = []
         for lineage in closure.manifest.capability_lineage:
@@ -1149,15 +1149,15 @@ class ExpertCandidateValidator:
             raise ExpertCandidateValidationError(
                 "candidate capability lineage is incomplete or ambiguous"
             )
-        parent_contracts = {
-            module.module_id: module for module in context.parent_module_contracts
+        source_base_contracts = {
+            module.module_id: module for module in context.source_base_module_contracts
         }
-        for capability_id in parent_capabilities & candidate_capabilities:
-            parent = parent_contracts[capability_id]
+        for capability_id in source_base_capabilities & candidate_capabilities:
+            source_base_contract = source_base_contracts[capability_id]
             current = modules[capability_id]
             if (
-                parent.module_contract_id != current.module_contract_id
-                and parent.version == current.version
+                source_base_contract.module_contract_id != current.module_contract_id
+                and source_base_contract.version == current.version
             ):
                 raise ExpertCandidateValidationError(
                     "preserved capability contract change must advance its version"

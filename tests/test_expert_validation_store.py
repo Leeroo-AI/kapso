@@ -770,7 +770,7 @@ def test_bootstrap_attempt_invalidates_when_current_release_appears_and_reopens(
     ).snapshot
     attempt = started.latest_attempt
     assert attempt is not None
-    assert attempt.parent_release_id is None
+    assert attempt.source_base_release_id is None
     appeared_release_id = _release_id("CURRENT-appeared-after-bootstrap-enrollment")
     reducer.current_release_provider.release_id = appeared_release_id
 
@@ -807,7 +807,7 @@ def test_parent_bound_attempt_invalidates_when_current_release_disappears(tmp_pa
     fixture = _request_fixture(tmp_path)
     started = fixture.validation_store.snapshot(fixture.attempt.candidate_id)
     assert started is not None
-    assert fixture.attempt.parent_release_id is not None
+    assert fixture.attempt.source_base_release_id is not None
     fixture.current_release_provider.release_id = None
 
     reduced = fixture.validation_store.reducer.invalidate_current_release_authority(
@@ -820,10 +820,10 @@ def test_parent_bound_attempt_invalidates_when_current_release_disappears(tmp_pa
     )
 
     assert reduced.invalidation.expected_current_release_id == (
-        fixture.attempt.parent_release_id
+        fixture.attempt.source_base_release_id
     )
     assert reduced.invalidation.observed_current_release_id is None
-    assert fixture.attempt.parent_release_id in (
+    assert fixture.attempt.source_base_release_id in (
         reduced.invalidation.exact_dependency_ids
     )
     assert committed.snapshot.state == reduced.state
@@ -1013,7 +1013,7 @@ def test_current_authority_invalidation_rejects_head_advance_during_observation(
         ExpertValidationStage.CONTRACT_SCHEMA,
         ExpertEvaluatorOutcome.PASSED,
     )
-    successor_parent_release_id = _release_id(
+    successor_source_base_release_id = _release_id(
         "successor-parent-release-before-invalidation-cas"
     )
     advanced = []
@@ -1026,7 +1026,7 @@ def test_current_authority_invalidation_rejects_head_advance_during_observation(
                 result=competing_result,
             ).snapshot
         )
-        return successor_parent_release_id
+        return successor_source_base_release_id
 
     monkeypatch.setattr(
         reducer.current_release_provider,

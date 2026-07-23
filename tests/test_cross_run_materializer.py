@@ -28,7 +28,7 @@ from kapso.cross_run.contracts import (
     ScopeRepositorySettings,
     SourceFileDescriptor,
 )
-from kapso.cross_run.expert import ExpertParentTreeReceipt
+from kapso.cross_run.expert import ExpertSourceBaseTreeReceipt
 from kapso.cross_run.github.materializer import (
     CacheCorruptionError,
     GitHubArtifactMaterializer,
@@ -783,17 +783,17 @@ def test_materializer_accepts_split_expert_source_and_release_assets(
             destination=hardlinked_destination,
         )
     assert not hardlinked_destination.exists()
-    parent_receipt = ExpertParentTreeReceipt.mint(
+    source_base_receipt = ExpertSourceBaseTreeReceipt.mint(
         release_id=manifest.release_id,
         cache_verification_receipt=materialized.receipt,
         source_extraction_receipt=source_receipt,
-        parent_tree_hash=source_receipt.source_tree_hash,
+        source_base_tree_hash=source_receipt.source_tree_hash,
         repository_map_id=repository_map_id,
         module_contract_ids=(content_id("fixture", {"module": 1}),),
         materializer_version="kapso.expert_materializer.v1",
     )
-    assert parent_receipt.parent_tree_hash != (
-        parent_receipt.cache_verification_receipt.materialized_tree_digest
+    assert source_base_receipt.source_base_tree_hash != (
+        source_base_receipt.cache_verification_receipt.materialized_tree_digest
     )
 
 

@@ -108,8 +108,8 @@ def _expert_evaluator_base_input_ids(
         *(pin.verification_receipt_id for pin in attempt.task_adapter_pins),
         *attempt.eligibility_dependency_ids,
     }
-    if attempt.parent_release_id is not None:
-        input_ids.add(attempt.parent_release_id)
+    if attempt.source_base_release_id is not None:
+        input_ids.add(attempt.source_base_release_id)
     return input_ids
 
 
@@ -150,7 +150,7 @@ def validate_source_replay_request_authority_shape(
         or state.validation_attempt_id != attempt.validation_attempt_id
         or state.candidate_id != attempt.candidate_id
         or state.candidate_tree_hash != attempt.candidate_tree_hash
-        or attempt.parent_release_id is None
+        or attempt.source_base_release_id is None
         or attempt.validation_policy_id
         != settings.policy.validation_policy().validation_policy_id
         or attempt.configuration_fingerprint != settings.configuration_fingerprint
@@ -161,7 +161,7 @@ def validate_source_replay_request_authority_shape(
         or request.candidate_tree_hash != attempt.candidate_tree_hash
         or request.candidate_commit_record_id != attempt.candidate_commit_record_id
         or request.scope_contract_id != attempt.scope_contract_id
-        or request.parent_release_id != attempt.parent_release_id
+        or request.source_base_release_id != attempt.source_base_release_id
         or request.validation_policy_id != attempt.validation_policy_id
         or request.configuration_fingerprint != attempt.configuration_fingerprint
         or request.request_policy_version
@@ -311,13 +311,13 @@ class ExpertCandidateEligibilityEvaluator:
         stored: StoredExpertCandidate,
         task_adapters: tuple[VerifiedTaskAdapter, ...],
     ) -> ExpertEligibilityResult:
-        current_parent_release_id = self.current_release_provider.current_release_id(
+        observed_current_release_id = self.current_release_provider.current_release_id(
             stored.closure.validation_context.scope_id
         )
-        if current_parent_release_id is not None:
+        if observed_current_release_id is not None:
             require_content_id(
-                current_parent_release_id,
-                "current_parent_release_id",
+                observed_current_release_id,
+                "observed_current_release_id",
             )
         (
             adapter_pins,
@@ -332,19 +332,19 @@ class ExpertCandidateEligibilityEvaluator:
         stage_plan = self.settings.policy.required_stages(
             validation_track,
             configured_task_family_ids,
-            has_parent_release=stored.closure.manifest.parent_release_id is not None,
+            has_source_base_release=stored.closure.manifest.source_base_release_id is not None,
         )
-        parent_matches = (
-            stored.closure.manifest.parent_release_id == current_parent_release_id
+        source_base_is_current = (
+            stored.closure.manifest.source_base_release_id == observed_current_release_id
         )
         infrastructure_available = self.settings.policy.can_validate(
             validation_track,
             configured_task_family_ids,
-            has_parent_release=stored.closure.manifest.parent_release_id is not None,
+            has_source_base_release=stored.closure.manifest.source_base_release_id is not None,
         )
-        eligible = parent_matches and infrastructure_available
-        if not parent_matches:
-            reason_code = "stale_parent_release"
+        eligible = source_base_is_current and infrastructure_available
+        if not source_base_is_current:
+            reason_code = "source_base_not_current"
         elif not infrastructure_available:
             reason_code = "required_validation_infrastructure_unavailable"
         else:
@@ -380,8 +380,8 @@ class ExpertCandidateEligibilityEvaluator:
             *source_adapter_dependency_ids,
             *stored_candidate_admission_dependency_ids(stored),
         }
-        if manifest.parent_release_id is not None:
-            dependencies.add(manifest.parent_release_id)
+        if manifest.source_base_release_id is not None:
+            dependencies.add(manifest.source_base_release_id)
         if source_replay_selection is not None:
             dependencies.update(
                 {
@@ -394,7 +394,7 @@ class ExpertCandidateEligibilityEvaluator:
             candidate_tree_hash=manifest.candidate_tree_hash,
             candidate_commit_record_id=stored.commit_record.commit_record_id,
             scope_contract_id=manifest.scope_contract_id,
-            parent_release_id=manifest.parent_release_id,
+            source_base_release_id=manifest.source_base_release_id,
             validation_policy_id=policy.validation_policy_id,
             configuration_fingerprint=self.settings.configuration_fingerprint,
             eligible=eligible,
@@ -751,7 +751,7 @@ class ExpertValidationReducer:
                 eligibility.decision.candidate_commit_record_id
             ),
             scope_contract_id=eligibility.decision.scope_contract_id,
-            parent_release_id=eligibility.decision.parent_release_id,
+            source_base_release_id=eligibility.decision.source_base_release_id,
             eligibility_decision_id=(eligibility.decision.eligibility_decision_id),
             validation_policy_id=eligibility.decision.validation_policy_id,
             configuration_fingerprint=(eligibility.decision.configuration_fingerprint),
@@ -829,7 +829,7 @@ class ExpertValidationReducer:
             or stored.commit_record.commit_record_id
             != attempt.candidate_commit_record_id
             or manifest.scope_contract_id != attempt.scope_contract_id
-            or manifest.parent_release_id != attempt.parent_release_id
+            or manifest.source_base_release_id != attempt.source_base_release_id
             or context.scope_contract.scope_contract_id != attempt.scope_contract_id
             or not set(stored_candidate_admission_dependency_ids(stored)).issubset(
                 attempt.eligibility_dependency_ids
@@ -846,7 +846,7 @@ class ExpertValidationReducer:
                 observed_current_release_id,
                 "observed_current_release_id",
             )
-        if observed_current_release_id == attempt.parent_release_id:
+        if observed_current_release_id == attempt.source_base_release_id:
             raise ExpertValidationError(
                 "CURRENT release authority has not changed for the active attempt"
             )
@@ -856,8 +856,8 @@ class ExpertValidationReducer:
             attempt.candidate_id,
             attempt.scope_contract_id,
         }
-        if attempt.parent_release_id is not None:
-            dependencies.add(attempt.parent_release_id)
+        if attempt.source_base_release_id is not None:
+            dependencies.add(attempt.source_base_release_id)
         if observed_current_release_id is not None:
             dependencies.add(observed_current_release_id)
         invalidation = ExpertValidationAuthorityInvalidation.mint(
@@ -869,7 +869,7 @@ class ExpertValidationReducer:
             candidate_id=attempt.candidate_id,
             candidate_tree_hash=attempt.candidate_tree_hash,
             scope_contract_id=attempt.scope_contract_id,
-            expected_current_release_id=attempt.parent_release_id,
+            expected_current_release_id=attempt.source_base_release_id,
             observed_current_release_id=observed_current_release_id,
             exact_dependency_ids=tuple(sorted(dependencies)),
         )
@@ -908,12 +908,12 @@ class ExpertValidationReducer:
         stored = self.candidate_store.read(attempt.candidate_id)
         manifest = stored.closure.manifest
         validation_context = stored.closure.validation_context
-        parent_receipt = validation_context.parent_tree_receipt
-        current_parent = self.current_release_provider.current_release_id(
+        source_base_receipt = validation_context.source_base_tree_receipt
+        observed_current_release_id = self.current_release_provider.current_release_id(
             validation_context.scope_id
         )
-        if current_parent is not None:
-            require_content_id(current_parent, "current source replay parent release")
+        if observed_current_release_id is not None:
+            require_content_id(observed_current_release_id, "current source replay source-base release")
         if (
             manifest.candidate_id != attempt.candidate_id
             or manifest.candidate_tree_hash != attempt.candidate_tree_hash
@@ -922,13 +922,13 @@ class ExpertValidationReducer:
             or request.candidate_source_tree_manifest_id
             != stored.closure.candidate_tree.source_tree_manifest_id
             or manifest.scope_contract_id != attempt.scope_contract_id
-            or manifest.parent_release_id != attempt.parent_release_id
-            or parent_receipt is None
-            or request.parent_tree_receipt_id != parent_receipt.parent_tree_receipt_id
-            or request.parent_source_extraction_receipt_id
-            != parent_receipt.source_extraction_receipt.extraction_receipt_id
-            or request.parent_tree_hash != parent_receipt.parent_tree_hash
-            or current_parent != attempt.parent_release_id
+            or manifest.source_base_release_id != attempt.source_base_release_id
+            or source_base_receipt is None
+            or request.source_base_tree_receipt_id != source_base_receipt.source_base_tree_receipt_id
+            or request.source_base_extraction_receipt_id
+            != source_base_receipt.source_extraction_receipt.extraction_receipt_id
+            or request.source_base_tree_hash != source_base_receipt.source_base_tree_hash
+            or observed_current_release_id != attempt.source_base_release_id
             or not set(stored_candidate_admission_dependency_ids(stored)).issubset(
                 attempt.eligibility_dependency_ids
             )
@@ -1179,7 +1179,7 @@ class ExpertValidationReducer:
             or result.validation_policy_id != attempt.validation_policy_id
             or result.configuration_fingerprint != attempt.configuration_fingerprint
             or fence.scope_contract_id != attempt.scope_contract_id
-            or fence.expected_parent_release_id != attempt.parent_release_id
+            or fence.expected_current_release_id != attempt.source_base_release_id
         ):
             raise ExpertValidationError(
                 "source replay result differs from the active configured stage"
@@ -1270,7 +1270,7 @@ class ExpertValidationReducer:
             or result.candidate_id != attempt.candidate_id
             or result.candidate_tree_hash != attempt.candidate_tree_hash
             or result.scope_contract_id != attempt.scope_contract_id
-            or result.parent_release_id != attempt.parent_release_id
+            or result.source_base_release_id != attempt.source_base_release_id
             or result.validation_policy_id != attempt.validation_policy_id
             or result.configuration_fingerprint != attempt.configuration_fingerprint
         ):
@@ -1385,7 +1385,7 @@ class ExpertValidationReducer:
             or result.candidate_id != attempt.candidate_id
             or result.candidate_tree_hash != attempt.candidate_tree_hash
             or result.scope_contract_id != attempt.scope_contract_id
-            or result.parent_release_id != attempt.parent_release_id
+            or result.source_base_release_id != attempt.source_base_release_id
             or result.validation_policy_id != attempt.validation_policy_id
             or result.configuration_fingerprint != attempt.configuration_fingerprint
             or report.candidate_commit_record_id != attempt.candidate_commit_record_id
@@ -1469,7 +1469,7 @@ class ExpertValidationReducer:
             or result.candidate_tree_hash != attempt.candidate_tree_hash
             or result.candidate_commit_record_id != attempt.candidate_commit_record_id
             or result.scope_contract_id != attempt.scope_contract_id
-            or result.expected_current_release_id != attempt.parent_release_id
+            or result.expected_current_release_id != attempt.source_base_release_id
             or result.validation_policy_id != attempt.validation_policy_id
             or result.configuration_fingerprint != attempt.configuration_fingerprint
             or result.accepted_stage_results != state.accepted_stage_results
@@ -1744,8 +1744,8 @@ class ExpertValidationReducer:
                     != attempt.configuration_fingerprint
                     or accepted_result.publication_authority_fence.scope_contract_id
                     != attempt.scope_contract_id
-                    or accepted_result.publication_authority_fence.expected_parent_release_id
-                    != attempt.parent_release_id
+                    or accepted_result.publication_authority_fence.expected_current_release_id
+                    != attempt.source_base_release_id
                 ):
                     raise ExpertValidationError(
                         "accepted source replay differs from the stage prefix"
@@ -1765,7 +1765,7 @@ class ExpertValidationReducer:
                     or accepted_result.candidate_tree_hash
                     != attempt.candidate_tree_hash
                     or accepted_result.scope_contract_id != attempt.scope_contract_id
-                    or accepted_result.parent_release_id != attempt.parent_release_id
+                    or accepted_result.source_base_release_id != attempt.source_base_release_id
                     or accepted_result.validation_policy_id
                     != attempt.validation_policy_id
                     or accepted_result.configuration_fingerprint
@@ -1788,7 +1788,7 @@ class ExpertValidationReducer:
                     or accepted_result.candidate_tree_hash
                     != attempt.candidate_tree_hash
                     or accepted_result.scope_contract_id != attempt.scope_contract_id
-                    or accepted_result.parent_release_id != attempt.parent_release_id
+                    or accepted_result.source_base_release_id != attempt.source_base_release_id
                     or accepted_result.validation_policy_id
                     != attempt.validation_policy_id
                     or accepted_result.configuration_fingerprint

@@ -78,7 +78,7 @@ def _bootstrap_journal_authority(tmp_path, monkeypatch):
     coordinator, _candidate_reader, _parent_provider, _adapter_provider = _coordinator(
         validation_store=validation_store,
         prepared_plan=prepared_plan,
-        parent=None,
+        source_base=None,
         current_authority=_CurrentAuthority((observation, observation)),
     )
     prepared = coordinator.build(plan_reservation)
@@ -95,12 +95,12 @@ def _multi_case_parent_journal_authority(tmp_path, monkeypatch):
         expected_transition_id=snapshot.transition.transition_id,
         prepared_plan=prepared_plan,
     ).reservation
-    _candidate, parent = _expert_sources(prepared_plan)
+    _candidate, source_base = _expert_sources(prepared_plan)
     observation = _current_observation(prepared_plan)
     coordinator, _candidate_reader, _parent_provider, _adapter_provider = _coordinator(
         validation_store=validation_store,
         prepared_plan=prepared_plan,
-        parent=parent,
+        source_base=source_base,
         current_authority=_CurrentAuthority((observation, observation)),
     )
     prepared = coordinator.build(plan_reservation)
@@ -287,9 +287,9 @@ def test_schedule_uses_canonical_case_order_and_each_semantic_leg_order(
     tmp_path,
     monkeypatch,
 ):
-    (tmp_path / "parent").mkdir()
+    (tmp_path / "source_base").mkdir()
     parent_prepared, parent_reservation = _parent_journal_authority(
-        tmp_path / "parent",
+        tmp_path / "source_base",
         monkeypatch,
     )
     (tmp_path / "bootstrap").mkdir()

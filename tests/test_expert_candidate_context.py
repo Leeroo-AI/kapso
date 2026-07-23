@@ -14,7 +14,7 @@ from kapso.cross_run.expert.candidate_context import (
     project_agent_candidate_validation_context,
 )
 from kapso.cross_run.expert.triggers import (
-    ExpertParentTreeReceipt,
+    ExpertSourceBaseTreeReceipt,
     ExpertTriggerEvaluator,
 )
 from test_cross_run_retrieval import (
@@ -128,17 +128,17 @@ def _context_dependencies(context, *, scope_contract=None, replay_evidence=None)
         replay.replay_evidence_id,
         *replay.stable_dependency_ids,
     }
-    if context.parent_release is not None:
+    if context.source_base_release is not None:
         dependencies.update(
             {
-                context.parent_scope_contract.scope_contract_id,
-                context.parent_release.release_id,
-                context.parent_tree_receipt.parent_tree_receipt_id,
-                context.parent_tree_receipt.source_extraction_receipt.extraction_receipt_id,
-                context.parent_repository_map.repository_map_id,
+                context.source_base_scope_contract.scope_contract_id,
+                context.source_base_release.release_id,
+                context.source_base_tree_receipt.source_base_tree_receipt_id,
+                context.source_base_tree_receipt.source_extraction_receipt.extraction_receipt_id,
+                context.source_base_repository_map.repository_map_id,
                 *(
                     module.module_contract_id
-                    for module in context.parent_module_contracts
+                    for module in context.source_base_module_contracts
                 ),
             }
         )
@@ -146,7 +146,7 @@ def _context_dependencies(context, *, scope_contract=None, replay_evidence=None)
 
 
 def _receipt_with_archive(context, *, archive_ref, archive_digest):
-    original = context.parent_tree_receipt
+    original = context.source_base_tree_receipt
     cache = replace(
         original.cache_verification_receipt,
         asset_digests={archive_ref: archive_digest},
@@ -156,11 +156,11 @@ def _receipt_with_archive(context, *, archive_ref, archive_digest):
         source_archive_ref=archive_ref,
         source_archive_digest=archive_digest,
     )
-    return ExpertParentTreeReceipt.mint(
+    return ExpertSourceBaseTreeReceipt.mint(
         release_id=original.release_id,
         cache_verification_receipt=cache,
         source_extraction_receipt=extraction,
-        parent_tree_hash=original.parent_tree_hash,
+        source_base_tree_hash=original.source_base_tree_hash,
         repository_map_id=original.repository_map_id,
         module_contract_ids=original.module_contract_ids,
         materializer_version=original.materializer_version,
@@ -177,10 +177,10 @@ def test_agent_context_projection_is_deterministic_and_exact():
     assert repeated == context
     assert repeated.validation_context_id == context.validation_context_id
     assert context.scope_contract == packet.scope_contract
-    assert context.parent_release == packet.parent_release
-    assert context.parent_tree_receipt == packet.parent_tree_receipt
-    assert context.parent_repository_map == packet.repository_map
-    assert context.parent_module_contracts == packet.module_contracts
+    assert context.source_base_release == packet.source_base_release
+    assert context.source_base_tree_receipt == packet.source_base_tree_receipt
+    assert context.source_base_repository_map == packet.source_base_repository_map
+    assert context.source_base_module_contracts == packet.source_base_module_contracts
     assert context.replay_evidence.evidence_authority_ids == tuple(
         sorted(
             (
@@ -201,9 +201,9 @@ def test_bootstrap_context_requires_the_canonical_empty_parent():
         decision=decision,
     )
 
-    assert context.parent_release is None
-    with pytest.raises(ExpertCandidateContextError, match="explicit empty parent"):
-        _remint(context, parent_tree_hash=_digest("not-empty"))
+    assert context.source_base_release is None
+    with pytest.raises(ExpertCandidateContextError, match="explicit empty source base"):
+        _remint(context, source_base_tree_hash=_digest("not-empty"))
 
 
 def test_context_rejects_replay_from_another_domain_scope():
@@ -236,7 +236,7 @@ def test_context_rejects_replay_from_another_domain_scope():
 
 def test_released_context_joins_exact_map_and_modules():
     _, _, context = _projected_context()
-    repository_map = context.parent_repository_map
+    repository_map = context.source_base_repository_map
     mismatched_map = ExpertRepositoryMap.mint(
         scope_contract_id=repository_map.scope_contract_id,
         capability_nodes=repository_map.capability_nodes,
@@ -253,10 +253,10 @@ def test_released_context_joins_exact_map_and_modules():
         ),
     )
 
-    with pytest.raises(ExpertCandidateContextError, match="parent authority"):
-        _remint(context, parent_repository_map=mismatched_map)
-    with pytest.raises(ExpertCandidateContextError, match="parent authority"):
-        _remint(context, parent_module_contracts=())
+    with pytest.raises(ExpertCandidateContextError, match="source-base authority"):
+        _remint(context, source_base_repository_map=mismatched_map)
+    with pytest.raises(ExpertCandidateContextError, match="source-base authority"):
+        _remint(context, source_base_module_contracts=())
 
 
 @pytest.mark.parametrize(
@@ -274,27 +274,27 @@ def test_released_context_joins_exact_archive_and_extraction(
     _, _, context = _projected_context()
     receipt = _receipt_with_archive(
         context,
-        archive_ref=archive_ref or context.parent_release.source_archive_ref,
+        archive_ref=archive_ref or context.source_base_release.source_archive_ref,
         archive_digest=archive_digest,
     )
 
     with pytest.raises(ExpertCandidateContextError, match="release closure"):
-        _remint(context, parent_tree_receipt=receipt)
+        _remint(context, source_base_tree_receipt=receipt)
 
 
 def test_released_context_accepts_only_equal_or_directly_superseding_scope():
     settings = trigger_settings()
     parent_packet = trigger_packet(settings=settings)
-    parent_scope = parent_packet.scope_contract
+    source_base_scope = parent_packet.scope_contract
     successor = _remint(
-        parent_scope,
-        supersedes_scope_contract_id=parent_scope.scope_contract_id,
-        purpose=parent_scope.purpose + " with one attested revision",
+        source_base_scope,
+        supersedes_scope_contract_id=source_base_scope.scope_contract_id,
+        purpose=source_base_scope.purpose + " with one attested revision",
     )
     packet = trigger_packet(
         settings=settings,
         current_scope_contract=successor,
-        released_scope_contract=parent_scope,
+        released_scope_contract=source_base_scope,
     )
     decision = ExpertTriggerEvaluator(settings).evaluate(packet)
     context = project_agent_candidate_validation_context(
@@ -303,7 +303,7 @@ def test_released_context_accepts_only_equal_or_directly_superseding_scope():
     )
 
     assert context.scope_contract == successor
-    assert context.parent_scope_contract == parent_scope
+    assert context.source_base_scope_contract == source_base_scope
 
     indirect_successor = _remint(
         successor,

@@ -30,7 +30,7 @@ from kapso.cross_run.expert.candidate_derivations import (
     ExpertAgentProposalDerivation,
 )
 
-PARENT_FILES_PACKAGE_PATH = "parent-files.json"
+SOURCE_BASE_FILES_PACKAGE_PATH = "source-base-files.json"
 SANITATION_REPORT_PACKAGE_PATH = "sanitation.json"
 AGENT_DERIVATION_PACKAGE_ROOT = "derivations/agent"
 AGENT_TRIGGER_PACKET_PACKAGE_PATH = (
@@ -57,7 +57,7 @@ def direct_agent_candidate_package_files(
     validation_context: ExpertCandidateValidationContext,
     patch: ExpertCandidatePatch,
     candidate_tree: ExpertSourceTreeManifest,
-    parent_files: tuple[SourceFileDescriptor, ...],
+    source_base_files: tuple[SourceFileDescriptor, ...],
     repository_map: ExpertRepositoryMap,
     module_contracts: tuple[ExpertModuleContract, ...],
     derivation: ExpertAgentProposalDerivation,
@@ -71,7 +71,7 @@ def direct_agent_candidate_package_files(
         CANDIDATE_VALIDATION_CONTEXT_PACKAGE_PATH: validation_context.to_json_bytes(),
         CANDIDATE_PATCH_PACKAGE_PATH: patch.to_json_bytes(),
         CANDIDATE_SOURCE_TREE_PACKAGE_PATH: candidate_tree.to_json_bytes(),
-        PARENT_FILES_PACKAGE_PATH: contract_tuple_package_bytes(parent_files),
+        SOURCE_BASE_FILES_PACKAGE_PATH: contract_tuple_package_bytes(source_base_files),
         CANDIDATE_REPOSITORY_MAP_PACKAGE_PATH: repository_map.to_json_bytes(),
         SANITATION_REPORT_PACKAGE_PATH: sanitation_report.to_json_bytes(),
         AGENT_DERIVATION_RECORD_PACKAGE_PATH: derivation.record.to_json_bytes(),

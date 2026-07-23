@@ -221,7 +221,7 @@ class ExpertReleaseMatrixPlanReservationSnapshot:
             or plan.candidate_tree_hash != transition.candidate_tree_hash
             or plan.candidate_commit_record_id != attempt.candidate_commit_record_id
             or plan.scope_contract_id != attempt.scope_contract_id
-            or plan.parent_release_id != attempt.parent_release_id
+            or plan.source_base_release_id != attempt.source_base_release_id
             or plan.validation_policy_id != attempt.validation_policy_id
             or plan.configuration_fingerprint != attempt.configuration_fingerprint
             or state.validation_attempt_id != attempt.validation_attempt_id
@@ -271,7 +271,7 @@ class ExpertReleaseMatrixSourceEvidenceSnapshot:
         )
         if (
             attempt is None
-            or plan.mode is not ExpertReleaseMatrixMode.PARENT_COMPARISON
+            or plan.mode is not ExpertReleaseMatrixMode.CONTROL_COMPARISON
             or accepted_source_results != (self.stage_result,)
             or self.stage_result.outcome is not ExpertEvaluatorOutcome.PASSED
             or not source_provenances
@@ -306,16 +306,16 @@ class ExpertReleaseMatrixSourceEvidenceSnapshot:
             != self.request.validation_attempt_id
             or self.reservation.candidate_id != self.request.candidate_id
             or self.reservation.candidate_tree_hash != self.request.candidate_tree_hash
-            or self.reservation.observed_parent_release_id
-            != self.request.parent_release_id
+            or self.reservation.expected_current_release_id
+            != self.request.source_base_release_id
             or self.request.validation_attempt_id != plan.validation_attempt_id
             or self.request.candidate_id != plan.candidate_id
             or self.request.candidate_tree_hash != plan.candidate_tree_hash
             or self.request.candidate_commit_record_id
             != plan.candidate_commit_record_id
             or self.request.scope_contract_id != plan.scope_contract_id
-            or self.request.parent_release_id != plan.parent_release_id
-            or self.request.parent_tree_hash != plan.parent_tree_hash
+            or self.request.source_base_release_id != plan.source_base_release_id
+            or self.request.source_base_tree_hash != plan.source_base_tree_hash
             or self.request.validation_policy_id != plan.validation_policy_id
             or self.request.configuration_fingerprint != plan.configuration_fingerprint
         ):
@@ -366,7 +366,7 @@ class ExpertPublicationEligibilitySnapshot:
             or matrix_result.candidate_id != attempt.candidate_id
             or matrix_result.candidate_tree_hash != attempt.candidate_tree_hash
             or matrix_result.scope_contract_id != attempt.scope_contract_id
-            or matrix_result.parent_release_id != attempt.parent_release_id
+            or matrix_result.source_base_release_id != attempt.source_base_release_id
             or matrix_result.validation_policy_id != attempt.validation_policy_id
             or matrix_result.configuration_fingerprint
             != attempt.configuration_fingerprint

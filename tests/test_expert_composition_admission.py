@@ -172,13 +172,13 @@ def _current_base_capability(case, provider):
             ),
         ),
     )
-    receipt = base.parent_tree_receipt
+    receipt = base.source_base_tree_receipt
     security_subject_ids = tuple(
         sorted(
             {
                 base.reference.base_reference_id,
                 *base.reference.stable_authority_ids,
-                receipt.parent_tree_receipt_id,
+                receipt.source_base_tree_receipt_id,
                 receipt.source_extraction_receipt.extraction_receipt_id,
                 observation.observation_id,
                 observation.publication_id,
@@ -298,7 +298,7 @@ def test_clean_composition_admission_is_fenced_atomic_and_reopenable(
         candidate_tree_hash=eligibility.decision.candidate_tree_hash,
         candidate_commit_record_id=(eligibility.decision.candidate_commit_record_id),
         scope_contract_id=eligibility.decision.scope_contract_id,
-        parent_release_id=eligibility.decision.parent_release_id,
+        source_base_release_id=eligibility.decision.source_base_release_id,
         eligibility_decision_id=eligibility.decision.eligibility_decision_id,
         validation_policy_id=eligibility.decision.validation_policy_id,
         configuration_fingerprint=eligibility.decision.configuration_fingerprint,
@@ -365,7 +365,7 @@ def test_clean_composition_admission_is_fenced_atomic_and_reopenable(
         candidate_tree_hash=fence.candidate_tree_hash,
         scope_id=fence.scope_id,
         scope_contract_id=fence.scope_contract_id,
-        expected_parent_release_id=fence.expected_parent_release_id,
+        expected_current_release_id=fence.expected_current_release_id,
         composition_plan_id=fence.composition_plan_id,
         composition_materialization_id=fence.composition_materialization_id,
         base_reference_id=fence.base_reference_id,
@@ -510,7 +510,7 @@ def test_clean_composition_admission_is_fenced_atomic_and_reopenable(
         candidate_tree_hash=fence.candidate_tree_hash,
         scope_id=fence.scope_id,
         scope_contract_id=fence.scope_contract_id,
-        expected_parent_release_id=fence.expected_parent_release_id,
+        expected_current_release_id=fence.expected_current_release_id,
         composition_plan_id=fence.composition_plan_id,
         composition_materialization_id=fence.composition_materialization_id,
         base_reference_id=fence.base_reference_id,

@@ -70,7 +70,7 @@ from test_cross_run_retrieval import source_fixture
 
 class UnusedSourceMaterializer:
     def extract_verified_source_archive(self, **kwargs):
-        raise AssertionError("bootstrap must not materialize a released parent")
+        raise AssertionError("bootstrap must not materialize a released source base")
 
 
 class RootSubstitutingWorkspaceLease:
@@ -310,7 +310,7 @@ def test_architect_bootstrap_seals_and_reopens_exact_candidate(tmp_path):
     result = architect.propose(
         packet=packet,
         decision=decision,
-        materialized_parent=None,
+        materialized_source_base=None,
     )
     closure = result.stored_candidate.closure
     reopened = store.read(closure.manifest.candidate_id)
@@ -349,12 +349,12 @@ def test_architect_principal_rotation_changes_operation_identity(tmp_path):
     first = first_architect.propose(
         packet=packet,
         decision=decision,
-        materialized_parent=None,
+        materialized_source_base=None,
     ).stored_candidate.closure.derivation.operation
     second = second_architect.propose(
         packet=packet,
         decision=decision,
-        materialized_parent=None,
+        materialized_source_base=None,
     ).stored_candidate.closure.derivation.operation
 
     assert first.operation_receipt.operation_id != second.operation_receipt.operation_id
@@ -369,7 +369,7 @@ def test_historical_candidate_reopens_after_principal_rotation(tmp_path):
     candidate = architect.propose(
         packet=packet,
         decision=decision,
-        materialized_parent=None,
+        materialized_source_base=None,
     ).stored_candidate
     configured = expert_settings()
     rotated = replace(
@@ -402,7 +402,7 @@ def test_failed_workspace_lease_close_persists_no_candidate(tmp_path):
         architect.propose(
             packet=packet,
             decision=decision,
-            materialized_parent=None,
+            materialized_source_base=None,
         )
 
     assert tuple(store.object_root.iterdir()) == ()
@@ -423,7 +423,7 @@ def test_architect_path_declaration_mismatch_leaves_no_candidate(tmp_path):
         architect.propose(
             packet=packet,
             decision=decision,
-            materialized_parent=None,
+            materialized_source_base=None,
         )
 
     assert len(runner.calls) == 1
@@ -449,7 +449,7 @@ def test_bootstrap_rejects_speculative_inactive_task_family(tmp_path):
         architect.propose(
             packet=packet,
             decision=decision,
-            materialized_parent=None,
+            materialized_source_base=None,
         )
 
     assert len(runner.calls) == 1
@@ -464,13 +464,13 @@ def test_architect_persists_exact_ancestor_source_input(tmp_path):
     first = architect.propose(
         packet=packet,
         decision=decision,
-        materialized_parent=None,
+        materialized_source_base=None,
     ).stored_candidate
 
     second = architect.propose(
         packet=packet,
         decision=decision,
-        materialized_parent=None,
+        materialized_source_base=None,
         ancestor_candidate_ids=(first.closure.manifest.candidate_id,),
     ).stored_candidate
     ancestor = second.closure.derivation.ancestor_inputs[0]
@@ -521,7 +521,7 @@ def test_architect_rejects_foreign_prior_snapshot_before_agent_call(tmp_path):
         architect.propose(
             packet=packet,
             decision=decision,
-            materialized_parent=None,
+            materialized_source_base=None,
             prior_knowledge=prior_knowledge,
         )
 
@@ -582,7 +582,7 @@ def test_architect_binds_every_model_visible_knowledge_record_as_dependency(tmp_
     result = architect.propose(
         packet=packet,
         decision=decision,
-        materialized_parent=None,
+        materialized_source_base=None,
         prior_knowledge=prior_knowledge,
     )
     dependencies = set(result.stored_candidate.closure.manifest.source_dependency_ids)
@@ -602,7 +602,7 @@ def test_architect_binds_every_model_visible_knowledge_record_as_dependency(tmp_
 def released_observation_packet(kind, description):
     packet, materialized, contents = released_workspace_fixture()
     settings = trigger_settings()
-    module = packet.module_contracts[0]
+    module = packet.source_base_module_contracts[0]
     inspection_payload = {
         "affected_capability_ids": [module.module_id],
         "affected_paths": ["src/reproducible_execution/__init__.py"],
@@ -610,18 +610,18 @@ def released_observation_packet(kind, description):
         "description": description,
         "difficulty_evidence_signatures": {},
         "difficulty_signature": None,
-        "exact_evidence_ids": [packet.repository_map.repository_map_id],
+        "exact_evidence_ids": [packet.source_base_repository_map.repository_map_id],
         "independent_lineage_ids": [],
         "inspection_policy_version": settings.inspection_policy_version,
         "kind": kind.value,
         "occurrence_count": 1,
-        "parent_tree_hash": packet.parent_tree_hash,
+        "source_base_tree_hash": packet.source_base_tree_hash,
         "task_context_binding_ids": [],
     }
     inspection_final_output = json.dumps(inspection_payload, indent=2) + "\n"
     observation = ExpertTriggerObservation.mint(
         kind=kind,
-        parent_tree_hash=packet.parent_tree_hash,
+        source_base_tree_hash=packet.source_base_tree_hash,
         inspection_policy_version=settings.inspection_policy_version,
         configuration_fingerprint=configuration_fingerprint(settings),
         inspection_operation=inspection_operation(
@@ -634,7 +634,7 @@ def released_observation_packet(kind, description):
         description=description,
         affected_capability_ids=(module.module_id,),
         affected_paths=("src/reproducible_execution/__init__.py",),
-        exact_evidence_ids=(packet.repository_map.repository_map_id,),
+        exact_evidence_ids=(packet.source_base_repository_map.repository_map_id,),
         independent_lineage_ids=(),
         task_context_binding_ids=(),
         occurrence_count=1,
@@ -644,12 +644,12 @@ def released_observation_packet(kind, description):
         knowledge_record_closure_digest=packet.knowledge_record_closure_digest,
         configuration_fingerprint=packet.configuration_fingerprint,
         scope_contract=packet.scope_contract,
-        parent_scope_contract=packet.parent_scope_contract,
-        parent_release=packet.parent_release,
-        parent_tree_receipt=packet.parent_tree_receipt,
-        parent_tree_hash=packet.parent_tree_hash,
-        repository_map=packet.repository_map,
-        module_contracts=packet.module_contracts,
+        source_base_scope_contract=packet.source_base_scope_contract,
+        source_base_release=packet.source_base_release,
+        source_base_tree_receipt=packet.source_base_tree_receipt,
+        source_base_tree_hash=packet.source_base_tree_hash,
+        source_base_repository_map=packet.source_base_repository_map,
+        source_base_module_contracts=packet.source_base_module_contracts,
         episodes=packet.episodes,
         claims=packet.claims,
         trigger_observations=(observation,),
@@ -667,7 +667,7 @@ def generalization_packet():
 
 
 def generalizer_output(packet) -> str:
-    module = packet.module_contracts[0].to_dict()
+    module = packet.source_base_module_contracts[0].to_dict()
     del module["module_contract_id"]
     module["version"] = "v2"
     return (
@@ -686,7 +686,7 @@ def generalizer_output(packet) -> str:
 
 def test_generalizer_rejects_declared_but_unchanged_module_contract():
     packet, _, _ = generalization_packet()
-    module = packet.module_contracts[0].to_dict()
+    module = packet.source_base_module_contracts[0].to_dict()
     del module["module_contract_id"]
     output = (
         json.dumps(
@@ -718,7 +718,7 @@ def test_generalizer_rejects_declared_but_unchanged_module_contract():
 
 def test_expert_module_version_rejects_non_monotonic_format():
     packet, _, _ = generalization_packet()
-    module = packet.module_contracts[0].to_dict()
+    module = packet.source_base_module_contracts[0].to_dict()
     del module["module_contract_id"]
     module["version"] = "v0"
     output = json.dumps(
@@ -748,7 +748,7 @@ def test_expert_module_version_rejects_non_monotonic_format():
 
 def test_generalizer_compares_unbounded_versions_without_integer_conversion():
     packet, _, _ = generalization_packet()
-    module = packet.module_contracts[0].to_dict()
+    module = packet.source_base_module_contracts[0].to_dict()
     del module["module_contract_id"]
     module["version"] = "v" + "9" * 5_000
     output = json.dumps(
@@ -776,7 +776,7 @@ def test_generalizer_compares_unbounded_versions_without_integer_conversion():
 
 def test_repository_architecture_signature_ignores_module_input_order():
     packet, _, _ = generalization_packet()
-    first = packet.module_contracts[0]
+    first = packet.source_base_module_contracts[0]
     second_payload = first.to_dict()
     del second_payload["module_contract_id"]
     second_payload.update(
@@ -790,10 +790,10 @@ def test_repository_architecture_signature_ignores_module_input_order():
     second = ExpertModuleContract.mint(**second_payload)
 
     assert _repository_architecture_signature(
-        packet.repository_map,
+        packet.source_base_repository_map,
         (first, second),
     ) == _repository_architecture_signature(
-        packet.repository_map,
+        packet.source_base_repository_map,
         (second, first),
     )
 
@@ -820,7 +820,7 @@ def test_generalizer_cannot_weaken_accumulated_module_contract(
     message,
 ):
     packet, _, _ = generalization_packet()
-    module = packet.module_contracts[0].to_dict()
+    module = packet.source_base_module_contracts[0].to_dict()
     del module["module_contract_id"]
     module["version"] = "v2"
     module[field] = replacement
@@ -848,7 +848,7 @@ def test_generalizer_cannot_weaken_accumulated_module_contract(
 
 def test_generalizer_preserves_topology_and_replaces_changed_contract(tmp_path):
     tmp_path.chmod(0o700)
-    packet, materialized, parent_contents = generalization_packet()
+    packet, materialized, source_base_contents = generalization_packet()
     settings = expert_settings()
     validator = ExpertCandidateValidator(settings, sanitation_settings())
     store = ExpertCandidateStore(tmp_path / "candidates", tmp_path, validator)
@@ -856,7 +856,7 @@ def test_generalizer_preserves_topology_and_replaces_changed_contract(tmp_path):
         tmp_path / "workspaces",
         tmp_path,
         settings,
-        FixtureSourceMaterializer(parent_contents),
+        FixtureSourceMaterializer(source_base_contents),
     )
     runner = BootstrapProposalRunner(
         tmp_path / "agent-artifacts",
@@ -880,29 +880,29 @@ def test_generalizer_preserves_topology_and_replaces_changed_contract(tmp_path):
     result = generalizer.propose(
         packet=packet,
         decision=decision,
-        materialized_parent=materialized,
+        materialized_source_base=materialized,
     )
     closure = result.stored_candidate.closure
 
     assert closure.derivation.operation.operation_kind.value == "generalize"
     assert closure.module_contracts[0].version == "v2"
     assert closure.repository_map.capability_nodes[0].owned_paths == (
-        packet.repository_map.capability_nodes[0].owned_paths
+        packet.source_base_repository_map.capability_nodes[0].owned_paths
     )
     assert closure.repository_map.dependency_edges == (
-        packet.repository_map.dependency_edges
+        packet.source_base_repository_map.dependency_edges
     )
     assert closure.manifest.capability_lineage == ()
     assert store.read(closure.manifest.candidate_id) == result.stored_candidate
 
 
 def restructure_output(packet) -> str:
-    module = packet.module_contracts[0].to_dict()
+    module = packet.source_base_module_contracts[0].to_dict()
     del module["module_contract_id"]
     module["entrypoint_refs"] = ["src/execution/__init__.py"]
     module["version"] = "v2"
-    node = packet.repository_map.capability_nodes[0]
-    adapter = packet.repository_map.task_adapter_boundary.to_dict()
+    node = packet.source_base_repository_map.capability_nodes[0]
+    adapter = packet.source_base_repository_map.task_adapter_boundary.to_dict()
     adapter["interface_entrypoint_refs"] = ["src/execution/__init__.py"]
     return (
         json.dumps(
@@ -915,7 +915,7 @@ def restructure_output(packet) -> str:
                 "module_contracts": [module],
                 "repository_topology": {
                     "architecture_invariants": (
-                        packet.repository_map.architecture_invariants
+                        packet.source_base_repository_map.architecture_invariants
                     ),
                     "capability_nodes": [
                         {
@@ -926,7 +926,7 @@ def restructure_output(packet) -> str:
                     ],
                     "task_adapter_boundary": adapter,
                     "validation_entrypoints": (
-                        packet.repository_map.validation_entrypoints
+                        packet.source_base_repository_map.validation_entrypoints
                     ),
                 },
                 "summary": "Moved the capability without changing its identity.",
@@ -938,13 +938,13 @@ def restructure_output(packet) -> str:
 
 
 def unchanged_restructure_output(packet) -> str:
-    module = packet.module_contracts[0].to_dict()
+    module = packet.source_base_module_contracts[0].to_dict()
     del module["module_contract_id"]
     module["version"] = "v2"
     module["problem_signals"] = sorted(
         [*module["problem_signals"], "Execution needs clearer provenance."]
     )
-    parent_map = packet.repository_map
+    source_base_map = packet.source_base_repository_map
     return (
         json.dumps(
             {
@@ -953,19 +953,19 @@ def unchanged_restructure_output(packet) -> str:
                 "deleted_paths": [],
                 "module_contracts": [module],
                 "repository_topology": {
-                    "architecture_invariants": parent_map.architecture_invariants,
+                    "architecture_invariants": source_base_map.architecture_invariants,
                     "capability_nodes": [
                         {
                             "capability_id": node.capability_id,
                             "owned_paths": node.owned_paths,
                             "task_family_bindings": node.task_family_bindings,
                         }
-                        for node in parent_map.capability_nodes
+                        for node in source_base_map.capability_nodes
                     ],
                     "task_adapter_boundary": (
-                        parent_map.task_adapter_boundary.to_dict()
+                        source_base_map.task_adapter_boundary.to_dict()
                     ),
-                    "validation_entrypoints": parent_map.validation_entrypoints,
+                    "validation_entrypoints": source_base_map.validation_entrypoints,
                 },
                 "summary": "Attempted a capability-only architecture proposal.",
             },
@@ -977,7 +977,7 @@ def unchanged_restructure_output(packet) -> str:
 
 def test_architect_restructure_requires_real_structural_delta(tmp_path):
     tmp_path.chmod(0o700)
-    packet, materialized, parent_contents = released_observation_packet(
+    packet, materialized, source_base_contents = released_observation_packet(
         ExpertTriggerObservationKind.CONTRACT_TOPOLOGY_MISMATCH,
         "The capability contract and physical path no longer agree.",
     )
@@ -991,7 +991,7 @@ def test_architect_restructure_requires_real_structural_delta(tmp_path):
         tmp_path / "workspaces",
         tmp_path,
         settings,
-        FixtureSourceMaterializer(parent_contents),
+        FixtureSourceMaterializer(source_base_contents),
     )
     runner = BootstrapProposalRunner(
         tmp_path / "agent-artifacts",
@@ -1019,7 +1019,7 @@ def test_architect_restructure_requires_real_structural_delta(tmp_path):
         architect.propose(
             packet=packet,
             decision=decision,
-            materialized_parent=materialized,
+            materialized_source_base=materialized,
         )
 
     assert tuple(store.object_root.iterdir()) == ()
@@ -1027,7 +1027,7 @@ def test_architect_restructure_requires_real_structural_delta(tmp_path):
 
 def test_architect_restructure_cannot_weaken_preserved_capability(tmp_path):
     tmp_path.chmod(0o700)
-    packet, materialized, parent_contents = released_observation_packet(
+    packet, materialized, source_base_contents = released_observation_packet(
         ExpertTriggerObservationKind.CONTRACT_TOPOLOGY_MISMATCH,
         "The capability contract and physical path no longer agree.",
     )
@@ -1047,7 +1047,7 @@ def test_architect_restructure_cannot_weaken_preserved_capability(tmp_path):
         tmp_path / "workspaces",
         tmp_path,
         settings,
-        FixtureSourceMaterializer(parent_contents),
+        FixtureSourceMaterializer(source_base_contents),
     )
     runner = BootstrapProposalRunner(
         tmp_path / "agent-artifacts",
@@ -1072,7 +1072,7 @@ def test_architect_restructure_cannot_weaken_preserved_capability(tmp_path):
         architect.propose(
             packet=packet,
             decision=decision,
-            materialized_parent=materialized,
+            materialized_source_base=materialized,
         )
 
     assert tuple(store.object_root.iterdir()) == ()
@@ -1080,7 +1080,7 @@ def test_architect_restructure_cannot_weaken_preserved_capability(tmp_path):
 
 def test_architect_restructure_cannot_erase_replay_provenance(tmp_path):
     tmp_path.chmod(0o700)
-    packet, materialized, parent_contents = released_observation_packet(
+    packet, materialized, source_base_contents = released_observation_packet(
         ExpertTriggerObservationKind.CONTRACT_TOPOLOGY_MISMATCH,
         "The capability contract and physical path no longer agree.",
     )
@@ -1096,7 +1096,7 @@ def test_architect_restructure_cannot_erase_replay_provenance(tmp_path):
         tmp_path / "workspaces",
         tmp_path,
         settings,
-        FixtureSourceMaterializer(parent_contents),
+        FixtureSourceMaterializer(source_base_contents),
     )
     runner = BootstrapProposalRunner(
         tmp_path / "agent-artifacts",
@@ -1121,7 +1121,7 @@ def test_architect_restructure_cannot_erase_replay_provenance(tmp_path):
         architect.propose(
             packet=packet,
             decision=decision,
-            materialized_parent=materialized,
+            materialized_source_base=materialized,
         )
 
     assert tuple(store.object_root.iterdir()) == ()
@@ -1129,7 +1129,7 @@ def test_architect_restructure_cannot_erase_replay_provenance(tmp_path):
 
 def test_architect_restructure_preserves_capability_identity_on_path_move(tmp_path):
     tmp_path.chmod(0o700)
-    packet, materialized, parent_contents = released_observation_packet(
+    packet, materialized, source_base_contents = released_observation_packet(
         ExpertTriggerObservationKind.CONTRACT_TOPOLOGY_MISMATCH,
         "The capability contract and physical path no longer agree.",
     )
@@ -1140,7 +1140,7 @@ def test_architect_restructure_preserves_capability_identity_on_path_move(tmp_pa
         tmp_path / "workspaces",
         tmp_path,
         settings,
-        FixtureSourceMaterializer(parent_contents),
+        FixtureSourceMaterializer(source_base_contents),
     )
     runner = BootstrapProposalRunner(
         tmp_path / "agent-artifacts",
@@ -1161,13 +1161,13 @@ def test_architect_restructure_preserves_capability_identity_on_path_move(tmp_pa
     result = architect.propose(
         packet=packet,
         decision=decision,
-        materialized_parent=materialized,
+        materialized_source_base=materialized,
     )
     closure = result.stored_candidate.closure
 
     assert closure.derivation.operation.operation_kind.value == "restructure"
     assert closure.repository_map.capability_nodes[0].capability_id == (
-        packet.repository_map.capability_nodes[0].capability_id
+        packet.source_base_repository_map.capability_nodes[0].capability_id
     )
     assert closure.repository_map.capability_nodes[0].owned_paths == (
         "src/execution",

@@ -68,7 +68,7 @@ class SourceReplayDecisionPublicationFence(StrictContract):
     candidate_tree_hash: str
     scope_id: str
     scope_contract_id: str
-    expected_parent_release_id: str
+    expected_current_release_id: str
     validation_policy_id: str
     configuration_fingerprint: str
     paired_comparison_receipt_id: str
@@ -120,9 +120,9 @@ class SourceReplayDecisionPublicationFence(StrictContract):
                 "source replay publication scope_contract_id",
             ),
             (
-                self.expected_parent_release_id,
+                self.expected_current_release_id,
                 "expert-base-release",
-                "source replay publication expected_parent_release_id",
+                "source replay publication expected_current_release_id",
             ),
             (
                 self.validation_policy_id,
@@ -160,10 +160,10 @@ class SourceReplayDecisionPublicationFence(StrictContract):
         current = self.current_release_observation
         if (
             current.scope_id != self.scope_id
-            or current.release_id != self.expected_parent_release_id
+            or current.release_id != self.expected_current_release_id
         ):
             raise ExpertSourceReplayPublicationError(
-                "source replay publication current release differs from its parent"
+                "source replay publication release differs from expected CURRENT"
             )
         observation_ids = tuple(
             observation.observation_id
@@ -192,7 +192,7 @@ class SourceReplayDecisionPublicationFence(StrictContract):
             self.validation_attempt_id,
             self.candidate_id,
             self.scope_contract_id,
-            self.expected_parent_release_id,
+            self.expected_current_release_id,
             self.validation_policy_id,
             self.paired_comparison_receipt_id,
             self.source_replay_stage_decision_id,
@@ -231,7 +231,7 @@ class SourceReplayDecisionPublicationFence(StrictContract):
             self.validation_attempt_id,
             self.candidate_id,
             self.scope_contract_id,
-            self.expected_parent_release_id,
+            self.expected_current_release_id,
             self.validation_policy_id,
             self.paired_comparison_receipt_id,
             self.source_replay_stage_decision_id,
@@ -402,7 +402,7 @@ def _build_expert_source_replay_stage_result_record(
     """Bind the exact prepared validation authority to its source-stage evidence."""
 
     request = prepared_request.request
-    parent = prepared_request.parent.release_manifest
+    source_base_release = prepared_request.source_base.release_manifest
     expected_adapter_observations = source_replay_task_adapter_trust_observations(
         prepared_request
     )
@@ -412,17 +412,17 @@ def _build_expert_source_replay_stage_result_record(
         or reservation.authorization_state_id != request.authorization_state_id
         or reservation.candidate_id != request.candidate_id
         or reservation.candidate_tree_hash != request.candidate_tree_hash
-        or reservation.observed_parent_release_id != request.parent_release_id
+        or reservation.expected_current_release_id != request.source_base_release_id
         or reservation.authorization_transition_id
         != publication_authority_fence.authorization_transition_id
         or publication_authority_fence.authorization_state_id
         != request.authorization_state_id
         or publication_authority_fence.validation_attempt_id
         != request.validation_attempt_id
-        or publication_authority_fence.scope_id != parent.scope_id
+        or publication_authority_fence.scope_id != source_base_release.scope_id
         or publication_authority_fence.scope_contract_id != request.scope_contract_id
-        or publication_authority_fence.expected_parent_release_id
-        != request.parent_release_id
+        or publication_authority_fence.expected_current_release_id
+        != request.source_base_release_id
         or publication_authority_fence.task_adapter_trust_observations
         != expected_adapter_observations
         or stage_decision
@@ -481,7 +481,7 @@ def source_replay_publication_security_subject_ids(
 
     request = prepared_request.request
     candidate = prepared_request.candidate.manifest
-    parent = prepared_request.parent.release_manifest
+    source_base_release = prepared_request.source_base.release_manifest
     if (
         reservation.execution_request_id != request.execution_request_id
         or paired_comparison_receipt.reservation_id != reservation.reservation_id
@@ -514,7 +514,7 @@ def source_replay_publication_security_subject_ids(
         current_release_observation.observation_id,
         current_release_observation.publication_id,
         *current_release_observation.validation_closure_ids,
-        *parent.consumed_dependency_ids,
+        *source_base_release.consumed_dependency_ids,
         *candidate.source_dependency_ids,
         *candidate.ancestor_candidate_ids,
         candidate.sanitation_report_id,

@@ -291,7 +291,7 @@ def _composition_review_fixture(
         },
         source_dependency_ids=source_dependencies,
     )
-    candidate_contents = dict(case.parent_contents)
+    candidate_contents = dict(case.source_base_contents)
     candidate_contents["src/reproducible_execution/__init__.py"] = b"changed source"
     sanitation = ExpertCandidateSanitizer(sanitation_settings()).scan(
         case.scope.scope_contract_id,
@@ -301,9 +301,9 @@ def _composition_review_fixture(
     manifest = ExpertCandidateManifest.mint(
         scope_contract_id=case.scope.scope_contract_id,
         change_kind=CandidateChangeKind.CAPABILITY,
-        parent_release_id=case.base.release_id,
-        parent_repository_map_ref=case.base.repository_map_id,
-        parent_tree_hash=case.base.source_tree_hash,
+        source_base_release_id=case.base.release_id,
+        source_base_repository_map_ref=case.base.repository_map_id,
+        source_base_tree_hash=case.base.source_tree_hash,
         derivation_kind=ExpertCandidateDerivationKind.DETERMINISTIC_COMPOSITION,
         derivation_ref=derivation_record.derivation_id,
         validation_context_ref=source.validation_context_ref,
@@ -351,7 +351,7 @@ def _composition_review_fixture(
         manifest.scope_contract_id,
         eligibility_id,
         policy.validation_policy_id,
-        manifest.parent_release_id,
+        manifest.source_base_release_id,
         *(pin.task_adapter_manifest_id for pin in task_adapter_pins),
         *(pin.verification_receipt_id for pin in task_adapter_pins),
     }
@@ -360,7 +360,7 @@ def _composition_review_fixture(
         candidate_tree_hash=manifest.candidate_tree_hash,
         candidate_commit_record_id=commit.commit_record_id,
         scope_contract_id=manifest.scope_contract_id,
-        parent_release_id=manifest.parent_release_id,
+        source_base_release_id=manifest.source_base_release_id,
         eligibility_decision_id=eligibility_id,
         validation_policy_id=policy.validation_policy_id,
         configuration_fingerprint=(
@@ -422,7 +422,7 @@ def _composition_review_fixture(
         derivation_record.derivation_id,
         manifest.scope_contract_id,
         policy.validation_policy_id,
-        manifest.parent_release_id,
+        manifest.source_base_release_id,
         accepted_result.evaluator_result_record_id,
         *derivation_evidence_ids,
     }
@@ -439,7 +439,7 @@ def _composition_review_fixture(
         candidate_origin_principal_ids=derivation_record.origin_principal_ids,
         candidate_derivation_evidence_ids=derivation_evidence_ids,
         scope_contract_id=manifest.scope_contract_id,
-        parent_release_id=manifest.parent_release_id,
+        source_base_release_id=manifest.source_base_release_id,
         validation_policy_id=policy.validation_policy_id,
         configuration_fingerprint=attempt.configuration_fingerprint,
         agent_artifact_byte_limit=coordinator.settings.agent_artifact_byte_limit,

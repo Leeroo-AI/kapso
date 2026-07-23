@@ -341,7 +341,7 @@ def _approved_fence(
 def _stage_result(
     outcome: ExpertReleaseMatrixDecisionOutcome,
     *,
-    mode: ExpertReleaseMatrixMode = ExpertReleaseMatrixMode.PARENT_COMPARISON,
+    mode: ExpertReleaseMatrixMode = ExpertReleaseMatrixMode.CONTROL_COMPARISON,
 ) -> ExpertPublicationEligibilityStageResultRecord:
     decision = _decision(outcome, mode=mode)
     accepted_stage_results = (

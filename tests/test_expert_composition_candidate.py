@@ -195,7 +195,7 @@ def test_composition_validator_rejects_partial_source_commit(reducer_case):
         candidate_commit_record=incomplete_commit,
         validation_context=provenance.validation_context,
         reduction_source=incomplete_reduction_source,
-        parent_files=provenance.parent_files,
+        source_base_files=provenance.source_base_files,
         agent_derivation=provenance.agent_derivation,
         sanitation_report=provenance.sanitation_report,
     )
@@ -240,7 +240,7 @@ def test_composition_validator_rejects_partial_source_commit(reducer_case):
                 {
                     incomplete_assessment.assessment_id,
                     *incomplete_assessment.stable_authority_ids,
-                    materialization.parent_tree.source_tree_manifest_id,
+                    materialization.source_base_tree.source_tree_manifest_id,
                     materialization.patch.patch_id,
                     materialization.source_tree.source_tree_manifest_id,
                     materialization.repository_map.repository_map_id,
@@ -270,7 +270,7 @@ def test_composition_validator_rejects_partial_source_commit(reducer_case):
         record=incomplete_record,
         materialization=incomplete_materialization,
         source_provenance=(incomplete_provenance,),
-        parent_contents=derivation.parent_contents,
+        source_base_contents=derivation.source_base_contents,
     )
     incomplete_manifest = _remint(
         closure.manifest,
@@ -325,7 +325,7 @@ def test_composition_validator_rejects_materialization_substitution(reducer_case
                 {
                     altered_assessment.assessment_id,
                     *altered_assessment.stable_authority_ids,
-                    materialization.parent_tree.source_tree_manifest_id,
+                    materialization.source_base_tree.source_tree_manifest_id,
                     materialization.patch.patch_id,
                     materialization.source_tree.source_tree_manifest_id,
                     materialization.repository_map.repository_map_id,
@@ -343,7 +343,7 @@ def test_composition_validator_rejects_materialization_substitution(reducer_case
             record=closure.derivation.record,
             materialization=altered_materialization,
             source_provenance=closure.derivation.source_provenance,
-            parent_contents=closure.derivation.parent_contents,
+            source_base_contents=closure.derivation.source_base_contents,
         )
 
 
@@ -382,23 +382,23 @@ def test_composition_validator_rejects_code_not_produced_by_reducer(reducer_case
         ),
         files=forged_descriptors,
     )
-    parent_files = {
-        descriptor.relative_path: descriptor for descriptor in closure.parent_files
+    source_base_files = {
+        descriptor.relative_path: descriptor for descriptor in closure.source_base_files
     }
     candidate_files = {
         descriptor.relative_path: descriptor for descriptor in forged_descriptors
     }
     forged_patch = ExpertCandidatePatch.mint(
-        parent_tree_hash=closure.manifest.parent_tree_hash,
+        source_base_tree_hash=closure.manifest.source_base_tree_hash,
         candidate_tree_hash=forged_tree.tree_hash,
         changes=tuple(
             ExpertCandidatePatchChange(
                 relative_path=path,
-                before=parent_files.get(path),
+                before=source_base_files.get(path),
                 after=candidate_files.get(path),
             )
-            for path in sorted(set(parent_files) | set(candidate_files))
-            if parent_files.get(path) != candidate_files.get(path)
+            for path in sorted(set(source_base_files) | set(candidate_files))
+            if source_base_files.get(path) != candidate_files.get(path)
         ),
     )
     materialization = closure.derivation.materialization
@@ -411,7 +411,7 @@ def test_composition_validator_rejects_code_not_produced_by_reducer(reducer_case
                 {
                     materialization.composition_assessment.assessment_id,
                     *materialization.composition_assessment.stable_authority_ids,
-                    materialization.parent_tree.source_tree_manifest_id,
+                    materialization.source_base_tree.source_tree_manifest_id,
                     forged_patch.patch_id,
                     forged_tree.source_tree_manifest_id,
                     materialization.repository_map.repository_map_id,
@@ -431,7 +431,7 @@ def test_composition_validator_rejects_code_not_produced_by_reducer(reducer_case
         record=record,
         materialization=forged_materialization,
         source_provenance=closure.derivation.source_provenance,
-        parent_contents=closure.derivation.parent_contents,
+        source_base_contents=closure.derivation.source_base_contents,
     )
     sanitation = reducer_case.source._resolver.candidate_store.validator.sanitizer.scan(
         closure.manifest.scope_contract_id,

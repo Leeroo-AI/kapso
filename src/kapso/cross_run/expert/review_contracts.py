@@ -88,7 +88,7 @@ class ExpertAutomatedReviewPacket(StrictContract):
     candidate_origin_principal_ids: tuple[str, ...]
     candidate_derivation_evidence_ids: tuple[str, ...]
     scope_contract_id: str
-    parent_release_id: str | None
+    source_base_release_id: str | None
     validation_policy_id: str
     configuration_fingerprint: str
     agent_artifact_byte_limit: int
@@ -151,8 +151,8 @@ class ExpertAutomatedReviewPacket(StrictContract):
             raise ContractValidationError(
                 "review derivation evidence omits the candidate derivation"
             )
-        if self.parent_release_id is not None:
-            require_content_id(self.parent_release_id, "review parent_release_id")
+        if self.source_base_release_id is not None:
+            require_content_id(self.source_base_release_id, "review source_base_release_id")
         _require_digest(self.candidate_tree_hash, "review candidate_tree_hash")
         _require_digest(
             self.configuration_fingerprint,
@@ -186,8 +186,8 @@ class ExpertAutomatedReviewPacket(StrictContract):
             *self.candidate_derivation_evidence_ids,
             *(result.stage_result_record_id for result in self.accepted_stage_results),
         }
-        if self.parent_release_id is not None:
-            expected_dependencies.add(self.parent_release_id)
+        if self.source_base_release_id is not None:
+            expected_dependencies.add(self.source_base_release_id)
         if set(self.exact_dependency_ids) != expected_dependencies:
             raise ContractValidationError(
                 "automated review packet dependency closure is not exact"
@@ -207,7 +207,7 @@ class ExpertAutomatedReviewAssertion(StrictContract):
     validation_attempt_id: str
     candidate_id: str
     candidate_tree_hash: str
-    parent_release_id: str | None
+    source_base_release_id: str | None
     reviewer_id: str
     reviewer_role: str
     rubric_version: str
@@ -231,8 +231,8 @@ class ExpertAutomatedReviewAssertion(StrictContract):
             ),
         ):
             require_content_id(value, name)
-        if self.parent_release_id is not None:
-            require_content_id(self.parent_release_id, "assertion parent_release_id")
+        if self.source_base_release_id is not None:
+            require_content_id(self.source_base_release_id, "assertion source_base_release_id")
         _require_digest(self.candidate_tree_hash, "assertion candidate_tree_hash")
         for value, name in (
             (self.reviewer_id, "assertion reviewer_id"),
@@ -430,7 +430,7 @@ class ExpertAutomatedReviewStageResultRecord(StrictContract):
     candidate_id: str
     candidate_tree_hash: str
     scope_contract_id: str
-    parent_release_id: str | None
+    source_base_release_id: str | None
     validation_policy_id: str
     configuration_fingerprint: str
     review_packet_id: str
@@ -459,9 +459,9 @@ class ExpertAutomatedReviewStageResultRecord(StrictContract):
             (self.adjudication_id, "review result adjudication_id"),
         ):
             require_content_id(value, name)
-        if self.parent_release_id is not None:
+        if self.source_base_release_id is not None:
             require_content_id(
-                self.parent_release_id, "review result parent_release_id"
+                self.source_base_release_id, "review result source_base_release_id"
             )
         _require_digest(self.candidate_tree_hash, "review result candidate_tree_hash")
         _require_digest(
@@ -499,8 +499,8 @@ class ExpertAutomatedReviewStageResultRecord(StrictContract):
             *self.operation_record_ids,
             *self.operation_receipt_ids,
         }
-        if self.parent_release_id is not None:
-            expected_dependencies.add(self.parent_release_id)
+        if self.source_base_release_id is not None:
+            expected_dependencies.add(self.source_base_release_id)
         if set(self.exact_dependency_ids) != expected_dependencies:
             raise ContractValidationError(
                 "automated review result dependency closure is not exact"

@@ -286,9 +286,9 @@ class ExpertCompositionSourceReference(StrictContract):
     derivation_ref: str
     validation_context_ref: str
     origin_principal_ids: tuple[str, ...]
-    parent_release_id: str
-    parent_repository_map_id: str
-    parent_tree_hash: str
+    source_base_release_id: str
+    source_base_repository_map_id: str
+    source_base_tree_hash: str
     candidate_tree_hash: str
     patch_id: str
     patch_digest: str
@@ -324,14 +324,14 @@ class ExpertCompositionSourceReference(StrictContract):
                 "composition source validation context",
             ),
             (
-                self.parent_release_id,
+                self.source_base_release_id,
                 "expert-base-release",
-                "composition source parent release",
+                "composition source source-base release",
             ),
             (
-                self.parent_repository_map_id,
+                self.source_base_repository_map_id,
                 "expert-repository-map",
-                "composition source parent repository map",
+                "composition source source-base repository map",
             ),
             (self.patch_id, "expert-candidate-patch", "composition source patch"),
             (
@@ -354,7 +354,7 @@ class ExpertCompositionSourceReference(StrictContract):
         for principal_id in self.origin_principal_ids:
             require_identifier(principal_id, "composition source origin principal")
         for value, name in (
-            (self.parent_tree_hash, "composition source parent tree"),
+            (self.source_base_tree_hash, "composition source source-base tree"),
             (self.candidate_tree_hash, "composition source candidate tree"),
             (self.patch_digest, "composition source patch digest"),
             (
@@ -363,9 +363,9 @@ class ExpertCompositionSourceReference(StrictContract):
             ),
         ):
             _require_digest(value, name)
-        if self.parent_tree_hash == self.candidate_tree_hash:
+        if self.source_base_tree_hash == self.candidate_tree_hash:
             raise ExpertCompositionContractError(
-                "composition source candidate must change its parent tree"
+                "composition source candidate must change its source-base tree"
             )
         _require_sorted_namespaced_content_ids(
             self.module_contract_ids,
@@ -382,8 +382,8 @@ class ExpertCompositionSourceReference(StrictContract):
             self.scope_contract_id,
             self.derivation_ref,
             self.validation_context_ref,
-            self.parent_release_id,
-            self.parent_repository_map_id,
+            self.source_base_release_id,
+            self.source_base_repository_map_id,
             self.patch_id,
             self.proposed_repository_map_id,
             *self.module_contract_ids,
@@ -726,7 +726,7 @@ class ExpertCompositionMaterialization(StrictContract):
 
     materialization_id: str
     composition_assessment: ExpertCompositionAssessment
-    parent_tree: ExpertSourceTreeManifest
+    source_base_tree: ExpertSourceTreeManifest
     patch: ExpertCandidatePatch
     source_tree: ExpertSourceTreeManifest
     repository_map: ExpertRepositoryMap
@@ -740,7 +740,7 @@ class ExpertCompositionMaterialization(StrictContract):
     def _validate(self) -> None:
         if (
             type(self.composition_assessment) is not ExpertCompositionAssessment
-            or type(self.parent_tree) is not ExpertSourceTreeManifest
+            or type(self.source_base_tree) is not ExpertSourceTreeManifest
             or type(self.patch) is not ExpertCandidatePatch
             or type(self.source_tree) is not ExpertSourceTreeManifest
             or type(self.repository_map) is not ExpertRepositoryMap
@@ -760,8 +760,8 @@ class ExpertCompositionMaterialization(StrictContract):
                 "composition materialization requires a clean assessment"
             )
         if (
-            self.parent_tree.tree_hash != plan.current_base.source_tree_hash
-            or self.patch.parent_tree_hash != self.parent_tree.tree_hash
+            self.source_base_tree.tree_hash != plan.current_base.source_tree_hash
+            or self.patch.source_base_tree_hash != self.source_base_tree.tree_hash
             or self.patch.candidate_tree_hash != self.source_tree.tree_hash
             or self.repository_map.scope_contract_id
             != plan.scope_contract.scope_contract_id
@@ -769,9 +769,9 @@ class ExpertCompositionMaterialization(StrictContract):
             raise ExpertCompositionContractError(
                 "composition materialization differs from its plan or source tree"
             )
-        parent_files = {
+        source_base_files = {
             descriptor.relative_path: descriptor
-            for descriptor in self.parent_tree.files
+            for descriptor in self.source_base_tree.files
         }
         source_files = {
             descriptor.relative_path: descriptor
@@ -780,11 +780,11 @@ class ExpertCompositionMaterialization(StrictContract):
         expected_changes = tuple(
             ExpertCandidatePatchChange(
                 relative_path=path,
-                before=parent_files.get(path),
+                before=source_base_files.get(path),
                 after=source_files.get(path),
             )
-            for path in sorted(set(parent_files) | set(source_files))
-            if parent_files.get(path) != source_files.get(path)
+            for path in sorted(set(source_base_files) | set(source_files))
+            if source_base_files.get(path) != source_files.get(path)
         )
         if self.patch.changes != expected_changes:
             raise ExpertCompositionContractError(
@@ -844,7 +844,7 @@ class ExpertCompositionMaterialization(StrictContract):
         expected_authorities = {
             assessment.assessment_id,
             *assessment.stable_authority_ids,
-            self.parent_tree.source_tree_manifest_id,
+            self.source_base_tree.source_tree_manifest_id,
             self.patch.patch_id,
             self.source_tree.source_tree_manifest_id,
             self.repository_map.repository_map_id,

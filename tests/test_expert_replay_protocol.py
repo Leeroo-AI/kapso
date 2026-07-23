@@ -135,7 +135,7 @@ def test_request_is_a_minimal_blinded_projection_of_the_verified_case(
     payload = request.to_json_bytes()
     forbidden_values = (
         prepared.request.candidate_id,
-        prepared.request.parent_release_id,
+        prepared.request.source_base_release_id,
         replay_case.request_case.control_leg.execution_leg_id,
         replay_case.request_case.candidate_leg.execution_leg_id,
         replay_case.episode.episode_id,
@@ -145,7 +145,7 @@ def test_request_is_a_minimal_blinded_projection_of_the_verified_case(
         forbidden_key not in request.to_dict()
         for forbidden_key in (
             "candidate_id",
-            "parent_release_id",
+            "source_base_release_id",
             "execution_case_id",
             "execution_leg_id",
             "leg_kind",

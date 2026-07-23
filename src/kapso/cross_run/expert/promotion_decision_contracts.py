@@ -281,7 +281,7 @@ class ExpertReleaseMatrixPromotionDecision(StrictContract):
         if self.mode is ExpertReleaseMatrixMode.BOOTSTRAP:
             self._validate_bootstrap_decision()
             return
-        self._validate_parent_decision(
+        self._validate_control_comparison_decision(
             has_hard_regression=has_hard_regression,
             gain_dimension_ids=gain_dimension_ids,
             material_regression_dimension_ids=material_regression_dimension_ids,
@@ -321,7 +321,7 @@ class ExpertReleaseMatrixPromotionDecision(StrictContract):
             "bootstrap decision uses an unsupported reason"
         )
 
-    def _validate_parent_decision(
+    def _validate_control_comparison_decision(
         self,
         *,
         has_hard_regression: bool,
@@ -330,14 +330,14 @@ class ExpertReleaseMatrixPromotionDecision(StrictContract):
     ) -> None:
         if not self.replicate_assessments:
             raise ExpertReleaseMatrixDecisionError(
-                "parent comparison decisions require replicate assessments"
+                "control comparison decisions require replicate assessments"
             )
         if (
             self.reason
             is ExpertReleaseMatrixDecisionReason.BOOTSTRAP_STANDALONE_COVERAGE
         ):
             raise ExpertReleaseMatrixDecisionError(
-                "parent comparison decision uses an unsupported reason"
+                "control comparison decision uses an unsupported reason"
             )
         if self.reason is ExpertReleaseMatrixDecisionReason.HARD_REGRESSION:
             if (
@@ -365,7 +365,7 @@ class ExpertReleaseMatrixPromotionDecision(StrictContract):
             return
         if self.underpowered_dimension_ids:
             raise ExpertReleaseMatrixDecisionError(
-                "powered parent decision cannot name underpowered dimensions"
+                "powered control decision cannot name underpowered dimensions"
             )
         if self.reason is ExpertReleaseMatrixDecisionReason.CONFIRMED_BENEFIT:
             valid = (
@@ -410,9 +410,9 @@ class ExpertReleaseMatrixPromotionDecision(StrictContract):
             )
         else:
             raise ExpertReleaseMatrixDecisionError(
-                "parent comparison decision uses an unsupported reason"
+                "control comparison decision uses an unsupported reason"
             )
         if not valid:
             raise ExpertReleaseMatrixDecisionError(
-                "parent comparison decision contradicts its reason"
+                "control comparison decision contradicts its reason"
             )
