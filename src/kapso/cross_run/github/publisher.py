@@ -128,6 +128,9 @@ class PublicationPackageValidator(Protocol):
         """Verify release assets before any remote publication write."""
 
 
+_GuardedPublicationManifest = ExpertBaseReleaseManifest | SecurityDenylistSnapshot
+
+
 class _PublicationActivationVerifier(Protocol):
     """Domain authorization that must remain true through pointer activation."""
 
@@ -137,7 +140,7 @@ class _PublicationActivationVerifier(Protocol):
         envelope: PublicationEnvelope,
         repositories: ScopeRepositorySettings,
         current_state: CurrentPointerState,
-        manifest: SecurityDenylistSnapshot,
+        manifest: _GuardedPublicationManifest,
     ) -> None: ...
 
     def revalidate_before_activation(
@@ -145,39 +148,69 @@ class _PublicationActivationVerifier(Protocol):
         *,
         envelope: PublicationEnvelope,
         repositories: ScopeRepositorySettings,
-        source_commit_sha: str,
-        manifest: SecurityDenylistSnapshot,
+        pointer: CurrentArtifactPointer,
+        manifest: _GuardedPublicationManifest,
     ) -> None: ...
 
 
-_SECURITY_PUBLICATION_AUTHORIZATION_SEAL = object()
+_PUBLICATION_AUTHORIZATION_SEAL = object()
+_ACTIVATION_VERIFIER_AUTHORITIES = {
+    PublicationArtifactKind.EXPERT_BASE_RELEASE: (
+        "kapso.cross_run.expert.publisher",
+        "ExpertReleasePublicationGate",
+    ),
+    PublicationArtifactKind.SECURITY_DENYLIST: (
+        "kapso.cross_run.security_denylist",
+        "SecurityDenylistPublicationGate",
+    ),
+}
 
 
-class _SecurityPublicationAuthorization:
-    """Owner-bound capability created only by the security transport."""
+class _ArtifactPublicationAuthorization:
+    """Owner- and artifact-bound capability created by a domain authority."""
 
-    __slots__ = ("_owner", "_verifier")
+    __slots__ = (
+        "_artifact_id",
+        "_artifact_kind",
+        "_owner",
+        "_scope_id",
+        "_verifier",
+    )
 
     def __init__(
         self,
         seal: object,
         owner: object,
+        envelope: PublicationEnvelope,
         verifier: _PublicationActivationVerifier,
     ) -> None:
-        if seal is not _SECURITY_PUBLICATION_AUTHORIZATION_SEAL:
-            raise GitHubPublicationError(
-                "security publication authorization is not sealed"
-            )
+        if seal is not _PUBLICATION_AUTHORIZATION_SEAL:
+            raise GitHubPublicationError("publication authorization is not sealed")
         self._owner = owner
+        self._artifact_kind = envelope.artifact_kind
+        self._artifact_id = envelope.artifact_id
+        self._scope_id = envelope.scope_id
         self._verifier = verifier
 
     def verifier_for(
         self,
         owner: object,
+        envelope: PublicationEnvelope,
     ) -> _PublicationActivationVerifier:
         if self._owner is not owner:
             raise GitHubPublicationError(
-                "security publication authorization belongs to another publisher"
+                "publication authorization belongs to another publisher"
+            )
+        if self._artifact_kind is not envelope.artifact_kind:
+            raise GitHubPublicationError(
+                "publication authorization belongs to another artifact kind"
+            )
+        if (
+            self._artifact_id != envelope.artifact_id
+            or self._scope_id != envelope.scope_id
+        ):
+            raise GitHubPublicationError(
+                "publication authorization belongs to another artifact"
             )
         return self._verifier
 
@@ -208,13 +241,15 @@ class AutonomousGitHubPublisher:
         self.resolver = resolver
         self.package_validator = package_validator
         self.settings = settings
-        self._security_verifier_type: type[object] | None = None
+        self._activation_verifier_types: dict[PublicationArtifactKind, type[object]] = (
+            {}
+        )
 
     def publish(
         self,
         envelope: PublicationEnvelope,
         *,
-        security_authorization: _SecurityPublicationAuthorization | None = None,
+        activation_authorization: _ArtifactPublicationAuthorization | None = None,
     ) -> PublicationTelemetry:
         repositories = self.resolver.repositories_for_scope(envelope.scope_id)
         (
@@ -223,18 +258,22 @@ class AutonomousGitHubPublisher:
             manifest_digest,
             manifest,
         ) = self._validate_envelope(envelope, repositories)
-        is_security_publication = (
-            envelope.artifact_kind is PublicationArtifactKind.SECURITY_DENYLIST
+        requires_activation_authorization = (
+            envelope.artifact_kind in _ACTIVATION_VERIFIER_AUTHORITIES
         )
-        if is_security_publication:
-            if type(security_authorization) is not _SecurityPublicationAuthorization:
+        if requires_activation_authorization:
+            if type(activation_authorization) is not _ArtifactPublicationAuthorization:
                 raise GitHubPublicationError(
-                    "security denylist publication requires sealed authorization"
+                    f"{envelope.artifact_kind.value} publication requires "
+                    "sealed authorization"
                 )
-            activation_gate = security_authorization.verifier_for(self)
-        elif security_authorization is not None:
+            activation_gate = activation_authorization.verifier_for(
+                self,
+                envelope,
+            )
+        elif activation_authorization is not None:
             raise GitHubPublicationError(
-                "security publication authorization cannot guard another artifact"
+                "publication authorization cannot guard this artifact kind"
             )
         else:
             activation_gate = None
@@ -271,10 +310,6 @@ class AutonomousGitHubPublisher:
         existing = current_state.pointer
         observed_head = current_state.head_commit_sha
         if activation_gate is not None:
-            if not isinstance(manifest, SecurityDenylistSnapshot):
-                raise GitHubPublicationError(
-                    "security activation gate received another artifact"
-                )
             activation_gate.validate_before_publication(
                 envelope=envelope,
                 repositories=repositories,
@@ -332,21 +367,29 @@ class AutonomousGitHubPublisher:
             if existing == published_identity:
                 pointer_commit_sha = observed_head
             elif observed_head == published_identity.publication_record.commit_sha:
-                if activation_gate is not None:
-                    activation_gate.revalidate_before_activation(
-                        envelope=envelope,
-                        repositories=repositories,
-                        source_commit_sha=(
-                            published_identity.publication_record.commit_sha
-                        ),
-                        manifest=manifest,
-                    )
-                pointer_commit_sha = self._commit_current_pointer(
+                pointer_commit_sha = self._prepare_current_pointer_commit(
                     repository,
-                    policy.repository_node_id,
                     published_identity.publication_record.commit_sha,
                     published_identity,
                     envelope.committed_at,
+                )
+                if activation_gate is not None:
+                    self._validate_activation_pointer(
+                        envelope,
+                        published_identity,
+                        manifest_digest,
+                    )
+                    activation_gate.revalidate_before_activation(
+                        envelope=envelope,
+                        repositories=repositories,
+                        pointer=published_identity,
+                        manifest=manifest,
+                    )
+                self._activate_current_pointer(
+                    repository,
+                    policy.repository_node_id,
+                    published_identity.publication_record.commit_sha,
+                    pointer_commit_sha,
                 )
             else:
                 raise GitHubCompareAndSwapError(
@@ -519,19 +562,25 @@ class AutonomousGitHubPublisher:
             pointer,
             envelope.committed_at,
         )
-        if activation_gate is not None:
-            activation_gate.revalidate_before_activation(
-                envelope=envelope,
-                repositories=repositories,
-                source_commit_sha=source_commit_sha,
-                manifest=manifest,
-            )
-        pointer_commit_sha = self._commit_current_pointer(
+        pointer_commit_sha = self._prepare_current_pointer_commit(
             repository,
-            policy.repository_node_id,
             source_commit_sha,
             pointer,
             envelope.committed_at,
+        )
+        if activation_gate is not None:
+            self._validate_activation_pointer(envelope, pointer, manifest_digest)
+            activation_gate.revalidate_before_activation(
+                envelope=envelope,
+                repositories=repositories,
+                pointer=pointer,
+                manifest=manifest,
+            )
+        self._activate_current_pointer(
+            repository,
+            policy.repository_node_id,
+            source_commit_sha,
+            pointer_commit_sha,
         )
         return PublicationTelemetry(
             publication_record=record,
@@ -543,39 +592,66 @@ class AutonomousGitHubPublisher:
             idempotent_replay=False,
         )
 
-    def _authorize_security_publication(
+    def _authorize_publication(
         self,
+        envelope: PublicationEnvelope,
         verifier: _PublicationActivationVerifier,
-    ) -> _SecurityPublicationAuthorization:
-        if type(verifier) is not self._security_verifier_type:
+    ) -> _ArtifactPublicationAuthorization:
+        artifact_kind = envelope.artifact_kind
+        verifier_type = self._activation_verifier_types.get(artifact_kind)
+        if type(verifier) is not verifier_type:
             raise GitHubPublicationError(
-                "security publication requires the registered concrete verifier"
+                f"{artifact_kind.value} publication requires the registered "
+                "concrete verifier"
             )
-        return _SecurityPublicationAuthorization(
-            _SECURITY_PUBLICATION_AUTHORIZATION_SEAL,
+        return _ArtifactPublicationAuthorization(
+            _PUBLICATION_AUTHORIZATION_SEAL,
             self,
+            envelope,
             verifier,
         )
 
-    def _bind_security_publication_verifier(
+    def _validate_activation_pointer(
         self,
+        envelope: PublicationEnvelope,
+        pointer: CurrentArtifactPointer,
+        manifest_digest: str,
+    ) -> None:
+        record = pointer.publication_record
+        if (
+            pointer.scope_id != envelope.scope_id
+            or record.artifact_kind is not envelope.artifact_kind
+            or record.artifact_id != envelope.artifact_id
+            or pointer.manifest_relative_path != envelope.manifest_relative_path
+            or pointer.manifest_digest != manifest_digest
+            or pointer.validation_closure_ids != envelope.validation_closure_ids
+        ):
+            raise GitHubPublicationError(
+                "publication activation pointer does not match its envelope"
+            )
+
+    def _bind_activation_verifier(
+        self,
+        artifact_kind: PublicationArtifactKind,
         verifier_type: type[object],
     ) -> None:
-        if (
-            verifier_type.__module__ != "kapso.cross_run.security_denylist"
-            or verifier_type.__qualname__ != "SecurityDenylistPublicationGate"
-        ):
+        authority = _ACTIVATION_VERIFIER_AUTHORITIES.get(artifact_kind)
+        if authority is None:
             raise GitHubPublicationError(
-                "security publication verifier type is not the concrete authority"
+                f"{artifact_kind.value} has no publication activation authority"
             )
-        if (
-            self._security_verifier_type is not None
-            and self._security_verifier_type is not verifier_type
-        ):
+        if (verifier_type.__module__, verifier_type.__qualname__) != authority:
             raise GitHubPublicationError(
-                "security publication verifier authority is already bound"
+                f"{artifact_kind.value} publication verifier type is not the "
+                "concrete authority"
             )
-        self._security_verifier_type = verifier_type
+        bound_type = self._activation_verifier_types.get(artifact_kind)
+        if bound_type is not None and bound_type is not verifier_type:
+            raise GitHubPublicationError(
+                f"{artifact_kind.value} publication verifier authority is "
+                "already bound"
+            )
+        self._activation_verifier_types[artifact_kind] = verifier_type
 
     def _validate_envelope(
         self,
@@ -647,6 +723,13 @@ class AutonomousGitHubPublisher:
             manifest = ExpertBaseReleaseManifest.from_json_bytes(manifest_bytes)
             manifest_id = manifest.release_id
             manifest_scope = manifest.scope_id
+            required_validation_closure = tuple(
+                sorted({manifest.release_id, *manifest.dependency_closure_ids})
+            )
+            if envelope.validation_closure_ids != required_validation_closure:
+                raise GitHubPublicationError(
+                    "expert release publication dependency closure is not exact"
+                )
         elif envelope.artifact_kind is PublicationArtifactKind.SECURITY_DENYLIST:
             manifest = SecurityDenylistSnapshot.from_json_bytes(manifest_bytes)
             manifest_id = manifest.snapshot_id
@@ -1504,10 +1587,9 @@ class AutonomousGitHubPublisher:
         )
         return commit_sha
 
-    def _commit_current_pointer(
+    def _prepare_current_pointer_commit(
         self,
         repository: str,
-        repository_node_id: str,
         source_commit_sha: str,
         pointer: CurrentArtifactPointer,
         committed_at: str,
@@ -1563,6 +1645,15 @@ class AutonomousGitHubPublisher:
             message=f"Activate {pointer.publication_record.artifact_id}",
             committed_at=committed_at,
         )
+        return pointer_commit_sha
+
+    def _activate_current_pointer(
+        self,
+        repository: str,
+        repository_node_id: str,
+        source_commit_sha: str,
+        pointer_commit_sha: str,
+    ) -> None:
         self.client.update_ref_compare_and_swap(
             repository,
             repository_node_id,
@@ -1570,4 +1661,3 @@ class AutonomousGitHubPublisher:
             source_commit_sha,
             pointer_commit_sha,
         )
-        return pointer_commit_sha

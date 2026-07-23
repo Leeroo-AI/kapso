@@ -351,7 +351,7 @@ class SecurityDenylistPublicationGate:
         *,
         envelope: PublicationEnvelope,
         repositories: ScopeRepositorySettings,
-        source_commit_sha: str,
+        pointer: CurrentArtifactPointer,
         manifest: SecurityDenylistSnapshot,
     ) -> None:
         if (
@@ -368,6 +368,7 @@ class SecurityDenylistPublicationGate:
             PublicationArtifactKind.SECURITY_DENYLIST,
             allow_missing=True,
         )
+        source_commit_sha = pointer.publication_record.commit_sha
         if (
             current_state.head_commit_sha != source_commit_sha
             or current_state.pointer != self.expected_current_pointer
@@ -410,19 +411,20 @@ class SecurityDenylistPublisher:
         self.resolver = resolver
         self.provider = provider
         self.launch_settings = launch_settings
-        self.publisher._bind_security_publication_verifier(
-            SecurityDenylistPublicationGate
+        self.publisher._bind_activation_verifier(
+            PublicationArtifactKind.SECURITY_DENYLIST, SecurityDenylistPublicationGate
         )
 
     def publish(self, envelope: PublicationEnvelope) -> PublicationTelemetry:
         return self.publisher.publish(
             envelope,
-            security_authorization=self.publisher._authorize_security_publication(
+            activation_authorization=self.publisher._authorize_publication(
+                envelope,
                 SecurityDenylistPublicationGate(
                     self.resolver,
                     self.provider,
                     self.launch_settings,
-                )
+                ),
             ),
         )
 

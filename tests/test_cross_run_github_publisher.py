@@ -3,6 +3,7 @@ import tarfile
 import base64
 import hashlib
 from dataclasses import dataclass, replace
+from typing import Callable
 
 import pytest
 
@@ -13,6 +14,7 @@ from kapso.cross_run.canonical import (
     tree_or_blob_digest,
 )
 from kapso.cross_run.contracts import (
+    ExpertBaseReleaseManifest,
     KnowledgeSnapshotManifest,
     PublicationArtifactKind,
     ScopeRepositorySettings,
@@ -128,6 +130,119 @@ def build_envelope(tmp_path):
     return envelope, manifest
 
 
+def build_expert_envelope(tmp_path):
+    scope_contract_id = content_id("expert-scope-contract", {"scope": "ml_ai"})
+    repository_map_id = content_id("expert-repository-map", {"scope": "ml_ai"})
+    approval_assertion_id = content_id("fixture", {"approval": "expert"})
+    release_ids = {
+        namespace: content_id(namespace, {"fixture": "expert-publication"})
+        for namespace in (
+            "expert-candidate",
+            "expert-candidate-commit",
+            "expert-source-tree",
+            "expert-agent-proposal-derivation",
+            "expert-candidate-validation-context",
+            "expert-candidate-patch",
+            "expert-candidate-sanitation",
+            "expert-module-contract",
+            "expert-validation-attempt",
+            "expert-validation-transition",
+            "expert-candidate-validation-state",
+            "expert-publication-eligibility-stage-result",
+            "expert-release-matrix-stage-result",
+            "expert-release-matrix-report",
+            "expert-release-matrix-promotion-decision",
+            "expert-validation-policy",
+            "expert-release-evidence-manifest",
+            "expert-release-matrix-summary",
+        )
+    }
+    dependencies = tuple(
+        sorted(
+            {
+                scope_contract_id,
+                repository_map_id,
+                approval_assertion_id,
+                *release_ids.values(),
+            }
+        )
+    )
+    source_payload = b"expert source"
+    evidence_payload = b"expert evidence"
+    manifest = ExpertBaseReleaseManifest.mint(
+        scope_contract_id=scope_contract_id,
+        scope_id="ml_ai",
+        parent_release_id=None,
+        candidate_id=release_ids["expert-candidate"],
+        candidate_commit_record_id=release_ids["expert-candidate-commit"],
+        candidate_tree_ref=release_ids["expert-source-tree"],
+        candidate_tree_hash=tree_or_blob_digest(source_payload),
+        candidate_derivation_ref=release_ids["expert-agent-proposal-derivation"],
+        candidate_validation_context_ref=release_ids[
+            "expert-candidate-validation-context"
+        ],
+        candidate_patch_ref=release_ids["expert-candidate-patch"],
+        candidate_sanitation_report_id=release_ids["expert-candidate-sanitation"],
+        candidate_ancestor_ids=(),
+        candidate_source_dependency_ids=(scope_contract_id,),
+        repository_map_ref=repository_map_id,
+        module_contract_refs=(release_ids["expert-module-contract"],),
+        module_versions={"shared.runner": "v1"},
+        semantic_book_digest=tree_or_blob_digest(b"semantic book"),
+        validation_attempt_id=release_ids["expert-validation-attempt"],
+        approval_transition_id=release_ids["expert-validation-transition"],
+        approval_state_id=release_ids["expert-candidate-validation-state"],
+        publication_eligibility_result_id=release_ids[
+            "expert-publication-eligibility-stage-result"
+        ],
+        release_matrix_stage_result_id=release_ids[
+            "expert-release-matrix-stage-result"
+        ],
+        release_matrix_report_id=release_ids["expert-release-matrix-report"],
+        promotion_decision_id=release_ids["expert-release-matrix-promotion-decision"],
+        approval_assertion_ids=(approval_assertion_id,),
+        validation_policy_id=release_ids["expert-validation-policy"],
+        configuration_fingerprint=tree_or_blob_digest(b"expert config"),
+        source_archive_ref="expert-source.tar.zst",
+        evidence_archive_ref="expert-evidence.tar.zst",
+        evidence_manifest_ref=release_ids["expert-release-evidence-manifest"],
+        test_matrix_summary_ref=release_ids["expert-release-matrix-summary"],
+        evidence_dependency_ids=(release_ids["expert-release-evidence-manifest"],),
+        dependency_closure_ids=dependencies,
+        checksums={
+            "expert-source.tar.zst": tree_or_blob_digest(source_payload),
+            "expert-evidence.tar.zst": tree_or_blob_digest(evidence_payload),
+        },
+    )
+    source = tmp_path / "expert-source"
+    source.mkdir()
+    (source / "expert-release.json").write_bytes(manifest.to_json_bytes())
+    asset = tmp_path / "expert-source.tar.zst"
+    asset.write_bytes(source_payload)
+    return PublicationEnvelope(
+        artifact_kind=PublicationArtifactKind.EXPERT_BASE_RELEASE,
+        artifact_id=manifest.release_id,
+        scope_id="ml_ai",
+        expected_parent_sha=EXPECTED_PARENT,
+        source_tree=source,
+        manifest_relative_path="expert-release.json",
+        assets=(
+            ReleaseAssetInput(
+                path=asset,
+                name=asset.name,
+                media_type="application/zstd",
+                size=len(source_payload),
+                sha256=tree_or_blob_digest(source_payload),
+            ),
+        ),
+        tag="expert/E000000",
+        committed_at="2026-07-20T15:00:00Z",
+        validation_closure_ids=tuple(
+            sorted({manifest.release_id, *manifest.dependency_closure_ids})
+        ),
+    )
+
+
 def publication_intent(envelope, source_git_tree_sha, materialized_digest=None):
     source_files = tuple(
         PublicationSourceFile(
@@ -192,6 +307,7 @@ class FakeResolver:
     artifact_kind: PublicationArtifactKind = PublicationArtifactKind.KNOWLEDGE_SNAPSHOT
     repository: str = REPOSITORY
     repository_node_id: str = "repository-node"
+    current_state_observer: Callable[[], None] | None = None
 
     def __post_init__(self):
         self.verified = []
@@ -220,6 +336,8 @@ class FakeResolver:
     ):
         assert repository_settings == "ml_ai"
         assert allow_missing
+        if self.current_state_observer is not None:
+            self.current_state_observer()
         return CurrentPointerState(
             pointer=self.existing,
             head_commit_sha=self.current_head,
@@ -1176,6 +1294,75 @@ def test_package_preflight_accepts_manifest_bound_asset_only_content(
 
     assert telemetry.publication_record.artifact_id == manifest.snapshot_id
     assert client.events[-1] == "pointer_ref"
+
+
+def test_expert_publication_requires_sealed_domain_authorization_before_writes(
+    tmp_path,
+):
+    envelope = build_expert_envelope(tmp_path)
+    client = FakePublisherClient(
+        envelope.assets[0],
+        repository=repositories().expert_repository,
+        artifact_kind=PublicationArtifactKind.EXPERT_BASE_RELEASE,
+        tag=envelope.tag,
+    )
+    publisher = AutonomousGitHubPublisher(
+        client,
+        FakeResolver(
+            artifact_kind=PublicationArtifactKind.EXPERT_BASE_RELEASE,
+            repository=repositories().expert_repository,
+        ),
+        object(),
+        cross_run_settings().github,
+    )
+
+    with pytest.raises(GitHubPublicationError, match="sealed authorization"):
+        publisher.publish(envelope)
+
+    assert client.events == []
+
+
+@pytest.mark.parametrize("closure_change", ("missing", "extra"))
+def test_expert_publication_requires_its_exact_dependency_closure(
+    tmp_path,
+    closure_change,
+):
+    envelope = build_expert_envelope(tmp_path)
+    if closure_change == "missing":
+        validation_closure_ids = envelope.validation_closure_ids[1:]
+    else:
+        validation_closure_ids = tuple(
+            sorted(
+                {
+                    *envelope.validation_closure_ids,
+                    content_id("fixture", {"unexpected": "dependency"}),
+                }
+            )
+        )
+    envelope = replace(
+        envelope,
+        validation_closure_ids=validation_closure_ids,
+    )
+    client = FakePublisherClient(
+        envelope.assets[0],
+        repository=repositories().expert_repository,
+        artifact_kind=PublicationArtifactKind.EXPERT_BASE_RELEASE,
+        tag=envelope.tag,
+    )
+    publisher = AutonomousGitHubPublisher(
+        client,
+        FakeResolver(
+            artifact_kind=PublicationArtifactKind.EXPERT_BASE_RELEASE,
+            repository=repositories().expert_repository,
+        ),
+        object(),
+        cross_run_settings().github,
+    )
+
+    with pytest.raises(GitHubPublicationError, match="closure is not exact"):
+        publisher.publish(envelope)
+
+    assert client.events == []
     assert not tuple(tmp_path.rglob(".validation-*"))
 
 

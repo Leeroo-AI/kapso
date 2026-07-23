@@ -60,6 +60,7 @@ from tests.test_cross_run_github_publisher import (
     SOURCE_COMMIT,
     FakePublisherClient,
     FakeResolver,
+    build_envelope as build_knowledge_envelope,
 )
 
 CANONICAL_CONFIG_PATH = "src/kapso/config.yaml"
@@ -897,6 +898,7 @@ def test_security_publication_runs_the_full_immutable_transaction(tmp_path):
             commit_sha,
         ),
     )
+    resolver.current_state_observer = lambda: client.events.append("current_gate")
     materializer = GitHubArtifactMaterializer(
         client,
         settings.github,
@@ -921,7 +923,7 @@ def test_security_publication_runs_the_full_immutable_transaction(tmp_path):
     assert telemetry.publication_record.repository_full_name == repository
     assert telemetry.publication_record.artifact_id == snapshot.snapshot_id
     assert telemetry.source_commit_sha == SOURCE_COMMIT
-    assert client.events[-1] == "pointer_ref"
+    assert client.events[-3:] == ["pointer_commit", "current_gate", "pointer_ref"]
 
 
 def test_security_successor_transaction_reauthenticates_the_live_predecessor(
@@ -1014,12 +1016,18 @@ def test_generic_publisher_cannot_activate_security_without_the_lineage_gate(
     with pytest.raises(GitHubPublicationError, match="sealed authorization"):
         publisher.publish(
             envelope,
-            security_authorization=_NoOpPublicationGate(),
+            activation_authorization=_NoOpPublicationGate(),
         )
 
-    publisher._bind_security_publication_verifier(SecurityDenylistPublicationGate)
+    publisher._bind_activation_verifier(
+        PublicationArtifactKind.SECURITY_DENYLIST,
+        SecurityDenylistPublicationGate,
+    )
     with pytest.raises(GitHubPublicationError, match="registered concrete verifier"):
-        publisher._authorize_security_publication(_NoOpPublicationGate())
+        publisher._authorize_publication(
+            envelope,
+            _NoOpPublicationGate(),
+        )
 
     other_publisher = AutonomousGitHubPublisher(
         object(),
@@ -1027,16 +1035,45 @@ def test_generic_publisher_cannot_activate_security_without_the_lineage_gate(
         object(),
         settings.github,
     )
+    authorization = publisher._authorize_publication(
+        envelope,
+        SecurityDenylistPublicationGate(
+            resolver,
+            object(),
+            settings.launch,
+        ),
+    )
+    with pytest.raises(GitHubPublicationError, match="another artifact kind"):
+        authorization.verifier_for(
+            publisher,
+            replace(
+                envelope,
+                artifact_kind=PublicationArtifactKind.EXPERT_BASE_RELEASE,
+            ),
+        )
+    with pytest.raises(GitHubPublicationError, match="another artifact"):
+        authorization.verifier_for(
+            publisher,
+            replace(
+                envelope,
+                artifact_id=content_id(
+                    "security-denylist-snapshot",
+                    {"different": "artifact"},
+                ),
+            ),
+        )
+
+    knowledge_envelope, _manifest = build_knowledge_envelope(tmp_path)
+    with pytest.raises(GitHubPublicationError, match="cannot guard"):
+        publisher.publish(
+            knowledge_envelope,
+            activation_authorization=authorization,
+        )
+
     with pytest.raises(GitHubPublicationError, match="another publisher"):
         other_publisher.publish(
             envelope,
-            security_authorization=publisher._authorize_security_publication(
-                SecurityDenylistPublicationGate(
-                    resolver,
-                    object(),
-                    settings.launch,
-                )
-            ),
+            activation_authorization=authorization,
         )
 
 
