@@ -14,6 +14,7 @@ from kapso.cross_run.github.command import (
 from kapso.cross_run.github.materializer import (
     CacheCorruptionError,
     CacheVerificationReceipt,
+    ExpertReleaseSourceSnapshot,
     GitHubArtifactMaterializer,
     MaterializationError,
     MaterializedArtifact,
@@ -51,6 +52,7 @@ __all__ = [
     "CommandRunner",
     "CurrentArtifactPointer",
     "CurrentPointerState",
+    "ExpertReleaseSourceSnapshot",
     "GitHubArtifactMaterializer",
     "GitHubArtifactResolver",
     "GitHubCommandClient",

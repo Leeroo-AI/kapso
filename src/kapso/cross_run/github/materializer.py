@@ -14,6 +14,7 @@ from contextlib import ExitStack
 from dataclasses import dataclass
 from io import DEFAULT_BUFFER_SIZE
 from pathlib import Path, PurePosixPath
+from types import MappingProxyType
 from typing import BinaryIO, Mapping, Protocol
 
 from kapso.cross_run.canonical import (
@@ -153,6 +154,54 @@ class MaterializedArtifact:
     assets: Path
     receipt: CacheVerificationReceipt
     reused: bool
+
+
+@dataclass(frozen=True)
+class ExpertReleaseSourceSnapshot:
+    """Exact expert release manifest and source bytes read under one cache lease."""
+
+    release_manifest: ExpertBaseReleaseManifest
+    source_extraction_receipt: SourceArchiveExtractionReceipt
+    source_contents: Mapping[str, bytes]
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.release_manifest) is not ExpertBaseReleaseManifest
+            or type(self.source_extraction_receipt)
+            is not SourceArchiveExtractionReceipt
+            or not isinstance(self.source_contents, Mapping)
+        ):
+            raise MaterializationError(
+                "expert release source snapshot requires exact typed authorities"
+            )
+        frozen_contents = MappingProxyType(dict(self.source_contents))
+        object.__setattr__(self, "source_contents", frozen_contents)
+        manifest = self.release_manifest
+        receipt = self.source_extraction_receipt
+        descriptors = {
+            descriptor.relative_path: descriptor
+            for descriptor in receipt.source_tree_files
+        }
+        if (
+            receipt.artifact_id != manifest.release_id
+            or receipt.source_archive_ref != manifest.source_archive_ref
+            or manifest.checksums.get(manifest.source_archive_ref)
+            != receipt.source_archive_digest
+            or set(frozen_contents) != set(descriptors)
+        ):
+            raise MaterializationError(
+                "expert release source snapshot differs from its release closure"
+            )
+        for relative_path, descriptor in descriptors.items():
+            payload = frozen_contents[relative_path]
+            if (
+                type(payload) is not bytes
+                or len(payload) != descriptor.size
+                or tree_or_blob_digest(payload) != descriptor.digest
+            ):
+                raise MaterializationError(
+                    "expert release source snapshot bytes differ from its descriptor"
+                )
 
 
 class LocalReleaseAsset(Protocol):
@@ -343,6 +392,103 @@ class GitHubArtifactMaterializer:
                 )
                 return extraction_receipt
 
+    def inspect_expert_release_source(
+        self,
+        materialized: MaterializedArtifact,
+        *,
+        maximum_entries: int,
+        maximum_bytes: int,
+    ) -> ExpertReleaseSourceSnapshot:
+        """Read one verified expert manifest and exact source tree atomically."""
+
+        if (
+            type(maximum_entries) is not int
+            or maximum_entries < 1
+            or type(maximum_bytes) is not int
+            or maximum_bytes < 1
+        ):
+            raise MaterializationError(
+                "expert source inspection bounds must be positive integers"
+            )
+        if (
+            materialized.receipt.artifact_kind
+            is not PublicationArtifactKind.EXPERT_BASE_RELEASE
+        ):
+            raise MaterializationError(
+                "expert source inspection requires an expert base release"
+            )
+        with self._cache_lease():
+            receipt = self._read_and_verify_receipt(
+                materialized.root,
+                PublicationArtifactKind.EXPERT_BASE_RELEASE,
+            )
+            if (
+                receipt != materialized.receipt
+                or materialized.content != materialized.root / "content"
+                or materialized.assets != materialized.root / "assets"
+            ):
+                raise CacheCorruptionError(
+                    "materialized expert release differs from its verified cache entry"
+                )
+            manifest_payload = self._read_control_file(
+                materialized.content / receipt.manifest_relative_path,
+                "expert release manifest",
+                error_type=CacheCorruptionError,
+            )
+            manifest = ExpertBaseReleaseManifest.from_json_bytes(manifest_payload)
+            if (
+                manifest_payload != manifest.to_json_bytes()
+                or tree_or_blob_digest(manifest_payload) != receipt.manifest_digest
+                or manifest.release_id != receipt.artifact_id
+            ):
+                raise CacheCorruptionError(
+                    "expert release manifest differs from its cache receipt"
+                )
+            (
+                verified_receipt,
+                source_archive,
+                source_digest,
+            ) = self._verified_source_archive(
+                materialized,
+                manifest.source_archive_ref,
+            )
+            kind_directory = materialized.root.parent
+            with tempfile.TemporaryDirectory(
+                prefix=".validation-expert-source-",
+                dir=kind_directory,
+            ) as staging_name:
+                source_tree = Path(staging_name) / "source"
+                source_tree.mkdir(mode=0o700)
+                extraction_receipt = self._extract_source_tree(
+                    receipt=verified_receipt,
+                    source_archive=source_archive,
+                    source_archive_digest=source_digest,
+                    destination=source_tree,
+                    maximum_entries=min(
+                        maximum_entries,
+                        self.settings.archive_entry_limit,
+                    ),
+                    maximum_bytes=min(
+                        maximum_bytes,
+                        self.settings.materialized_asset_size_bytes,
+                    ),
+                )
+                source_contents = self._read_source_tree_contents(
+                    source_tree,
+                    extraction_receipt.source_tree_files,
+                )
+                self._reverify_source_archive(
+                    materialized,
+                    verified_receipt,
+                    source_archive,
+                    source_digest,
+                )
+                return ExpertReleaseSourceSnapshot(
+                    release_manifest=manifest,
+                    source_extraction_receipt=extraction_receipt,
+                    source_contents=source_contents,
+                )
+
     def extract_verified_source_archive(
         self,
         *,
@@ -466,13 +612,23 @@ class GitHubArtifactMaterializer:
         source_archive: Path,
         source_archive_digest: str,
         destination: Path,
+        maximum_entries: int | None = None,
+        maximum_bytes: int | None = None,
     ) -> SourceArchiveExtractionReceipt:
         self._extract_archive(
             source_archive,
             destination,
             {},
-            self.settings.materialized_asset_size_bytes,
-            self.settings.archive_entry_limit,
+            (
+                self.settings.materialized_asset_size_bytes
+                if maximum_bytes is None
+                else maximum_bytes
+            ),
+            (
+                self.settings.archive_entry_limit
+                if maximum_entries is None
+                else maximum_entries
+            ),
         )
         source_files = self._source_tree_files(destination)
         return SourceArchiveExtractionReceipt.mint(
@@ -494,6 +650,30 @@ class GitHubArtifactMaterializer:
         source_tree: Path,
     ) -> tuple[SourceFileDescriptor, ...]:
         return self.source_archive_extractor.source_tree_files(source_tree)
+
+    @staticmethod
+    def _read_source_tree_contents(
+        source_tree: Path,
+        descriptors: tuple[SourceFileDescriptor, ...],
+    ) -> Mapping[str, bytes]:
+        contents: dict[str, bytes] = {}
+        for descriptor in descriptors:
+            source_path = source_tree / descriptor.relative_path
+            if source_path.is_symlink() or not source_path.is_file():
+                raise MaterializationError(
+                    "expert source snapshot contains a non-regular file"
+                )
+            with source_path.open("rb") as source_handle:
+                payload = source_handle.read(descriptor.size + 1)
+            if (
+                len(payload) != descriptor.size
+                or tree_or_blob_digest(payload) != descriptor.digest
+            ):
+                raise MaterializationError(
+                    "expert source snapshot changed during inspection"
+                )
+            contents[descriptor.relative_path] = payload
+        return MappingProxyType(contents)
 
     def _reverify_source_archive(
         self,

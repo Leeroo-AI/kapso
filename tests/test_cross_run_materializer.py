@@ -466,6 +466,20 @@ def test_materializer_accepts_split_expert_source_and_release_assets(
         materialized,
         manifest.source_archive_ref,
     )
+    expert_source_snapshot = materializer.inspect_expert_release_source(
+        materialized,
+        maximum_entries=10,
+        maximum_bytes=len(source_payload),
+    )
+    assert expert_source_snapshot.release_manifest == manifest
+    assert expert_source_snapshot.source_extraction_receipt == source_receipt
+    assert dict(expert_source_snapshot.source_contents) == {"main.py": source_payload}
+    with pytest.raises(MaterializationError, match="configured size limit"):
+        materializer.inspect_expert_release_source(
+            materialized,
+            maximum_entries=10,
+            maximum_bytes=len(source_payload) - 1,
+        )
     extracted_source = (tmp_path / "extracted-source").resolve()
     assert (
         extract_verified_source_archive(

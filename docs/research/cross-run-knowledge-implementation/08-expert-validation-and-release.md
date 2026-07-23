@@ -1075,9 +1075,12 @@ foundation separates scientific identity from time-sensitive admission:
   syntax and structural-versus-nonstructural outcome are derived rather than
   caller-selected.
 - `ExpertCompositionBaseClosure` verifies the release/tree/map/module/book joins and
-  exact source bytes, but is deliberately not current-release authority. The future
-  GitHub base provider must seal it only after authenticating the release and observing
-  `CURRENT`.
+  exact source bytes, but is deliberately not current-release authority.
+  `GitHubExpertCompositionBaseProvider` authenticates `CURRENT`, materializes and
+  re-verifies the immutable package plus isolated source archive under the cache
+  lease, rebuilds the typed closure, observes `CURRENT` again, and only then issues a
+  process-local `CurrentExpertCompositionBase`. A newer branch head is harmless only
+  when the complete pointer, repository binding, and policy are unchanged.
 - The implemented source resolver reopens every exact candidate package and complete
   validation-store history, independently rederives terminal `APPROVED`, and returns
   a process-local capability whose exposed candidate and approval values are defensive
@@ -1110,7 +1113,7 @@ Before release:
       and complete deterministic assessment contracts.
 - [x] Resolve every source reference through the candidate/validation stores and
       issue process-local approved-source capabilities.
-- [ ] Resolve the latest stable expert release through M2 and compare it with every
+- [x] Resolve the latest stable expert release through M2 and compare it with every
       candidate's parent commit/tree.
 - [x] If the parent moved, deterministically rebase compatible capability effects into
       an exact new tree identity; never patch the old release in place.

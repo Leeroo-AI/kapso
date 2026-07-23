@@ -32,6 +32,12 @@ from kapso.cross_run.expert.composition_base import (
     ExpertCompositionBaseError,
     build_expert_composition_base_closure,
 )
+from kapso.cross_run.expert.composition_base_provider import (
+    EXPERT_COMPOSITION_BASE_PROVIDER_VERSION,
+    CurrentExpertCompositionBase,
+    ExpertCompositionBaseProviderError,
+    GitHubExpertCompositionBaseProvider,
+)
 from kapso.cross_run.expert.composition_source import (
     ApprovedExpertCompositionSource,
     ExpertCompositionSourceError,
@@ -288,8 +294,10 @@ __all__ = [
     "ExpertAutomatedReviewStageCommitResult",
     "ExpertAutomatedReviewStageError",
     "ExpertAutomatedReviewStageOrchestrator",
+    "EXPERT_COMPOSITION_BASE_PROVIDER_VERSION",
     "ExpertEvolutionTriggerDecision",
     "GitHubExpertCurrentReleaseProvider",
+    "GitHubExpertCompositionBaseProvider",
     "ExpertAttestationVerifier",
     "ExpertCandidateEligibilityEvaluator",
     "ExpertCurrentReleaseProvider",
@@ -302,6 +310,7 @@ __all__ = [
     "ExpertCompositionAssessment",
     "ExpertCompositionBaseClosure",
     "ExpertCompositionBaseError",
+    "ExpertCompositionBaseProviderError",
     "ExpertCompositionBaseReference",
     "ExpertCompositionConflict",
     "ExpertCompositionConflictKind",
@@ -316,6 +325,7 @@ __all__ = [
     "ExpertCompositionSourceError",
     "ExpertCompositionSourceReference",
     "ExpertCompositionSourceResolver",
+    "CurrentExpertCompositionBase",
     "ApprovedExpertCompositionSource",
     "ExpertCapabilityGeneralizer",
     "ExpertEligibilityResult",
