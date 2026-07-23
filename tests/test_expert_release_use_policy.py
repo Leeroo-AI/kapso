@@ -326,6 +326,55 @@ def test_empty_checked_release_set_produces_authenticated_e0_observation(
     assert materializer.calls == [resolved]
 
 
+def test_unmatched_checked_release_is_still_authenticated(tmp_path) -> None:
+    case, _, _, _, activation_resolver, _, activation_provider = _authority_fixture()
+    scope, package = _package_with_revocations(())
+    authority, _, _, _ = _current_policy_authority(
+        tmp_path,
+        package,
+        activation_provider,
+    )
+    baseline_calls = len(activation_resolver.resolve_calls)
+
+    observation = authority.observe_exact(
+        scope_contract=scope,
+        checked_release_ids=(case.release.release_id,),
+    )
+
+    assert observation.matched_revocations == ()
+    assert len(activation_resolver.resolve_calls) == baseline_calls + 2
+
+
+def test_predecessor_contract_release_cannot_receive_false_absence(
+    tmp_path,
+) -> None:
+    case, _, _, _, _, _, activation_provider = _authority_fixture()
+    successor_scope = _remint(
+        case.scope,
+        purpose=f"{case.scope.purpose} successor",
+        supersedes_scope_contract_id=case.scope.scope_contract_id,
+    )
+    prepared = KnowledgeSnapshotPackageBuilder.prepare_empty(
+        successor_scope,
+        empty_generation(successor_scope),
+    )
+    package = finalize(prepared)
+    authority, _, _, _ = _current_policy_authority(
+        tmp_path,
+        package,
+        activation_provider,
+    )
+
+    with pytest.raises(
+        ExpertReleaseActivationAuthorityError,
+        match="materialized expert release differs",
+    ):
+        authority.observe_exact(
+            scope_contract=successor_scope,
+            checked_release_ids=(case.release.release_id,),
+        )
+
+
 def test_matching_revocation_is_bound_to_historical_activation(tmp_path) -> None:
     case, _, _, _, activation_resolver, _, activation_provider = _authority_fixture()
     activation = activation_provider.resolve_exact(
@@ -534,7 +583,18 @@ def test_unrelated_broken_event_is_scanned_but_not_authenticated(tmp_path) -> No
     )
 
     assert observation.matched_revocations == ()
-    assert activation_resolver.resolve_calls == []
+    assert activation_resolver.resolve_calls == [
+        (
+            scope.scope_id,
+            PublicationArtifactKind.EXPERT_BASE_RELEASE,
+            case.release.release_id,
+        ),
+        (
+            scope.scope_id,
+            PublicationArtifactKind.EXPERT_BASE_RELEASE,
+            case.release.release_id,
+        ),
+    ]
 
 
 def test_multiple_matching_events_authenticate_once_per_release_and_sort(

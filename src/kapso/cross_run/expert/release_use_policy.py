@@ -82,13 +82,21 @@ class GitHubExpertReleaseUsePolicyAuthority:
             materialized=materialized,
             package=package,
         )
+        checked_activations = self._authenticate_checked_releases(
+            scope_contract,
+            checked_release_ids,
+        )
         revocations = self._release_use_revocations(package)
         matches = tuple(
             revocation
             for revocation in revocations
             if revocation.release_id in checked_release_ids
         )
-        self._authenticate_matches(scope_contract, matches)
+        self._authenticate_matches(
+            scope_contract,
+            matches,
+            checked_activations,
+        )
         second = self._resolve_current(scope_contract.scope_id)
         if second != first:
             raise ExpertReleaseUsePolicyError(
@@ -217,15 +225,13 @@ class GitHubExpertReleaseUsePolicyAuthority:
             raise ExpertReleaseUsePolicyError("release-use projection is not canonical")
         return ordered
 
-    def _authenticate_matches(
+    def _authenticate_checked_releases(
         self,
         scope_contract: ExpertScopeContract,
-        matches: tuple[ExpertReleaseUseRevocation, ...],
-    ) -> None:
-        by_release: dict[str, list[ExpertReleaseUseRevocation]] = defaultdict(list)
-        for revocation in matches:
-            by_release[revocation.release_id].append(revocation)
-        for release_id in sorted(by_release):
+        checked_release_ids: tuple[str, ...],
+    ) -> dict[str, AuthenticatedExpertReleaseActivation]:
+        activations = {}
+        for release_id in checked_release_ids:
             activation = self._activation_provider.resolve_exact(
                 scope_contract,
                 release_id,
@@ -234,6 +240,20 @@ class GitHubExpertReleaseUsePolicyAuthority:
                 raise ExpertReleaseUsePolicyError(
                     "release activation provider returned invalid authority"
                 )
+            activations[release_id] = activation
+        return activations
+
+    @staticmethod
+    def _authenticate_matches(
+        scope_contract: ExpertScopeContract,
+        matches: tuple[ExpertReleaseUseRevocation, ...],
+        checked_activations: dict[str, AuthenticatedExpertReleaseActivation],
+    ) -> None:
+        by_release: dict[str, list[ExpertReleaseUseRevocation]] = defaultdict(list)
+        for revocation in matches:
+            by_release[revocation.release_id].append(revocation)
+        for release_id in sorted(by_release):
+            activation = checked_activations[release_id]
             for revocation in by_release[release_id]:
                 if (
                     revocation.scope_id != scope_contract.scope_id
