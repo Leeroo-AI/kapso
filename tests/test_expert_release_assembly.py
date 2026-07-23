@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from types import SimpleNamespace
 
@@ -20,16 +21,12 @@ from kapso.cross_run.contracts import (
     PublicationArtifactKind,
 )
 from kapso.cross_run.expert.release import (
-    EXPERT_RELEASE_CONTROL_ARCHIVE,
-    EXPERT_RELEASE_EVIDENCE_ARCHIVE,
     EXPERT_RELEASE_EVIDENCE_MANIFEST_PATH,
     EXPERT_RELEASE_MANIFEST_PATH,
-    EXPERT_RELEASE_SOURCE_ARCHIVE,
     ExpertReleaseAssembler,
     ExpertReleaseAssemblyError,
 )
 from kapso.cross_run.expert.release_contracts import (
-    ExpertReleaseAssetDescriptor,
     ExpertReleasePublicationPlan,
 )
 from kapso.cross_run.expert.providers import GitHubExpertCurrentReleaseProvider
@@ -155,87 +152,6 @@ def _approved_normal(tmp_path, monkeypatch):
     return case.validation_store, approval, authority, predecessor_pointer
 
 
-def _publication_plan(
-    package,
-    approval,
-    settings,
-    activation_predecessor_pointer=None,
-):
-    assets = tuple(
-        sorted(
-            (
-                ExpertReleaseAssetDescriptor(
-                    name=name,
-                    media_type="application/zstd",
-                    size=len(payload),
-                    sha256=tree_or_blob_digest(payload),
-                )
-                for name, payload in (
-                    (EXPERT_RELEASE_CONTROL_ARCHIVE, package.control_archive),
-                    (EXPERT_RELEASE_EVIDENCE_ARCHIVE, package.evidence_archive),
-                    (EXPERT_RELEASE_SOURCE_ARCHIVE, package.source_archive),
-                )
-            ),
-            key=lambda asset: asset.name,
-        )
-    )
-    publication_result = approval.stage_result
-    generation = (
-        0
-        if activation_predecessor_pointer is None
-        else int(
-            activation_predecessor_pointer.publication_record.tag.rsplit("E", 1)[1]
-        )
-        + 1
-    )
-    return ExpertReleasePublicationPlan.mint(
-        scope_contract_id=package.manifest.scope_contract_id,
-        scope_id=package.manifest.scope_id,
-        release_id=package.manifest.release_id,
-        candidate_id=package.manifest.candidate_id,
-        candidate_tree_hash=package.manifest.candidate_tree_hash,
-        validation_attempt_id=package.manifest.validation_attempt_id,
-        approval_transition_id=package.manifest.approval_transition_id,
-        approval_state_id=package.manifest.approval_state_id,
-        publication_eligibility_result_id=(
-            package.manifest.publication_eligibility_result_id
-        ),
-        lineage=ExpertReleaseLineage(
-            source_base_release_id=(
-                package.manifest.lineage.source_base_release_id
-            ),
-            activation_predecessor_release_id=(
-                publication_result.expected_current_release_id
-            ),
-        ),
-        current_release_observation=(
-            publication_result.publication_authority_fence.current_release_observation
-        ),
-        activation_predecessor_pointer=activation_predecessor_pointer,
-        generation=generation,
-        tag=f"{settings.github.expert_tag_prefix}E{generation:06d}",
-        manifest_digest=tree_or_blob_digest(package.manifest.to_json_bytes()),
-        publication_source_tree_digest=source_tree_digest(
-            {
-                path: (tree_or_blob_digest(payload), mode, len(payload))
-                for path, (payload, mode) in package.publication_files.items()
-            }
-        ),
-        assets=assets,
-        manifest_consumed_dependency_ids=package.manifest.consumed_dependency_ids,
-        manifest_control_dependency_ids=package.manifest.control_dependency_ids,
-        validation_closure_ids=tuple(
-            sorted(
-                {
-                    package.manifest.release_id,
-                    *package.manifest.consumed_dependency_ids,
-                    *package.manifest.control_dependency_ids,
-                }
-            )
-        ),
-    )
-
-
 def _activation_predecessor_pointer(release_id, settings):
     asset = GitHubReleaseAsset(
         asset_id="predecessor-asset",
@@ -268,6 +184,57 @@ def _activation_predecessor_pointer(release_id, settings):
         manifest_digest=tree_or_blob_digest(b"predecessor-manifest"),
         validation_closure_ids=(release_id,),
     )
+
+
+def _publication_publisher(
+    *,
+    validation_store,
+    assembler,
+    authority,
+    settings,
+    tmp_path,
+    current_observation,
+    current_pointer,
+):
+    github_client = object()
+    resolver = GitHubArtifactResolver(
+        github_client,
+        settings.github,
+        settings.scopes,
+    )
+    materializer = GitHubArtifactMaterializer(
+        github_client,
+        settings.github,
+        tmp_path / "reservation-publisher-state",
+    )
+    generic_publisher = AutonomousGitHubPublisher(
+        github_client,
+        resolver,
+        materializer,
+        settings.github,
+    )
+    current_authority = GitHubExpertCurrentReleaseProvider(resolver)
+    validation_store.reducer.current_release_provider = current_authority
+    publisher = ExpertReleasePublisher(
+        assembler=assembler,
+        validation_store=validation_store,
+        github_publisher=generic_publisher,
+        resolver=resolver,
+        current_release_authority=current_authority,
+        task_adapter_authority=validation_store.reducer.task_adapter_provider,
+        security_denylist_authority=authority.denylist,
+    )
+    current_state = CurrentPointerState(
+        pointer=current_pointer,
+        head_commit_sha=current_observation.default_branch_head_commit_sha,
+    )
+    resolver.read_current_pointer_state = (
+        lambda scope_id, artifact_kind, allow_missing: current_state
+    )
+    current_authority.observe_task_evaluation_current = (
+        lambda scope_id: current_observation
+    )
+    return publisher
 
 
 def _published_pointer(plan, release_id, commit_sha):
@@ -467,7 +434,7 @@ def test_normal_release_binds_source_base_and_activation_predecessor(
     tmp_path,
     monkeypatch,
 ):
-    validation_store, approval, _authority, predecessor_pointer = _approved_normal(
+    validation_store, approval, authority, predecessor_pointer = _approved_normal(
         tmp_path,
         monkeypatch,
     )
@@ -482,12 +449,23 @@ def test_normal_release_binds_source_base_and_activation_predecessor(
         github_settings=settings.github,
     )
     package = assembler.build(candidate_id=approval.snapshot.state.candidate_id)
-    plan = _publication_plan(
-        package,
-        approval,
-        settings,
-        predecessor_pointer,
+    current_observation = (
+        approval.stage_result.publication_authority_fence.current_release_observation
     )
+    publisher = _publication_publisher(
+        validation_store=validation_store,
+        assembler=assembler,
+        authority=authority,
+        settings=settings,
+        tmp_path=tmp_path,
+        current_observation=current_observation,
+        current_pointer=predecessor_pointer,
+    )
+    committed = publisher.reserve(
+        candidate_id=approval.snapshot.state.candidate_id,
+        committed_at="2026-07-21T12:00:00Z",
+    )
+    plan = committed.reservation.plan
     source_base_id = package.manifest.lineage.source_base_release_id
 
     assert source_base_id is not None
@@ -501,11 +479,6 @@ def test_normal_release_binds_source_base_and_activation_predecessor(
     assert source_base_id in package.manifest.consumed_dependency_ids
     assert package.manifest.control_dependency_ids == ()
 
-    permit = assembler.authorize_publication_plan(package=package, plan=plan)
-    committed = validation_store.reserve_release_publication(
-        permit,
-        committed_at="2026-07-21T12:00:00Z",
-    )
     reopened = ExpertValidationStore(
         validation_store.root,
         validation_store.state_root,
@@ -557,26 +530,49 @@ def test_release_publication_reservation_is_durable_idempotent_and_freezes_head(
         github_settings=settings.github,
     )
     package = assembler.build(candidate_id=approval.snapshot.state.candidate_id)
-    plan = _publication_plan(package, approval, settings)
-    with pytest.raises(
-        ExpertValidationStoreError,
-        match="assembler-sealed permit",
-    ):
-        validation_store.reserve_release_publication(
-            plan,
-            committed_at="2026-07-21T12:00:00Z",
-        )
-    permit = assembler.authorize_publication_plan(package=package, plan=plan)
-
-    committed = validation_store.reserve_release_publication(
-        permit,
-        committed_at="2026-07-21T12:00:00Z",
+    current_observation = (
+        approval.stage_result.publication_authority_fence.current_release_observation
     )
-    replay_permit = assembler.authorize_publication_plan(package=package, plan=plan)
-    replayed = validation_store.reserve_release_publication(
-        replay_permit,
+    publisher = _publication_publisher(
+        validation_store=validation_store,
+        assembler=assembler,
+        authority=authority,
+        settings=settings,
+        tmp_path=tmp_path,
+        current_observation=current_observation,
+        current_pointer=None,
+    )
+    assert not hasattr(assembler, "authorize_publication_plan")
+    assert not hasattr(validation_store, "reserve_release_publication")
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        concurrent_results = tuple(
+            executor.map(
+                lambda _position: publisher.reserve(
+                    candidate_id=approval.snapshot.state.candidate_id,
+                    committed_at="2026-07-21T12:00:00Z",
+                ),
+                range(2),
+            )
+        )
+    committed = next(result for result in concurrent_results if not result.replayed)
+    concurrent_replay = next(
+        result for result in concurrent_results if result.replayed
+    )
+    publisher.current_release_authority.observe_task_evaluation_current = (
+        lambda scope_id: pytest.fail(
+            "durable reservation replay must not read remote CURRENT"
+        )
+    )
+    publisher.resolver.read_current_pointer_state = (
+        lambda scope_id, artifact_kind, allow_missing: pytest.fail(
+            "durable reservation replay must not read the remote pointer"
+        )
+    )
+    replayed = publisher.reserve(
+        candidate_id=approval.snapshot.state.candidate_id,
         committed_at="2026-07-21T12:01:00Z",
     )
+    plan = committed.reservation.plan
     reopened_store = ExpertValidationStore(
         validation_store.root,
         validation_store.state_root,
@@ -585,6 +581,7 @@ def test_release_publication_reservation_is_durable_idempotent_and_freezes_head(
     )
 
     assert committed.replayed is False
+    assert concurrent_replay.reservation == committed.reservation
     assert replayed.replayed is True
     assert replayed.reservation == committed.reservation
     assert replayed.reservation.intent.committed_at == "2026-07-21T12:00:00Z"
@@ -855,11 +852,90 @@ def test_release_publication_reservation_is_durable_idempotent_and_freezes_head(
     )
 
 
-def test_release_publication_reservation_rejects_a_conflicting_plan(
+def test_publication_planning_rejects_stale_or_substituted_current(
     tmp_path,
     monkeypatch,
 ):
-    validation_store, _matrix, approval, _authority = _approved_bootstrap(
+    validation_store, _matrix, approval, authority = _approved_bootstrap(
+        tmp_path,
+        monkeypatch,
+    )
+    candidate_store = validation_store.reducer.candidate_store
+    settings = CrossRunSettings.from_dict(
+        load_config(CANONICAL_CONFIG_PATH)["cross_run"]
+    )
+    assembler = ExpertReleaseAssembler(
+        candidate_store=candidate_store,
+        validation_store=validation_store,
+        expert_settings=candidate_store.validator.settings,
+        github_settings=settings.github,
+    )
+    frozen_current = (
+        approval.stage_result.publication_authority_fence.current_release_observation
+    )
+    changed_values = frozen_current.to_dict()
+    changed_values.pop("observation_id")
+    changed_values["default_branch_head_commit_sha"] = "d" * 40
+    moved_current = TaskEvaluationCurrentReleaseObservation.mint(**changed_values)
+    publisher = _publication_publisher(
+        validation_store=validation_store,
+        assembler=assembler,
+        authority=authority,
+        settings=settings,
+        tmp_path=tmp_path,
+        current_observation=moved_current,
+        current_pointer=None,
+    )
+
+    with pytest.raises(
+        ExpertReleasePublicationError,
+        match="CURRENT changed after approval",
+    ):
+        publisher.reserve(
+            candidate_id=approval.snapshot.state.candidate_id,
+            committed_at="2026-07-21T12:00:00Z",
+        )
+    assert (
+        validation_store.reopen_release_publication(
+            approval.snapshot.state.candidate_id
+        )
+        is None
+    )
+
+    substituted_pointer = _activation_predecessor_pointer(
+        content_id("expert-base-release", {"release": "substituted"}),
+        settings,
+    )
+    publisher.current_release_authority.observe_task_evaluation_current = (
+        lambda scope_id: frozen_current
+    )
+    publisher.resolver.read_current_pointer_state = (
+        lambda scope_id, artifact_kind, allow_missing: CurrentPointerState(
+            pointer=substituted_pointer,
+            head_commit_sha=frozen_current.default_branch_head_commit_sha,
+        )
+    )
+    with pytest.raises(
+        ExpertReleasePublicationError,
+        match="CURRENT changed after approval",
+    ):
+        publisher.reserve(
+            candidate_id=approval.snapshot.state.candidate_id,
+            committed_at="2026-07-21T12:00:00Z",
+        )
+    assert (
+        validation_store.reopen_release_publication(
+            approval.snapshot.state.candidate_id
+        )
+        is None
+    )
+
+
+def test_release_publication_reservation_rejects_caller_plan_shapes(
+    tmp_path,
+    monkeypatch,
+):
+    validation_store, _matrix, approval, authority = _approved_bootstrap(
         tmp_path,
         monkeypatch,
     )
@@ -874,7 +950,22 @@ def test_release_publication_reservation_rejects_a_conflicting_plan(
         github_settings=settings.github,
     )
     package = assembler.build(candidate_id=approval.snapshot.state.candidate_id)
-    plan = _publication_plan(package, approval, settings)
+    current_observation = (
+        approval.stage_result.publication_authority_fence.current_release_observation
+    )
+    publisher = _publication_publisher(
+        validation_store=validation_store,
+        assembler=assembler,
+        authority=authority,
+        settings=settings,
+        tmp_path=tmp_path,
+        current_observation=current_observation,
+        current_pointer=None,
+    )
+    plan = publisher.reserve(
+        candidate_id=approval.snapshot.state.candidate_id,
+        committed_at="2026-07-21T12:00:00Z",
+    ).reservation.plan
     legacy_plan = plan.to_dict()
     legacy_plan["parent_release_id"] = None
     legacy_plan["parent_pointer"] = None
@@ -893,11 +984,6 @@ def test_release_publication_reservation_rejects_a_conflicting_plan(
     )
     with pytest.raises(ValueError, match="identical source base"):
         ExpertReleasePublicationPlan.mint(**unequal_values)
-    permit = assembler.authorize_publication_plan(package=package, plan=plan)
-    validation_store.reserve_release_publication(
-        permit,
-        committed_at="2026-07-21T12:00:00Z",
-    )
     changed_values = plan.to_dict()
     changed_values.pop("publication_plan_id")
     changed_values["publication_source_tree_digest"] = tree_or_blob_digest(
@@ -905,11 +991,17 @@ def test_release_publication_reservation_rejects_a_conflicting_plan(
     )
     conflicting_plan = ExpertReleasePublicationPlan.mint(**changed_values)
 
-    with pytest.raises(
-        ExpertReleaseAssemblyError,
-        match="differs from exact release package",
-    ):
-        assembler.authorize_publication_plan(
-            package=package,
+    with pytest.raises(ExpertValidationStoreError, match="bound publisher"):
+        validation_store._reserve_release_publication(
+            object(),
             plan=conflicting_plan,
+            package=package,
+            committed_at="2026-07-21T12:01:00Z",
+        )
+    with pytest.raises(ExpertValidationStoreError, match="deterministic package"):
+        validation_store._reserve_release_publication(
+            publisher,
+            plan=conflicting_plan,
+            package=package,
+            committed_at="2026-07-21T12:01:00Z",
         )

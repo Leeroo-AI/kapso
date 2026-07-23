@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Mapping
@@ -48,18 +49,19 @@ from kapso.cross_run.expert.store import (
     StoredExpertCandidate,
     stored_candidate_admission_dependency_ids,
 )
+from kapso.cross_run.expert.task_evaluation_authority_contracts import (
+    TaskEvaluationCurrentReleaseObservation,
+)
 from kapso.cross_run.expert.validation_snapshots import (
     ExpertValidationSnapshot,
     ExpertValidationTransition,
 )
+from kapso.cross_run.github.resolver import CurrentArtifactPointer
 from kapso.cross_run.settings import ExpertSettings, GitHubSettings
 from kapso.cross_run.source_archives import build_deterministic_tar_zst
 
 if TYPE_CHECKING:
-    from kapso.cross_run.expert.validation_store import (
-        ExpertReleasePublicationPlanPermit,
-        ExpertValidationStore,
-    )
+    from kapso.cross_run.expert.validation_store import ExpertValidationStore
 
 EXPERT_RELEASE_MANIFEST_PATH = ".kapso/expert/release.json"
 EXPERT_RELEASE_EVIDENCE_ROOT = ".kapso/expert/release-evidence"
@@ -171,22 +173,27 @@ class ExpertReleaseAssembler:
         self.github_settings = github_settings
         self.validation_store._bind_release_assembly_authority(self)
 
-    def authorize_publication_plan(
+    def _derive_publication_plan(
         self,
         *,
         package: ExpertReleasePackage,
-        plan: ExpertReleasePublicationPlan,
-    ) -> ExpertReleasePublicationPlanPermit:
-        """Seal a plan only when it is the exact freshly assembled package."""
+        current_release_observation: TaskEvaluationCurrentReleaseObservation,
+        activation_predecessor_pointer: CurrentArtifactPointer | None,
+    ) -> ExpertReleasePublicationPlan:
+        """Derive the sole publication plan for an approved package."""
 
-        if (
-            type(package) is not ExpertReleasePackage
-            or type(plan) is not ExpertReleasePublicationPlan
-        ):
+        if type(package) is not ExpertReleasePackage or type(
+            current_release_observation
+        ) is not TaskEvaluationCurrentReleaseObservation:
             raise ExpertReleaseAssemblyError(
-                "publication planning requires exact package and plan"
+                "publication planning requires an exact package and CURRENT "
+                "observation"
             )
         rebuilt = self.build(candidate_id=package.manifest.candidate_id)
+        if rebuilt != package:
+            raise ExpertReleaseAssemblyError(
+                "publication package differs from deterministic assembly"
+            )
         expected_assets = tuple(
             sorted(
                 (
@@ -206,47 +213,57 @@ class ExpertReleaseAssembler:
             )
         )
         manifest = package.manifest
-        if (
-            rebuilt != package
-            or plan.scope_contract_id != manifest.scope_contract_id
-            or plan.scope_id != manifest.scope_id
-            or plan.release_id != manifest.release_id
-            or plan.candidate_id != manifest.candidate_id
-            or plan.candidate_tree_hash != manifest.candidate_tree_hash
-            or plan.validation_attempt_id != manifest.validation_attempt_id
-            or plan.approval_transition_id != manifest.approval_transition_id
-            or plan.approval_state_id != manifest.approval_state_id
-            or plan.publication_eligibility_result_id
-            != manifest.publication_eligibility_result_id
-            or plan.lineage != manifest.lineage
-            or plan.tag
-            != f"{self.github_settings.expert_tag_prefix}E{plan.generation:06d}"
-            or plan.manifest_digest != tree_or_blob_digest(manifest.to_json_bytes())
-            or plan.publication_source_tree_digest
-            != source_tree_digest(
+        if activation_predecessor_pointer is None:
+            generation = 0
+        else:
+            predecessor_tag = activation_predecessor_pointer.publication_record.tag
+            match = re.fullmatch(
+                rf"{re.escape(self.github_settings.expert_tag_prefix)}E([0-9]+)",
+                predecessor_tag,
+            )
+            if match is None:
+                raise ExpertReleaseAssemblyError(
+                    "activation predecessor tag differs from expert release order"
+                )
+            generation = int(match.group(1)) + 1
+        plan = ExpertReleasePublicationPlan.mint(
+            scope_contract_id=manifest.scope_contract_id,
+            scope_id=manifest.scope_id,
+            release_id=manifest.release_id,
+            candidate_id=manifest.candidate_id,
+            candidate_tree_hash=manifest.candidate_tree_hash,
+            validation_attempt_id=manifest.validation_attempt_id,
+            approval_transition_id=manifest.approval_transition_id,
+            approval_state_id=manifest.approval_state_id,
+            publication_eligibility_result_id=(
+                manifest.publication_eligibility_result_id
+            ),
+            lineage=manifest.lineage,
+            current_release_observation=current_release_observation,
+            activation_predecessor_pointer=activation_predecessor_pointer,
+            generation=generation,
+            tag=f"{self.github_settings.expert_tag_prefix}E{generation:06d}",
+            manifest_digest=tree_or_blob_digest(manifest.to_json_bytes()),
+            publication_source_tree_digest=source_tree_digest(
                 {
                     path: (tree_or_blob_digest(payload), mode, len(payload))
                     for path, (payload, mode) in package.publication_files.items()
                 }
-            )
-            or plan.assets != expected_assets
-            or plan.manifest_consumed_dependency_ids != manifest.consumed_dependency_ids
-            or plan.manifest_control_dependency_ids != manifest.control_dependency_ids
-            or set(plan.validation_closure_ids)
-            != {
-                manifest.release_id,
-                *manifest.consumed_dependency_ids,
-                *manifest.control_dependency_ids,
-            }
-        ):
-            raise ExpertReleaseAssemblyError(
-                "publication plan differs from exact release package"
-            )
-        return self.validation_store._seal_release_publication_plan(
-            self,
-            plan,
-            manifest,
+            ),
+            assets=expected_assets,
+            manifest_consumed_dependency_ids=manifest.consumed_dependency_ids,
+            manifest_control_dependency_ids=manifest.control_dependency_ids,
+            validation_closure_ids=tuple(
+                sorted(
+                    {
+                        manifest.release_id,
+                        *manifest.consumed_dependency_ids,
+                        *manifest.control_dependency_ids,
+                    }
+                )
+            ),
         )
+        return plan
 
     def build(
         self,

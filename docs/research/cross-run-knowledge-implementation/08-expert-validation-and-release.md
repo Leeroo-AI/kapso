@@ -1250,6 +1250,21 @@ The old `parent_release_id`/`parent_pointer` release fields are removed rather
 than retained as aliases. Candidate and evaluation parent fields still denote
 the scientific source base until their dedicated semantic-rename slice.
 
+Publication-plan construction is production-owned. The only orchestration entry
+point is `ExpertReleasePublisher.reserve(candidate_id, committed_at)`: it reopens
+an existing durable reservation before any remote read, otherwise rebuilds the
+approved package, sandwiches the exact resolver `CurrentPointerState` between two
+authenticated CURRENT observations, and requires all three to equal the accepted
+publication-eligibility fence. The bound assembler privately derives generation,
+tag, assets, manifest and tree digests, categorized dependencies, and the exact
+validation closure. The publisher then performs a publisher-bound private store
+CAS, which independently re-derives the plan from the exact package before the
+lock/journal commit. Caller-supplied plans, the plan permit, assembler authorization
+method, and public store reservation method are deleted. A lost reservation response replays
+the first intent and timestamp without GitHub access; CURRENT movement after the
+local reservation remains safe because publication preflight, final revalidation,
+and expected-head CAS are still mandatory.
+
 Clean recovery will be a dedicated whole-tree rollback-as-forward path, not an
 exception in the normal zero-match gate. It separates the independently clean
 source/comparison base from the actual activation predecessor. Normal evolution
@@ -1326,6 +1341,8 @@ fails before touching GitHub.
       evidence, with exact disjoint closures and fail-loud replay validation.
 - [x] Split release source-base lineage from activation-predecessor ordering while
       retaining the ordinary equality invariant.
+- [x] Make release-plan construction and first-writer reservation a bound publisher
+      operation with offline durable replay.
 - [ ] Publish a clean successor/rollback pointer; never move or delete the old
       immutable release as the history mechanism.
 

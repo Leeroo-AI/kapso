@@ -8,7 +8,11 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING
 
-from kapso.cross_run.canonical import require_content_id, tree_or_blob_digest
+from kapso.cross_run.canonical import (
+    normalize_utc_timestamp,
+    require_content_id,
+    tree_or_blob_digest,
+)
 from kapso.cross_run.contracts import (
     ExpertBaseReleaseManifest,
     ExpertPromotionState,
@@ -64,6 +68,7 @@ if TYPE_CHECKING:
     from kapso.cross_run.expert.validation_store import (
         ExpertReleaseActivationCommitResult,
         ExpertReleasePublicationReservation,
+        ExpertReleasePublicationReservationCommitResult,
         ExpertReleasePublicationStalePermit,
         ExpertValidationStore,
     )
@@ -464,10 +469,84 @@ class ExpertReleasePublisher:
     def __setattr__(self, name: str, value: object) -> None:
         raise ExpertReleasePublicationError("expert publisher authority is immutable")
 
-    def publish(self, *, candidate_id: str) -> ExpertReleasePublication:
-        """Resume or complete the immutable transaction for one reservation."""
+    def reserve(
+        self,
+        *,
+        candidate_id: str,
+        committed_at: str,
+    ) -> ExpertReleasePublicationReservationCommitResult:
+        """Derive and freeze one publication plan from authenticated CURRENT."""
 
         require_content_id(candidate_id, "expert publication candidate_id")
+        normalize_utc_timestamp(committed_at, "expert publication committed_at")
+        self._require_bound_authority()
+        if self.validation_store.reopen_release_revocation(candidate_id) is not None:
+            raise ExpertReleasePublicationError("expert release is revoked")
+        if self.validation_store.reopen_release_activation(candidate_id) is not None:
+            raise ExpertReleasePublicationError("expert release is already active")
+        package = self.assembler.build(candidate_id=candidate_id)
+        durable = self.validation_store.reopen_release_publication(candidate_id)
+        if durable is None:
+            fence = self._approved_publication_fence(package)
+            frozen_current = fence.current_release_observation
+            observed_before = (
+                self.current_release_authority.observe_task_evaluation_current(
+                    package.manifest.scope_id
+                )
+            )
+            current_state = self.resolver.read_current_pointer_state(
+                package.manifest.scope_id,
+                PublicationArtifactKind.EXPERT_BASE_RELEASE,
+                allow_missing=True,
+            )
+            observed_after = (
+                self.current_release_authority.observe_task_evaluation_current(
+                    package.manifest.scope_id
+                )
+            )
+            self._validate_planning_current(
+                package=package,
+                frozen_current=frozen_current,
+                observed_before=observed_before,
+                current_state=current_state,
+                observed_after=observed_after,
+            )
+            plan = self.assembler._derive_publication_plan(
+                package=package,
+                current_release_observation=frozen_current,
+                activation_predecessor_pointer=current_state.pointer,
+            )
+        else:
+            plan = self.assembler._derive_publication_plan(
+                package=package,
+                current_release_observation=(
+                    durable.plan.current_release_observation
+                ),
+                activation_predecessor_pointer=(
+                    durable.plan.activation_predecessor_pointer
+                ),
+            )
+            if plan != durable.plan or package.manifest != durable.manifest:
+                raise ExpertReleasePublicationError(
+                    "durable expert publication reservation is not reproducible"
+                )
+        return self.validation_store._reserve_release_publication(
+            self,
+            plan=plan,
+            package=package,
+            committed_at=committed_at,
+        )
+
+    def publish(
+        self,
+        *,
+        candidate_id: str,
+        committed_at: str,
+    ) -> ExpertReleasePublication:
+        """Reserve, resume, or complete one immutable publication transaction."""
+
+        require_content_id(candidate_id, "expert publication candidate_id")
+        normalize_utc_timestamp(committed_at, "expert publication committed_at")
         self._require_bound_authority()
         if self.validation_store.reopen_release_revocation(candidate_id) is not None:
             raise ExpertReleasePublicationError("expert release is revoked")
@@ -477,24 +556,14 @@ class ExpertReleasePublisher:
                 activation=durable,
                 telemetry=None,
             )
-        reservation = self.validation_store.reopen_release_publication(candidate_id)
-        if reservation is None:
-            raise ExpertReleasePublicationError(
-                "expert publication has no active reservation"
-            )
+        reservation = self.reserve(
+            candidate_id=candidate_id,
+            committed_at=committed_at,
+        ).reservation
         recovered = self._recover_release_activation(reservation)
         if recovered is not None:
             return ExpertReleasePublication(activation=recovered, telemetry=None)
         package = self.assembler.build(candidate_id=candidate_id)
-        permit = self.assembler.authorize_publication_plan(
-            package=package,
-            plan=reservation.plan,
-        )
-        committed = self.validation_store.reserve_release_publication(
-            permit,
-            committed_at=reservation.intent.committed_at,
-        )
-        reservation = committed.reservation
         with tempfile.TemporaryDirectory(prefix="kapso-expert-release-") as root:
             release_root = Path(root)
             source_tree = release_root / "source"
@@ -526,6 +595,94 @@ class ExpertReleasePublisher:
             )
         activation = self.complete_release(candidate_id=candidate_id)
         return ExpertReleasePublication(activation=activation, telemetry=telemetry)
+
+    def _approved_publication_fence(
+        self,
+        package: ExpertReleasePackage,
+    ) -> ExpertPublicationEligibilityAuthorityFence:
+        snapshot = self.validation_store.snapshot(package.manifest.candidate_id)
+        result = (
+            None
+            if snapshot is None or not snapshot.accepted_stage_results
+            else snapshot.accepted_stage_results[-1]
+        )
+        if (
+            snapshot is None
+            or snapshot.state.promotion_state is not ExpertPromotionState.APPROVED
+            or type(result) is not ExpertPublicationEligibilityStageResultRecord
+            or result.stage_result_record_id
+            != package.manifest.publication_eligibility_result_id
+            or type(result.publication_authority_fence)
+            is not ExpertPublicationEligibilityAuthorityFence
+        ):
+            raise ExpertReleasePublicationError(
+                "expert publication package lacks its approved CURRENT fence"
+            )
+        return result.publication_authority_fence
+
+    def _validate_planning_current(
+        self,
+        *,
+        package: ExpertReleasePackage,
+        frozen_current: TaskEvaluationCurrentReleaseObservation,
+        observed_before: TaskEvaluationCurrentReleaseObservation,
+        current_state: CurrentPointerState,
+        observed_after: TaskEvaluationCurrentReleaseObservation,
+    ) -> None:
+        manifest = package.manifest
+        if (
+            type(current_state) is not CurrentPointerState
+            or type(frozen_current) is not TaskEvaluationCurrentReleaseObservation
+            or type(observed_before) is not TaskEvaluationCurrentReleaseObservation
+            or type(observed_after) is not TaskEvaluationCurrentReleaseObservation
+        ):
+            raise ExpertReleasePublicationError(
+                "expert publication planning authority is not exact"
+            )
+        repositories = self.resolver.repositories_for_scope(manifest.scope_id)
+        pointer = current_state.pointer
+        if pointer is None:
+            state_release_id = None
+            state_publication_id = None
+            state_pointer_digest = None
+            state_validation_closure_ids: tuple[str, ...] = ()
+            state_repository_node_id = frozen_current.repository_node_id
+        else:
+            record = pointer.publication_record
+            state_release_id = record.artifact_id
+            state_publication_id = record.publication_id
+            state_pointer_digest = tree_or_blob_digest(pointer.to_json_bytes())
+            state_validation_closure_ids = pointer.validation_closure_ids
+            state_repository_node_id = record.repository_node_id
+            if (
+                pointer.scope_id != manifest.scope_id
+                or record.artifact_kind
+                is not PublicationArtifactKind.EXPERT_BASE_RELEASE
+                or record.repository_full_name != repositories.expert_repository
+            ):
+                raise ExpertReleasePublicationError(
+                    "expert publication predecessor pointer has another authority"
+                )
+        if (
+            observed_before != frozen_current
+            or observed_after != frozen_current
+            or frozen_current.scope_id != manifest.scope_id
+            or frozen_current.release_id
+            != manifest.lineage.activation_predecessor_release_id
+            or frozen_current.release_id != state_release_id
+            or frozen_current.publication_id != state_publication_id
+            or frozen_current.repository_full_name
+            != repositories.expert_repository
+            or frozen_current.repository_node_id != state_repository_node_id
+            or frozen_current.default_branch_head_commit_sha
+            != current_state.head_commit_sha
+            or frozen_current.current_pointer_digest != state_pointer_digest
+            or frozen_current.validation_closure_ids
+            != state_validation_closure_ids
+        ):
+            raise ExpertReleasePublicationError(
+                "expert publication CURRENT changed after approval"
+            )
 
     def complete_release(
         self,

@@ -57,7 +57,7 @@ from kapso.cross_run.settings import CrossRunSettings
 from test_expert_release_assembly import (
     _approved_bootstrap,
     _publication_intent,
-    _publication_plan,
+    _publication_publisher,
     _publication_pointer,
 )
 
@@ -112,6 +112,74 @@ def _source_file_projection(source_tree: Path):
     }
 
 
+def test_publish_derives_and_freezes_a_missing_reservation(
+    tmp_path,
+    monkeypatch,
+):
+    validation_store, _matrix, approval, authority = _approved_bootstrap(
+        tmp_path,
+        monkeypatch,
+    )
+    candidate_store = validation_store.reducer.candidate_store
+    settings = CrossRunSettings.from_dict(
+        load_config(CANONICAL_CONFIG_PATH)["cross_run"]
+    )
+    assembler = ExpertReleaseAssembler(
+        candidate_store=candidate_store,
+        validation_store=validation_store,
+        expert_settings=candidate_store.validator.settings,
+        github_settings=settings.github,
+    )
+    frozen_current = (
+        approval.stage_result.publication_authority_fence.current_release_observation
+    )
+    publisher = _publication_publisher(
+        validation_store=validation_store,
+        assembler=assembler,
+        authority=authority,
+        settings=settings,
+        tmp_path=tmp_path,
+        current_observation=frozen_current,
+        current_pointer=None,
+    )
+    publisher.resolver.read_artifact_intent = (
+        lambda scope_id, artifact_kind, artifact_id: None
+    )
+    publisher.resolver.read_artifact_pointer = (
+        lambda scope_id, artifact_kind, artifact_id: None
+    )
+
+    def stop_before_remote_write(*_arguments, **_keywords):
+        assert (
+            validation_store.reopen_release_publication(
+                approval.snapshot.state.candidate_id
+            )
+            is not None
+        )
+        raise ExpertReleasePublicationError("stop before remote write")
+
+    monkeypatch.setattr(
+        AutonomousGitHubPublisher,
+        "publish",
+        stop_before_remote_write,
+    )
+    with pytest.raises(
+        ExpertReleasePublicationError,
+        match="stop before remote write",
+    ):
+        publisher.publish(
+            candidate_id=approval.snapshot.state.candidate_id,
+            committed_at="2026-07-21T12:00:00Z",
+        )
+
+    reservation = validation_store.reopen_release_publication(
+        approval.snapshot.state.candidate_id
+    )
+    assert reservation is not None
+    assert reservation.plan.lineage == reservation.manifest.lineage
+    assert reservation.intent.committed_at == "2026-07-21T12:00:00Z"
+
+
 @pytest.mark.parametrize(
     ("crash_before_local_commit", "successor_wins_after_activation"),
     ((False, False), (True, True)),
@@ -137,11 +205,9 @@ def test_expert_publisher_derives_package_and_recovers_activation(
         github_settings=settings.github,
     )
     package = assembler.build(candidate_id=approval.snapshot.state.candidate_id)
-    plan = _publication_plan(package, approval, settings)
-    reservation = validation_store.reserve_release_publication(
-        assembler.authorize_publication_plan(package=package, plan=plan),
-        committed_at="2026-07-21T12:00:00Z",
-    ).reservation
+    frozen_current = (
+        approval.stage_result.publication_authority_fence.current_release_observation
+    )
     github_client = object()
     resolver = GitHubArtifactResolver(
         github_client,
@@ -172,17 +238,22 @@ def test_expert_publisher_derives_package_and_recovers_activation(
     )
     current_state = CurrentPointerState(
         pointer=None,
-        head_commit_sha=plan.current_release_observation.default_branch_head_commit_sha,
+        head_commit_sha=frozen_current.default_branch_head_commit_sha,
     )
     resolver.read_current_pointer_state = (
         lambda scope_id, artifact_kind, allow_missing: current_state
     )
-    remote = {"observation": plan.current_release_observation}
+    remote = {"observation": frozen_current}
     monkeypatch.setattr(
         GitHubExpertCurrentReleaseProvider,
         "observe_task_evaluation_current",
         lambda self, scope_id: remote["observation"],
     )
+    reservation = publisher.reserve(
+        candidate_id=approval.snapshot.state.candidate_id,
+        committed_at="2026-07-21T12:00:00Z",
+    ).reservation
+    plan = reservation.plan
     captured = {}
 
     def publish(generic, envelope, *, activation_authorization=None):
@@ -332,13 +403,19 @@ def test_expert_publisher_derives_package_and_recovers_activation(
             simulate_crash_after_remote_activation,
         )
         with pytest.raises(RuntimeError, match="simulated crash"):
-            publisher.publish(candidate_id=plan.candidate_id)
+            publisher.publish(
+                candidate_id=plan.candidate_id,
+                committed_at=reservation.intent.committed_at,
+            )
         monkeypatch.setattr(
             validation_store,
             "commit_release_activation",
             commit_release_activation,
         )
-        recovered_publication = publisher.publish(candidate_id=plan.candidate_id)
+        recovered_publication = publisher.publish(
+            candidate_id=plan.candidate_id,
+            committed_at=reservation.intent.committed_at,
+        )
         assert recovered_publication.telemetry is None
         activation = recovered_publication.activation
         competing_replay = validation_store.commit_release_activation(
@@ -348,7 +425,10 @@ def test_expert_publisher_derives_package_and_recovers_activation(
         assert competing_replay.receipt == activation.receipt
         result = None
     else:
-        result = publisher.publish(candidate_id=plan.candidate_id)
+        result = publisher.publish(
+            candidate_id=plan.candidate_id,
+            committed_at=reservation.intent.committed_at,
+        )
         activation = result.activation
 
     assert activation.receipt.publication_intent_id == (
@@ -404,7 +484,10 @@ def test_expert_publisher_derives_package_and_recovers_activation(
     assert captured["pointer"].publication_record.publication_id in (
         authority.denylist.checked_subject_ids
     )
-    replayed = publisher.publish(candidate_id=plan.candidate_id)
+    replayed = publisher.publish(
+        candidate_id=plan.candidate_id,
+        committed_at=reservation.intent.committed_at,
+    )
     assert replayed.telemetry is None
     assert replayed.activation.replayed is True
     assert replayed.activation.receipt == activation.receipt
@@ -519,13 +602,19 @@ def test_expert_publisher_derives_package_and_recovers_activation(
     assert offline_replay.receipt == revoked.receipt
     assert authority.calls.count("denylist") == denylist_call_count
     with pytest.raises(ExpertReleasePublicationError, match="revoked"):
-        publisher.publish(candidate_id=plan.candidate_id)
+        publisher.publish(
+            candidate_id=plan.candidate_id,
+            committed_at=reservation.intent.committed_at,
+        )
 
     with pytest.raises(ExpertReleasePublicationError, match="immutable"):
         publisher.security_denylist_authority = object()
     generic_publisher.resolver = object()
     with pytest.raises(ExpertReleasePublicationError, match="binding changed"):
-        publisher.publish(candidate_id=plan.candidate_id)
+        publisher.publish(
+            candidate_id=plan.candidate_id,
+            committed_at=reservation.intent.committed_at,
+        )
     revocation_path = validation_store._object_path(
         revoked.receipt.revocation_receipt_id,
         create_namespace=False,

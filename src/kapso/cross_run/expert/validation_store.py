@@ -133,6 +133,7 @@ from kapso.cross_run.expert.release_contracts import (
 from kapso.cross_run.expert.release import (
     EXPERT_RELEASE_MANIFEST_PATH,
     ExpertReleaseAssembler,
+    ExpertReleasePackage,
 )
 from kapso.cross_run.expert.publisher import ExpertReleasePublisher
 from kapso.cross_run.expert.revocation import ExpertReleaseRevocationCoordinator
@@ -398,68 +399,6 @@ class ExpertReleaseRevocationCommitResult:
     receipt: ExpertReleaseRevocationReceipt
     snapshot: ExpertValidationSnapshot
     replayed: bool
-
-
-_RELEASE_PUBLICATION_PLAN_PERMIT_SEAL = object()
-
-
-class ExpertReleasePublicationPlanPermit:
-    """One-shot process-local authority over an assembler-verified release plan."""
-
-    __slots__ = (
-        "_assembler",
-        "_consumed",
-        "_manifest",
-        "_owner_process_id",
-        "_plan",
-        "_store",
-    )
-
-    def __init__(
-        self,
-        seal: object,
-        store: ExpertValidationStore,
-        assembler: object,
-        plan: ExpertReleasePublicationPlan,
-        manifest: ExpertBaseReleaseManifest,
-    ) -> None:
-        if seal is not _RELEASE_PUBLICATION_PLAN_PERMIT_SEAL:
-            raise ExpertValidationStoreError(
-                "release publication plan permit is not store sealed"
-            )
-        object.__setattr__(self, "_store", store)
-        object.__setattr__(self, "_assembler", assembler)
-        object.__setattr__(self, "_owner_process_id", os.getpid())
-        object.__setattr__(self, "_consumed", False)
-        object.__setattr__(self, "_plan", plan)
-        object.__setattr__(self, "_manifest", manifest)
-
-    def __setattr__(self, name, value) -> None:
-        raise ExpertValidationStoreError("release publication plan permit is immutable")
-
-    def _consume(
-        self,
-        store: ExpertValidationStore,
-        assembler: object,
-    ) -> tuple[ExpertReleasePublicationPlan, ExpertBaseReleaseManifest]:
-        self._require_bound(store, assembler)
-        object.__setattr__(self, "_consumed", True)
-        return self._plan, self._manifest
-
-    def _require_bound(
-        self,
-        store: ExpertValidationStore,
-        assembler: object,
-    ) -> None:
-        if (
-            self._consumed
-            or self._store is not store
-            or self._assembler is not assembler
-            or self._owner_process_id != os.getpid()
-        ):
-            raise ExpertValidationStoreError(
-                "release publication plan permit is consumed or foreign"
-            )
 
 
 _RELEASE_PUBLICATION_STALE_PERMIT_SEAL = object()
@@ -823,24 +762,37 @@ class ExpertValidationStore:
         with self._lock(exclusive=False):
             return self._snapshot_unlocked(candidate_id)
 
-    def reserve_release_publication(
+    def _reserve_release_publication(
         self,
-        publication_permit: ExpertReleasePublicationPlanPermit,
+        publisher: object,
         *,
+        plan: ExpertReleasePublicationPlan,
+        package: ExpertReleasePackage,
         committed_at: str,
     ) -> ExpertReleasePublicationReservationCommitResult:
         """Freeze one terminal approval to a first-writer-wins publication intent."""
 
-        if type(publication_permit) is not ExpertReleasePublicationPlanPermit:
+        self._require_bound_release_publisher_authority(publisher)
+        if (
+            type(plan) is not ExpertReleasePublicationPlan
+            or type(package) is not ExpertReleasePackage
+        ):
             raise ExpertValidationStoreError(
-                "release publication reservation requires an assembler-sealed permit"
+                "release publication reservation requires an exact plan and package"
             )
         assembler = self._require_bound_release_assembly_authority(
-            self._release_assembler
+            publisher.assembler
         )
-        publication_permit._require_bound(self, assembler)
-        plan = publication_permit._plan
-        manifest = publication_permit._manifest
+        expected_plan = assembler._derive_publication_plan(
+            package=package,
+            current_release_observation=plan.current_release_observation,
+            activation_predecessor_pointer=plan.activation_predecessor_pointer,
+        )
+        if expected_plan != plan:
+            raise ExpertValidationStoreError(
+                "release publication plan differs from its deterministic package"
+            )
+        manifest = package.manifest
         proposed_intent = ExpertReleasePublicationIntent.mint(
             publication_plan_id=plan.publication_plan_id,
             committed_at=committed_at,
@@ -879,7 +831,6 @@ class ExpertValidationStore:
                     stored_manifest,
                     current,
                 )
-                publication_permit._consume(self, assembler)
                 return ExpertReleasePublicationReservationCommitResult(
                     reservation=ExpertReleasePublicationReservation(
                         intent=stored_intent,
@@ -895,7 +846,6 @@ class ExpertValidationStore:
                 manifest,
                 current,
             )
-            publication_permit._consume(self, assembler)
             self._write_contract_unlocked(manifest)
             self._write_contract_unlocked(plan)
             self._write_contract_unlocked(proposed_intent)
@@ -2037,28 +1987,6 @@ class ExpertValidationStore:
                 "release publication lacks its bound assembler authority"
             )
         return assembler
-
-    def _seal_release_publication_plan(
-        self,
-        assembler: object,
-        plan: ExpertReleasePublicationPlan,
-        manifest: ExpertBaseReleaseManifest,
-    ) -> ExpertReleasePublicationPlanPermit:
-        self._require_bound_release_assembly_authority(assembler)
-        if (
-            type(plan) is not ExpertReleasePublicationPlan
-            or type(manifest) is not ExpertBaseReleaseManifest
-        ):
-            raise ExpertValidationStoreError(
-                "release publication sealing requires exact plan and manifest"
-            )
-        return ExpertReleasePublicationPlanPermit(
-            _RELEASE_PUBLICATION_PLAN_PERMIT_SEAL,
-            self,
-            assembler,
-            plan,
-            manifest,
-        )
 
     def _require_bound_publication_eligibility_authority(
         self,
