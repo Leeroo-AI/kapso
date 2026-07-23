@@ -62,17 +62,29 @@ def test_parse_metric_reads_the_evaluator_line():
         parse_metric("no metric here", "Macro-F1")
 
 
-def test_config_is_web_off_with_selector_for_k2():
+def test_config_is_web_off_but_same_models_as_kaggle():
     with open(CONFIG_PATH) as f:
         mode = yaml.safe_load(f)["modes"]["LOCAL"]
     params = mode["search_strategy"]["params"]
-    # Web-off harvest: single web-free Claude member, NO lens planner, NO codex.
+    # Same models as the Kaggle runs (codex+fable ideation + Fable lens
+    # planner), only web_search muted → leakage-safe on past contests.
+    assert params["web_search"] is False
     ens = params["ideation_ensemble"]
-    assert len(ens) == 2 and all(m["cli"] == "claude_code" for m in ens)  # web-free
-    assert "ideation_lens_planner" not in params  # no web via lens planner
-    assert all(m["cli"] != "codex" for m in ens)  # no codex --search
+    assert [m["cli"] for m in ens] == ["codex", "claude_code"]
+    assert params["ideation_lens_planner"]["model"] == "claude-fable-5"
     assert params["ideation_selector"]["cli"] == "claude_code"
     assert mode["budget"] == {"min_iteration_seconds": 900}
+
+
+def test_codex_ideation_search_flag_gated_by_web_search():
+    import inspect
+
+    from kapso.execution.search_strategies.generic import codex_ideation
+
+    src = inspect.getsource(codex_ideation.run_codex_ideation)
+    # --search is now conditional on the web_search parameter, not hardcoded.
+    assert "web_search: bool = True" in src
+    assert 'if web_search:' in src and '"--search"' in src
 
 
 def test_bobai_acquire_manifests_sequester_answers():

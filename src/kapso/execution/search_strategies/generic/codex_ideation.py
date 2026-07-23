@@ -39,6 +39,7 @@ def run_codex_ideation(
     timeout_seconds: float,
     effort: str | None = None,
     artifacts_dir: str | None = None,
+    web_search: bool = True,
 ) -> tuple[str, bool, float, dict]:
     """Run one read-only `codex exec` ideation call.
 
@@ -72,10 +73,12 @@ def run_codex_ideation(
         persist = False
 
     # --output-last-message isolates the agent's final answer from the
-    # transcript stream; --search enables the native web_search tool.
-    cmd = [
-        "codex",
-        "--search",
+    # transcript stream; --search enables the native web_search tool (dropped
+    # when web_search=False, e.g. leakage-safe harvest runs on past contests).
+    cmd = ["codex"]
+    if web_search:
+        cmd.append("--search")
+    cmd.extend([
         "exec",
         "--sandbox",
         "read-only",
@@ -84,7 +87,7 @@ def run_codex_ideation(
         last_path,
         "-m",
         model,
-    ]
+    ])
     if effort:
         cmd.extend(["-c", f'model_reasoning_effort="{effort}"'])
     # Prompt via stdin, never argv (same self-pkill hazard as the Claude

@@ -445,6 +445,11 @@ class GenericSearch(SearchStrategy):
             self._claude_auth_settings = {"auth_mode": "bedrock"}
         self.aws_region = self.params.get("aws_region", "us-east-1")
         self.ideation_timeout = self.params.get("ideation_timeout", 300)
+        # Ideation web access: gates the codex member's --search AND the lens
+        # planner's WebSearch/WebFetch tools. Default True (Claude members and
+        # implementation never had web). Set False for leakage-safe harvest
+        # runs on past contests whose reference solutions are published online.
+        self.ideation_web_search = self.params.get("web_search", True)
         # Optional reasoning-effort for BOTH agent sessions (ideation and
         # implementation); None keeps the CLI's default.
         self.session_effort = self.params.get("effort")
@@ -1041,7 +1046,8 @@ class GenericSearch(SearchStrategy):
                 "env_strip": self.env_strip,
                 "env_defaults": self.env_defaults,
                 "aws_region": self.aws_region,
-                "allowed_tools": ["Read", "WebSearch", "WebFetch"],
+                "allowed_tools": (["Read", "WebSearch", "WebFetch"]
+                                  if self.ideation_web_search else ["Read"]),
                 "timeout": planner.get("timeout", 600),
                 "streaming": True,
                 "planning_mode": False,
@@ -1121,6 +1127,7 @@ class GenericSearch(SearchStrategy):
                         timeout_seconds=attempt_deadline,
                         effort=member.get("effort"),
                         artifacts_dir=artifacts_dir,
+                        web_search=self.ideation_web_search,
                     )
 
                 def extract(output: str) -> list:

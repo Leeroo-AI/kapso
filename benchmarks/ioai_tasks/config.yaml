@@ -28,20 +28,28 @@ modes:
         implementation_timeout: 7200
         ideation_gates: ["experiment_history", "repo_memory"]
         implementation_gates: ["repo_memory"]
-        # WEB-OFF for harvest runs on PAST-contest tasks: the reference
-        # solution is published online (and in-repo), so web access would leak
-        # the answer. Both ensemble members are Claude (Read + MCP only, NO
-        # web); the two web vectors — the lens planner (WebSearch/WebFetch) and
-        # the codex member (--search) — are omitted. Two web-free members
-        # (different models) keep ensemble diversity + K>1 robust (a single
-        # member's occasional empty response would collapse the pool).
+        # WEB-OFF for harvest runs on PAST-contest tasks: the reference solution
+        # is published online (and in-repo), so web access would leak the
+        # answer. web_search:false gates BOTH web vectors — the codex member's
+        # --search and the lens planner's WebSearch/WebFetch (→ Read only) —
+        # while KEEPING the same models as the Kaggle runs (codex+fable ideation
+        # + Fable lens planner). Claude members + implementation never had web.
+        # Residual (unavoidable, model-agnostic): the models may have MEMORIZED
+        # these past-contest solutions in pretraining; web-off removes active
+        # retrieval, not latent recall.
+        web_search: false
         ideation_ensemble:
+          - cli: "codex"
+            model: "gpt-5.6-sol"
+            effort: "xhigh"
           - cli: "claude_code"
             model: "claude-fable-5"
             effort: "xhigh"
-          - cli: "claude_code"
-            model: "claude-opus-4-8"
-            effort: "xhigh"
+        ideation_lens_planner:
+          cli: "claude_code"
+          model: "claude-fable-5"
+          effort: "max"
+          timeout: 600
         ideation_selector:
           cli: "claude_code"
           model: "claude-opus-4-8"
