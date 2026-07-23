@@ -46,6 +46,7 @@ class AuthenticatedExpertReleaseActivation:
     __slots__ = (
         "_cache_receipt",
         "_manifest",
+        "_materialized",
         "_owner_process_id",
         "_provider",
         "_publication",
@@ -62,7 +63,7 @@ class AuthenticatedExpertReleaseActivation:
         scope_contract: ExpertScopeContract,
         remote: _ResolvedExpertReleaseActivation,
         manifest: ExpertBaseReleaseManifest,
-        cache_receipt: CacheVerificationReceipt,
+        materialized: MaterializedArtifact,
     ) -> None:
         if seal is not _AUTHENTICATED_EXPERT_RELEASE_ACTIVATION_SEAL:
             raise ExpertReleaseActivationAuthorityError(
@@ -77,7 +78,8 @@ class AuthenticatedExpertReleaseActivation:
             self, "_publication", remote.resolved.pointer.publication_record
         )
         object.__setattr__(self, "_witness", remote.witness)
-        object.__setattr__(self, "_cache_receipt", cache_receipt)
+        object.__setattr__(self, "_materialized", materialized)
+        object.__setattr__(self, "_cache_receipt", materialized.receipt)
 
     def __setattr__(self, name: str, value: object) -> None:
         raise ExpertReleaseActivationAuthorityError(
@@ -118,6 +120,11 @@ class AuthenticatedExpertReleaseActivation:
     def cache_receipt(self) -> CacheVerificationReceipt:
         self._require_owner_process()
         return self._cache_receipt
+
+    @property
+    def materialized(self) -> MaterializedArtifact:
+        self._require_owner_process()
+        return self._materialized
 
     def _require_owner_process(self) -> None:
         if self._owner_process_id != os.getpid():
@@ -209,7 +216,7 @@ class GitHubExpertReleaseActivationProvider:
             scope_contract=scope_contract,
             remote=second,
             manifest=second_manifest,
-            cache_receipt=materialized.receipt,
+            materialized=materialized,
         )
 
     def require_exact(
@@ -233,6 +240,7 @@ class GitHubExpertReleaseActivationProvider:
             or refreshed._publication != capability._publication
             or refreshed._witness != capability._witness
             or refreshed._cache_receipt != capability._cache_receipt
+            or refreshed._materialized != capability._materialized
         ):
             raise ExpertReleaseActivationAuthorityError(
                 "expert release activation authority changed after authentication"

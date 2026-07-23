@@ -1288,7 +1288,12 @@ after a complete authenticated blocked lineage reaches bootstrap. Missing histor
 cycles, CURRENT movement, and the configured finite traversal horizon fail loud.
 The content-addressed recovery plan embeds the exact ordered assessments, selected
 source bytes, activation barrier, and complete authority dependency closure while
-classifying historical/barrier proof as control evidence.
+classifying historical/barrier proof as control evidence. Its runtime selection is
+process-local, selector-sealed, non-serializable, and bound to the complete active
+cross-run configuration fingerprint, so a durable plan cannot be replayed as a
+fresh capability. The selected activation also retains its verified materialization;
+the historical composition-base provider reconstructs and revalidates the exact
+source/map/module/book closure directly from those authenticated release bytes.
 
 The remaining recovery path must consume that plan as production-owned authority,
 rerun the full applicable matrix, publish a new immutable release, and CAS-advance

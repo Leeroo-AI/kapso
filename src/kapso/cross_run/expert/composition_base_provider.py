@@ -25,6 +25,9 @@ from kapso.cross_run.expert.composition_base import (
 from kapso.cross_run.expert.replay_authority_contracts import (
     SourceReplayCurrentReleaseObservation,
 )
+from kapso.cross_run.expert.release_authority import (
+    AuthenticatedExpertReleaseActivation,
+)
 from kapso.cross_run.expert.triggers import ExpertSourceBaseTreeReceipt
 from kapso.cross_run.github.materializer import (
     ExpertReleaseSourceSnapshot,
@@ -32,6 +35,7 @@ from kapso.cross_run.github.materializer import (
     MaterializedArtifact,
 )
 from kapso.cross_run.github.resolver import (
+    CurrentArtifactPointer,
     GitHubArtifactResolver,
     ResolvedGitHubArtifact,
 )
@@ -179,7 +183,7 @@ class GitHubExpertCompositionBaseProvider:
             )
         closure = self._build_closure(
             scope_contract=scope_contract,
-            resolved=first,
+            pointer=first.pointer,
             materialized=materialized,
             source_snapshot=source_snapshot,
         )
@@ -208,6 +212,42 @@ class GitHubExpertCompositionBaseProvider:
         current = self._resolve_current(capability.closure.scope_contract.scope_id)
         self._require_same_current(capability._resolved_current, current)
         return self._current_observation(current)
+
+    def resolve_historical(
+        self,
+        scope_contract: ExpertScopeContract,
+        activation: AuthenticatedExpertReleaseActivation,
+    ) -> ExpertCompositionBaseClosure:
+        """Materialize one provider-authenticated historical activation."""
+
+        if (
+            type(scope_contract) is not ExpertScopeContract
+            or type(activation) is not AuthenticatedExpertReleaseActivation
+        ):
+            raise ExpertCompositionBaseProviderError(
+                "historical composition base requires exact activation authority"
+            )
+        materialized = activation.materialized
+        source_snapshot = self._materializer.inspect_expert_release_source(
+            materialized,
+            maximum_entries=self._settings.candidate_entry_limit,
+            maximum_bytes=self._settings.candidate_byte_limit,
+        )
+        if type(source_snapshot) is not ExpertReleaseSourceSnapshot:
+            raise ExpertCompositionBaseProviderError(
+                "historical composition base source snapshot is invalid"
+            )
+        closure = self._build_closure(
+            scope_contract=scope_contract,
+            pointer=activation.pointer,
+            materialized=materialized,
+            source_snapshot=source_snapshot,
+        )
+        if closure.release_manifest != activation.manifest:
+            raise ExpertCompositionBaseProviderError(
+                "historical composition base differs from its activation"
+            )
+        return closure
 
     def _resolve_current(self, scope_id: str) -> ResolvedGitHubArtifact:
         resolved = self._resolver.resolve_current(
@@ -270,11 +310,10 @@ class GitHubExpertCompositionBaseProvider:
     def _build_closure(
         *,
         scope_contract: ExpertScopeContract,
-        resolved: ResolvedGitHubArtifact,
+        pointer: CurrentArtifactPointer,
         materialized: MaterializedArtifact,
         source_snapshot: ExpertReleaseSourceSnapshot,
     ) -> ExpertCompositionBaseClosure:
-        pointer = resolved.pointer
         publication = pointer.publication_record
         cache_receipt = materialized.receipt
         manifest = source_snapshot.release_manifest

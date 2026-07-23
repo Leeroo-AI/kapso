@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 from typing import ClassVar
 
 from kapso.cross_run.canonical import (
@@ -225,6 +226,7 @@ class ExpertCleanForwardRecoveryPlan(StrictContract):
     """Authenticated rollback-as-forward source and activation ordering."""
 
     recovery_plan_id: str
+    configuration_fingerprint: str
     scope_contract: ExpertScopeContract
     current_release_observation: TaskEvaluationCurrentReleaseObservation
     assessments: tuple[ExpertRecoveryReleaseAssessment, ...]
@@ -254,6 +256,17 @@ class ExpertCleanForwardRecoveryPlan(StrictContract):
             )
         scope = self.scope_contract
         current = self.current_release_observation
+        if (
+            not isinstance(self.configuration_fingerprint, str)
+            or re.fullmatch(
+                r"sha256:[0-9a-f]{64}",
+                self.configuration_fingerprint,
+            )
+            is None
+        ):
+            raise ExpertRecoveryContractError(
+                "recovery plan configuration fingerprint is invalid"
+            )
         indices = tuple(assessment.sequence_index for assessment in self.assessments)
         release_ids = tuple(assessment.release_id for assessment in self.assessments)
         if (

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import os
 from typing import Protocol
 
 from kapso.cross_run.canonical import require_content_id, tree_or_blob_digest
@@ -28,7 +28,7 @@ from kapso.cross_run.expert.task_evaluation_authority_contracts import (
 from kapso.cross_run.security_authority_contracts import (
     SecurityDenylistObservation,
 )
-from kapso.cross_run.settings import ExpertSettings
+from kapso.cross_run.settings import CrossRunSettings
 
 
 class ExpertRecoveryBaseError(ValueError):
@@ -61,31 +61,81 @@ class ExpertRecoveryReleaseUseAuthority(Protocol):
     ) -> ExpertReleaseUsePolicyObservation: ...
 
 
-@dataclass(frozen=True)
 class ExpertRecoveryBaseSelection:
     """Runtime result retaining the selected provider-owned source capability."""
 
-    plan: ExpertCleanForwardRecoveryPlan
-    selected_activation: AuthenticatedExpertReleaseActivation | None
+    __slots__ = (
+        "_owner_process_id",
+        "_plan",
+        "_selected_activation",
+        "_selector",
+    )
 
-    def __post_init__(self) -> None:
-        if type(self.plan) is not ExpertCleanForwardRecoveryPlan:
+    def __init__(
+        self,
+        seal: object,
+        selector: ExpertRecoveryBaseSelector,
+        *,
+        plan: ExpertCleanForwardRecoveryPlan,
+        selected_activation: AuthenticatedExpertReleaseActivation | None,
+    ) -> None:
+        if seal is not _EXPERT_RECOVERY_BASE_SELECTION_SEAL:
+            raise ExpertRecoveryBaseError("recovery selection is not selector sealed")
+        if type(plan) is not ExpertCleanForwardRecoveryPlan:
             raise ExpertRecoveryBaseError(
                 "recovery selection requires one exact durable plan"
             )
-        if self.plan.source_base_release_id is None:
-            if self.selected_activation is not None:
+        if plan.source_base_release_id is None:
+            if selected_activation is not None:
                 raise ExpertRecoveryBaseError(
                     "empty recovery selection cannot retain a release capability"
                 )
         elif (
-            type(self.selected_activation) is not AuthenticatedExpertReleaseActivation
-            or self.selected_activation.manifest.release_id
-            != self.plan.source_base_release_id
+            type(selected_activation) is not AuthenticatedExpertReleaseActivation
+            or selected_activation.manifest.release_id != plan.source_base_release_id
         ):
             raise ExpertRecoveryBaseError(
                 "historical recovery selection differs from its live capability"
             )
+        object.__setattr__(self, "_selector", selector)
+        object.__setattr__(self, "_owner_process_id", os.getpid())
+        object.__setattr__(self, "_plan", plan)
+        object.__setattr__(self, "_selected_activation", selected_activation)
+
+    def __setattr__(self, name: str, value: object) -> None:
+        raise ExpertRecoveryBaseError("recovery selection is immutable")
+
+    def __reduce__(self) -> object:
+        raise ExpertRecoveryBaseError("recovery selection cannot be serialized")
+
+    def __reduce_ex__(self, protocol: int) -> object:
+        raise ExpertRecoveryBaseError("recovery selection cannot be serialized")
+
+    @property
+    def plan(self) -> ExpertCleanForwardRecoveryPlan:
+        self._require_owner_process()
+        return self._plan
+
+    @property
+    def selected_activation(
+        self,
+    ) -> AuthenticatedExpertReleaseActivation | None:
+        self._require_owner_process()
+        return self._selected_activation
+
+    def _require_bound(self, selector: ExpertRecoveryBaseSelector) -> None:
+        self._require_owner_process()
+        if self._selector is not selector:
+            raise ExpertRecoveryBaseError(
+                "recovery selection belongs to another selector"
+            )
+
+    def _require_owner_process(self) -> None:
+        if self._owner_process_id != os.getpid():
+            raise ExpertRecoveryBaseError("recovery selection is foreign")
+
+
+_EXPERT_RECOVERY_BASE_SELECTION_SEAL = object()
 
 
 class ExpertRecoveryBaseSelector:
@@ -102,14 +152,14 @@ class ExpertRecoveryBaseSelector:
     def __init__(
         self,
         *,
-        settings: ExpertSettings,
+        settings: CrossRunSettings,
         activation_provider: GitHubExpertReleaseActivationProvider,
         current_authority: ExpertRecoveryCurrentReleaseAuthority,
         security_authority: ExpertRecoverySecurityAuthority,
         release_use_authority: ExpertRecoveryReleaseUseAuthority,
     ) -> None:
         if (
-            type(settings) is not ExpertSettings
+            type(settings) is not CrossRunSettings
             or type(activation_provider) is not GitHubExpertReleaseActivationProvider
         ):
             raise ExpertRecoveryBaseError(
@@ -147,7 +197,7 @@ class ExpertRecoveryBaseSelector:
         seen_release_ids: set[str] = set()
         assessments: list[ExpertRecoveryReleaseAssessment] = []
         selected_activation = None
-        for sequence_index in range(self._settings.recovery_lineage_limit):
+        for sequence_index in range(self._settings.expert.recovery_lineage_limit):
             require_content_id(release_id, "recovery historical release")
             if release_id in seen_release_ids:
                 raise ExpertRecoveryBaseError(
@@ -286,6 +336,7 @@ class ExpertRecoveryBaseSelector:
         if source_base_repository_map_ref is not None:
             dependencies.add(source_base_repository_map_ref)
         plan = ExpertCleanForwardRecoveryPlan.mint(
+            configuration_fingerprint=self._settings.configuration_fingerprint,
             scope_contract=scope_contract,
             current_release_observation=current_before,
             assessments=assessments,
@@ -296,6 +347,8 @@ class ExpertRecoveryBaseSelector:
             exact_dependency_ids=tuple(sorted(dependencies)),
         )
         return ExpertRecoveryBaseSelection(
+            _EXPERT_RECOVERY_BASE_SELECTION_SEAL,
+            self,
             plan=plan,
             selected_activation=selected_activation,
         )

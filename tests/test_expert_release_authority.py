@@ -14,13 +14,19 @@ from kapso.cross_run.canonical import (
     tree_or_blob_digest,
 )
 from kapso.cross_run.contracts import PublicationArtifactKind
+from kapso.cross_run.expert.composition_base_provider import (
+    GitHubExpertCompositionBaseProvider,
+)
 from kapso.cross_run.expert.release_authority import (
     AuthenticatedExpertReleaseActivation,
     ExpertReleaseActivationAuthorityError,
     GitHubExpertReleaseActivationProvider,
 )
 from kapso.cross_run.git_refs import git_object_sha, git_tree_shas
-from kapso.cross_run.github.materializer import MaterializedArtifact
+from kapso.cross_run.github.materializer import (
+    ExpertReleaseSourceSnapshot,
+    MaterializedArtifact,
+)
 from kapso.cross_run.github.resolver import (
     ArtifactPublicationIntent,
     GitHubArtifactActivationWitness,
@@ -28,7 +34,7 @@ from kapso.cross_run.github.resolver import (
     PublicationSourceFile,
 )
 from test_expert_composition_base import _case, _remint
-from test_expert_composition_base_provider import _resolved
+from test_expert_composition_base_provider import _resolved, _settings
 
 
 class _Resolver:
@@ -78,9 +84,10 @@ class _Resolver:
 
 
 class _Materializer:
-    def __init__(self, materialized, manifests) -> None:
+    def __init__(self, materialized, manifests, source_snapshot) -> None:
         self.materialized = materialized
         self.manifests = list(manifests)
+        self.source_snapshot = source_snapshot
         self.materialize_calls = []
         self.inspect_calls = []
 
@@ -97,6 +104,16 @@ class _Materializer:
     def inspect_expert_release_manifest(self, materialized):
         self.inspect_calls.append(materialized)
         return self._next(self.manifests)
+
+    def inspect_expert_release_source(
+        self,
+        materialized,
+        *,
+        maximum_entries,
+        maximum_bytes,
+    ):
+        self.inspect_calls.append((materialized, maximum_entries, maximum_bytes))
+        return self.source_snapshot
 
 
 def _authority_fixture(
@@ -200,6 +217,13 @@ def _authority_fixture(
     materializer = _Materializer(
         materialized,
         manifest_overrides or (case.release,),
+        ExpertReleaseSourceSnapshot(
+            release_manifest=case.release,
+            source_extraction_receipt=(
+                case.source_base_receipt.source_extraction_receipt
+            ),
+            source_contents=case.source_contents,
+        ),
     )
     provider = GitHubExpertReleaseActivationProvider(resolver, materializer)
     return case, resolved, intent, witness, resolver, materializer, provider
@@ -237,6 +261,28 @@ def test_fresh_host_resolves_historical_activation_without_validation_store() ->
         materializer.materialized,
     ]
     assert intent.binds(resolved.pointer)
+
+
+def test_historical_activation_materializes_an_exact_composition_base() -> None:
+    case, _, _, _, resolver, materializer, release_provider = _authority_fixture()
+    activation = release_provider.resolve_exact(
+        case.scope,
+        case.release.release_id,
+    )
+    composition_provider = GitHubExpertCompositionBaseProvider(
+        resolver,
+        materializer,
+        _settings(),
+    )
+
+    closure = composition_provider.resolve_historical(
+        case.scope,
+        activation,
+    )
+
+    assert closure.release_manifest == activation.manifest
+    assert closure.source_contents == case.source_contents
+    assert closure.reference.release_id == case.release.release_id
 
 
 def test_historical_activation_provider_is_exported_from_expert_facade() -> None:
@@ -358,7 +404,7 @@ def test_capability_is_unforgeable_unpicklable_and_provider_bound() -> None:
             scope_contract=case.scope,
             remote=capability._remote,
             manifest=capability.manifest,
-            cache_receipt=capability.cache_receipt,
+            materialized=capability.materialized,
         )
     with pytest.raises(
         ExpertReleaseActivationAuthorityError,

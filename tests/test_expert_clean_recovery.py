@@ -23,6 +23,7 @@ from kapso.cross_run.contracts import (
 )
 from kapso.cross_run.expert.recovery_base import (
     ExpertRecoveryBaseError,
+    ExpertRecoveryBaseSelection,
     ExpertRecoveryBaseSelector,
 )
 from kapso.cross_run.expert.recovery_contracts import ExpertRecoveryContractError
@@ -441,7 +442,7 @@ def _fixture(
         release_use_blocked,
     )
     selector = ExpertRecoveryBaseSelector(
-        settings=settings.expert,
+        settings=settings,
         activation_provider=provider,
         current_authority=current_authority,
         security_authority=security,
@@ -470,6 +471,9 @@ def test_recovery_selects_newest_clear_historical_release():
 
     assert result.plan.activation_predecessor_release_id == barrier.release_id
     assert result.plan.source_base_release_id == selected.release_id
+    assert (
+        result.plan.configuration_fingerprint == _settings().configuration_fingerprint
+    )
     assert result.selected_activation.manifest == selected
     assert tuple(assessment.release_id for assessment in result.plan.assessments) == (
         barrier.release_id,
@@ -570,6 +574,21 @@ def test_recovery_assessment_rejects_cache_asset_substitution():
         match="authorities do not join",
     ):
         replace(assessment, cache_receipt=substituted_receipt)
+
+
+def test_recovery_selection_cannot_be_reconstructed_from_its_durable_plan():
+    fixture = _fixture()
+    barrier = fixture.releases[0]
+    fixture.release_use.blocked_release_ids.add(barrier.release_id)
+    selection = fixture.selector.select(fixture.case.scope)
+
+    with pytest.raises(ExpertRecoveryBaseError, match="not selector sealed"):
+        ExpertRecoveryBaseSelection(
+            object(),
+            fixture.selector,
+            plan=selection.plan,
+            selected_activation=selection.selected_activation,
+        )
 
 
 @pytest.mark.parametrize("failure", ("depth", "current_movement", "clear_current"))
