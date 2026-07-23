@@ -514,7 +514,7 @@ def source_replay_publication_security_subject_ids(
         current_release_observation.observation_id,
         current_release_observation.publication_id,
         *current_release_observation.validation_closure_ids,
-        *parent.dependency_closure_ids,
+        *parent.consumed_dependency_ids,
         *candidate.source_dependency_ids,
         *candidate.ancestor_candidate_ids,
         candidate.sanitation_report_id,

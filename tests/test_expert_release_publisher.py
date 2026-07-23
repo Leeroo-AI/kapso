@@ -27,6 +27,10 @@ from kapso.cross_run.expert.release import (
     EXPERT_RELEASE_MANIFEST_PATH,
     ExpertReleaseAssembler,
 )
+from kapso.cross_run.expert.release_contracts import (
+    ExpertReleaseActivationReceipt,
+    ExpertReleaseContractError,
+)
 from kapso.cross_run.expert.revocation import (
     ExpertReleaseRevocationCoordinator,
     ExpertReleaseRevocationError,
@@ -352,6 +356,43 @@ def test_expert_publisher_derives_package_and_recovers_activation(
     )
     assert activation.snapshot.state.promotion_state.value == "released"
     assert activation.receipt.observed_current_release == remote["observation"]
+    assert activation.receipt.release_id in (activation.receipt.consumed_dependency_ids)
+    assert activation.receipt.observed_current_release.observation_id in (
+        activation.receipt.control_dependency_ids
+    )
+    reclassified_dependency = activation.receipt.control_dependency_ids[0]
+    with pytest.raises(
+        ExpertReleaseContractError,
+        match="control dependencies|categorized",
+    ):
+        ExpertReleaseActivationReceipt.mint(
+            publication_intent_id=activation.receipt.publication_intent_id,
+            publication_plan_id=activation.receipt.publication_plan_id,
+            release_id=activation.receipt.release_id,
+            candidate_id=activation.receipt.candidate_id,
+            approval_transition_id=activation.receipt.approval_transition_id,
+            approval_state_id=activation.receipt.approval_state_id,
+            planned_current_observation_id=(
+                activation.receipt.planned_current_observation_id
+            ),
+            github_publication_intent=activation.receipt.github_publication_intent,
+            github_publication_pointer=activation.receipt.github_publication_pointer,
+            activation_witness=activation.receipt.activation_witness,
+            observed_current_release=activation.receipt.observed_current_release,
+            consumed_dependency_ids=tuple(
+                sorted(
+                    {
+                        *activation.receipt.consumed_dependency_ids,
+                        reclassified_dependency,
+                    }
+                )
+            ),
+            control_dependency_ids=tuple(
+                dependency_id
+                for dependency_id in activation.receipt.control_dependency_ids
+                if dependency_id != reclassified_dependency
+            ),
+        )
     assert captured["publish_calls"] == 1
     if result is not None:
         assert result.telemetry.publication_record.artifact_id == plan.release_id
@@ -453,10 +494,13 @@ def test_expert_publisher_derives_package_and_recovers_activation(
     checked_revocation_subjects = set(
         revoked.receipt.security_denylist_observation.checked_subject_ids
     )
-    assert set(package.manifest.dependency_closure_ids).issubset(
+    assert set(package.manifest.consumed_dependency_ids).issubset(
         checked_revocation_subjects
     )
-    assert set(activation.receipt.exact_dependency_ids).issubset(
+    assert set(activation.receipt.consumed_dependency_ids).issubset(
+        checked_revocation_subjects
+    )
+    assert set(activation.receipt.control_dependency_ids).isdisjoint(
         checked_revocation_subjects
     )
     assert activation.receipt.activation_receipt_id in (

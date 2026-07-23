@@ -183,7 +183,7 @@ def _current_base_capability(case, provider):
                 observation.observation_id,
                 observation.publication_id,
                 *observation.validation_closure_ids,
-                *base.release_manifest.dependency_closure_ids,
+                *base.release_manifest.consumed_dependency_ids,
             }
         )
     )

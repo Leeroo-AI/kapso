@@ -679,16 +679,17 @@ def test_uncovered_admitted_task_family_requests_an_architecture_candidate():
         evidence_manifest_ref=release.evidence_manifest_ref,
         test_matrix_summary_ref=release.test_matrix_summary_ref,
         evidence_dependency_ids=release.evidence_dependency_ids,
-        dependency_closure_ids=tuple(
-            sorted(
-                {
-                    *release.dependency_closure_ids,
-                    limited_map.repository_map_id,
-                }
-            )
-        ),
-        checksums=release.checksums,
-    )
+            consumed_dependency_ids=tuple(
+                sorted(
+                    {
+                        *release.consumed_dependency_ids,
+                        limited_map.repository_map_id,
+                    }
+                )
+            ),
+            control_dependency_ids=release.control_dependency_ids,
+            checksums=release.checksums,
+        )
 
     inactive_packet = trigger_packet(
         settings=settings,

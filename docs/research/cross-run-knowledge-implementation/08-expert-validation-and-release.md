@@ -1225,6 +1225,30 @@ witnessed release remains `RELEASED` after any number of successors; a prepared
 loser becomes stale only after a witnessed competitor remains stable and the loser
 witness is rechecked absent. Commit ancestry is intentionally insufficient.
 
+Release proof edges are now categorized rather than inferred from one
+undifferentiated closure. `ExpertBaseReleaseManifest.consumed_dependency_ids` is
+the exact taint-propagating source, candidate, validation, and evidence closure;
+an ordinary release has no control dependencies. `ExpertReleaseActivationReceipt`
+separately persists the consumed release/publication proof and remaining
+control-only planned/current evidence after exact overlap removal. Their sets are
+exact and disjoint. Emergency
+revocation projects only the consumed set, while both sets remain
+content-addressed audit evidence. This is the required substrate for clean forward
+recovery: a revoked CURRENT predecessor may later be retained as ordering evidence
+without being laundered into, or re-tainting, a clean source lineage.
+
+Clean recovery will be a dedicated whole-tree rollback-as-forward path, not an
+exception in the normal zero-match gate. It separates the independently clean
+source/comparison base from the actual activation predecessor. Normal evolution
+requires those releases to be equal. Recovery selects the newest separately
+authenticated clean historical base, or the canonical empty tree, reruns the full
+applicable matrix, publishes a new immutable release, and CAS-advances from the
+durably revoked CURRENT release. A typed recovery plan and fresh authority fence
+must prove that every consumed subject is clear and that every allowed match is an
+exact control-only revocation of the publication barrier. Partial repair from
+revoked source bytes remains unsupported until content-level consuming-edge
+provenance can prove exclusion.
+
 ## Revocation
 
 The authenticated security control plane is implemented as one dedicated
@@ -1285,6 +1309,8 @@ fails before touching GitHub.
 - [ ] Extend the same fresh check to M9 launch and resume.
 - [x] Propagate emergency taint through exact module/candidate/release proof
       dependencies and persist the matched root records in the release receipt.
+- [x] Separate taint-propagating consumed dependencies from control-only activation
+      evidence, with exact disjoint closures and fail-loud replay validation.
 - [ ] Publish a clean successor/rollback pointer; never move or delete the old
       immutable release as the history mechanism.
 

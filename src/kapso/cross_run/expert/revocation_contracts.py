@@ -82,8 +82,8 @@ def expert_release_revocation_security_subject_ids(
         activation_receipt.activation_receipt_id,
         activation_receipt.release_id,
         validation_attempt.candidate_id,
-        *activation_receipt.exact_dependency_ids,
-        *release_manifest.dependency_closure_ids,
+        *activation_receipt.consumed_dependency_ids,
+        *release_manifest.consumed_dependency_ids,
     }
     return tuple(sorted(subjects))
 

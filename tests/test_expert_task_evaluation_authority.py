@@ -215,7 +215,7 @@ def test_parent_spawn_fence_binds_complete_exact_fresh_authority(
         subject_ids
     )
     assert set(prepared.plan_join.request.exact_dependency_ids).issubset(subject_ids)
-    assert set(prepared.parent.release_manifest.dependency_closure_ids).issubset(
+    assert set(prepared.parent.release_manifest.consumed_dependency_ids).issubset(
         subject_ids
     )
     first_case = prepared.plan_join.request.cases[0]

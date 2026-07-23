@@ -210,7 +210,8 @@ def build_expert_envelope(tmp_path):
         evidence_manifest_ref=release_ids["expert-release-evidence-manifest"],
         test_matrix_summary_ref=release_ids["expert-release-matrix-summary"],
         evidence_dependency_ids=(release_ids["expert-release-evidence-manifest"],),
-        dependency_closure_ids=dependencies,
+        consumed_dependency_ids=dependencies,
+        control_dependency_ids=(),
         checksums={
             "expert-source.tar.zst": tree_or_blob_digest(source_payload),
             "expert-evidence.tar.zst": tree_or_blob_digest(evidence_payload),
@@ -240,7 +241,13 @@ def build_expert_envelope(tmp_path):
         tag="expert/E000000",
         committed_at="2026-07-20T15:00:00Z",
         validation_closure_ids=tuple(
-            sorted({manifest.release_id, *manifest.dependency_closure_ids})
+            sorted(
+                {
+                    manifest.release_id,
+                    *manifest.consumed_dependency_ids,
+                    *manifest.control_dependency_ids,
+                }
+            )
         ),
     )
 

@@ -544,7 +544,8 @@ def build_records(
         evidence_manifest_ref=release_ids["expert-release-evidence-manifest"],
         test_matrix_summary_ref=release_ids["expert-release-matrix-summary"],
         evidence_dependency_ids=release_dependencies,
-        dependency_closure_ids=release_dependencies,
+        consumed_dependency_ids=release_dependencies,
+        control_dependency_ids=(),
         checksums={
             "expert.tar.zst": digest("expert-archive"),
             "expert-evidence.tar.zst": digest("expert-evidence"),

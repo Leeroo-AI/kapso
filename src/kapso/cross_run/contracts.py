@@ -4491,7 +4491,8 @@ class ExpertBaseReleaseManifest(StrictContract):
     evidence_manifest_ref: str
     test_matrix_summary_ref: str
     evidence_dependency_ids: tuple[str, ...]
-    dependency_closure_ids: tuple[str, ...]
+    consumed_dependency_ids: tuple[str, ...]
+    control_dependency_ids: tuple[str, ...]
     checksums: Mapping[str, str]
 
     CONTENT_NAMESPACE: ClassVar[str] = "expert-base-release"
@@ -4657,9 +4658,25 @@ class ExpertBaseReleaseManifest(StrictContract):
         _require_sorted_unique(self.evidence_dependency_ids, "evidence_dependency_ids")
         for value in self.evidence_dependency_ids:
             require_content_id(value, "evidence_dependency_ids")
-        _require_sorted_unique(self.dependency_closure_ids, "dependency_closure_ids")
-        for value in self.dependency_closure_ids:
-            require_content_id(value, "dependency_closure_ids")
+        _require_sorted_unique(
+            self.consumed_dependency_ids,
+            "consumed_dependency_ids",
+        )
+        if self.control_dependency_ids != tuple(
+            sorted(set(self.control_dependency_ids))
+        ):
+            raise ContractValidationError(
+                "control_dependency_ids must be sorted and unique"
+            )
+        for value in (
+            *self.consumed_dependency_ids,
+            *self.control_dependency_ids,
+        ):
+            require_content_id(value, "expert release categorized dependency")
+        if set(self.consumed_dependency_ids) & set(self.control_dependency_ids):
+            raise ContractValidationError(
+                "expert release consumed and control dependencies overlap"
+            )
         required_dependencies = {
             self.scope_contract_id,
             self.candidate_id,
@@ -4688,9 +4705,13 @@ class ExpertBaseReleaseManifest(StrictContract):
         if self.parent_release_id is not None:
             required_dependencies.add(self.parent_release_id)
         required_dependencies.update(self.evidence_dependency_ids)
-        if set(self.dependency_closure_ids) != required_dependencies:
+        if set(self.consumed_dependency_ids) != required_dependencies:
             raise MissingReferenceError(
-                "expert release dependency closure is not exact"
+                "expert release consumed dependency closure is not exact"
+            )
+        if self.control_dependency_ids:
+            raise ContractValidationError(
+                "ordinary expert release cannot carry control dependencies"
             )
         _require_checksum_mapping(self.checksums, "checksums")
         if not {
@@ -5380,6 +5401,7 @@ class SecurityDenylistSnapshot(StrictContract):
             raise ContractValidationError(
                 "security denylist evidence bundle is not its exact closure"
             )
+
 
 @dataclass(frozen=True)
 class GitHubReleaseAsset(StrictContract):

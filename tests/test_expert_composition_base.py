@@ -293,10 +293,10 @@ def test_rejects_release_topology_substitution(substitution):
         release = _remint(
             case.release,
             repository_map_ref=foreign_map_id,
-            dependency_closure_ids=tuple(
+            consumed_dependency_ids=tuple(
                 sorted(
                     {
-                        *case.release.dependency_closure_ids,
+                        *case.release.consumed_dependency_ids,
                         foreign_map_id,
                     }
                 )

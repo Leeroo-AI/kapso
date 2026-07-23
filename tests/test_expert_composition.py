@@ -108,7 +108,7 @@ def _released_base(
     if parent_release is None:
         raise AssertionError("composition test source unexpectedly bootstraps")
     book = source_contents["EXPERT_REPO.md"]
-    dependency_closure = set(parent_release.dependency_closure_ids)
+    dependency_closure = set(parent_release.consumed_dependency_ids)
     dependency_closure.add(repository_map.repository_map_id)
     dependency_closure.add(parent_release.release_id)
     dependency_closure.update(module.module_contract_id for module in module_contracts)
@@ -123,7 +123,7 @@ def _released_base(
             module.module_id: module.version for module in module_contracts
         },
         semantic_book_digest=tree_or_blob_digest(book),
-        dependency_closure_ids=tuple(sorted(dependency_closure)),
+        consumed_dependency_ids=tuple(sorted(dependency_closure)),
         checksums={
             **parent_release.checksums,
             parent_release.source_archive_ref: _digest(f"{label} source archive"),

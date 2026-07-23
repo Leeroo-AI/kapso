@@ -1094,24 +1094,29 @@ class ExpertValidationStore:
         github_intent = activation_permit._github_publication_intent
         github_pointer = activation_permit._github_publication_pointer
         activation_witness = activation_permit._activation_witness
-        dependencies = {
+        consumed_dependencies = {
             reservation.intent.publication_intent_id,
             plan.publication_plan_id,
             plan.release_id,
             plan.candidate_id,
             plan.approval_transition_id,
             plan.approval_state_id,
-            plan.current_release_observation.observation_id,
             github_pointer.publication_record.publication_id,
             activation_witness.witness_id,
+            plan.release_id,
+            *plan.manifest_consumed_dependency_ids,
+        }
+        control_dependencies = {
+            *plan.manifest_control_dependency_ids,
+            plan.current_release_observation.observation_id,
             observed.observation_id,
-            *github_intent.validation_closure_ids,
             *observed.validation_closure_ids,
         }
         if observed.release_id is not None:
-            dependencies.add(observed.release_id)
+            control_dependencies.add(observed.release_id)
         if observed.publication_id is not None:
-            dependencies.add(observed.publication_id)
+            control_dependencies.add(observed.publication_id)
+        control_dependencies.difference_update(consumed_dependencies)
         receipt = ExpertReleaseActivationReceipt.mint(
             publication_intent_id=reservation.intent.publication_intent_id,
             publication_plan_id=plan.publication_plan_id,
@@ -1126,7 +1131,8 @@ class ExpertValidationStore:
             github_publication_pointer=github_pointer,
             activation_witness=activation_witness,
             observed_current_release=observed,
-            exact_dependency_ids=tuple(sorted(dependencies)),
+            consumed_dependency_ids=tuple(sorted(consumed_dependencies)),
+            control_dependency_ids=tuple(sorted(control_dependencies)),
         )
         operation = ExpertValidationOperation.mint(
             operation_kind=ExpertValidationOperationKind.RELEASE_ACTIVATION,
@@ -4708,7 +4714,8 @@ class ExpertValidationStore:
             != manifest.publication_eligibility_result_id
             or plan.parent_release_id != manifest.parent_release_id
             or plan.manifest_digest != tree_or_blob_digest(manifest.to_json_bytes())
-            or plan.manifest_dependency_ids != manifest.dependency_closure_ids
+            or plan.manifest_consumed_dependency_ids != manifest.consumed_dependency_ids
+            or plan.manifest_control_dependency_ids != manifest.control_dependency_ids
             or attempt is None
             or type(publication_result)
             is not ExpertPublicationEligibilityStageResultRecord

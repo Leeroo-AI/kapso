@@ -1527,6 +1527,29 @@ class ExpertValidationReducer:
         """Record the historical fact that an approved release won CURRENT."""
 
         policy = self.settings.policy.validation_policy()
+        consumed_dependencies = {
+            receipt.publication_intent_id,
+            receipt.publication_plan_id,
+            receipt.release_id,
+            receipt.candidate_id,
+            receipt.approval_transition_id,
+            receipt.approval_state_id,
+            receipt.github_publication_pointer.publication_record.publication_id,
+            receipt.activation_witness.witness_id,
+            plan.release_id,
+            *plan.manifest_consumed_dependency_ids,
+        }
+        control_dependencies = {
+            *plan.manifest_control_dependency_ids,
+            receipt.planned_current_observation_id,
+            receipt.observed_current_release.observation_id,
+            *receipt.observed_current_release.validation_closure_ids,
+        }
+        if receipt.observed_current_release.release_id is not None:
+            control_dependencies.add(receipt.observed_current_release.release_id)
+        if receipt.observed_current_release.publication_id is not None:
+            control_dependencies.add(receipt.observed_current_release.publication_id)
+        control_dependencies.difference_update(consumed_dependencies)
         if (
             type(plan) is not ExpertReleasePublicationPlan
             or type(receipt) is not ExpertReleaseActivationReceipt
@@ -1548,6 +1571,8 @@ class ExpertValidationReducer:
             or receipt.approval_state_id != state.validation_state_id
             or receipt.planned_current_observation_id
             != plan.current_release_observation.observation_id
+            or set(receipt.consumed_dependency_ids) != consumed_dependencies
+            or set(receipt.control_dependency_ids) != control_dependencies
             or tuple(item.stage for item in state.accepted_stage_results)
             != attempt.required_stages
         ):

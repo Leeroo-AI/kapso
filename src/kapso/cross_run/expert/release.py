@@ -229,9 +229,14 @@ class ExpertReleaseAssembler:
                 }
             )
             or plan.assets != expected_assets
-            or plan.manifest_dependency_ids != manifest.dependency_closure_ids
+            or plan.manifest_consumed_dependency_ids != manifest.consumed_dependency_ids
+            or plan.manifest_control_dependency_ids != manifest.control_dependency_ids
             or set(plan.validation_closure_ids)
-            != {manifest.release_id, *manifest.dependency_closure_ids}
+            != {
+                manifest.release_id,
+                *manifest.consumed_dependency_ids,
+                *manifest.control_dependency_ids,
+            }
         ):
             raise ExpertReleaseAssemblyError(
                 "publication plan differs from exact release package"
@@ -399,9 +404,10 @@ class ExpertReleaseAssembler:
             evidence_manifest_ref=evidence_manifest.evidence_manifest_id,
             test_matrix_summary_ref=matrix_summary.summary_id,
             evidence_dependency_ids=evidence_dependency_ids,
-            dependency_closure_ids=tuple(
+            consumed_dependency_ids=tuple(
                 sorted({*direct_dependencies, *evidence_dependency_ids})
             ),
+            control_dependency_ids=(),
             checksums={
                 **{
                     path: tree_or_blob_digest(payload)
@@ -494,7 +500,7 @@ class ExpertReleaseAssembler:
             or evidence.record_ids != observed_record_ids
             or not self._evidence_records_join_manifest(manifest, evidence_records)
             or manifest.evidence_dependency_ids != evidence_dependency_ids
-            or set(manifest.dependency_closure_ids)
+            or set(manifest.consumed_dependency_ids)
             != {
                 manifest.scope_contract_id,
                 manifest.candidate_id,
@@ -522,6 +528,7 @@ class ExpertReleaseAssembler:
                 *manifest.evidence_dependency_ids,
                 *((manifest.parent_release_id,) if manifest.parent_release_id else ()),
             }
+            or manifest.control_dependency_ids
             or (
                 manifest.candidate_id,
                 manifest.candidate_commit_record_id,

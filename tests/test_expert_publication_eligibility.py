@@ -861,7 +861,7 @@ def test_composition_candidate_security_subjects_cover_outer_and_source_authorit
                 current_observation.observation_id,
                 current_observation.publication_id,
                 *current_observation.validation_closure_ids,
-                *parent_base.release_manifest.dependency_closure_ids,
+                *parent_base.release_manifest.consumed_dependency_ids,
             }
         )
     )
@@ -955,7 +955,7 @@ def test_composition_candidate_security_subjects_cover_outer_and_source_authorit
     assert set(provenance.validation_context.stable_dependency_ids).issubset(subjects)
     assert provenance.validation_context.parent_release is not None
     assert set(
-        provenance.validation_context.parent_release.dependency_closure_ids
+        provenance.validation_context.parent_release.consumed_dependency_ids
     ).issubset(subjects)
 
     source = provenance.reduction_source

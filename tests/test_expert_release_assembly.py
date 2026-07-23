@@ -161,12 +161,14 @@ def _publication_plan(package, approval, settings):
             }
         ),
         assets=assets,
-        manifest_dependency_ids=package.manifest.dependency_closure_ids,
+        manifest_consumed_dependency_ids=package.manifest.consumed_dependency_ids,
+        manifest_control_dependency_ids=package.manifest.control_dependency_ids,
         validation_closure_ids=tuple(
             sorted(
                 {
                     package.manifest.release_id,
-                    *package.manifest.dependency_closure_ids,
+                    *package.manifest.consumed_dependency_ids,
+                    *package.manifest.control_dependency_ids,
                 }
             )
         ),
@@ -333,7 +335,7 @@ def test_release_assembly_is_exact_deterministic_and_approval_only(
         }
     )
     assert first.evidence_manifest.evidence_manifest_id in (
-        first.manifest.dependency_closure_ids
+        first.manifest.consumed_dependency_ids
     )
     assert EXPERT_RELEASE_EVIDENCE_MANIFEST_PATH in first.evidence_files
     assert EXPERT_RELEASE_MANIFEST_PATH in first.publication_files
@@ -355,10 +357,10 @@ def test_release_assembly_is_exact_deterministic_and_approval_only(
     with pytest.raises(ValueError, match="not exact"):
         replace(
             first.manifest,
-            dependency_closure_ids=tuple(
+            consumed_dependency_ids=tuple(
                 sorted(
                     {
-                        *first.manifest.dependency_closure_ids,
+                        *first.manifest.consumed_dependency_ids,
                         unrelated_dependency,
                     }
                 )

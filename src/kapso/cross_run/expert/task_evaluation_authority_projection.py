@@ -112,7 +112,7 @@ def task_evaluation_spawn_security_subject_ids(
     if current.publication_id is not None:
         subject_ids.add(current.publication_id)
     if prepared.parent is not None:
-        subject_ids.update(prepared.parent.release_manifest.dependency_closure_ids)
+        subject_ids.update(prepared.parent.release_manifest.consumed_dependency_ids)
     for observation in task_adapter_trust_observations:
         subject_ids.update(
             {

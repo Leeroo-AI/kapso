@@ -516,7 +516,7 @@ def publication_eligibility_security_subject_ids(
         subjects.add(attempt.parent_release_id)
     parent_release = validation_context.parent_release
     if parent_release is not None:
-        subjects.update(parent_release.dependency_closure_ids)
+        subjects.update(parent_release.consumed_dependency_ids)
     if current_release_observation.publication_id is not None:
         subjects.add(current_release_observation.publication_id)
     for result in snapshot.accepted_stage_results:
@@ -727,7 +727,7 @@ def _composition_source_security_subject_ids(
         {
             source_reference.source_reference_id,
             *source_reference.stable_authority_ids,
-            *parent_release.dependency_closure_ids,
+            *parent_release.consumed_dependency_ids,
             *_agent_derivation_security_subject_ids(provenance.agent_derivation),
         }
     )

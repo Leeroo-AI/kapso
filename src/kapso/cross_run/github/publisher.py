@@ -834,7 +834,13 @@ class AutonomousGitHubPublisher:
             manifest_id = manifest.release_id
             manifest_scope = manifest.scope_id
             required_validation_closure = tuple(
-                sorted({manifest.release_id, *manifest.dependency_closure_ids})
+                sorted(
+                    {
+                        manifest.release_id,
+                        *manifest.consumed_dependency_ids,
+                        *manifest.control_dependency_ids,
+                    }
+                )
             )
             if envelope.validation_closure_ids != required_validation_closure:
                 raise GitHubPublicationError(

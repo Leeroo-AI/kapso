@@ -421,7 +421,8 @@ def test_materializer_accepts_split_expert_source_and_release_assets(
         evidence_manifest_ref=release_ids["expert-release-evidence-manifest"],
         test_matrix_summary_ref=release_ids["expert-release-matrix-summary"],
         evidence_dependency_ids=dependencies,
-        dependency_closure_ids=dependencies,
+        consumed_dependency_ids=dependencies,
+        control_dependency_ids=(),
         checksums={
             "expert-source.tar": tree_or_blob_digest(source_archive),
             "expert-evidence.tar": tree_or_blob_digest(evidence_archive),

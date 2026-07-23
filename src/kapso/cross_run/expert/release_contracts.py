@@ -52,8 +52,13 @@ def _require_digest(value: str, name: str) -> None:
         raise ExpertReleaseContractError(f"{name} must be a sha256 digest")
 
 
-def _require_sorted_content_ids(values: tuple[str, ...], name: str) -> None:
-    if not values or values != tuple(sorted(set(values))):
+def _require_sorted_content_ids(
+    values: tuple[str, ...],
+    name: str,
+    *,
+    required: bool = True,
+) -> None:
+    if (required and not values) or values != tuple(sorted(set(values))):
         raise ExpertReleaseContractError(
             f"{name} must be non-empty, sorted, and unique"
         )
@@ -251,7 +256,8 @@ class ExpertReleasePublicationPlan(StrictContract):
     manifest_digest: str
     publication_source_tree_digest: str
     assets: tuple[ExpertReleaseAssetDescriptor, ...]
-    manifest_dependency_ids: tuple[str, ...]
+    manifest_consumed_dependency_ids: tuple[str, ...]
+    manifest_control_dependency_ids: tuple[str, ...]
     validation_closure_ids: tuple[str, ...]
 
     CONTENT_NAMESPACE: ClassVar[str] = "expert-release-publication-plan"
@@ -366,14 +372,25 @@ class ExpertReleasePublicationPlan(StrictContract):
                 "release plan assets must be non-empty, sorted, and unique"
             )
         _require_sorted_content_ids(
-            self.manifest_dependency_ids,
-            "release plan manifest dependencies",
+            self.manifest_consumed_dependency_ids,
+            "release plan manifest consumed dependencies",
         )
         if self.parent_release_id is not None and (
-            self.parent_release_id not in self.manifest_dependency_ids
+            self.parent_release_id not in self.manifest_consumed_dependency_ids
         ):
             raise ExpertReleaseContractError(
-                "release plan manifest dependencies omit its parent"
+                "release plan consumed dependencies omit its parent"
+            )
+        _require_sorted_content_ids(
+            self.manifest_control_dependency_ids,
+            "release plan manifest control dependencies",
+            required=False,
+        )
+        if set(self.manifest_consumed_dependency_ids) & set(
+            self.manifest_control_dependency_ids
+        ):
+            raise ExpertReleaseContractError(
+                "release plan manifest dependency classes overlap"
             )
         _require_sorted_content_ids(
             self.validation_closure_ids,
@@ -381,7 +398,8 @@ class ExpertReleasePublicationPlan(StrictContract):
         )
         if set(self.validation_closure_ids) != {
             self.release_id,
-            *self.manifest_dependency_ids,
+            *self.manifest_consumed_dependency_ids,
+            *self.manifest_control_dependency_ids,
         }:
             raise ExpertReleaseContractError(
                 "release plan validation closure is not exact"
@@ -429,7 +447,8 @@ class ExpertReleaseActivationReceipt(StrictContract):
     github_publication_pointer: CurrentArtifactPointer
     activation_witness: GitHubArtifactActivationWitness
     observed_current_release: TaskEvaluationCurrentReleaseObservation
-    exact_dependency_ids: tuple[str, ...]
+    consumed_dependency_ids: tuple[str, ...]
+    control_dependency_ids: tuple[str, ...]
 
     CONTENT_NAMESPACE: ClassVar[str] = "expert-release-activation-receipt"
     IDENTITY_FIELD: ClassVar[str] = "activation_receipt_id"
@@ -511,20 +530,34 @@ class ExpertReleaseActivationReceipt(StrictContract):
             raise ExpertReleaseContractError(
                 "historical activation receipt reuses its publication identity"
             )
-        _require_sorted_content_ids(
-            self.exact_dependency_ids,
-            "activation receipt exact dependencies",
-        )
-        required = {
+        for values, name in (
+            (
+                self.consumed_dependency_ids,
+                "activation receipt consumed dependencies",
+            ),
+            (
+                self.control_dependency_ids,
+                "activation receipt control dependencies",
+            ),
+        ):
+            _require_sorted_content_ids(values, name)
+        if set(self.consumed_dependency_ids) & set(self.control_dependency_ids):
+            raise ExpertReleaseContractError(
+                "activation receipt dependency classes overlap"
+            )
+        required_consumed = {
             self.publication_intent_id,
             self.publication_plan_id,
             self.release_id,
             self.candidate_id,
             self.approval_transition_id,
             self.approval_state_id,
-            self.planned_current_observation_id,
             pointer.publication_record.publication_id,
             witness.witness_id,
+        }
+        required = {
+            *required_consumed,
+            self.planned_current_observation_id,
             observed.observation_id,
             *intent.validation_closure_ids,
             *observed.validation_closure_ids,
@@ -533,9 +566,24 @@ class ExpertReleaseActivationReceipt(StrictContract):
             required.add(observed.release_id)
         if observed.publication_id is not None:
             required.add(observed.publication_id)
-        if set(self.exact_dependency_ids) != required:
+        required_control = {
+            observed.observation_id,
+            *observed.validation_closure_ids,
+        }
+        if observed.release_id is not None:
+            required_control.add(observed.release_id)
+        if observed.publication_id is not None:
+            required_control.add(observed.publication_id)
+        required_control.difference_update(required_consumed)
+        required_control.difference_update(intent.validation_closure_ids)
+        if (
+            not required_consumed.issubset(self.consumed_dependency_ids)
+            or not required_control.issubset(self.control_dependency_ids)
+            or set(self.consumed_dependency_ids) | set(self.control_dependency_ids)
+            != required
+        ):
             raise ExpertReleaseContractError(
-                "activation receipt dependency closure is not exact"
+                "activation receipt categorized dependency closure is not exact"
             )
 
 

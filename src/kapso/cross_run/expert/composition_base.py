@@ -66,7 +66,7 @@ def expert_composition_base_security_subject_ids(
                 current_observation.observation_id,
                 current_observation.publication_id,
                 *current_observation.validation_closure_ids,
-                *closure.release_manifest.dependency_closure_ids,
+                *closure.release_manifest.consumed_dependency_ids,
             }
         )
     )

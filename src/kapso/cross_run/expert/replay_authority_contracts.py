@@ -262,7 +262,7 @@ def source_replay_spawn_security_subject_ids(
         current.observation_id,
         current.publication_id,
         *current.validation_closure_ids,
-        *parent.dependency_closure_ids,
+        *parent.consumed_dependency_ids,
         *candidate.source_dependency_ids,
         *candidate.ancestor_candidate_ids,
         candidate.sanitation_report_id,
