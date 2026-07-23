@@ -291,7 +291,19 @@ def test_passed_results_reopen_as_the_exact_ordered_reducer_prefix(
     assert len(after_second.state.accepted_stage_results) == 2
 
 
-def test_persisted_generic_release_matrix_result_fails_closed_on_read(tmp_path):
+@pytest.mark.parametrize(
+    "typed_stage",
+    (
+        ExpertValidationStage.SOURCE_RUN_REPLAY,
+        ExpertValidationStage.AUTOMATED_REVIEW,
+        ExpertValidationStage.RELEASE_MATRIX,
+        ExpertValidationStage.PUBLICATION_ELIGIBILITY,
+    ),
+)
+def test_persisted_generic_typed_stage_result_fails_closed_on_read(
+    tmp_path,
+    typed_stage,
+):
     candidates, _, adapter, settings, eligibility = _candidate_and_eligibility(tmp_path)
     reducer = _validation_reducer(
         settings,
@@ -310,28 +322,28 @@ def test_persisted_generic_release_matrix_result_fails_closed_on_read(tmp_path):
         ExpertValidationStage.CONTRACT_SCHEMA,
         ExpertEvaluatorOutcome.PASSED,
     )
-    generic_matrix_run = _remint(
+    generic_typed_run = _remint(
         valid_result.evaluator_run,
-        stage=ExpertValidationStage.RELEASE_MATRIX,
+        stage=typed_stage,
     )
-    generic_matrix_attestation = ExpertEvaluatorAttestation.mint(
-        evaluator_run_id=generic_matrix_run.evaluator_run_id,
-        issuer_id=generic_matrix_run.evaluator_id,
+    generic_typed_attestation = ExpertEvaluatorAttestation.mint(
+        evaluator_run_id=generic_typed_run.evaluator_run_id,
+        issuer_id=generic_typed_run.evaluator_id,
         trust_root_id=None,
-        predicate_digest=tree_or_blob_digest(generic_matrix_run.to_json_bytes()),
+        predicate_digest=tree_or_blob_digest(generic_typed_run.to_json_bytes()),
     )
-    generic_matrix_result = ExpertEvaluatorResultRecord.mint(
-        evaluator_run=generic_matrix_run,
+    generic_typed_result = ExpertEvaluatorResultRecord.mint(
+        evaluator_run=generic_typed_run,
         attestation_envelope=ExpertEvaluatorAttestationEnvelope(
-            attestation=generic_matrix_attestation,
-            signature="legacy-signature",
+            attestation=generic_typed_attestation,
+            signature="test-signature",
         ),
     )
-    store._write_contract_unlocked(generic_matrix_result)
+    store._write_contract_unlocked(generic_typed_result)
 
     with pytest.raises(ExpertValidationStoreError, match="cannot use a generic"):
         store._read_stage_result_unlocked(
-            generic_matrix_result.evaluator_result_record_id
+            generic_typed_result.evaluator_result_record_id
         )
 
 

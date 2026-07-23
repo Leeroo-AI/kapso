@@ -27,6 +27,9 @@ from kapso.cross_run.expert.promotion_contracts import (
 from kapso.cross_run.expert.promotion_stage_contracts import (
     ExpertReleaseMatrixStageResultRecord,
 )
+from kapso.cross_run.expert.promotion_authority_contracts import (
+    ExpertPublicationEligibilityStageResultRecord,
+)
 from kapso.cross_run.expert.replay_publication_contracts import (
     ExpertSourceReplayStageResultRecord,
 )
@@ -157,7 +160,8 @@ class ExpertValidationSnapshot:
         ExpertEvaluatorResultRecord
         | ExpertSourceReplayStageResultRecord
         | ExpertAutomatedReviewStageResultRecord
-        | ExpertReleaseMatrixStageResultRecord,
+        | ExpertReleaseMatrixStageResultRecord
+        | ExpertPublicationEligibilityStageResultRecord,
         ...,
     ]
 
@@ -305,4 +309,56 @@ class ExpertReleaseMatrixSourceEvidenceSnapshot:
         ):
             raise ExpertValidationSnapshotError(
                 "release matrix source evidence closure is inconsistent"
+            )
+
+
+@dataclass(frozen=True)
+class ExpertPublicationEligibilitySnapshot:
+    """Exact accepted release-matrix head awaiting terminal promotion."""
+
+    snapshot: ExpertValidationSnapshot
+    release_matrix_stage_result: ExpertReleaseMatrixStageResultRecord
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.snapshot) is not ExpertValidationSnapshot
+            or type(self.release_matrix_stage_result)
+            is not ExpertReleaseMatrixStageResultRecord
+        ):
+            raise ExpertValidationSnapshotError(
+                "publication eligibility snapshot is not typed"
+            )
+        transition = self.snapshot.transition
+        state = self.snapshot.state
+        attempt = self.snapshot.latest_attempt
+        matrix_result = self.release_matrix_stage_result
+        if (
+            attempt is None
+            or state.promotion_state is not ExpertPromotionState.VALIDATING
+            or state.next_stage is not ExpertValidationStage.PUBLICATION_ELIGIBILITY
+            or state.validation_attempt_id != attempt.validation_attempt_id
+            or state.candidate_id != attempt.candidate_id
+            or state.candidate_tree_hash != attempt.candidate_tree_hash
+            or transition.latest_attempt_id != attempt.validation_attempt_id
+            or transition.target_state_id != state.validation_state_id
+            or not self.snapshot.accepted_stage_results
+            or self.snapshot.accepted_stage_results[-1] != matrix_result
+            or not state.accepted_stage_results
+            or state.accepted_stage_results[-1].stage
+            is not ExpertValidationStage.RELEASE_MATRIX
+            or state.accepted_stage_results[-1].stage_result_record_id
+            != matrix_result.stage_result_record_id
+            or transition.accepted_stage_result_record_ids[-1]
+            != matrix_result.stage_result_record_id
+            or matrix_result.validation_attempt_id != attempt.validation_attempt_id
+            or matrix_result.candidate_id != attempt.candidate_id
+            or matrix_result.candidate_tree_hash != attempt.candidate_tree_hash
+            or matrix_result.scope_contract_id != attempt.scope_contract_id
+            or matrix_result.parent_release_id != attempt.parent_release_id
+            or matrix_result.validation_policy_id != attempt.validation_policy_id
+            or matrix_result.configuration_fingerprint
+            != attempt.configuration_fingerprint
+        ):
+            raise ExpertValidationSnapshotError(
+                "publication eligibility snapshot authority is inconsistent"
             )

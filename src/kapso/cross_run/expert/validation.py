@@ -35,6 +35,15 @@ from kapso.cross_run.expert.replay_publication_contracts import (
 from kapso.cross_run.expert.promotion_stage_contracts import (
     ExpertReleaseMatrixStageResultRecord,
 )
+from kapso.cross_run.expert.promotion import (
+    decide_expert_release_matrix_promotion,
+)
+from kapso.cross_run.expert.promotion_authority_contracts import (
+    ExpertPublicationEligibilityStageResultRecord,
+)
+from kapso.cross_run.expert.promotion_decision_contracts import (
+    ExpertReleaseMatrixDecisionOutcome,
+)
 from kapso.cross_run.expert.review_contracts import (
     ExpertAutomatedReviewOutcome,
     ExpertAutomatedReviewStageResultRecord,
@@ -1391,6 +1400,99 @@ class ExpertValidationReducer:
             terminal_evidence_ids=(),
             transition_evidence_id=result.stage_result_record_id,
             reason="stage_release_matrix_passed",
+        )
+
+    def advance_publication_eligibility_stage(
+        self,
+        *,
+        state: ExpertCandidateValidationState,
+        attempt: ExpertValidationAttempt,
+        accepted_results: tuple[
+            ExpertEvaluatorResultRecord
+            | ExpertSourceReplayStageResultRecord
+            | ExpertAutomatedReviewStageResultRecord
+            | ExpertReleaseMatrixStageResultRecord,
+            ...,
+        ],
+        result: ExpertPublicationEligibilityStageResultRecord,
+    ) -> ExpertCandidateValidationState:
+        """Terminalize one exact accepted matrix through its Pareto decision."""
+
+        if (
+            state.promotion_state is not ExpertPromotionState.VALIDATING
+            or state.next_stage is not ExpertValidationStage.PUBLICATION_ELIGIBILITY
+            or state.validation_attempt_id != attempt.validation_attempt_id
+            or state.candidate_id != attempt.candidate_id
+            or state.candidate_tree_hash != attempt.candidate_tree_hash
+        ):
+            raise ExpertValidationError(
+                "only the matching publication-eligibility stage may terminalize"
+            )
+        policy = self.settings.policy.validation_policy()
+        if (
+            attempt.validation_policy_id != policy.validation_policy_id
+            or attempt.configuration_fingerprint
+            != self.settings.configuration_fingerprint
+        ):
+            raise ExpertValidationError(
+                "active attempt differs from reducer configuration"
+            )
+        self._validate_accepted_history(state, attempt, accepted_results)
+        if (
+            type(result) is not ExpertPublicationEligibilityStageResultRecord
+            or not accepted_results
+            or type(accepted_results[-1]) is not ExpertReleaseMatrixStageResultRecord
+            or result.release_matrix_acceptance_state_id != state.validation_state_id
+            or result.validation_attempt_id != attempt.validation_attempt_id
+            or result.candidate_id != attempt.candidate_id
+            or result.candidate_tree_hash != attempt.candidate_tree_hash
+            or result.candidate_commit_record_id != attempt.candidate_commit_record_id
+            or result.scope_contract_id != attempt.scope_contract_id
+            or result.expected_current_release_id != attempt.parent_release_id
+            or result.validation_policy_id != attempt.validation_policy_id
+            or result.configuration_fingerprint != attempt.configuration_fingerprint
+            or result.accepted_stage_results != state.accepted_stage_results
+        ):
+            raise ExpertValidationError(
+                "publication eligibility result differs from the active stage"
+            )
+        expected_decision = decide_expert_release_matrix_promotion(
+            stage_result=accepted_results[-1],
+            attempt=attempt,
+            settings=self.settings,
+        )
+        if result.promotion_decision != expected_decision:
+            raise ExpertValidationError(
+                "publication eligibility decision differs from deterministic reduction"
+            )
+        promotion_state_by_outcome = {
+            ExpertReleaseMatrixDecisionOutcome.APPROVED: ExpertPromotionState.APPROVED,
+            ExpertReleaseMatrixDecisionOutcome.PARETO_RETAINED: (
+                ExpertPromotionState.PARETO_RETAINED
+            ),
+            ExpertReleaseMatrixDecisionOutcome.FAILED: ExpertPromotionState.FAILED,
+        }
+        accepted = state.accepted_stage_results
+        if expected_decision.outcome is ExpertReleaseMatrixDecisionOutcome.APPROVED:
+            accepted = (
+                *accepted,
+                ExpertAcceptedStageResultRef(
+                    stage=ExpertValidationStage.PUBLICATION_ELIGIBILITY,
+                    stage_result_record_id=result.stage_result_record_id,
+                ),
+            )
+        return ExpertCandidateValidationState.mint(
+            validation_attempt_id=attempt.validation_attempt_id,
+            candidate_id=attempt.candidate_id,
+            candidate_tree_hash=attempt.candidate_tree_hash,
+            predecessor_state_id=state.validation_state_id,
+            promotion_state=promotion_state_by_outcome[expected_decision.outcome],
+            accepted_stage_results=accepted,
+            next_stage=None,
+            review_assertion_ids=state.review_assertion_ids,
+            terminal_evidence_ids=(expected_decision.promotion_decision_id,),
+            transition_evidence_id=result.stage_result_record_id,
+            reason=f"publication_eligibility_{expected_decision.reason.value}",
         )
 
     def _validate_result_closure(

@@ -158,6 +158,21 @@ from kapso.cross_run.expert.promotion import (
     ExpertReleaseMatrixPromotionError,
     decide_expert_release_matrix_promotion,
 )
+from kapso.cross_run.expert.promotion_authority import (
+    ExpertPublicationCurrentReleaseAuthority,
+    ExpertPublicationEligibilityCoordinator,
+    ExpertPublicationEligibilityError,
+    ExpertPublicationEligibilityExecution,
+    ExpertPublicationSecurityDenylistAuthority,
+    build_publication_eligibility_stage_result,
+    publication_eligibility_security_subject_ids,
+    publication_eligibility_task_adapter_trust_observations,
+)
+from kapso.cross_run.expert.promotion_authority_contracts import (
+    ExpertPublicationEligibilityAuthorityFence,
+    ExpertPublicationEligibilityContractError,
+    ExpertPublicationEligibilityStageResultRecord,
+)
 from kapso.cross_run.expert.promotion_decision_contracts import (
     ExpertReleaseMatrixDecisionError,
     ExpertReleaseMatrixDecisionOutcome,
@@ -197,6 +212,7 @@ from kapso.cross_run.expert.validation import (
 )
 from kapso.cross_run.expert.validation_store import (
     ExpertAutomatedReviewStageCommitResult,
+    ExpertPublicationEligibilityStageCommitResult,
     ExpertReleaseMatrixStageCommitResult,
     ExpertSourceReplayStageCommitResult,
     ExpertTaskEvaluationReservationCommitResult,
@@ -211,6 +227,7 @@ from kapso.cross_run.expert.validation_operation_contracts import (
     ExpertValidationOperationKind,
 )
 from kapso.cross_run.expert.validation_snapshots import (
+    ExpertPublicationEligibilitySnapshot,
     ExpertReleaseMatrixPlanReservationSnapshot,
     ExpertReleaseMatrixSourceEvidenceSnapshot,
     ExpertValidationSnapshot,
@@ -265,6 +282,16 @@ __all__ = [
     "ExpertCandidateStore",
     "ExpertCandidateStoreError",
     "ExpertParentTreeReceipt",
+    "ExpertPublicationCurrentReleaseAuthority",
+    "ExpertPublicationEligibilityAuthorityFence",
+    "ExpertPublicationEligibilityContractError",
+    "ExpertPublicationEligibilityCoordinator",
+    "ExpertPublicationEligibilityError",
+    "ExpertPublicationEligibilityExecution",
+    "ExpertPublicationEligibilitySnapshot",
+    "ExpertPublicationEligibilityStageCommitResult",
+    "ExpertPublicationEligibilityStageResultRecord",
+    "ExpertPublicationSecurityDenylistAuthority",
     "ExpertProposalContractError",
     "ExpertRepositoryArchitect",
     "ExpertReleaseMatrixDecisionError",
@@ -371,6 +398,8 @@ __all__ = [
     "VerifiedSourceReplayContext",
     "VerifiedSourceReplayStartingArtifact",
     "materialize_task_evaluation_starting_artifacts",
+    "publication_eligibility_security_subject_ids",
+    "publication_eligibility_task_adapter_trust_observations",
     "project_prepared_task_evaluation_cases",
     "task_evaluation_adapter_trust_observations",
     "task_evaluation_allocation_case_leg",
@@ -382,6 +411,7 @@ __all__ = [
     "TASK_EVALUATION_EXECUTION_JOURNAL_SCHEMA_VERSION",
     "build_task_evaluation_evaluator_request",
     "build_task_evaluation_spawn_authority_fence",
+    "build_publication_eligibility_stage_result",
     "compile_expert_semantic_book",
     "decide_expert_release_matrix_promotion",
     "expert_semantic_book_digest",

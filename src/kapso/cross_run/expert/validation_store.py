@@ -43,6 +43,7 @@ from kapso.cross_run.expert.validation_operation_contracts import (
     ExpertValidationOperationKind,
 )
 from kapso.cross_run.expert.validation_snapshots import (
+    ExpertPublicationEligibilitySnapshot,
     ExpertReleaseMatrixPlanReservationSnapshot,
     ExpertReleaseMatrixSourceEvidenceSnapshot,
     ExpertValidationSnapshot,
@@ -63,6 +64,7 @@ from kapso.cross_run.expert.replay_publication import (
 )
 from kapso.cross_run.expert.replay_request import PreparedExpertSourceReplayRequest
 from kapso.cross_run.expert.proposal_contract import ExpertCandidateAncestorInput
+from kapso.cross_run.expert.store import StoredExpertCandidate
 from kapso.cross_run.expert.promotion_contracts import (
     ExpertReleaseMatrixEvaluationPlan,
     ExpertReleaseMatrixReport,
@@ -78,6 +80,23 @@ from kapso.cross_run.expert.promotion_stage import (
 )
 from kapso.cross_run.expert.promotion_stage_contracts import (
     ExpertReleaseMatrixStageResultRecord,
+)
+from kapso.cross_run.expert.promotion_authority import (
+    ExpertPublicationEligibilityCoordinator,
+    ExpertPublicationEligibilityExecution,
+    build_publication_eligibility_stage_result,
+    publication_eligibility_security_subject_ids,
+)
+from kapso.cross_run.expert.promotion_authority_contracts import (
+    ExpertPublicationEligibilityAuthorityFence,
+    ExpertPublicationEligibilityStageResultRecord,
+)
+from kapso.cross_run.expert.promotion import (
+    decide_expert_release_matrix_promotion,
+)
+from kapso.cross_run.expert.promotion_decision_contracts import (
+    ExpertReleaseMatrixDecisionOutcome,
+    ExpertReleaseMatrixPromotionDecision,
 )
 from kapso.cross_run.expert.review import (
     ExpertAutomatedReviewCoordinator,
@@ -231,6 +250,13 @@ class ExpertReleaseMatrixStageCommitResult:
 
 
 @dataclass(frozen=True)
+class ExpertPublicationEligibilityStageCommitResult:
+    stage_result: ExpertPublicationEligibilityStageResultRecord
+    snapshot: ExpertValidationSnapshot
+    replayed: bool
+
+
+@dataclass(frozen=True)
 class ExpertReleaseMatrixPlanReservationCommitResult:
     reservation: ExpertReleaseMatrixPlanReservationSnapshot
     replayed: bool
@@ -342,6 +368,7 @@ class ExpertValidationStore:
         self._source_replay_publication_coordinator = None
         self._automated_review_coordinator = None
         self._release_matrix_stage_coordinator = None
+        self._publication_eligibility_coordinator = None
         initialization_lock = state_root / f".{root.name}.initialization.lock"
         with _ValidationStoreLock(initialization_lock, exclusive=True, create=True):
             self._prepare_layout()
@@ -562,6 +589,41 @@ class ExpertValidationStore:
         ):
             raise ExpertValidationStoreError(
                 "release matrix stage publication authority changed after binding"
+            )
+        return coordinator
+
+    def _bind_publication_eligibility_authority(
+        self,
+        coordinator: ExpertPublicationEligibilityCoordinator,
+    ) -> None:
+        if (
+            type(coordinator) is not ExpertPublicationEligibilityCoordinator
+            or coordinator.validation_store is not self
+            or (
+                self._publication_eligibility_coordinator is not None
+                and self._publication_eligibility_coordinator is not coordinator
+            )
+        ):
+            raise ExpertValidationStoreError(
+                "validation store has invalid publication eligibility authority"
+            )
+        self._publication_eligibility_coordinator = coordinator
+
+    def _require_bound_publication_eligibility_authority(
+        self,
+        coordinator: object,
+    ) -> ExpertPublicationEligibilityCoordinator:
+        if (
+            type(coordinator) is not ExpertPublicationEligibilityCoordinator
+            or coordinator is not self._publication_eligibility_coordinator
+            or coordinator.validation_store is not self
+            or coordinator.current_release_authority
+            is not self.reducer.current_release_provider
+            or coordinator.task_adapter_authority
+            is not self.reducer.task_adapter_provider
+        ):
+            raise ExpertValidationStoreError(
+                "publication eligibility lacks bound coordinator authority"
             )
         return coordinator
 
@@ -1225,6 +1287,208 @@ class ExpertValidationStore:
             updated = self._append_transition(journal, transition)
             self._publish_journal_unlocked(updated)
             return ExpertReleaseMatrixStageCommitResult(
+                stage_result=result,
+                snapshot=self._snapshot_at_unlocked(
+                    updated,
+                    transition.transition_id,
+                ),
+                replayed=False,
+            )
+
+    def reopen_or_replay_publication_eligibility(
+        self,
+        *,
+        candidate_id: str,
+        release_matrix_stage_result_id: str,
+    ) -> tuple[
+        ExpertPublicationEligibilityStageCommitResult | None,
+        ExpertPublicationEligibilitySnapshot | None,
+    ]:
+        """Return a committed terminal result or the exact current matrix head."""
+
+        require_content_id(candidate_id, "publication eligibility candidate_id")
+        require_content_id(
+            release_matrix_stage_result_id,
+            "publication eligibility matrix result ID",
+        )
+        if release_matrix_stage_result_id.split(":sha256:", 1)[0] != (
+            "expert-release-matrix-stage-result"
+        ):
+            raise ExpertValidationStoreError(
+                "publication eligibility matrix result uses the wrong namespace"
+            )
+        with self._lock(exclusive=False):
+            journal = self._read_journal_unlocked(candidate_id)
+            self._validate_journal_unlocked(journal)
+            replay = self._publication_eligibility_commit_unlocked(
+                journal,
+                release_matrix_stage_result_id,
+            )
+            if replay is not None:
+                return replay, None
+            current = self._current_from_journal_unlocked(journal)
+            if current is None or current.latest_attempt is None:
+                raise ExpertValidationStoreError(
+                    "publication eligibility has no current validation attempt"
+                )
+            matrix_result = self._read_contract_unlocked(
+                release_matrix_stage_result_id,
+                ExpertReleaseMatrixStageResultRecord,
+            )
+            if (
+                not current.accepted_stage_results
+                or current.accepted_stage_results[-1] != matrix_result
+            ):
+                raise ExpertValidationStoreError(
+                    "publication eligibility matrix is not the current accepted head"
+                )
+            return (
+                None,
+                ExpertPublicationEligibilitySnapshot(
+                    snapshot=current,
+                    release_matrix_stage_result=matrix_result,
+                ),
+            )
+
+    def reopen_publication_eligibility_snapshot(
+        self,
+        input_snapshot: ExpertPublicationEligibilitySnapshot,
+    ) -> ExpertPublicationEligibilitySnapshot:
+        """Reopen an unchanged terminal input after fresh external checks."""
+
+        if type(input_snapshot) is not ExpertPublicationEligibilitySnapshot:
+            raise ExpertValidationStoreError(
+                "publication eligibility reopen requires its exact snapshot"
+            )
+        candidate_id = input_snapshot.snapshot.state.candidate_id
+        matrix_id = input_snapshot.release_matrix_stage_result.stage_result_record_id
+        with self._lock(exclusive=False):
+            journal = self._read_journal_unlocked(candidate_id)
+            current = self._current_from_journal_unlocked(journal)
+            if current != input_snapshot.snapshot:
+                raise ExpertValidationCompareAndSwapError(
+                    "publication eligibility validation head changed"
+                )
+            matrix_result = self._read_contract_unlocked(
+                matrix_id,
+                ExpertReleaseMatrixStageResultRecord,
+            )
+            reopened = ExpertPublicationEligibilitySnapshot(
+                snapshot=current,
+                release_matrix_stage_result=matrix_result,
+            )
+            if reopened != input_snapshot:
+                raise ExpertValidationStoreError(
+                    "publication eligibility matrix authority changed"
+                )
+            return reopened
+
+    def publish_publication_eligibility(
+        self,
+        execution: ExpertPublicationEligibilityExecution,
+    ) -> ExpertPublicationEligibilityStageCommitResult:
+        """CAS one sealed Pareto decision into its terminal validation state."""
+
+        if type(execution) is not ExpertPublicationEligibilityExecution:
+            raise ExpertValidationStoreError(
+                "publication eligibility requires a sealed execution"
+            )
+        coordinator = self._require_bound_publication_eligibility_authority(
+            self._publication_eligibility_coordinator
+        )
+        execution._require_bound(coordinator, self)
+        input_snapshot = execution.input_snapshot
+        decision = execution.decision
+        result = execution.stage_result
+        operation = self._publication_eligibility_operation(
+            input_snapshot,
+            decision,
+        )
+        with self._lock(exclusive=False):
+            journal = self._read_journal_unlocked(
+                input_snapshot.snapshot.state.candidate_id
+            )
+            replay = self._resolved_operation_unlocked(journal, operation)
+            if replay is not None:
+                return ExpertPublicationEligibilityStageCommitResult(
+                    stage_result=(
+                        self._publication_eligibility_result_for_transition_unlocked(
+                            replay.transition
+                        )
+                    ),
+                    snapshot=replay,
+                    replayed=True,
+                )
+            current = self._current_from_journal_unlocked(journal)
+            if current != input_snapshot.snapshot or current.latest_attempt is None:
+                raise ExpertValidationCompareAndSwapError(
+                    "publication eligibility head changed before reduction"
+                )
+            stored_candidate = self.reducer.candidate_store.read(
+                current.state.candidate_id
+            )
+            self._validate_publication_eligibility_execution(
+                execution=execution,
+                current=current,
+                stored_candidate=stored_candidate,
+            )
+            target_state = self.reducer.advance_publication_eligibility_stage(
+                state=current.state,
+                attempt=current.latest_attempt,
+                accepted_results=current.accepted_stage_results,
+                result=result,
+            )
+        with self._lock(exclusive=True):
+            journal = self._read_journal_unlocked(current.state.candidate_id)
+            replay = self._resolved_operation_unlocked(journal, operation)
+            if replay is not None:
+                return ExpertPublicationEligibilityStageCommitResult(
+                    stage_result=(
+                        self._publication_eligibility_result_for_transition_unlocked(
+                            replay.transition
+                        )
+                    ),
+                    snapshot=replay,
+                    replayed=True,
+                )
+            observed = self._current_from_journal_unlocked(journal)
+            if observed != current or observed.latest_attempt is None:
+                raise ExpertValidationCompareAndSwapError(
+                    "publication eligibility head changed during reduction"
+                )
+            execution._consume(coordinator, self)
+            accepted_ids = observed.transition.accepted_stage_result_record_ids
+            if decision.outcome is ExpertReleaseMatrixDecisionOutcome.APPROVED:
+                accepted_ids = (*accepted_ids, result.stage_result_record_id)
+            transition = ExpertValidationTransition.mint(
+                candidate_id=observed.state.candidate_id,
+                candidate_tree_hash=observed.state.candidate_tree_hash,
+                transition_number=len(journal.transition_ids) + 1,
+                predecessor_transition_id=observed.transition.transition_id,
+                predecessor_state_id=observed.state.validation_state_id,
+                target_state_id=target_state.validation_state_id,
+                latest_attempt_id=observed.latest_attempt.validation_attempt_id,
+                operation_id=operation.operation_id,
+                validation_policy_id=observed.latest_attempt.validation_policy_id,
+                configuration_fingerprint=(
+                    observed.latest_attempt.configuration_fingerprint
+                ),
+                eligibility_decision_id=None,
+                created_attempt_id=None,
+                accepted_stage_result_record_ids=accepted_ids,
+                transition_stage_result_record_id=result.stage_result_record_id,
+                transition_authority_invalidation_id=None,
+            )
+            self._write_contract_unlocked(decision)
+            if result.publication_authority_fence is not None:
+                self._write_contract_unlocked(result.publication_authority_fence)
+            self._write_contract_unlocked(result)
+            self._write_contract_unlocked(target_state)
+            self._write_contract_unlocked(operation)
+            self._write_contract_unlocked(transition)
+            updated = self._append_transition(journal, transition)
+            self._publish_journal_unlocked(updated)
+            return ExpertPublicationEligibilityStageCommitResult(
                 stage_result=result,
                 snapshot=self._snapshot_at_unlocked(
                     updated,
@@ -2212,6 +2476,86 @@ class ExpertValidationStore:
             request_record_id=reservation.reservation_id,
         )
 
+    @staticmethod
+    def _publication_eligibility_operation(
+        input_snapshot: ExpertPublicationEligibilitySnapshot,
+        decision: ExpertReleaseMatrixPromotionDecision,
+    ) -> ExpertValidationOperation:
+        return ExpertValidationOperation.mint(
+            operation_kind=(
+                ExpertValidationOperationKind.PUBLICATION_ELIGIBILITY_STAGE_RESULT
+            ),
+            candidate_id=input_snapshot.snapshot.state.candidate_id,
+            expected_transition_id=(input_snapshot.snapshot.transition.transition_id),
+            request_record_id=decision.promotion_decision_id,
+        )
+
+    def _validate_publication_eligibility_execution(
+        self,
+        *,
+        execution: ExpertPublicationEligibilityExecution,
+        current: ExpertValidationSnapshot,
+        stored_candidate: StoredExpertCandidate,
+    ) -> None:
+        input_snapshot = execution.input_snapshot
+        attempt = current.latest_attempt
+        if attempt is None:
+            raise ExpertValidationStoreError(
+                "publication eligibility execution has no validation attempt"
+            )
+        expected_input = ExpertPublicationEligibilitySnapshot(
+            snapshot=current,
+            release_matrix_stage_result=(input_snapshot.release_matrix_stage_result),
+        )
+        expected_decision = decide_expert_release_matrix_promotion(
+            stage_result=input_snapshot.release_matrix_stage_result,
+            attempt=attempt,
+            settings=self.settings,
+        )
+        if (
+            input_snapshot != expected_input
+            or execution.stored_candidate != stored_candidate
+            or execution.decision != expected_decision
+        ):
+            raise ExpertValidationStoreError(
+                "publication eligibility execution differs from stored authority"
+            )
+        fence = execution.stage_result.publication_authority_fence
+        if expected_decision.outcome is ExpertReleaseMatrixDecisionOutcome.APPROVED:
+            if fence is None:
+                raise ExpertValidationStoreError(
+                    "approved publication eligibility lacks fresh authority"
+                )
+            expected_security_subject_ids = (
+                publication_eligibility_security_subject_ids(
+                    input_snapshot=expected_input,
+                    stored_candidate=stored_candidate,
+                    decision=expected_decision,
+                    current_release_observation=(fence.current_release_observation),
+                    task_adapter_trust_observations=(
+                        fence.task_adapter_trust_observations
+                    ),
+                )
+            )
+            if fence.security_subject_ids != expected_security_subject_ids:
+                raise ExpertValidationStoreError(
+                    "publication eligibility security closure is not exact"
+                )
+        elif fence is not None:
+            raise ExpertValidationStoreError(
+                "non-approved publication eligibility cannot carry fresh authority"
+            )
+        expected_result = build_publication_eligibility_stage_result(
+            input_snapshot=expected_input,
+            stored_candidate=stored_candidate,
+            decision=expected_decision,
+            publication_authority_fence=fence,
+        )
+        if execution.stage_result != expected_result:
+            raise ExpertValidationStoreError(
+                "publication eligibility result differs from sealed reduction"
+            )
+
     def _validate_automated_review_execution(
         self,
         execution: ExpertAutomatedReviewExecution,
@@ -2397,6 +2741,63 @@ class ExpertValidationStore:
             ExpertReleaseMatrixStageResultRecord,
         )
 
+    def _publication_eligibility_result_for_transition_unlocked(
+        self,
+        transition: ExpertValidationTransition,
+    ) -> ExpertPublicationEligibilityStageResultRecord:
+        result_record_id = transition.transition_stage_result_record_id
+        if (
+            result_record_id is None
+            or result_record_id.split(":sha256:", 1)[0]
+            != "expert-publication-eligibility-stage-result"
+        ):
+            raise ExpertValidationStoreError(
+                "validation transition does not contain publication eligibility"
+            )
+        return self._read_contract_unlocked(
+            result_record_id,
+            ExpertPublicationEligibilityStageResultRecord,
+        )
+
+    def _publication_eligibility_commit_unlocked(
+        self,
+        journal: ExpertValidationJournal,
+        release_matrix_stage_result_id: str,
+    ) -> ExpertPublicationEligibilityStageCommitResult | None:
+        matches = []
+        for transition_id in journal.transition_ids:
+            transition = self._read_contract_unlocked(
+                transition_id,
+                ExpertValidationTransition,
+            )
+            result_record_id = transition.transition_stage_result_record_id
+            if (
+                result_record_id is None
+                or result_record_id.split(":sha256:", 1)[0]
+                != "expert-publication-eligibility-stage-result"
+            ):
+                continue
+            result = self._publication_eligibility_result_for_transition_unlocked(
+                transition
+            )
+            if (
+                result.promotion_decision.release_matrix_stage_result_id
+                == release_matrix_stage_result_id
+            ):
+                matches.append((transition, result))
+        if len(matches) > 1:
+            raise ExpertValidationStoreError(
+                "release matrix has multiple publication eligibility successors"
+            )
+        if not matches:
+            return None
+        transition, result = matches[0]
+        return ExpertPublicationEligibilityStageCommitResult(
+            stage_result=result,
+            snapshot=self._snapshot_at_unlocked(journal, transition.transition_id),
+            replayed=True,
+        )
+
     def _read_stage_result_unlocked(
         self,
         result_record_id: str,
@@ -2405,6 +2806,7 @@ class ExpertValidationStore:
         | ExpertSourceReplayStageResultRecord
         | ExpertAutomatedReviewStageResultRecord
         | ExpertReleaseMatrixStageResultRecord
+        | ExpertPublicationEligibilityStageResultRecord
     ):
         namespace = result_record_id.split(":sha256:", 1)[0]
         if namespace == "expert-evaluator-result-record":
@@ -2412,9 +2814,14 @@ class ExpertValidationStore:
                 result_record_id,
                 ExpertEvaluatorResultRecord,
             )
-            if result.evaluator_run.stage is ExpertValidationStage.RELEASE_MATRIX:
+            if result.evaluator_run.stage in {
+                ExpertValidationStage.SOURCE_RUN_REPLAY,
+                ExpertValidationStage.AUTOMATED_REVIEW,
+                ExpertValidationStage.RELEASE_MATRIX,
+                ExpertValidationStage.PUBLICATION_ELIGIBILITY,
+            }:
                 raise ExpertValidationStoreError(
-                    "release matrix cannot use a generic evaluator result"
+                    "typed validation stage cannot use a generic evaluator result"
                 )
             return result
         if namespace == "expert-source-replay-stage-result":
@@ -2432,6 +2839,11 @@ class ExpertValidationStore:
                 result_record_id,
                 ExpertReleaseMatrixStageResultRecord,
             )
+        if namespace == "expert-publication-eligibility-stage-result":
+            return self._read_contract_unlocked(
+                result_record_id,
+                ExpertPublicationEligibilityStageResultRecord,
+            )
         raise ExpertValidationStoreError(
             "validation stage result uses an unsupported namespace"
         )
@@ -2443,6 +2855,7 @@ class ExpertValidationStore:
             | ExpertSourceReplayStageResultRecord
             | ExpertAutomatedReviewStageResultRecord
             | ExpertReleaseMatrixStageResultRecord
+            | ExpertPublicationEligibilityStageResultRecord
         ),
     ) -> tuple[
         ExpertValidationStage,
@@ -2454,9 +2867,14 @@ class ExpertValidationStore:
     ]:
         if type(result) is ExpertEvaluatorResultRecord:
             run = result.evaluator_run
-            if run.stage is ExpertValidationStage.RELEASE_MATRIX:
+            if run.stage in {
+                ExpertValidationStage.SOURCE_RUN_REPLAY,
+                ExpertValidationStage.AUTOMATED_REVIEW,
+                ExpertValidationStage.RELEASE_MATRIX,
+                ExpertValidationStage.PUBLICATION_ELIGIBILITY,
+            }:
                 raise ExpertValidationStoreError(
-                    "release matrix cannot use a generic evaluator result"
+                    "typed validation stage cannot use a generic evaluator result"
                 )
             return (
                 run.stage,
@@ -2489,6 +2907,15 @@ class ExpertValidationStore:
                 ExpertValidationStage.RELEASE_MATRIX,
                 result.stage_result_record_id,
                 True,
+                result.validation_attempt_id,
+                result.candidate_id,
+                result.candidate_tree_hash,
+            )
+        if type(result) is ExpertPublicationEligibilityStageResultRecord:
+            return (
+                ExpertValidationStage.PUBLICATION_ELIGIBILITY,
+                result.stage_result_record_id,
+                result.outcome is ExpertReleaseMatrixDecisionOutcome.APPROVED,
                 result.validation_attempt_id,
                 result.candidate_id,
                 result.candidate_tree_hash,
@@ -3435,6 +3862,135 @@ class ExpertValidationStore:
                 "release matrix result transition closure is inconsistent"
             )
 
+    def _validate_publication_eligibility_transition_unlocked(
+        self,
+        *,
+        journal: ExpertValidationJournal,
+        transition: ExpertValidationTransition,
+        state: ExpertCandidateValidationState,
+        operation: ExpertValidationOperation,
+        latest_attempt: ExpertValidationAttempt | None,
+        previous_accepted: tuple[str, ...],
+        result_record: ExpertPublicationEligibilityStageResultRecord,
+        persisted_settings: ExpertValidationSettings,
+    ) -> None:
+        if (
+            transition.predecessor_transition_id is None
+            or transition.predecessor_state_id is None
+            or latest_attempt is None
+            or not previous_accepted
+        ):
+            raise ExpertValidationStoreError(
+                "publication eligibility requires its accepted matrix predecessor"
+            )
+        predecessor_snapshot = self._snapshot_at_unlocked(
+            journal,
+            transition.predecessor_transition_id,
+        )
+        predecessor_state = predecessor_snapshot.state
+        matrix_result = predecessor_snapshot.accepted_stage_results[-1]
+        if type(matrix_result) is not ExpertReleaseMatrixStageResultRecord:
+            raise ExpertValidationStoreError(
+                "publication eligibility predecessor does not end in a matrix"
+            )
+        input_snapshot = ExpertPublicationEligibilitySnapshot(
+            snapshot=predecessor_snapshot,
+            release_matrix_stage_result=matrix_result,
+        )
+        decision = self._read_contract_unlocked(
+            result_record.promotion_decision.promotion_decision_id,
+            ExpertReleaseMatrixPromotionDecision,
+        )
+        expected_decision = decide_expert_release_matrix_promotion(
+            stage_result=matrix_result,
+            attempt=latest_attempt,
+            settings=persisted_settings,
+        )
+        stored_candidate = self.reducer.candidate_store.read(
+            latest_attempt.candidate_id
+        )
+        fence = result_record.publication_authority_fence
+        if fence is not None:
+            stored_fence = self._read_contract_unlocked(
+                fence.fence_id,
+                ExpertPublicationEligibilityAuthorityFence,
+            )
+            expected_security_subject_ids = (
+                publication_eligibility_security_subject_ids(
+                    input_snapshot=input_snapshot,
+                    stored_candidate=stored_candidate,
+                    decision=expected_decision,
+                    current_release_observation=(
+                        stored_fence.current_release_observation
+                    ),
+                    task_adapter_trust_observations=(
+                        stored_fence.task_adapter_trust_observations
+                    ),
+                )
+            )
+            if (
+                stored_fence != fence
+                or stored_fence.security_subject_ids != expected_security_subject_ids
+            ):
+                raise ExpertValidationStoreError(
+                    "publication eligibility persisted security closure is invalid"
+                )
+        expected_result = build_publication_eligibility_stage_result(
+            input_snapshot=input_snapshot,
+            stored_candidate=stored_candidate,
+            decision=expected_decision,
+            publication_authority_fence=fence,
+        )
+        historical_reducer = ExpertValidationReducer(
+            persisted_settings,
+            self.reducer.candidate_store,
+            self.reducer.attestation_verifier,
+            self.reducer.task_adapter_provider,
+            self.reducer.current_release_provider,
+            self.reducer.validation_state_provider,
+        )
+        expected_state = historical_reducer.advance_publication_eligibility_stage(
+            state=predecessor_state,
+            attempt=latest_attempt,
+            accepted_results=predecessor_snapshot.accepted_stage_results,
+            result=expected_result,
+        )
+        if (
+            operation.operation_kind
+            is not ExpertValidationOperationKind.PUBLICATION_ELIGIBILITY_STAGE_RESULT
+            or operation.request_record_id != decision.promotion_decision_id
+            or operation.expected_transition_id != transition.predecessor_transition_id
+            or result_record != expected_result
+            or result_record.promotion_decision != decision
+            or decision != expected_decision
+            or result_record.release_matrix_acceptance_transition_id
+            != transition.predecessor_transition_id
+            or result_record.release_matrix_acceptance_state_id
+            != predecessor_state.validation_state_id
+            or result_record.accepted_stage_results
+            != predecessor_state.accepted_stage_results
+            or result_record.validation_attempt_id
+            != latest_attempt.validation_attempt_id
+            or result_record.candidate_id != transition.candidate_id
+            or result_record.candidate_tree_hash != transition.candidate_tree_hash
+            or result_record.candidate_commit_record_id
+            != latest_attempt.candidate_commit_record_id
+            or result_record.scope_contract_id != latest_attempt.scope_contract_id
+            or result_record.expected_current_release_id
+            != latest_attempt.parent_release_id
+            or result_record.validation_policy_id != latest_attempt.validation_policy_id
+            or result_record.configuration_fingerprint
+            != latest_attempt.configuration_fingerprint
+            or state != expected_state
+            or transition.accepted_stage_result_record_ids
+            != tuple(
+                item.stage_result_record_id for item in state.accepted_stage_results
+            )
+        ):
+            raise ExpertValidationStoreError(
+                "publication eligibility transition closure is inconsistent"
+            )
+
     def _validate_transition_closure_unlocked(
         self,
         journal: ExpertValidationJournal,
@@ -3605,7 +4161,12 @@ class ExpertValidationStore:
             if type(result_record) is ExpertEvaluatorResultRecord:
                 if (
                     result_record.evaluator_run.stage
-                    is ExpertValidationStage.RELEASE_MATRIX
+                    in {
+                        ExpertValidationStage.SOURCE_RUN_REPLAY,
+                        ExpertValidationStage.AUTOMATED_REVIEW,
+                        ExpertValidationStage.RELEASE_MATRIX,
+                        ExpertValidationStage.PUBLICATION_ELIGIBILITY,
+                    }
                     or operation.operation_kind
                     is not ExpertValidationOperationKind.EVALUATOR_RESULT
                     or operation.request_record_id
@@ -3677,6 +4238,23 @@ class ExpertValidationStore:
                     *previous_accepted,
                     result_record.stage_result_record_id,
                 )
+            elif type(result_record) is ExpertPublicationEligibilityStageResultRecord:
+                self._validate_publication_eligibility_transition_unlocked(
+                    journal=journal,
+                    transition=transition,
+                    state=state,
+                    operation=operation,
+                    latest_attempt=latest_attempt,
+                    previous_accepted=previous_accepted,
+                    result_record=result_record,
+                    persisted_settings=persisted_settings,
+                )
+                expected_accepted = previous_accepted
+                if result_record.outcome is ExpertReleaseMatrixDecisionOutcome.APPROVED:
+                    expected_accepted = (
+                        *previous_accepted,
+                        result_record.stage_result_record_id,
+                    )
             else:
                 raise ExpertValidationStoreError(
                     "validation stage result type is unsupported"

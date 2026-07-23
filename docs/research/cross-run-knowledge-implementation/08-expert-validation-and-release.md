@@ -726,9 +726,10 @@ The final Pareto decision must not consume `ExpertEvaluatorRun.measurements`
 directly. That generic map has no control pairing, adapter-owned scale/direction,
 context lineage, repeat identity, or comparability authority. The release matrix
 now reduces into one typed factual comparative closure and is accepted as its own
-validation stage before Pareto reduction. The pure decision is implemented; the
-next slice wraps it in fresh `PUBLICATION_ELIGIBILITY` authority and an atomic
-terminal transition.
+validation stage before Pareto reduction. The pure decision and its sealed
+`PUBLICATION_ELIGIBILITY` transition are implemented. This transition approves an
+exact candidate for later release assembly; it does not mutate GitHub or grant a
+release lease.
 
 Minimal ownership:
 
@@ -760,11 +761,33 @@ Minimal ownership:
   absence plus exact adapter/verifier/denylist authority and seals publication;
   and
 - the terminal promotion coordinator, `validation.py`, and `validation_store.py`
-  will reduce and persist `PUBLICATION_ELIGIBILITY` through one journal
+  reduce and persist `PUBLICATION_ELIGIBILITY` through one journal
   compare-and-swap.
 
-The generic `ExpertEvaluatorRun.measurements` route is fail-closed for
-`RELEASE_MATRIX`; there is no legacy flat-payload admission path. Durable plan
+Terminal authority is outcome-sensitive. `FAILED` and `PARETO_RETAINED` are pure
+local reductions: they make no CURRENT, adapter, or denylist call, preserve the
+accepted matrix prefix, and persist the decision as terminal evidence. Only
+`APPROVED` reopens the exact accepted matrix and candidate, observes authenticated
+CURRENT (or bootstrap absence), re-resolves every matrix adapter package including
+source-only historical packages, derives the exact adapter-observation set, checks
+the complete candidate/history/decision/adapter closure against the denylist,
+observes the identical CURRENT authority again, and reopens the unchanged local
+head before the sealed store CAS. A changed release identity produces the durable
+generalized CURRENT-authority invalidation; same-release metadata movement,
+substitution, denial, or a local-head race fails closed without eligibility.
+
+The authority fence, decision, result, operation, state, and transition are
+content-addressed and journaled atomically. The store independently re-derives the
+decision, exact adapter observations, security closure, terminal result, and state
+under the attempt's persisted configuration. Durable replay is resolved from the
+matrix-result identity before any external authority call, so concurrent and
+post-restart replay is offline and byte-identical. Only approval appends the typed
+publication-eligibility result to accepted history; retained and failed results
+remain transition evidence outside the accepted prefix.
+
+The generic `ExpertEvaluatorRun` route is fail-closed for source replay,
+automated review, release matrix, and publication eligibility; each requires its
+typed stage path. There is no legacy flat-payload admission path. Durable plan
 reservation, rather than merely embedding a plan in the later report, supplies
 temporal precommit authority.
 Operational stage publication additionally requires adapter-owned task evidence;
