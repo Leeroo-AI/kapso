@@ -1184,7 +1184,7 @@ Before release:
       proposal rather than treating them as reducer output.
 - [ ] Rerun the complete cascade/release matrix on the exact composed tree.
 - [ ] Preserve all candidate ancestry/evidence in the release manifest.
-- [ ] Serialize final publication through the explicit expected-parent/CAS protocol.
+- [x] Serialize remote publication through the explicit expected-parent/CAS protocol.
 
 ## Release assembly and GitHub publication
 
@@ -1196,16 +1196,27 @@ Before release:
    evaluation, Git metadata, and task outputs;
 4. builds the history-free source archive, dependency lock, release manifest,
    checksums, and test-matrix summary;
-5. commits the exact validated source directly from the expected parent;
-6. invokes M2's immutable-release transaction; and
-7. advances expert `CURRENT.json` only after immutable publication verifies.
+5. prepares the exact validated source commit from the expected parent without
+   moving the default branch;
+6. invokes M2's immutable-release transaction with a sealed expert activation gate;
+7. refreshes exact CURRENT, task-adapter, denylist, reservation, intent, identity,
+   package, and activation-commit authority; and
+8. advances expert `CURRENT.json` only through M2's sole expected-parent CAS.
 
-- [ ] A release ID is the source tree plus exact manifest/contract closure, not a
+- [x] A release ID is the source tree plus exact manifest/contract closure, not a
       sequential display label.
-- [ ] `E000007` is display/version order; launch pins content ID, commit, tag, asset
+- [x] `E000007` is display/version order; launch pins content ID, commit, tag, asset
       IDs/digests, and publication record.
-- [ ] Publication retry with identical content is idempotent.
-- [ ] CAS conflict requires re-resolution/revalidation, not force push.
+- [x] Publication retry with identical content is idempotent.
+- [x] CAS conflict requires re-resolution/revalidation, not force push. A durable
+      stale outcome retains an authenticated losing intent/identity, while commit
+      ancestry prevents historically active releases from being misclassified.
+
+Remote activation and local lifecycle completion are deliberately separate crash
+boundaries. The next release slice must persist the exact authenticated publication,
+advance `APPROVED -> RELEASED` idempotently after a successful or replayed activation,
+and recover a historically activated release that was superseded before its local
+transition committed.
 
 ## Revocation
 

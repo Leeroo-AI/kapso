@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 import test_expert_release_matrix_reservation as reservation_fixture_module
+from kapso.core.config import load_config
 from kapso.cross_run.canonical import content_id, tree_or_blob_digest
 from kapso.cross_run.contracts import (
     ExpertCandidateCommitRecord,
@@ -66,6 +67,7 @@ from kapso.cross_run.expert.store import ExpertCandidateStore, StoredExpertCandi
 from kapso.cross_run.security_authority_contracts import (
     SecurityDenylistObservation,
 )
+from kapso.cross_run.settings import CrossRunSettings
 from test_expert_promotion_decision import _settings
 from test_expert_composition_base import _parent_receipt
 from test_expert_promotion_evidence import (
@@ -77,6 +79,10 @@ from test_expert_promotion_evidence import (
 from test_expert_promotion_stage import _completed_runtime
 from test_expert_task_evaluation_execution import (
     _parent_prepared_with_additional_case,
+)
+
+CROSS_RUN_SETTINGS = CrossRunSettings.from_dict(
+    load_config("src/kapso/config.yaml")["cross_run"]
 )
 
 
@@ -120,7 +126,9 @@ class _DenylistAuthority:
         observation = SecurityDenylistObservation.mint(
             scope_id=scope_id,
             scope_contract_id=scope_contract_id,
-            scope_repository_binding_hash=tree_or_blob_digest(b"scope binding"),
+            scope_repository_binding_hash=(
+                CROSS_RUN_SETTINGS.scopes.resolve(scope_id).binding_fingerprint
+            ),
             snapshot_id=content_id(
                 "security-denylist-snapshot",
                 {"generation": 7},

@@ -32,6 +32,7 @@ from kapso.cross_run.contracts import (
     ExpertValidationAuthorityInvalidationKind,
     ExpertValidationAttempt,
     ExpertValidationStage,
+    PublicationArtifactKind,
     StrictContract,
 )
 from kapso.cross_run.expert.candidate_derivations import (
@@ -128,8 +129,16 @@ from kapso.cross_run.expert.release_contracts import (
     ExpertReleasePublicationPlan,
     ExpertReleasePublicationStaleResolution,
 )
-from kapso.cross_run.expert.release import ExpertReleaseAssembler
+from kapso.cross_run.expert.release import (
+    EXPERT_RELEASE_MANIFEST_PATH,
+    ExpertReleaseAssembler,
+)
 from kapso.cross_run.expert.publisher import ExpertReleasePublisher
+from kapso.cross_run.git_refs import git_object_sha
+from kapso.cross_run.github.resolver import (
+    ArtifactPublicationIntent,
+    CurrentArtifactPointer,
+)
 from kapso.cross_run.expert.task_evaluation_authority_contracts import (
     TaskEvaluationCurrentReleaseObservation,
 )
@@ -406,6 +415,8 @@ class ExpertReleasePublicationStalePermit:
     __slots__ = (
         "_consumed",
         "_observed_current",
+        "_own_github_publication_intent",
+        "_own_github_publication_pointer",
         "_owner_process_id",
         "_publisher",
         "_reservation",
@@ -420,6 +431,8 @@ class ExpertReleasePublicationStalePermit:
         publisher: object,
         reservation: ExpertReleasePublicationReservation,
         observed_current: TaskEvaluationCurrentReleaseObservation,
+        own_github_publication_intent: ArtifactPublicationIntent | None,
+        own_github_publication_pointer: CurrentArtifactPointer | None,
         resolved_at: str,
     ) -> None:
         if seal is not _RELEASE_PUBLICATION_STALE_PERMIT_SEAL:
@@ -432,6 +445,16 @@ class ExpertReleasePublicationStalePermit:
         object.__setattr__(self, "_consumed", False)
         object.__setattr__(self, "_reservation", reservation)
         object.__setattr__(self, "_observed_current", observed_current)
+        object.__setattr__(
+            self,
+            "_own_github_publication_intent",
+            own_github_publication_intent,
+        )
+        object.__setattr__(
+            self,
+            "_own_github_publication_pointer",
+            own_github_publication_pointer,
+        )
         object.__setattr__(self, "_resolved_at", resolved_at)
 
     def __setattr__(self, name, value) -> None:
@@ -760,6 +783,9 @@ class ExpertValidationStore:
             dependencies.add(observed.release_id)
         if observed.publication_id is not None:
             dependencies.add(observed.publication_id)
+        own_pointer = stale_permit._own_github_publication_pointer
+        if own_pointer is not None:
+            dependencies.add(own_pointer.publication_record.publication_id)
         resolution = ExpertReleasePublicationStaleResolution.mint(
             publication_intent_id=reservation.intent.publication_intent_id,
             publication_plan_id=plan.publication_plan_id,
@@ -771,6 +797,8 @@ class ExpertValidationStore:
                 plan.current_release_observation.observation_id
             ),
             observed_current_release=observed,
+            own_github_publication_intent=(stale_permit._own_github_publication_intent),
+            own_github_publication_pointer=own_pointer,
             resolved_at=stale_permit._resolved_at,
             exact_dependency_ids=tuple(sorted(dependencies)),
         )
@@ -1072,10 +1100,25 @@ class ExpertValidationStore:
         self._release_assembler = assembler
 
     def _bind_release_publisher_authority(self, publisher: object) -> None:
+        if type(publisher) is ExpertReleasePublisher:
+            publisher._require_local_authority_join()
         if (
             type(publisher) is not ExpertReleasePublisher
             or publisher.validation_store is not self
             or publisher.assembler is not self._release_assembler
+            or publisher.github_publisher.resolver is not publisher.resolver
+            or publisher.github_publisher.client is not publisher.resolver.client
+            or publisher.current_release_authority.resolver is not publisher.resolver
+            or self.reducer.current_release_provider
+            is not publisher.current_release_authority
+            or self.reducer.task_adapter_provider
+            is not publisher.task_adapter_authority
+            or type(self._publication_eligibility_coordinator)
+            is not ExpertPublicationEligibilityCoordinator
+            or publisher.task_adapter_authority
+            is not self._publication_eligibility_coordinator.task_adapter_authority
+            or publisher.security_denylist_authority
+            is not self._publication_eligibility_coordinator.security_denylist_authority
         ):
             raise ExpertValidationStoreError(
                 "release publisher is not the concrete bound authority"
@@ -1092,11 +1135,26 @@ class ExpertValidationStore:
         self,
         publisher: object,
     ) -> ExpertReleasePublisher:
+        if type(publisher) is ExpertReleasePublisher:
+            publisher._require_local_authority_join()
         if (
             type(publisher) is not ExpertReleasePublisher
             or publisher is not self._release_publisher
             or publisher.validation_store is not self
             or publisher.assembler is not self._release_assembler
+            or publisher.github_publisher.resolver is not publisher.resolver
+            or publisher.github_publisher.client is not publisher.resolver.client
+            or publisher.current_release_authority.resolver is not publisher.resolver
+            or self.reducer.current_release_provider
+            is not publisher.current_release_authority
+            or self.reducer.task_adapter_provider
+            is not publisher.task_adapter_authority
+            or type(self._publication_eligibility_coordinator)
+            is not ExpertPublicationEligibilityCoordinator
+            or publisher.task_adapter_authority
+            is not self._publication_eligibility_coordinator.task_adapter_authority
+            or publisher.security_denylist_authority
+            is not self._publication_eligibility_coordinator.security_denylist_authority
         ):
             raise ExpertValidationStoreError(
                 "release publication lacks its bound publisher authority"
@@ -1109,6 +1167,8 @@ class ExpertValidationStore:
         publisher: object,
         reservation: ExpertReleasePublicationReservation,
         observed_current: TaskEvaluationCurrentReleaseObservation,
+        own_github_publication_intent: ArtifactPublicationIntent | None,
+        own_github_publication_pointer: CurrentArtifactPointer | None,
         resolved_at: str,
     ) -> ExpertReleasePublicationStalePermit:
         self._require_bound_release_publisher_authority(publisher)
@@ -1120,6 +1180,13 @@ class ExpertValidationStore:
                 "stale publication sealing requires exact reservation and CURRENT"
             )
         plan = reservation.plan
+        self._validate_release_publication_remote_history(
+            reservation.intent,
+            plan,
+            own_github_publication_intent,
+            own_github_publication_pointer,
+            self._release_assembler.github_settings.publisher_login,
+        )
         planned = plan.current_release_observation
         if (
             observed_current.scope_id != plan.scope_id
@@ -1157,8 +1224,106 @@ class ExpertValidationStore:
             publisher,
             reservation,
             observed_current,
+            own_github_publication_intent,
+            own_github_publication_pointer,
             resolved_at,
         )
+
+    @staticmethod
+    def _validate_release_publication_remote_history(
+        reservation_intent: ExpertReleasePublicationIntent,
+        plan: ExpertReleasePublicationPlan,
+        own_intent: ArtifactPublicationIntent | None,
+        own_pointer: CurrentArtifactPointer | None,
+        publisher_login: str | None,
+    ) -> None:
+        if own_intent is None:
+            if own_pointer is not None:
+                raise ExpertValidationStoreError(
+                    "stale publication pointer lacks its remote intent"
+                )
+            return
+        if type(own_intent) is not ArtifactPublicationIntent:
+            raise ExpertValidationStoreError(
+                "stale publication remote intent is not exact"
+            )
+        planned = plan.current_release_observation
+        expected_assets = tuple(
+            (asset.name, asset.media_type, asset.size, asset.sha256)
+            for asset in plan.assets
+        )
+        observed_assets = tuple(
+            (asset.name, asset.media_type, asset.size, asset.sha256)
+            for asset in own_intent.assets
+        )
+        if plan.parent_pointer is None:
+            preserved_current_matches = own_intent.preserved_current is None
+        else:
+            payload = plan.parent_pointer.to_json_bytes()
+            preserved = own_intent.preserved_current
+            preserved_current_matches = preserved is not None and (
+                preserved.relative_path == "CURRENT.json"
+                and preserved.mode == "100644"
+                and preserved.size == len(payload)
+                and preserved.sha256 == tree_or_blob_digest(payload)
+                and preserved.git_blob_sha == git_object_sha("blob", payload)
+            )
+        if (
+            own_intent.scope_id != plan.scope_id
+            or own_intent.artifact_kind
+            is not PublicationArtifactKind.EXPERT_BASE_RELEASE
+            or own_intent.artifact_id != plan.release_id
+            or own_intent.repository_node_id != planned.repository_node_id
+            or own_intent.repository_full_name != planned.repository_full_name
+            or own_intent.expected_parent_sha != planned.default_branch_head_commit_sha
+            or own_intent.source_tree_digest != plan.publication_source_tree_digest
+            or own_intent.manifest_relative_path != EXPERT_RELEASE_MANIFEST_PATH
+            or own_intent.manifest_digest != plan.manifest_digest
+            or own_intent.tag != plan.tag
+            or observed_assets != expected_assets
+            or own_intent.validation_closure_ids != plan.validation_closure_ids
+            or (
+                publisher_login is not None
+                and own_intent.publisher_identity != publisher_login
+            )
+            or own_intent.committed_at != reservation_intent.committed_at
+            or not preserved_current_matches
+        ):
+            raise ExpertValidationStoreError(
+                "stale publication remote history differs from its reservation"
+            )
+        if own_pointer is None:
+            return
+        if type(own_pointer) is not CurrentArtifactPointer:
+            raise ExpertValidationStoreError(
+                "stale publication remote pointer is not exact"
+            )
+        record = own_pointer.publication_record
+        pointer_assets = tuple(
+            (asset.name, asset.media_type, asset.size, asset.sha256)
+            for asset in record.assets
+        )
+        if (
+            not own_intent.binds(own_pointer)
+            or own_pointer.scope_id != plan.scope_id
+            or record.artifact_kind is not PublicationArtifactKind.EXPERT_BASE_RELEASE
+            or record.artifact_id != plan.release_id
+            or record.repository_node_id != planned.repository_node_id
+            or record.repository_full_name != planned.repository_full_name
+            or record.tag != plan.tag
+            or (
+                publisher_login is not None
+                and record.publisher_identity != publisher_login
+            )
+            or pointer_assets != expected_assets
+            or own_pointer.source_tree_digest != plan.publication_source_tree_digest
+            or own_pointer.manifest_relative_path != EXPERT_RELEASE_MANIFEST_PATH
+            or own_pointer.manifest_digest != plan.manifest_digest
+            or own_pointer.validation_closure_ids != plan.validation_closure_ids
+        ):
+            raise ExpertValidationStoreError(
+                "stale publication remote pointer differs from its reservation"
+            )
 
     def _require_bound_release_assembly_authority(
         self,
@@ -3800,6 +3965,13 @@ class ExpertValidationStore:
                 raise ExpertValidationStoreError(
                     "stale release publication resolution closure is inconsistent"
                 )
+            self._validate_release_publication_remote_history(
+                intent,
+                plan,
+                resolution.own_github_publication_intent,
+                resolution.own_github_publication_pointer,
+                None,
+            )
 
     @staticmethod
     def _validate_release_publication_reservation_unlocked(

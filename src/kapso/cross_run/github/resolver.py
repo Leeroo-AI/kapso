@@ -539,6 +539,111 @@ class GitHubArtifactResolver:
             scope_id, artifact_kind, artifact_id
         ).pointer
 
+    def require_artifact_pointer(
+        self,
+        scope_id: str,
+        artifact_kind: PublicationArtifactKind,
+        artifact_id: str,
+        expected_pointer: CurrentArtifactPointer,
+    ) -> None:
+        """Require the write-once identity ref to contain one exact pointer."""
+        if type(expected_pointer) is not CurrentArtifactPointer:
+            raise GitHubResolutionError("expected artifact pointer is invalid")
+        observed_pointer = self.read_artifact_pointer(
+            scope_id,
+            artifact_kind,
+            artifact_id,
+        )
+        if observed_pointer != expected_pointer:
+            raise GitHubResolutionError(
+                "artifact identity ref differs from the expected publication"
+            )
+
+    def is_commit_ancestor(
+        self,
+        scope_id: str,
+        artifact_kind: PublicationArtifactKind,
+        ancestor_sha: str,
+        descendant_sha: str,
+    ) -> bool:
+        """Ask GitHub whether one exact commit is in another's history."""
+        for value, name in (
+            (ancestor_sha, "ancestor commit"),
+            (descendant_sha, "descendant commit"),
+        ):
+            if not re.fullmatch(r"[0-9a-f]{40}", value):
+                raise GitHubResolutionError(f"{name} is invalid")
+        repositories = self.repositories_for_scope(scope_id)
+        repository = repository_for_artifact(repositories, artifact_kind)
+        bounded = self.client.api_json_bounded(
+            "GET",
+            f"repos/{repository}/compare/{ancestor_sha}...{descendant_sha}?per_page=1",
+            self.settings.comparison_response_size_bytes,
+        )
+        if (
+            not isinstance(bounded, BoundedJsonResponse)
+            or type(bounded.size_bytes) is not int
+            or bounded.size_bytes <= 0
+            or bounded.size_bytes > self.settings.comparison_response_size_bytes
+        ):
+            raise GitHubResolutionError("commit ancestry response is invalid")
+        comparison = _require_mapping(
+            bounded.value,
+            "commit ancestry comparison",
+        )
+        status = comparison.get("status")
+        base_commit = _require_mapping(
+            comparison.get("base_commit"), "comparison base commit"
+        )
+        head_commit = _require_mapping(
+            comparison.get("head_commit"), "comparison head commit"
+        )
+        merge_base = _require_mapping(
+            comparison.get("merge_base_commit"), "comparison merge base"
+        )
+        ahead_by = comparison.get("ahead_by")
+        behind_by = comparison.get("behind_by")
+        if (
+            base_commit.get("sha") != ancestor_sha
+            or head_commit.get("sha") != descendant_sha
+            or not re.fullmatch(r"[0-9a-f]{40}", str(merge_base.get("sha")))
+            or type(ahead_by) is not int
+            or ahead_by < 0
+            or type(behind_by) is not int
+            or behind_by < 0
+        ):
+            raise GitHubResolutionError("commit ancestry comparison mismatch")
+        if status == "ahead":
+            if merge_base.get("sha") != ancestor_sha or ahead_by < 1 or behind_by != 0:
+                raise GitHubResolutionError("commit ancestry merge base mismatch")
+            return True
+        if status == "identical":
+            if (
+                ancestor_sha != descendant_sha
+                or merge_base.get("sha") != ancestor_sha
+                or ahead_by != 0
+                or behind_by != 0
+            ):
+                raise GitHubResolutionError("identical commit comparison mismatch")
+            return True
+        if status == "behind":
+            if (
+                merge_base.get("sha") != descendant_sha
+                or ahead_by != 0
+                or behind_by < 1
+            ):
+                raise GitHubResolutionError("behind commit comparison mismatch")
+            return False
+        if status == "diverged":
+            if (
+                merge_base.get("sha") in {ancestor_sha, descendant_sha}
+                or ahead_by < 1
+                or behind_by < 1
+            ):
+                raise GitHubResolutionError("diverged commit comparison mismatch")
+            return False
+        raise GitHubResolutionError("commit ancestry status is invalid")
+
     def _read_artifact_pointer_state(
         self,
         scope_id: str,
@@ -652,6 +757,26 @@ class GitHubArtifactResolver:
         ):
             raise GitHubResolutionError("artifact publication intent target mismatch")
         return intent
+
+    def require_artifact_intent(
+        self,
+        scope_id: str,
+        artifact_kind: PublicationArtifactKind,
+        artifact_id: str,
+        expected_intent: ArtifactPublicationIntent,
+    ) -> None:
+        """Require the write-once intent ref to contain one exact claim."""
+        if type(expected_intent) is not ArtifactPublicationIntent:
+            raise GitHubResolutionError("expected artifact intent is invalid")
+        observed_intent = self.read_artifact_intent(
+            scope_id,
+            artifact_kind,
+            artifact_id,
+        )
+        if observed_intent != expected_intent:
+            raise GitHubResolutionError(
+                "artifact intent ref differs from the expected publication"
+            )
 
     def _read_current_pointer_state(
         self,

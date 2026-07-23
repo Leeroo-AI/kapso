@@ -7,6 +7,7 @@ import hashlib
 import os
 import re
 import stat
+import sys
 from dataclasses import dataclass
 from io import DEFAULT_BUFFER_SIZE
 from pathlib import Path, PurePosixPath
@@ -141,6 +142,8 @@ class _PublicationActivationVerifier(Protocol):
         repositories: ScopeRepositorySettings,
         current_state: CurrentPointerState,
         manifest: _GuardedPublicationManifest,
+        source_tree_digest: str,
+        manifest_digest: str,
     ) -> None: ...
 
     def revalidate_before_activation(
@@ -315,6 +318,8 @@ class AutonomousGitHubPublisher:
                 repositories=repositories,
                 current_state=current_state,
                 manifest=manifest,
+                source_tree_digest=source_tree_digest,
+                manifest_digest=manifest_digest,
             )
         preserved_current = (
             publication_intent.preserved_current
@@ -366,11 +371,12 @@ class AutonomousGitHubPublisher:
             )
             if existing == published_identity:
                 pointer_commit_sha = observed_head
-            elif observed_head == published_identity.publication_record.commit_sha:
+            elif observed_head == envelope.expected_parent_sha:
                 pointer_commit_sha = self._prepare_current_pointer_commit(
                     repository,
                     published_identity.publication_record.commit_sha,
                     published_identity,
+                    publication_intent,
                     envelope.committed_at,
                 )
                 if activation_gate is not None:
@@ -385,10 +391,16 @@ class AutonomousGitHubPublisher:
                         pointer=published_identity,
                         manifest=manifest,
                     )
+                self.resolver.require_artifact_pointer(
+                    envelope.scope_id,
+                    envelope.artifact_kind,
+                    envelope.artifact_id,
+                    published_identity,
+                )
                 self._activate_current_pointer(
                     repository,
                     policy.repository_node_id,
-                    published_identity.publication_record.commit_sha,
+                    envelope.expected_parent_sha,
                     pointer_commit_sha,
                 )
             else:
@@ -435,39 +447,26 @@ class AutonomousGitHubPublisher:
                     preserved_current,
                 )
             expected_source_tree_sha = self._git_tree_sha(commit_source_files)
-            if observed_head == envelope.expected_parent_sha:
-                source_tree_sha = self._create_git_tree(
-                    repository, commit_source_files, expected_source_tree_sha
+            if observed_head != envelope.expected_parent_sha:
+                raise GitHubCompareAndSwapError(
+                    "default branch has a stale expected parent"
                 )
-                source_commit_sha = self._create_commit(
-                    repository,
-                    tree_sha=source_tree_sha,
-                    parent_sha=envelope.expected_parent_sha,
-                    message=f"Publish {envelope.artifact_id}",
-                    committed_at=envelope.committed_at,
-                )
-                self._validate_source_commit(
-                    repository,
-                    source_commit_sha,
-                    expected_source_tree_sha,
-                    envelope.expected_parent_sha,
-                )
-                self.client.update_ref_compare_and_swap(
-                    repository,
-                    policy.repository_node_id,
-                    self.settings.default_branch,
-                    envelope.expected_parent_sha,
-                    source_commit_sha,
-                )
-            else:
-                self._validate_resumable_source_commit(
-                    repository,
-                    observed_head,
-                    envelope.expected_parent_sha,
-                    expected_source_tree_sha,
-                )
-                source_tree_sha = expected_source_tree_sha
-                source_commit_sha = observed_head
+            source_tree_sha = self._create_git_tree(
+                repository, commit_source_files, expected_source_tree_sha
+            )
+            source_commit_sha = self._create_commit(
+                repository,
+                tree_sha=source_tree_sha,
+                parent_sha=envelope.expected_parent_sha,
+                message=f"Publish {envelope.artifact_id}",
+                committed_at=envelope.committed_at,
+            )
+            self._validate_source_commit(
+                repository,
+                source_commit_sha,
+                expected_source_tree_sha,
+                envelope.expected_parent_sha,
+            )
             publication_intent = self._build_publication_intent(
                 envelope,
                 policy,
@@ -485,6 +484,12 @@ class AutonomousGitHubPublisher:
                 source_commit_sha,
                 publication_intent,
                 envelope.committed_at,
+            )
+            self.resolver.require_artifact_intent(
+                envelope.scope_id,
+                envelope.artifact_kind,
+                envelope.artifact_id,
+                publication_intent,
             )
         self.client.create_ref_if_absent(
             repository,
@@ -566,6 +571,7 @@ class AutonomousGitHubPublisher:
             repository,
             source_commit_sha,
             pointer,
+            publication_intent,
             envelope.committed_at,
         )
         if activation_gate is not None:
@@ -576,10 +582,16 @@ class AutonomousGitHubPublisher:
                 pointer=pointer,
                 manifest=manifest,
             )
+        self.resolver.require_artifact_pointer(
+            envelope.scope_id,
+            envelope.artifact_kind,
+            envelope.artifact_id,
+            pointer,
+        )
         self._activate_current_pointer(
             repository,
             policy.repository_node_id,
-            source_commit_sha,
+            envelope.expected_parent_sha,
             pointer_commit_sha,
         )
         return PublicationTelemetry(
@@ -640,7 +652,12 @@ class AutonomousGitHubPublisher:
             raise GitHubPublicationError(
                 f"{artifact_kind.value} has no publication activation authority"
             )
-        if (verifier_type.__module__, verifier_type.__qualname__) != authority:
+        module_name, class_name = authority
+        authority_module = sys.modules.get(module_name)
+        expected_type = (
+            None if authority_module is None else vars(authority_module).get(class_name)
+        )
+        if verifier_type is not expected_type:
             raise GitHubPublicationError(
                 f"{artifact_kind.value} publication verifier type is not the "
                 "concrete authority"
@@ -1347,34 +1364,6 @@ class AutonomousGitHubPublisher:
             raise GitHubPublicationError("GitHub created an unexpected source tree")
         return tree_sha
 
-    def _validate_resumable_source_commit(
-        self,
-        repository: str,
-        current_head: str,
-        expected_parent_sha: str,
-        expected_tree_sha: str,
-    ) -> None:
-        commit = _require_mapping(
-            self.client.api_json(
-                "GET", f"repos/{repository}/git/commits/{current_head}"
-            ),
-            "possible resumable source commit",
-        )
-        tree = _require_mapping(commit.get("tree"), "resumable source tree")
-        parents = commit.get("parents")
-        if not isinstance(parents, list) or len(parents) != 1:
-            raise GitHubCompareAndSwapError(
-                "default branch has a stale expected parent"
-            )
-        parent = _require_mapping(parents[0], "resumable source parent")
-        if (
-            tree.get("sha") != expected_tree_sha
-            or parent.get("sha") != expected_parent_sha
-        ):
-            raise GitHubCompareAndSwapError(
-                "default branch has a stale expected parent"
-            )
-
     def _create_commit(
         self,
         repository: str,
@@ -1592,6 +1581,7 @@ class AutonomousGitHubPublisher:
         repository: str,
         source_commit_sha: str,
         pointer: CurrentArtifactPointer,
+        publication_intent: ArtifactPublicationIntent,
         committed_at: str,
     ) -> str:
         pointer_payload = pointer.to_json_bytes()
@@ -1618,6 +1608,12 @@ class AutonomousGitHubPublisher:
             ),
             "CURRENT blob",
         )
+        pointer_blob_sha = _require_sha(
+            pointer_blob.get("sha"),
+            "CURRENT blob sha",
+        )
+        if pointer_blob_sha != git_object_sha("blob", pointer_payload):
+            raise GitHubPublicationError("GitHub created an unexpected CURRENT blob")
         pointer_tree = _require_mapping(
             self.client.api_json(
                 "POST",
@@ -1628,9 +1624,7 @@ class AutonomousGitHubPublisher:
                         {
                             "mode": "100644",
                             "path": "CURRENT.json",
-                            "sha": _require_sha(
-                                pointer_blob.get("sha"), "CURRENT blob sha"
-                            ),
+                            "sha": pointer_blob_sha,
                             "type": "blob",
                         }
                     ],
@@ -1638,26 +1632,70 @@ class AutonomousGitHubPublisher:
             ),
             "CURRENT tree",
         )
+        expected_files = {
+            source.relative_path: (source.git_blob_sha, source.mode)
+            for source in publication_intent.source_files
+        }
+        expected_files["CURRENT.json"] = (pointer_blob_sha, "100644")
+        expected_pointer_tree_sha = git_tree_shas(expected_files)[""]
+        pointer_tree_sha = _require_sha(
+            pointer_tree.get("sha"),
+            "CURRENT tree sha",
+        )
+        if pointer_tree_sha != expected_pointer_tree_sha:
+            raise GitHubPublicationError("GitHub created an unexpected CURRENT tree")
         pointer_commit_sha = self._create_commit(
             repository,
-            tree_sha=_require_sha(pointer_tree.get("sha"), "CURRENT tree sha"),
+            tree_sha=pointer_tree_sha,
             parent_sha=source_commit_sha,
             message=f"Activate {pointer.publication_record.artifact_id}",
             committed_at=committed_at,
         )
+        self._validate_activation_commit(
+            repository,
+            pointer_commit_sha,
+            expected_pointer_tree_sha,
+            source_commit_sha,
+        )
         return pointer_commit_sha
+
+    def _validate_activation_commit(
+        self,
+        repository: str,
+        activation_commit_sha: str,
+        expected_tree_sha: str,
+        source_commit_sha: str,
+    ) -> None:
+        commit = _require_mapping(
+            self.client.api_json(
+                "GET", f"repos/{repository}/git/commits/{activation_commit_sha}"
+            ),
+            "CURRENT activation commit",
+        )
+        tree = _require_mapping(commit.get("tree"), "CURRENT activation tree")
+        parents = commit.get("parents")
+        if (
+            commit.get("sha") != activation_commit_sha
+            or tree.get("sha") != expected_tree_sha
+            or not isinstance(parents, list)
+            or len(parents) != 1
+        ):
+            raise GitHubPublicationError("CURRENT activation commit mismatch")
+        parent = _require_mapping(parents[0], "CURRENT activation parent")
+        if parent.get("sha") != source_commit_sha:
+            raise GitHubPublicationError("CURRENT activation parent mismatch")
 
     def _activate_current_pointer(
         self,
         repository: str,
         repository_node_id: str,
-        source_commit_sha: str,
+        expected_parent_sha: str,
         pointer_commit_sha: str,
     ) -> None:
         self.client.update_ref_compare_and_swap(
             repository,
             repository_node_id,
             self.settings.default_branch,
-            source_commit_sha,
+            expected_parent_sha,
             pointer_commit_sha,
         )

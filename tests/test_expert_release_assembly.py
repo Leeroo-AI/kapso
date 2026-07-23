@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from types import SimpleNamespace
 
 import pytest
 
@@ -35,6 +36,9 @@ from kapso.cross_run.expert.publisher import (
     ExpertReleasePublicationError,
     ExpertReleasePublisher,
 )
+from kapso.cross_run.expert.promotion_authority import (
+    ExpertPublicationEligibilityCoordinator,
+)
 from kapso.cross_run.expert.task_evaluation_authority_contracts import (
     TaskEvaluationCurrentReleaseObservation,
 )
@@ -44,11 +48,16 @@ from kapso.cross_run.expert.validation_store import (
     ExpertValidationStoreError,
 )
 from kapso.cross_run.github.resolver import (
+    ArtifactPublicationIntent,
     CurrentArtifactPointer,
     CurrentPointerState,
     GitHubArtifactResolver,
+    PublicationAssetIntent,
+    PublicationSourceFile,
 )
+from kapso.cross_run.git_refs import git_object_sha, git_tree_shas
 from kapso.cross_run.github.publisher import AutonomousGitHubPublisher
+from kapso.cross_run.github.materializer import GitHubArtifactMaterializer
 from kapso.cross_run.settings import CrossRunSettings
 from kapso.cross_run.source_archives import (
     SourceArchiveError,
@@ -96,11 +105,12 @@ def _approved_bootstrap(tmp_path, monkeypatch):
             "prepared": prepared,
         },
     )()
-    approval = _coordinator(case).coordinator.publish(
+    authority = _coordinator(case)
+    approval = authority.coordinator.publish(
         candidate_id=matrix.snapshot.state.candidate_id,
         release_matrix_stage_result_id=matrix.stage_result.stage_result_record_id,
     )
-    return validation_store, matrix, approval
+    return validation_store, matrix, approval, authority
 
 
 def _publication_plan(package, approval, settings):
@@ -196,11 +206,101 @@ def _published_pointer(plan, release_id, commit_sha):
     )
 
 
+def _publication_intent(package, plan, committed_at, commit_sha):
+    source_files = tuple(
+        PublicationSourceFile(
+            relative_path=path,
+            mode=mode,
+            size=len(payload),
+            sha256=tree_or_blob_digest(payload),
+            git_blob_sha=git_object_sha("blob", payload),
+        )
+        for path, (payload, mode) in sorted(package.publication_files.items())
+    )
+    source_git_tree_sha = git_tree_shas(
+        {
+            source.relative_path: (source.git_blob_sha, source.mode)
+            for source in source_files
+        }
+    )[""]
+    return ArtifactPublicationIntent(
+        scope_id=plan.scope_id,
+        artifact_kind=PublicationArtifactKind.EXPERT_BASE_RELEASE,
+        artifact_id=plan.release_id,
+        repository_node_id=plan.current_release_observation.repository_node_id,
+        repository_full_name=plan.current_release_observation.repository_full_name,
+        expected_parent_sha=(
+            plan.current_release_observation.default_branch_head_commit_sha
+        ),
+        source_commit_sha=commit_sha,
+        source_tree_digest=plan.publication_source_tree_digest,
+        source_git_tree_sha=source_git_tree_sha,
+        source_files=source_files,
+        preserved_current=None,
+        materialized_tree_digest=tree_or_blob_digest(b"materialized expert package"),
+        manifest_relative_path=EXPERT_RELEASE_MANIFEST_PATH,
+        manifest_digest=plan.manifest_digest,
+        tag=plan.tag,
+        assets=tuple(
+            PublicationAssetIntent(
+                name=asset.name,
+                media_type=asset.media_type,
+                size=asset.size,
+                sha256=asset.sha256,
+            )
+            for asset in plan.assets
+        ),
+        validation_closure_ids=plan.validation_closure_ids,
+        publisher_identity="leeroo-coder",
+        committed_at=committed_at,
+    )
+
+
+def _publication_pointer(plan, intent):
+    release_assets = tuple(
+        GitHubReleaseAsset(
+            asset_id=str(position),
+            name=asset.name,
+            media_type=asset.media_type,
+            size=asset.size,
+            sha256=asset.sha256,
+        )
+        for position, asset in enumerate(plan.assets, start=1)
+    )
+    record = GitHubPublicationRecord.mint(
+        artifact_kind=PublicationArtifactKind.EXPERT_BASE_RELEASE,
+        artifact_id=plan.release_id,
+        repository_node_id=intent.repository_node_id,
+        repository_full_name=intent.repository_full_name,
+        commit_sha=intent.source_commit_sha,
+        immutable_release_id="7",
+        tag=plan.tag,
+        assets=release_assets,
+        release_attestation_ref="github-release-attestation:sha256:" + "a" * 64,
+        published_at="2026-07-21T12:01:30Z",
+        publisher_identity=intent.publisher_identity,
+    )
+    return CurrentArtifactPointer(
+        scope_id=plan.scope_id,
+        publication_record=record,
+        publication_intent_digest=intent.digest,
+        source_tree_digest=intent.source_tree_digest,
+        source_git_tree_sha=intent.source_git_tree_sha,
+        materialized_tree_digest=intent.materialized_tree_digest,
+        manifest_relative_path=intent.manifest_relative_path,
+        manifest_digest=intent.manifest_digest,
+        validation_closure_ids=intent.validation_closure_ids,
+    )
+
+
 def test_release_assembly_is_exact_deterministic_and_approval_only(
     tmp_path,
     monkeypatch,
 ):
-    validation_store, matrix, approval = _approved_bootstrap(tmp_path, monkeypatch)
+    validation_store, matrix, approval, _authority = _approved_bootstrap(
+        tmp_path,
+        monkeypatch,
+    )
     candidate_store = validation_store.reducer.candidate_store
     stored_candidate = candidate_store.read(approval.snapshot.state.candidate_id)
     settings = CrossRunSettings.from_dict(
@@ -290,7 +390,7 @@ def test_release_publication_reservation_is_durable_idempotent_and_freezes_head(
     tmp_path,
     monkeypatch,
 ):
-    validation_store, _matrix, approval = _approved_bootstrap(
+    validation_store, _matrix, approval, authority = _approved_bootstrap(
         tmp_path,
         monkeypatch,
     )
@@ -366,17 +466,32 @@ def test_release_publication_reservation_is_durable_idempotent_and_freezes_head(
     generic_publisher = AutonomousGitHubPublisher(
         github_client,
         resolver,
-        object(),
+        GitHubArtifactMaterializer(
+            github_client,
+            settings.github,
+            tmp_path / "publisher-state",
+        ),
         settings.github,
     )
     current_authority = GitHubExpertCurrentReleaseProvider(resolver)
+    reopened_store.reducer.current_release_provider = current_authority
+    ExpertPublicationEligibilityCoordinator(
+        validation_store=reopened_store,
+        current_release_authority=current_authority,
+        task_adapter_authority=reopened_store.reducer.task_adapter_provider,
+        security_denylist_authority=authority.denylist,
+    )
     publisher = ExpertReleasePublisher(
         assembler=reopened_assembler,
         validation_store=reopened_store,
         github_publisher=generic_publisher,
         resolver=resolver,
         current_release_authority=current_authority,
+        task_adapter_authority=reopened_store.reducer.task_adapter_provider,
+        security_denylist_authority=authority.denylist,
     )
+    resolver.read_artifact_intent = lambda scope_id, kind, artifact_id: None
+    resolver.read_artifact_pointer = lambda scope_id, kind, artifact_id: None
     remote = {
         "state": CurrentPointerState(
             pointer=None,
@@ -434,6 +549,32 @@ def test_release_publication_reservation_is_durable_idempotent_and_freezes_head(
         current_pointer_digest=tree_or_blob_digest(other_pointer.to_json_bytes()),
         validation_closure_ids=other_pointer.validation_closure_ids,
     )
+    own_intent = _publication_intent(
+        package,
+        plan,
+        committed.reservation.intent.committed_at,
+        "d" * 40,
+    )
+    own_identity = _publication_pointer(plan, own_intent)
+    resolver.read_artifact_intent = lambda scope_id, kind, artifact_id: own_intent
+    resolver.read_artifact_pointer = lambda scope_id, kind, artifact_id: own_identity
+    resolver.diagnose_repository = lambda scope_id, kind: object()
+    resolver.resolve_artifact = lambda scope_id, kind, artifact_id: SimpleNamespace(
+        pointer=own_identity
+    )
+    ancestry = {"historically_active": True}
+    resolver.is_commit_ancestor = lambda scope_id, kind, ancestor_sha, descendant_sha: (
+        ancestry["historically_active"]
+    )
+    with pytest.raises(
+        ExpertReleasePublicationError,
+        match="historically active",
+    ):
+        publisher.resolve_stale(
+            candidate_id=plan.candidate_id,
+            resolved_at="2026-07-21T12:02:15Z",
+        )
+    ancestry["historically_active"] = False
     resolution = publisher.resolve_stale(
         candidate_id=plan.candidate_id,
         resolved_at="2026-07-21T12:02:20Z",
@@ -446,6 +587,11 @@ def test_release_publication_reservation_is_durable_idempotent_and_freezes_head(
     assert resolution == replayed_resolution
     assert resolution.publication_intent_id == (
         committed.reservation.intent.publication_intent_id
+    )
+    assert resolution.own_github_publication_intent == own_intent
+    assert resolution.own_github_publication_pointer == own_identity
+    assert own_identity.publication_record.publication_id in (
+        resolution.exact_dependency_ids
     )
     assert reopened_store.reopen_release_publication(plan.candidate_id) is None
     with reopened_store._lock(exclusive=False):
@@ -481,7 +627,7 @@ def test_release_publication_reservation_rejects_a_conflicting_plan(
     tmp_path,
     monkeypatch,
 ):
-    validation_store, _matrix, approval = _approved_bootstrap(
+    validation_store, _matrix, approval, _authority = _approved_bootstrap(
         tmp_path,
         monkeypatch,
     )

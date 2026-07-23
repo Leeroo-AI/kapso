@@ -194,6 +194,7 @@ class GitHubSettings(StrictContract):
     cache_entry_limit: int
     git_tree_metadata_size_bytes: int
     control_blob_size_bytes: int
+    comparison_response_size_bytes: int
     cache_retention_releases: int
 
     def _validate(self) -> None:
@@ -297,6 +298,10 @@ class GitHubSettings(StrictContract):
         )
         _require_positive(
             self.control_blob_size_bytes, "github.control_blob_size_bytes"
+        )
+        _require_positive(
+            self.comparison_response_size_bytes,
+            "github.comparison_response_size_bytes",
         )
         _require_positive(
             self.cache_retention_releases, "github.cache_retention_releases"

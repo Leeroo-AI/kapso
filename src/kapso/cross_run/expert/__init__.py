@@ -115,7 +115,9 @@ from kapso.cross_run.expert.proposal_contract import (
 )
 from kapso.cross_run.expert.providers import GitHubExpertCurrentReleaseProvider
 from kapso.cross_run.expert.publisher import (
+    ExpertReleasePublication,
     ExpertReleasePublicationError,
+    ExpertReleasePublicationGate,
     ExpertReleasePublisher,
 )
 from kapso.cross_run.expert.replay_context import (
@@ -462,7 +464,9 @@ __all__ = [
     "ExpertReleasePublicationIntent",
     "ExpertReleasePublicationPlan",
     "ExpertReleasePublicationPlanPermit",
+    "ExpertReleasePublication",
     "ExpertReleasePublicationError",
+    "ExpertReleasePublicationGate",
     "ExpertReleasePublisher",
     "ExpertReleasePublicationReservation",
     "ExpertReleasePublicationReservationCommitResult",

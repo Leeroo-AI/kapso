@@ -228,6 +228,8 @@ class FakeResolverClient:
         self.release = release
         self.attestation = attestation
         self.noncanonical_control = None
+        self.comparison = None
+        self.comparison_size = None
 
     def _control_text(self, control, payload):
         prefix = " " if self.noncanonical_control == control else ""
@@ -339,6 +341,15 @@ class FakeResolverClient:
         }
 
     def api_json_bounded(self, method, endpoint, maximum_bytes):
+        if "/compare/" in endpoint:
+            assert method == "GET"
+            assert self.comparison is not None
+            payload_size = (
+                len(canonical_json_bytes(self.comparison))
+                if self.comparison_size is None
+                else self.comparison_size
+            )
+            return BoundedJsonResponse(self.comparison, payload_size)
         response = self.api_json(method, endpoint)
         payload_size = len(canonical_json_bytes(response))
         assert payload_size <= maximum_bytes
@@ -443,6 +454,170 @@ def test_resolver_verifies_immutable_identity_without_current_activation():
 
     assert resolved.pointer == pointer
     assert resolved.pointer_commit_sha == IDENTITY_SHA
+
+
+def test_resolver_requires_exact_write_once_intent_and_identity():
+    pointer, release, attestation = publication_fixture()
+    intent = publication_intent(pointer)
+    client = FakeResolverClient(pointer, release, attestation)
+    resolver = GitHubArtifactResolver(client, github_settings(), scope_registry())
+
+    resolver.require_artifact_intent(
+        "ml_ai",
+        PublicationArtifactKind.KNOWLEDGE_SNAPSHOT,
+        pointer.publication_record.artifact_id,
+        intent,
+    )
+    resolver.require_artifact_pointer(
+        "ml_ai",
+        PublicationArtifactKind.KNOWLEDGE_SNAPSHOT,
+        pointer.publication_record.artifact_id,
+        pointer,
+    )
+
+    client.publication_intent = None
+    with pytest.raises(GitHubResolutionError, match="intent ref differs"):
+        resolver.require_artifact_intent(
+            "ml_ai",
+            PublicationArtifactKind.KNOWLEDGE_SNAPSHOT,
+            pointer.publication_record.artifact_id,
+            intent,
+        )
+    client.publication_intent = intent
+    client.identity_pointer = None
+    with pytest.raises(GitHubResolutionError, match="identity ref differs"):
+        resolver.require_artifact_pointer(
+            "ml_ai",
+            PublicationArtifactKind.KNOWLEDGE_SNAPSHOT,
+            pointer.publication_record.artifact_id,
+            pointer,
+        )
+
+
+@pytest.mark.parametrize(
+    ("status", "ahead_by", "behind_by", "merge_base", "expected"),
+    (
+        ("ahead", 2, 0, COMMIT_SHA, True),
+        ("behind", 0, 2, POINTER_SHA, False),
+        ("diverged", 1, 1, PARENT_SHA, False),
+    ),
+)
+def test_resolver_classifies_commit_ancestry(
+    status, ahead_by, behind_by, merge_base, expected
+):
+    pointer, release, attestation = publication_fixture()
+    client = FakeResolverClient(pointer, release, attestation)
+    client.comparison = {
+        "status": status,
+        "ahead_by": ahead_by,
+        "behind_by": behind_by,
+        "base_commit": {"sha": COMMIT_SHA},
+        "head_commit": {"sha": POINTER_SHA},
+        "merge_base_commit": {"sha": merge_base},
+    }
+    resolver = GitHubArtifactResolver(client, github_settings(), scope_registry())
+
+    assert (
+        resolver.is_commit_ancestor(
+            "ml_ai",
+            PublicationArtifactKind.KNOWLEDGE_SNAPSHOT,
+            COMMIT_SHA,
+            POINTER_SHA,
+        )
+        is expected
+    )
+
+
+def test_resolver_requires_consistent_bounded_commit_ancestry():
+    pointer, release, attestation = publication_fixture()
+    client = FakeResolverClient(pointer, release, attestation)
+    client.comparison = {
+        "status": "ahead",
+        "ahead_by": 1,
+        "behind_by": 0,
+        "base_commit": {"sha": COMMIT_SHA},
+        "head_commit": {"sha": POINTER_SHA},
+        "merge_base_commit": {"sha": PARENT_SHA},
+    }
+    resolver = GitHubArtifactResolver(client, github_settings(), scope_registry())
+
+    with pytest.raises(GitHubResolutionError, match="merge base"):
+        resolver.is_commit_ancestor(
+            "ml_ai",
+            PublicationArtifactKind.KNOWLEDGE_SNAPSHOT,
+            COMMIT_SHA,
+            POINTER_SHA,
+        )
+
+    client.comparison["merge_base_commit"] = {"sha": COMMIT_SHA}
+    client.comparison_size = github_settings().comparison_response_size_bytes + 1
+    with pytest.raises(GitHubResolutionError, match="response is invalid"):
+        resolver.is_commit_ancestor(
+            "ml_ai",
+            PublicationArtifactKind.KNOWLEDGE_SNAPSHOT,
+            COMMIT_SHA,
+            POINTER_SHA,
+        )
+
+
+def test_resolver_authenticates_identical_commit_ancestry_and_rejects_bad_sha():
+    pointer, release, attestation = publication_fixture()
+    client = FakeResolverClient(pointer, release, attestation)
+    client.comparison = {
+        "status": "identical",
+        "ahead_by": 0,
+        "behind_by": 0,
+        "base_commit": {"sha": COMMIT_SHA},
+        "head_commit": {"sha": COMMIT_SHA},
+        "merge_base_commit": {"sha": COMMIT_SHA},
+    }
+    resolver = GitHubArtifactResolver(client, github_settings(), scope_registry())
+
+    assert resolver.is_commit_ancestor(
+        "ml_ai",
+        PublicationArtifactKind.KNOWLEDGE_SNAPSHOT,
+        COMMIT_SHA,
+        COMMIT_SHA,
+    )
+    with pytest.raises(GitHubResolutionError, match="ancestor commit"):
+        resolver.is_commit_ancestor(
+            "ml_ai",
+            PublicationArtifactKind.KNOWLEDGE_SNAPSHOT,
+            "not-a-sha",
+            COMMIT_SHA,
+        )
+
+
+@pytest.mark.parametrize(
+    ("status", "ahead_by", "behind_by", "merge_base", "message"),
+    (
+        ("behind", 0, 1, PARENT_SHA, "behind"),
+        ("diverged", 1, 1, COMMIT_SHA, "diverged"),
+        ("diverged", 1, 1, POINTER_SHA, "diverged"),
+    ),
+)
+def test_resolver_rejects_impossible_inactive_ancestry_responses(
+    status, ahead_by, behind_by, merge_base, message
+):
+    pointer, release, attestation = publication_fixture()
+    client = FakeResolverClient(pointer, release, attestation)
+    client.comparison = {
+        "status": status,
+        "ahead_by": ahead_by,
+        "behind_by": behind_by,
+        "base_commit": {"sha": COMMIT_SHA},
+        "head_commit": {"sha": POINTER_SHA},
+        "merge_base_commit": {"sha": merge_base},
+    }
+    resolver = GitHubArtifactResolver(client, github_settings(), scope_registry())
+
+    with pytest.raises(GitHubResolutionError, match=message):
+        resolver.is_commit_ancestor(
+            "ml_ai",
+            PublicationArtifactKind.KNOWLEDGE_SNAPSHOT,
+            COMMIT_SHA,
+            POINTER_SHA,
+        )
 
 
 @pytest.mark.parametrize("identity_state", ["missing", "mismatch"])

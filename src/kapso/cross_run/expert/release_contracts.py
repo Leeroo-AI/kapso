@@ -24,7 +24,10 @@ from kapso.cross_run.expert.promotion_decision_contracts import (
 from kapso.cross_run.expert.task_evaluation_authority_contracts import (
     TaskEvaluationCurrentReleaseObservation,
 )
-from kapso.cross_run.github.resolver import CurrentArtifactPointer
+from kapso.cross_run.github.resolver import (
+    ArtifactPublicationIntent,
+    CurrentArtifactPointer,
+)
 
 _DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 _ASSET_NAME_PATTERN = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$")
@@ -422,6 +425,8 @@ class ExpertReleasePublicationStaleResolution(StrictContract):
     approval_state_id: str
     planned_current_observation_id: str
     observed_current_release: TaskEvaluationCurrentReleaseObservation
+    own_github_publication_intent: ArtifactPublicationIntent | None
+    own_github_publication_pointer: CurrentArtifactPointer | None
     resolved_at: str
     exact_dependency_ids: tuple[str, ...]
 
@@ -471,6 +476,32 @@ class ExpertReleasePublicationStaleResolution(StrictContract):
             raise ExpertReleaseContractError(
                 "stale resolution must observe changed CURRENT authority"
             )
+        own_intent = self.own_github_publication_intent
+        own_pointer = self.own_github_publication_pointer
+        if own_pointer is not None and own_intent is None:
+            raise ExpertReleaseContractError(
+                "stale resolution own pointer lacks its GitHub publication intent"
+            )
+        if own_intent is not None and (
+            type(own_intent) is not ArtifactPublicationIntent
+            or own_intent.scope_id != self.observed_current_release.scope_id
+            or own_intent.artifact_kind
+            is not PublicationArtifactKind.EXPERT_BASE_RELEASE
+            or own_intent.artifact_id != self.release_id
+            or own_intent.repository_full_name
+            != self.observed_current_release.repository_full_name
+        ):
+            raise ExpertReleaseContractError(
+                "stale resolution own GitHub intent is inconsistent"
+            )
+        if own_pointer is not None and (
+            type(own_pointer) is not CurrentArtifactPointer
+            or not own_intent.binds(own_pointer)
+            or own_pointer.publication_record.artifact_id != self.release_id
+        ):
+            raise ExpertReleaseContractError(
+                "stale resolution own GitHub pointer is inconsistent"
+            )
         normalize_utc_timestamp(self.resolved_at, "resolved_at")
         _require_sorted_content_ids(
             self.exact_dependency_ids,
@@ -492,6 +523,8 @@ class ExpertReleasePublicationStaleResolution(StrictContract):
             required.add(observed.release_id)
         if observed.publication_id is not None:
             required.add(observed.publication_id)
+        if own_pointer is not None:
+            required.add(own_pointer.publication_record.publication_id)
         if set(self.exact_dependency_ids) != required:
             raise ExpertReleaseContractError(
                 "stale resolution dependency closure is not exact"

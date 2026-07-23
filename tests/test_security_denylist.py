@@ -898,6 +898,8 @@ def test_security_publication_runs_the_full_immutable_transaction(tmp_path):
             commit_sha,
         ),
     )
+    resolver.identity_payload_observer = lambda: client.identity_payload
+    resolver.intent_payload_observer = lambda: client.intent_payload
     resolver.current_state_observer = lambda: client.events.append("current_gate")
     materializer = GitHubArtifactMaterializer(
         client,
@@ -961,6 +963,8 @@ def test_security_successor_transaction_reauthenticates_the_live_predecessor(
             commit_sha,
         ),
     )
+    resolver.identity_payload_observer = lambda: client.identity_payload
+    resolver.intent_payload_observer = lambda: client.intent_payload
     materializer = GitHubArtifactMaterializer(
         client,
         settings.github,
@@ -1027,6 +1031,26 @@ def test_generic_publisher_cannot_activate_security_without_the_lineage_gate(
         publisher._authorize_publication(
             envelope,
             _NoOpPublicationGate(),
+        )
+
+    impostor = type(
+        "SecurityDenylistPublicationGate",
+        (),
+        {
+            "__module__": "kapso.cross_run.security_denylist",
+            "validate_before_publication": lambda self, **arguments: None,
+            "revalidate_before_activation": lambda self, **arguments: None,
+        },
+    )
+    with pytest.raises(GitHubPublicationError, match="concrete authority"):
+        AutonomousGitHubPublisher(
+            object(),
+            resolver,
+            object(),
+            settings.github,
+        )._bind_activation_verifier(
+            PublicationArtifactKind.SECURITY_DENYLIST,
+            impostor,
         )
 
     other_publisher = AutonomousGitHubPublisher(
@@ -1132,6 +1156,8 @@ def test_publication_gate_rejects_nonadjacent_or_nonmonotonic_successors(
                 head_commit_sha=resolved.pointer_commit_sha,
             ),
             manifest=candidate,
+            source_tree_digest=tree_or_blob_digest(b"candidate-source"),
+            manifest_digest=tree_or_blob_digest(candidate.to_json_bytes()),
         )
 
 
@@ -1179,6 +1205,8 @@ def test_finite_lineage_horizon_rejects_publication_and_fresh_read(tmp_path):
                 head_commit_sha=resolved.pointer_commit_sha,
             ),
             manifest=generation_one,
+            source_tree_digest=tree_or_blob_digest(b"generation-one-source"),
+            manifest_digest=tree_or_blob_digest(generation_one.to_json_bytes()),
         )
 
     live_provider = _SnapshotProvider(

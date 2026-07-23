@@ -2,20 +2,66 @@
 
 from __future__ import annotations
 
+import os
+import tempfile
+from dataclasses import dataclass
+from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING
 
-from kapso.cross_run.canonical import require_content_id
-from kapso.cross_run.contracts import PublicationArtifactKind
+from kapso.cross_run.canonical import require_content_id, tree_or_blob_digest
+from kapso.cross_run.contracts import (
+    ExpertBaseReleaseManifest,
+    PublicationArtifactKind,
+    ScopeRepositorySettings,
+)
 from kapso.cross_run.expert.providers import GitHubExpertCurrentReleaseProvider
-from kapso.cross_run.expert.release import ExpertReleaseAssembler
+from kapso.cross_run.expert.release import (
+    EXPERT_RELEASE_CONTROL_ARCHIVE,
+    EXPERT_RELEASE_EVIDENCE_ARCHIVE,
+    EXPERT_RELEASE_MANIFEST_PATH,
+    EXPERT_RELEASE_SOURCE_ARCHIVE,
+    ExpertReleaseAssembler,
+    ExpertReleasePackage,
+)
 from kapso.cross_run.expert.release_contracts import (
+    ExpertReleasePublicationPlan,
     ExpertReleasePublicationStaleResolution,
 )
-from kapso.cross_run.github.publisher import AutonomousGitHubPublisher
-from kapso.cross_run.github.resolver import GitHubArtifactResolver
+from kapso.cross_run.expert.promotion_authority import (
+    ExpertPublicationEligibilityCoordinator,
+    ExpertPublicationSecurityDenylistAuthority,
+)
+from kapso.cross_run.expert.promotion_authority_contracts import (
+    ExpertPublicationEligibilityAuthorityFence,
+    ExpertPublicationEligibilityStageResultRecord,
+)
+from kapso.cross_run.expert.task_evaluation_authority_contracts import (
+    TaskEvaluationCurrentReleaseObservation,
+)
+from kapso.cross_run.github.materializer import GitHubArtifactMaterializer
+from kapso.cross_run.github.publisher import (
+    AutonomousGitHubPublisher,
+    PublicationEnvelope,
+    PublicationTelemetry,
+    ReleaseAssetInput,
+)
+from kapso.cross_run.github.resolver import (
+    CurrentArtifactPointer,
+    CurrentPointerState,
+    GitHubArtifactResolver,
+)
+from kapso.cross_run.security_authority_contracts import (
+    SecurityDenylistObservation,
+    TaskAdapterTrustObservation,
+)
+from kapso.cross_run.task_adapters import (
+    VerifiedTaskAdapter,
+    VerifiedTaskAdapterProvider,
+)
 
 if TYPE_CHECKING:
     from kapso.cross_run.expert.validation_store import (
+        ExpertReleasePublicationReservation,
         ExpertReleasePublicationStalePermit,
         ExpertValidationStore,
     )
@@ -25,8 +71,314 @@ class ExpertReleasePublicationError(ValueError):
     """Expert publication authority is missing, stale, or contradictory."""
 
 
+@dataclass(frozen=True)
+class ExpertReleasePublication:
+    """Exact local package, durable reservation, and immutable GitHub result."""
+
+    package: ExpertReleasePackage
+    reservation: ExpertReleasePublicationReservation
+    telemetry: PublicationTelemetry
+
+    def __post_init__(self) -> None:
+        plan = self.reservation.plan
+        record = self.telemetry.publication_record
+        published_assets = tuple(
+            (asset.name, asset.media_type, asset.size, asset.sha256)
+            for asset in record.assets
+        )
+        planned_assets = tuple(
+            (asset.name, asset.media_type, asset.size, asset.sha256)
+            for asset in plan.assets
+        )
+        if (
+            type(self.package) is not ExpertReleasePackage
+            or type(self.telemetry) is not PublicationTelemetry
+            or self.package.manifest != self.reservation.manifest
+            or record.artifact_kind is not PublicationArtifactKind.EXPERT_BASE_RELEASE
+            or record.artifact_id != plan.release_id
+            or record.repository_full_name
+            != plan.current_release_observation.repository_full_name
+            or record.repository_node_id
+            != plan.current_release_observation.repository_node_id
+            or record.tag != plan.tag
+            or published_assets != planned_assets
+            or self.telemetry.expected_parent_sha
+            != plan.current_release_observation.default_branch_head_commit_sha
+            or self.telemetry.source_tree_digest != plan.publication_source_tree_digest
+            or self.telemetry.validation_closure_ids != plan.validation_closure_ids
+        ):
+            raise ExpertReleasePublicationError(
+                "expert publication result differs from its reserved release"
+            )
+
+
+class ExpertReleasePublicationGate:
+    """Keep one frozen approval and predecessor stable through activation."""
+
+    def __init__(
+        self,
+        publisher: ExpertReleasePublisher,
+        reservation: ExpertReleasePublicationReservation,
+    ) -> None:
+        self.publisher = publisher
+        self.reservation = reservation
+        self.expected_parent_pointer: CurrentArtifactPointer | None = None
+        self.preflight_mode: str | None = None
+
+    def validate_before_publication(
+        self,
+        *,
+        envelope: PublicationEnvelope,
+        repositories: ScopeRepositorySettings,
+        current_state: CurrentPointerState,
+        manifest: ExpertBaseReleaseManifest,
+        source_tree_digest: str,
+        manifest_digest: str,
+    ) -> None:
+        if (
+            self.preflight_mode is not None
+            or type(self.publisher) is not ExpertReleasePublisher
+            or type(manifest) is not ExpertBaseReleaseManifest
+        ):
+            raise ExpertReleasePublicationError(
+                "expert publication gate input is invalid"
+            )
+        reservation = self.publisher._require_reservation(self.reservation)
+        plan = reservation.plan
+        self._validate_envelope(
+            envelope=envelope,
+            repositories=repositories,
+            manifest=manifest,
+            source_tree_digest=source_tree_digest,
+            manifest_digest=manifest_digest,
+            reservation=reservation,
+        )
+        pointer = current_state.pointer
+        if pointer == plan.parent_pointer:
+            if current_state.head_commit_sha != (
+                plan.current_release_observation.default_branch_head_commit_sha
+            ):
+                raise ExpertReleasePublicationError(
+                    "expert parent CURRENT is not at its reserved stable head"
+                )
+            observed = self.publisher._refresh_publication_authority(
+                reservation=reservation,
+                activation_pointer=None,
+            )
+            self._validate_observed_current(
+                plan,
+                repositories,
+                current_state,
+                observed,
+            )
+            self.expected_parent_pointer = plan.parent_pointer
+            self.preflight_mode = "parent"
+            return
+        if pointer is not None and (
+            pointer.publication_record.artifact_id == plan.release_id
+        ):
+            observed = self.publisher.current_release_authority.observe_task_evaluation_current(
+                plan.scope_id
+            )
+            self._validate_observed_current(
+                plan,
+                repositories,
+                current_state,
+                observed,
+            )
+            self._validate_release_pointer(plan, pointer)
+            self.preflight_mode = "active-release"
+            return
+        raise ExpertReleasePublicationError(
+            "expert CURRENT is neither the reserved parent nor release"
+        )
+
+    def revalidate_before_activation(
+        self,
+        *,
+        envelope: PublicationEnvelope,
+        repositories: ScopeRepositorySettings,
+        pointer: CurrentArtifactPointer,
+        manifest: ExpertBaseReleaseManifest,
+    ) -> None:
+        if self.preflight_mode != "parent":
+            raise ExpertReleasePublicationError(
+                "expert activation was not preauthorized from its parent"
+            )
+        reservation = self.publisher._require_reservation(self.reservation)
+        plan = reservation.plan
+        if manifest != reservation.manifest:
+            raise ExpertReleasePublicationError(
+                "expert activation manifest differs from its reservation"
+            )
+        self._validate_release_pointer(plan, pointer)
+        current_state = self.publisher.resolver.read_current_pointer_state(
+            plan.scope_id,
+            PublicationArtifactKind.EXPERT_BASE_RELEASE,
+            allow_missing=True,
+        )
+        if (
+            current_state.pointer != self.expected_parent_pointer
+            or current_state.head_commit_sha != envelope.expected_parent_sha
+        ):
+            raise ExpertReleasePublicationError(
+                "expert CURRENT changed before release activation"
+            )
+        observed = self.publisher._refresh_publication_authority(
+            reservation=reservation,
+            activation_pointer=pointer,
+        )
+        self._validate_observed_current(plan, repositories, current_state, observed)
+
+    @staticmethod
+    def _validate_envelope(
+        *,
+        envelope: PublicationEnvelope,
+        repositories: ScopeRepositorySettings,
+        manifest: ExpertBaseReleaseManifest,
+        source_tree_digest: str,
+        manifest_digest: str,
+        reservation: ExpertReleasePublicationReservation,
+    ) -> None:
+        plan = reservation.plan
+        assets = tuple(
+            (
+                asset.name,
+                asset.media_type,
+                asset.size,
+                asset.sha256,
+            )
+            for asset in envelope.assets
+        )
+        planned_assets = tuple(
+            (
+                asset.name,
+                asset.media_type,
+                asset.size,
+                asset.sha256,
+            )
+            for asset in plan.assets
+        )
+        if (
+            envelope.artifact_kind is not PublicationArtifactKind.EXPERT_BASE_RELEASE
+            or envelope.artifact_id != plan.release_id
+            or envelope.scope_id != plan.scope_id
+            or envelope.expected_parent_sha
+            != plan.current_release_observation.default_branch_head_commit_sha
+            or envelope.manifest_relative_path != EXPERT_RELEASE_MANIFEST_PATH
+            or envelope.tag != plan.tag
+            or envelope.committed_at != reservation.intent.committed_at
+            or envelope.validation_closure_ids != plan.validation_closure_ids
+            or repositories.scope_id != plan.scope_id
+            or repositories.expert_repository
+            != plan.current_release_observation.repository_full_name
+            or manifest != reservation.manifest
+            or manifest_digest != plan.manifest_digest
+            or source_tree_digest != plan.publication_source_tree_digest
+            or assets != planned_assets
+        ):
+            raise ExpertReleasePublicationError(
+                "expert publication envelope differs from its reservation"
+            )
+
+    @staticmethod
+    def _validate_observed_current(
+        plan: ExpertReleasePublicationPlan,
+        repositories: ScopeRepositorySettings,
+        current_state: CurrentPointerState,
+        observed: TaskEvaluationCurrentReleaseObservation,
+    ) -> None:
+        pointer = current_state.pointer
+        if type(observed) is not TaskEvaluationCurrentReleaseObservation:
+            raise ExpertReleasePublicationError(
+                "expert publication CURRENT observation is not exact"
+            )
+        if pointer is None:
+            pointer_release_id = None
+            pointer_publication_id = None
+            pointer_digest = None
+            pointer_closure: tuple[str, ...] = ()
+        else:
+            pointer_release_id = pointer.publication_record.artifact_id
+            pointer_publication_id = pointer.publication_record.publication_id
+            pointer_digest = tree_or_blob_digest(pointer.to_json_bytes())
+            pointer_closure = pointer.validation_closure_ids
+        planned = plan.current_release_observation
+        if (
+            observed.scope_id != plan.scope_id
+            or observed.repository_full_name != repositories.expert_repository
+            or observed.repository_full_name != planned.repository_full_name
+            or observed.repository_node_id != planned.repository_node_id
+            or observed.default_branch_head_commit_sha != current_state.head_commit_sha
+            or observed.release_id != pointer_release_id
+            or observed.publication_id != pointer_publication_id
+            or observed.current_pointer_digest != pointer_digest
+            or observed.validation_closure_ids != pointer_closure
+        ):
+            raise ExpertReleasePublicationError(
+                "expert CURRENT changed during publication authentication"
+            )
+
+    @staticmethod
+    def _validate_release_pointer(
+        plan: ExpertReleasePublicationPlan,
+        pointer: CurrentArtifactPointer,
+    ) -> None:
+        record = pointer.publication_record
+        assets = tuple(
+            (
+                asset.name,
+                asset.media_type,
+                asset.size,
+                asset.sha256,
+            )
+            for asset in record.assets
+        )
+        planned_assets = tuple(
+            (
+                asset.name,
+                asset.media_type,
+                asset.size,
+                asset.sha256,
+            )
+            for asset in plan.assets
+        )
+        if (
+            pointer.scope_id != plan.scope_id
+            or record.artifact_kind is not PublicationArtifactKind.EXPERT_BASE_RELEASE
+            or record.artifact_id != plan.release_id
+            or record.repository_full_name
+            != plan.current_release_observation.repository_full_name
+            or record.repository_node_id
+            != plan.current_release_observation.repository_node_id
+            or record.tag != plan.tag
+            or assets != planned_assets
+            or pointer.source_tree_digest != plan.publication_source_tree_digest
+            or pointer.manifest_relative_path != EXPERT_RELEASE_MANIFEST_PATH
+            or pointer.manifest_digest != plan.manifest_digest
+            or pointer.validation_closure_ids != plan.validation_closure_ids
+        ):
+            raise ExpertReleasePublicationError(
+                "expert release pointer differs from its publication plan"
+            )
+
+
 class ExpertReleasePublisher:
     """Own the exact local and GitHub authorities for expert publication."""
+
+    __slots__ = (
+        "assembler",
+        "validation_store",
+        "github_publisher",
+        "resolver",
+        "current_release_authority",
+        "task_adapter_authority",
+        "security_denylist_authority",
+        "_eligibility_coordinator",
+        "_github_client",
+        "_package_validator",
+        "_scope_registry",
+    )
 
     def __init__(
         self,
@@ -36,7 +388,12 @@ class ExpertReleasePublisher:
         github_publisher: AutonomousGitHubPublisher,
         resolver: GitHubArtifactResolver,
         current_release_authority: GitHubExpertCurrentReleaseProvider,
+        task_adapter_authority: VerifiedTaskAdapterProvider,
+        security_denylist_authority: ExpertPublicationSecurityDenylistAuthority,
     ) -> None:
+        publication_eligibility_authority = (
+            validation_store._publication_eligibility_coordinator
+        )
         if (
             type(assembler) is not ExpertReleaseAssembler
             or assembler.validation_store is not validation_store
@@ -46,18 +403,404 @@ class ExpertReleasePublisher:
             or github_publisher.client is not resolver.client
             or github_publisher.settings != assembler.github_settings
             or resolver.settings != assembler.github_settings
+            or type(github_publisher.package_validator)
+            is not GitHubArtifactMaterializer
+            or github_publisher.package_validator.client is not resolver.client
+            or github_publisher.package_validator.settings != assembler.github_settings
             or type(current_release_authority) is not GitHubExpertCurrentReleaseProvider
             or current_release_authority.resolver is not resolver
+            or validation_store.reducer.current_release_provider
+            is not current_release_authority
+            or validation_store.reducer.task_adapter_provider
+            is not task_adapter_authority
+            or type(publication_eligibility_authority)
+            is not ExpertPublicationEligibilityCoordinator
+            or publication_eligibility_authority.validation_store
+            is not validation_store
+            or publication_eligibility_authority.task_adapter_authority
+            is not task_adapter_authority
+            or publication_eligibility_authority.security_denylist_authority
+            is not security_denylist_authority
         ):
             raise ExpertReleasePublicationError(
                 "expert publisher authorities are not one concrete trust boundary"
             )
-        self.assembler = assembler
-        self.validation_store = validation_store
-        self.github_publisher = github_publisher
-        self.resolver = resolver
-        self.current_release_authority = current_release_authority
+        object.__setattr__(self, "assembler", assembler)
+        object.__setattr__(self, "validation_store", validation_store)
+        object.__setattr__(self, "github_publisher", github_publisher)
+        object.__setattr__(self, "resolver", resolver)
+        object.__setattr__(
+            self,
+            "current_release_authority",
+            current_release_authority,
+        )
+        object.__setattr__(self, "task_adapter_authority", task_adapter_authority)
+        object.__setattr__(
+            self,
+            "security_denylist_authority",
+            security_denylist_authority,
+        )
+        object.__setattr__(
+            self,
+            "_eligibility_coordinator",
+            publication_eligibility_authority,
+        )
+        object.__setattr__(self, "_github_client", github_publisher.client)
+        object.__setattr__(
+            self,
+            "_package_validator",
+            github_publisher.package_validator,
+        )
+        object.__setattr__(self, "_scope_registry", resolver.scope_registry)
+        self.github_publisher._bind_activation_verifier(
+            PublicationArtifactKind.EXPERT_BASE_RELEASE,
+            ExpertReleasePublicationGate,
+        )
         self.validation_store._bind_release_publisher_authority(self)
+
+    def __setattr__(self, name: str, value: object) -> None:
+        raise ExpertReleasePublicationError("expert publisher authority is immutable")
+
+    def publish(self, *, candidate_id: str) -> ExpertReleasePublication:
+        """Resume or complete the immutable transaction for one reservation."""
+
+        require_content_id(candidate_id, "expert publication candidate_id")
+        reservation = self.validation_store.reopen_release_publication(candidate_id)
+        if reservation is None:
+            raise ExpertReleasePublicationError(
+                "expert publication has no active reservation"
+            )
+        package = self.assembler.build(candidate_id=candidate_id)
+        permit = self.assembler.authorize_publication_plan(
+            package=package,
+            plan=reservation.plan,
+        )
+        committed = self.validation_store.reserve_release_publication(
+            permit,
+            committed_at=reservation.intent.committed_at,
+        )
+        reservation = committed.reservation
+        with tempfile.TemporaryDirectory(prefix="kapso-expert-release-") as root:
+            release_root = Path(root)
+            source_tree = release_root / "source"
+            asset_root = release_root / "assets"
+            source_tree.mkdir(mode=0o700)
+            asset_root.mkdir(mode=0o700)
+            self._write_source_tree(package, source_tree)
+            assets = self._write_assets(package, reservation.plan, asset_root)
+            envelope = PublicationEnvelope(
+                artifact_kind=PublicationArtifactKind.EXPERT_BASE_RELEASE,
+                artifact_id=reservation.plan.release_id,
+                scope_id=reservation.plan.scope_id,
+                expected_parent_sha=(
+                    reservation.plan.current_release_observation.default_branch_head_commit_sha
+                ),
+                source_tree=source_tree,
+                manifest_relative_path=EXPERT_RELEASE_MANIFEST_PATH,
+                assets=assets,
+                tag=reservation.plan.tag,
+                committed_at=reservation.intent.committed_at,
+                validation_closure_ids=reservation.plan.validation_closure_ids,
+            )
+            telemetry = self.github_publisher.publish(
+                envelope,
+                activation_authorization=self.github_publisher._authorize_publication(
+                    envelope,
+                    ExpertReleasePublicationGate(self, reservation),
+                ),
+            )
+        return ExpertReleasePublication(
+            package=package,
+            reservation=reservation,
+            telemetry=telemetry,
+        )
+
+    def _require_reservation(
+        self,
+        reservation: ExpertReleasePublicationReservation,
+    ) -> ExpertReleasePublicationReservation:
+        self._require_bound_authority()
+        current = self.validation_store.reopen_release_publication(
+            reservation.plan.candidate_id
+        )
+        if current != reservation:
+            raise ExpertReleasePublicationError(
+                "expert publication reservation is no longer active"
+            )
+        return current
+
+    def _require_bound_authority(self) -> None:
+        self._require_local_authority_join()
+        self.validation_store._require_bound_release_publisher_authority(self)
+
+    def _require_local_authority_join(self) -> None:
+        coordinator = self.validation_store._publication_eligibility_coordinator
+        package_validator = self.github_publisher.package_validator
+        if (
+            type(self.assembler) is not ExpertReleaseAssembler
+            or self.assembler.validation_store is not self.validation_store
+            or type(self.github_publisher) is not AutonomousGitHubPublisher
+            or type(self.resolver) is not GitHubArtifactResolver
+            or self.resolver.scope_registry is not self._scope_registry
+            or self.github_publisher.resolver is not self.resolver
+            or self.github_publisher.client is not self._github_client
+            or self.resolver.client is not self._github_client
+            or self.github_publisher.settings != self.assembler.github_settings
+            or self.resolver.settings != self.assembler.github_settings
+            or type(package_validator) is not GitHubArtifactMaterializer
+            or package_validator is not self._package_validator
+            or package_validator.client is not self._github_client
+            or package_validator.settings != self.assembler.github_settings
+            or type(self.current_release_authority)
+            is not GitHubExpertCurrentReleaseProvider
+            or self.current_release_authority.resolver is not self.resolver
+            or self.validation_store.reducer.current_release_provider
+            is not self.current_release_authority
+            or self.validation_store.reducer.task_adapter_provider
+            is not self.task_adapter_authority
+            or type(coordinator) is not ExpertPublicationEligibilityCoordinator
+            or coordinator is not self._eligibility_coordinator
+            or coordinator.validation_store is not self.validation_store
+            or coordinator.task_adapter_authority is not self.task_adapter_authority
+            or coordinator.security_denylist_authority
+            is not self.security_denylist_authority
+            or self.github_publisher._activation_verifier_types.get(
+                PublicationArtifactKind.EXPERT_BASE_RELEASE
+            )
+            is not ExpertReleasePublicationGate
+        ):
+            raise ExpertReleasePublicationError(
+                "expert publisher authority binding changed after construction"
+            )
+
+    def _refresh_publication_authority(
+        self,
+        *,
+        reservation: ExpertReleasePublicationReservation,
+        activation_pointer: CurrentArtifactPointer | None,
+    ) -> TaskEvaluationCurrentReleaseObservation:
+        reservation = self._require_reservation(reservation)
+        plan = reservation.plan
+        fence = self._publication_eligibility_fence(reservation)
+        current_before = self.current_release_authority.observe_task_evaluation_current(
+            plan.scope_id
+        )
+        if current_before != plan.current_release_observation:
+            raise ExpertReleasePublicationError(
+                "expert publication CURRENT differs from its approved authority"
+            )
+        adapter_observations = self._reverify_task_adapters(fence)
+        security_subject_ids = self._publication_security_subject_ids(
+            reservation=reservation,
+            fence=fence,
+            current=current_before,
+            adapter_observations=adapter_observations,
+            activation_pointer=activation_pointer,
+        )
+        denylist = self.security_denylist_authority.observe_exact(
+            scope_id=plan.scope_id,
+            scope_contract_id=plan.scope_contract_id,
+            checked_subject_ids=security_subject_ids,
+        )
+        repositories = self.resolver.repositories_for_scope(plan.scope_id)
+        if (
+            type(denylist) is not SecurityDenylistObservation
+            or denylist.scope_id != plan.scope_id
+            or denylist.scope_contract_id != plan.scope_contract_id
+            or denylist.scope_repository_binding_hash
+            != repositories.binding_fingerprint
+            or denylist.repository_full_name != repositories.security_repository
+            or denylist.checked_subject_ids != security_subject_ids
+            or denylist.denied_subject_ids
+        ):
+            raise ExpertReleasePublicationError(
+                "expert publication denylist differs from fresh authority"
+            )
+        current_after = self.current_release_authority.observe_task_evaluation_current(
+            plan.scope_id
+        )
+        if current_after != current_before:
+            raise ExpertReleasePublicationError(
+                "expert CURRENT changed during publication authority refresh"
+            )
+        self._require_reservation(reservation)
+        return current_after
+
+    def _reverify_task_adapters(
+        self,
+        fence: ExpertPublicationEligibilityAuthorityFence,
+    ) -> tuple[TaskAdapterTrustObservation, ...]:
+        observations: list[TaskAdapterTrustObservation] = []
+        for expected in fence.task_adapter_trust_observations:
+            verified = self.task_adapter_authority.resolve_exact(
+                task_adapter_manifest_id=expected.task_adapter_manifest_id,
+                verification_receipt_id=expected.verification_receipt_id,
+            )
+            if type(verified) is not VerifiedTaskAdapter:
+                raise ExpertReleasePublicationError(
+                    "expert publication adapter authority is not exact"
+                )
+            observed = TaskAdapterTrustObservation.mint(
+                task_adapter_manifest_id=(verified.manifest.task_adapter_manifest_id),
+                verification_receipt_id=(
+                    verified.verification_receipt.verification_receipt_id
+                ),
+                verifier_id=verified.verification_receipt.verifier_id,
+                verifier_version=verified.verification_receipt.verifier_version,
+                dependency_ids=verified.dependency_ids,
+            )
+            if observed != expected:
+                raise ExpertReleasePublicationError(
+                    "expert publication adapter differs from approved authority"
+                )
+            observations.append(observed)
+        ordered = tuple(sorted(observations, key=lambda item: item.observation_id))
+        if ordered != fence.task_adapter_trust_observations:
+            raise ExpertReleasePublicationError(
+                "expert publication adapter observations are not canonical"
+            )
+        return ordered
+
+    @staticmethod
+    def _publication_eligibility_fence(
+        reservation: ExpertReleasePublicationReservation,
+    ) -> ExpertPublicationEligibilityAuthorityFence:
+        result = reservation.snapshot.accepted_stage_results[-1]
+        if (
+            type(result) is not ExpertPublicationEligibilityStageResultRecord
+            or result.stage_result_record_id
+            != reservation.plan.publication_eligibility_result_id
+            or type(result.publication_authority_fence)
+            is not ExpertPublicationEligibilityAuthorityFence
+        ):
+            raise ExpertReleasePublicationError(
+                "expert reservation lacks publication eligibility authority"
+            )
+        return result.publication_authority_fence
+
+    @staticmethod
+    def _publication_security_subject_ids(
+        *,
+        reservation: ExpertReleasePublicationReservation,
+        fence: ExpertPublicationEligibilityAuthorityFence,
+        current: TaskEvaluationCurrentReleaseObservation,
+        adapter_observations: tuple[TaskAdapterTrustObservation, ...],
+        activation_pointer: CurrentArtifactPointer | None,
+    ) -> tuple[str, ...]:
+        plan = reservation.plan
+        prior_denylist = fence.security_denylist_observation
+        subjects = {
+            reservation.intent.publication_intent_id,
+            plan.publication_plan_id,
+            plan.release_id,
+            plan.candidate_id,
+            plan.approval_transition_id,
+            plan.approval_state_id,
+            plan.publication_eligibility_result_id,
+            fence.fence_id,
+            prior_denylist.observation_id,
+            prior_denylist.snapshot_id,
+            prior_denylist.publication_id,
+            current.observation_id,
+            *plan.validation_closure_ids,
+            *fence.security_subject_ids,
+            *current.validation_closure_ids,
+        }
+        if current.release_id is not None:
+            subjects.add(current.release_id)
+        if current.publication_id is not None:
+            subjects.add(current.publication_id)
+        if activation_pointer is not None:
+            subjects.add(activation_pointer.publication_record.publication_id)
+        for observation in adapter_observations:
+            subjects.update(
+                {
+                    observation.observation_id,
+                    observation.task_adapter_manifest_id,
+                    observation.verification_receipt_id,
+                    observation.verifier_authority_subject_id,
+                    *observation.dependency_ids,
+                }
+            )
+        ordered = tuple(sorted(subjects))
+        for subject_id in ordered:
+            require_content_id(subject_id, "expert publication security subject")
+        return ordered
+
+    @staticmethod
+    def _write_source_tree(
+        package: ExpertReleasePackage,
+        source_tree: Path,
+    ) -> None:
+        for relative_path, (payload, mode) in package.publication_files.items():
+            path = PurePosixPath(relative_path)
+            if (
+                path.is_absolute()
+                or ".." in path.parts
+                or path.as_posix() != relative_path
+                or mode not in {"100644", "100755"}
+            ):
+                raise ExpertReleasePublicationError(
+                    "expert publication source path or mode is invalid"
+                )
+            destination = source_tree.joinpath(*path.parts)
+            destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            ExpertReleasePublisher._write_file(
+                destination,
+                payload,
+                0o755 if mode == "100755" else 0o644,
+            )
+
+    @staticmethod
+    def _write_assets(
+        package: ExpertReleasePackage,
+        plan: ExpertReleasePublicationPlan,
+        asset_root: Path,
+    ) -> tuple[ReleaseAssetInput, ...]:
+        payloads = {
+            EXPERT_RELEASE_CONTROL_ARCHIVE: package.control_archive,
+            EXPERT_RELEASE_EVIDENCE_ARCHIVE: package.evidence_archive,
+            EXPERT_RELEASE_SOURCE_ARCHIVE: package.source_archive,
+        }
+        assets: list[ReleaseAssetInput] = []
+        for descriptor in plan.assets:
+            payload = payloads.get(descriptor.name)
+            if (
+                payload is None
+                or len(payload) != descriptor.size
+                or tree_or_blob_digest(payload) != descriptor.sha256
+            ):
+                raise ExpertReleasePublicationError(
+                    "expert publication asset differs from its plan"
+                )
+            path = asset_root / descriptor.name
+            ExpertReleasePublisher._write_file(path, payload, 0o600)
+            assets.append(
+                ReleaseAssetInput(
+                    path=path,
+                    name=descriptor.name,
+                    media_type=descriptor.media_type,
+                    size=descriptor.size,
+                    sha256=descriptor.sha256,
+                )
+            )
+        if set(payloads) != {asset.name for asset in plan.assets}:
+            raise ExpertReleasePublicationError(
+                "expert publication plan omits a required release asset"
+            )
+        return tuple(assets)
+
+    @staticmethod
+    def _write_file(path: Path, payload: bytes, mode: int) -> None:
+        descriptor = os.open(
+            path,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+            mode,
+        )
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
 
     def resolve_stale(
         self,
@@ -68,6 +811,7 @@ class ExpertReleasePublisher:
         """Resolve only an intent displaced by another active expert release."""
 
         require_content_id(candidate_id, "stale expert publication candidate_id")
+        self._require_bound_authority()
         reservation = self.validation_store.reopen_release_publication(candidate_id)
         if reservation is None:
             return self.validation_store.reopen_stale_release_publication(candidate_id)
@@ -101,16 +845,92 @@ class ExpertReleasePublisher:
             raise ExpertReleasePublicationError(
                 "expert CURRENT changed during stale publication classification"
             )
+        own_intent = self.resolver.read_artifact_intent(
+            plan.scope_id,
+            PublicationArtifactKind.EXPERT_BASE_RELEASE,
+            plan.release_id,
+        )
+        own_identity = self.resolver.read_artifact_pointer(
+            plan.scope_id,
+            PublicationArtifactKind.EXPERT_BASE_RELEASE,
+            plan.release_id,
+        )
+        self.validation_store._validate_release_publication_remote_history(
+            reservation.intent,
+            plan,
+            own_intent,
+            own_identity,
+            self.github_publisher.settings.publisher_login,
+        )
+        if own_intent is not None:
+            self.resolver.diagnose_repository(
+                plan.scope_id,
+                PublicationArtifactKind.EXPERT_BASE_RELEASE,
+            )
+            if own_identity is None:
+                self.resolver.verify_publication_intent_source(
+                    own_intent.repository_full_name,
+                    own_intent,
+                )
+            else:
+                resolved = self.resolver.resolve_artifact(
+                    plan.scope_id,
+                    PublicationArtifactKind.EXPERT_BASE_RELEASE,
+                    plan.release_id,
+                )
+                if resolved.pointer != own_identity:
+                    raise ExpertReleasePublicationError(
+                        "expert release identity changed during stale classification"
+                    )
+            if self.resolver.is_commit_ancestor(
+                plan.scope_id,
+                PublicationArtifactKind.EXPERT_BASE_RELEASE,
+                own_intent.source_commit_sha,
+                state.head_commit_sha,
+            ):
+                raise ExpertReleasePublicationError(
+                    "historically active release requires RELEASED recovery"
+                )
+        if (
+            self.resolver.read_artifact_intent(
+                plan.scope_id,
+                PublicationArtifactKind.EXPERT_BASE_RELEASE,
+                plan.release_id,
+            )
+            != own_intent
+            or self.resolver.read_artifact_pointer(
+                plan.scope_id,
+                PublicationArtifactKind.EXPERT_BASE_RELEASE,
+                plan.release_id,
+            )
+            != own_identity
+        ):
+            raise ExpertReleasePublicationError(
+                "expert release history changed during stale classification"
+            )
+        refreshed_observed = (
+            self.current_release_authority.observe_task_evaluation_current(
+                plan.scope_id
+            )
+        )
+        if refreshed_observed != observed:
+            raise ExpertReleasePublicationError(
+                "expert CURRENT changed during stale publication classification"
+            )
         permit = self.validation_store._seal_stale_release_publication(
             publisher=self,
             reservation=reservation,
-            observed_current=observed,
+            observed_current=refreshed_observed,
+            own_github_publication_intent=own_intent,
+            own_github_publication_pointer=own_identity,
             resolved_at=resolved_at,
         )
         return self.validation_store.resolve_stale_release_publication(permit)
 
 
 __all__ = [
+    "ExpertReleasePublication",
     "ExpertReleasePublicationError",
+    "ExpertReleasePublicationGate",
     "ExpertReleasePublisher",
 ]

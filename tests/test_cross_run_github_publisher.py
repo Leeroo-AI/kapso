@@ -33,6 +33,7 @@ from kapso.cross_run.github.resolver import (
     ArtifactPublicationIntent,
     CurrentArtifactPointer,
     CurrentPointerState,
+    GitHubResolutionError,
     PublicationAssetIntent,
     PublicationSourceFile,
     RepositoryPolicyReport,
@@ -308,10 +309,14 @@ class FakeResolver:
     repository: str = REPOSITORY
     repository_node_id: str = "repository-node"
     current_state_observer: Callable[[], None] | None = None
+    identity_payload_observer: Callable[[], bytes | None] | None = None
+    intent_payload_observer: Callable[[], bytes | None] | None = None
 
     def __post_init__(self):
         self.verified = []
         self.verified_source_intents = []
+        self.required_pointers = []
+        self.required_intents = []
         self.policy = RepositoryPolicyReport(
             repository_full_name=self.repository,
             repository_node_id=self.repository_node_id,
@@ -349,11 +354,39 @@ class FakeResolver:
             assert self.identity.publication_record.artifact_id == artifact_id
         return self.identity
 
+    def require_artifact_pointer(
+        self, scope_id, artifact_kind, artifact_id, expected_pointer
+    ):
+        observed = self.identity
+        if self.identity_payload_observer is not None:
+            payload = self.identity_payload_observer()
+            if payload is not None:
+                observed = CurrentArtifactPointer.from_json_bytes(payload)
+        assert scope_id == "ml_ai"
+        assert artifact_kind is self.artifact_kind
+        assert artifact_id == expected_pointer.publication_record.artifact_id
+        assert observed == expected_pointer
+        self.required_pointers.append(expected_pointer)
+
     def read_artifact_intent(self, scope_id, artifact_kind, artifact_id):
         assert scope_id == "ml_ai"
         if self.intent is not None:
             assert self.intent.artifact_id == artifact_id
         return self.intent
+
+    def require_artifact_intent(
+        self, scope_id, artifact_kind, artifact_id, expected_intent
+    ):
+        observed = self.intent
+        if self.intent_payload_observer is not None:
+            payload = self.intent_payload_observer()
+            if payload is not None:
+                observed = ArtifactPublicationIntent.from_json_bytes(payload)
+        assert scope_id == "ml_ai"
+        assert artifact_kind is self.artifact_kind
+        assert artifact_id == expected_intent.artifact_id
+        assert observed == expected_intent
+        self.required_intents.append(expected_intent)
 
     def verify_pointer(
         self, repository_settings, artifact_kind, policy, pointer, intent
@@ -398,9 +431,12 @@ class FakePublisherClient:
         self.release_published = False
         self.blob_contents = []
         self.source_tree_contents = {}
+        self.source_tree_files = {}
         self.source_tree_sha = None
+        self.pointer_tree_sha = None
         self.intent_payload = None
         self.identity_payload = None
+        self.blob_contents_by_sha = {}
         self.tag_target = SOURCE_COMMIT
         self.release_author = "leeroo-coder"
         self.repository = repository
@@ -421,11 +457,24 @@ class FakePublisherClient:
             self._record("blob")
             content = base64.b64decode(body["content"])
             self.blob_contents.append(content)
-            return {"sha": self._git_sha("blob", content)}
+            blob_sha = self._git_sha("blob", content)
+            self.blob_contents_by_sha[blob_sha] = content
+            return {"sha": blob_sha}
         if endpoint.endswith("/git/trees"):
             self._record("tree")
             if "base_tree" in body:
-                return {"sha": "e" * 40}
+                assert body["base_tree"] == self.source_tree_sha
+                assert len(body["tree"]) == 1
+                pointer_entry = body["tree"][0]
+                assert pointer_entry["path"] == "CURRENT.json"
+                assert pointer_entry["sha"] in self.blob_contents_by_sha
+                files = dict(self.source_tree_files)
+                files["CURRENT.json"] = (
+                    pointer_entry["sha"],
+                    pointer_entry["mode"],
+                )
+                self.pointer_tree_sha = git_tree_shas(files)[""]
+                return {"sha": self.pointer_tree_sha}
             if all("content" in entry for entry in body["tree"]):
                 self.source_tree_contents = {
                     entry["path"]: entry["content"].encode("utf-8")
@@ -438,6 +487,7 @@ class FakePublisherClient:
                     )
                     for entry in body["tree"]
                 }
+                self.source_tree_files = files
                 tree_sha = git_tree_shas(files)[""]
                 self.source_tree_sha = tree_sha
                 return {"sha": tree_sha}
@@ -471,6 +521,12 @@ class FakePublisherClient:
             return {
                 "tree": {"sha": self.source_tree_sha},
                 "parents": [{"sha": EXPECTED_PARENT}],
+            }
+        if endpoint.endswith(f"/git/commits/{POINTER_COMMIT}"):
+            return {
+                "sha": POINTER_COMMIT,
+                "tree": {"sha": self.pointer_tree_sha},
+                "parents": [{"sha": SOURCE_COMMIT}],
             }
         if "/git/commits/" in endpoint and method == "GET":
             return {
@@ -609,6 +665,8 @@ class FakePublisherClient:
 
 def build_publisher(client, resolver, tmp_path, settings=None):
     github = settings or cross_run_settings().github
+    resolver.identity_payload_observer = lambda: client.identity_payload
+    resolver.intent_payload_observer = lambda: client.intent_payload
     materializer = GitHubArtifactMaterializer(client, github, tmp_path / "state")
     return AutonomousGitHubPublisher(client, resolver, materializer, github)
 
@@ -628,17 +686,18 @@ def test_publisher_runs_draft_verify_publish_attest_then_pointer_transaction(tmp
     assert not telemetry.idempotent_replay
     assert "blob" not in client.events[: client.events.index("source_commit")]
     assert client.events[: client.events.index("source_commit")] == ["tree"]
-    assert client.events.index("source_ref") < client.events.index("draft")
+    assert "source_ref" not in client.events
     assert client.events.index("intent_ref") < client.events.index("draft")
     assert client.events.index("upload") < client.events.index("publish")
     assert client.events.index("attestation") < client.events.index("pointer_commit")
     assert client.events[-1] == "pointer_ref"
+    assert resolver.required_intents
+    assert resolver.required_pointers
 
 
 @pytest.mark.parametrize(
     "failure_event",
     [
-        "source_ref",
         "intent_commit",
         "intent_ref",
         "tag_ref",
@@ -785,9 +844,114 @@ def test_pre_release_intent_survives_release_crash_and_intervening_head(tmp_path
     with pytest.raises(GitHubCompareAndSwapError, match="not the active CURRENT"):
         build_publisher(
             client,
-            FakeResolver(identity=identity, intent=intent),
+            FakeResolver(
+                identity=identity,
+                intent=intent,
+                current_head="f" * 40,
+            ),
             tmp_path,
         ).publish(envelope)
+
+
+def test_inactive_immutable_identity_replay_is_reread_before_activation(tmp_path):
+    envelope, _ = build_envelope(tmp_path)
+    first_client = FakePublisherClient(envelope.assets[0], fail_event="pointer_ref")
+    first_resolver = FakeResolver()
+    with pytest.raises(InjectedFailure):
+        build_publisher(first_client, first_resolver, tmp_path).publish(envelope)
+    intent = ArtifactPublicationIntent.from_json_bytes(first_client.intent_payload)
+    identity = CurrentArtifactPointer.from_json_bytes(first_client.identity_payload)
+    replay_client = FakePublisherClient(envelope.assets[0])
+    replay_client.source_tree_sha = first_client.source_tree_sha
+    replay_client.source_tree_files = first_client.source_tree_files
+    replay_resolver = FakeResolver(identity=identity, intent=intent, release_id=7)
+
+    telemetry = build_publisher(
+        replay_client,
+        replay_resolver,
+        tmp_path,
+    ).publish(envelope)
+
+    assert telemetry.idempotent_replay
+    assert replay_resolver.required_pointers == [identity]
+    assert replay_client.events[-1] == "pointer_ref"
+
+
+@pytest.mark.parametrize("corruption", ("sha", "tree", "parent"))
+def test_activation_commit_is_reread_exactly_before_branch_cas(tmp_path, corruption):
+    envelope, _ = build_envelope(tmp_path)
+    client = FakePublisherClient(envelope.assets[0])
+    original_api_json = client.api_json
+
+    def corrupt_activation_commit(method, endpoint, body=None):
+        response = original_api_json(method, endpoint, body)
+        if method == "GET" and endpoint.endswith(f"/git/commits/{POINTER_COMMIT}"):
+            changed = dict(response)
+            if corruption == "sha":
+                changed["sha"] = "9" * 40
+            elif corruption == "tree":
+                changed["tree"] = {"sha": "9" * 40}
+            else:
+                changed["parents"] = [{"sha": "9" * 40}]
+            return changed
+        return response
+
+    client.api_json = corrupt_activation_commit
+
+    with pytest.raises(GitHubPublicationError, match="activation"):
+        build_publisher(client, FakeResolver(), tmp_path).publish(envelope)
+
+    assert "pointer_ref" not in client.events
+
+
+def test_current_blob_response_is_verified_before_activation(tmp_path):
+    envelope, _ = build_envelope(tmp_path)
+    client = FakePublisherClient(envelope.assets[0])
+    original_api_json = client.api_json
+
+    def corrupt_current_blob(method, endpoint, body=None):
+        response = original_api_json(method, endpoint, body)
+        if (
+            method == "POST"
+            and endpoint.endswith("/git/blobs")
+            and "identity_ref" in client.events
+        ):
+            return {"sha": "9" * 40}
+        return response
+
+    client.api_json = corrupt_current_blob
+
+    with pytest.raises(GitHubPublicationError, match="unexpected CURRENT blob"):
+        build_publisher(client, FakeResolver(), tmp_path).publish(envelope)
+
+    assert "pointer_ref" not in client.events
+
+
+def test_exact_intent_and_identity_readback_fail_before_remote_activation(tmp_path):
+    envelope, _ = build_envelope(tmp_path)
+    intent_client = FakePublisherClient(envelope.assets[0])
+    intent_resolver = FakeResolver()
+
+    def reject_intent(*args):
+        raise GitHubResolutionError("intent readback mismatch")
+
+    intent_resolver.require_artifact_intent = reject_intent
+    with pytest.raises(GitHubResolutionError, match="intent readback"):
+        build_publisher(intent_client, intent_resolver, tmp_path).publish(envelope)
+    assert "draft" not in intent_client.events
+    assert "pointer_ref" not in intent_client.events
+
+    identity_client = FakePublisherClient(envelope.assets[0])
+    identity_resolver = FakeResolver()
+
+    def reject_identity(*args):
+        raise GitHubResolutionError("identity readback mismatch")
+
+    identity_resolver.require_artifact_pointer = reject_identity
+    with pytest.raises(GitHubResolutionError, match="identity readback"):
+        build_publisher(identity_client, identity_resolver, tmp_path).publish(envelope)
+    assert identity_client.release_published
+    assert "pointer_ref" not in identity_client.events
 
 
 def test_source_commit_preserves_prior_current_pointer_during_release_failure(
@@ -825,7 +989,7 @@ def test_source_commit_preserves_prior_current_pointer_during_release_failure(
         ).publish(envelope)
 
     assert client.source_tree_contents["CURRENT.json"] == prior_pointer.to_json_bytes()
-    assert client.head == SOURCE_COMMIT
+    assert client.head == EXPECTED_PARENT
 
 
 def test_prior_current_is_in_complete_source_bound_before_remote_write(tmp_path):
@@ -1067,23 +1231,23 @@ def test_two_publishers_from_one_head_produce_typed_compare_and_swap_conflict(
     original_update = client.update_ref_compare_and_swap
     raced = False
 
-    def race_on_source_ref(
+    def race_on_pointer_ref(
         repository, repository_node_id, branch, expected_sha, commit_sha
     ):
         nonlocal raced
-        if not raced and commit_sha == SOURCE_COMMIT:
+        if not raced and commit_sha == POINTER_COMMIT:
             raced = True
             client.head = "f" * 40
         return original_update(
             repository, repository_node_id, branch, expected_sha, commit_sha
         )
 
-    client.update_ref_compare_and_swap = race_on_source_ref
+    client.update_ref_compare_and_swap = race_on_pointer_ref
 
     with pytest.raises(GitHubCompareAndSwapError):
         build_publisher(client, FakeResolver(), tmp_path).publish(envelope)
 
-    assert "draft" not in client.events
+    assert client.release_published
     assert "pointer_ref" not in client.events
 
 

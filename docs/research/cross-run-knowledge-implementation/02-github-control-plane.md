@@ -127,11 +127,11 @@ including security-denylist snapshots:
 1. copy every declared local asset to private staging, validate and unpack those
    staged bytes, and prove the resulting package recreates the exact Git source
    subset before any remote write;
-2. create the deterministic source/manifest tree in one bounded request, verify
-   its exact Git identity, and commit it by exact GraphQL `updateRefs.beforeOid`
-   compare-and-swap;
+2. create the deterministic source/manifest tree and source commit from the exact
+   expected parent without moving the default branch, then verify its Git identity;
 3. create a write-once `ArtifactPublicationIntent` binding parent, source
-   descriptors, Git tree, package descriptor, assets, tag, actor, and validation;
+   descriptors, Git tree, package descriptor, assets, tag, actor, and validation,
+   then read the ref back and require the exact canonical intent;
 4. create or verify the write-once tag ref at the exact source commit;
 5. create/resume a draft release and stream every precomputed asset through the
    raw GitHub upload endpoint with its validated name and media type; a retry may
@@ -140,18 +140,29 @@ including security-denylist snapshots:
 7. publish under immutable-release controls and verify the DSSE/Sigstore bundle;
 8. create `GitHubPublicationRecord` and the final pointer;
 9. create a global write-once artifact-identity ref whose pointer digest binds the
-   complete pre-release intent;
-10. update `CURRENT.json` in a separate exact-parent commit without force.
+   complete pre-release intent, then read the ref back and require the exact pointer;
+10. create the `CURRENT.json` activation commit as a child of the source commit,
+    recompute and verify its blob, complete tree, commit identity, and sole parent,
+    re-read the exact artifact identity after the final domain gate,
+    then perform the transaction's only default-branch mutation: one exact-parent
+    fast-forward directly from the stable predecessor to that activation commit.
 
 - [x] Never update `CURRENT.json` before the immutable release verifies.
 - [x] A failure before step 10 leaves an inactive source commit or orphan release
-      for audit; readers continue using the prior pointer.
+      for audit while the default branch and prior pointer remain byte-for-byte
+      stable for readers and competing publishers.
+- [x] Never expose an intermediate source-only branch head: concurrent publishers
+      may prepare immutable artifacts, but only one final expected-parent activation
+      can win and no candidate can mistake another transaction for a stable base.
 - [x] A compare-and-swap conflict returns a typed conflict to the domain publisher,
       which reloads and rebuilds; transport code never guesses how to merge
       scientific data or expert code.
 - [x] Never mutate/delete a published release or move its tag; publish a successor.
 - [x] Validate GitHub's returned digest against the locally computed digest.
 - [x] Pin immutable release ID and asset IDs as well as human-readable tag/name.
+- [x] Bound and authenticate commit-ancestry comparisons used by domain recovery;
+      ancestry is evidence only under the required non-force, append-only branch
+      history.
 
 The Git source descriptor and materialized package descriptor are intentionally
 separate. M5 may add manifest-bound search/index assets that are not Git files, and

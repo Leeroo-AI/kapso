@@ -1523,9 +1523,9 @@ queries and returned records are sealed into the batch before selection.
 Expert evolution reads pinned release `E` as its working tree and a persisted
 knowledge packet from snapshot `S`. Codex/Claude edits the candidate tree, then
 automated independent review and the evaluator cascade run to completion. Once
-eligible, `AutonomousGitHubPublisher` commits the exact validated tree directly to
-the default branch, regenerates `EXPERT_REPO.md`, and publishes `E+1` without a
-human gate.
+eligible, `AutonomousGitHubPublisher` prepares the exact validated tree and
+immutable release off-branch, regenerates `EXPERT_REPO.md`, and activates `E+1`
+with one expected-parent default-branch compare-and-swap without a human gate.
 
 Candidate proposal itself is transactional: recompute the trigger; validate the
 optional knowledge packet and stored ancestor inputs; lease the exact
@@ -1544,14 +1544,17 @@ sidecars, validates proof closure, commits directly, and publishes `S+1` without
 human gate.
 
 Publication is ordered: validate the exact Git source and materialized package;
-commit the source tree from the expected parent; write a content-derived,
-write-once publication intent; bind the exact tag ref; create/resume a draft;
+create and verify the source commit from the expected parent without moving the
+default branch; write a content-derived, write-once publication intent; bind the
+exact tag ref; create/resume a draft;
 upload and verify every asset; publish and verify the immutable release and
 attestation; write the publication record and pointer; bind a global write-once
-artifact-identity ref; and only then advance `CURRENT.json` in a separate
-compare-and-swap commit. A crash before the last step leaves an inactive but
-auditable artifact. It remains resolvable by artifact ID and cannot point current
-readers at partial publication.
+artifact-identity ref; create the activation commit as a child of the source; and
+only then fast-forward the default branch directly from the stable expected parent
+to that activation commit in the transaction's single compare-and-swap. A crash
+before the last step leaves an inactive but auditable artifact without exposing an
+intermediate branch head. It remains resolvable by artifact ID and cannot point
+current readers or another candidate at partial publication.
 
 If two publishers start from the same commit, only one expected-parent update can
 succeed. A loser before immutable publication reloads the new base; a loser at the
@@ -1560,6 +1563,14 @@ conflict rather than false success. The domain publisher deterministically union
 catalog inputs or rebases the expert candidate, reruns all required checks, and
 publishes a successor. Correctness depends on explicit parent commits, write-once
 refs, and non-force updates, not a GitHub queue.
+
+Expert stale-resolution authenticates both the winning `CURRENT` and any losing
+intent/identity. The durable terminal outcome embeds that exact remote history.
+Before classifying an immutable CAS loser, it asks GitHub whether the losing source
+commit is an ancestor of the pinned winning head. Under the required append-only,
+non-force branch history, ancestry proves the release was previously active and
+must enter `RELEASED` recovery; non-ancestry proves the prepared artifact never won
+activation. A force rewrite invalidates that inference and is outside policy.
 
 Archive retention and active-context budgeting remain separate. Immutable releases
 retain audit history; launch caches retain only pinned active packages under a

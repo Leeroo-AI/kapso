@@ -292,6 +292,8 @@ class SecurityDenylistPublicationGate:
         repositories: ScopeRepositorySettings,
         current_state: CurrentPointerState,
         manifest: SecurityDenylistSnapshot,
+        source_tree_digest: str,
+        manifest_digest: str,
     ) -> None:
         if (
             self.validated
@@ -368,9 +370,8 @@ class SecurityDenylistPublicationGate:
             PublicationArtifactKind.SECURITY_DENYLIST,
             allow_missing=True,
         )
-        source_commit_sha = pointer.publication_record.commit_sha
         if (
-            current_state.head_commit_sha != source_commit_sha
+            current_state.head_commit_sha != envelope.expected_parent_sha
             or current_state.pointer != self.expected_current_pointer
         ):
             raise SecurityDenylistError(
@@ -379,7 +380,7 @@ class SecurityDenylistPublicationGate:
         if self.expected_current_pointer is not None:
             current = self.provider.resolve_current(envelope.scope_id)
             if (
-                current.authority_commit_sha != source_commit_sha
+                current.authority_commit_sha != envelope.expected_parent_sha
                 or current.snapshot.snapshot_id != self.expected_current_snapshot_id
                 or current.pointer_digest
                 != tree_or_blob_digest(self.expected_current_pointer.to_json_bytes())
