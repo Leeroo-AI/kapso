@@ -27,6 +27,7 @@ from kapso.cross_run.contracts import (
     ExpertSourceReplayExecutionRequest,
     ExpertSourceReplayExecutionReservation,
     ExpertValidationAuthorityInvalidation,
+    ExpertValidationAuthorityInvalidationKind,
     ExpertValidationAttempt,
     ExpertValidationStage,
     StrictContract,
@@ -1993,7 +1994,7 @@ class ExpertValidationStore:
                 snapshot=current,
             )
 
-    def publish_parent_authority_invalidation(
+    def publish_current_release_authority_invalidation(
         self,
         *,
         candidate_id: str,
@@ -2007,7 +2008,7 @@ class ExpertValidationStore:
         with self._lock(exclusive=False):
             journal = self._read_journal_unlocked(candidate_id)
             self._validate_journal_unlocked(journal)
-            replayed = self._parent_authority_invalidation_snapshot_unlocked(
+            replayed = self._current_release_authority_invalidation_snapshot_unlocked(
                 journal,
                 expected_validation_state_id,
             )
@@ -2022,14 +2023,14 @@ class ExpertValidationStore:
                 raise ExpertValidationCompareAndSwapError(
                     "validation candidate head changed before publication"
                 )
-        reduced = self.reducer.invalidate_parent_authority(
+        reduced = self.reducer.invalidate_current_release_authority(
             state=observed.state,
             attempt=observed.latest_attempt,
         )
         with self._lock(exclusive=True):
             journal = self._read_journal_unlocked(candidate_id)
             self._validate_journal_unlocked(journal)
-            replayed = self._parent_authority_invalidation_snapshot_unlocked(
+            replayed = self._current_release_authority_invalidation_snapshot_unlocked(
                 journal,
                 expected_validation_state_id,
             )
@@ -2086,7 +2087,7 @@ class ExpertValidationStore:
                 replayed=False,
             )
 
-    def _parent_authority_invalidation_snapshot_unlocked(
+    def _current_release_authority_invalidation_snapshot_unlocked(
         self,
         journal: ExpertValidationJournal,
         expected_validation_state_id: str,
@@ -3721,7 +3722,9 @@ class ExpertValidationStore:
                 or invalidation.candidate_tree_hash
                 != latest_attempt.candidate_tree_hash
                 or invalidation.scope_contract_id != latest_attempt.scope_contract_id
-                or invalidation.expected_parent_release_id
+                or invalidation.kind
+                is not ExpertValidationAuthorityInvalidationKind.CURRENT_RELEASE_AUTHORITY_CHANGED
+                or invalidation.expected_current_release_id
                 != latest_attempt.parent_release_id
                 or transition.validation_policy_id
                 != latest_attempt.validation_policy_id
@@ -3735,7 +3738,7 @@ class ExpertValidationStore:
                 != (invalidation.authority_invalidation_id,)
                 or state.transition_evidence_id
                 != invalidation.authority_invalidation_id
-                or state.reason != "validation_parent_release_changed"
+                or state.reason != "validation_current_release_authority_changed"
                 or transition.accepted_stage_result_record_ids != previous_accepted
             ):
                 raise ExpertValidationStoreError(

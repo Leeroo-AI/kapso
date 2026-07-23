@@ -601,13 +601,14 @@ Implemented validation substrate:
   journal CAS. Restart re-derives the full closure, accepted reviews advance only
   to the release matrix, and rejected or conflicting reviews terminate without
   appending a passed-stage reference; and
-- parent-authority invalidation is a content-addressed terminal transition that
-  preserves accepted-stage history, proves expected versus observed `CURRENT`,
-  and makes stale attempts recoverable without accepting their remaining work.
+- current-release-authority invalidation is a content-addressed terminal transition
+  that preserves accepted-stage history and proves expected versus observed
+  `CURRENT`. It covers parent advancement or disappearance and a release appearing
+  after bootstrap absence, so stale attempts cannot accept their remaining work.
 
-The Pareto promotion-decision, composition, and release paths remain separate
-later slices; neither automated review nor the factual matrix reducer can
-synthesize their authority.
+Terminal publication eligibility, composition, and release remain separate later
+slices; neither automated review, the factual matrix reducer, nor the pure Pareto
+decision can synthesize their authority.
 
 The shared adapter trust boundary now separates stable scientific manifest
 identity from exact verified package identity. A typed verification receipt binds

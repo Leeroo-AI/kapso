@@ -603,7 +603,7 @@ def test_coordinator_rejects_stale_plan_before_external_provider_calls(
         "expert-base-release",
         {"generation": "successor"},
     )
-    validation_store.publish_parent_authority_invalidation(
+    validation_store.publish_current_release_authority_invalidation(
         candidate_id=prepared_plan.plan.candidate_id,
         expected_validation_state_id=snapshot.state.validation_state_id,
     )
@@ -647,7 +647,7 @@ def test_coordinator_rejects_plan_head_advance_during_materialization(
             "expert-base-release",
             {"generation": "successor"},
         )
-        validation_store.publish_parent_authority_invalidation(
+        validation_store.publish_current_release_authority_invalidation(
             candidate_id=prepared_plan.plan.candidate_id,
             expected_validation_state_id=snapshot.state.validation_state_id,
         )

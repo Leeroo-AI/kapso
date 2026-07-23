@@ -455,7 +455,7 @@ def test_second_reopen_rejects_validation_head_change_without_spawn(
         runtime.validation_store.reducer.current_release_provider.release_id = (
             content_id("expert-base-release", {"advanced": True})
         )
-        runtime.validation_store.publish_parent_authority_invalidation(
+        runtime.validation_store.publish_current_release_authority_invalidation(
             candidate_id=runtime.prepared.plan_join.request.candidate_id,
             expected_validation_state_id=(
                 runtime.reservation_snapshot.reservation.authorization_state_id

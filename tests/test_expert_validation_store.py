@@ -22,11 +22,14 @@ from kapso.cross_run.expert.replay_request import (
     MaterializedExpertSourceReplayCase,
 )
 from kapso.cross_run.contracts import (
+    ContractValidationError,
     ExpertEvaluatorAttestation,
     ExpertEvaluatorAttestationEnvelope,
     ExpertEvaluatorOutcome,
     ExpertEvaluatorResultRecord,
     ExpertPromotionState,
+    ExpertValidationAuthorityInvalidation,
+    ExpertValidationAuthorityInvalidationKind,
     ExpertValidationStage,
 )
 from test_expert_candidate_store import candidate_store
@@ -59,6 +62,10 @@ def _validation_store(tmp_path, settings, reducer):
         settings,
         reducer,
     )
+
+
+def _release_id(label):
+    return content_id("expert-base-release", {"label": label})
 
 
 def _candidate_and_eligibility(tmp_path, current_release_id=None):
@@ -676,7 +683,7 @@ def test_result_record_identity_includes_the_selected_signature_envelope(tmp_pat
     assert original.evaluator_result_record_id != rotated.evaluator_result_record_id
 
 
-def test_parent_authority_change_terminates_attempt_and_requires_successor_candidate(
+def test_current_release_authority_change_terminates_attempt_and_requires_successor_candidate(
     tmp_path,
 ):
     fixture = _request_fixture(tmp_path)
@@ -684,20 +691,20 @@ def test_parent_authority_change_terminates_attempt_and_requires_successor_candi
     started = store.snapshot(fixture.attempt.candidate_id)
     assert started is not None
     with pytest.raises(ExpertValidationError, match="has not changed"):
-        store.publish_parent_authority_invalidation(
+        store.publish_current_release_authority_invalidation(
             candidate_id=started.state.candidate_id,
             expected_validation_state_id=started.state.validation_state_id,
         )
-    fixture.current_release_provider.release_id = _content_id(
+    fixture.current_release_provider.release_id = _release_id(
         "successor-parent-release"
     )
 
-    invalidated_result = store.publish_parent_authority_invalidation(
+    invalidated_result = store.publish_current_release_authority_invalidation(
         candidate_id=started.state.candidate_id,
         expected_validation_state_id=started.state.validation_state_id,
     )
     invalidated = invalidated_result.snapshot
-    replayed = store.publish_parent_authority_invalidation(
+    replayed = store.publish_current_release_authority_invalidation(
         candidate_id=started.state.candidate_id,
         expected_validation_state_id=started.state.validation_state_id,
     )
@@ -722,7 +729,7 @@ def test_parent_authority_change_terminates_attempt_and_requires_successor_candi
         expected_transition_id=invalidated.transition.transition_id,
         eligibility=stale_eligibility,
     ).snapshot
-    replayed_after_reenrollment = store.publish_parent_authority_invalidation(
+    replayed_after_reenrollment = store.publish_current_release_authority_invalidation(
         candidate_id=started.state.candidate_id,
         expected_validation_state_id=started.state.validation_state_id,
     )
@@ -733,14 +740,172 @@ def test_parent_authority_change_terminates_attempt_and_requires_successor_candi
     assert replayed_after_reenrollment.snapshot == invalidated
 
 
-def test_parent_authority_invalidation_external_checks_hold_no_validation_lock(
+def test_bootstrap_attempt_invalidates_when_current_release_appears_and_reopens(
+    tmp_path,
+):
+    candidates, stored, adapter, settings, eligibility = _candidate_and_eligibility(
+        tmp_path
+    )
+    reducer = _validation_reducer(
+        settings,
+        adapter,
+        candidate_store=candidates,
+    )
+    store = _validation_store(tmp_path, settings, reducer)
+    started = store.publish_start(
+        expected_transition_id=None,
+        eligibility=eligibility,
+    ).snapshot
+    attempt = started.latest_attempt
+    assert attempt is not None
+    assert attempt.parent_release_id is None
+    appeared_release_id = _release_id("CURRENT-appeared-after-bootstrap-enrollment")
+    reducer.current_release_provider.release_id = appeared_release_id
+
+    reduced = reducer.invalidate_current_release_authority(
+        state=started.state,
+        attempt=attempt,
+    )
+    invalidation = reduced.invalidation
+    committed = store.publish_current_release_authority_invalidation(
+        candidate_id=stored.closure.manifest.candidate_id,
+        expected_validation_state_id=started.state.validation_state_id,
+    )
+    reopened = _validation_store(tmp_path, settings, reducer).snapshot(
+        stored.closure.manifest.candidate_id
+    )
+
+    assert invalidation.kind is (
+        ExpertValidationAuthorityInvalidationKind.CURRENT_RELEASE_AUTHORITY_CHANGED
+    )
+    assert invalidation.expected_current_release_id is None
+    assert invalidation.observed_current_release_id == appeared_release_id
+    assert set(invalidation.exact_dependency_ids) == {
+        attempt.validation_attempt_id,
+        started.state.validation_state_id,
+        attempt.candidate_id,
+        attempt.scope_contract_id,
+        appeared_release_id,
+    }
+    assert committed.snapshot.state == reduced.state
+    assert reopened == committed.snapshot
+
+
+def test_parent_bound_attempt_invalidates_when_current_release_disappears(tmp_path):
+    fixture = _request_fixture(tmp_path)
+    started = fixture.validation_store.snapshot(fixture.attempt.candidate_id)
+    assert started is not None
+    assert fixture.attempt.parent_release_id is not None
+    fixture.current_release_provider.release_id = None
+
+    reduced = fixture.validation_store.reducer.invalidate_current_release_authority(
+        state=started.state,
+        attempt=fixture.attempt,
+    )
+    committed = fixture.validation_store.publish_current_release_authority_invalidation(
+        candidate_id=fixture.attempt.candidate_id,
+        expected_validation_state_id=started.state.validation_state_id,
+    )
+
+    assert reduced.invalidation.expected_current_release_id == (
+        fixture.attempt.parent_release_id
+    )
+    assert reduced.invalidation.observed_current_release_id is None
+    assert fixture.attempt.parent_release_id in (
+        reduced.invalidation.exact_dependency_ids
+    )
+    assert committed.snapshot.state == reduced.state
+
+
+def test_current_authority_invalidation_rejects_two_absent_release_ids():
+    validation_attempt_id = _content_id("bootstrap-attempt")
+    authorization_state_id = _content_id("bootstrap-state")
+    candidate_id = _content_id("bootstrap-candidate")
+    scope_contract_id = _content_id("bootstrap-scope")
+
+    with pytest.raises(ContractValidationError, match="two absent CURRENT"):
+        ExpertValidationAuthorityInvalidation.mint(
+            kind=(
+                ExpertValidationAuthorityInvalidationKind.CURRENT_RELEASE_AUTHORITY_CHANGED
+            ),
+            validation_attempt_id=validation_attempt_id,
+            authorization_state_id=authorization_state_id,
+            candidate_id=candidate_id,
+            candidate_tree_hash=tree_or_blob_digest(b"bootstrap-candidate"),
+            scope_contract_id=scope_contract_id,
+            expected_current_release_id=None,
+            observed_current_release_id=None,
+            exact_dependency_ids=tuple(
+                sorted(
+                    {
+                        validation_attempt_id,
+                        authorization_state_id,
+                        candidate_id,
+                        scope_contract_id,
+                    }
+                )
+            ),
+        )
+
+
+@pytest.mark.parametrize(
+    "wrong_field",
+    ("expected_current_release_id", "observed_current_release_id"),
+)
+def test_current_authority_invalidation_requires_release_namespaces(wrong_field):
+    validation_attempt_id = _content_id("namespace-attempt")
+    authorization_state_id = _content_id("namespace-state")
+    candidate_id = _content_id("namespace-candidate")
+    scope_contract_id = _content_id("namespace-scope")
+    expected_release_id = _release_id("namespace-expected")
+    observed_release_id = _release_id("namespace-observed")
+    wrong_release_id = _content_id(f"wrong-{wrong_field}")
+    expected = (
+        wrong_release_id
+        if wrong_field == "expected_current_release_id"
+        else expected_release_id
+    )
+    observed = (
+        wrong_release_id
+        if wrong_field == "observed_current_release_id"
+        else observed_release_id
+    )
+
+    with pytest.raises(ContractValidationError, match="wrong namespace"):
+        ExpertValidationAuthorityInvalidation.mint(
+            kind=(
+                ExpertValidationAuthorityInvalidationKind.CURRENT_RELEASE_AUTHORITY_CHANGED
+            ),
+            validation_attempt_id=validation_attempt_id,
+            authorization_state_id=authorization_state_id,
+            candidate_id=candidate_id,
+            candidate_tree_hash=tree_or_blob_digest(b"namespace-candidate"),
+            scope_contract_id=scope_contract_id,
+            expected_current_release_id=expected,
+            observed_current_release_id=observed,
+            exact_dependency_ids=tuple(
+                sorted(
+                    {
+                        validation_attempt_id,
+                        authorization_state_id,
+                        candidate_id,
+                        scope_contract_id,
+                        expected,
+                        observed,
+                    }
+                )
+            ),
+        )
+
+
+def test_current_release_authority_invalidation_checks_hold_no_validation_lock(
     tmp_path,
     monkeypatch,
 ):
     fixture = _request_fixture(tmp_path)
     started = fixture.validation_store.snapshot(fixture.attempt.candidate_id)
     assert started is not None
-    fixture.current_release_provider.release_id = _content_id(
+    fixture.current_release_provider.release_id = _release_id(
         "successor-parent-release-with-unlocked-observation"
     )
     provider_calls = []
@@ -775,25 +940,27 @@ def test_parent_authority_invalidation_external_checks_hold_no_validation_lock(
         unlocked_current_release,
     )
 
-    invalidated = fixture.validation_store.publish_parent_authority_invalidation(
-        candidate_id=started.state.candidate_id,
-        expected_validation_state_id=started.state.validation_state_id,
+    invalidated = (
+        fixture.validation_store.publish_current_release_authority_invalidation(
+            candidate_id=started.state.candidate_id,
+            expected_validation_state_id=started.state.validation_state_id,
+        )
     )
 
     assert invalidated.snapshot.state.promotion_state is ExpertPromotionState.FAILED
     assert provider_calls == ["candidate", "current_release"]
 
 
-def test_concurrent_identical_parent_authority_invalidations_commit_once(tmp_path):
+def test_concurrent_identical_current_authority_invalidations_commit_once(tmp_path):
     fixture = _request_fixture(tmp_path)
     started = fixture.validation_store.snapshot(fixture.attempt.candidate_id)
     assert started is not None
-    fixture.current_release_provider.release_id = _content_id(
+    fixture.current_release_provider.release_id = _release_id(
         "successor-parent-release-for-concurrent-invalidation"
     )
 
     def invalidate(_position):
-        return fixture.validation_store.publish_parent_authority_invalidation(
+        return fixture.validation_store.publish_current_release_authority_invalidation(
             candidate_id=started.state.candidate_id,
             expected_validation_state_id=started.state.validation_state_id,
         )
@@ -809,7 +976,7 @@ def test_concurrent_identical_parent_authority_invalidations_commit_once(tmp_pat
     )
 
 
-def test_parent_authority_invalidation_rejects_a_head_advanced_during_observation(
+def test_current_authority_invalidation_rejects_head_advance_during_observation(
     tmp_path,
     monkeypatch,
 ):
@@ -834,7 +1001,7 @@ def test_parent_authority_invalidation_rejects_a_head_advanced_during_observatio
         ExpertValidationStage.CONTRACT_SCHEMA,
         ExpertEvaluatorOutcome.PASSED,
     )
-    successor_parent_release_id = _content_id(
+    successor_parent_release_id = _release_id(
         "successor-parent-release-before-invalidation-cas"
     )
     advanced = []
@@ -859,7 +1026,7 @@ def test_parent_authority_invalidation_rejects_a_head_advanced_during_observatio
         ExpertValidationCompareAndSwapError,
         match="changed during authority checks",
     ):
-        store.publish_parent_authority_invalidation(
+        store.publish_current_release_authority_invalidation(
             candidate_id=started.state.candidate_id,
             expected_validation_state_id=started.state.validation_state_id,
         )
@@ -931,12 +1098,14 @@ def test_source_replay_reservation_cannot_replay_after_authority_invalidation(
         expected_transition_id=snapshot.transition.transition_id,
         prepared_request=prepared,
     )
-    fixture.current_release_provider.release_id = _content_id(
+    fixture.current_release_provider.release_id = _release_id(
         "changed-after-reservation"
     )
-    invalidated = fixture.validation_store.publish_parent_authority_invalidation(
-        candidate_id=prepared.request.candidate_id,
-        expected_validation_state_id=snapshot.state.validation_state_id,
+    invalidated = (
+        fixture.validation_store.publish_current_release_authority_invalidation(
+            candidate_id=prepared.request.candidate_id,
+            expected_validation_state_id=snapshot.state.validation_state_id,
+        )
     ).snapshot
 
     with pytest.raises(ExpertValidationCompareAndSwapError, match="head changed"):
@@ -1041,10 +1210,12 @@ def test_source_replay_reopen_rejects_an_advanced_validation_head(tmp_path):
         expected_transition_id=snapshot.transition.transition_id,
         prepared_request=prepared,
     )
-    fixture.current_release_provider.release_id = _content_id("changed-before-reopen")
-    invalidated = fixture.validation_store.publish_parent_authority_invalidation(
-        candidate_id=prepared.request.candidate_id,
-        expected_validation_state_id=snapshot.state.validation_state_id,
+    fixture.current_release_provider.release_id = _release_id("changed-before-reopen")
+    invalidated = (
+        fixture.validation_store.publish_current_release_authority_invalidation(
+            candidate_id=prepared.request.candidate_id,
+            expected_validation_state_id=snapshot.state.validation_state_id,
+        )
     )
 
     with pytest.raises(ExpertValidationStoreError, match="current head"):

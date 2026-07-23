@@ -245,7 +245,7 @@ def test_task_reservation_rejects_validation_head_advance(
         "expert-base-release",
         {"generation": "successor"},
     )
-    validation_store.publish_parent_authority_invalidation(
+    validation_store.publish_current_release_authority_invalidation(
         candidate_id=prepared.plan_join.request.candidate_id,
         expected_validation_state_id=snapshot.state.validation_state_id,
     )

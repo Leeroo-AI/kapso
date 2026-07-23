@@ -775,7 +775,7 @@ class ExpertValidationReducer:
         )
         return ExpertValidationStart(attempt=attempt, state=state)
 
-    def invalidate_parent_authority(
+    def invalidate_current_release_authority(
         self,
         *,
         state: ExpertCandidateValidationState,
@@ -786,10 +786,9 @@ class ExpertValidationReducer:
             or state.validation_attempt_id != attempt.validation_attempt_id
             or state.candidate_id != attempt.candidate_id
             or state.candidate_tree_hash != attempt.candidate_tree_hash
-            or attempt.parent_release_id is None
         ):
             raise ExpertValidationError(
-                "only an active parent-bound attempt may be invalidated"
+                "only an active validation attempt may invalidate CURRENT authority"
             )
         policy = self.settings.policy.validation_policy()
         if (
@@ -815,36 +814,39 @@ class ExpertValidationReducer:
             raise ExpertValidationError(
                 "active attempt differs from its immutable candidate closure"
             )
-        observed_parent_release_id = self.current_release_provider.current_release_id(
+        observed_current_release_id = self.current_release_provider.current_release_id(
             packet.scope_contract.scope_id
         )
-        if observed_parent_release_id is not None:
+        if observed_current_release_id is not None:
             require_content_id(
-                observed_parent_release_id,
-                "observed_parent_release_id",
+                observed_current_release_id,
+                "observed_current_release_id",
             )
-        if observed_parent_release_id == attempt.parent_release_id:
+        if observed_current_release_id == attempt.parent_release_id:
             raise ExpertValidationError(
-                "parent authority has not changed for the active attempt"
+                "CURRENT release authority has not changed for the active attempt"
             )
         dependencies = {
             attempt.validation_attempt_id,
             state.validation_state_id,
             attempt.candidate_id,
             attempt.scope_contract_id,
-            attempt.parent_release_id,
         }
-        if observed_parent_release_id is not None:
-            dependencies.add(observed_parent_release_id)
+        if attempt.parent_release_id is not None:
+            dependencies.add(attempt.parent_release_id)
+        if observed_current_release_id is not None:
+            dependencies.add(observed_current_release_id)
         invalidation = ExpertValidationAuthorityInvalidation.mint(
-            kind=(ExpertValidationAuthorityInvalidationKind.PARENT_RELEASE_CHANGED),
+            kind=(
+                ExpertValidationAuthorityInvalidationKind.CURRENT_RELEASE_AUTHORITY_CHANGED
+            ),
             validation_attempt_id=attempt.validation_attempt_id,
             authorization_state_id=state.validation_state_id,
             candidate_id=attempt.candidate_id,
             candidate_tree_hash=attempt.candidate_tree_hash,
             scope_contract_id=attempt.scope_contract_id,
-            expected_parent_release_id=attempt.parent_release_id,
-            observed_parent_release_id=observed_parent_release_id,
+            expected_current_release_id=attempt.parent_release_id,
+            observed_current_release_id=observed_current_release_id,
             exact_dependency_ids=tuple(sorted(dependencies)),
         )
         target_state = ExpertCandidateValidationState.mint(
@@ -858,7 +860,7 @@ class ExpertValidationReducer:
             review_assertion_ids=state.review_assertion_ids,
             terminal_evidence_ids=(invalidation.authority_invalidation_id,),
             transition_evidence_id=invalidation.authority_invalidation_id,
-            reason="validation_parent_release_changed",
+            reason="validation_current_release_authority_changed",
         )
         return ExpertValidationAuthorityInvalidationResult(
             invalidation=invalidation,

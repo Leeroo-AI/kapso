@@ -223,7 +223,7 @@ def test_stage_orchestrator_cleans_but_never_reexecutes_reopened_spawn(tmp_path)
     )
 
 
-def test_stage_orchestrator_returns_parent_invalidation_before_provider_work(
+def test_stage_orchestrator_returns_current_invalidation_before_provider_work(
     tmp_path,
 ):
     stage = _stage_fixture(tmp_path)
@@ -246,7 +246,7 @@ def test_stage_orchestrator_returns_parent_invalidation_before_provider_work(
     snapshot = stage.orchestrator.run(stage.fixture.attempt)
 
     assert snapshot.state.promotion_state is ExpertPromotionState.FAILED
-    assert snapshot.state.reason == "validation_parent_release_changed"
+    assert snapshot.state.reason == "validation_current_release_authority_changed"
     assert stage.registry_factory.calls == 0
     assert stage.provider.invocations == []
 
@@ -359,9 +359,11 @@ def test_reservation_replay_crosses_only_its_current_publication_head(tmp_path):
         "expert-base-release",
         {"label": "advanced-after-source-publication"},
     )
-    invalidated = stage.fixture.validation_store.publish_parent_authority_invalidation(
-        candidate_id=stage.fixture.attempt.candidate_id,
-        expected_validation_state_id=source_snapshot.state.validation_state_id,
+    invalidated = (
+        stage.fixture.validation_store.publish_current_release_authority_invalidation(
+            candidate_id=stage.fixture.attempt.candidate_id,
+            expected_validation_state_id=source_snapshot.state.validation_state_id,
+        )
     ).snapshot
 
     with pytest.raises(ExpertValidationCompareAndSwapError, match="head changed"):
@@ -369,7 +371,7 @@ def test_reservation_replay_crosses_only_its_current_publication_head(tmp_path):
             expected_transition_id=authorization.transition.transition_id,
             prepared_request=stage.prepared,
         )
-    assert invalidated.state.reason == "validation_parent_release_changed"
+    assert invalidated.state.reason == "validation_current_release_authority_changed"
 
 
 def test_stage_orchestrator_rejects_mismatched_policy_wiring_before_run(tmp_path):

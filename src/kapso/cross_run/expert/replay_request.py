@@ -86,7 +86,7 @@ class ExpertSourceReplayValidationCommit(Protocol):
 class ExpertSourceReplayValidationAuthority(Protocol):
     def current(self, candidate_id: str) -> ExpertValidationPredecessor | None: ...
 
-    def publish_parent_authority_invalidation(
+    def publish_current_release_authority_invalidation(
         self,
         *,
         candidate_id: str,
@@ -615,7 +615,8 @@ class ExpertSourceReplayPreflightResult:
                 ExpertCandidateValidationState,
             )
             or self.invalidated_state.promotion_state is not ExpertPromotionState.FAILED
-            or self.invalidated_state.reason != "validation_parent_release_changed"
+            or self.invalidated_state.reason
+            != "validation_current_release_authority_changed"
         ):
             raise ExpertSourceReplayRequestError(
                 "source replay preflight returned an invalid invalidation state"
@@ -623,7 +624,7 @@ class ExpertSourceReplayPreflightResult:
 
 
 class ExpertSourceReplayPreflightCoordinator:
-    """Prepare exact replay bytes or terminally invalidate stale parent authority."""
+    """Prepare exact replay bytes or invalidate changed CURRENT authority."""
 
     def __init__(
         self,
@@ -663,7 +664,7 @@ class ExpertSourceReplayPreflightCoordinator:
         self._require_deadline(deadline)
         selection = self._validated_selection(attempt, stored_candidate)
         if not self._parent_is_current(attempt, stored_candidate):
-            return self._invalidate_parent_authority(attempt, state)
+            return self._invalidate_current_release_authority(attempt, state)
         candidate = VerifiedTaskEvaluationCandidate(
             manifest=stored_candidate.closure.manifest,
             commit_record=stored_candidate.commit_record,
@@ -796,7 +797,7 @@ class ExpertSourceReplayPreflightCoordinator:
             )
         self._require_deadline(deadline)
         if not self._parent_is_current(attempt, stored_candidate):
-            return self._invalidate_parent_authority(attempt, state)
+            return self._invalidate_current_release_authority(attempt, state)
         evaluator = _source_replay_evaluator(self.settings)
         request_cases = tuple(item.request_case for item in ordered_cases)
         parent_receipt = parent.parent_tree_receipt
@@ -929,14 +930,16 @@ class ExpertSourceReplayPreflightCoordinator:
             == attempt.parent_release_id
         )
 
-    def _invalidate_parent_authority(
+    def _invalidate_current_release_authority(
         self,
         attempt: ExpertValidationAttempt,
         state: ExpertCandidateValidationState,
     ) -> ExpertSourceReplayPreflightResult:
-        committed = self.validation_authority.publish_parent_authority_invalidation(
-            candidate_id=attempt.candidate_id,
-            expected_validation_state_id=state.validation_state_id,
+        committed = (
+            self.validation_authority.publish_current_release_authority_invalidation(
+                candidate_id=attempt.candidate_id,
+                expected_validation_state_id=state.validation_state_id,
+            )
         )
         invalidated = committed.snapshot.state
         if (
@@ -945,10 +948,10 @@ class ExpertSourceReplayPreflightCoordinator:
             or invalidated.candidate_tree_hash != attempt.candidate_tree_hash
             or invalidated.predecessor_state_id != state.validation_state_id
             or invalidated.promotion_state is not ExpertPromotionState.FAILED
-            or invalidated.reason != "validation_parent_release_changed"
+            or invalidated.reason != "validation_current_release_authority_changed"
         ):
             raise ExpertSourceReplayRequestError(
-                "validation authority returned another parent invalidation"
+                "validation authority returned another CURRENT invalidation"
             )
         return ExpertSourceReplayPreflightResult(
             prepared_request=None,

@@ -861,8 +861,8 @@ def test_request_rejects_execution_before_source_replay_is_current(tmp_path):
                 state=early_state,
             )
 
-        def publish_parent_authority_invalidation(self, **_request):
-            raise AssertionError("early validation cannot invalidate parent authority")
+        def publish_current_release_authority_invalidation(self, **_request):
+            raise AssertionError("early validation cannot invalidate CURRENT authority")
 
     fixture.coordinator.validation_authority = _EarlyValidationAuthority()
 

@@ -250,7 +250,7 @@ def test_stale_parent_reservation_cannot_publish_after_authority_invalidation(
         "expert-base-release",
         {"changed": True},
     )
-    invalidated = validation_store.publish_parent_authority_invalidation(
+    invalidated = validation_store.publish_current_release_authority_invalidation(
         candidate_id=snapshot.state.candidate_id,
         expected_validation_state_id=snapshot.state.validation_state_id,
     )

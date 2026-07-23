@@ -305,7 +305,7 @@ def _source_replay_is_resolved(
         return False
     if (
         snapshot.state.promotion_state is ExpertPromotionState.FAILED
-        and snapshot.state.reason == "validation_parent_release_changed"
+        and snapshot.state.reason == "validation_current_release_authority_changed"
     ):
         return True
     if any(

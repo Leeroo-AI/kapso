@@ -344,7 +344,7 @@ def test_fresh_spawn_authority_second_reopen_rejects_an_advanced_head(authority)
             "expert-base-release",
             {"changed_during_spawn_authority": True},
         )
-        authority.fixture.validation_store.publish_parent_authority_invalidation(
+        authority.fixture.validation_store.publish_current_release_authority_invalidation(
             candidate_id=authority.prepared.request.candidate_id,
             expected_validation_state_id=(authority.reservation.authorization_state_id),
         )

@@ -443,7 +443,7 @@ class ExpertEvaluatorOutcome(str, Enum):
 
 
 class ExpertValidationAuthorityInvalidationKind(str, Enum):
-    PARENT_RELEASE_CHANGED = "parent_release_changed"
+    CURRENT_RELEASE_AUTHORITY_CHANGED = "current_release_authority_changed"
 
 
 class ExpertSanitationSeverity(str, Enum):
@@ -4211,8 +4211,8 @@ class ExpertValidationAuthorityInvalidation(StrictContract):
     candidate_id: str
     candidate_tree_hash: str
     scope_contract_id: str
-    expected_parent_release_id: str
-    observed_parent_release_id: str | None
+    expected_current_release_id: str | None
+    observed_current_release_id: str | None
     exact_dependency_ids: tuple[str, ...]
 
     CONTENT_NAMESPACE: ClassVar[str] = "expert-validation-authority-invalidation"
@@ -4224,21 +4224,46 @@ class ExpertValidationAuthorityInvalidation(StrictContract):
             (self.authorization_state_id, "authorization_state_id"),
             (self.candidate_id, "candidate_id"),
             (self.scope_contract_id, "scope_contract_id"),
-            (self.expected_parent_release_id, "expected_parent_release_id"),
         ):
             require_content_id(value, f"authority invalidation {name}")
         _require_digest(
             self.candidate_tree_hash,
             "authority invalidation candidate_tree_hash",
         )
-        if self.observed_parent_release_id is not None:
+        if self.expected_current_release_id is not None:
             require_content_id(
-                self.observed_parent_release_id,
-                "authority invalidation observed_parent_release_id",
+                self.expected_current_release_id,
+                "authority invalidation expected_current_release_id",
             )
-        if self.observed_parent_release_id == self.expected_parent_release_id:
+            if (
+                self.expected_current_release_id.split(":sha256:", 1)[0]
+                != "expert-base-release"
+            ):
+                raise ContractValidationError(
+                    "authority invalidation expected CURRENT release uses the wrong namespace"
+                )
+        if self.observed_current_release_id is not None:
+            require_content_id(
+                self.observed_current_release_id,
+                "authority invalidation observed_current_release_id",
+            )
+            if (
+                self.observed_current_release_id.split(":sha256:", 1)[0]
+                != "expert-base-release"
+            ):
+                raise ContractValidationError(
+                    "authority invalidation observed CURRENT release uses the wrong namespace"
+                )
+        if (
+            self.expected_current_release_id is None
+            and self.observed_current_release_id is None
+        ):
             raise ContractValidationError(
-                "authority invalidation must observe a changed parent release"
+                "authority invalidation cannot bind two absent CURRENT releases"
+            )
+        if self.observed_current_release_id == self.expected_current_release_id:
+            raise ContractValidationError(
+                "authority invalidation must observe changed CURRENT authority"
             )
         _require_sorted_unique(
             self.exact_dependency_ids,
@@ -4249,10 +4274,11 @@ class ExpertValidationAuthorityInvalidation(StrictContract):
             self.authorization_state_id,
             self.candidate_id,
             self.scope_contract_id,
-            self.expected_parent_release_id,
         }
-        if self.observed_parent_release_id is not None:
-            required_dependencies.add(self.observed_parent_release_id)
+        if self.expected_current_release_id is not None:
+            required_dependencies.add(self.expected_current_release_id)
+        if self.observed_current_release_id is not None:
+            required_dependencies.add(self.observed_current_release_id)
         if set(self.exact_dependency_ids) != required_dependencies:
             raise MissingReferenceError(
                 "authority invalidation dependency closure is not exact"
