@@ -510,13 +510,18 @@ Implemented validation substrate:
   provider handles support idempotent daemon-resource cleanup without reexecution;
   concurrent sessions serialize; and corrupt, forked, substituted, over-bound, or
   unsafe journal state fails loud without a mutable execution snapshot; and
-- source replay now consumes a neutral task-evaluation Docker substrate rather than
-  owning runtime machinery. Pinned CLI/daemon/image authority, handle-labelled
-  resources, owner-private workspaces, verified byte-tree publication, cleanup, and
-  strict BusyBox result-snapshot parsing live under task-evaluation names. Resource
-  ownership accepts only a content-addressed handle ID plus explicit writable limits,
-  so neither source-replay nor matrix contract types become Docker authority; the
-  source-named runtime, resource, filesystem modules and labels are removed; and
+- source replay and task evaluation now consume one neutral task-evaluation Docker
+  sandbox rather than owning parallel runtime machinery. Pinned CLI/daemon/image
+  authority, handle-labelled resources, owner-private workspaces, verified byte-tree
+  publication, the complete container lifecycle, cleanup, stream bounding, and strict
+  BusyBox result-snapshot parsing are single-sourced under task-evaluation names. The
+  sandbox accepts only a content-addressed handle, explicit byte closures and limits;
+  source replay and task evaluation are thin projections from their independently
+  sealed invocations. Their complete request-specific key sets are resolved before
+  filesystem or Docker work and share one lazy runtime authority plus one race-safe
+  trusted-root initializer. Neither producer's request, candidate, provenance, or
+  reservation types become sandbox authority, and the source-named runtime, resource,
+  filesystem implementations and labels are removed; and
 - the task-evaluation journal now has its own minimal four-event contract and
   pure offline prefix reducer. Its sole schedule follows canonical request-case
   order and each case's semantic counterbalanced leg order, so repeated leg IDs

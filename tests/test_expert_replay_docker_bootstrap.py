@@ -8,9 +8,14 @@ from dataclasses import replace
 import pytest
 
 import kapso.cross_run.expert.replay_docker_bootstrap as bootstrap_module
+import kapso.cross_run.expert.task_evaluation_docker_bootstrap as task_bootstrap_module
+import kapso.cross_run.expert.task_evaluation_docker_provider as task_provider_module
 from kapso.cross_run.expert.replay_docker_bootstrap import (
     SourceReplayDockerBootstrapError,
     build_source_replay_docker_provider_registry,
+)
+from kapso.cross_run.expert.task_evaluation_docker_bootstrap import (
+    TaskEvaluationDockerWorkspaceError,
 )
 from kapso.cross_run.expert.replay_docker_provider import (
     SourceReplayDockerExecutionProvider,
@@ -73,7 +78,7 @@ def test_bootstrap_binds_request_keys_to_one_historical_runtime(
         return runtime
 
     monkeypatch.setattr(
-        bootstrap_module.TaskEvaluationDockerRuntime,
+        task_bootstrap_module.TaskEvaluationDockerRuntime,
         "create",
         create_runtime,
     )
@@ -119,7 +124,7 @@ def test_independent_process_registries_serialize_clean_root_initialization(
     process_context = multiprocessing.get_context("fork")
     concurrent_calls = process_context.Array("i", (0, 0), lock=True)
     start_signal = process_context.Event()
-    original_child_exists = bootstrap_module._configured_child_exists
+    original_child_exists = task_bootstrap_module._configured_child_exists
 
     def observe_child_exists(parent_descriptor, name):
         with concurrent_calls.get_lock():
@@ -132,7 +137,7 @@ def test_independent_process_registries_serialize_clean_root_initialization(
         return exists
 
     monkeypatch.setattr(
-        bootstrap_module,
+        task_bootstrap_module,
         "_configured_child_exists",
         observe_child_exists,
     )
@@ -165,7 +170,7 @@ def test_registry_rejects_another_prepared_request_without_docker(
         raise AssertionError("request-bound resolution contacted Docker")
 
     monkeypatch.setattr(
-        bootstrap_module.TaskEvaluationDockerRuntime,
+        task_bootstrap_module.TaskEvaluationDockerRuntime,
         "create",
         reject_runtime_construction,
     )
@@ -221,7 +226,7 @@ def test_bootstrap_rejects_every_unsupported_key_before_runtime_construction(
         raise AssertionError("unsupported protocol contacted Docker")
 
     monkeypatch.setattr(
-        bootstrap_module.TaskEvaluationDockerRuntime,
+        task_bootstrap_module.TaskEvaluationDockerRuntime,
         "create",
         reject_runtime_construction,
     )
@@ -231,6 +236,42 @@ def test_bootstrap_rejects_every_unsupported_key_before_runtime_construction(
             prepared_request=prepared_replay_request,
             workspace_root=tmp_path.resolve(),
         )
+
+
+def test_bootstrap_rejects_unrealizable_platform_before_filesystem_or_docker(
+    tmp_path,
+    monkeypatch,
+    prepared_replay_request,
+):
+    tmp_path.chmod(0o700)
+    provider_settings = prepared_replay_request.settings.task_evaluation_provider
+    host_platform = (
+        provider_settings.runtime_host_operating_system,
+        provider_settings.runtime_host_architecture,
+    )
+    monkeypatch.setitem(
+        task_provider_module._SUPPORTED_IMAGE_PLATFORMS_BY_HOST,
+        host_platform,
+        frozenset(),
+    )
+
+    def reject_runtime_construction(**_arguments):
+        raise AssertionError("unrealizable platform contacted Docker")
+
+    monkeypatch.setattr(
+        task_bootstrap_module.TaskEvaluationDockerRuntime,
+        "create",
+        reject_runtime_construction,
+    )
+
+    with pytest.raises(SourceReplayDockerProviderError, match="not exactly realizable"):
+        build_source_replay_docker_provider_registry(
+            prepared_request=prepared_replay_request,
+            workspace_root=tmp_path.resolve(),
+        )
+
+    configured_root = tmp_path / provider_settings.workspace_path
+    assert not configured_root.exists()
 
 
 def test_provider_direct_construction_rejects_unsupported_protocol(
@@ -270,7 +311,7 @@ def test_bootstrap_rejects_unprepared_input_before_runtime_construction(
         raise AssertionError("invalid request contacted Docker")
 
     monkeypatch.setattr(
-        bootstrap_module.TaskEvaluationDockerRuntime,
+        task_bootstrap_module.TaskEvaluationDockerRuntime,
         "create",
         reject_runtime_construction,
     )
@@ -297,12 +338,12 @@ def test_bootstrap_rejects_a_symlinked_configured_workspace_before_runtime(
         raise AssertionError("unsafe workspace contacted Docker")
 
     monkeypatch.setattr(
-        bootstrap_module.TaskEvaluationDockerRuntime,
+        task_bootstrap_module.TaskEvaluationDockerRuntime,
         "create",
         reject_runtime_construction,
     )
 
-    with pytest.raises(SourceReplayDockerBootstrapError, match="contains a symlink"):
+    with pytest.raises(TaskEvaluationDockerWorkspaceError, match="contains a symlink"):
         build_source_replay_docker_provider_registry(
             prepared_request=prepared_replay_request,
             workspace_root=workspace_root.resolve(),

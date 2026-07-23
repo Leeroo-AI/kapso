@@ -2,20 +2,18 @@
 
 from __future__ import annotations
 
-import fcntl
-import os
-import stat
-from contextlib import ExitStack
 from pathlib import Path
-from threading import Lock
 
 from kapso.cross_run.expert.replay_docker_provider import (
     SourceReplayDockerExecutionProvider,
+    require_source_replay_docker_provider_support,
     require_source_replay_docker_provider_key,
     source_replay_docker_provider_key_is_supported,
 )
-from kapso.cross_run.expert.task_evaluation_docker_runtime import (
-    TaskEvaluationDockerRuntime,
+from kapso.cross_run.expert.task_evaluation_docker_bootstrap import (
+    TaskEvaluationDockerRuntimeAuthority,
+    configured_task_evaluation_docker_trusted_root,
+    prepare_task_evaluation_docker_trusted_root,
 )
 from kapso.cross_run.expert.replay_execution import (
     ExpertSourceReplayExecutionProviderKey,
@@ -72,12 +70,12 @@ def build_source_replay_docker_provider_registry(
             "source replay Docker bootstrap requires a prepared request"
         )
     settings = prepared_request.settings
-    trusted_root = _configured_trusted_root(
+    trusted_root = configured_task_evaluation_docker_trusted_root(
         workspace_root,
         settings.task_evaluation_provider,
     )
     dispatch_keys = _distinct_supported_dispatch_keys(prepared_request)
-    runtime_authority = _LazyTaskEvaluationDockerRuntime(
+    runtime_authority = TaskEvaluationDockerRuntimeAuthority(
         trusted_root=trusted_root,
         provider_settings=settings.task_evaluation_provider,
     )
@@ -93,7 +91,7 @@ def build_source_replay_docker_provider_registry(
             for dispatch_key in dispatch_keys
         ),
     )
-    _prepare_configured_trusted_root(
+    prepare_task_evaluation_docker_trusted_root(
         workspace_root,
         trusted_root,
         settings.task_evaluation_provider,
@@ -118,30 +116,14 @@ def _distinct_supported_dispatch_keys(
             raise SourceReplayDockerBootstrapError(
                 "source replay Docker bootstrap encountered an unsupported key"
             )
+        require_source_replay_docker_provider_support(
+            materialized_case,
+            dispatch_key,
+            prepared_request.settings.task_evaluation_provider,
+            prepared_request.settings.policy,
+        )
         keys_by_identity[dispatch_key.identity] = dispatch_key
     return tuple(keys_by_identity[identity] for identity in sorted(keys_by_identity))
-
-
-class _LazyTaskEvaluationDockerRuntime:
-    def __init__(
-        self,
-        *,
-        trusted_root: Path,
-        provider_settings: TaskEvaluationDockerProviderSettings,
-    ) -> None:
-        self.trusted_root = trusted_root
-        self.provider_settings = provider_settings
-        self._runtime = None
-        self._lock = Lock()
-
-    def get(self) -> TaskEvaluationDockerRuntime:
-        with self._lock:
-            if self._runtime is None:
-                self._runtime = TaskEvaluationDockerRuntime.create(
-                    trusted_root=self.trusted_root,
-                    settings=self.provider_settings,
-                )
-            return self._runtime
 
 
 class _LazySourceReplayDockerExecutionProvider:
@@ -151,7 +133,7 @@ class _LazySourceReplayDockerExecutionProvider:
         dispatch_key: ExpertSourceReplayExecutionProviderKey,
         provider_settings: TaskEvaluationDockerProviderSettings,
         policy_settings: ExpertValidationPolicySettings,
-        runtime_authority: _LazyTaskEvaluationDockerRuntime,
+        runtime_authority: TaskEvaluationDockerRuntimeAuthority,
     ) -> None:
         require_source_replay_docker_provider_key(
             dispatch_key,
@@ -182,95 +164,3 @@ class _LazySourceReplayDockerExecutionProvider:
             policy_settings=self._policy_settings,
             runtime=self._runtime_authority.get(),
         )
-
-
-def _configured_trusted_root(
-    workspace_root: Path,
-    provider_settings: TaskEvaluationDockerProviderSettings,
-) -> Path:
-    if (
-        not isinstance(workspace_root, Path)
-        or not workspace_root.is_absolute()
-        or workspace_root != Path(os.path.abspath(workspace_root))
-        or workspace_root.resolve() != workspace_root
-        or workspace_root in {Path("/"), Path.home()}
-    ):
-        raise SourceReplayDockerBootstrapError(
-            "source replay Docker workspace root must be absolute and resolved"
-        )
-    trusted_root = workspace_root / provider_settings.workspace_path
-    if (
-        provider_settings.container_user_id != os.geteuid()
-        or provider_settings.container_group_id != os.getegid()
-        or "," in str(trusted_root)
-    ):
-        raise SourceReplayDockerBootstrapError(
-            "source replay Docker host identity cannot realize the configured root"
-        )
-    metadata = workspace_root.stat()
-    if (
-        not stat.S_ISDIR(metadata.st_mode)
-        or metadata.st_uid != os.geteuid()
-        or stat.S_IMODE(metadata.st_mode) & 0o022
-    ):
-        raise SourceReplayDockerBootstrapError(
-            "source replay Docker workspace root is unsafe"
-        )
-    if trusted_root.resolve() != trusted_root:
-        raise SourceReplayDockerBootstrapError(
-            "source replay Docker configured root contains a symlink"
-        )
-    return trusted_root
-
-
-def _prepare_configured_trusted_root(
-    workspace_root: Path,
-    trusted_root: Path,
-    provider_settings: TaskEvaluationDockerProviderSettings,
-) -> None:
-    if trusted_root != workspace_root / provider_settings.workspace_path:
-        raise SourceReplayDockerBootstrapError(
-            "source replay Docker configured root changed before initialization"
-        )
-    with ExitStack() as descriptors_to_close:
-        descriptor = os.open(
-            workspace_root,
-            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
-        )
-        descriptors_to_close.callback(os.close, descriptor)
-        bootstrap_descriptor = descriptor
-        fcntl.flock(bootstrap_descriptor, fcntl.LOCK_EX)
-        for part in Path(provider_settings.workspace_path).parts:
-            exists = _configured_child_exists(descriptor, part)
-            if not exists:
-                os.mkdir(part, mode=0o700, dir_fd=descriptor)
-                os.fsync(descriptor)
-            child_descriptor = os.open(
-                part,
-                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
-                dir_fd=descriptor,
-            )
-            descriptors_to_close.callback(os.close, child_descriptor)
-            if not exists:
-                os.fchmod(child_descriptor, 0o700)
-            metadata = os.fstat(child_descriptor)
-            if (
-                not stat.S_ISDIR(metadata.st_mode)
-                or metadata.st_uid != os.geteuid()
-                or stat.S_IMODE(metadata.st_mode) != 0o700
-            ):
-                raise SourceReplayDockerBootstrapError(
-                    "source replay Docker configured hierarchy is unsafe"
-                )
-            descriptor = child_descriptor
-        os.fsync(descriptor)
-        fcntl.flock(bootstrap_descriptor, fcntl.LOCK_UN)
-
-
-def _configured_child_exists(parent_descriptor: int, name: str) -> bool:
-    return os.access(
-        name,
-        os.F_OK,
-        dir_fd=parent_descriptor,
-        follow_symlinks=False,
-    )

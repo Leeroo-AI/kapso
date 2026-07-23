@@ -9,7 +9,9 @@ import kapso.cross_run.expert.replay_docker_provider as provider_module
 import kapso.cross_run.expert.task_evaluation_docker_runtime as runtime_module
 from kapso.cross_run.expert.replay_docker_provider import (
     SourceReplayDockerExecutionProvider,
-    SourceReplayDockerProviderError,
+)
+from kapso.cross_run.expert.task_evaluation_docker_provider import (
+    TaskEvaluationDockerSandboxError,
 )
 from kapso.cross_run.expert.task_evaluation_docker_runtime import (
     TaskEvaluationDockerRuntime,
@@ -505,7 +507,7 @@ def test_provider_rejects_a_weakened_created_container_before_start(provider):
         "ReadonlyRootfs", False
     )
 
-    with pytest.raises(SourceReplayDockerProviderError, match="sandbox authority"):
+    with pytest.raises(TaskEvaluationDockerSandboxError, match="sandbox authority"):
         execution_provider.execute_leg(invocation)
 
     assert runner.containers == {}
@@ -531,7 +533,7 @@ def test_provider_rejects_duplicate_environment_authority_before_start(provider)
         payload["Config"]["Env"][0]
     )
 
-    with pytest.raises(SourceReplayDockerProviderError, match="sandbox authority"):
+    with pytest.raises(TaskEvaluationDockerSandboxError, match="sandbox authority"):
         execution_provider.execute_leg(invocation)
 
     assert not any(
@@ -547,7 +549,7 @@ def test_provider_rejects_compute_authority_mutated_during_execution(provider):
     ].__setitem__("Memory", runner.compute.memory_byte_limit + 1)
 
     with pytest.raises(
-        SourceReplayDockerProviderError,
+        TaskEvaluationDockerSandboxError,
         match="owned resources changed",
     ):
         execution_provider.execute_leg(invocation)
@@ -566,7 +568,7 @@ def test_provider_rejects_network_attached_during_execution(provider):
     )
 
     with pytest.raises(
-        SourceReplayDockerProviderError,
+        TaskEvaluationDockerSandboxError,
         match="owned resources changed",
     ):
         execution_provider.execute_leg(invocation)
