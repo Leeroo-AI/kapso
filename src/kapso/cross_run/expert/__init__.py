@@ -42,6 +42,7 @@ from kapso.cross_run.expert.candidate_context import (
     ExpertCandidateValidationContext,
     compose_candidate_replay_evidence,
     project_agent_candidate_validation_context,
+    project_empty_recovery_validation_context,
     project_recovery_replay_evidence,
 )
 from kapso.cross_run.expert.candidate_derivations import (
@@ -130,6 +131,7 @@ from kapso.cross_run.expert.recovery_contracts import (
 )
 from kapso.cross_run.expert.recovery_candidate import (
     ExpertRecoveryCandidateError,
+    project_canonical_empty_recovery_packet,
     project_historical_recovery_candidate,
 )
 from kapso.cross_run.expert.recovery_candidate_contracts import (
@@ -669,6 +671,8 @@ __all__ = [
     "publication_eligibility_task_adapter_trust_observations",
     "project_expert_composition_source_reference",
     "project_agent_candidate_validation_context",
+    "project_canonical_empty_recovery_packet",
+    "project_empty_recovery_validation_context",
     "project_historical_recovery_candidate",
     "project_recovery_replay_evidence",
     "project_deterministic_composition_candidate",

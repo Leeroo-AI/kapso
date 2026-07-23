@@ -51,6 +51,7 @@ from kapso.cross_run.expert.candidate_context import (
     candidate_consumed_expert_release_ids,
     compose_candidate_replay_evidence,
     project_agent_candidate_validation_context,
+    project_empty_recovery_validation_context,
     project_recovery_replay_evidence,
 )
 from kapso.cross_run.expert.candidate_package import (
@@ -256,12 +257,18 @@ class ExpertCandidateValidator:
         expected_decision = ExpertTriggerEvaluator(self.settings.triggers).evaluate(
             packet
         )
+        expected_derivation_kind = (
+            ExpertCandidateDerivationKind.AGENT_RECOVERY_BOOTSTRAP
+            if derivation.operation.operation_kind
+            is ExpertCandidateOperationKind.RECOVERY_BOOTSTRAP
+            else ExpertCandidateDerivationKind.AGENT_PROPOSAL
+        )
         if decision != expected_decision:
             raise ExpertCandidateValidationError(
                 "candidate trigger decision differs from deterministic policy"
             )
         if (
-            manifest.derivation_kind is not ExpertCandidateDerivationKind.AGENT_PROPOSAL
+            manifest.derivation_kind is not expected_derivation_kind
             or manifest.derivation_ref != derivation.record.derivation_id
             or manifest.validation_context_ref
             != closure.validation_context.validation_context_id
@@ -275,9 +282,17 @@ class ExpertCandidateValidator:
             raise ExpertCandidateValidationError(
                 "candidate trigger, scope, or configuration binding differs"
             )
-        expected_context = project_agent_candidate_validation_context(
-            packet=packet,
-            decision=decision,
+        expected_context = (
+            project_empty_recovery_validation_context(
+                packet=packet,
+                decision=decision,
+            )
+            if manifest.derivation_kind
+            is ExpertCandidateDerivationKind.AGENT_RECOVERY_BOOTSTRAP
+            else project_agent_candidate_validation_context(
+                packet=packet,
+                decision=decision,
+            )
         )
         if closure.validation_context != expected_context:
             raise ExpertCandidateValidationError(
@@ -448,7 +463,12 @@ class ExpertCandidateValidator:
                 "candidate operation differs from the manifest authority"
             )
         if manifest.source_base_release_id is None:
-            expected_kind = ExpertCandidateOperationKind.BOOTSTRAP
+            expected_kind = (
+                ExpertCandidateOperationKind.RECOVERY_BOOTSTRAP
+                if manifest.derivation_kind
+                is ExpertCandidateDerivationKind.AGENT_RECOVERY_BOOTSTRAP
+                else ExpertCandidateOperationKind.BOOTSTRAP
+            )
         elif manifest.change_kind is CandidateChangeKind.REPOSITORY_ARCHITECTURE:
             expected_kind = ExpertCandidateOperationKind.RESTRUCTURE
         else:

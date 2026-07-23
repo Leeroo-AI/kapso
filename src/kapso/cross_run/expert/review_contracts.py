@@ -120,6 +120,9 @@ class ExpertAutomatedReviewPacket(StrictContract):
             ExpertCandidateDerivationKind.AGENT_PROPOSAL: (
                 "expert-agent-proposal-derivation"
             ),
+            ExpertCandidateDerivationKind.AGENT_RECOVERY_BOOTSTRAP: (
+                "expert-agent-proposal-derivation"
+            ),
             ExpertCandidateDerivationKind.DETERMINISTIC_COMPOSITION: (
                 "expert-deterministic-composition-derivation"
             ),
@@ -155,7 +158,9 @@ class ExpertAutomatedReviewPacket(StrictContract):
                 "review derivation evidence omits the candidate derivation"
             )
         if self.source_base_release_id is not None:
-            require_content_id(self.source_base_release_id, "review source_base_release_id")
+            require_content_id(
+                self.source_base_release_id, "review source_base_release_id"
+            )
         _require_digest(self.candidate_tree_hash, "review candidate_tree_hash")
         _require_digest(
             self.configuration_fingerprint,
@@ -235,7 +240,9 @@ class ExpertAutomatedReviewAssertion(StrictContract):
         ):
             require_content_id(value, name)
         if self.source_base_release_id is not None:
-            require_content_id(self.source_base_release_id, "assertion source_base_release_id")
+            require_content_id(
+                self.source_base_release_id, "assertion source_base_release_id"
+            )
         _require_digest(self.candidate_tree_hash, "assertion candidate_tree_hash")
         for value, name in (
             (self.reviewer_id, "assertion reviewer_id"),

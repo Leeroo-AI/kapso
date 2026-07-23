@@ -19,6 +19,7 @@ from kapso.cross_run.canonical import (
 from kapso.cross_run.contracts import (
     ExpertCandidateDerivationKind,
     ExpertCandidateOperationRecord,
+    ExpertCandidateOperationKind,
     ExpertCandidateValidationState,
     ExpertEvaluatorOutcome,
     ExpertEvaluatorResultRecord,
@@ -244,7 +245,8 @@ class PreparedExpertAutomatedReviewPacket:
             or candidate_manifest.candidate_id != packet.candidate_id
             or candidate_manifest.candidate_tree_hash != packet.candidate_tree_hash
             or candidate_manifest.scope_contract_id != packet.scope_contract_id
-            or candidate_manifest.source_base_release_id != packet.source_base_release_id
+            or candidate_manifest.source_base_release_id
+            != packet.source_base_release_id
             or candidate_manifest.derivation_kind
             is not packet.candidate_derivation_kind
             or candidate_manifest.derivation_ref != packet.candidate_derivation_ref
@@ -266,9 +268,15 @@ class PreparedExpertAutomatedReviewPacket:
         manifest = self.candidate_input.manifest
         record = self.candidate_derivation_record
         if type(record) is ExpertAgentProposalDerivationRecord:
+            expected_derivation_kind = (
+                ExpertCandidateDerivationKind.AGENT_RECOVERY_BOOTSTRAP
+                if self.candidate_operation is not None
+                and self.candidate_operation.operation_kind
+                is ExpertCandidateOperationKind.RECOVERY_BOOTSTRAP
+                else ExpertCandidateDerivationKind.AGENT_PROPOSAL
+            )
             if (
-                manifest.derivation_kind
-                is not ExpertCandidateDerivationKind.AGENT_PROPOSAL
+                manifest.derivation_kind is not expected_derivation_kind
                 or manifest.ancestor_candidate_ids != record.ancestor_candidate_ids
                 or manifest.source_dependency_ids != record.source_dependency_ids
             ):
@@ -1057,7 +1065,7 @@ def expert_automated_review_prompt_payload(
                 "agent review prompt lacks exact derivation evidence"
             )
         derivation_payload = {
-            "derivation_kind": ExpertCandidateDerivationKind.AGENT_PROPOSAL.value,
+            "derivation_kind": prepared.packet.candidate_derivation_kind.value,
             "derivation_record": derivation_record.to_dict(),
             "origin_principal_ids": prepared.packet.candidate_origin_principal_ids,
             "authoring_operation": {

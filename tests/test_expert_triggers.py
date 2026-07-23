@@ -316,6 +316,7 @@ def trigger_packet(
         ),
         active_task_bindings=active_task_bindings,
         proof_reference_ids=tuple(sorted(proof_ids)),
+        recovery_barrier_basis_packet_id=None,
     )
 
 

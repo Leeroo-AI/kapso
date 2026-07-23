@@ -417,12 +417,14 @@ class ExpertCapabilityLineageRelation(str, Enum):
 
 class ExpertCandidateOperationKind(str, Enum):
     BOOTSTRAP = "bootstrap"
+    RECOVERY_BOOTSTRAP = "recovery_bootstrap"
     RESTRUCTURE = "restructure"
     GENERALIZE = "generalize"
 
 
 class ExpertCandidateDerivationKind(str, Enum):
     AGENT_PROPOSAL = "agent_proposal"
+    AGENT_RECOVERY_BOOTSTRAP = "agent_recovery_bootstrap"
     DETERMINISTIC_COMPOSITION = "deterministic_composition"
     DETERMINISTIC_RECOVERY_RESTORE = "deterministic_recovery_restore"
 
@@ -2791,6 +2793,9 @@ class ExpertCandidateManifest(StrictContract):
             )
         expected_derivation_namespace = {
             ExpertCandidateDerivationKind.AGENT_PROPOSAL: (
+                "expert-agent-proposal-derivation"
+            ),
+            ExpertCandidateDerivationKind.AGENT_RECOVERY_BOOTSTRAP: (
                 "expert-agent-proposal-derivation"
             ),
             ExpertCandidateDerivationKind.DETERMINISTIC_COMPOSITION: (

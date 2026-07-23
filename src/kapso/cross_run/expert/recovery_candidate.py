@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from kapso.cross_run.canonical import tree_or_blob_digest
 from kapso.cross_run.contracts import (
+    EMPTY_EXPERT_TREE_DIGEST,
     CandidateChangeKind,
     ExpertCandidateDerivationKind,
     ExpertCandidateManifest,
@@ -28,6 +29,42 @@ from kapso.cross_run.expert.triggers import ExpertTriggerEvidencePacket
 
 class ExpertRecoveryCandidateError(ValueError):
     """A historical recovery source cannot produce one exact restore candidate."""
+
+
+def project_canonical_empty_recovery_packet(
+    barrier_replay_basis: ExpertTriggerEvidencePacket,
+) -> ExpertTriggerEvidencePacket:
+    """Remove only the blocked source topology from a complete replay basis."""
+
+    if (
+        type(barrier_replay_basis) is not ExpertTriggerEvidencePacket
+        or barrier_replay_basis.source_base_release is None
+        or barrier_replay_basis.knowledge_snapshot_manifest.scope_contract_id
+        != barrier_replay_basis.scope_contract.scope_contract_id
+    ):
+        raise ExpertRecoveryCandidateError(
+            "empty recovery requires a current-scope non-empty barrier replay basis"
+        )
+    return ExpertTriggerEvidencePacket.mint(
+        knowledge_snapshot_manifest=(barrier_replay_basis.knowledge_snapshot_manifest),
+        knowledge_record_closure_digest=(
+            barrier_replay_basis.knowledge_record_closure_digest
+        ),
+        configuration_fingerprint=barrier_replay_basis.configuration_fingerprint,
+        scope_contract=barrier_replay_basis.scope_contract,
+        source_base_scope_contract=None,
+        source_base_release=None,
+        source_base_tree_receipt=None,
+        source_base_tree_hash=EMPTY_EXPERT_TREE_DIGEST,
+        source_base_repository_map=None,
+        source_base_module_contracts=(),
+        episodes=barrier_replay_basis.episodes,
+        claims=barrier_replay_basis.claims,
+        trigger_observations=(),
+        active_task_bindings=barrier_replay_basis.active_task_bindings,
+        proof_reference_ids=barrier_replay_basis.proof_reference_ids,
+        recovery_barrier_basis_packet_id=(barrier_replay_basis.evidence_packet_id),
+    )
 
 
 def project_historical_recovery_candidate(
@@ -155,5 +192,6 @@ def project_historical_recovery_candidate(
 __all__ = [
     "ExpertRecoveryCandidateError",
     "RECOVERY_RESTORE_PRINCIPAL_ID",
+    "project_canonical_empty_recovery_packet",
     "project_historical_recovery_candidate",
 ]

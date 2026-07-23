@@ -33,6 +33,7 @@ from kapso.cross_run.contracts import (
     ExpertCandidateCommitRecord,
     ExpertCandidateDerivationKind,
     ExpertCandidateManifest,
+    ExpertCandidateOperationKind,
     ExpertCandidateOperationRecord,
     ExpertCandidatePatch,
     ExpertCandidateSanitationReport,
@@ -241,7 +242,10 @@ class ExpertCandidateStore:
         if type(closure.derivation) in {
             ExpertDeterministicCompositionDerivation,
             ExpertDeterministicRecoveryRestoreDerivation,
-        }:
+        } or (
+            closure.manifest.derivation_kind
+            is ExpertCandidateDerivationKind.AGENT_RECOVERY_BOOTSTRAP
+        ):
             raise ExpertCandidateStoreError(
                 "deterministic persistence requires sealed admission authority"
             )
@@ -311,13 +315,23 @@ class ExpertCandidateStore:
         authority: ExpertRecoveryCandidateAuthority,
         selection: ExpertRecoveryBaseSelection,
         closure: ExpertCandidateClosure,
+        barrier_replay_basis: ExpertTriggerEvidencePacket,
     ) -> StoredExpertCandidate:
+        recovery_derivation_valid = type(
+            closure.derivation
+        ) is ExpertDeterministicRecoveryRestoreDerivation or (
+            type(closure.derivation) is ExpertAgentProposalDerivation
+            and closure.manifest.derivation_kind
+            is ExpertCandidateDerivationKind.AGENT_RECOVERY_BOOTSTRAP
+            and closure.derivation.operation.operation_kind
+            is ExpertCandidateOperationKind.RECOVERY_BOOTSTRAP
+        )
         if (
             type(authority) is not ExpertRecoveryCandidateAuthority
             or authority is not self._recovery_candidate_authority
             or type(selection) is not ExpertRecoveryBaseSelection
-            or type(closure.derivation)
-            is not ExpertDeterministicRecoveryRestoreDerivation
+            or type(barrier_replay_basis) is not ExpertTriggerEvidencePacket
+            or not recovery_derivation_valid
         ):
             raise ExpertCandidateStoreError(
                 "recovery candidate commit uses foreign authority"
@@ -343,6 +357,7 @@ class ExpertCandidateStore:
                 selection=selection,
                 closure=snapshot,
                 commit_record=commit_record,
+                barrier_replay_basis=barrier_replay_basis,
             )
             validate_recovery_candidate_admission(
                 admission=admission,
@@ -526,6 +541,10 @@ class ExpertCandidateStore:
                     "candidate ancestor does not exist in the immutable store"
                 )
             stored = self._read_package(candidate_root, candidate_id)
+            if stored.recovery_admission is not None:
+                raise ExpertCandidateStoreError(
+                    "recovery candidate cannot be used as an ordinary ancestor"
+                )
             source = stored.closure
             expected = mint_expert_candidate_ancestor_input(
                 manifest=source.manifest,
@@ -755,10 +774,10 @@ class ExpertCandidateStore:
             raise ExpertCandidateStoreError(
                 "non-composition candidate contains composition admission authority"
             )
-        if (
-            closure.manifest.derivation_kind
-            is ExpertCandidateDerivationKind.DETERMINISTIC_RECOVERY_RESTORE
-        ):
+        if closure.manifest.derivation_kind in {
+            ExpertCandidateDerivationKind.AGENT_RECOVERY_BOOTSTRAP,
+            ExpertCandidateDerivationKind.DETERMINISTIC_RECOVERY_RESTORE,
+        }:
             if recovery_admission_payload is None:
                 raise ExpertCandidateStoreError(
                     "recovery candidate lacks its admission"
@@ -927,7 +946,10 @@ class ExpertCandidateStore:
         manifest: ExpertCandidateManifest,
         payloads: Mapping[str, bytes],
     ):
-        if manifest.derivation_kind is ExpertCandidateDerivationKind.AGENT_PROPOSAL:
+        if manifest.derivation_kind in {
+            ExpertCandidateDerivationKind.AGENT_PROPOSAL,
+            ExpertCandidateDerivationKind.AGENT_RECOVERY_BOOTSTRAP,
+        }:
             ancestors = ExpertCandidateStore._parse_contract_tuple(
                 payloads[_ANCESTORS_PATH],
                 ExpertCandidateAncestorInput,

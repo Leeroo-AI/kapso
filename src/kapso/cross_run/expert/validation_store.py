@@ -5417,9 +5417,10 @@ class ExpertValidationStore:
         ExpertCompositionMaterialization | None,
         ExpertTriggerEvidencePacket | None,
     ]:
-        if packet.candidate_derivation_kind is (
-            ExpertCandidateDerivationKind.AGENT_PROPOSAL
-        ):
+        if packet.candidate_derivation_kind in {
+            ExpertCandidateDerivationKind.AGENT_PROPOSAL,
+            ExpertCandidateDerivationKind.AGENT_RECOVERY_BOOTSTRAP,
+        }:
             derivation_record = self._read_contract_unlocked(
                 packet.candidate_derivation_ref,
                 ExpertAgentProposalDerivationRecord,

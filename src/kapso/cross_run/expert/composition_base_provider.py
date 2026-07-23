@@ -158,6 +158,10 @@ class GitHubExpertCompositionBaseProvider:
             "composition base provider authority is immutable"
         )
 
+    @property
+    def settings(self) -> ExpertSettings:
+        return self._settings
+
     def resolve_current(
         self,
         scope_contract: ExpertScopeContract,

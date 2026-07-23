@@ -704,6 +704,7 @@ def released_observation_packet(kind, description):
         trigger_observations=(observation,),
         active_task_bindings=packet.active_task_bindings,
         proof_reference_ids=packet.proof_reference_ids,
+        recovery_barrier_basis_packet_id=None,
     )
     return triggered_packet, materialized, contents
 

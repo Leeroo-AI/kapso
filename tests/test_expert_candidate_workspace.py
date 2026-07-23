@@ -217,6 +217,7 @@ def released_workspace_fixture(*, manual_book=False):
         trigger_observations=packet.trigger_observations,
         active_task_bindings=packet.active_task_bindings,
         proof_reference_ids=packet.proof_reference_ids,
+        recovery_barrier_basis_packet_id=None,
     )
     materialized = MaterializedArtifact(
         root=Path("/unused/materialized"),
@@ -323,7 +324,9 @@ def test_released_workspace_validates_controls_then_exposes_editable_parent(tmp_
         )
         assert not any(
             (workspace_path / relative_path).exists()
-            for relative_path in expert_control_paths(packet.source_base_module_contracts)
+            for relative_path in expert_control_paths(
+                packet.source_base_module_contracts
+            )
         )
 
     assert not workspace_path.exists()

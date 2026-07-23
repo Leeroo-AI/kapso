@@ -660,9 +660,11 @@ def test_composition_review_derivation_persists_reopens_and_detects_tampering(
             reopened._read_automated_review_derivation_unlocked(prepared.packet)
 
 
+@pytest.mark.parametrize("empty_recovery", (False, True))
 def test_recovery_review_derivation_persists_reopens_and_detects_tampering(
     tmp_path,
     monkeypatch,
+    empty_recovery,
 ):
     (
         coordinator,
@@ -672,11 +674,20 @@ def test_recovery_review_derivation_persists_reopens_and_detects_tampering(
         _snapshot,
         store,
     ) = _review_fixture(tmp_path / "review", monkeypatch)
-    recovery = _historical_candidate_system(tmp_path / "recovery")
-    stored = recovery.coordinator.restore_historical(
-        scope_contract=recovery.fixture.case.scope,
-        replay_basis_packet=recovery.replay_basis,
+    recovery = _historical_candidate_system(
+        tmp_path / "recovery",
+        empty_selection=empty_recovery,
     )
+    if empty_recovery:
+        stored = recovery.coordinator.bootstrap_empty(
+            scope_contract=recovery.fixture.case.scope,
+            replay_basis_packet=recovery.replay_basis,
+        ).stored_candidate
+    else:
+        stored = recovery.coordinator.restore_historical(
+            scope_contract=recovery.fixture.case.scope,
+            replay_basis_packet=recovery.replay_basis,
+        )
     manifest = stored.closure.manifest
     commit = stored.commit_record
     policy = coordinator.settings.validation.policy.validation_policy()
@@ -689,13 +700,14 @@ def test_recovery_review_derivation_persists_reopens_and_detects_tampering(
         manifest.candidate_id,
         commit.commit_record_id,
         manifest.scope_contract_id,
-        manifest.source_base_release_id,
         eligibility_id,
         policy.validation_policy_id,
         *(pin.task_adapter_manifest_id for pin in pins),
         *(pin.verification_receipt_id for pin in pins),
         *stored_candidate_admission_dependency_ids(stored),
     }
+    if manifest.source_base_release_id is not None:
+        eligibility_dependencies.add(manifest.source_base_release_id)
     attempt = ExpertValidationAttempt.mint(
         candidate_id=manifest.candidate_id,
         candidate_tree_hash=manifest.candidate_tree_hash,
@@ -707,7 +719,11 @@ def test_recovery_review_derivation_persists_reopens_and_detects_tampering(
         configuration_fingerprint=(
             coordinator.settings.validation.configuration_fingerprint
         ),
-        validation_track=ExpertValidationTrack.BEHAVIORAL_CAPABILITY,
+        validation_track=(
+            ExpertValidationTrack.REPOSITORY_ARCHITECTURE
+            if empty_recovery
+            else ExpertValidationTrack.BEHAVIORAL_CAPABILITY
+        ),
         attempt_number=1,
         predecessor_attempt_id=None,
         required_stages=(
@@ -764,11 +780,15 @@ def test_recovery_review_derivation_persists_reopens_and_detects_tampering(
         coordinator.settings.validation.policy.reviewers[0],
     )
     assert prompt_payload["candidate_derivation"]["derivation_kind"] == (
-        ExpertCandidateDerivationKind.DETERMINISTIC_RECOVERY_RESTORE.value
+        manifest.derivation_kind.value
     )
-    assert prompt_payload["candidate_derivation"]["replay_basis_packet"] == (
-        recovery.replay_basis.to_dict()
-    )
+    if empty_recovery:
+        assert "authoring_operation" in prompt_payload["candidate_derivation"]
+        assert "replay_basis_packet" not in prompt_payload["candidate_derivation"]
+    else:
+        assert prompt_payload["candidate_derivation"]["replay_basis_packet"] == (
+            recovery.replay_basis.to_dict()
+        )
     with store._lock(exclusive=True):
         store._write_automated_review_derivation_unlocked(prepared)
 
@@ -778,9 +798,9 @@ def test_recovery_review_derivation_persists_reopens_and_detects_tampering(
             reopened._read_automated_review_derivation_unlocked(prepared.packet)
         )
     assert derivation_record == prepared.candidate_derivation_record
-    assert operation is None
+    assert operation == prepared.candidate_operation
     assert materialization is None
-    assert replay_basis == recovery.replay_basis
+    assert replay_basis == prepared.recovery_replay_basis
     assert (
         replace(
             prepared,
@@ -792,8 +812,13 @@ def test_recovery_review_derivation_persists_reopens_and_detects_tampering(
         == prepared
     )
 
+    tamper_id = (
+        operation.operation_record_id
+        if operation is not None
+        else recovery.replay_basis.evidence_packet_id
+    )
     replay_path = reopened._object_path(
-        recovery.replay_basis.evidence_packet_id,
+        tamper_id,
         create_namespace=False,
     )
     replay_path.write_bytes(b"{}\n")

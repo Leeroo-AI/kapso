@@ -51,6 +51,9 @@ EXPERT_PROPOSAL_PACKET_MARKER = "EXPERT_PROPOSAL_PACKET_JSON"
 _PROMPT_ROOT = Path(__file__).parents[1] / "prompts"
 _PROMPT_PATHS = {
     ExpertCandidateOperationKind.BOOTSTRAP: _PROMPT_ROOT / "expert_repo_bootstrap.md",
+    ExpertCandidateOperationKind.RECOVERY_BOOTSTRAP: (
+        _PROMPT_ROOT / "expert_repo_bootstrap.md"
+    ),
     ExpertCandidateOperationKind.RESTRUCTURE: (
         _PROMPT_ROOT / "expert_repo_restructure.md"
     ),
@@ -346,6 +349,8 @@ def expert_candidate_operation_kind(
         raise ExpertProposalContractError(
             "expert proposal requires an affirmative trigger decision"
         )
+    if packet.recovery_barrier_basis_packet_id is not None:
+        return ExpertCandidateOperationKind.RECOVERY_BOOTSTRAP
     if packet.source_base_release is None:
         return ExpertCandidateOperationKind.BOOTSTRAP
     if decision.change_kind.value == "repository_architecture":
@@ -558,7 +563,11 @@ def _derive_architect_topology(
         )
     )
     if (
-        operation_kind is ExpertCandidateOperationKind.BOOTSTRAP
+        operation_kind
+        in {
+            ExpertCandidateOperationKind.BOOTSTRAP,
+            ExpertCandidateOperationKind.RECOVERY_BOOTSTRAP,
+        }
         and proposal.capability_lineage
     ):
         raise ExpertProposalContractError(

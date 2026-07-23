@@ -155,9 +155,11 @@ def _release_matrix_fixture(
         validation_settings=settings,
     )
     source_packet = source_fixture.packet
-    released_packet, materialized_source_base, source_base_contents = released_observation_packet(
-        ExpertTriggerObservationKind.MECHANICALLY_GENERAL_FIX,
-        "A provenance field can be added without changing topology.",
+    released_packet, materialized_source_base, source_base_contents = (
+        released_observation_packet(
+            ExpertTriggerObservationKind.MECHANICALLY_GENERAL_FIX,
+            "A provenance field can be added without changing topology.",
+        )
     )
     packet = ExpertTriggerEvidencePacket.mint(
         knowledge_snapshot_manifest=source_packet.knowledge_snapshot_manifest,
@@ -175,6 +177,7 @@ def _release_matrix_fixture(
         trigger_observations=released_packet.trigger_observations,
         active_task_bindings=source_packet.active_task_bindings,
         proof_reference_ids=source_packet.proof_reference_ids,
+        recovery_barrier_basis_packet_id=None,
     )
     configured_expert_settings = replace(
         expert_settings(),
@@ -916,7 +919,9 @@ def test_release_matrix_reservation_rejects_a_changed_parent_authority(
         {"changed": "before-plan-admission"},
     )
 
-    with pytest.raises(ExpertReleaseMatrixPlanError, match="source-base authority changed"):
+    with pytest.raises(
+        ExpertReleaseMatrixPlanError, match="source-base authority changed"
+    ):
         validation_store.reserve_release_matrix_plan(
             expected_transition_id=snapshot.transition.transition_id,
             prepared_plan=prepared,

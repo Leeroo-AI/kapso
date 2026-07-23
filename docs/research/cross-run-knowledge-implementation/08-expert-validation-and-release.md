@@ -1307,14 +1307,32 @@ noncanonical reopen all fail loud. Immediately before the atomic candidate renam
 the store-owned path rechecks CURRENT and reruns the full selection while holding
 the store lock. The durable plan alone never authorizes admission.
 
-The remaining recovery path must implement canonical-empty agent bootstrap, rerun
-the full applicable matrix, publish a new immutable release, and CAS-advance from
-the blocked CURRENT release. Normal evolution continues to require scientific
-source and activation predecessor to be equal. A fresh publication fence must prove
-that every consumed subject remains clear and that every allowed match is an exact
-control-only revocation of the publication barrier. Partial repair from revoked
-source bytes remains unsupported until content-level consuming-edge provenance can
-prove exclusion.
+Canonical-empty recovery uses the same selector and final admission fence, but not
+the generic first-release bootstrap path. After authenticated blocked-lineage
+exhaustion, the coordinator projects a new model-visible packet that retains
+current-scope knowledge, episodes, claims, proof closure, and task bindings while
+removing the blocked source tree, map, modules, and source-bound observations. A
+recovery-basis marker makes that packet unrepresentable through the ordinary
+bootstrap persistence path. The recovery-only architect operation edits an exact
+empty workspace and marks every retained episode as causal recovery evidence. If
+those episodes scientifically consumed the blocked barrier, the coordinator fails
+before the coding-agent call rather than relabeling scientific provenance as
+control evidence. The selector's sanitation policy must also equal the candidate
+store's active scanner policy. The agent returns an unpersisted draft; generic
+candidate persistence rejects its distinct derivation kind. Only the store-bound
+recovery authority can persist it with the full barrier replay basis and recovery
+plan in `RECOVERY_ADMISSION.json`. Reopen recomputes the empty projection.
+Recovery candidates cannot become ordinary ancestors or composition sources until
+those contracts can preserve their control provenance. Automated review renders
+and durably reopens both recovery derivation forms.
+
+The remaining recovery path must rerun the full applicable matrix, publish a new
+immutable release, and CAS-advance from the blocked CURRENT release. Normal
+evolution continues to require scientific source and activation predecessor to be
+equal. A fresh publication fence must prove that every consumed subject remains
+clear and that every allowed match is an exact control-only revocation of the
+publication barrier. Partial repair from revoked source bytes remains unsupported
+until content-level consuming-edge provenance can prove exclusion.
 
 ## Revocation
 

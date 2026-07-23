@@ -15,7 +15,12 @@ _RECOVERY_CANDIDATE_AUTHORITY_SEAL = object()
 class ExpertRecoveryCandidateAuthority:
     """Store-bound authority wrapper owned by one recovery coordinator."""
 
-    __slots__ = ("_candidate_store", "_coordinator", "_owner_process_id")
+    __slots__ = (
+        "_candidate_store",
+        "_coordinator",
+        "_owner_process_id",
+        "_proposal_engine",
+    )
 
     def __init__(
         self,
@@ -23,6 +28,7 @@ class ExpertRecoveryCandidateAuthority:
         *,
         coordinator: object,
         candidate_store: object,
+        proposal_engine: object,
     ) -> None:
         if seal is not _RECOVERY_CANDIDATE_AUTHORITY_SEAL:
             raise ExpertRecoveryCandidateAuthorityError(
@@ -30,6 +36,7 @@ class ExpertRecoveryCandidateAuthority:
             )
         object.__setattr__(self, "_coordinator", coordinator)
         object.__setattr__(self, "_candidate_store", candidate_store)
+        object.__setattr__(self, "_proposal_engine", proposal_engine)
         object.__setattr__(self, "_owner_process_id", os.getpid())
 
     def __setattr__(self, name: str, value: object) -> None:
@@ -56,6 +63,15 @@ class ExpertRecoveryCandidateAuthority:
                 "recovery candidate authority is foreign"
             )
 
+    def _require_proposal_engine(self, *, proposal_engine: object) -> None:
+        if (
+            self._owner_process_id != os.getpid()
+            or self._proposal_engine is not proposal_engine
+        ):
+            raise ExpertRecoveryCandidateAuthorityError(
+                "recovery proposal authority is foreign"
+            )
+
     def _finalize_under_store_lock(
         self,
         *,
@@ -63,12 +79,14 @@ class ExpertRecoveryCandidateAuthority:
         selection: object,
         closure: object,
         commit_record: object,
+        barrier_replay_basis: object,
     ) -> object:
         self._require_bound(candidate_store=candidate_store)
         return self._coordinator._finalize_recovery_admission_under_store_lock(
             selection=selection,
             closure=closure,
             commit_record=commit_record,
+            barrier_replay_basis=barrier_replay_basis,
         )
 
 
@@ -76,11 +94,13 @@ def _seal_expert_recovery_candidate_authority(
     *,
     coordinator: object,
     candidate_store: object,
+    proposal_engine: object,
 ) -> ExpertRecoveryCandidateAuthority:
     return ExpertRecoveryCandidateAuthority(
         _RECOVERY_CANDIDATE_AUTHORITY_SEAL,
         coordinator=coordinator,
         candidate_store=candidate_store,
+        proposal_engine=proposal_engine,
     )
 
 

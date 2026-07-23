@@ -174,6 +174,10 @@ class ExpertRecoveryBaseSelector:
     def __setattr__(self, name: str, value: object) -> None:
         raise ExpertRecoveryBaseError("recovery selector authority is immutable")
 
+    @property
+    def settings(self) -> CrossRunSettings:
+        return self._settings
+
     def select(
         self,
         scope_contract: ExpertScopeContract,

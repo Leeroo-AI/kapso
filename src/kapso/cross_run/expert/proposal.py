@@ -37,6 +37,7 @@ from kapso.cross_run.expert.candidates import ExpertCandidateClosure
 from kapso.cross_run.expert.candidate_context import (
     candidate_consumed_expert_release_ids,
     project_agent_candidate_validation_context,
+    project_empty_recovery_validation_context,
 )
 from kapso.cross_run.expert.candidate_derivations import (
     ExpertAgentProposalDerivation,
@@ -58,6 +59,9 @@ from kapso.cross_run.expert.proposal_contract import (
     mint_expert_candidate_ancestor_input,
     parse_expert_proposal,
     validate_expert_prior_knowledge,
+)
+from kapso.cross_run.expert.recovery_candidate_authority import (
+    ExpertRecoveryCandidateAuthority,
 )
 from kapso.cross_run.expert.store import ExpertCandidateStore, StoredExpertCandidate
 from kapso.cross_run.expert.triggers import (
@@ -105,6 +109,14 @@ class ExpertCandidateProposalResult:
     call_result: CodingAgentCallResult
 
 
+@dataclass(frozen=True)
+class ExpertCandidateProposalDraft:
+    """Unpersisted recovery proposal retained under coordinator authority."""
+
+    closure: ExpertCandidateClosure
+    call_result: CodingAgentCallResult
+
+
 class ExpertCandidateProposalEngine:
     """Run one authorized proposer and seal its exact candidate closure."""
 
@@ -137,7 +149,7 @@ class ExpertCandidateProposalEngine:
         prior_knowledge: PriorKnowledgeAccessMaterialization | None,
         ancestor_candidate_ids: tuple[str, ...],
     ) -> ExpertCandidateProposalResult:
-        return self._propose(
+        result = self._propose(
             packet=packet,
             decision=decision,
             materialized_source_base=materialized_source_base,
@@ -148,6 +160,11 @@ class ExpertCandidateProposalEngine:
                 ExpertCandidateOperationKind.RESTRUCTURE,
             ),
         )
+        if type(result) is not ExpertCandidateProposalResult:
+            raise ExpertProposalContractError(
+                "ordinary architecture proposal was not persisted"
+            )
+        return result
 
     def propose_generalization(
         self,
@@ -158,7 +175,7 @@ class ExpertCandidateProposalEngine:
         prior_knowledge: PriorKnowledgeAccessMaterialization | None,
         ancestor_candidate_ids: tuple[str, ...],
     ) -> ExpertCandidateProposalResult:
-        return self._propose(
+        result = self._propose(
             packet=packet,
             decision=decision,
             materialized_source_base=materialized_source_base,
@@ -166,6 +183,39 @@ class ExpertCandidateProposalEngine:
             ancestor_candidate_ids=ancestor_candidate_ids,
             allowed_operation_kinds=(ExpertCandidateOperationKind.GENERALIZE,),
         )
+        if type(result) is not ExpertCandidateProposalResult:
+            raise ExpertProposalContractError(
+                "ordinary generalization proposal was not persisted"
+            )
+        return result
+
+    def _propose_recovery_bootstrap(
+        self,
+        *,
+        authority: ExpertRecoveryCandidateAuthority,
+        packet: ExpertTriggerEvidencePacket,
+        decision: ExpertEvolutionTriggerDecision,
+        prior_knowledge: PriorKnowledgeAccessMaterialization | None,
+    ) -> ExpertCandidateProposalDraft:
+        if type(authority) is not ExpertRecoveryCandidateAuthority:
+            raise ExpertProposalContractError(
+                "recovery bootstrap proposal requires exact coordinator authority"
+            )
+        authority._require_proposal_engine(proposal_engine=self)
+        result = self._propose(
+            packet=packet,
+            decision=decision,
+            materialized_source_base=None,
+            prior_knowledge=prior_knowledge,
+            ancestor_candidate_ids=(),
+            allowed_operation_kinds=(ExpertCandidateOperationKind.RECOVERY_BOOTSTRAP,),
+            persist=False,
+        )
+        if type(result) is not ExpertCandidateProposalDraft:
+            raise ExpertProposalContractError(
+                "recovery bootstrap proposal crossed generic persistence"
+            )
+        return result
 
     def _propose(
         self,
@@ -176,7 +226,8 @@ class ExpertCandidateProposalEngine:
         prior_knowledge: PriorKnowledgeAccessMaterialization | None,
         ancestor_candidate_ids: tuple[str, ...],
         allowed_operation_kinds: tuple[ExpertCandidateOperationKind, ...],
-    ) -> ExpertCandidateProposalResult:
+        persist: bool = True,
+    ) -> ExpertCandidateProposalResult | ExpertCandidateProposalDraft:
         expected_decision = ExpertTriggerEvaluator(self.settings.triggers).evaluate(
             packet
         )
@@ -185,6 +236,13 @@ class ExpertCandidateProposalEngine:
                 "expert proposal decision differs from deterministic policy"
             )
         operation_kind = expert_candidate_operation_kind(packet, decision)
+        if (
+            operation_kind is ExpertCandidateOperationKind.RECOVERY_BOOTSTRAP
+            and persist
+        ):
+            raise ExpertProposalContractError(
+                "recovery bootstrap cannot cross generic persistence"
+            )
         if operation_kind not in allowed_operation_kinds:
             raise ExpertProposalContractError(
                 "expert proposer role cannot perform this operation kind"
@@ -268,6 +326,11 @@ class ExpertCandidateProposalEngine:
                     "expert workspace differs from its durable agent delta"
                 )
             lease.validate()
+        if not persist:
+            return ExpertCandidateProposalDraft(
+                closure=closure,
+                call_result=call_result,
+            )
         stored = self.candidate_store.persist(closure)
         return ExpertCandidateProposalResult(
             stored_candidate=stored,
@@ -290,6 +353,10 @@ class ExpertCandidateProposalEngine:
         stored_candidates = tuple(
             self.candidate_store.read(candidate_id) for candidate_id in candidate_ids
         )
+        if any(stored.recovery_admission is not None for stored in stored_candidates):
+            raise ExpertProposalContractError(
+                "recovery candidate cannot be used as an ordinary ancestor"
+            )
         inputs = tuple(
             mint_expert_candidate_ancestor_input(
                 manifest=stored.closure.manifest,
@@ -538,9 +605,16 @@ class ExpertCandidateProposalEngine:
             if operation_kind is ExpertCandidateOperationKind.GENERALIZE
             else CandidateChangeKind.REPOSITORY_ARCHITECTURE
         )
-        validation_context = project_agent_candidate_validation_context(
-            packet=packet,
-            decision=decision,
+        validation_context = (
+            project_empty_recovery_validation_context(
+                packet=packet,
+                decision=decision,
+            )
+            if operation_kind is ExpertCandidateOperationKind.RECOVERY_BOOTSTRAP
+            else project_agent_candidate_validation_context(
+                packet=packet,
+                decision=decision,
+            )
         )
         source_base_release_id = (
             None
@@ -587,6 +661,11 @@ class ExpertCandidateProposalEngine:
             operation_artifacts=sealed.artifact_bytes,
             ancestor_inputs=ancestor_inputs,
         )
+        derivation_kind = (
+            ExpertCandidateDerivationKind.AGENT_RECOVERY_BOOTSTRAP
+            if operation_kind is ExpertCandidateOperationKind.RECOVERY_BOOTSTRAP
+            else ExpertCandidateDerivationKind.AGENT_PROPOSAL
+        )
         manifest = ExpertCandidateManifest.mint(
             scope_contract_id=packet.scope_contract.scope_contract_id,
             change_kind=change_kind,
@@ -598,7 +677,7 @@ class ExpertCandidateProposalEngine:
             ),
             source_base_tree_hash=prepared.source_base_tree_hash,
             consumed_expert_release_ids=consumed_expert_release_ids,
-            derivation_kind=ExpertCandidateDerivationKind.AGENT_PROPOSAL,
+            derivation_kind=derivation_kind,
             derivation_ref=derivation_record.derivation_id,
             validation_context_ref=validation_context.validation_context_id,
             patch_ref=patch.patch_id,

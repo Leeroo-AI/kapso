@@ -11,6 +11,7 @@ from kapso.cross_run.canonical import (
 )
 from kapso.cross_run.contracts import (
     EMPTY_EXPERT_TREE_DIGEST,
+    CandidateChangeKind,
     CrossRunTaskBindingSettings,
     ExpertBaseReleaseManifest,
     ExpertModuleContract,
@@ -659,6 +660,48 @@ def project_recovery_replay_evidence(
         evidence_authority_ids=evidence_authority_ids,
         proof_reference_ids=packet.proof_reference_ids,
         stable_dependency_ids=dependencies,
+    )
+
+
+def project_empty_recovery_validation_context(
+    *,
+    packet: ExpertTriggerEvidencePacket,
+    decision: ExpertEvolutionTriggerDecision,
+) -> ExpertCandidateValidationContext:
+    """Project causal replay evidence over an authorized canonical-empty source."""
+
+    if (
+        type(packet) is not ExpertTriggerEvidencePacket
+        or type(decision) is not ExpertEvolutionTriggerDecision
+        or packet.source_base_release is not None
+        or packet.source_base_tree_hash != EMPTY_EXPERT_TREE_DIGEST
+        or decision.evidence_packet_id != packet.evidence_packet_id
+        or decision.reason_code != "empty_scope_bootstrap"
+        or decision.change_kind is not CandidateChangeKind.REPOSITORY_ARCHITECTURE
+    ):
+        raise ExpertCandidateContextError(
+            "empty recovery context requires its exact bootstrap decision"
+        )
+    replay_evidence = project_recovery_replay_evidence(packet)
+    return ExpertCandidateValidationContext.mint(
+        scope_contract=packet.scope_contract,
+        source_base_scope_contract=None,
+        source_base_release=None,
+        source_base_tree_receipt=None,
+        source_base_tree_hash=EMPTY_EXPERT_TREE_DIGEST,
+        source_base_repository_map=None,
+        source_base_module_contracts=(),
+        active_task_bindings=packet.active_task_bindings,
+        replay_evidence=replay_evidence,
+        stable_dependency_ids=tuple(
+            sorted(
+                {
+                    packet.scope_contract.scope_contract_id,
+                    replay_evidence.replay_evidence_id,
+                    *replay_evidence.stable_dependency_ids,
+                }
+            )
+        ),
     )
 
 

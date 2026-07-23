@@ -104,7 +104,9 @@ class ExpertTriggerObservation(StrictContract):
     IDENTITY_FIELD = "observation_id"
 
     def _validate(self) -> None:
-        _require_digest(self.source_base_tree_hash, "trigger observation source-base tree hash")
+        _require_digest(
+            self.source_base_tree_hash, "trigger observation source-base tree hash"
+        )
         require_identifier(
             self.inspection_policy_version,
             "trigger observation inspection policy version",
@@ -388,6 +390,7 @@ class ExpertTriggerEvidencePacket(StrictContract):
     trigger_observations: tuple[ExpertTriggerObservation, ...]
     active_task_bindings: tuple[CrossRunTaskBindingSettings, ...]
     proof_reference_ids: tuple[str, ...]
+    recovery_barrier_basis_packet_id: str | None
 
     CONTENT_NAMESPACE = "expert-trigger-evidence-packet"
     IDENTITY_FIELD = "evidence_packet_id"
@@ -398,7 +401,11 @@ class ExpertTriggerEvidencePacket(StrictContract):
 
     @property
     def source_base_release_id(self) -> str | None:
-        return None if self.source_base_release is None else self.source_base_release.release_id
+        return (
+            None
+            if self.source_base_release is None
+            else self.source_base_release.release_id
+        )
 
     @property
     def active_task_family_ids(self) -> tuple[str, ...]:
@@ -422,7 +429,24 @@ class ExpertTriggerEvidencePacket(StrictContract):
             "knowledge record closure digest",
         )
         _require_digest(self.configuration_fingerprint, "configuration fingerprint")
-        _require_digest(self.source_base_tree_hash, "expert trigger source-base tree hash")
+        _require_digest(
+            self.source_base_tree_hash, "expert trigger source-base tree hash"
+        )
+        if self.recovery_barrier_basis_packet_id is not None:
+            require_content_id(
+                self.recovery_barrier_basis_packet_id,
+                "recovery barrier basis packet ID",
+            )
+            if (
+                self.recovery_barrier_basis_packet_id.split(":sha256:", 1)[0]
+                != self.CONTENT_NAMESPACE
+                or self.source_base_release is not None
+                or self.trigger_observations
+            ):
+                raise ExpertTriggerError(
+                    "recovery projection requires an empty source and no "
+                    "source-bound observations"
+                )
         module_ids = _sorted_contract_ids(
             self.source_base_module_contracts,
             "module_contract_id",
@@ -472,8 +496,10 @@ class ExpertTriggerEvidencePacket(StrictContract):
             if (
                 self.source_base_release.scope_contract_id
                 != self.source_base_scope_contract.scope_contract_id
-                or self.source_base_release.scope_id != self.source_base_scope_contract.scope_id
-                or self.source_base_scope_contract.scope_id != self.scope_contract.scope_id
+                or self.source_base_release.scope_id
+                != self.source_base_scope_contract.scope_id
+                or self.source_base_scope_contract.scope_id
+                != self.scope_contract.scope_id
             ):
                 raise ExpertTriggerError("source-base release belongs to another scope")
             if (
@@ -529,7 +555,9 @@ class ExpertTriggerEvidencePacket(StrictContract):
                 self.source_base_repository_map.scope_contract_id
                 != self.source_base_scope_contract.scope_contract_id
             ):
-                raise ExpertTriggerError("repository map differs from source-base scope")
+                raise ExpertTriggerError(
+                    "repository map differs from source-base scope"
+                )
             map_contract_ids = tuple(
                 sorted(
                     node.module_contract_ref
@@ -669,7 +697,10 @@ class ExpertTriggerEvidencePacket(StrictContract):
         known_capability_ids = (
             set()
             if self.source_base_repository_map is None
-            else {node.capability_id for node in self.source_base_repository_map.capability_nodes}
+            else {
+                node.capability_id
+                for node in self.source_base_repository_map.capability_nodes
+            }
         )
         known_evidence_ids = {
             self.scope_contract.scope_contract_id,
@@ -689,12 +720,16 @@ class ExpertTriggerEvidencePacket(StrictContract):
         if self.source_base_release is not None:
             known_evidence_ids.add(self.source_base_release.release_id)
         if self.source_base_tree_receipt is not None:
-            known_evidence_ids.add(self.source_base_tree_receipt.source_base_tree_receipt_id)
+            known_evidence_ids.add(
+                self.source_base_tree_receipt.source_base_tree_receipt_id
+            )
         if self.source_base_scope_contract is not None:
             known_evidence_ids.add(self.source_base_scope_contract.scope_contract_id)
         for observation in self.trigger_observations:
             if observation.source_base_tree_hash != self.source_base_tree_hash:
-                raise ExpertTriggerError("trigger observation uses another source-base tree")
+                raise ExpertTriggerError(
+                    "trigger observation uses another source-base tree"
+                )
             if not set(observation.affected_capability_ids).issubset(
                 known_capability_ids
             ):
@@ -940,6 +975,7 @@ class ExpertTriggerEvidencePacketBuilder:
                 )
             ),
             proof_reference_ids=tuple(sorted(proof_closure - scientific_ids)),
+            recovery_barrier_basis_packet_id=None,
         )
 
 
@@ -1391,7 +1427,10 @@ class ExpertTriggerDecisionStore:
         packet_known_ids = {
             packet.scope_contract.scope_contract_id,
             packet.knowledge_snapshot_id,
-            *(module.module_contract_id for module in packet.source_base_module_contracts),
+            *(
+                module.module_contract_id
+                for module in packet.source_base_module_contracts
+            ),
             *(episode.episode_id for episode in packet.episodes),
             *(claim.revision_id for claim in packet.claims),
             *(
@@ -1411,7 +1450,9 @@ class ExpertTriggerDecisionStore:
         if packet.source_base_scope_contract is not None:
             packet_known_ids.add(packet.source_base_scope_contract.scope_contract_id)
         if packet.source_base_tree_receipt is not None:
-            packet_known_ids.add(packet.source_base_tree_receipt.source_base_tree_receipt_id)
+            packet_known_ids.add(
+                packet.source_base_tree_receipt.source_base_tree_receipt_id
+            )
         if not set(decision.trigger_evidence_ids).issubset(packet_known_ids):
             raise MissingReferenceError(
                 "trigger decision evidence leaves its persisted packet"

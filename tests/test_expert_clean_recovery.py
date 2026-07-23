@@ -17,6 +17,8 @@ from kapso.cross_run.canonical import (
 from kapso.cross_run.contracts import (
     EMPTY_EXPERT_TREE_DIGEST,
     ExpertReleaseLineage,
+    ExpertCandidateDerivationKind,
+    ExpertCandidateOperationKind,
     ExpertSourceTreeManifest,
     GitHubPublicationRecord,
     GitHubReleaseAsset,
@@ -29,16 +31,19 @@ from kapso.cross_run.expert.recovery_base import (
 )
 from kapso.cross_run.expert.candidates import (
     ExpertCandidateValidationError,
-    ExpertCandidateValidator,
 )
 from kapso.cross_run.expert.composition_base_provider import (
     GitHubExpertCompositionBaseProvider,
 )
 from kapso.cross_run.expert.recovery_candidate_coordinator import (
     ExpertCleanForwardRecoveryCandidateCoordinator,
+    ExpertRecoveryCandidateCoordinatorError,
+)
+from kapso.cross_run.expert.proposal_contract import ExpertProposalContractError
+from kapso.cross_run.expert.recovery_candidate import (
+    project_canonical_empty_recovery_packet,
 )
 from kapso.cross_run.expert.store import (
-    ExpertCandidateStore,
     ExpertCandidateStoreError,
 )
 from kapso.cross_run.expert.recovery_contracts import ExpertRecoveryContractError
@@ -50,6 +55,10 @@ from kapso.cross_run.expert.release_use_policy_contracts import (
 )
 from kapso.cross_run.expert.task_evaluation_authority_contracts import (
     TaskEvaluationCurrentReleaseObservation,
+)
+from kapso.cross_run.expert.triggers import (
+    ExpertTriggerEvaluator,
+    ExpertTriggerObservationKind,
 )
 from kapso.cross_run.git_refs import git_object_sha, git_tree_shas
 from kapso.cross_run.github.materializer import (
@@ -76,6 +85,9 @@ from kapso.cross_run.security_authority_contracts import (
 from kapso.cross_run.settings import CrossRunSettings
 from security_denylist_fixtures import matched_security_revocations
 from test_expert_composition_base import _case, _parent_receipt, _remint
+from test_cross_run_retrieval import source_fixture
+from test_expert_proposal import proposal_system
+from test_expert_proposal import released_observation_packet
 from test_expert_triggers import trigger_packet
 
 CANONICAL_CONFIG_PATH = "src/kapso/config.yaml"
@@ -553,7 +565,15 @@ def _fixture(
     )
 
 
-def _historical_candidate_system(tmp_path, *, current_move_after=None):
+def _historical_candidate_system(
+    tmp_path,
+    *,
+    current_move_after=None,
+    empty_selection=False,
+    episodes=(),
+    sanitation_mismatch=False,
+    taint_episodes_with_barrier=False,
+):
     tmp_path.mkdir(mode=0o700, parents=True, exist_ok=True)
     fixture = _fixture(
         length=2,
@@ -561,7 +581,21 @@ def _historical_candidate_system(tmp_path, *, current_move_after=None):
     )
     settings = _settings()
     barrier, selected = fixture.releases
-    fixture.release_use.blocked_release_ids.add(barrier.release_id)
+    if taint_episodes_with_barrier:
+        episodes = tuple(
+            _remint(
+                episode,
+                artifact_environment=_remint(
+                    episode.artifact_environment,
+                    expert_base_release_id=barrier.release_id,
+                ),
+            )
+            for episode in episodes
+        )
+    fixture.release_use.blocked_release_ids.update(
+        release.release_id
+        for release in (fixture.releases if empty_selection else (barrier,))
+    )
     barrier_contents = dict(fixture.case.source_contents)
     barrier_contents["src/reproducible_execution/__init__.py"] = (
         b"def resume():\n    raise RuntimeError('blocked current')\n"
@@ -588,21 +622,23 @@ def _historical_candidate_system(tmp_path, *, current_move_after=None):
         source_base_release=barrier,
         current_scope_contract=fixture.case.scope,
         source_base_scope_contract=fixture.case.scope,
+        episodes=episodes,
     )
     replay_basis = _remint(
         replay_basis,
         source_base_tree_receipt=barrier_receipt,
         source_base_tree_hash=barrier_receipt.source_base_tree_hash,
     )
-    validator = ExpertCandidateValidator(
-        settings.expert,
-        settings.sanitation,
-    )
-    candidate_store = ExpertCandidateStore(
-        tmp_path / "candidates",
+    architect, candidate_store, runner, _source = proposal_system(
         tmp_path,
-        validator,
+        settings=settings.expert,
     )
+    validator = candidate_store.validator
+    if sanitation_mismatch:
+        validator.sanitizer.settings = replace(
+            settings.sanitation,
+            policy_version=f"{settings.sanitation.policy_version}.mismatch",
+        )
     base_provider = GitHubExpertCompositionBaseProvider(
         fixture.resolver,
         fixture.materializer,
@@ -612,6 +648,7 @@ def _historical_candidate_system(tmp_path, *, current_move_after=None):
         selector=fixture.selector,
         base_provider=base_provider,
         candidate_store=candidate_store,
+        proposal_engine=architect.engine,
     )
     return SimpleNamespace(
         fixture=fixture,
@@ -625,6 +662,8 @@ def _historical_candidate_system(tmp_path, *, current_move_after=None):
         validator=validator,
         candidate_store=candidate_store,
         coordinator=coordinator,
+        architect=architect,
+        runner=runner,
     )
 
 
@@ -812,6 +851,162 @@ def test_historical_recovery_candidate_is_exact_admitted_restore(tmp_path):
         match="admission is not canonical",
     ):
         system.candidate_store.read(stored.closure.manifest.candidate_id)
+
+
+def test_empty_recovery_is_agent_authored_admitted_and_reopenable(tmp_path):
+    _, _, episode, _, _, _, _ = source_fixture()
+    system = _historical_candidate_system(
+        tmp_path,
+        empty_selection=True,
+        episodes=(episode,),
+    )
+
+    result = system.coordinator.bootstrap_empty(
+        scope_contract=system.fixture.case.scope,
+        replay_basis_packet=system.replay_basis,
+    )
+    stored = result.stored_candidate
+    closure = stored.closure
+
+    assert closure.manifest.derivation_kind is (
+        ExpertCandidateDerivationKind.AGENT_RECOVERY_BOOTSTRAP
+    )
+    assert closure.derivation.operation.operation_kind is (
+        ExpertCandidateOperationKind.RECOVERY_BOOTSTRAP
+    )
+    assert closure.manifest.source_base_release_id is None
+    assert closure.manifest.source_base_tree_hash == EMPTY_EXPERT_TREE_DIGEST
+    assert closure.validation_context.replay_evidence.causal_episode_ids == tuple(
+        episode.episode_id for episode in system.replay_basis.episodes
+    )
+    assert stored.recovery_admission.recovery_plan.source_base_release_id is None
+    assert stored.recovery_admission.barrier_replay_basis == system.replay_basis
+    assert system.candidate_store.read(closure.manifest.candidate_id) == stored
+    with pytest.raises(
+        ExpertCandidateStoreError,
+        match="sealed admission authority",
+    ):
+        system.candidate_store.persist(closure)
+    empty_packet = project_canonical_empty_recovery_packet(system.replay_basis)
+    empty_decision = ExpertTriggerEvaluator(system.settings.expert.triggers).evaluate(
+        empty_packet
+    )
+    with pytest.raises(
+        ExpertProposalContractError,
+        match="cannot cross generic persistence",
+    ):
+        system.architect.propose(
+            packet=empty_packet,
+            decision=empty_decision,
+            materialized_source_base=None,
+        )
+    ordinary_empty_packet = _remint(
+        empty_packet,
+        recovery_barrier_basis_packet_id=None,
+    )
+    ordinary_empty_decision = ExpertTriggerEvaluator(
+        system.settings.expert.triggers
+    ).evaluate(ordinary_empty_packet)
+    with pytest.raises(
+        ExpertProposalContractError,
+        match="cannot be used as an ordinary ancestor",
+    ):
+        system.architect.propose(
+            packet=ordinary_empty_packet,
+            decision=ordinary_empty_decision,
+            materialized_source_base=None,
+            ancestor_candidate_ids=(closure.manifest.candidate_id,),
+        )
+    with pytest.raises(
+        ExpertProposalContractError,
+        match="exact coordinator authority",
+    ):
+        system.architect.engine._propose_recovery_bootstrap(
+            authority=object(),
+            packet=empty_packet,
+            decision=empty_decision,
+            prior_knowledge=None,
+        )
+
+
+def test_empty_recovery_packet_removes_blocked_source_observations():
+    barrier_packet, _materialized, _contents = released_observation_packet(
+        ExpertTriggerObservationKind.MECHANICALLY_GENERAL_FIX,
+        "Blocked topology must not enter an empty recovery prompt.",
+    )
+
+    projected = project_canonical_empty_recovery_packet(barrier_packet)
+
+    assert projected.trigger_observations == ()
+    assert projected.source_base_release is None
+    assert projected.source_base_repository_map is None
+    assert projected.source_base_tree_hash == EMPTY_EXPERT_TREE_DIGEST
+    assert projected.episodes == barrier_packet.episodes
+    assert projected.claims == barrier_packet.claims
+    assert projected.proof_reference_ids == barrier_packet.proof_reference_ids
+
+
+def test_empty_recovery_rejects_historical_selection_and_final_current_movement(
+    tmp_path,
+):
+    historical = _historical_candidate_system(tmp_path / "historical")
+    with pytest.raises(
+        ExpertRecoveryCandidateCoordinatorError,
+        match="historical exhaustion",
+    ):
+        historical.coordinator.bootstrap_empty(
+            scope_contract=historical.fixture.case.scope,
+            replay_basis_packet=historical.replay_basis,
+        )
+
+    moving = _historical_candidate_system(
+        tmp_path / "moving",
+        empty_selection=True,
+        current_move_after=2,
+    )
+    with pytest.raises(
+        ExpertRecoveryBaseError,
+        match="selection became stale",
+    ):
+        moving.coordinator.bootstrap_empty(
+            scope_contract=moving.fixture.case.scope,
+            replay_basis_packet=moving.replay_basis,
+        )
+    assert not tuple(moving.candidate_store.object_root.iterdir())
+
+
+def test_recovery_coordinator_rejects_mismatched_sanitation_policy(tmp_path):
+    with pytest.raises(
+        ExpertRecoveryCandidateCoordinatorError,
+        match="exact production components",
+    ):
+        _historical_candidate_system(
+            tmp_path,
+            sanitation_mismatch=True,
+        )
+
+
+def test_empty_recovery_rejects_scientifically_consumed_barrier_before_agent_call(
+    tmp_path,
+):
+    _, _, episode, _, _, _, _ = source_fixture()
+    system = _historical_candidate_system(
+        tmp_path,
+        empty_selection=True,
+        episodes=(episode,),
+        taint_episodes_with_barrier=True,
+    )
+
+    with pytest.raises(
+        ExpertRecoveryCandidateCoordinatorError,
+        match="scientifically consumed",
+    ):
+        system.coordinator.bootstrap_empty(
+            scope_contract=system.fixture.case.scope,
+            replay_basis_packet=system.replay_basis,
+        )
+    assert system.runner.calls == []
+    assert not tuple(system.candidate_store.object_root.iterdir())
 
 
 def test_recovery_candidate_final_admission_rejects_current_movement(tmp_path):
