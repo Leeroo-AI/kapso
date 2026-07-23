@@ -19,7 +19,8 @@ from kapso.cross_run.expert.book import (
     expert_control_paths,
     expert_module_contract_path,
 )
-from kapso.cross_run.expert.candidates import ExpertCandidateValidator
+from kapso.cross_run.expert.candidates import ExpertCandidateValidationError
+from kapso.cross_run.expert.topology import validate_expert_tree_ownership
 from kapso.cross_run.expert.triggers import ExpertTriggerEvidencePacket
 from kapso.cross_run.github.materializer import (
     GitHubArtifactMaterializer,
@@ -482,10 +483,11 @@ class ExpertCandidateWorkspaceManager:
             raise ExpertCandidateWorkspaceError(
                 "released workspace control bytes differ from typed topology"
             )
-        ExpertCandidateValidator._validate_tree_ownership(
+        validate_expert_tree_ownership(
             packet.repository_map,
             packet.module_contracts,
             {path: file.descriptor for path, file in files.items()},
+            validation_error_type=ExpertCandidateValidationError,
         )
 
     @staticmethod

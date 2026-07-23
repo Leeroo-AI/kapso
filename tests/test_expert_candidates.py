@@ -59,6 +59,11 @@ from kapso.cross_run.expert.proposal_contract import (
     expert_proposal_packet_digest,
     expert_proposal_response_schema,
 )
+from kapso.cross_run.expert.topology import (
+    ExpertTopologyValidationError,
+    validate_expert_repository_topology,
+    validate_expert_tree_ownership,
+)
 from kapso.cross_run.settings import CrossRunSettings
 from kapso.cross_run.agent_artifacts import (
     CodingAgentWorkspaceAccess,
@@ -542,10 +547,56 @@ def test_candidate_rejects_agent_owned_generated_control_namespace():
         ExpertCandidateValidationError,
         match="undeclared expert control",
     ):
-        ExpertCandidateValidator._validate_tree_ownership(
+        validate_expert_tree_ownership(
             repository_map,
             closure.module_contracts,
             candidate_files,
+            validation_error_type=ExpertCandidateValidationError,
+        )
+
+
+def test_public_topology_validator_returns_exact_capability_index():
+    closure = bootstrap_candidate_closure()
+
+    modules = validate_expert_repository_topology(
+        closure.repository_map,
+        closure.module_contracts,
+    )
+
+    assert modules == {
+        closure.module_contracts[0].module_id: closure.module_contracts[0]
+    }
+
+
+def test_public_topology_validator_uses_domain_neutral_error():
+    closure = bootstrap_candidate_closure()
+    node = closure.repository_map.capability_nodes[0]
+    mismatched_map = ExpertRepositoryMap.mint(
+        scope_contract_id=closure.repository_map.scope_contract_id,
+        capability_nodes=(
+            ExpertCapabilityNode(
+                capability_id=node.capability_id,
+                module_contract_ref=content_id(
+                    "test-expert-module-contract",
+                    {"label": "mismatched"},
+                ),
+                owned_paths=node.owned_paths,
+                task_family_bindings=node.task_family_bindings,
+            ),
+        ),
+        dependency_edges=closure.repository_map.dependency_edges,
+        task_adapter_boundary=closure.repository_map.task_adapter_boundary,
+        validation_entrypoints=closure.repository_map.validation_entrypoints,
+        architecture_invariants=closure.repository_map.architecture_invariants,
+    )
+
+    with pytest.raises(
+        ExpertTopologyValidationError,
+        match="capability nodes and modules are not a bijection",
+    ):
+        validate_expert_repository_topology(
+            mismatched_map,
+            closure.module_contracts,
         )
 
 

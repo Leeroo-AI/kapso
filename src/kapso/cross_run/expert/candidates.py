@@ -57,6 +57,10 @@ from kapso.cross_run.expert.triggers import (
     ExpertTriggerEvidencePacket,
     ExpertTriggerEvaluator,
 )
+from kapso.cross_run.expert.topology import (
+    validate_expert_repository_topology,
+    validate_expert_tree_ownership,
+)
 from kapso.cross_run.knowledge.access import PriorKnowledgeAccessMaterialization
 from kapso.cross_run.settings import (
     ExpertSettings,
@@ -656,45 +660,11 @@ class ExpertCandidateValidator:
             raise ExpertCandidateValidationError(
                 "candidate map or module references differ from the manifest"
             )
-        modules = {module.module_id: module for module in closure.module_contracts}
-        nodes = {node.capability_id: node for node in repository_map.capability_nodes}
-        if set(modules) != set(nodes) or any(
-            nodes[module_id].module_contract_ref
-            != modules[module_id].module_contract_id
-            for module_id in modules
-        ):
-            raise ExpertCandidateValidationError(
-                "candidate capability nodes and modules are not a bijection"
-            )
-        outgoing = {
-            capability_id: tuple(
-                sorted(
-                    edge.target_capability_id
-                    for edge in repository_map.dependency_edges
-                    if edge.source_capability_id == capability_id
-                )
-            )
-            for capability_id in nodes
-        }
-        if any(
-            module.dependency_capability_ids != outgoing[module.module_id]
-            for module in closure.module_contracts
-        ):
-            raise ExpertCandidateValidationError(
-                "module dependencies differ from repository map edges"
-            )
-        for module in closure.module_contracts:
-            if not set(module.incompatible_capability_ids).issubset(modules):
-                raise ExpertCandidateValidationError(
-                    "module incompatibility references an unknown capability"
-                )
-            for incompatible_id in module.incompatible_capability_ids:
-                if module.module_id not in (
-                    modules[incompatible_id].incompatible_capability_ids
-                ):
-                    raise ExpertCandidateValidationError(
-                        "module incompatibility must be symmetric"
-                    )
+        modules = validate_expert_repository_topology(
+            repository_map,
+            closure.module_contracts,
+            validation_error_type=ExpertCandidateValidationError,
+        )
         known_families = {
             family.task_family_id
             for family in packet.scope_contract.task_family_ontology
@@ -716,118 +686,15 @@ class ExpertCandidateValidator:
             raise ExpertCandidateValidationError(
                 "bootstrap candidate speculates beyond active task families"
             )
-        ExpertCandidateValidator._validate_tree_ownership(
+        validate_expert_tree_ownership(
             repository_map,
             closure.module_contracts,
             candidate_files,
+            validation_error_type=ExpertCandidateValidationError,
         )
         if manifest.change_kind is CandidateChangeKind.CAPABILITY:
             ExpertCandidateValidator._validate_capability_change_boundary(closure)
         return modules
-
-    @staticmethod
-    def _validate_tree_ownership(
-        repository_map: ExpertRepositoryMap,
-        modules: tuple[ExpertModuleContract, ...],
-        candidate_files: Mapping[str, SourceFileDescriptor],
-    ) -> None:
-        control_paths = set(expert_control_paths(modules))
-        if not control_paths.issubset(candidate_files):
-            raise ExpertCandidateValidationError(
-                "candidate tree omits generated expert control files"
-            )
-        control_root = PurePosixPath(EXPERT_REPOSITORY_MAP_PATH).parent
-        book_path = PurePosixPath(EXPERT_BOOK_PATH)
-        for path in candidate_files:
-            source_path = PurePosixPath(path)
-            if (
-                source_path == book_path
-                or source_path == control_root
-                or control_root in source_path.parents
-            ) and path not in control_paths:
-                raise ExpertCandidateValidationError(
-                    f"candidate tree contains undeclared expert control file: {path}"
-                )
-        mount = PurePosixPath(repository_map.task_adapter_boundary.adapter_mount_path)
-        owned_roots = {
-            node.capability_id: tuple(PurePosixPath(path) for path in node.owned_paths)
-            for node in repository_map.capability_nodes
-        }
-        for roots in owned_roots.values():
-            if any(
-                root == book_path
-                or root == control_root
-                or root in control_root.parents
-                or control_root in root.parents
-                for root in roots
-            ):
-                raise ExpertCandidateValidationError(
-                    "capability ownership overlaps generated expert controls"
-                )
-            if any(
-                root == mount or root in mount.parents or mount in root.parents
-                for root in roots
-            ):
-                raise ExpertCandidateValidationError(
-                    "task-adapter mount overlaps expert-owned source"
-                )
-        if any(
-            PurePosixPath(path) == mount or mount in PurePosixPath(path).parents
-            for path in candidate_files
-        ):
-            raise ExpertCandidateValidationError(
-                "candidate tree contains the external task adapter"
-            )
-        owners_by_path: dict[str, str] = {}
-        for path in candidate_files:
-            if path in control_paths:
-                continue
-            source_path = PurePosixPath(path)
-            owners = tuple(
-                capability_id
-                for capability_id, roots in owned_roots.items()
-                if any(
-                    root == source_path or root in source_path.parents for root in roots
-                )
-            )
-            if len(owners) != 1:
-                raise ExpertCandidateValidationError(
-                    f"candidate source path needs exactly one owner: {path}"
-                )
-            owners_by_path[path] = owners[0]
-        for capability_id, roots in owned_roots.items():
-            for root in roots:
-                if not any(
-                    owner == capability_id
-                    and (
-                        root == PurePosixPath(path)
-                        or root in PurePosixPath(path).parents
-                    )
-                    for path, owner in owners_by_path.items()
-                ):
-                    raise ExpertCandidateValidationError(
-                        f"candidate owned root is empty: {root.as_posix()}"
-                    )
-        paths = set(candidate_files)
-        module_by_id = {module.module_id: module for module in modules}
-        for capability_id, module in module_by_id.items():
-            for path in (
-                *module.entrypoint_refs,
-                *module.test_refs,
-                *module.replay_refs,
-            ):
-                if path not in paths or owners_by_path.get(path) != capability_id:
-                    raise ExpertCandidateValidationError(
-                        f"module path is missing or foreign-owned: {path}"
-                    )
-        for path in (
-            *repository_map.validation_entrypoints,
-            *repository_map.task_adapter_boundary.interface_entrypoint_refs,
-        ):
-            if path not in paths or path not in owners_by_path:
-                raise ExpertCandidateValidationError(
-                    f"repository entrypoint is missing or unowned: {path}"
-                )
 
     @staticmethod
     def _validate_capability_change_boundary(
