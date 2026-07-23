@@ -71,9 +71,10 @@ def test_config_is_web_off_but_same_models_as_kaggle():
     assert params["web_search"] is False
     ens = params["ideation_ensemble"]
     assert [m["cli"] for m in ens] == ["codex", "claude_code"]
-    assert params["ideation_lens_planner"]["model"] == "claude-fable-5"
+    assert params["ideation_lens_planner"]["cli"] == "claude_code"
     assert params["ideation_selector"]["cli"] == "claude_code"
     assert mode["budget"] == {"min_iteration_seconds": 900}
+    assert mode["session_budget"]["ideation_fraction"] == 0.2
 
 
 def test_codex_ideation_search_flag_gated_by_web_search():

@@ -44,22 +44,22 @@ modes:
             effort: "xhigh"
           - cli: "claude_code"
             model: "claude-fable-5"
-            effort: "xhigh"
+            effort: "max"
         ideation_lens_planner:
-          cli: "claude_code"
-          model: "claude-fable-5"
-          effort: "max"
-          timeout: 600
-        ideation_selector:
           cli: "claude_code"
           model: "claude-opus-4-8"
           effort: "xhigh"
+          timeout: 600
+        ideation_selector:
+          cli: "claude_code"
+          model: "claude-fable-5"
+          effort: "max"
         session_env_defaults:
           BASH_DEFAULT_TIMEOUT_MS: "900000"
           BASH_MAX_TIMEOUT_MS: "7200000"
 
     session_budget:
-      ideation_fraction: 0.15
+      ideation_fraction: 0.2
       ideation_min_seconds: 300
       implementation_fraction: 0.75
       implementation_min_seconds: 1800
