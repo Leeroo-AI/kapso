@@ -96,16 +96,91 @@ class ExpertRecoveryCandidateAdmission(StrictContract):
             raise ExpertRecoveryCandidateContractError(
                 "recovery admission dependency closure is not exact"
             )
+        dependency_ids = set(self.dependency_ids)
+        control_dependency_ids = set(self.control_dependency_ids)
+        scientific_dependency_ids = set(self.scientific_dependency_ids)
+        if (
+            control_dependency_ids & scientific_dependency_ids
+            or control_dependency_ids | scientific_dependency_ids != dependency_ids
+        ):
+            raise ExpertRecoveryCandidateContractError(
+                "recovery admission dependency partition is not exact"
+            )
+        required_scientific_dependencies = {
+            self.candidate_id,
+            self.candidate_commit_record_id,
+        }
+        if self.recovery_plan.source_base_release_id is None:
+            if (
+                self.barrier_replay_basis.evidence_packet_id
+                not in control_dependency_ids
+            ):
+                raise ExpertRecoveryCandidateContractError(
+                    "empty recovery barrier replay basis must be control authority"
+                )
+        else:
+            selected_assessment = self.recovery_plan.assessments[-1]
+            selected_source = selected_assessment.manifest
+            required_scientific_dependencies.update(
+                {
+                    selected_assessment.assessment_id,
+                    *selected_assessment.exact_dependency_ids,
+                    selected_source.release_id,
+                    selected_source.candidate_id,
+                    selected_source.candidate_commit_record_id,
+                    selected_source.repository_map_ref,
+                    self.barrier_replay_basis.evidence_packet_id,
+                    *selected_source.module_contract_refs,
+                    *selected_source.consumed_dependency_ids,
+                }
+            )
+        if not required_scientific_dependencies.issubset(scientific_dependency_ids):
+            raise ExpertRecoveryCandidateContractError(
+                "recovery admission classifies scientific evidence as control"
+            )
+
+    @property
+    def dependency_ids(self) -> tuple[str, ...]:
+        """Return the exact dependency universe, including this admission."""
+
+        return tuple(sorted({self.admission_id, *self.exact_dependency_ids}))
 
     @property
     def control_dependency_ids(self) -> tuple[str, ...]:
         dependencies = {
+            self.admission_id,
             self.recovery_plan.recovery_plan_id,
             *self.recovery_plan.control_dependency_ids,
         }
+        if self.recovery_plan.source_base_release_id is not None:
+            selected_assessment = self.recovery_plan.assessments[-1]
+            selected_source = selected_assessment.manifest
+            dependencies.difference_update(
+                {
+                    selected_assessment.assessment_id,
+                    *selected_assessment.exact_dependency_ids,
+                    selected_source.release_id,
+                    selected_source.candidate_id,
+                    selected_source.candidate_commit_record_id,
+                    selected_source.repository_map_ref,
+                    *selected_source.module_contract_refs,
+                    *selected_source.consumed_dependency_ids,
+                }
+            )
         if self.recovery_plan.source_base_release_id is None:
             dependencies.add(self.barrier_replay_basis.evidence_packet_id)
         return tuple(sorted(dependencies))
+
+    @property
+    def scientific_dependency_ids(self) -> tuple[str, ...]:
+        """Return exact scientific inputs without temporal recovery authority."""
+
+        control_dependency_ids = set(self.control_dependency_ids)
+        return tuple(
+            dependency_id
+            for dependency_id in self.dependency_ids
+            if dependency_id not in control_dependency_ids
+        )
 
 
 def validate_recovery_candidate_admission(

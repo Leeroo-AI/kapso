@@ -366,6 +366,8 @@ def _composition_review_fixture(
         candidate_commit_record_id=commit.commit_record_id,
         scope_contract_id=manifest.scope_contract_id,
         source_base_release_id=manifest.source_base_release_id,
+        expected_current_release_id=manifest.source_base_release_id,
+        recovery_plan_id=None,
         eligibility_decision_id=eligibility_id,
         validation_policy_id=policy.validation_policy_id,
         configuration_fingerprint=(
@@ -383,6 +385,7 @@ def _composition_review_fixture(
         ),
         task_adapter_pins=task_adapter_pins,
         source_replay_selection=None,
+        control_dependency_ids=(),
         eligibility_dependency_ids=tuple(sorted(eligibility_dependencies)),
     )
     accepted_result = _result(
@@ -708,12 +711,17 @@ def test_recovery_review_derivation_persists_reopens_and_detects_tampering(
     }
     if manifest.source_base_release_id is not None:
         eligibility_dependencies.add(manifest.source_base_release_id)
+    control_dependency_ids = stored.recovery_admission.control_dependency_ids
     attempt = ExpertValidationAttempt.mint(
         candidate_id=manifest.candidate_id,
         candidate_tree_hash=manifest.candidate_tree_hash,
         candidate_commit_record_id=commit.commit_record_id,
         scope_contract_id=manifest.scope_contract_id,
         source_base_release_id=manifest.source_base_release_id,
+        expected_current_release_id=(
+            stored.recovery_admission.recovery_plan.activation_predecessor_release_id
+        ),
+        recovery_plan_id=stored.recovery_admission.recovery_plan.recovery_plan_id,
         eligibility_decision_id=eligibility_id,
         validation_policy_id=policy.validation_policy_id,
         configuration_fingerprint=(
@@ -740,6 +748,7 @@ def test_recovery_review_derivation_persists_reopens_and_detects_tampering(
         ),
         task_adapter_pins=pins,
         source_replay_selection=None,
+        control_dependency_ids=control_dependency_ids,
         eligibility_dependency_ids=tuple(sorted(eligibility_dependencies)),
     )
     accepted_result = _result(

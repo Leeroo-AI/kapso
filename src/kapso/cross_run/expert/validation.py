@@ -11,6 +11,7 @@ from kapso.cross_run.contracts import (
     CandidateChangeKind,
     ExpertAcceptedStageResultRef,
     ExpertBaseReleaseManifest,
+    ExpertCandidateDerivationKind,
     ExpertCandidateEligibilityDecision,
     ExpertCandidateValidationState,
     ExpertEvaluatorAttestation,
@@ -31,6 +32,10 @@ from kapso.cross_run.contracts import (
 from kapso.cross_run.expert.store import (
     StoredExpertCandidate,
     stored_candidate_admission_dependency_ids,
+)
+from kapso.cross_run.expert.recovery_candidate_contracts import (
+    ExpertRecoveryCandidateAdmission,
+    validate_recovery_candidate_admission,
 )
 from kapso.cross_run.expert.replay import _derive_expert_source_replay_selection
 from kapso.cross_run.expert.replay_publication_contracts import (
@@ -218,6 +223,51 @@ class ExpertCandidateReader(Protocol):
     def read(self, candidate_id: str) -> StoredExpertCandidate: ...
 
 
+def _candidate_current_authority(
+    stored: StoredExpertCandidate,
+) -> tuple[str | None, str | None, tuple[str, ...]]:
+    manifest = stored.closure.manifest
+    admission = stored.recovery_admission
+    recovery_derivation = manifest.derivation_kind in {
+        ExpertCandidateDerivationKind.DETERMINISTIC_RECOVERY_RESTORE,
+        ExpertCandidateDerivationKind.AGENT_RECOVERY_BOOTSTRAP,
+    }
+    if admission is None:
+        if recovery_derivation:
+            raise ExpertValidationError(
+                "recovery candidate lacks durable recovery admission"
+            )
+        return manifest.source_base_release_id, None, ()
+    if (
+        type(admission) is not ExpertRecoveryCandidateAdmission
+        or not recovery_derivation
+    ):
+        raise ExpertValidationError(
+            "durable recovery admission belongs to a non-recovery candidate"
+        )
+    validate_recovery_candidate_admission(
+        admission=admission,
+        closure=stored.closure,
+        commit_record=stored.commit_record,
+    )
+    plan = admission.recovery_plan
+    if plan.source_base_release_id != manifest.source_base_release_id:
+        raise ExpertValidationError(
+            "recovery plan scientific source differs from the candidate"
+        )
+    control_dependency_ids = admission.control_dependency_ids
+    admission_dependency_ids = set(stored_candidate_admission_dependency_ids(stored))
+    if not set(control_dependency_ids).issubset(admission_dependency_ids):
+        raise ExpertValidationError(
+            "recovery control authority is absent from durable admission"
+        )
+    return (
+        plan.activation_predecessor_release_id,
+        plan.recovery_plan_id,
+        control_dependency_ids,
+    )
+
+
 class ExpertCurrentReleaseProvider(Protocol):
     """Resolve the active scientific release identity for one scope."""
 
@@ -313,6 +363,11 @@ class ExpertCandidateEligibilityEvaluator:
         stored: StoredExpertCandidate,
         task_adapters: tuple[VerifiedTaskAdapter, ...],
     ) -> ExpertEligibilityResult:
+        (
+            expected_current_release_id,
+            recovery_plan_id,
+            control_dependency_ids,
+        ) = _candidate_current_authority(stored)
         observed_current_release_id = self.current_release_provider.current_release_id(
             stored.closure.validation_context.scope_id
         )
@@ -337,9 +392,8 @@ class ExpertCandidateEligibilityEvaluator:
             has_source_base_release=stored.closure.manifest.source_base_release_id
             is not None,
         )
-        source_base_is_current = (
-            stored.closure.manifest.source_base_release_id
-            == observed_current_release_id
+        expected_release_is_current = (
+            expected_current_release_id == observed_current_release_id
         )
         infrastructure_available = self.settings.policy.can_validate(
             validation_track,
@@ -347,9 +401,13 @@ class ExpertCandidateEligibilityEvaluator:
             has_source_base_release=stored.closure.manifest.source_base_release_id
             is not None,
         )
-        eligible = source_base_is_current and infrastructure_available
-        if not source_base_is_current:
-            reason_code = "source_base_not_current"
+        eligible = expected_release_is_current and infrastructure_available
+        if not expected_release_is_current:
+            reason_code = (
+                "source_base_not_current"
+                if recovery_plan_id is None
+                else "recovery_barrier_not_current"
+            )
         elif not infrastructure_available:
             reason_code = "required_validation_infrastructure_unavailable"
         else:
@@ -400,6 +458,8 @@ class ExpertCandidateEligibilityEvaluator:
             candidate_commit_record_id=stored.commit_record.commit_record_id,
             scope_contract_id=manifest.scope_contract_id,
             source_base_release_id=manifest.source_base_release_id,
+            expected_current_release_id=expected_current_release_id,
+            recovery_plan_id=recovery_plan_id,
             validation_policy_id=policy.validation_policy_id,
             configuration_fingerprint=self.settings.configuration_fingerprint,
             eligible=eligible,
@@ -408,6 +468,7 @@ class ExpertCandidateEligibilityEvaluator:
             configured_task_family_ids=configured_task_family_ids,
             task_adapter_pins=adapter_pins,
             source_replay_selection=source_replay_selection,
+            control_dependency_ids=control_dependency_ids,
             exact_dependency_ids=tuple(sorted(dependencies)),
             reason_code=reason_code,
         )
@@ -757,6 +818,10 @@ class ExpertValidationReducer:
             ),
             scope_contract_id=eligibility.decision.scope_contract_id,
             source_base_release_id=eligibility.decision.source_base_release_id,
+            expected_current_release_id=(
+                eligibility.decision.expected_current_release_id
+            ),
+            recovery_plan_id=eligibility.decision.recovery_plan_id,
             eligibility_decision_id=(eligibility.decision.eligibility_decision_id),
             validation_policy_id=eligibility.decision.validation_policy_id,
             configuration_fingerprint=(eligibility.decision.configuration_fingerprint),
@@ -777,6 +842,7 @@ class ExpertValidationReducer:
             ),
             task_adapter_pins=eligibility.decision.task_adapter_pins,
             source_replay_selection=(eligibility.decision.source_replay_selection),
+            control_dependency_ids=eligibility.decision.control_dependency_ids,
             eligibility_dependency_ids=tuple(
                 sorted(
                     {
@@ -828,6 +894,11 @@ class ExpertValidationReducer:
         stored = self.candidate_store.read(attempt.candidate_id)
         manifest = stored.closure.manifest
         context = stored.closure.validation_context
+        (
+            expected_current_release_id,
+            recovery_plan_id,
+            control_dependency_ids,
+        ) = _candidate_current_authority(stored)
         if (
             manifest.candidate_id != attempt.candidate_id
             or manifest.candidate_tree_hash != attempt.candidate_tree_hash
@@ -835,6 +906,9 @@ class ExpertValidationReducer:
             != attempt.candidate_commit_record_id
             or manifest.scope_contract_id != attempt.scope_contract_id
             or manifest.source_base_release_id != attempt.source_base_release_id
+            or expected_current_release_id != attempt.expected_current_release_id
+            or recovery_plan_id != attempt.recovery_plan_id
+            or control_dependency_ids != attempt.control_dependency_ids
             or context.scope_contract.scope_contract_id != attempt.scope_contract_id
             or not set(stored_candidate_admission_dependency_ids(stored)).issubset(
                 attempt.eligibility_dependency_ids
@@ -851,7 +925,7 @@ class ExpertValidationReducer:
                 observed_current_release_id,
                 "observed_current_release_id",
             )
-        if observed_current_release_id == attempt.source_base_release_id:
+        if observed_current_release_id == attempt.expected_current_release_id:
             raise ExpertValidationError(
                 "CURRENT release authority has not changed for the active attempt"
             )
@@ -861,8 +935,8 @@ class ExpertValidationReducer:
             attempt.candidate_id,
             attempt.scope_contract_id,
         }
-        if attempt.source_base_release_id is not None:
-            dependencies.add(attempt.source_base_release_id)
+        if attempt.expected_current_release_id is not None:
+            dependencies.add(attempt.expected_current_release_id)
         if observed_current_release_id is not None:
             dependencies.add(observed_current_release_id)
         invalidation = ExpertValidationAuthorityInvalidation.mint(
@@ -874,7 +948,7 @@ class ExpertValidationReducer:
             candidate_id=attempt.candidate_id,
             candidate_tree_hash=attempt.candidate_tree_hash,
             scope_contract_id=attempt.scope_contract_id,
-            expected_current_release_id=attempt.source_base_release_id,
+            expected_current_release_id=attempt.expected_current_release_id,
             observed_current_release_id=observed_current_release_id,
             exact_dependency_ids=tuple(sorted(dependencies)),
         )

@@ -299,6 +299,8 @@ def test_clean_composition_admission_is_fenced_atomic_and_reopenable(
         candidate_commit_record_id=(eligibility.decision.candidate_commit_record_id),
         scope_contract_id=eligibility.decision.scope_contract_id,
         source_base_release_id=eligibility.decision.source_base_release_id,
+        expected_current_release_id=(eligibility.decision.expected_current_release_id),
+        recovery_plan_id=eligibility.decision.recovery_plan_id,
         eligibility_decision_id=eligibility.decision.eligibility_decision_id,
         validation_policy_id=eligibility.decision.validation_policy_id,
         configuration_fingerprint=eligibility.decision.configuration_fingerprint,
@@ -309,6 +311,7 @@ def test_clean_composition_admission_is_fenced_atomic_and_reopenable(
         configured_task_family_ids=(eligibility.decision.configured_task_family_ids),
         task_adapter_pins=eligibility.decision.task_adapter_pins,
         source_replay_selection=None,
+        control_dependency_ids=eligibility.decision.control_dependency_ids,
         eligibility_dependency_ids=tuple(
             sorted(
                 {

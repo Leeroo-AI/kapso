@@ -59,6 +59,7 @@ from kapso.cross_run.task_adapters import (
 )
 from test_expert_candidate_store import candidate_store
 from test_expert_candidates import bootstrap_candidate_closure
+from test_expert_clean_recovery import _historical_candidate_system
 from task_adapter_matrix_fixtures import task_adapter_release_matrix_case
 
 CANONICAL_CONFIG_PATH = "src/kapso/config.yaml"
@@ -135,6 +136,15 @@ class _CountingCandidateReader:
     def read(self, candidate_id):
         self.candidate_ids.append(candidate_id)
         return self.reader.read(candidate_id)
+
+
+class _StaticCandidateReader:
+    def __init__(self, stored):
+        self.stored = stored
+
+    def read(self, candidate_id):
+        assert self.stored.closure.manifest.candidate_id == candidate_id
+        return self.stored
 
 
 class _ValidationStateProvider:
@@ -405,6 +415,8 @@ def _eligibility_decision(
         candidate_commit_record_id=candidate_commit_record_id,
         scope_contract_id=_content_id("scope"),
         source_base_release_id=_content_id("parent-release"),
+        expected_current_release_id=_content_id("parent-release"),
+        recovery_plan_id=None,
         validation_policy_id=policy.validation_policy_id,
         configuration_fingerprint=settings.configuration_fingerprint,
         eligible=True,
@@ -413,6 +425,7 @@ def _eligibility_decision(
         configured_task_family_ids=("family",),
         task_adapter_pins=(adapter_pin,),
         source_replay_selection=source_replay_selection,
+        control_dependency_ids=(),
         exact_dependency_ids=tuple(
             sorted(
                 {
@@ -441,6 +454,8 @@ def _attempt(
         candidate_commit_record_id=decision.candidate_commit_record_id,
         scope_contract_id=decision.scope_contract_id,
         source_base_release_id=decision.source_base_release_id,
+        expected_current_release_id=decision.expected_current_release_id,
+        recovery_plan_id=decision.recovery_plan_id,
         eligibility_decision_id=decision.eligibility_decision_id,
         validation_policy_id=decision.validation_policy_id,
         configuration_fingerprint=decision.configuration_fingerprint,
@@ -451,6 +466,7 @@ def _attempt(
         configured_task_family_ids=decision.configured_task_family_ids,
         task_adapter_pins=decision.task_adapter_pins,
         source_replay_selection=decision.source_replay_selection,
+        control_dependency_ids=decision.control_dependency_ids,
         eligibility_dependency_ids=tuple(
             sorted(
                 {
@@ -541,6 +557,28 @@ def test_validation_attempt_binds_eligibility_policy_tree_and_adapters():
     assert attempt.candidate_tree_hash == decision.candidate_tree_hash
     assert attempt.task_adapter_pins == decision.task_adapter_pins
     assert attempt.required_stages[0] is ExpertValidationStage.CONTRACT_SCHEMA
+
+
+def test_ordinary_eligibility_and_attempt_reject_split_current_authority():
+    decision = _eligibility_decision()
+    decision_values = decision.to_dict()
+    decision_values.pop("eligibility_decision_id")
+    decision_values["expected_current_release_id"] = _content_id("other-current")
+    with pytest.raises(
+        ContractValidationError,
+        match="ordinary eligibility must bind CURRENT",
+    ):
+        ExpertCandidateEligibilityDecision.mint(**decision_values)
+
+    attempt = _attempt(decision)
+    attempt_values = attempt.to_dict()
+    attempt_values.pop("validation_attempt_id")
+    attempt_values["expected_current_release_id"] = _content_id("other-current")
+    with pytest.raises(
+        ContractValidationError,
+        match="ordinary validation attempt must bind CURRENT",
+    ):
+        ExpertValidationAttempt.mint(**attempt_values)
 
 
 def test_evaluator_run_carries_exact_outputs_and_signature_is_a_separate_envelope():
@@ -884,6 +922,104 @@ def test_bootstrap_enrollment_derives_architecture_track_and_exact_stage_plan(
         started.attempt.eligibility_dependency_ids
     )
     assert started.state.next_stage is ExpertValidationStage.CONTRACT_SCHEMA
+
+
+def test_recovery_enrollment_separates_scientific_source_from_current_authority(
+    tmp_path,
+):
+    historical_system = _historical_candidate_system(tmp_path / "historical")
+    historical_stored = historical_system.coordinator.restore_historical(
+        scope_contract=historical_system.fixture.case.scope,
+        replay_basis_packet=historical_system.replay_basis,
+    )
+    historical_admission = historical_stored.recovery_admission
+    assert historical_admission is not None
+    historical_adapter = _task_adapter(historical_stored.closure)
+    settings = _validation_settings()
+    historical_eligibility = _eligibility_evaluator(
+        settings,
+        historical_system.candidate_store,
+        historical_adapter,
+        historical_system.barrier.release_id,
+    ).decide(candidate_id=historical_stored.closure.manifest.candidate_id)
+    assert historical_eligibility.decision.source_base_release_id == (
+        historical_system.selected.release_id
+    )
+    assert historical_eligibility.decision.expected_current_release_id == (
+        historical_system.barrier.release_id
+    )
+    assert historical_eligibility.decision.recovery_plan_id == (
+        historical_admission.recovery_plan.recovery_plan_id
+    )
+    assert historical_eligibility.decision.control_dependency_ids == (
+        historical_admission.control_dependency_ids
+    )
+    assert (
+        historical_system.selected.release_id
+        not in historical_eligibility.decision.control_dependency_ids
+    )
+
+    system = _historical_candidate_system(
+        tmp_path / "empty",
+        empty_selection=True,
+    )
+    proposal = system.coordinator.bootstrap_empty(
+        scope_contract=system.fixture.case.scope,
+        replay_basis_packet=system.replay_basis,
+    )
+    stored = proposal.stored_candidate
+    admission = stored.recovery_admission
+    assert admission is not None
+    adapter = _task_adapter(stored.closure)
+    eligibility = _eligibility_evaluator(
+        settings,
+        system.candidate_store,
+        adapter,
+        system.barrier.release_id,
+    ).decide(candidate_id=stored.closure.manifest.candidate_id)
+
+    assert eligibility.decision.eligible is True
+    assert eligibility.decision.source_base_release_id is None
+    assert eligibility.decision.expected_current_release_id == system.barrier.release_id
+    assert eligibility.decision.recovery_plan_id == (
+        admission.recovery_plan.recovery_plan_id
+    )
+    assert (
+        eligibility.decision.control_dependency_ids == admission.control_dependency_ids
+    )
+    started = _validation_reducer(
+        settings,
+        adapter,
+        candidate_store=system.candidate_store,
+        current_release_id=system.barrier.release_id,
+    ).start(eligibility=eligibility)
+    assert started.attempt is not None
+    assert started.attempt.expected_current_release_id == (
+        eligibility.decision.expected_current_release_id
+    )
+    assert started.attempt.recovery_plan_id == eligibility.decision.recovery_plan_id
+    assert (
+        started.attempt.control_dependency_ids
+        == eligibility.decision.control_dependency_ids
+    )
+
+    stale = _eligibility_evaluator(
+        settings,
+        system.candidate_store,
+        adapter,
+        _content_id("moved-current"),
+    ).decide(candidate_id=stored.closure.manifest.candidate_id)
+    assert stale.decision.eligible is False
+    assert stale.decision.reason_code == "recovery_barrier_not_current"
+
+    missing_admission = replace(stored, recovery_admission=None)
+    with pytest.raises(ExpertValidationError, match="lacks durable recovery admission"):
+        _eligibility_evaluator(
+            settings,
+            _StaticCandidateReader(missing_admission),
+            adapter,
+            system.barrier.release_id,
+        ).decide(candidate_id=stored.closure.manifest.candidate_id)
 
 
 def test_adapter_enrollment_requires_every_exact_trigger_binding(tmp_path):

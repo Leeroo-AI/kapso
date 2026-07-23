@@ -34,6 +34,7 @@ from kapso.cross_run.contracts import (
 )
 from test_expert_candidate_store import candidate_store
 from test_expert_candidates import bootstrap_candidate_closure
+from test_expert_clean_recovery import _historical_candidate_system
 from test_expert_validation import (
     _content_id,
     _eligibility_evaluator,
@@ -150,9 +151,74 @@ def test_start_round_trip_and_lost_response_replay_are_exact(tmp_path, monkeypat
     assert committed.replayed is False
     assert current is not None
     assert current.latest_attempt == committed.snapshot.latest_attempt
+    assert current.latest_attempt is not None
+    assert current.latest_attempt.expected_current_release_id == (
+        eligibility.decision.expected_current_release_id
+    )
+    assert (
+        current.latest_attempt.recovery_plan_id == eligibility.decision.recovery_plan_id
+    )
+    assert current.latest_attempt.control_dependency_ids == (
+        eligibility.decision.control_dependency_ids
+    )
     assert current.state == committed.snapshot.state
     assert replay.replayed is True
     assert replay.snapshot.transition == committed.snapshot.transition
+
+
+def test_empty_recovery_start_and_current_invalidation_reopen_exactly(tmp_path):
+    recovery = _historical_candidate_system(
+        tmp_path / "recovery",
+        empty_selection=True,
+    )
+    stored = recovery.coordinator.bootstrap_empty(
+        scope_contract=recovery.fixture.case.scope,
+        replay_basis_packet=recovery.replay_basis,
+    ).stored_candidate
+    adapter = _task_adapter(stored.closure)
+    settings = _validation_settings()
+    eligibility = _eligibility_evaluator(
+        settings,
+        recovery.candidate_store,
+        adapter,
+        recovery.barrier.release_id,
+    ).decide(candidate_id=stored.closure.manifest.candidate_id)
+    assert eligibility.decision.eligible, eligibility.decision.reason_code
+    reducer = _validation_reducer(
+        settings,
+        adapter,
+        candidate_store=recovery.candidate_store,
+        current_release_id=recovery.barrier.release_id,
+    )
+    store_root = tmp_path / "journal"
+    store_root.mkdir(mode=0o700)
+    store = _validation_store(store_root, settings, reducer)
+    started = store.publish_start(
+        expected_transition_id=None,
+        eligibility=eligibility,
+    ).snapshot
+    attempt = started.latest_attempt
+    assert attempt is not None
+    assert attempt.expected_current_release_id == recovery.barrier.release_id
+    assert attempt.source_base_release_id is None
+    assert (
+        _validation_store(store_root, settings, reducer).snapshot(attempt.candidate_id)
+        == started
+    )
+
+    moved_release_id = _release_id("empty-recovery-moved")
+    reducer.current_release_provider.release_id = moved_release_id
+    invalidated = store.publish_current_release_authority_invalidation(
+        candidate_id=attempt.candidate_id,
+        expected_validation_state_id=started.state.validation_state_id,
+    ).snapshot
+    reopened = _validation_store(store_root, settings, reducer).snapshot(
+        attempt.candidate_id
+    )
+
+    assert invalidated.transition.transition_authority_invalidation_id is not None
+    assert invalidated.state.promotion_state is ExpertPromotionState.FAILED
+    assert reopened == invalidated
 
 
 def test_start_external_checks_hold_no_validation_lock(tmp_path, monkeypatch):

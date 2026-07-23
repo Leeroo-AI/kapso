@@ -43,6 +43,10 @@ from kapso.cross_run.expert.proposal_contract import ExpertProposalContractError
 from kapso.cross_run.expert.recovery_candidate import (
     project_canonical_empty_recovery_packet,
 )
+from kapso.cross_run.expert.recovery_candidate_contracts import (
+    ExpertRecoveryCandidateAdmission,
+    ExpertRecoveryCandidateContractError,
+)
 from kapso.cross_run.expert.store import (
     ExpertCandidateStoreError,
 )
@@ -805,6 +809,25 @@ def test_historical_recovery_candidate_is_exact_admitted_restore(tmp_path):
         scope_contract=system.fixture.case.scope,
         replay_basis_packet=system.replay_basis,
     )
+    admission = stored.recovery_admission
+    selected_assessment = admission.recovery_plan.assessments[-1]
+    selected_source = selected_assessment.manifest
+    selected_scientific_dependencies = {
+        selected_assessment.assessment_id,
+        *selected_assessment.exact_dependency_ids,
+        selected_source.release_id,
+        selected_source.candidate_id,
+        selected_source.candidate_commit_record_id,
+        selected_source.repository_map_ref,
+        admission.barrier_replay_basis.evidence_packet_id,
+        *selected_source.module_contract_refs,
+        *selected_source.consumed_dependency_ids,
+    }
+    expected_control_dependencies = {
+        admission.admission_id,
+        admission.recovery_plan.recovery_plan_id,
+        *admission.recovery_plan.control_dependency_ids,
+    } - selected_scientific_dependencies
 
     assert stored.closure.manifest.source_base_release_id == system.selected.release_id
     assert stored.closure.manifest.candidate_tree_hash == (
@@ -820,6 +843,32 @@ def test_historical_recovery_candidate_is_exact_admitted_restore(tmp_path):
         stored.recovery_admission.recovery_plan.activation_predecessor_release_id
         == (system.barrier.release_id)
     )
+    assert set(admission.control_dependency_ids) == expected_control_dependencies
+    assert selected_scientific_dependencies.issubset(
+        admission.scientific_dependency_ids
+    )
+    assert set(admission.control_dependency_ids).isdisjoint(
+        admission.scientific_dependency_ids
+    )
+    assert set(admission.control_dependency_ids) | set(
+        admission.scientific_dependency_ids
+    ) == set(admission.dependency_ids)
+    assert (
+        ExpertRecoveryCandidateAdmission.from_json_bytes(admission.to_json_bytes())
+        == admission
+    )
+    with pytest.raises(
+        ExpertRecoveryCandidateContractError,
+        match="dependency closure is not exact",
+    ):
+        replace(
+            admission,
+            exact_dependency_ids=tuple(
+                dependency_id
+                for dependency_id in admission.exact_dependency_ids
+                if dependency_id != stored.closure.manifest.candidate_id
+            ),
+        )
     assert system.candidate_store.read(stored.closure.manifest.candidate_id) == stored
     with pytest.raises(
         ExpertCandidateStoreError,
@@ -881,6 +930,27 @@ def test_empty_recovery_is_agent_authored_admitted_and_reopenable(tmp_path):
     )
     assert stored.recovery_admission.recovery_plan.source_base_release_id is None
     assert stored.recovery_admission.barrier_replay_basis == system.replay_basis
+    admission = stored.recovery_admission
+    assert set(admission.control_dependency_ids) == {
+        admission.admission_id,
+        admission.recovery_plan.recovery_plan_id,
+        admission.barrier_replay_basis.evidence_packet_id,
+        *admission.recovery_plan.control_dependency_ids,
+    }
+    assert set(admission.scientific_dependency_ids) == {
+        closure.manifest.candidate_id,
+        stored.commit_record.commit_record_id,
+    }
+    assert set(admission.control_dependency_ids).isdisjoint(
+        admission.scientific_dependency_ids
+    )
+    assert set(admission.control_dependency_ids) | set(
+        admission.scientific_dependency_ids
+    ) == set(admission.dependency_ids)
+    assert (
+        ExpertRecoveryCandidateAdmission.from_json_bytes(admission.to_json_bytes())
+        == admission
+    )
     assert system.candidate_store.read(closure.manifest.candidate_id) == stored
     with pytest.raises(
         ExpertCandidateStoreError,

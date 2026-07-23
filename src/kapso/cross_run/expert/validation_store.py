@@ -6063,6 +6063,9 @@ class ExpertValidationStore:
                 or latest_attempt.scope_contract_id != decision.scope_contract_id
                 or latest_attempt.source_base_release_id
                 != decision.source_base_release_id
+                or latest_attempt.expected_current_release_id
+                != decision.expected_current_release_id
+                or latest_attempt.recovery_plan_id != decision.recovery_plan_id
                 or latest_attempt.validation_policy_id != decision.validation_policy_id
                 or latest_attempt.configuration_fingerprint
                 != decision.configuration_fingerprint
@@ -6073,6 +6076,8 @@ class ExpertValidationStore:
                 or latest_attempt.task_adapter_pins != decision.task_adapter_pins
                 or latest_attempt.source_replay_selection
                 != decision.source_replay_selection
+                or latest_attempt.control_dependency_ids
+                != decision.control_dependency_ids
                 or set(latest_attempt.eligibility_dependency_ids)
                 != {
                     decision.eligibility_decision_id,
@@ -6468,7 +6473,7 @@ class ExpertValidationStore:
                 or invalidation.kind
                 is not ExpertValidationAuthorityInvalidationKind.CURRENT_RELEASE_AUTHORITY_CHANGED
                 or invalidation.expected_current_release_id
-                != latest_attempt.source_base_release_id
+                != latest_attempt.expected_current_release_id
                 or transition.validation_policy_id
                 != latest_attempt.validation_policy_id
                 or transition.configuration_fingerprint

@@ -1326,6 +1326,18 @@ Recovery candidates cannot become ordinary ancestors or composition sources unti
 those contracts can preserve their control provenance. Automated review renders
 and durably reopens both recovery derivation forms.
 
+Enrollment reads that durable admission rather than inferring recovery from a
+candidate shape. It keeps `source_base_release_id` as the immutable scientific
+source, pins the blocked barrier as `expected_current_release_id`, and carries the
+exact recovery-plan and control-dependency projection into the eligibility
+decision and validation attempt. Ordinary and true-bootstrap attempts require
+scientific source and expected CURRENT to remain equal, including both being absent
+at true E0. Recovery admissions expose an exact disjoint scientific/control
+partition: the selected source assessment, publication, activation witness,
+candidate closure, and replay evidence are scientific; only recovery ordering and
+blocked-history authority remain control. Journal replay checks the split fields,
+and CURRENT invalidation is evaluated and reopened against the temporal barrier.
+
 The remaining recovery path must rerun the full applicable matrix, publish a new
 immutable release, and CAS-advance from the blocked CURRENT release. Normal
 evolution continues to require scientific source and activation predecessor to be

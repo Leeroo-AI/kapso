@@ -3901,6 +3901,8 @@ class ExpertCandidateEligibilityDecision(StrictContract):
     candidate_commit_record_id: str
     scope_contract_id: str
     source_base_release_id: str | None
+    expected_current_release_id: str | None
+    recovery_plan_id: str | None
     validation_policy_id: str
     configuration_fingerprint: str
     eligible: bool
@@ -3909,6 +3911,7 @@ class ExpertCandidateEligibilityDecision(StrictContract):
     configured_task_family_ids: tuple[str, ...]
     task_adapter_pins: tuple[TaskAdapterPackagePin, ...]
     source_replay_selection: ExpertSourceReplaySelection | None
+    control_dependency_ids: tuple[str, ...]
     exact_dependency_ids: tuple[str, ...]
     reason_code: str
 
@@ -3925,6 +3928,20 @@ class ExpertCandidateEligibilityDecision(StrictContract):
             require_content_id(value, name)
         if self.source_base_release_id is not None:
             require_content_id(self.source_base_release_id, "source_base_release_id")
+        if self.expected_current_release_id is not None:
+            require_content_id(
+                self.expected_current_release_id,
+                "expected_current_release_id",
+            )
+        if self.recovery_plan_id is not None:
+            require_content_id(self.recovery_plan_id, "recovery_plan_id")
+            if (
+                self.recovery_plan_id.split(":sha256:", 1)[0]
+                != "expert-clean-forward-recovery-plan"
+            ):
+                raise ContractValidationError(
+                    "recovery_plan_id uses the wrong namespace"
+                )
         _require_digest(self.candidate_tree_hash, "candidate_tree_hash")
         _require_digest(
             self.configuration_fingerprint,
@@ -3956,9 +3973,48 @@ class ExpertCandidateEligibilityDecision(StrictContract):
             raise ContractValidationError(
                 "task adapter package pins must reference unique packages"
             )
+        if self.control_dependency_ids != tuple(
+            sorted(set(self.control_dependency_ids))
+        ):
+            raise ContractValidationError(
+                "control_dependency_ids must be sorted and unique"
+            )
+        for value in self.control_dependency_ids:
+            require_content_id(value, "control_dependency_ids")
         _require_sorted_unique(self.exact_dependency_ids, "exact_dependency_ids")
         for value in self.exact_dependency_ids:
             require_content_id(value, "exact_dependency_ids")
+        if not set(self.control_dependency_ids).issubset(self.exact_dependency_ids):
+            raise MissingReferenceError(
+                "eligibility control dependency closure is incomplete"
+            )
+        if self.recovery_plan_id is None:
+            if (
+                self.expected_current_release_id != self.source_base_release_id
+                or self.control_dependency_ids
+            ):
+                raise ContractValidationError(
+                    "ordinary eligibility must bind CURRENT to its source without "
+                    "recovery controls"
+                )
+        else:
+            recovery_admission_ids = tuple(
+                dependency_id
+                for dependency_id in self.control_dependency_ids
+                if dependency_id.split(":sha256:", 1)[0]
+                == "expert-recovery-candidate-admission"
+            )
+            if (
+                self.expected_current_release_id is None
+                or self.expected_current_release_id == self.source_base_release_id
+                or len(recovery_admission_ids) != 1
+                or self.recovery_plan_id not in self.control_dependency_ids
+                or self.expected_current_release_id not in self.control_dependency_ids
+                or self.source_base_release_id in self.control_dependency_ids
+            ):
+                raise ContractValidationError(
+                    "recovery eligibility authority partition is invalid"
+                )
         required_dependencies = {
             self.candidate_id,
             self.candidate_commit_record_id,
@@ -3969,6 +4025,10 @@ class ExpertCandidateEligibilityDecision(StrictContract):
         }
         if self.source_base_release_id is not None:
             required_dependencies.add(self.source_base_release_id)
+        if self.expected_current_release_id is not None:
+            required_dependencies.add(self.expected_current_release_id)
+        if self.recovery_plan_id is not None:
+            required_dependencies.add(self.recovery_plan_id)
         source_replay_required = (
             self.eligible
             and ExpertValidationStage.SOURCE_RUN_REPLAY in self.required_stages
@@ -4026,6 +4086,8 @@ class ExpertValidationAttempt(StrictContract):
     candidate_commit_record_id: str
     scope_contract_id: str
     source_base_release_id: str | None
+    expected_current_release_id: str | None
+    recovery_plan_id: str | None
     eligibility_decision_id: str
     validation_policy_id: str
     configuration_fingerprint: str
@@ -4036,6 +4098,7 @@ class ExpertValidationAttempt(StrictContract):
     configured_task_family_ids: tuple[str, ...]
     task_adapter_pins: tuple[TaskAdapterPackagePin, ...]
     source_replay_selection: ExpertSourceReplaySelection | None
+    control_dependency_ids: tuple[str, ...]
     eligibility_dependency_ids: tuple[str, ...]
 
     CONTENT_NAMESPACE: ClassVar[str] = "expert-validation-attempt"
@@ -4052,6 +4115,20 @@ class ExpertValidationAttempt(StrictContract):
             require_content_id(value, name)
         if self.source_base_release_id is not None:
             require_content_id(self.source_base_release_id, "source_base_release_id")
+        if self.expected_current_release_id is not None:
+            require_content_id(
+                self.expected_current_release_id,
+                "expected_current_release_id",
+            )
+        if self.recovery_plan_id is not None:
+            require_content_id(self.recovery_plan_id, "recovery_plan_id")
+            if (
+                self.recovery_plan_id.split(":sha256:", 1)[0]
+                != "expert-clean-forward-recovery-plan"
+            ):
+                raise ContractValidationError(
+                    "recovery_plan_id uses the wrong namespace"
+                )
         _require_digest(self.candidate_tree_hash, "candidate_tree_hash")
         _require_digest(
             self.configuration_fingerprint,
@@ -4105,12 +4182,53 @@ class ExpertValidationAttempt(StrictContract):
             )
         for task_family_id in self.configured_task_family_ids:
             require_identifier(task_family_id, "configured_task_family_ids")
+        if self.control_dependency_ids != tuple(
+            sorted(set(self.control_dependency_ids))
+        ):
+            raise ContractValidationError(
+                "control_dependency_ids must be sorted and unique"
+            )
+        for dependency_id in self.control_dependency_ids:
+            require_content_id(dependency_id, "control_dependency_ids")
         _require_sorted_unique(
             self.eligibility_dependency_ids,
             "eligibility_dependency_ids",
         )
         for dependency_id in self.eligibility_dependency_ids:
             require_content_id(dependency_id, "eligibility_dependency_ids")
+        if not set(self.control_dependency_ids).issubset(
+            self.eligibility_dependency_ids
+        ):
+            raise MissingReferenceError(
+                "validation attempt control dependency closure is incomplete"
+            )
+        if self.recovery_plan_id is None:
+            if (
+                self.expected_current_release_id != self.source_base_release_id
+                or self.control_dependency_ids
+            ):
+                raise ContractValidationError(
+                    "ordinary validation attempt must bind CURRENT to its source "
+                    "without recovery controls"
+                )
+        else:
+            recovery_admission_ids = tuple(
+                dependency_id
+                for dependency_id in self.control_dependency_ids
+                if dependency_id.split(":sha256:", 1)[0]
+                == "expert-recovery-candidate-admission"
+            )
+            if (
+                self.expected_current_release_id is None
+                or self.expected_current_release_id == self.source_base_release_id
+                or len(recovery_admission_ids) != 1
+                or self.recovery_plan_id not in self.control_dependency_ids
+                or self.expected_current_release_id not in self.control_dependency_ids
+                or self.source_base_release_id in self.control_dependency_ids
+            ):
+                raise ContractValidationError(
+                    "recovery validation authority partition is invalid"
+                )
         required_dependencies = {
             self.candidate_id,
             self.candidate_commit_record_id,
@@ -4122,6 +4240,10 @@ class ExpertValidationAttempt(StrictContract):
         }
         if self.source_base_release_id is not None:
             required_dependencies.add(self.source_base_release_id)
+        if self.expected_current_release_id is not None:
+            required_dependencies.add(self.expected_current_release_id)
+        if self.recovery_plan_id is not None:
+            required_dependencies.add(self.recovery_plan_id)
         source_replay_required = (
             ExpertValidationStage.SOURCE_RUN_REPLAY in self.required_stages
         )
