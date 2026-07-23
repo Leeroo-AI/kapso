@@ -58,8 +58,11 @@ def test_candidate_store_seals_and_reopens_exact_closure(tmp_path):
     assert reopened.root.parent == store.object_root
     assert (reopened.root / "COMMITTED.json").is_file()
     assert (
-        reopened.root / "agent-artifacts/workspace-delta.json"
-    ).read_bytes() == closure.workspace_delta.to_json_bytes()
+        reopened.root / "derivations/agent/workspace-delta.json"
+    ).read_bytes() == closure.derivation.workspace_delta.to_json_bytes()
+    assert (
+        reopened.root / "validation-context.json"
+    ).read_bytes() == closure.validation_context.to_json_bytes()
     assert tuple(store.staging_root.iterdir()) == ()
 
 
@@ -146,7 +149,7 @@ def test_candidate_store_rejects_agent_artifact_corruption(tmp_path):
     store = candidate_store(tmp_path)
     closure = bootstrap_candidate_closure()
     stored = store.persist(closure)
-    prompt = stored.root / "agent-artifacts/prompt.txt"
+    prompt = stored.root / "derivations/agent/artifacts/prompt.txt"
     prompt.write_bytes(b"substituted prompt")
 
     with pytest.raises(ExpertCandidateStoreError, match="checksum differs"):

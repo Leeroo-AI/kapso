@@ -916,7 +916,7 @@ def test_trusted_verifier_rotation_preserves_history_and_removal_revokes_it(tmp_
 def test_concrete_store_replays_eligibility_pin_after_active_rotation(tmp_path):
     candidates = candidate_store(tmp_path)
     stored_candidate = candidates.persist(bootstrap_candidate_closure())
-    binding = stored_candidate.closure.trigger_packet.active_task_bindings[0]
+    binding = stored_candidate.closure.derivation.trigger_packet.active_task_bindings[0]
     source = b"def evaluate(value):\n    return value + 1\n"
     first_manifest = _manifest(
         source,
@@ -925,7 +925,7 @@ def test_concrete_store_replays_eligibility_pin_after_active_rotation(tmp_path):
         task_adapter_id=binding.task_adapter_id,
         transfer_dimensions={
             schema.dimension_id: "fixture"
-            for schema in stored_candidate.closure.trigger_packet.scope_contract.context_dimension_schemas
+            for schema in stored_candidate.closure.derivation.trigger_packet.scope_contract.context_dimension_schemas
         },
     )
     second_manifest = replace(

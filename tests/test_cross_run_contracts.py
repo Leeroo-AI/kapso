@@ -37,6 +37,7 @@ from kapso.cross_run.contracts import (
     EMPTY_EXPERT_TREE_DIGEST,
     ExecutionStatus,
     ExpertBaseReleaseManifest,
+    ExpertCandidateDerivationKind,
     ExpertCandidateOperationKind,
     ExpertCandidateOperationRecord,
     ExpertCandidateManifest,
@@ -963,14 +964,26 @@ def build_records(
         scanned_files=candidate_files,
         findings=(),
     )
+    candidate_derivation_id = content_id(
+        "expert-agent-proposal-derivation",
+        {"operation_record_id": candidate_operation.operation_record_id},
+    )
+    candidate_validation_context_id = content_id(
+        "expert-candidate-validation-context",
+        {
+            "scope_contract_id": scope.scope_contract_id,
+            "parent_tree_hash": EMPTY_EXPERT_TREE_DIGEST,
+        },
+    )
     candidate = ExpertCandidateManifest.mint(
         scope_contract_id=scope.scope_contract_id,
         change_kind=CandidateChangeKind.REPOSITORY_ARCHITECTURE,
         parent_release_id=None,
         parent_repository_map_ref=None,
         parent_tree_hash=EMPTY_EXPERT_TREE_DIGEST,
-        trigger_decision_id=trigger_decision_id,
-        trigger_evidence_packet_id=trigger_packet_id,
+        derivation_kind=ExpertCandidateDerivationKind.AGENT_PROPOSAL,
+        derivation_ref=candidate_derivation_id,
+        validation_context_ref=candidate_validation_context_id,
         patch_ref=candidate_patch.patch_id,
         patch_digest=tree_or_blob_digest(candidate_patch.to_json_bytes()),
         candidate_tree_ref=candidate_tree.source_tree_manifest_id,
@@ -979,7 +992,6 @@ def build_records(
         module_contract_refs=(module.module_contract_id,),
         proposed_repository_map_ref=repository_map.repository_map_id,
         semantic_book_digest=expert_semantic_book_digest(candidate_book),
-        proposer_operation_record_id=candidate_operation.operation_record_id,
         source_dependency_ids=tuple(
             sorted((claim.revision_id, trigger_decision_id, trigger_packet_id))
         ),

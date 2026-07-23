@@ -9,14 +9,8 @@ from kapso.cross_run.contracts import (
     ExpertSourceReplayAdapterPackagePin,
     ExpertSourceReplayCase,
     ExpertSourceReplaySelection,
-    MissingReferenceError,
-    TransferEpisode,
 )
 from kapso.cross_run.expert.store import StoredExpertCandidate
-from kapso.cross_run.expert.triggers import (
-    ExpertEvolutionTriggerDecision,
-    episode_lineage_id,
-)
 from kapso.cross_run.settings import ExpertValidationSettings
 
 
@@ -46,22 +40,23 @@ def _derive_expert_source_replay_selection(
 
     closure = stored_candidate.closure
     manifest = closure.manifest
-    packet = closure.trigger_packet
-    decision = closure.trigger_decision
+    context = closure.validation_context
+    replay_evidence = context.replay_evidence
     candidate_module_contracts = closure.module_contracts
     policy = settings.policy.validation_policy()
     if (
         stored_candidate.commit_record.candidate_id != manifest.candidate_id
-        or decision.evidence_packet_id != packet.evidence_packet_id
-        or decision.knowledge_snapshot_id != packet.knowledge_snapshot_id
-        or decision.configuration_fingerprint != packet.configuration_fingerprint
-        or manifest.configuration_fingerprint != packet.configuration_fingerprint
-        or manifest.trigger_evidence_packet_id != packet.evidence_packet_id
-        or manifest.trigger_decision_id != decision.trigger_decision_id
-        or not decision.candidate_required
+        or manifest.validation_context_ref != context.validation_context_id
+        or manifest.scope_contract_id != context.scope_contract.scope_contract_id
+        or manifest.parent_release_id
+        != (
+            None
+            if context.parent_release is None
+            else context.parent_release.release_id
+        )
     ):
         raise ExpertSourceReplayError(
-            "source replay decision does not authorize the supplied packet"
+            "source replay context does not authorize the supplied candidate"
         )
     candidate_module_ids = tuple(
         contract.module_id for contract in candidate_module_contracts
@@ -77,90 +72,17 @@ def _derive_expert_source_replay_selection(
             "candidate replay modules differ from the candidate manifest"
         )
 
-    episodes_by_id = {episode.episode_id: episode for episode in packet.episodes}
-    claims_by_id = {claim.revision_id: claim for claim in packet.claims}
-    observations_by_id = {
-        observation.observation_id: observation
-        for observation in packet.trigger_observations
+    episodes_by_id = {
+        episode.episode_id: episode for episode in replay_evidence.episodes
     }
-    episodes_by_bundle: dict[str, list[TransferEpisode]] = {}
-    for episode in packet.episodes:
-        episodes_by_bundle.setdefault(episode.source_bundle_id, []).append(episode)
-
-    pending_evidence = [
-        (evidence_id, "decision") for evidence_id in decision.trigger_evidence_ids
-    ]
-    processed_evidence: set[tuple[str, str]] = set()
-    causal_episode_ids: set[str] = set()
-    episode_reasons: dict[str, set[str]] = {}
-    selection_evidence_ids: set[str] = set()
-    contradiction_trigger = decision.reason_code == "released_capability_contradiction"
-    position = 0
-    while position < len(pending_evidence):
-        evidence_id, role = pending_evidence[position]
-        position += 1
-        evidence_edge = (evidence_id, role)
-        if evidence_edge in processed_evidence:
-            continue
-        processed_evidence.add(evidence_edge)
-        namespace = evidence_id.split(":sha256:", 1)[0]
-        if namespace == "transfer-episode":
-            if evidence_id not in episodes_by_id:
-                raise MissingReferenceError(
-                    "source replay trigger episode is absent from the packet"
-                )
-            if not contradiction_trigger or role == "contradicting_claim":
-                causal_episode_ids.add(evidence_id)
-                selection_evidence_ids.add(evidence_id)
-                episode_reasons.setdefault(evidence_id, set()).add(
-                    "causal_contradiction"
-                    if role == "contradicting_claim"
-                    else "causal_trigger_evidence"
-                )
-        elif namespace == "expert-trigger-observation":
-            observation = observations_by_id.get(evidence_id)
-            if observation is None:
-                raise MissingReferenceError(
-                    "source replay trigger observation is absent from the packet"
-                )
-            selection_evidence_ids.add(evidence_id)
-            pending_evidence.extend(
-                (child_id, "observation") for child_id in observation.exact_evidence_ids
-            )
-        elif namespace == "knowledge-claim-revision":
-            claim = claims_by_id.get(evidence_id)
-            if claim is None:
-                raise MissingReferenceError(
-                    "source replay trigger claim is absent from the packet"
-                )
-            selection_evidence_ids.add(evidence_id)
-            if contradiction_trigger:
-                pending_evidence.extend(
-                    (episode_id, "contradicting_claim")
-                    for episode_id in claim.contradicting_episode_ids
-                )
-        elif namespace == "run-bundle":
-            bundle_episodes = episodes_by_bundle.get(evidence_id, ())
-            if not bundle_episodes:
-                raise MissingReferenceError(
-                    "source replay trigger bundle has no packet episode"
-                )
-            if not contradiction_trigger or role == "contradicting_claim":
-                selection_evidence_ids.add(evidence_id)
-                for episode in bundle_episodes:
-                    causal_episode_ids.add(episode.episode_id)
-                    selection_evidence_ids.add(episode.episode_id)
-                    episode_reasons.setdefault(episode.episode_id, set()).add(
-                        "causal_trigger_bundle"
-                    )
-
-    _validate_causal_projections(
-        causal_episode_ids,
-        episodes_by_id,
-        decision,
-    )
+    causal_episode_ids = set(replay_evidence.causal_episode_ids)
+    episode_reasons = {
+        episode_id: set(reasons)
+        for episode_id, reasons in replay_evidence.causal_episode_reason_codes.items()
+    }
+    selection_evidence_ids = set(causal_episode_ids)
     parent_contracts = {
-        contract.module_id: contract for contract in packet.module_contracts
+        contract.module_id: contract for contract in context.parent_module_contracts
     }
     coverage_episode_ids: set[str] = set()
     for contract in candidate_module_contracts:
@@ -173,7 +95,7 @@ def _derive_expert_source_replay_selection(
         support_ids = set(contract.supporting_episode_ids)
         failure_ids = set(contract.known_failure_episode_ids)
         if (support_ids | failure_ids) - set(episodes_by_id):
-            raise MissingReferenceError(
+            raise ExpertSourceReplayError(
                 "changed module replay evidence leaves the trigger packet"
             )
         if support_ids or failure_ids:
@@ -212,15 +134,6 @@ def _derive_expert_source_replay_selection(
             selection=None,
             reason_code="source_replay_selection_limit_exceeded",
         )
-    snapshot_bundle_ids = set(packet.knowledge_snapshot_manifest.included_bundle_ids)
-    packet_proof_ids = set(packet.proof_reference_ids)
-    if not selected_bundle_ids.issubset(snapshot_bundle_ids) or not (
-        selected_bundle_ids.issubset(packet_proof_ids)
-    ):
-        raise MissingReferenceError(
-            "selected source replay bundles leave the snapshot proof closure"
-        )
-
     cases = tuple(
         ExpertSourceReplayCase(
             source_bundle_id=bundle_id,
@@ -244,12 +157,12 @@ def _derive_expert_source_replay_selection(
     adapter_episode_ids: dict[tuple[str, str, str, str, str], list[str]] = {}
     for episode_id in sorted(selected_episode_ids):
         episode = episodes_by_id[episode_id]
-        context = episode.task_context_binding
+        task_context = episode.task_context_binding
         environment = episode.artifact_environment
         key = (
-            context.scope_contract_id,
-            context.task_family_id,
-            context.task_adapter_id,
+            task_context.scope_contract_id,
+            task_context.task_family_id,
+            task_context.task_adapter_id,
             environment.task_adapter_manifest_id,
             environment.task_adapter_verification_receipt_id,
         )
@@ -279,9 +192,12 @@ def _derive_expert_source_replay_selection(
     dependencies = {
         manifest.candidate_id,
         stored_candidate.commit_record.commit_record_id,
-        packet.evidence_packet_id,
-        decision.trigger_decision_id,
-        packet.knowledge_snapshot_id,
+        context.validation_context_id,
+        *replay_evidence.evidence_authority_ids,
+        *(
+            snapshot.snapshot_id
+            for snapshot in replay_evidence.knowledge_snapshot_manifests
+        ),
         policy.validation_policy_id,
         *selection_evidence_ids,
         *selected_episode_ids,
@@ -294,9 +210,8 @@ def _derive_expert_source_replay_selection(
         candidate_id=manifest.candidate_id,
         candidate_tree_hash=manifest.candidate_tree_hash,
         candidate_commit_record_id=(stored_candidate.commit_record.commit_record_id),
-        trigger_evidence_packet_id=packet.evidence_packet_id,
-        trigger_decision_id=decision.trigger_decision_id,
-        knowledge_snapshot_id=packet.knowledge_snapshot_id,
+        validation_context_id=context.validation_context_id,
+        evidence_authority_ids=tuple(replay_evidence.evidence_authority_ids),
         validation_policy_id=policy.validation_policy_id,
         selection_policy_version=(
             settings.policy.source_replay_selection_policy_version
@@ -313,32 +228,3 @@ def _derive_expert_source_replay_selection(
         selection=selection,
         reason_code="selected",
     )
-
-
-def _validate_causal_projections(
-    causal_episode_ids: set[str],
-    episodes_by_id: dict[str, TransferEpisode],
-    decision: ExpertEvolutionTriggerDecision,
-) -> None:
-    causal_episodes = tuple(
-        episodes_by_id[episode_id] for episode_id in causal_episode_ids
-    )
-    causal_context_ids = {
-        episode.task_context_binding.task_context_binding_id
-        for episode in causal_episodes
-    }
-    if decision.task_context_binding_ids and causal_context_ids != set(
-        decision.task_context_binding_ids
-    ):
-        raise ExpertSourceReplayError(
-            "source replay causal contexts differ from the trigger decision"
-        )
-    causal_lineage_ids = {
-        episode_lineage_id(episode, episodes_by_id) for episode in causal_episodes
-    }
-    if decision.independent_lineage_ids and causal_lineage_ids != set(
-        decision.independent_lineage_ids
-    ):
-        raise ExpertSourceReplayError(
-            "source replay causal lineages differ from the trigger decision"
-        )

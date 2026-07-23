@@ -217,13 +217,18 @@ def test_capability_does_not_expose_mutable_candidate_or_approval_state(
     with pytest.raises(TypeError):
         exposed_candidate.closure.candidate_contents[relative_path] = b"caller mutation"
     with pytest.raises(TypeError):
-        exposed_candidate.closure.operation_artifacts["caller.txt"] = b"caller mutation"
+        exposed_candidate.closure.derivation.operation_artifacts["caller.txt"] = (
+            b"caller mutation"
+        )
 
     assert (
         capability.stored_candidate.closure.candidate_contents[relative_path]
         == expected_payload
     )
-    assert "caller.txt" not in capability.stored_candidate.closure.operation_artifacts
+    assert (
+        "caller.txt"
+        not in capability.stored_candidate.closure.derivation.operation_artifacts
+    )
     assert capability.approval_snapshot == composition_source_cases.parent.snapshot
 
 

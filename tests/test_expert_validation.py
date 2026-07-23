@@ -174,8 +174,8 @@ def _validation_reducer(
 
 
 def _task_adapter(closure, position=0) -> TaskAdapterManifest:
-    binding = closure.trigger_packet.active_task_bindings[position]
-    scope = closure.trigger_packet.scope_contract
+    binding = closure.validation_context.active_task_bindings[position]
+    scope = closure.validation_context.scope_contract
     evaluator_fingerprint = _digest("source-evaluator")
     _, _, tree_hash = _adapter_source(binding.task_adapter_id)
     return TaskAdapterManifest.mint(
@@ -330,15 +330,16 @@ def _eligibility_decision(
     )
     episode_id = content_id("transfer-episode", {"label": "episode"})
     bundle_id = content_id("run-bundle", {"label": "bundle"})
-    trigger_packet_id = content_id(
-        "expert-trigger-evidence-packet",
-        {"label": "trigger-packet"},
-    )
-    trigger_decision_id = content_id(
-        "expert-trigger-decision",
-        {"label": "trigger-decision"},
+    validation_context_id = content_id(
+        "expert-candidate-validation-context",
+        {"label": "validation-context"},
     )
     snapshot_id = content_id("knowledge-snapshot", {"label": "snapshot"})
+    replay_evidence_id = content_id(
+        "expert-candidate-replay-evidence",
+        {"label": "replay-evidence"},
+    )
+    evidence_authority_ids = tuple(sorted((replay_evidence_id, snapshot_id)))
     source_adapter_manifest_id = content_id(
         "task-adapter-manifest",
         {"label": "source-adapter"},
@@ -363,9 +364,8 @@ def _eligibility_decision(
             {
                 candidate_id,
                 candidate_commit_record_id,
-                trigger_packet_id,
-                trigger_decision_id,
-                snapshot_id,
+                validation_context_id,
+                *evidence_authority_ids,
                 policy.validation_policy_id,
                 episode_id,
                 bundle_id,
@@ -379,9 +379,8 @@ def _eligibility_decision(
         candidate_id=candidate_id,
         candidate_tree_hash=_digest("candidate-tree"),
         candidate_commit_record_id=candidate_commit_record_id,
-        trigger_evidence_packet_id=trigger_packet_id,
-        trigger_decision_id=trigger_decision_id,
-        knowledge_snapshot_id=snapshot_id,
+        validation_context_id=validation_context_id,
+        evidence_authority_ids=evidence_authority_ids,
         validation_policy_id=policy.validation_policy_id,
         selection_policy_version=(
             settings.policy.source_replay_selection_policy_version
@@ -900,7 +899,7 @@ def test_adapter_enrollment_requires_every_exact_trigger_binding(tmp_path):
         task_family_id="family",
         task_adapter_id="branch/adapter",
     )
-    source_scope = stored.closure.trigger_packet.scope_contract
+    source_scope = stored.closure.derivation.trigger_packet.scope_contract
     scope_values = source_scope.to_dict()
     scope_values.pop("scope_contract_id")
     family_type = type(source_scope.task_family_ontology[0])
@@ -928,7 +927,7 @@ def test_adapter_enrollment_requires_every_exact_trigger_binding(tmp_path):
     expanded_scope = type(source_scope).mint(**scope_values)
     expanded_closure = SimpleNamespace(
         manifest=SimpleNamespace(scope_contract_id=expanded_scope.scope_contract_id),
-        trigger_packet=SimpleNamespace(
+        validation_context=SimpleNamespace(
             active_task_bindings=(first_binding, second_binding),
             scope_contract=expanded_scope,
         ),
@@ -985,11 +984,9 @@ def test_adapter_context_allowlist_must_be_declared_by_the_exact_scope(tmp_path)
     store = candidate_store(tmp_path)
     stored = store.persist(bootstrap_candidate_closure())
     adapter = _task_adapter(stored.closure)
-    known_dimension_id = (
-        stored.closure.trigger_packet.scope_contract.context_dimension_schemas[
-            0
-        ].dimension_id
-    )
+    known_dimension_id = stored.closure.derivation.trigger_packet.scope_contract.context_dimension_schemas[
+        0
+    ].dimension_id
     adapter_values = adapter.to_dict()
     adapter_values.pop("task_adapter_manifest_id")
     known_adapter = TaskAdapterManifest.mint(
@@ -1258,14 +1255,14 @@ def test_active_adapter_resolution_cannot_redirect_a_trigger_binding(tmp_path):
         release_matrix_cases=(
             task_adapter_release_matrix_case(
                 scope_contract_id=expected_adapter.scope_contract_id,
-                scope_id=stored.closure.trigger_packet.scope_contract.scope_id,
+                scope_id=stored.closure.derivation.trigger_packet.scope_contract.scope_id,
                 task_family_id=expected_adapter.task_family_id,
                 task_adapter_id="redirected_adapter",
                 evaluator_fingerprint=_digest("source-evaluator"),
                 metric_directions=(("accuracy", ObjectiveDirection.MAXIMIZE),),
                 transfer_dimensions={
                     schema.dimension_id: "fixture"
-                    for schema in stored.closure.trigger_packet.scope_contract.context_dimension_schemas
+                    for schema in stored.closure.derivation.trigger_packet.scope_contract.context_dimension_schemas
                 },
                 label="redirected-adapter",
             ),

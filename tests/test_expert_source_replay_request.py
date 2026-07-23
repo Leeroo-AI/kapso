@@ -408,6 +408,7 @@ def _request_fixture(
         context_provider=context_provider,
         parent_provider=parent_provider,
         current_release_provider=current_release_provider,
+        packet=packet,
     )
 
 
@@ -496,6 +497,15 @@ def test_request_materializes_exact_candidate_bundle_episode_adapter_and_context
     )
     assert set(compute_binding.leg_order) == set(ExpertSourceReplayExecutionLegKind)
     assert compute_binding.compute_binding_id in request_case.exact_dependency_ids
+    selection = fixture.eligibility.decision.source_replay_selection
+    assert selection is not None
+    assert selection.validation_context_id == (
+        fixture.stored.closure.validation_context.validation_context_id
+    )
+    assert selection.validation_context_id in (prepared.request.attempt_dependency_ids)
+    assert set(selection.evidence_authority_ids).issubset(
+        prepared.request.attempt_dependency_ids
+    )
     assert set(prepared.request.exact_dependency_ids) == {
         prepared.request.validation_attempt_id,
         prepared.request.authorization_state_id,

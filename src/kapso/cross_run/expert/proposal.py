@@ -13,6 +13,7 @@ from kapso.cross_run.canonical import (
 )
 from kapso.cross_run.contracts import (
     CandidateChangeKind,
+    ExpertCandidateDerivationKind,
     ExpertCandidateManifest,
     ExpertCandidateOperationKind,
     ExpertCandidateOperationRecord,
@@ -33,6 +34,13 @@ from kapso.cross_run.expert.book import (
     expert_semantic_book_digest,
 )
 from kapso.cross_run.expert.candidates import ExpertCandidateClosure
+from kapso.cross_run.expert.candidate_context import (
+    project_agent_candidate_validation_context,
+)
+from kapso.cross_run.expert.candidate_derivations import (
+    ExpertAgentProposalDerivation,
+    ExpertAgentProposalDerivationRecord,
+)
 from kapso.cross_run.expert.proposal_contract import (
     EXPERT_PROPOSAL_CONTRACT_VERSION,
     ExpertCandidateAncestorInput,
@@ -251,7 +259,7 @@ class ExpertCandidateProposalEngine:
             )
             expected_snapshot = reconstruct_edited_workspace(
                 prepared.editable_snapshot,
-                closure.workspace_delta,
+                closure.derivation.workspace_delta,
             )
             if live_snapshot != expected_snapshot:
                 raise ExpertProposalContractError(
@@ -283,12 +291,12 @@ class ExpertCandidateProposalEngine:
         inputs = tuple(
             mint_expert_candidate_ancestor_input(
                 manifest=stored.closure.manifest,
-                scope_contract=stored.closure.trigger_packet.scope_contract,
+                scope_contract=stored.closure.validation_context.scope_contract,
                 patch=stored.closure.patch,
                 candidate_tree=stored.closure.candidate_tree,
                 repository_map=stored.closure.repository_map,
                 module_contracts=stored.closure.module_contracts,
-                workspace_delta=stored.closure.workspace_delta,
+                workspace_delta=stored.closure.derivation.workspace_delta,
                 sanitation_report=stored.closure.sanitation_report,
                 candidate_contents=stored.closure.candidate_contents,
             )
@@ -522,13 +530,42 @@ class ExpertCandidateProposalEngine:
             decision,
             prior_knowledge,
         )
+        change_kind = (
+            CandidateChangeKind.CAPABILITY
+            if operation_kind is ExpertCandidateOperationKind.GENERALIZE
+            else CandidateChangeKind.REPOSITORY_ARCHITECTURE
+        )
+        validation_context = project_agent_candidate_validation_context(
+            packet=packet,
+            decision=decision,
+        )
+        derivation_record = ExpertAgentProposalDerivationRecord.mint(
+            trigger_evidence_packet_id=packet.evidence_packet_id,
+            trigger_decision_id=decision.trigger_decision_id,
+            operation_record_id=operation.operation_record_id,
+            workspace_delta_id=workspace_delta.workspace_delta_id,
+            ancestor_candidate_ids=tuple(
+                ancestor.manifest.candidate_id for ancestor in ancestor_inputs
+            ),
+            origin_principal_ids=(operation.proposer_authority.principal_id,),
+            source_dependency_ids=source_dependencies,
+            operation_artifact_checksums={
+                name: tree_or_blob_digest(payload)
+                for name, payload in sorted(sealed.artifact_bytes.items())
+            },
+        )
+        derivation = ExpertAgentProposalDerivation(
+            record=derivation_record,
+            trigger_packet=packet,
+            trigger_decision=decision,
+            operation=operation,
+            workspace_delta=workspace_delta,
+            operation_artifacts=sealed.artifact_bytes,
+            ancestor_inputs=ancestor_inputs,
+        )
         manifest = ExpertCandidateManifest.mint(
             scope_contract_id=packet.scope_contract.scope_contract_id,
-            change_kind=(
-                CandidateChangeKind.CAPABILITY
-                if operation_kind is ExpertCandidateOperationKind.GENERALIZE
-                else CandidateChangeKind.REPOSITORY_ARCHITECTURE
-            ),
+            change_kind=change_kind,
             parent_release_id=(
                 None
                 if packet.parent_release is None
@@ -540,8 +577,9 @@ class ExpertCandidateProposalEngine:
                 else packet.repository_map.repository_map_id
             ),
             parent_tree_hash=prepared.parent_tree_hash,
-            trigger_decision_id=decision.trigger_decision_id,
-            trigger_evidence_packet_id=packet.evidence_packet_id,
+            derivation_kind=ExpertCandidateDerivationKind.AGENT_PROPOSAL,
+            derivation_ref=derivation_record.derivation_id,
+            validation_context_ref=validation_context.validation_context_id,
             patch_ref=patch.patch_id,
             patch_digest=tree_or_blob_digest(patch.to_json_bytes()),
             candidate_tree_ref=candidate_tree.source_tree_manifest_id,
@@ -552,7 +590,6 @@ class ExpertCandidateProposalEngine:
             ),
             proposed_repository_map_ref=repository_map.repository_map_id,
             semantic_book_digest=expert_semantic_book_digest(book),
-            proposer_operation_record_id=operation.operation_record_id,
             source_dependency_ids=source_dependencies,
             ancestor_candidate_ids=tuple(
                 ancestor.manifest.candidate_id for ancestor in ancestor_inputs
@@ -562,19 +599,15 @@ class ExpertCandidateProposalEngine:
         )
         return ExpertCandidateClosure(
             manifest=manifest,
-            trigger_packet=packet,
-            trigger_decision=decision,
+            validation_context=validation_context,
             patch=patch,
             candidate_tree=candidate_tree,
             parent_files=prepared.parent_files,
             repository_map=repository_map,
             module_contracts=modules,
-            operation=operation,
+            derivation=derivation,
             sanitation_report=sanitation,
             candidate_contents=candidate_contents,
-            workspace_delta=workspace_delta,
-            operation_artifacts=sealed.artifact_bytes,
-            ancestor_inputs=ancestor_inputs,
         )
 
     def _candidate_tree(

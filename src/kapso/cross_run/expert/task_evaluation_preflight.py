@@ -151,9 +151,9 @@ class PreparedTaskEvaluationRequest:
             raise TaskEvaluationPreflightError(
                 "prepared task-evaluation request differs from exact derivation"
             )
-        packet = self.stored_candidate.closure.trigger_packet
+        context = self.stored_candidate.closure.validation_context
         if (
-            self.current_release_observation.scope_id != packet.scope_contract.scope_id
+            self.current_release_observation.scope_id != context.scope_id
             or self.current_release_observation.release_id
             != self.plan_join.request.parent_release_id
         ):
@@ -288,7 +288,7 @@ class TaskEvaluationPreflightCoordinator:
             candidate=candidate,
         )
         self._require_deadline(deadline)
-        scope_id = stored_candidate.closure.trigger_packet.scope_contract.scope_id
+        scope_id = stored_candidate.closure.validation_context.scope_id
         current_before = self._observe_current(scope_id, plan.parent_release_id)
         self._require_deadline(deadline)
         parent = self._materialize_parent(
@@ -394,11 +394,11 @@ class TaskEvaluationPreflightCoordinator:
         candidate: VerifiedTaskEvaluationCandidate,
         deadline: float,
     ) -> VerifiedTaskEvaluationParent | None:
-        packet = stored_candidate.closure.trigger_packet
-        if packet.parent_release is None or packet.parent_tree_receipt is None:
+        context = stored_candidate.closure.validation_context
+        if context.parent_release is None or context.parent_tree_receipt is None:
             if (
-                packet.parent_release is not None
-                or packet.parent_tree_receipt is not None
+                context.parent_release is not None
+                or context.parent_tree_receipt is not None
             ):
                 raise TaskEvaluationPreflightError(
                     "task-evaluation candidate parent authority is partial"
@@ -411,8 +411,8 @@ class TaskEvaluationPreflightCoordinator:
             deadline=deadline,
         )
         parent = self.parent_provider.materialize_exact(
-            packet.parent_release,
-            packet.parent_tree_receipt,
+            context.parent_release,
+            context.parent_tree_receipt,
             limits,
         )
         if type(parent) is not VerifiedTaskEvaluationParent:

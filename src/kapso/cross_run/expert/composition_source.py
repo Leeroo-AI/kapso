@@ -46,7 +46,12 @@ def _immutable_stored_candidate_view(
         closure=replace(
             closure,
             candidate_contents=MappingProxyType(dict(closure.candidate_contents)),
-            operation_artifacts=MappingProxyType(dict(closure.operation_artifacts)),
+            derivation=replace(
+                closure.derivation,
+                operation_artifacts=MappingProxyType(
+                    dict(closure.derivation.operation_artifacts)
+                ),
+            ),
         ),
     )
 

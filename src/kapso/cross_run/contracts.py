@@ -388,6 +388,10 @@ class ExpertCandidateOperationKind(str, Enum):
     GENERALIZE = "generalize"
 
 
+class ExpertCandidateDerivationKind(str, Enum):
+    AGENT_PROPOSAL = "agent_proposal"
+
+
 class ExpertCandidateSanitationStatus(str, Enum):
     ADMITTED = "admitted"
     REJECTED = "rejected"
@@ -2621,8 +2625,9 @@ class ExpertCandidateManifest(StrictContract):
     parent_release_id: str | None
     parent_repository_map_ref: str | None
     parent_tree_hash: str
-    trigger_decision_id: str
-    trigger_evidence_packet_id: str
+    derivation_kind: ExpertCandidateDerivationKind
+    derivation_ref: str
+    validation_context_ref: str
     patch_ref: str
     patch_digest: str
     candidate_tree_ref: str
@@ -2631,7 +2636,6 @@ class ExpertCandidateManifest(StrictContract):
     module_contract_refs: tuple[str, ...]
     proposed_repository_map_ref: str
     semantic_book_digest: str
-    proposer_operation_record_id: str
     source_dependency_ids: tuple[str, ...]
     ancestor_candidate_ids: tuple[str, ...]
     capability_lineage: tuple[ExpertCapabilityLineage, ...]
@@ -2666,15 +2670,27 @@ class ExpertCandidateManifest(StrictContract):
                 require_content_id(value, name)
         _require_digest(self.parent_tree_hash, "parent_tree_hash")
         for value, name in (
-            (self.trigger_decision_id, "trigger_decision_id"),
-            (self.trigger_evidence_packet_id, "trigger_evidence_packet_id"),
+            (self.derivation_ref, "derivation_ref"),
+            (self.validation_context_ref, "validation_context_ref"),
             (self.patch_ref, "patch_ref"),
             (self.candidate_tree_ref, "candidate_tree_ref"),
             (self.proposed_repository_map_ref, "proposed_repository_map_ref"),
-            (self.proposer_operation_record_id, "proposer_operation_record_id"),
             (self.sanitation_report_id, "sanitation_report_id"),
         ):
             require_content_id(value, name)
+        if self.validation_context_ref.split(":sha256:", 1)[0] != (
+            "expert-candidate-validation-context"
+        ):
+            raise ContractValidationError(
+                "candidate validation context uses the wrong namespace"
+            )
+        expected_derivation_namespace = "expert-agent-proposal-derivation"
+        if self.derivation_ref.split(":sha256:", 1)[0] != (
+            expected_derivation_namespace
+        ):
+            raise ContractValidationError(
+                "candidate derivation reference uses the wrong namespace"
+            )
         for value, name in (
             (self.patch_digest, "patch_digest"),
             (self.candidate_tree_hash, "candidate_tree_hash"),
@@ -2794,9 +2810,8 @@ class ExpertSourceReplaySelection(StrictContract):
     candidate_id: str
     candidate_tree_hash: str
     candidate_commit_record_id: str
-    trigger_evidence_packet_id: str
-    trigger_decision_id: str
-    knowledge_snapshot_id: str
+    validation_context_id: str
+    evidence_authority_ids: tuple[str, ...]
     validation_policy_id: str
     selection_policy_version: str
     configuration_fingerprint: str
@@ -2823,19 +2838,9 @@ class ExpertSourceReplaySelection(StrictContract):
                 "source replay candidate_commit_record_id",
             ),
             (
-                self.trigger_evidence_packet_id,
-                "expert-trigger-evidence-packet",
-                "source replay trigger_evidence_packet_id",
-            ),
-            (
-                self.trigger_decision_id,
-                "expert-trigger-decision",
-                "source replay trigger_decision_id",
-            ),
-            (
-                self.knowledge_snapshot_id,
-                "knowledge-snapshot",
-                "source replay knowledge_snapshot_id",
+                self.validation_context_id,
+                "expert-candidate-validation-context",
+                "source replay validation_context_id",
             ),
             (
                 self.validation_policy_id,
@@ -2846,6 +2851,12 @@ class ExpertSourceReplaySelection(StrictContract):
             require_content_id(value, name)
             if value.split(":sha256:", 1)[0] != namespace:
                 raise ContractValidationError(f"{name} must name a {namespace} record")
+        _require_sorted_unique(
+            self.evidence_authority_ids,
+            "source replay evidence_authority_ids",
+        )
+        for value in self.evidence_authority_ids:
+            require_content_id(value, "source replay evidence_authority_ids")
         _require_digest(
             self.candidate_tree_hash,
             "source replay candidate_tree_hash",
@@ -2927,9 +2938,8 @@ class ExpertSourceReplaySelection(StrictContract):
         required_dependencies = {
             self.candidate_id,
             self.candidate_commit_record_id,
-            self.trigger_evidence_packet_id,
-            self.trigger_decision_id,
-            self.knowledge_snapshot_id,
+            self.validation_context_id,
+            *self.evidence_authority_ids,
             self.validation_policy_id,
             *self.selection_evidence_ids,
             *selected_episode_ids,

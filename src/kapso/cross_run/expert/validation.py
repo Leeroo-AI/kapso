@@ -273,7 +273,7 @@ class ExpertCandidateEligibilityEvaluator:
                 task_family_id=binding.task_family_id,
                 task_adapter_id=binding.task_adapter_id,
             )
-            for binding in stored.closure.trigger_packet.active_task_bindings
+            for binding in stored.closure.validation_context.active_task_bindings
         )
         return self._decide(stored, task_adapters)
 
@@ -300,7 +300,7 @@ class ExpertCandidateEligibilityEvaluator:
         task_adapters: tuple[VerifiedTaskAdapter, ...],
     ) -> ExpertEligibilityResult:
         current_parent_release_id = self.current_release_provider.current_release_id(
-            stored.closure.trigger_packet.scope_contract.scope_id
+            stored.closure.validation_context.scope_id
         )
         if current_parent_release_id is not None:
             require_content_id(
@@ -358,9 +358,10 @@ class ExpertCandidateEligibilityEvaluator:
             stored.commit_record.commit_record_id,
             manifest.scope_contract_id,
             policy.validation_policy_id,
-            manifest.trigger_decision_id,
-            manifest.trigger_evidence_packet_id,
+            manifest.derivation_ref,
+            manifest.validation_context_ref,
             manifest.sanitation_report_id,
+            *stored.closure.validation_context.stable_dependency_ids,
             *(pin.task_adapter_manifest_id for pin in adapter_pins),
             *(pin.verification_receipt_id for pin in adapter_pins),
             *adapter_verification_ids,
@@ -430,9 +431,7 @@ class ExpertCandidateEligibilityEvaluator:
         manifest = stored.closure.manifest
         if manifest.change_kind is CandidateChangeKind.REPOSITORY_ARCHITECTURE:
             return ExpertValidationTrack.REPOSITORY_ARCHITECTURE
-        if stored.closure.trigger_decision.reason_code == "mechanically_general_fix":
-            return ExpertValidationTrack.MECHANICAL_GENERAL_FIX
-        return ExpertValidationTrack.BEHAVIORAL_CAPABILITY
+        return stored.closure.validation_track
 
     @staticmethod
     def _adapter_bindings(
@@ -456,13 +455,13 @@ class ExpertCandidateEligibilityEvaluator:
         if len(ordering) != len(set(ordering)):
             raise ExpertValidationError("task adapters must be non-empty and unique")
         manifest = stored.closure.manifest
-        scope_contract = stored.closure.trigger_packet.scope_contract
+        scope_contract = stored.closure.validation_context.scope_contract
         scope_dimension_ids = {
             schema.dimension_id for schema in scope_contract.context_dimension_schemas
         }
         expected_bindings = {
             (binding.task_family_id, binding.task_adapter_id)
-            for binding in stored.closure.trigger_packet.active_task_bindings
+            for binding in stored.closure.validation_context.active_task_bindings
         }
         if expected_bindings != set(ordering):
             raise ExpertValidationError(
@@ -810,7 +809,7 @@ class ExpertValidationReducer:
             )
         stored = self.candidate_store.read(attempt.candidate_id)
         manifest = stored.closure.manifest
-        packet = stored.closure.trigger_packet
+        context = stored.closure.validation_context
         if (
             manifest.candidate_id != attempt.candidate_id
             or manifest.candidate_tree_hash != attempt.candidate_tree_hash
@@ -818,13 +817,13 @@ class ExpertValidationReducer:
             != attempt.candidate_commit_record_id
             or manifest.scope_contract_id != attempt.scope_contract_id
             or manifest.parent_release_id != attempt.parent_release_id
-            or packet.scope_contract.scope_contract_id != attempt.scope_contract_id
+            or context.scope_contract.scope_contract_id != attempt.scope_contract_id
         ):
             raise ExpertValidationError(
                 "active attempt differs from its immutable candidate closure"
             )
         observed_current_release_id = self.current_release_provider.current_release_id(
-            packet.scope_contract.scope_id
+            context.scope_id
         )
         if observed_current_release_id is not None:
             require_content_id(
@@ -892,10 +891,10 @@ class ExpertValidationReducer:
         )
         stored = self.candidate_store.read(attempt.candidate_id)
         manifest = stored.closure.manifest
-        packet = stored.closure.trigger_packet
-        parent_receipt = packet.parent_tree_receipt
+        validation_context = stored.closure.validation_context
+        parent_receipt = validation_context.parent_tree_receipt
         current_parent = self.current_release_provider.current_release_id(
-            packet.scope_contract.scope_id
+            validation_context.scope_id
         )
         if current_parent is not None:
             require_content_id(current_parent, "current source replay parent release")
@@ -924,7 +923,10 @@ class ExpertValidationReducer:
             raise ExpertValidationError(
                 "source replay request has no selected adapter authority"
             )
-        packet_episodes = {episode.episode_id: episode for episode in packet.episodes}
+        packet_episodes = {
+            episode.episode_id: episode
+            for episode in validation_context.replay_evidence.episodes
+        }
         for episode_id, request_case in request_cases.items():
             episode = packet_episodes.get(episode_id)
             if episode is None:

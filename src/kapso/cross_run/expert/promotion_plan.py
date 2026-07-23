@@ -496,7 +496,7 @@ def validate_expert_release_matrix_plan_durable_shape(
         validation_settings=validation_settings,
     )
     manifest = stored_candidate.closure.manifest
-    packet = stored_candidate.closure.trigger_packet
+    context = stored_candidate.closure.validation_context
     selection = attempt.source_replay_selection
     if (
         manifest.candidate_id != attempt.candidate_id
@@ -509,7 +509,7 @@ def validate_expert_release_matrix_plan_durable_shape(
         != (None if attempt.parent_release_id is None else manifest.parent_tree_hash)
         or (
             attempt.parent_release_id is not None
-            and packet.parent_tree_hash != manifest.parent_tree_hash
+            and context.parent_tree_hash != manifest.parent_tree_hash
         )
     ):
         raise ExpertReleaseMatrixPlanError(
@@ -531,7 +531,9 @@ def validate_expert_release_matrix_plan_durable_shape(
             raise ExpertReleaseMatrixPlanError(
                 "release matrix plan differs from immutable source evidence"
             )
-        episodes = {episode.episode_id: episode for episode in packet.episodes}
+        episodes = {
+            episode.episode_id: episode for episode in context.replay_evidence.episodes
+        }
         provenances = {
             provenance.source_execution_case_id: provenance
             for provenance in plan.provenance_bindings
@@ -617,7 +619,7 @@ def validate_expert_release_matrix_plan_durable_shape(
                     "release matrix active adapter authority differs from its pin"
                 )
             for case in authority.task_adapter_manifest.release_matrix_cases:
-                case.task_context_binding.validate_against(packet.scope_contract)
+                case.task_context_binding.validate_against(context.scope_contract)
 
 
 @dataclass(frozen=True)
@@ -703,7 +705,7 @@ def prepare_expert_release_matrix_plan_for_admission(
         )
     plan = prepared_plan.plan
     stored_candidate = candidate_store.read(plan.candidate_id)
-    scope_id = stored_candidate.closure.trigger_packet.scope_contract.scope_id
+    scope_id = stored_candidate.closure.validation_context.scope_id
     current_parent_before_adapter_resolution = (
         current_release_provider.current_release_id(scope_id)
     )
@@ -808,7 +810,9 @@ def derive_expert_release_matrix_plan(
     canonical_adapters = _canonical_verified_adapters(verified_adapters)
     episodes = {
         episode.episode_id: episode
-        for episode in stored_candidate.closure.trigger_packet.episodes
+        for episode in (
+            stored_candidate.closure.validation_context.replay_evidence.episodes
+        )
     }
     adapters = {
         (

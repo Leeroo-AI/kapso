@@ -19,6 +19,7 @@ from kapso.cross_run.contracts import (
     CodingAgentWorkspaceChangedFile,
     CodingAgentWorkspaceDelta,
     ExpertCandidateManifest,
+    ExpertCandidateDerivationKind,
     ExpertCandidateOperationKind,
     ExpertCandidateOperationRecord,
     ExpertCandidatePatch,
@@ -29,6 +30,7 @@ from kapso.cross_run.contracts import (
     ExpertProposerAuthority,
     ExpertRepositoryMap,
     ExpertSourceTreeManifest,
+    ExpertValidationTrack,
     SourceFileDescriptor,
 )
 from kapso.cross_run.expert.book import (
@@ -38,6 +40,13 @@ from kapso.cross_run.expert.book import (
     expert_control_paths,
     expert_module_contract_path,
     expert_semantic_book_digest,
+)
+from kapso.cross_run.expert.candidate_context import (
+    ExpertCandidateValidationContext,
+    project_agent_candidate_validation_context,
+)
+from kapso.cross_run.expert.candidate_derivations import (
+    ExpertAgentProposalDerivation,
 )
 from kapso.cross_run.expert.sanitation import ExpertCandidateSanitizer
 from kapso.cross_run.expert.proposal_contract import (
@@ -81,19 +90,27 @@ class ExpertCandidateValidationError(ValueError):
 @dataclass(frozen=True)
 class ExpertCandidateClosure:
     manifest: ExpertCandidateManifest
-    trigger_packet: ExpertTriggerEvidencePacket
-    trigger_decision: ExpertEvolutionTriggerDecision
+    validation_context: ExpertCandidateValidationContext
     patch: ExpertCandidatePatch
     candidate_tree: ExpertSourceTreeManifest
     parent_files: tuple[SourceFileDescriptor, ...]
     repository_map: ExpertRepositoryMap
     module_contracts: tuple[ExpertModuleContract, ...]
-    operation: ExpertCandidateOperationRecord
+    derivation: ExpertAgentProposalDerivation
     sanitation_report: ExpertCandidateSanitationReport
     candidate_contents: Mapping[str, bytes]
-    workspace_delta: CodingAgentWorkspaceDelta
-    operation_artifacts: Mapping[str, bytes]
-    ancestor_inputs: tuple[ExpertCandidateAncestorInput, ...] = ()
+
+    @property
+    def origin_principal_ids(self) -> tuple[str, ...]:
+        return self.derivation.record.origin_principal_ids
+
+    @property
+    def validation_track(self) -> ExpertValidationTrack:
+        if self.manifest.change_kind is CandidateChangeKind.REPOSITORY_ARCHITECTURE:
+            return ExpertValidationTrack.REPOSITORY_ARCHITECTURE
+        if self.derivation.trigger_decision.reason_code == "mechanically_general_fix":
+            return ExpertValidationTrack.MECHANICAL_GENERAL_FIX
+        return ExpertValidationTrack.BEHAVIORAL_CAPABILITY
 
 
 class ExpertCandidateValidator:
@@ -138,8 +155,13 @@ class ExpertCandidateValidator:
 
     def _validate_trigger_and_parent(self, closure: ExpertCandidateClosure) -> None:
         manifest = closure.manifest
-        packet = closure.trigger_packet
-        decision = closure.trigger_decision
+        derivation = closure.derivation
+        if type(derivation) is not ExpertAgentProposalDerivation:
+            raise ExpertCandidateValidationError(
+                "candidate uses an unsupported derivation type"
+            )
+        packet = derivation.trigger_packet
+        decision = derivation.trigger_decision
         expected_decision = ExpertTriggerEvaluator(self.settings.triggers).evaluate(
             packet
         )
@@ -148,8 +170,12 @@ class ExpertCandidateValidator:
                 "candidate trigger decision differs from deterministic policy"
             )
         if (
-            manifest.trigger_evidence_packet_id != packet.evidence_packet_id
-            or manifest.trigger_decision_id != decision.trigger_decision_id
+            manifest.derivation_kind is not ExpertCandidateDerivationKind.AGENT_PROPOSAL
+            or manifest.derivation_ref != derivation.record.derivation_id
+            or manifest.validation_context_ref
+            != closure.validation_context.validation_context_id
+            or derivation.record.trigger_evidence_packet_id != packet.evidence_packet_id
+            or derivation.record.trigger_decision_id != decision.trigger_decision_id
             or decision.evidence_packet_id != packet.evidence_packet_id
             or manifest.scope_contract_id != packet.scope_contract.scope_contract_id
             or manifest.configuration_fingerprint != packet.configuration_fingerprint
@@ -157,6 +183,14 @@ class ExpertCandidateValidator:
         ):
             raise ExpertCandidateValidationError(
                 "candidate trigger, scope, or configuration binding differs"
+            )
+        expected_context = project_agent_candidate_validation_context(
+            packet=packet,
+            decision=decision,
+        )
+        if closure.validation_context != expected_context:
+            raise ExpertCandidateValidationError(
+                "candidate validation context differs from its agent derivation"
             )
         if not decision.candidate_required or decision.change_kind is not (
             manifest.change_kind
@@ -194,12 +228,13 @@ class ExpertCandidateValidator:
         require_active_authority: bool,
     ) -> PriorKnowledgeAccessMaterialization | None:
         manifest = closure.manifest
-        operation = closure.operation
+        operation = closure.derivation.operation
+        derivation_record = closure.derivation.record
         if (
-            manifest.proposer_operation_record_id != operation.operation_record_id
-            or operation.trigger_decision_id != manifest.trigger_decision_id
+            derivation_record.operation_record_id != operation.operation_record_id
+            or operation.trigger_decision_id != derivation_record.trigger_decision_id
             or operation.trigger_evidence_packet_id
-            != manifest.trigger_evidence_packet_id
+            != derivation_record.trigger_evidence_packet_id
             or operation.parent_tree_hash != manifest.parent_tree_hash
             or operation.ancestor_candidate_ids != manifest.ancestor_candidate_ids
             or operation.configuration_fingerprint != manifest.configuration_fingerprint
@@ -230,22 +265,22 @@ class ExpertCandidateValidator:
         self,
         closure: ExpertCandidateClosure,
     ) -> PriorKnowledgeAccessMaterialization | None:
-        operation = closure.operation
+        operation = closure.derivation.operation
         receipt = operation.operation_receipt
         expected_names = set(
             coding_agent_artifact_filenames(CodingAgentWorkspaceAccess.EDIT_WORKSPACE)
         )
-        if set(closure.operation_artifacts) != expected_names:
+        if set(closure.derivation.operation_artifacts) != expected_names:
             raise ExpertCandidateValidationError(
                 "candidate operation artifact closure is incomplete"
             )
-        if sum(len(payload) for payload in closure.operation_artifacts.values()) > (
-            self.settings.agent_artifact_byte_limit
-        ):
+        if sum(
+            len(payload) for payload in closure.derivation.operation_artifacts.values()
+        ) > (self.settings.agent_artifact_byte_limit):
             raise ExpertCandidateValidationError(
                 "candidate operation artifacts exceed the configured limit"
             )
-        for name, payload in closure.operation_artifacts.items():
+        for name, payload in closure.derivation.operation_artifacts.items():
             if not isinstance(payload, bytes):
                 raise ExpertCandidateValidationError(
                     "candidate operation artifact values must be bytes"
@@ -257,7 +292,7 @@ class ExpertCandidateValidator:
         input_checksums = operation.operation_preimage["input_artifact_checksums"]
         if any(
             input_checksums[name]
-            != tree_or_blob_digest(closure.operation_artifacts[name])
+            != tree_or_blob_digest(closure.derivation.operation_artifacts[name])
             for name in input_checksums
         ):
             raise ExpertCandidateValidationError(
@@ -266,7 +301,7 @@ class ExpertCandidateValidator:
         verified = verify_coding_agent_operation_artifacts(
             operation_id=receipt.operation_id,
             workspace_access=receipt.workspace_access,
-            artifact_bytes=closure.operation_artifacts,
+            artifact_bytes=closure.derivation.operation_artifacts,
         )
         if operation.operation_preimage["mcp_configuration_fingerprint"] != (
             verified.mcp_configuration_fingerprint
@@ -291,49 +326,50 @@ class ExpertCandidateValidator:
             != authority.workspace_maximum_entries
             or workspace_policy["maximum_bytes"] != authority.workspace_maximum_bytes
             or workspace_policy["expected_tree_hash"]
-            != closure.workspace_delta.baseline_tree_hash
+            != closure.derivation.workspace_delta.baseline_tree_hash
         ):
             raise ExpertCandidateValidationError(
                 "candidate invocation differs from configured proposer authority"
             )
-        delta_payload = closure.operation_artifacts[
+        delta_payload = closure.derivation.operation_artifacts[
             CODING_AGENT_WORKSPACE_DELTA_FILENAME
         ]
         if (
-            operation.workspace_delta_ref != closure.workspace_delta.workspace_delta_id
+            operation.workspace_delta_ref
+            != closure.derivation.workspace_delta.workspace_delta_id
             or operation.workspace_delta_digest != tree_or_blob_digest(delta_payload)
-            or delta_payload != closure.workspace_delta.to_json_bytes()
+            or delta_payload != closure.derivation.workspace_delta.to_json_bytes()
         ):
             raise ExpertCandidateValidationError(
                 "candidate workspace delta differs from its durable artifact"
             )
         if (
-            verified.workspace_delta != closure.workspace_delta
+            verified.workspace_delta != closure.derivation.workspace_delta
             or verified.final_output != operation.final_output
         ):
             raise ExpertCandidateValidationError(
                 "candidate result differs from its durable output or delta"
             )
         proposal_packet = build_expert_proposal_packet(
-            packet=closure.trigger_packet,
-            decision=closure.trigger_decision,
+            packet=closure.derivation.trigger_packet,
+            decision=closure.derivation.trigger_decision,
             operation_kind=operation.operation_kind,
-            editable_parent_tree_hash=closure.workspace_delta.baseline_tree_hash,
+            editable_parent_tree_hash=closure.derivation.workspace_delta.baseline_tree_hash,
             maximum_entries=authority.workspace_maximum_entries,
             maximum_bytes=authority.workspace_maximum_bytes,
-            ancestor_inputs=closure.ancestor_inputs,
+            ancestor_inputs=closure.derivation.ancestor_inputs,
         )
         if (
             operation.operation_preimage["proposal_contract_version"]
             != EXPERT_PROPOSAL_CONTRACT_VERSION
             or operation.operation_preimage["proposal_packet_digest"]
             != expert_proposal_packet_digest(proposal_packet)
-            or closure.operation_artifacts["prompt.txt"]
+            or closure.derivation.operation_artifacts["prompt.txt"]
             != build_expert_proposal_prompt(
                 operation.operation_kind,
                 proposal_packet,
             ).encode("utf-8")
-            or closure.operation_artifacts["response_schema.json"]
+            or closure.derivation.operation_artifacts["response_schema.json"]
             != coding_agent_response_schema_bytes(
                 expert_proposal_response_schema(operation.operation_kind)
             )
@@ -346,7 +382,7 @@ class ExpertCandidateValidator:
             operation.final_output,
         )
         repository_map, modules, lineage = derive_expert_proposal_topology(
-            packet=closure.trigger_packet,
+            packet=closure.derivation.trigger_packet,
             operation_kind=operation.operation_kind,
             proposal=proposal,
         )
@@ -359,7 +395,7 @@ class ExpertCandidateValidator:
                 "candidate semantic topology differs from the agent proposal"
             )
         validate_expert_prior_knowledge(
-            closure.trigger_packet,
+            closure.derivation.trigger_packet,
             verified.prior_knowledge,
         )
         return verified.prior_knowledge
@@ -370,14 +406,18 @@ class ExpertCandidateValidator:
         prior_knowledge: PriorKnowledgeAccessMaterialization | None,
     ) -> None:
         expected_dependencies = expert_candidate_source_dependency_ids(
-            closure.trigger_packet,
-            closure.trigger_decision,
+            closure.derivation.trigger_packet,
+            closure.derivation.trigger_decision,
             prior_knowledge,
         )
         if closure.manifest.source_dependency_ids != expected_dependencies:
             raise ExpertCandidateValidationError(
                 "candidate source dependency closure differs from its "
                 "model-visible inputs"
+            )
+        if closure.derivation.record.source_dependency_ids != expected_dependencies:
+            raise ExpertCandidateValidationError(
+                "agent derivation source dependencies differ from model-visible inputs"
             )
 
     def _configured_proposer_authority(
@@ -490,8 +530,9 @@ class ExpertCandidateValidator:
             raise ExpertCandidateValidationError(
                 "parent file descriptor differs from the verified parent tree"
             )
-        if closure.trigger_packet.parent_tree_receipt is not None and (
-            closure.trigger_packet.parent_tree_receipt.source_extraction_receipt.source_tree_files
+        parent_receipt = closure.validation_context.parent_tree_receipt
+        if parent_receipt is not None and (
+            parent_receipt.source_extraction_receipt.source_tree_files
             != closure.parent_files
         ):
             raise ExpertCandidateValidationError(
@@ -537,7 +578,7 @@ class ExpertCandidateValidator:
         candidate_files: Mapping[str, SourceFileDescriptor],
     ) -> None:
         parent_control = set(
-            expert_control_paths(closure.trigger_packet.module_contracts)
+            expert_control_paths(closure.validation_context.parent_module_contracts)
         )
         candidate_control = set(expert_control_paths(closure.module_contracts))
         editable_parent = {
@@ -568,7 +609,7 @@ class ExpertCandidateValidator:
         deleted_paths = tuple(
             path for path in sorted(editable_parent) if path not in editable_candidate
         )
-        operation = closure.operation
+        operation = closure.derivation.operation
         workspace_receipt = operation.workspace_receipt
         editable_parent_tree_hash = (
             EMPTY_EXPERT_TREE_DIGEST
@@ -596,7 +637,7 @@ class ExpertCandidateValidator:
             deleted_files=tuple(editable_parent[path] for path in deleted_paths),
         )
         if (
-            closure.workspace_delta != expected_delta
+            closure.derivation.workspace_delta != expected_delta
             or workspace_receipt.editable_parent_tree_hash != editable_parent_tree_hash
             or workspace_receipt.edited_tree_hash != edited_tree_hash
             or workspace_receipt.changed_paths != changed_paths
@@ -610,7 +651,7 @@ class ExpertCandidateValidator:
         manifest = closure.manifest
         report = closure.sanitation_report
         if (
-            closure.trigger_packet.scope_contract.sanitation_policy_ref
+            closure.validation_context.scope_contract.sanitation_policy_ref
             != self.sanitizer.settings.policy_version
         ):
             raise ExpertCandidateValidationError(
@@ -637,7 +678,7 @@ class ExpertCandidateValidator:
     ) -> dict[str, ExpertModuleContract]:
         manifest = closure.manifest
         repository_map = closure.repository_map
-        packet = closure.trigger_packet
+        context = closure.validation_context
         module_contract_ids = tuple(
             sorted(module.module_contract_id for module in closure.module_contracts)
         )
@@ -667,7 +708,7 @@ class ExpertCandidateValidator:
         )
         known_families = {
             family.task_family_id
-            for family in packet.scope_contract.task_family_ontology
+            for family in context.scope_contract.task_family_ontology
         }
         bound_families = {
             family_id
@@ -675,13 +716,13 @@ class ExpertCandidateValidator:
             for family_id in node.task_family_bindings
         }
         if not bound_families.issubset(known_families) or not set(
-            packet.active_task_family_ids
+            context.active_task_family_ids
         ).issubset(bound_families):
             raise ExpertCandidateValidationError(
                 "candidate task-family coverage differs from active scope"
             )
-        if packet.parent_release is None and bound_families != set(
-            packet.active_task_family_ids
+        if context.parent_release is None and bound_families != set(
+            context.active_task_family_ids
         ):
             raise ExpertCandidateValidationError(
                 "bootstrap candidate speculates beyond active task families"
@@ -700,7 +741,7 @@ class ExpertCandidateValidator:
     def _validate_capability_change_boundary(
         closure: ExpertCandidateClosure,
     ) -> None:
-        parent_map = closure.trigger_packet.repository_map
+        parent_map = closure.validation_context.parent_repository_map
         if parent_map is None:
             raise ExpertCandidateValidationError(
                 "capability candidate requires a released parent topology"
@@ -736,7 +777,7 @@ class ExpertCandidateValidator:
             )
         parent_contracts = {
             module.module_id: module
-            for module in closure.trigger_packet.module_contracts
+            for module in closure.validation_context.parent_module_contracts
         }
         current_contracts = {
             module.module_id: module for module in closure.module_contracts
@@ -761,7 +802,7 @@ class ExpertCandidateValidator:
                 )
         current_control = set(expert_control_paths(closure.module_contracts))
         parent_control = set(
-            expert_control_paths(closure.trigger_packet.module_contracts)
+            expert_control_paths(closure.validation_context.parent_module_contracts)
         )
         edited_capabilities: set[str] = set()
         for change in closure.patch.changes:
@@ -788,9 +829,9 @@ class ExpertCandidateValidator:
             )
         triggering_capabilities = {
             capability_id
-            for observation in closure.trigger_packet.trigger_observations
+            for observation in closure.derivation.trigger_packet.trigger_observations
             if observation.observation_id
-            in closure.trigger_decision.trigger_evidence_ids
+            in closure.derivation.trigger_decision.trigger_evidence_ids
             for capability_id in observation.affected_capability_ids
         }
         if triggering_capabilities and not changed_capabilities.issubset(
@@ -805,18 +846,13 @@ class ExpertCandidateValidator:
         closure: ExpertCandidateClosure,
         modules: Mapping[str, ExpertModuleContract],
     ) -> None:
-        packet = closure.trigger_packet
-        known_evidence = {
-            *(episode.episode_id for episode in packet.episodes),
-            *(claim.revision_id for claim in packet.claims),
-            *(
-                observation.observation_id
-                for observation in packet.trigger_observations
-            ),
-            *packet.proof_reference_ids,
-            *closure.trigger_decision.trigger_evidence_ids,
+        context = closure.validation_context
+        known_evidence = set(context.stable_dependency_ids) | set(
+            closure.manifest.source_dependency_ids
+        )
+        episode_ids = {
+            episode.episode_id for episode in context.replay_evidence.episodes
         }
-        episode_ids = {episode.episode_id for episode in packet.episodes}
         for module in modules.values():
             if not (
                 set(module.supporting_episode_ids)
@@ -827,8 +863,11 @@ class ExpertCandidateValidator:
                 )
         parent_capabilities = (
             set()
-            if packet.repository_map is None
-            else {node.capability_id for node in packet.repository_map.capability_nodes}
+            if context.parent_repository_map is None
+            else {
+                node.capability_id
+                for node in context.parent_repository_map.capability_nodes
+            }
         )
         candidate_capabilities = set(modules)
         removed = parent_capabilities - candidate_capabilities
@@ -855,7 +894,7 @@ class ExpertCandidateValidator:
                 "candidate capability lineage is incomplete or ambiguous"
             )
         parent_contracts = {
-            module.module_id: module for module in packet.module_contracts
+            module.module_id: module for module in context.parent_module_contracts
         }
         for capability_id in parent_capabilities & candidate_capabilities:
             parent = parent_contracts[capability_id]
@@ -871,7 +910,8 @@ class ExpertCandidateValidator:
     def _validate_ancestors(self, closure: ExpertCandidateClosure) -> None:
         manifest = closure.manifest
         ancestor_ids = tuple(
-            ancestor.manifest.candidate_id for ancestor in closure.ancestor_inputs
+            ancestor.manifest.candidate_id
+            for ancestor in closure.derivation.ancestor_inputs
         )
         if ancestor_ids != manifest.ancestor_candidate_ids:
             raise ExpertCandidateValidationError(
@@ -885,12 +925,12 @@ class ExpertCandidateValidator:
             ancestor.manifest.scope_contract_id != manifest.scope_contract_id
             or ancestor.manifest.parent_tree_hash != manifest.parent_tree_hash
             or ancestor.manifest.candidate_id == manifest.candidate_id
-            for ancestor in closure.ancestor_inputs
+            for ancestor in closure.derivation.ancestor_inputs
         ):
             raise ExpertCandidateValidationError(
                 "candidate ancestor is incompatible with this proposal"
             )
-        for ancestor in closure.ancestor_inputs:
+        for ancestor in closure.derivation.ancestor_inputs:
             self._validate_ancestor_input(closure, ancestor)
 
     def _validate_ancestor_input(
@@ -899,7 +939,7 @@ class ExpertCandidateValidator:
         ancestor: ExpertCandidateAncestorInput,
     ) -> None:
         manifest = ancestor.manifest
-        if ancestor.scope_contract != closure.trigger_packet.scope_contract:
+        if ancestor.scope_contract != closure.validation_context.scope_contract:
             raise ExpertCandidateValidationError(
                 "candidate ancestor uses another scope contract"
             )
@@ -924,7 +964,7 @@ class ExpertCandidateValidator:
                 "candidate ancestor patch differs from the shared parent"
             )
         parent_controls = set(
-            expert_control_paths(closure.trigger_packet.module_contracts)
+            expert_control_paths(closure.validation_context.parent_module_contracts)
         )
         candidate_controls = set(expert_control_paths(ancestor.module_contracts))
         editable_parent = {
@@ -998,7 +1038,7 @@ class ExpertCandidateValidator:
         contents = closure.candidate_contents
         repository_map = closure.repository_map
         expected_book = compile_expert_semantic_book(
-            closure.trigger_packet.scope_contract,
+            closure.validation_context.scope_contract,
             repository_map,
             closure.module_contracts,
         )

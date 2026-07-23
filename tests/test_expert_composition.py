@@ -91,7 +91,7 @@ def _released_base(
     label,
 ):
     closure = source.stored_candidate.closure
-    parent_release = closure.trigger_packet.parent_release
+    parent_release = closure.derivation.trigger_packet.parent_release
     if parent_release is None:
         raise AssertionError("composition test source unexpectedly bootstraps")
     book = source_contents["EXPERT_REPO.md"]
@@ -119,7 +119,7 @@ def _released_base(
         cache_label=label,
     )
     return build_expert_composition_base_closure(
-        scope_contract=closure.trigger_packet.scope_contract,
+        scope_contract=closure.derivation.trigger_packet.scope_contract,
         release_manifest=release,
         parent_tree_receipt=receipt,
         repository_map=repository_map,
@@ -147,17 +147,17 @@ def reducer_case(terminal_cases):
     )
     parent_receipt = _parent_receipt(
         parent_release,
-        closure.trigger_packet.repository_map,
-        closure.trigger_packet.module_contracts,
+        closure.derivation.trigger_packet.repository_map,
+        closure.derivation.trigger_packet.module_contracts,
         prepared_parent.source_contents,
         cache_label="composition parent",
     )
     parent_base = build_expert_composition_base_closure(
-        scope_contract=closure.trigger_packet.scope_contract,
+        scope_contract=closure.derivation.trigger_packet.scope_contract,
         release_manifest=parent_release,
         parent_tree_receipt=parent_receipt,
-        repository_map=closure.trigger_packet.repository_map,
-        module_contracts=closure.trigger_packet.module_contracts,
+        repository_map=closure.derivation.trigger_packet.repository_map,
+        module_contracts=closure.derivation.trigger_packet.module_contracts,
         source_contents=prepared_parent.source_contents,
     )
     reducer = ExpertCompositionReducer(
@@ -225,7 +225,9 @@ def test_exact_installed_candidate_is_already_present_and_has_no_materialization
 def test_partially_present_source_applies_only_missing_module_effect(reducer_case):
     case = reducer_case
     closure = case.source.stored_candidate.closure
-    controls = set(expert_control_paths(closure.trigger_packet.module_contracts))
+    controls = set(
+        expert_control_paths(closure.derivation.trigger_packet.module_contracts)
+    )
     controls.update(expert_control_paths(closure.module_contracts))
     partially_installed_contents = dict(case.parent_base.source_contents)
     for change in closure.patch.changes:

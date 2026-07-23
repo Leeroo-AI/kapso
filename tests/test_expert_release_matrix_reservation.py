@@ -154,7 +154,7 @@ def _release_matrix_fixture(
         tmp_path,
         validation_settings=settings,
     )
-    source_packet = source_fixture.stored.closure.trigger_packet
+    source_packet = source_fixture.packet
     released_packet, materialized_parent, parent_contents = released_observation_packet(
         ExpertTriggerObservationKind.MECHANICALLY_GENERAL_FIX,
         "A provenance field can be added without changing topology.",
@@ -566,7 +566,7 @@ def _bootstrap_release_matrix_fixture(
         ),
     )
     stored_candidate = candidates.persist(bootstrap_candidate_closure())
-    packet = stored_candidate.closure.trigger_packet
+    packet = stored_candidate.closure.derivation.trigger_packet
     adapter_provider = _AdapterProvider(packet)
     current_release_provider = _CurrentReleaseProvider(None)
     eligibility = ExpertCandidateEligibilityEvaluator(

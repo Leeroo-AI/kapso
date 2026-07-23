@@ -12,6 +12,7 @@ from kapso.cross_run.contracts import (
     EMPTY_EXPERT_TREE_DIGEST,
     CandidateChangeKind,
     ContractValidationError,
+    ExpertCandidateDerivationKind,
     ExpertCandidateManifest,
     ExpertCandidateOperationRecord,
     ExpertCandidatePatch,
@@ -211,6 +212,33 @@ def test_candidate_parent_is_optional_only_as_one_complete_pair():
     legacy_payload["validation_attempt_refs"] = ("validation/legacy",)
     with pytest.raises(ContractValidationError, match="unknown"):
         ExpertCandidateManifest.from_dict(legacy_payload)
+
+
+def test_candidate_derivation_kind_requires_its_exact_namespace():
+    candidate = record(ExpertCandidateManifest)
+    wrong_derivation = content_id(
+        "expert-composition-candidate-derivation",
+        {"materialization": "clean"},
+    )
+    with pytest.raises(ContractValidationError, match="derivation reference"):
+        ExpertCandidateManifest.mint(
+            **{
+                key: value
+                for key, value in candidate.to_dict().items()
+                if key not in {"candidate_id", "derivation_kind", "derivation_ref"}
+            },
+            derivation_kind=ExpertCandidateDerivationKind.AGENT_PROPOSAL,
+            derivation_ref=wrong_derivation,
+        )
+    with pytest.raises(ContractValidationError, match="validation context"):
+        ExpertCandidateManifest.mint(
+            **{
+                key: value
+                for key, value in candidate.to_dict().items()
+                if key not in {"candidate_id", "validation_context_ref"}
+            },
+            validation_context_ref=content_id("fixture", {"context": "wrong"}),
+        )
 
 
 def test_sanitation_status_and_capability_retirement_are_typed():

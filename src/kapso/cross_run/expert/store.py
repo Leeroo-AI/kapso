@@ -32,6 +32,7 @@ from kapso.cross_run.contracts import (
     CodingAgentWorkspaceDelta,
     EXPERT_CANDIDATE_COMMIT_PATH,
     ExpertCandidateCommitRecord,
+    ExpertCandidateDerivationKind,
     ExpertCandidateManifest,
     ExpertCandidateOperationRecord,
     ExpertCandidatePatch,
@@ -46,6 +47,13 @@ from kapso.cross_run.expert.candidates import (
     ExpertCandidateClosure,
     ExpertCandidateValidator,
 )
+from kapso.cross_run.expert.candidate_context import (
+    ExpertCandidateValidationContext,
+)
+from kapso.cross_run.expert.candidate_derivations import (
+    ExpertAgentProposalDerivation,
+    ExpertAgentProposalDerivationRecord,
+)
 from kapso.cross_run.expert.proposal_contract import ExpertCandidateAncestorInput
 from kapso.cross_run.expert.triggers import (
     ExpertEvolutionTriggerDecision,
@@ -54,19 +62,22 @@ from kapso.cross_run.expert.triggers import (
 
 _COMMIT_PATH = EXPERT_CANDIDATE_COMMIT_PATH
 _MANIFEST_PATH = "candidate.json"
-_TRIGGER_PACKET_PATH = "trigger-packet.json"
-_TRIGGER_DECISION_PATH = "trigger-decision.json"
+_VALIDATION_CONTEXT_PATH = "validation-context.json"
 _PATCH_PATH = "patch.json"
 _SOURCE_TREE_PATH = "source-tree.json"
 _PARENT_FILES_PATH = "parent-files.json"
 _REPOSITORY_MAP_PATH = "repository-map.json"
-_OPERATION_PATH = "operation.json"
 _SANITATION_PATH = "sanitation.json"
-_ANCESTORS_PATH = "ancestors.json"
 _MODULE_ROOT = "module-contracts"
 _SOURCE_ROOT = "source"
-_AGENT_ARTIFACT_ROOT = "agent-artifacts"
-_WORKSPACE_DELTA_PATH = "workspace-delta.json"
+_AGENT_DERIVATION_ROOT = "derivations/agent"
+_AGENT_DERIVATION_RECORD_PATH = f"{_AGENT_DERIVATION_ROOT}/derivation.json"
+_TRIGGER_PACKET_PATH = f"{_AGENT_DERIVATION_ROOT}/trigger-packet.json"
+_TRIGGER_DECISION_PATH = f"{_AGENT_DERIVATION_ROOT}/trigger-decision.json"
+_OPERATION_PATH = f"{_AGENT_DERIVATION_ROOT}/operation.json"
+_WORKSPACE_DELTA_PATH = f"{_AGENT_DERIVATION_ROOT}/workspace-delta.json"
+_ANCESTORS_PATH = f"{_AGENT_DERIVATION_ROOT}/ancestors.json"
+_AGENT_ARTIFACT_ROOT = f"{_AGENT_DERIVATION_ROOT}/artifacts"
 _RENAME_NOREPLACE = 1
 _DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 _STAGING_PATTERN = re.compile(r"^\.candidate-[A-Za-z0-9_-]+$")
@@ -121,7 +132,10 @@ class ExpertCandidateStore:
         snapshot = replace(
             closure,
             candidate_contents=dict(closure.candidate_contents),
-            operation_artifacts=dict(closure.operation_artifacts),
+            derivation=replace(
+                closure.derivation,
+                operation_artifacts=dict(closure.derivation.operation_artifacts),
+            ),
         )
         self.validator.validate(snapshot)
         package_files = self._package_files(snapshot)
@@ -219,19 +233,21 @@ class ExpertCandidateStore:
     def _package_files(closure: ExpertCandidateClosure) -> dict[str, bytes]:
         files = {
             _MANIFEST_PATH: closure.manifest.to_json_bytes(),
-            _TRIGGER_PACKET_PATH: closure.trigger_packet.to_json_bytes(),
-            _TRIGGER_DECISION_PATH: closure.trigger_decision.to_json_bytes(),
+            _VALIDATION_CONTEXT_PATH: closure.validation_context.to_json_bytes(),
+            _AGENT_DERIVATION_RECORD_PATH: closure.derivation.record.to_json_bytes(),
+            _TRIGGER_PACKET_PATH: closure.derivation.trigger_packet.to_json_bytes(),
+            _TRIGGER_DECISION_PATH: closure.derivation.trigger_decision.to_json_bytes(),
             _PATCH_PATH: closure.patch.to_json_bytes(),
             _SOURCE_TREE_PATH: closure.candidate_tree.to_json_bytes(),
             _PARENT_FILES_PATH: ExpertCandidateStore._contract_tuple_bytes(
                 closure.parent_files
             ),
             _REPOSITORY_MAP_PATH: closure.repository_map.to_json_bytes(),
-            _OPERATION_PATH: closure.operation.to_json_bytes(),
-            _WORKSPACE_DELTA_PATH: closure.workspace_delta.to_json_bytes(),
+            _OPERATION_PATH: closure.derivation.operation.to_json_bytes(),
+            _WORKSPACE_DELTA_PATH: closure.derivation.workspace_delta.to_json_bytes(),
             _SANITATION_PATH: closure.sanitation_report.to_json_bytes(),
             _ANCESTORS_PATH: ExpertCandidateStore._contract_tuple_bytes(
-                closure.ancestor_inputs
+                closure.derivation.ancestor_inputs
             ),
         }
         for module in closure.module_contracts:
@@ -239,13 +255,17 @@ class ExpertCandidateStore:
             files[f"{_MODULE_ROOT}/{digest}.json"] = module.to_json_bytes()
         for relative_path, payload in closure.candidate_contents.items():
             files[f"{_SOURCE_ROOT}/{relative_path}"] = payload
-        for name, payload in closure.operation_artifacts.items():
+        for name, payload in closure.derivation.operation_artifacts.items():
             files[f"{_AGENT_ARTIFACT_ROOT}/{name}"] = payload
         return dict(sorted(files.items()))
 
     @staticmethod
     def _parse_closure(payloads: Mapping[str, bytes]) -> ExpertCandidateClosure:
         manifest = ExpertCandidateManifest.from_json_bytes(payloads[_MANIFEST_PATH])
+        if manifest.derivation_kind is not ExpertCandidateDerivationKind.AGENT_PROPOSAL:
+            raise ExpertCandidateStoreError(
+                "candidate store does not recognize the derivation package"
+            )
         tree = ExpertSourceTreeManifest.from_json_bytes(payloads[_SOURCE_TREE_PATH])
         modules = tuple(
             sorted(
@@ -274,11 +294,8 @@ class ExpertCandidateStore:
         )
         closure = ExpertCandidateClosure(
             manifest=manifest,
-            trigger_packet=ExpertTriggerEvidencePacket.from_json_bytes(
-                payloads[_TRIGGER_PACKET_PATH]
-            ),
-            trigger_decision=ExpertEvolutionTriggerDecision.from_json_bytes(
-                payloads[_TRIGGER_DECISION_PATH]
+            validation_context=ExpertCandidateValidationContext.from_json_bytes(
+                payloads[_VALIDATION_CONTEXT_PATH]
             ),
             patch=ExpertCandidatePatch.from_json_bytes(payloads[_PATCH_PATH]),
             candidate_tree=tree,
@@ -287,23 +304,34 @@ class ExpertCandidateStore:
                 payloads[_REPOSITORY_MAP_PATH]
             ),
             module_contracts=modules,
-            operation=ExpertCandidateOperationRecord.from_json_bytes(
-                payloads[_OPERATION_PATH]
-            ),
-            workspace_delta=CodingAgentWorkspaceDelta.from_json_bytes(
-                payloads[_WORKSPACE_DELTA_PATH]
+            derivation=ExpertAgentProposalDerivation(
+                record=ExpertAgentProposalDerivationRecord.from_json_bytes(
+                    payloads[_AGENT_DERIVATION_RECORD_PATH]
+                ),
+                trigger_packet=ExpertTriggerEvidencePacket.from_json_bytes(
+                    payloads[_TRIGGER_PACKET_PATH]
+                ),
+                trigger_decision=ExpertEvolutionTriggerDecision.from_json_bytes(
+                    payloads[_TRIGGER_DECISION_PATH]
+                ),
+                operation=ExpertCandidateOperationRecord.from_json_bytes(
+                    payloads[_OPERATION_PATH]
+                ),
+                workspace_delta=CodingAgentWorkspaceDelta.from_json_bytes(
+                    payloads[_WORKSPACE_DELTA_PATH]
+                ),
+                operation_artifacts={
+                    name: payloads[f"{_AGENT_ARTIFACT_ROOT}/{name}"]
+                    for name in coding_agent_artifact_filenames(
+                        CodingAgentWorkspaceAccess.EDIT_WORKSPACE
+                    )
+                },
+                ancestor_inputs=ancestors,
             ),
             sanitation_report=ExpertCandidateSanitationReport.from_json_bytes(
                 payloads[_SANITATION_PATH]
             ),
             candidate_contents=candidate_contents,
-            operation_artifacts={
-                name: payloads[f"{_AGENT_ARTIFACT_ROOT}/{name}"]
-                for name in coding_agent_artifact_filenames(
-                    CodingAgentWorkspaceAccess.EDIT_WORKSPACE
-                )
-            },
-            ancestor_inputs=ancestors,
         )
         expected_payloads = ExpertCandidateStore._package_files(closure)
         if dict(payloads) != expected_payloads:

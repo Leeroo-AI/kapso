@@ -16,14 +16,20 @@ from kapso.cross_run.canonical import (
     tree_or_blob_digest,
 )
 from kapso.cross_run.contracts import (
+    CandidateChangeKind,
     ExpertCandidateCommitRecord,
+    ExpertCandidateDerivationKind,
     ExpertCandidateManifest,
     ExpertModuleContract,
     ExpertSourceTreeManifest,
+    ExpertValidationTrack,
     KnowledgeClaim,
     MissingReferenceError,
     SourceFileDescriptor,
     TaskAdapterManifest,
+)
+from kapso.cross_run.expert.candidate_context import (
+    project_agent_candidate_validation_context,
 )
 from kapso.cross_run.expert.replay import _derive_expert_source_replay_selection
 from kapso.cross_run.expert.store import StoredExpertCandidate
@@ -53,6 +59,7 @@ from test_expert_triggers import (
 )
 
 CANONICAL_CONFIG_PATH = "src/kapso/config.yaml"
+TEST_ORIGIN_PRINCIPAL_ID = "test_expert_generalizer"
 
 
 def _candidate_id(label: str) -> str:
@@ -106,12 +113,20 @@ def _stored_candidate(candidate_id, packet, decision, candidate_modules):
         ),
         files=(candidate_file,),
     )
+    validation_context = project_agent_candidate_validation_context(
+        packet=packet,
+        decision=decision,
+    )
     manifest = ExpertCandidateManifest.mint(
         candidate_tree_hash=candidate_tree.tree_hash,
         candidate_tree_ref=candidate_tree.source_tree_manifest_id,
         configuration_fingerprint=packet.configuration_fingerprint,
-        trigger_evidence_packet_id=packet.evidence_packet_id,
-        trigger_decision_id=decision.trigger_decision_id,
+        derivation_kind=ExpertCandidateDerivationKind.AGENT_PROPOSAL,
+        derivation_ref=content_id(
+            "expert-agent-proposal-derivation",
+            {"seed": candidate_id},
+        ),
+        validation_context_ref=validation_context.validation_context_id,
         module_contract_refs=tuple(
             sorted(module.module_contract_id for module in candidate_modules)
         ),
@@ -124,10 +139,6 @@ def _stored_candidate(candidate_id, packet, decision, candidate_modules):
         patch_digest=tree_or_blob_digest(f"patch:{candidate_id}".encode()),
         proposed_repository_map_ref=packet.repository_map.repository_map_id,
         semantic_book_digest=tree_or_blob_digest(b"candidate-semantic-book"),
-        proposer_operation_record_id=content_id(
-            "expert-candidate-operation",
-            {"seed": candidate_id},
-        ),
         source_dependency_ids=tuple(
             sorted((packet.evidence_packet_id, decision.trigger_decision_id))
         ),
@@ -146,8 +157,16 @@ def _stored_candidate(candidate_id, packet, decision, candidate_modules):
         root=Path("/test-candidate"),
         closure=SimpleNamespace(
             manifest=manifest,
-            trigger_packet=packet,
-            trigger_decision=decision,
+            validation_context=validation_context,
+            validation_track=(
+                ExpertValidationTrack.REPOSITORY_ARCHITECTURE
+                if decision.change_kind is CandidateChangeKind.REPOSITORY_ARCHITECTURE
+                else (
+                    ExpertValidationTrack.MECHANICAL_GENERAL_FIX
+                    if decision.reason_code == "mechanically_general_fix"
+                    else ExpertValidationTrack.BEHAVIORAL_CAPABILITY
+                )
+            ),
             module_contracts=candidate_modules,
             candidate_tree=candidate_tree,
             candidate_contents={candidate_file.relative_path: candidate_content},
@@ -395,7 +414,23 @@ def test_repeated_success_selects_causal_episodes_in_their_shared_exact_bundle()
     assert result.selection.cases[0].episode_ids == tuple(
         sorted((first.episode_id, second.episode_id))
     )
-    assert claim.revision_id in result.selection.selection_evidence_ids
+    validation_context = project_agent_candidate_validation_context(
+        packet=packet,
+        decision=decision,
+    )
+    assert claim.revision_id in (
+        validation_context.replay_evidence.stable_dependency_ids
+    )
+    assert result.selection.validation_context_id == (
+        validation_context.validation_context_id
+    )
+    assert result.selection.evidence_authority_ids == (
+        validation_context.replay_evidence.evidence_authority_ids
+    )
+    assert {
+        result.selection.validation_context_id,
+        *result.selection.evidence_authority_ids,
+    }.issubset(result.selection.exact_dependency_ids)
     assert result.selection.validation_policy_id == (
         validation.policy.validation_policy().validation_policy_id
     )

@@ -700,7 +700,9 @@ class ExpertSourceReplayPreflightCoordinator:
         )
         packet_episodes = {
             episode.episode_id: episode
-            for episode in stored_candidate.closure.trigger_packet.episodes
+            for episode in (
+                stored_candidate.closure.validation_context.replay_evidence.episodes
+            )
         }
         lineages: dict[str, VerifiedRunBundleLineage] = {}
         contexts: dict[
@@ -924,7 +926,7 @@ class ExpertSourceReplayPreflightCoordinator:
         attempt: ExpertValidationAttempt,
         candidate: StoredExpertCandidate,
     ) -> bool:
-        scope_id = candidate.closure.trigger_packet.scope_contract.scope_id
+        scope_id = candidate.closure.validation_context.scope_id
         return (
             self.current_release_provider.current_release_id(scope_id)
             == attempt.parent_release_id
@@ -963,14 +965,14 @@ class ExpertSourceReplayPreflightCoordinator:
         candidate: StoredExpertCandidate,
         limits: TaskEvaluationMaterializationLimits,
     ) -> VerifiedTaskEvaluationParent:
-        packet = candidate.closure.trigger_packet
-        if packet.parent_release is None or packet.parent_tree_receipt is None:
+        context = candidate.closure.validation_context
+        if context.parent_release is None or context.parent_tree_receipt is None:
             raise ExpertSourceReplayRequestError(
                 "source replay requires an exact materialized parent release"
             )
         parent = self.parent_provider.materialize_exact(
-            packet.parent_release,
-            packet.parent_tree_receipt,
+            context.parent_release,
+            context.parent_tree_receipt,
             limits,
         )
         if type(parent) is not VerifiedTaskEvaluationParent:
@@ -978,8 +980,8 @@ class ExpertSourceReplayPreflightCoordinator:
                 "parent provider returned an unverified source closure"
             )
         if (
-            parent.release_manifest != packet.parent_release
-            or parent.parent_tree_receipt != packet.parent_tree_receipt
+            parent.release_manifest != context.parent_release
+            or parent.parent_tree_receipt != context.parent_tree_receipt
             or parent.parent_tree_receipt.source_extraction_receipt.source_tree_files
             != candidate.closure.parent_files
         ):

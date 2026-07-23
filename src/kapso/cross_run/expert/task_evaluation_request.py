@@ -205,15 +205,15 @@ def prepare_task_evaluation_request(
         candidate=candidate,
     )
     plan = plan_reservation.evaluation_plan
-    packet = stored_candidate.closure.trigger_packet
+    context = stored_candidate.closure.validation_context
     if (plan.parent_release_id is None) != (parent is None):
         raise TaskEvaluationRequestPreparationError(
             "task evaluation parent authority differs from matrix mode"
         )
     if parent is not None and (
         type(parent) is not VerifiedTaskEvaluationParent
-        or parent.release_manifest != packet.parent_release
-        or parent.parent_tree_receipt != packet.parent_tree_receipt
+        or parent.release_manifest != context.parent_release
+        or parent.parent_tree_receipt != context.parent_tree_receipt
         or parent.release_manifest.release_id != plan.parent_release_id
         or parent.release_manifest.scope_contract_id != plan.scope_contract_id
         or parent.parent_tree_receipt.parent_tree_hash != plan.parent_tree_hash
@@ -222,7 +222,7 @@ def prepare_task_evaluation_request(
             "task evaluation parent differs from reserved plan authority"
         )
     if parent is None and (
-        packet.parent_release is not None or packet.parent_tree_receipt is not None
+        context.parent_release is not None or context.parent_tree_receipt is not None
     ):
         raise TaskEvaluationRequestPreparationError(
             "task evaluation bootstrap candidate contains parent authority"
@@ -300,7 +300,7 @@ def prepare_task_evaluation_request(
         candidate_commit_record_id=plan.candidate_commit_record_id,
         candidate_tree_hash=plan.candidate_tree_hash,
         scope_contract_id=plan.scope_contract_id,
-        scope_id=packet.scope_contract.scope_id,
+        scope_id=context.scope_id,
         parent_release_id=plan.parent_release_id,
         parent_tree_hash=plan.parent_tree_hash,
         validation_policy_id=plan.validation_policy_id,
@@ -339,23 +339,23 @@ def validate_task_evaluation_candidate_authority(
         )
     plan = plan_reservation.evaluation_plan
     closure = stored_candidate.closure
-    packet = closure.trigger_packet
+    context = closure.validation_context
     if (
         candidate.manifest != closure.manifest
         or candidate.commit_record != stored_candidate.commit_record
         or candidate.source_tree != closure.candidate_tree
         or candidate.source_contents != closure.candidate_contents
         or candidate.manifest.candidate_id != plan.candidate_id
-        or candidate.manifest.trigger_evidence_packet_id != packet.evidence_packet_id
-        or candidate.manifest.trigger_decision_id
-        != closure.trigger_decision.trigger_decision_id
-        or closure.trigger_decision.evidence_packet_id != packet.evidence_packet_id
+        or candidate.manifest.validation_context_ref != context.validation_context_id
         or candidate.manifest.scope_contract_id
-        != packet.scope_contract.scope_contract_id
-        or candidate.manifest.configuration_fingerprint
-        != packet.configuration_fingerprint
-        or candidate.manifest.parent_release_id != packet.parent_release_id
-        or candidate.manifest.parent_tree_hash != packet.parent_tree_hash
+        != context.scope_contract.scope_contract_id
+        or candidate.manifest.parent_release_id
+        != (
+            None
+            if context.parent_release is None
+            else context.parent_release.release_id
+        )
+        or candidate.manifest.parent_tree_hash != context.parent_tree_hash
         or candidate.commit_record.commit_record_id != plan.candidate_commit_record_id
         or candidate.source_tree.tree_hash != plan.candidate_tree_hash
         or candidate.manifest.scope_contract_id != plan.scope_contract_id

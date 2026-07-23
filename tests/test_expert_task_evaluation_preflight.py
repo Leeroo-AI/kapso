@@ -45,7 +45,7 @@ def _expert_sources(prepared_plan):
         source_tree=stored.closure.candidate_tree,
         source_contents=stored.closure.candidate_contents,
     )
-    packet = stored.closure.trigger_packet
+    packet = stored.closure.derivation.trigger_packet
     if packet.parent_release is None or packet.parent_tree_receipt is None:
         return candidate, None
     _released_packet, _materialized, parent_contents = released_workspace_fixture()
@@ -57,7 +57,7 @@ def _expert_sources(prepared_plan):
 
 
 def _current_observation(prepared_plan, *, head_commit_sha="a" * 40):
-    packet = prepared_plan.stored_candidate.closure.trigger_packet
+    packet = prepared_plan.stored_candidate.closure.derivation.trigger_packet
     release = packet.parent_release
     return TaskEvaluationCurrentReleaseObservation.mint(
         scope_id=packet.scope_contract.scope_id,

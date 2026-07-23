@@ -15,6 +15,17 @@ from kapso.cross_run.expert.candidates import (
     ExpertCandidateValidationError,
     ExpertCandidateValidator,
 )
+from kapso.cross_run.expert.candidate_context import (
+    ExpertCandidateContextError,
+    ExpertCandidateReplayEvidence,
+    ExpertCandidateValidationContext,
+    project_agent_candidate_validation_context,
+)
+from kapso.cross_run.expert.candidate_derivations import (
+    ExpertAgentProposalDerivation,
+    ExpertAgentProposalDerivationRecord,
+    ExpertCandidateDerivationError,
+)
 from kapso.cross_run.expert.composition_contracts import (
     ExpertCompositionAssessment,
     ExpertCompositionBaseReference,
@@ -302,6 +313,12 @@ __all__ = [
     "ExpertCandidateEligibilityEvaluator",
     "ExpertCurrentReleaseProvider",
     "ExpertCandidateClosure",
+    "ExpertCandidateContextError",
+    "ExpertCandidateDerivationError",
+    "ExpertCandidateReplayEvidence",
+    "ExpertCandidateValidationContext",
+    "ExpertAgentProposalDerivation",
+    "ExpertAgentProposalDerivationRecord",
     "ExpertCandidateAncestorInput",
     "ExpertCandidateProposalEngine",
     "ExpertCandidateProposalResult",
@@ -458,6 +475,7 @@ __all__ = [
     "publication_eligibility_security_subject_ids",
     "publication_eligibility_task_adapter_trust_observations",
     "project_expert_composition_source_reference",
+    "project_agent_candidate_validation_context",
     "project_prepared_task_evaluation_cases",
     "task_evaluation_adapter_trust_observations",
     "task_evaluation_allocation_case_leg",

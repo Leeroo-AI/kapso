@@ -290,7 +290,7 @@ def _request_for_reserved_plan(
         source_tree=stored.closure.candidate_tree,
         source_contents=stored.closure.candidate_contents,
     )
-    packet = stored.closure.trigger_packet
+    packet = stored.closure.derivation.trigger_packet
     if packet.parent_release is None or packet.parent_tree_receipt is None:
         parent = None
     else:
@@ -737,7 +737,7 @@ def test_request_derivation_enforces_parent_receipt_mode(
         source_contents=bootstrap_prepared.stored_candidate.closure.candidate_contents,
     )
     _released_packet, _materialized, parent_contents = released_workspace_fixture()
-    parent_packet = parent_prepared.stored_candidate.closure.trigger_packet
+    parent_packet = parent_prepared.stored_candidate.closure.derivation.trigger_packet
     assert parent_packet.parent_release is not None
     assert parent_packet.parent_tree_receipt is not None
     exact_parent = VerifiedTaskEvaluationParent(

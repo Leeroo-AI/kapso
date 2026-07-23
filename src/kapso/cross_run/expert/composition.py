@@ -413,14 +413,14 @@ class ExpertCompositionReducer:
             raise ExpertCompositionError(
                 "composition source uses an unknown candidate change kind"
             )
-        parent_map = closure.trigger_packet.repository_map
+        parent_map = closure.validation_context.parent_repository_map
         if parent_map is None:
             raise ExpertCompositionError(
                 "capability composition source lacks parent topology"
             )
         parent_modules = {
             module.module_id: module
-            for module in closure.trigger_packet.module_contracts
+            for module in closure.validation_context.parent_module_contracts
         }
         candidate_modules = {
             module.module_id: module for module in closure.module_contracts
@@ -439,7 +439,7 @@ class ExpertCompositionReducer:
             if parent_modules[module_id] != candidate_modules[module_id]
         )
         parent_controls = set(
-            expert_control_paths(closure.trigger_packet.module_contracts)
+            expert_control_paths(closure.validation_context.parent_module_contracts)
         )
         candidate_controls = set(expert_control_paths(closure.module_contracts))
         editable_changes = tuple(

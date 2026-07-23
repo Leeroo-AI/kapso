@@ -116,11 +116,6 @@ class PreparedExpertAutomatedReviewPacket:
             or candidate_manifest.candidate_tree_hash != packet.candidate_tree_hash
             or candidate_manifest.scope_contract_id != packet.scope_contract_id
             or candidate_manifest.parent_release_id != packet.parent_release_id
-            or candidate_manifest.proposer_operation_record_id
-            != self.candidate_operation.operation_record_id
-            or candidate_manifest.trigger_evidence_packet_id
-            != packet.trigger_evidence_packet_id
-            or candidate_manifest.trigger_decision_id != packet.trigger_decision_id
             or self.candidate_operation.trigger_evidence_packet_id
             != packet.trigger_evidence_packet_id
             or self.candidate_operation.trigger_decision_id
@@ -200,9 +195,7 @@ class ExpertAutomatedReviewCoordinator:
 
     def _runner_settings(self) -> CodingAgentRunnerSettings:
         return CodingAgentRunnerSettings(
-            artifact_root=str(
-                self.workspace_root / self.settings.agent_artifact_path
-            ),
+            artifact_root=str(self.workspace_root / self.settings.agent_artifact_path),
             termination_grace_seconds=self.settings.termination_grace_seconds,
             sensitive_file_glob_scan_max_depth=(
                 self.settings.sensitive_file_glob_scan_max_depth
@@ -234,12 +227,12 @@ class ExpertAutomatedReviewCoordinator:
         closure = stored_candidate.closure
         candidate_input = mint_expert_candidate_ancestor_input(
             manifest=closure.manifest,
-            scope_contract=closure.trigger_packet.scope_contract,
+            scope_contract=closure.validation_context.scope_contract,
             patch=closure.patch,
             candidate_tree=closure.candidate_tree,
             repository_map=closure.repository_map,
             module_contracts=closure.module_contracts,
-            workspace_delta=closure.workspace_delta,
+            workspace_delta=closure.derivation.workspace_delta,
             sanitation_report=closure.sanitation_report,
             candidate_contents=closure.candidate_contents,
         )
@@ -258,9 +251,9 @@ class ExpertAutomatedReviewCoordinator:
             validation_attempt.candidate_id,
             validation_attempt.candidate_commit_record_id,
             candidate_input.ancestor_input_id,
-            closure.operation.operation_record_id,
-            closure.trigger_packet.evidence_packet_id,
-            closure.trigger_decision.trigger_decision_id,
+            closure.derivation.operation.operation_record_id,
+            closure.derivation.trigger_packet.evidence_packet_id,
+            closure.derivation.trigger_decision.trigger_decision_id,
             validation_attempt.scope_contract_id,
             validation_attempt.validation_policy_id,
             *(
@@ -278,9 +271,9 @@ class ExpertAutomatedReviewCoordinator:
             candidate_tree_hash=validation_attempt.candidate_tree_hash,
             candidate_commit_record_id=(validation_attempt.candidate_commit_record_id),
             candidate_input_id=candidate_input.ancestor_input_id,
-            proposer_operation_record_id=closure.operation.operation_record_id,
-            trigger_evidence_packet_id=closure.trigger_packet.evidence_packet_id,
-            trigger_decision_id=closure.trigger_decision.trigger_decision_id,
+            proposer_operation_record_id=closure.derivation.operation.operation_record_id,
+            trigger_evidence_packet_id=closure.derivation.trigger_packet.evidence_packet_id,
+            trigger_decision_id=closure.derivation.trigger_decision.trigger_decision_id,
             scope_contract_id=validation_attempt.scope_contract_id,
             parent_release_id=validation_attempt.parent_release_id,
             validation_policy_id=validation_attempt.validation_policy_id,
@@ -292,7 +285,7 @@ class ExpertAutomatedReviewCoordinator:
         return PreparedExpertAutomatedReviewPacket(
             packet=packet,
             candidate_input=candidate_input,
-            candidate_operation=closure.operation,
+            candidate_operation=closure.derivation.operation,
             validation_attempt=validation_attempt,
             authorization_state=authorization_state,
             validation_policy=policy,
@@ -686,7 +679,7 @@ class ExpertAutomatedReviewCoordinator:
             reviewer.reviewer_id
             for reviewer in self.settings.validation.policy.reviewers
         }
-        if closure.operation.proposer_authority.principal_id in reviewer_ids:
+        if set(closure.origin_principal_ids) & reviewer_ids:
             raise ExpertAutomatedReviewError(
                 "historical candidate proposer conflicts with a reviewer"
             )
@@ -879,9 +872,7 @@ def validate_expert_automated_review_facts(
             raise ExpertAutomatedReviewError(
                 "automated review artifacts exceed the configured limit"
             )
-        scan_depth = operation.operation_preimage[
-            "sensitive_file_glob_scan_max_depth"
-        ]
+        scan_depth = operation.operation_preimage["sensitive_file_glob_scan_max_depth"]
         expected_request = CodingAgentCallRequest(
             operation_id=operation.operation_receipt.operation_id,
             role=reviewer.reviewer_role,
@@ -920,10 +911,10 @@ def validate_expert_automated_review_facts(
                 prepared.packet.configuration_fingerprint
             ),
         }
-        if (
-            canonical_json_bytes(operation.operation_preimage)
-            != canonical_json_bytes(expected_preimage)
-            or any(payloads[name] != payload for name, payload in expected_inputs.items())
+        if canonical_json_bytes(operation.operation_preimage) != canonical_json_bytes(
+            expected_preimage
+        ) or any(
+            payloads[name] != payload for name, payload in expected_inputs.items()
         ):
             raise ExpertAutomatedReviewError(
                 "automated review operation did not use the canonical packet prompt"

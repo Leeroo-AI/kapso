@@ -218,14 +218,14 @@ class ExpertPublicationEligibilityCoordinator:
                 task_adapter_trust_observations=adapter_observations,
             )
             denylist = self.security_denylist_authority.observe_exact(
-                scope_id=stored_candidate.closure.trigger_packet.scope_contract.scope_id,
+                scope_id=stored_candidate.closure.validation_context.scope_id,
                 scope_contract_id=attempt.scope_contract_id,
                 checked_subject_ids=security_subject_ids,
             )
             if (
                 type(denylist) is not SecurityDenylistObservation
                 or denylist.scope_id
-                != stored_candidate.closure.trigger_packet.scope_contract.scope_id
+                != stored_candidate.closure.validation_context.scope_id
                 or denylist.scope_contract_id != attempt.scope_contract_id
                 or denylist.checked_subject_ids != security_subject_ids
                 or denylist.denied_subject_ids
@@ -272,9 +272,7 @@ class ExpertPublicationEligibilityCoordinator:
                 candidate_tree_hash=attempt.candidate_tree_hash,
                 candidate_commit_record_id=attempt.candidate_commit_record_id,
                 scope_contract_id=attempt.scope_contract_id,
-                scope_id=(
-                    stored_candidate.closure.trigger_packet.scope_contract.scope_id
-                ),
+                scope_id=(stored_candidate.closure.validation_context.scope_id),
                 expected_current_release_id=attempt.parent_release_id,
                 validation_policy_id=attempt.validation_policy_id,
                 configuration_fingerprint=attempt.configuration_fingerprint,
@@ -308,7 +306,7 @@ class ExpertPublicationEligibilityCoordinator:
         self,
         stored_candidate: StoredExpertCandidate,
     ) -> TaskEvaluationCurrentReleaseObservation:
-        scope_id = stored_candidate.closure.trigger_packet.scope_contract.scope_id
+        scope_id = stored_candidate.closure.validation_context.scope_id
         observation = self.current_release_authority.observe_task_evaluation_current(
             scope_id
         )
@@ -334,7 +332,7 @@ class ExpertPublicationEligibilityCoordinator:
             attempt.candidate_id
         )
         manifest = stored.closure.manifest
-        scope_contract = stored.closure.trigger_packet.scope_contract
+        scope_contract = stored.closure.validation_context.scope_contract
         if (
             type(stored) is not StoredExpertCandidate
             or manifest.candidate_id != attempt.candidate_id
@@ -477,7 +475,7 @@ def publication_eligibility_security_subject_ids(
         != decision.release_matrix_stage_result_id
         or stored_candidate.closure.manifest.candidate_id != attempt.candidate_id
         or current_release_observation.scope_id
-        != stored_candidate.closure.trigger_packet.scope_contract.scope_id
+        != stored_candidate.closure.validation_context.scope_id
         or current_release_observation.release_id != attempt.parent_release_id
         or task_adapter_trust_observations
         != publication_eligibility_task_adapter_trust_observations(input_snapshot)
@@ -486,7 +484,9 @@ def publication_eligibility_security_subject_ids(
             "publication eligibility security inputs do not share one authority"
         )
     manifest = stored_candidate.closure.manifest
-    operation = stored_candidate.closure.operation
+    derivation = stored_candidate.closure.derivation
+    operation = derivation.operation
+    validation_context = stored_candidate.closure.validation_context
     subjects = {
         snapshot.transition.transition_id,
         snapshot.state.validation_state_id,
@@ -497,12 +497,11 @@ def publication_eligibility_security_subject_ids(
         manifest.candidate_id,
         stored_candidate.commit_record.commit_record_id,
         manifest.scope_contract_id,
-        manifest.trigger_decision_id,
-        manifest.trigger_evidence_packet_id,
+        manifest.derivation_ref,
+        manifest.validation_context_ref,
         manifest.patch_ref,
         manifest.candidate_tree_ref,
         manifest.proposed_repository_map_ref,
-        manifest.proposer_operation_record_id,
         manifest.sanitation_report_id,
         *manifest.module_contract_refs,
         *manifest.source_dependency_ids,
@@ -511,13 +510,17 @@ def publication_eligibility_security_subject_ids(
         operation.operation_receipt.operation_receipt_id,
         operation.workspace_receipt.workspace_receipt_id,
         operation.workspace_delta_ref,
-        stored_candidate.closure.workspace_delta.workspace_delta_id,
+        derivation.record.trigger_evidence_packet_id,
+        derivation.record.trigger_decision_id,
+        *derivation.record.source_dependency_ids,
+        *validation_context.stable_dependency_ids,
+        derivation.workspace_delta.workspace_delta_id,
         current_release_observation.observation_id,
         *current_release_observation.validation_closure_ids,
     }
     if attempt.parent_release_id is not None:
         subjects.add(attempt.parent_release_id)
-    parent_release = stored_candidate.closure.trigger_packet.parent_release
+    parent_release = validation_context.parent_release
     if parent_release is not None:
         subjects.update(parent_release.dependency_closure_ids)
     if current_release_observation.publication_id is not None:
@@ -576,7 +579,7 @@ def build_publication_eligibility_stage_result(
         raise ExpertPublicationEligibilityError(
             "publication eligibility result has no validation attempt"
         )
-    scope_id = stored_candidate.closure.trigger_packet.scope_contract.scope_id
+    scope_id = stored_candidate.closure.validation_context.scope_id
     dependencies = {
         snapshot.transition.transition_id,
         snapshot.state.validation_state_id,

@@ -57,12 +57,12 @@ def test_semantic_book_is_input_order_independent_and_dependency_first():
     )
 
     ordered = compile_expert_semantic_book(
-        closure.trigger_packet.scope_contract,
+        closure.derivation.trigger_packet.scope_contract,
         repository_map,
         (execution, workflow),
     )
     reversed_input = compile_expert_semantic_book(
-        closure.trigger_packet.scope_contract,
+        closure.derivation.trigger_packet.scope_contract,
         repository_map,
         (workflow, execution),
     )
@@ -97,7 +97,7 @@ def test_semantic_book_escapes_model_authored_markdown_and_html():
     )
 
     book = compile_expert_semantic_book(
-        closure.trigger_packet.scope_contract,
+        closure.derivation.trigger_packet.scope_contract,
         closure.repository_map,
         (injected,),
     )

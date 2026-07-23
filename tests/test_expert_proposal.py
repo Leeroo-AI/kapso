@@ -316,12 +316,12 @@ def test_architect_bootstrap_seals_and_reopens_exact_candidate(tmp_path):
     reopened = store.read(closure.manifest.candidate_id)
 
     assert reopened == result.stored_candidate
-    assert closure.operation.operation_kind.value == "bootstrap"
-    assert closure.operation.operation_preimage["proposal_contract_version"] == (
-        EXPERT_PROPOSAL_CONTRACT_VERSION
-    )
-    assert closure.operation.operation_preimage["principal_id"] == (
-        closure.operation.operation_receipt.principal_id
+    assert closure.derivation.operation.operation_kind.value == "bootstrap"
+    assert closure.derivation.operation.operation_preimage[
+        "proposal_contract_version"
+    ] == (EXPERT_PROPOSAL_CONTRACT_VERSION)
+    assert closure.derivation.operation.operation_preimage["principal_id"] == (
+        closure.derivation.operation.operation_receipt.principal_id
     )
     assert closure.candidate_contents[EXPERT_BOOK_PATH].startswith(
         b"# Expert Repository\n"
@@ -350,12 +350,12 @@ def test_architect_principal_rotation_changes_operation_identity(tmp_path):
         packet=packet,
         decision=decision,
         materialized_parent=None,
-    ).stored_candidate.closure.operation
+    ).stored_candidate.closure.derivation.operation
     second = second_architect.propose(
         packet=packet,
         decision=decision,
         materialized_parent=None,
-    ).stored_candidate.closure.operation
+    ).stored_candidate.closure.derivation.operation
 
     assert first.operation_receipt.operation_id != second.operation_receipt.operation_id
     assert first.operation_preimage["principal_id"] == configured.architect_id
@@ -473,11 +473,11 @@ def test_architect_persists_exact_ancestor_source_input(tmp_path):
         materialized_parent=None,
         ancestor_candidate_ids=(first.closure.manifest.candidate_id,),
     ).stored_candidate
-    ancestor = second.closure.ancestor_inputs[0]
+    ancestor = second.closure.derivation.ancestor_inputs[0]
 
     assert second.closure.manifest.candidate_id != first.closure.manifest.candidate_id
     assert ancestor.manifest == first.closure.manifest
-    assert ancestor.workspace_delta == first.closure.workspace_delta
+    assert ancestor.workspace_delta == first.closure.derivation.workspace_delta
     assert ancestor.candidate_contents() == first.closure.candidate_contents
     assert ancestor.candidate_contents_text["src/execution.py"].startswith(
         "def execute"
@@ -884,7 +884,7 @@ def test_generalizer_preserves_topology_and_replaces_changed_contract(tmp_path):
     )
     closure = result.stored_candidate.closure
 
-    assert closure.operation.operation_kind.value == "generalize"
+    assert closure.derivation.operation.operation_kind.value == "generalize"
     assert closure.module_contracts[0].version == "v2"
     assert closure.repository_map.capability_nodes[0].owned_paths == (
         packet.repository_map.capability_nodes[0].owned_paths
@@ -1165,7 +1165,7 @@ def test_architect_restructure_preserves_capability_identity_on_path_move(tmp_pa
     )
     closure = result.stored_candidate.closure
 
-    assert closure.operation.operation_kind.value == "restructure"
+    assert closure.derivation.operation.operation_kind.value == "restructure"
     assert closure.repository_map.capability_nodes[0].capability_id == (
         packet.repository_map.capability_nodes[0].capability_id
     )

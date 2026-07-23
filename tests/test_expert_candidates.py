@@ -21,6 +21,7 @@ from kapso.cross_run.contracts import (
     CodingAgentWorkspaceChangedFile,
     CodingAgentWorkspaceDelta,
     ContractValidationError,
+    ExpertCandidateDerivationKind,
     ExpertCandidateManifest,
     ExpertCandidateOperationKind,
     ExpertCandidateOperationRecord,
@@ -51,6 +52,13 @@ from kapso.cross_run.expert.book import (
     EXPERT_BOOK_PATH,
     EXPERT_REPOSITORY_MAP_PATH,
     expert_module_contract_path,
+)
+from kapso.cross_run.expert.candidate_context import (
+    project_agent_candidate_validation_context,
+)
+from kapso.cross_run.expert.candidate_derivations import (
+    ExpertAgentProposalDerivation,
+    ExpertAgentProposalDerivationRecord,
 )
 from kapso.cross_run.expert.proposal_contract import (
     EXPERT_PROPOSAL_CONTRACT_VERSION,
@@ -458,18 +466,48 @@ def bootstrap_candidate_closure(
             }
         )
     )
+    validation_context = project_agent_candidate_validation_context(
+        packet=packet,
+        decision=decision,
+    )
+    derivation_record = ExpertAgentProposalDerivationRecord.mint(
+        trigger_evidence_packet_id=packet.evidence_packet_id,
+        trigger_decision_id=decision.trigger_decision_id,
+        operation_record_id=operation.operation_record_id,
+        workspace_delta_id=workspace_delta.workspace_delta_id,
+        ancestor_candidate_ids=(),
+        origin_principal_ids=(operation.proposer_authority.principal_id,),
+        source_dependency_ids=source_dependencies,
+        operation_artifact_checksums={
+            name: tree_or_blob_digest(payload)
+            for name, payload in sorted(operation_artifacts.items())
+        },
+    )
+    derivation = ExpertAgentProposalDerivation(
+        record=derivation_record,
+        trigger_packet=packet,
+        trigger_decision=decision,
+        operation=operation,
+        workspace_delta=workspace_delta,
+        operation_artifacts=operation_artifacts,
+        ancestor_inputs=(),
+    )
     manifest = ExpertCandidateManifest.mint(
         scope_contract_id=packet.scope_contract.scope_contract_id,
         change_kind=CandidateChangeKind.REPOSITORY_ARCHITECTURE,
         parent_release_id=None,
         parent_repository_map_ref=None,
         parent_tree_hash=EMPTY_EXPERT_TREE_DIGEST,
-        trigger_decision_id=(
-            content_id("fixture", {"foreign": "trigger"})
+        derivation_kind=ExpertCandidateDerivationKind.AGENT_PROPOSAL,
+        derivation_ref=(
+            content_id(
+                "expert-agent-proposal-derivation",
+                {"foreign": "trigger"},
+            )
             if foreign_trigger
-            else decision.trigger_decision_id
+            else derivation_record.derivation_id
         ),
-        trigger_evidence_packet_id=packet.evidence_packet_id,
+        validation_context_ref=validation_context.validation_context_id,
         patch_ref=patch.patch_id,
         patch_digest=tree_or_blob_digest(patch.to_json_bytes()),
         candidate_tree_ref=candidate_tree.source_tree_manifest_id,
@@ -478,7 +516,6 @@ def bootstrap_candidate_closure(
         module_contract_refs=(module.module_contract_id,),
         proposed_repository_map_ref=repository_map.repository_map_id,
         semantic_book_digest=expert_semantic_book_digest(expected_book),
-        proposer_operation_record_id=operation.operation_record_id,
         source_dependency_ids=source_dependencies,
         ancestor_candidate_ids=(),
         capability_lineage=(),
@@ -486,18 +523,60 @@ def bootstrap_candidate_closure(
     )
     return ExpertCandidateClosure(
         manifest=manifest,
-        trigger_packet=packet,
-        trigger_decision=decision,
+        validation_context=validation_context,
         patch=patch,
         candidate_tree=candidate_tree,
         parent_files=(),
         repository_map=repository_map,
         module_contracts=(module,),
-        operation=operation,
+        derivation=derivation,
         sanitation_report=sanitation,
         candidate_contents=contents,
+    )
+
+
+def replace_agent_derivation(closure, **changes):
+    current = closure.derivation
+    packet = changes.get("trigger_packet", current.trigger_packet)
+    decision = changes.get("trigger_decision", current.trigger_decision)
+    operation = changes.get("operation", current.operation)
+    workspace_delta = changes.get("workspace_delta", current.workspace_delta)
+    operation_artifacts = changes.get(
+        "operation_artifacts",
+        current.operation_artifacts,
+    )
+    ancestor_inputs = changes.get("ancestor_inputs", current.ancestor_inputs)
+    record = ExpertAgentProposalDerivationRecord.mint(
+        trigger_evidence_packet_id=packet.evidence_packet_id,
+        trigger_decision_id=decision.trigger_decision_id,
+        operation_record_id=operation.operation_record_id,
+        workspace_delta_id=workspace_delta.workspace_delta_id,
+        ancestor_candidate_ids=tuple(
+            ancestor.manifest.candidate_id for ancestor in ancestor_inputs
+        ),
+        origin_principal_ids=(operation.proposer_authority.principal_id,),
+        source_dependency_ids=current.record.source_dependency_ids,
+        operation_artifact_checksums={
+            name: tree_or_blob_digest(payload)
+            for name, payload in sorted(operation_artifacts.items())
+        },
+    )
+    derivation = ExpertAgentProposalDerivation(
+        record=record,
+        trigger_packet=packet,
+        trigger_decision=decision,
+        operation=operation,
         workspace_delta=workspace_delta,
         operation_artifacts=operation_artifacts,
+        ancestor_inputs=ancestor_inputs,
+    )
+    manifest_payload = closure.manifest.to_dict()
+    manifest_payload.pop("candidate_id")
+    manifest_payload["derivation_ref"] = record.derivation_id
+    return replace(
+        closure,
+        manifest=ExpertCandidateManifest.mint(**manifest_payload),
+        derivation=derivation,
     )
 
 
@@ -627,7 +706,7 @@ def test_candidate_rejects_duplicate_semantic_module_ids():
 
 def test_candidate_recomputes_trigger_decision_authority():
     closure = bootstrap_candidate_closure()
-    decision_payload = closure.trigger_decision.to_dict()
+    decision_payload = closure.derivation.trigger_decision.to_dict()
     decision_payload.pop("trigger_decision_id")
     decision_payload["knowledge_snapshot_id"] = content_id(
         "fixture", {"foreign": "snapshot"}
@@ -640,7 +719,7 @@ def test_candidate_recomputes_trigger_decision_authority():
         match="differs from deterministic policy",
     ):
         ExpertCandidateValidator(expert_settings(), sanitation_settings()).validate(
-            replace(closure, trigger_decision=forged_decision)
+            replace_agent_derivation(closure, trigger_decision=forged_decision)
         )
 
 
@@ -670,7 +749,7 @@ def test_candidate_requires_scope_sanitation_policy_resolution():
 
 def test_candidate_requires_exact_self_contained_operation_artifacts():
     closure = bootstrap_candidate_closure()
-    artifacts = dict(closure.operation_artifacts)
+    artifacts = dict(closure.derivation.operation_artifacts)
     artifacts["prompt.txt"] += b"tampered"
 
     with pytest.raises(
@@ -678,13 +757,13 @@ def test_candidate_requires_exact_self_contained_operation_artifacts():
         match="artifact checksum differs",
     ):
         ExpertCandidateValidator(expert_settings(), sanitation_settings()).validate(
-            replace(closure, operation_artifacts=artifacts)
+            replace_agent_derivation(closure, operation_artifacts=artifacts)
         )
 
 
 def test_candidate_requires_durable_workspace_delta_bytes():
     closure = bootstrap_candidate_closure()
-    artifacts = dict(closure.operation_artifacts)
+    artifacts = dict(closure.derivation.operation_artifacts)
     artifacts["workspace-delta.json"] += b"\n"
 
     with pytest.raises(
@@ -692,18 +771,18 @@ def test_candidate_requires_durable_workspace_delta_bytes():
         match="artifact checksum differs",
     ):
         ExpertCandidateValidator(expert_settings(), sanitation_settings()).validate(
-            replace(closure, operation_artifacts=artifacts)
+            replace_agent_derivation(closure, operation_artifacts=artifacts)
         )
 
 
 def test_embedded_operation_artifact_verifier_rejects_invalid_result_contract():
     closure = bootstrap_candidate_closure()
-    artifacts = dict(closure.operation_artifacts)
+    artifacts = dict(closure.derivation.operation_artifacts)
     artifacts["result.json"] = b"{}\n"
 
     with pytest.raises(ValueError, match="fields mismatch"):
         verify_coding_agent_operation_artifacts(
-            operation_id=closure.operation.operation_receipt.operation_id,
+            operation_id=closure.derivation.operation.operation_receipt.operation_id,
             workspace_access=CodingAgentWorkspaceAccess.EDIT_WORKSPACE,
             artifact_bytes=artifacts,
         )
@@ -711,7 +790,7 @@ def test_embedded_operation_artifact_verifier_rejects_invalid_result_contract():
 
 def test_embedded_operation_artifact_verifier_rejects_unknown_policy_version():
     closure = bootstrap_candidate_closure()
-    artifacts = dict(closure.operation_artifacts)
+    artifacts = dict(closure.derivation.operation_artifacts)
     invocation = json.loads(artifacts["invocation.json"])
     invocation["mcp_audit_policy_version"] = "kapso.mcp_audit.unknown"
     artifacts["invocation.json"] = (
@@ -720,7 +799,7 @@ def test_embedded_operation_artifact_verifier_rejects_unknown_policy_version():
 
     with pytest.raises(ValueError, match="unrecognized policy version"):
         verify_coding_agent_operation_artifacts(
-            operation_id=closure.operation.operation_receipt.operation_id,
+            operation_id=closure.derivation.operation.operation_receipt.operation_id,
             workspace_access=CodingAgentWorkspaceAccess.EDIT_WORKSPACE,
             artifact_bytes=artifacts,
         )
@@ -858,12 +937,14 @@ def two_capability_boundary_fixture(*, changed_ids, edited_capability_id):
         ),
     )
     return SimpleNamespace(
-        trigger_packet=SimpleNamespace(
-            repository_map=parent_map,
-            module_contracts=parent_modules,
-            trigger_observations=(),
+        validation_context=SimpleNamespace(
+            parent_repository_map=parent_map,
+            parent_module_contracts=parent_modules,
         ),
-        trigger_decision=SimpleNamespace(trigger_evidence_ids=()),
+        derivation=SimpleNamespace(
+            trigger_packet=SimpleNamespace(trigger_observations=()),
+            trigger_decision=SimpleNamespace(trigger_evidence_ids=()),
+        ),
         repository_map=current_map,
         module_contracts=current_modules,
         manifest=SimpleNamespace(capability_lineage=()),
@@ -889,13 +970,13 @@ def test_capability_change_stays_within_triggering_observation_scope():
         changed_ids={"shared.other"},
         edited_capability_id="shared.other",
     )
-    closure.trigger_packet.trigger_observations = (
+    closure.derivation.trigger_packet.trigger_observations = (
         SimpleNamespace(
             observation_id="selected-observation",
             affected_capability_ids=("shared.execution",),
         ),
     )
-    closure.trigger_decision.trigger_evidence_ids = ("selected-observation",)
+    closure.derivation.trigger_decision.trigger_evidence_ids = ("selected-observation",)
 
     with pytest.raises(
         ExpertCandidateValidationError,
