@@ -1055,8 +1055,49 @@ rebased/composed candidate and full revalidation.
 
 ## Rebase and composition
 
+Composition executes only from sealed terminal approvals. The implemented planning
+foundation separates scientific identity from time-sensitive admission:
+
+- `ExpertCompositionBaseReference` is a stable release projection: release, scope,
+  source-tree, map, module, semantic-book, and configuration identities, with no
+  publisher attestation, branch head, cache receipt, or pointer metadata.
+- `ExpertCompositionSourceReference` is the stable candidate/commit/parent/patch/
+  proposed-topology projection. Different historical parents are intentional: this
+  is the input required to rebase an approved stale candidate, not a claim that it
+  was built from current source.
+- `ExpertCompositionPlan` binds one base and a canonical non-empty source set. It
+  deliberately contains neither approval records nor `CURRENT.json` observations,
+  so harmless authority refreshes cannot change the scientific plan or successor
+  identity.
+- `ExpertCompositionAssessment` is a pure, content-addressed classification:
+  `CLEAN`, `ALREADY_PRESENT`, `CONFLICTED`, or `REQUIRES_RESTRUCTURE`. Typed conflict
+  records form a complete disjoint partition of the plan's sources; their subject
+  syntax and structural-versus-nonstructural outcome are derived rather than
+  caller-selected.
+- The source resolver must reopen every exact candidate package and complete
+  validation-store history, independently rederive terminal `APPROVED`, and return
+  a process-local verified capability. A later admission fence owns those capabilities,
+  two fresh `CURRENT` observations, and the security closure. Serialized IDs alone
+  are never approval authority. Temporal facts authorize one materialization/
+  publication attempt and never enter scientific identity.
+
+The deterministic reducer will treat each patch path relative to current source as
+follows: current equals `before` means applicable, current equals `after` means
+already present, and any third value means conflict. Multiple approved sources that
+touch the same path conflict even if their resulting bytes match; automatic merging
+must not invent shared provenance. Only capability changes may compose mechanically.
+Architecture candidates, topology ambiguity, incompatible module ownership,
+dependency cycles, adapter leakage, or incompatible resource envelopes require a
+fresh architect/generalizer proposal. A coding agent that resolves any conflict also
+creates a fresh proposal rather than laundering that judgment through the pure
+reducer.
+
 Before release:
 
+- [x] Define stable base/source references, composition-plan identity, typed conflict,
+      and complete deterministic assessment contracts.
+- [ ] Resolve every reference through the candidate/release/validation stores and
+      issue process-local approved-source capabilities.
 - [ ] Resolve the latest stable expert release through M2 and compare it with every
       candidate's parent commit/tree.
 - [ ] If the parent moved, rebase or compose into a new candidate tree with a new

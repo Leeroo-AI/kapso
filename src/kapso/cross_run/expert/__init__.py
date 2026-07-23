@@ -15,6 +15,17 @@ from kapso.cross_run.expert.candidates import (
     ExpertCandidateValidationError,
     ExpertCandidateValidator,
 )
+from kapso.cross_run.expert.composition_contracts import (
+    ExpertCompositionAssessment,
+    ExpertCompositionBaseReference,
+    ExpertCompositionConflict,
+    ExpertCompositionConflictKind,
+    ExpertCompositionConflictSubjectKind,
+    ExpertCompositionContractError,
+    ExpertCompositionDisposition,
+    ExpertCompositionPlan,
+    ExpertCompositionSourceReference,
+)
 from kapso.cross_run.expert.sanitation import ExpertCandidateSanitizer
 from kapso.cross_run.expert.generalizer import ExpertCapabilityGeneralizer
 from kapso.cross_run.expert.proposal import (
@@ -271,6 +282,15 @@ __all__ = [
     "ExpertCandidateProposalResult",
     "ExpertCandidateValidationError",
     "ExpertCandidateValidator",
+    "ExpertCompositionAssessment",
+    "ExpertCompositionBaseReference",
+    "ExpertCompositionConflict",
+    "ExpertCompositionConflictKind",
+    "ExpertCompositionConflictSubjectKind",
+    "ExpertCompositionContractError",
+    "ExpertCompositionDisposition",
+    "ExpertCompositionPlan",
+    "ExpertCompositionSourceReference",
     "ExpertCapabilityGeneralizer",
     "ExpertEligibilityResult",
     "ExpertEvaluatorRunBuilder",
