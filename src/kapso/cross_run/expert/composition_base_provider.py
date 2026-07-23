@@ -20,6 +20,7 @@ from kapso.cross_run.expert.book import (
 from kapso.cross_run.expert.composition_base import (
     ExpertCompositionBaseClosure,
     build_expert_composition_base_closure,
+    expert_composition_base_security_subject_ids,
 )
 from kapso.cross_run.expert.replay_authority_contracts import (
     SourceReplayCurrentReleaseObservation,
@@ -74,20 +75,9 @@ class CurrentExpertCompositionBase:
             raise ExpertCompositionBaseProviderError(
                 "current composition base capability is not provider sealed"
             )
-        parent_receipt = closure.parent_tree_receipt
-        security_subject_ids = tuple(
-            sorted(
-                {
-                    closure.reference.base_reference_id,
-                    *closure.reference.stable_authority_ids,
-                    parent_receipt.parent_tree_receipt_id,
-                    parent_receipt.source_extraction_receipt.extraction_receipt_id,
-                    current_observation.observation_id,
-                    current_observation.publication_id,
-                    *current_observation.validation_closure_ids,
-                    *closure.release_manifest.dependency_closure_ids,
-                }
-            )
+        security_subject_ids = expert_composition_base_security_subject_ids(
+            closure,
+            current_observation,
         )
         object.__setattr__(self, "_provider", provider)
         object.__setattr__(self, "_owner_process_id", os.getpid())

@@ -1092,16 +1092,17 @@ foundation separates scientific identity from time-sensitive admission:
   re-verifies the immutable package plus isolated source archive under the cache
   lease, rebuilds the typed closure, observes `CURRENT` again, and only then issues a
   process-local `CurrentExpertCompositionBase`. A newer branch head is harmless only
-  when the complete pointer, repository binding, and policy are unchanged.
+  when the complete pointer, repository binding, and policy are unchanged; admission
+  then derives the base revocation closure from that newer observation rather than
+  retaining resolve-time branch metadata.
 - The implemented source resolver reopens every exact candidate package and complete
   validation-store history, independently rederives terminal `APPROVED`, and returns
   a process-local capability whose exposed candidate and approval values are defensive
   copies. Serialized IDs alone are never approval authority.
 - A later admission fence must own those source capabilities, a sealed current-base
-  capability, fresh denylist and adapter-trust observations, two fresh `CURRENT`
-  observations, and the security closure. It is consumed under the persistence lease;
-  `require_current()` is only a diagnostic precheck. Temporal facts authorize one
-  persistence/publication attempt and never enter scientific identity.
+  capability, fresh denylist and adapter-trust observations, an identical
+  pre/post-denylist `CURRENT` observation, and the exact security closure. Temporal
+  facts authorize one persistence attempt and never enter scientific identity.
 
 The implemented deterministic reducer treats each patch path relative to current source as
 follows: current equals `before` means applicable, current equals `after` means
@@ -1129,8 +1130,37 @@ requires its assessment, materialization, and successor bytes to match exactly. 
 also makes arbitrary sanitized edits and causal-evidence omission fail closed. Sources
 are deliberately limited to directly approved agent proposals for now; composed-source
 recursion remains rejected until a bounded flattening contract is designed. Generic
-store persistence rejects composition candidates; only the pending sealed admission
-capability may cross that side-effect boundary.
+store persistence rejects composition candidates; only the sealed admission capability
+may cross that side-effect boundary.
+
+Composition admission is now one deterministic coordinator path. It resolves the
+authenticated current base and canonical approved-source set itself, unions active task
+bindings across every source, builds the plan, reruns the reducer, and admits only
+`CLEAN`. It then takes the validation store's shared lease, verifies every terminal
+source head, and takes the candidate store's exclusive persistence lease without
+releasing the validation lease. The source heads therefore cannot advance while the
+candidate store reopens every exact source package, re-verifies every exact source
+adapter, observes `CURRENT`, checks the complete transitive subject set against the
+authenticated denylist, and observes the identical `CURRENT` again. There is no
+validation replay under the candidate lock, so the lock order is acyclic. A
+coordinator-sealed exact authority wrapper is bound to one candidate store; the source
+resolver separately seals an active process-local validation-lease capability over the
+exact source objects. The store requires both capabilities when it mints the one-shot
+permit and again after burning that permit under the exclusive lease. An arbitrary
+callback cannot register as admission authority, and a permit cannot outlive the
+validation lease. Generic persistence remains unable to store compositions.
+
+The atomic candidate directory contains canonical `ADMISSION.json` beside
+`COMMITTED.json`. The admission fence binds the computed candidate commit, plan,
+materialization, base, terminal source heads, fresh `CURRENT`, adapter observations,
+and exact denylist observation. It is deliberately excluded from the scientific
+candidate commit and candidate/plan IDs: authority refresh cannot change scientific
+identity, while deletion, substitution, or noncanonical bytes make reopen fail loud.
+Later validation and publication never reuse this historical fence as live authority;
+they pin its identity and complete dependency closure in eligibility/attempt evidence,
+rerun the full cascade, and acquire fresh publication authority. Publication's denylist
+projection likewise includes the fence and its checked closure so a compromised
+admission authority remains transitively revocable.
 
 Before release:
 
@@ -1148,7 +1178,7 @@ Before release:
 - [x] Project clean reductions into origin-neutral composition candidates, retain
       complete commit-checked source packages, rerun reduction during validation, and
       round-trip the exact package codec without fake agent history.
-- [ ] Seal the authenticated GitHub `CURRENT` base and consume fresh source/denylist/
+- [x] Seal the authenticated GitHub `CURRENT` base and consume fresh source/denylist/
       adapter/current observations atomically when persisting the composed candidate.
 - [ ] Route conflicts and architecture changes through a fresh architect/generalizer
       proposal rather than treating them as reducer output.

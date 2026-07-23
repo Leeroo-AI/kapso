@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import os
+from contextlib import ExitStack, contextmanager
 from dataclasses import replace
 from types import MappingProxyType
+from typing import Iterator
 
 from kapso.cross_run.canonical import require_content_id, tree_or_blob_digest
 from kapso.cross_run.contracts import (
@@ -19,6 +21,10 @@ from kapso.cross_run.expert.composition_contracts import (
 )
 from kapso.cross_run.expert.composition import (
     ExpertCompositionReductionSource,
+)
+from kapso.cross_run.expert.composition_admission_authority import (
+    ExpertCompositionApprovalLease,
+    _seal_expert_composition_approval_lease,
 )
 from kapso.cross_run.expert.promotion_authority_contracts import (
     ExpertPublicationEligibilityStageResultRecord,
@@ -358,6 +364,48 @@ class ExpertCompositionSourceResolver:
             raise ExpertCompositionSourceError(
                 "approved composition source validation head changed during freshness check"
             )
+
+    @contextmanager
+    def lease_current_approvals(
+        self,
+        capabilities: tuple[ApprovedExpertCompositionSource, ...],
+    ) -> Iterator[ExpertCompositionApprovalLease]:
+        """Hold current terminal approval heads across composition persistence."""
+
+        with ExitStack() as stack:
+            stack.enter_context(self.validation_store._lock(exclusive=False))
+            self._require_approvals_current_unlocked(capabilities)
+            lease = _seal_expert_composition_approval_lease(
+                resolver=self,
+                approved_sources=capabilities,
+            )
+            stack.callback(lease._deactivate)
+            yield lease
+
+    def _require_approvals_current_unlocked(
+        self,
+        capabilities: tuple[ApprovedExpertCompositionSource, ...],
+    ) -> None:
+        if (
+            type(capabilities) is not tuple
+            or not capabilities
+            or any(
+                type(capability) is not ApprovedExpertCompositionSource
+                for capability in capabilities
+            )
+        ):
+            raise ExpertCompositionSourceError(
+                "composition source approval lease requires exact capabilities"
+            )
+        for capability in capabilities:
+            capability._require_bound(self)
+            candidate_id = capability.source_reference.candidate_id
+            current_snapshot = self.validation_store._snapshot_unlocked(candidate_id)
+            self._require_approved_snapshot(current_snapshot)
+            if current_snapshot != capability.approval_snapshot:
+                raise ExpertCompositionSourceError(
+                    "approved composition source validation head is no longer current"
+                )
 
     @staticmethod
     def _require_approved_snapshot(

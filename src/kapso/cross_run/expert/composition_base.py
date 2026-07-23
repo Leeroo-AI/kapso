@@ -25,6 +25,9 @@ from kapso.cross_run.expert.book import (
 from kapso.cross_run.expert.composition_contracts import (
     ExpertCompositionBaseReference,
 )
+from kapso.cross_run.expert.replay_authority_contracts import (
+    SourceReplayCurrentReleaseObservation,
+)
 from kapso.cross_run.expert.topology import (
     validate_expert_repository_topology,
     validate_expert_tree_ownership,
@@ -35,6 +38,38 @@ from kapso.cross_run.github.materializer import SourceArchiveExtractionReceipt
 
 class ExpertCompositionBaseError(ValueError):
     """A released expert tree cannot serve as an exact composition base."""
+
+
+def expert_composition_base_security_subject_ids(
+    closure: ExpertCompositionBaseClosure,
+    current_observation: SourceReplayCurrentReleaseObservation,
+) -> tuple[str, ...]:
+    """Project the exact revocation closure of one authenticated current base."""
+
+    if (
+        type(closure) is not ExpertCompositionBaseClosure
+        or type(current_observation) is not SourceReplayCurrentReleaseObservation
+        or current_observation.scope_id != closure.scope_contract.scope_id
+        or current_observation.release_id != closure.release_manifest.release_id
+    ):
+        raise ExpertCompositionBaseError(
+            "base security projection requires one exact current base"
+        )
+    parent_receipt = closure.parent_tree_receipt
+    return tuple(
+        sorted(
+            {
+                closure.reference.base_reference_id,
+                *closure.reference.stable_authority_ids,
+                parent_receipt.parent_tree_receipt_id,
+                parent_receipt.source_extraction_receipt.extraction_receipt_id,
+                current_observation.observation_id,
+                current_observation.publication_id,
+                *current_observation.validation_closure_ids,
+                *closure.release_manifest.dependency_closure_ids,
+            }
+        )
+    )
 
 
 def _module_contract_ids(

@@ -69,6 +69,20 @@ from kapso.cross_run.expert.composition_candidate import (
     ExpertCompositionCandidateError,
     project_deterministic_composition_candidate,
 )
+from kapso.cross_run.expert.composition_admission_contracts import (
+    ExpertCompositionAdmissionContractError,
+    ExpertCompositionAdmissionFence,
+    ExpertCompositionSourceAdmissionAuthority,
+    composition_admission_security_subject_ids,
+    validate_expert_composition_admission_fence,
+)
+from kapso.cross_run.expert.composition_admission import (
+    ExpertCompositionAdmissionCoordinator,
+    ExpertCompositionAdmissionDenylistAuthority,
+    ExpertCompositionAdmissionError,
+    build_expert_composition_plan,
+    compose_expert_active_task_bindings,
+)
 from kapso.cross_run.expert.sanitation import ExpertCandidateSanitizer
 from kapso.cross_run.expert.generalizer import ExpertCapabilityGeneralizer
 from kapso.cross_run.expert.proposal import (
@@ -239,6 +253,7 @@ from kapso.cross_run.expert.store import (
     ExpertCandidateStore,
     ExpertCandidateStoreError,
     StoredExpertCandidate,
+    stored_candidate_admission_dependency_ids,
 )
 from kapso.cross_run.expert.triggers import (
     ExpertEvolutionTriggerDecision,
@@ -338,6 +353,11 @@ __all__ = [
     "ExpertCandidateValidationError",
     "ExpertCandidateValidator",
     "ExpertCompositionAssessment",
+    "ExpertCompositionAdmissionContractError",
+    "ExpertCompositionAdmissionCoordinator",
+    "ExpertCompositionAdmissionDenylistAuthority",
+    "ExpertCompositionAdmissionError",
+    "ExpertCompositionAdmissionFence",
     "ExpertCompositionCandidateError",
     "ExpertCompositionBaseClosure",
     "ExpertCompositionBaseError",
@@ -355,6 +375,7 @@ __all__ = [
     "ExpertCompositionReduction",
     "ExpertCompositionReductionSource",
     "ExpertCompositionSourceError",
+    "ExpertCompositionSourceAdmissionAuthority",
     "ExpertCompositionSourceReference",
     "ExpertCompositionSourceResolver",
     "CurrentExpertCompositionBase",
@@ -486,6 +507,9 @@ __all__ = [
     "VerifiedSourceReplayContext",
     "VerifiedSourceReplayStartingArtifact",
     "build_expert_composition_base_closure",
+    "build_expert_composition_plan",
+    "compose_expert_active_task_bindings",
+    "composition_admission_security_subject_ids",
     "materialize_task_evaluation_starting_artifacts",
     "publication_eligibility_security_subject_ids",
     "publication_eligibility_task_adapter_trust_observations",
@@ -508,4 +532,6 @@ __all__ = [
     "decide_expert_release_matrix_promotion",
     "expert_semantic_book_digest",
     "source_replay_publication_security_subject_ids",
+    "stored_candidate_admission_dependency_ids",
+    "validate_expert_composition_admission_fence",
 ]

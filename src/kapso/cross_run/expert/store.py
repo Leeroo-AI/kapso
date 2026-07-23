@@ -79,6 +79,14 @@ from kapso.cross_run.expert.candidate_derivations import (
     ExpertDeterministicCompositionDerivationRecord,
 )
 from kapso.cross_run.expert.composition import ExpertCompositionReductionSource
+from kapso.cross_run.expert.composition_admission_contracts import (
+    ExpertCompositionAdmissionFence,
+    validate_expert_composition_admission_fence,
+)
+from kapso.cross_run.expert.composition_admission_authority import (
+    ExpertCompositionAdmissionAuthority,
+    ExpertCompositionApprovalLease,
+)
 from kapso.cross_run.expert.composition_contracts import (
     ExpertCompositionMaterialization,
     ExpertCompositionSourceReference,
@@ -116,6 +124,8 @@ _COMPOSITION_PARENT_SOURCE_ROOT = f"{_COMPOSITION_DERIVATION_ROOT}/parent-source
 _COMPOSITION_SOURCE_PROVENANCE_ROOT = (
     f"{_COMPOSITION_DERIVATION_ROOT}/source-provenance"
 )
+_COMPOSITION_ADMISSION_PATH = "ADMISSION.json"
+_SEALED_COMPOSITION_ADMISSION = object()
 _RENAME_NOREPLACE = 1
 _DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 _STAGING_PATTERN = re.compile(r"^\.candidate-[A-Za-z0-9_-]+$")
@@ -130,6 +140,35 @@ class StoredExpertCandidate:
     root: Path
     closure: ExpertCandidateClosure
     commit_record: ExpertCandidateCommitRecord
+    composition_admission_fence: ExpertCompositionAdmissionFence | None = None
+
+
+def stored_candidate_admission_dependency_ids(
+    stored_candidate: StoredExpertCandidate,
+) -> tuple[str, ...]:
+    """Project durable admission identity that every validation attempt must pin."""
+
+    if type(stored_candidate) is not StoredExpertCandidate:
+        raise ExpertCandidateStoreError(
+            "candidate admission dependency projection requires one stored candidate"
+        )
+    fence = stored_candidate.composition_admission_fence
+    if fence is not None and type(fence) is not ExpertCompositionAdmissionFence:
+        raise ExpertCandidateStoreError(
+            "stored candidate admission authority uses another type"
+        )
+    if fence is None:
+        return ()
+    return tuple(
+        sorted(
+            {
+                fence.admission_fence_id,
+                fence.security_denylist_observation.observation_id,
+                *fence.exact_dependency_ids,
+                *fence.security_subject_ids,
+            }
+        )
+    )
 
 
 class ExpertCandidateStore:
@@ -154,6 +193,7 @@ class ExpertCandidateStore:
         self.root = root
         self.state_root = state_root
         self.validator = validator
+        self._composition_admission_authority = None
         self.object_root = root / "objects"
         self.staging_root = root / "staging"
         initialization_lock = state_root / f".{root.name}.initialization.lock"
@@ -171,6 +211,154 @@ class ExpertCandidateStore:
             raise ExpertCandidateStoreError(
                 "composition persistence requires sealed admission authority"
             )
+        snapshot, package_files, commit_record = self._prepare_candidate(closure)
+        return self._persist_prepared(
+            snapshot=snapshot,
+            package_files=package_files,
+            commit_record=commit_record,
+            composition_admission_fence=None,
+        )
+
+    def preview_composition_commit(
+        self,
+        closure: ExpertCandidateClosure,
+    ) -> ExpertCandidateCommitRecord:
+        """Compute the commit that an admitted composition would persist."""
+
+        if type(closure.derivation) is not ExpertDeterministicCompositionDerivation:
+            raise ExpertCandidateStoreError(
+                "composition commit preview requires a composition candidate"
+            )
+        _, _, commit_record = self._prepare_candidate(closure)
+        return commit_record
+
+    def _bind_composition_admission_authority(
+        self,
+        authority: ExpertCompositionAdmissionAuthority,
+    ) -> None:
+        if type(authority) is not ExpertCompositionAdmissionAuthority:
+            raise ExpertCandidateStoreError(
+                "candidate store requires its exact composition admission authority"
+            )
+        authority._require_bound(candidate_store=self)
+        with self._exclusive_lock():
+            if (
+                self._composition_admission_authority is not None
+                and self._composition_admission_authority is not authority
+            ):
+                raise ExpertCandidateStoreError(
+                    "candidate store already has another composition admission authority"
+                )
+            self._composition_admission_authority = authority
+
+    def _seal_composition_admission(
+        self,
+        *,
+        authority: ExpertCompositionAdmissionAuthority,
+        approval_lease: ExpertCompositionApprovalLease,
+        closure: ExpertCandidateClosure,
+        freshness_context: object,
+    ) -> _SealedExpertCompositionAdmission:
+        if (
+            type(authority) is not ExpertCompositionAdmissionAuthority
+            or authority is not self._composition_admission_authority
+        ):
+            raise ExpertCandidateStoreError(
+                "composition admission was prepared by a foreign authority"
+            )
+        approved_sources = freshness_context.approved_sources
+        authority._require_approval_lease(
+            candidate_store=self,
+            approval_lease=approval_lease,
+            approved_sources=approved_sources,
+        )
+        snapshot, package_files, commit_record = self._prepare_candidate(closure)
+        if type(snapshot.derivation) is not ExpertDeterministicCompositionDerivation:
+            raise ExpertCandidateStoreError(
+                "composition admission cannot seal another derivation"
+            )
+        return _SealedExpertCompositionAdmission(
+            seal=_SEALED_COMPOSITION_ADMISSION,
+            store=self,
+            authority=authority,
+            approval_lease=approval_lease,
+            snapshot=snapshot,
+            package_files=package_files,
+            commit_record=commit_record,
+            freshness_context=freshness_context,
+        )
+
+    def _commit_composition_admission(
+        self,
+        *,
+        authority: ExpertCompositionAdmissionAuthority,
+        admission: _SealedExpertCompositionAdmission,
+    ) -> StoredExpertCandidate:
+        if (
+            type(authority) is not ExpertCompositionAdmissionAuthority
+            or authority is not self._composition_admission_authority
+            or type(admission) is not _SealedExpertCompositionAdmission
+        ):
+            raise ExpertCandidateStoreError(
+                "composition admission commit uses a foreign authority"
+            )
+        with self._exclusive_lock():
+            self._recover_staging()
+            (
+                snapshot,
+                package_files,
+                commit_record,
+                freshness_context,
+                approval_lease,
+            ) = admission._consume(
+                store=self,
+                authority=authority,
+            )
+            authority._require_approval_lease(
+                candidate_store=self,
+                approval_lease=approval_lease,
+                approved_sources=freshness_context.approved_sources,
+            )
+            (
+                validated_snapshot,
+                validated_package_files,
+                validated_commit_record,
+            ) = self._prepare_candidate(snapshot)
+            if (
+                validated_snapshot != snapshot
+                or validated_package_files != package_files
+                or validated_commit_record != commit_record
+            ):
+                raise ExpertCandidateStoreError(
+                    "composition admission changed before locked persistence"
+                )
+            self._validate_composition_sources_unlocked(snapshot)
+            fence = authority._finalize_under_store_lock(
+                candidate_store=self,
+                freshness_context=freshness_context,
+                closure=snapshot,
+                commit_record=commit_record,
+            )
+            validate_expert_composition_admission_fence(
+                fence=fence,
+                closure=snapshot,
+                commit_record=commit_record,
+            )
+            return self._persist_prepared_unlocked(
+                snapshot=snapshot,
+                package_files=package_files,
+                commit_record=commit_record,
+                composition_admission_fence=fence,
+            )
+
+    def _prepare_candidate(
+        self,
+        closure: ExpertCandidateClosure,
+    ) -> tuple[
+        ExpertCandidateClosure,
+        dict[str, bytes],
+        ExpertCandidateCommitRecord,
+    ]:
         snapshot = self._snapshot_closure(closure)
         self.validator.validate(snapshot)
         package_files = self._package_files(snapshot)
@@ -181,42 +369,105 @@ class ExpertCandidateStore:
                 for path, payload in sorted(package_files.items())
             },
         )
-        destination = self._candidate_path(snapshot.manifest.candidate_id)
+        return snapshot, package_files, commit_record
+
+    def _persist_prepared(
+        self,
+        *,
+        snapshot: ExpertCandidateClosure,
+        package_files: dict[str, bytes],
+        commit_record: ExpertCandidateCommitRecord,
+        composition_admission_fence: ExpertCompositionAdmissionFence | None,
+    ) -> StoredExpertCandidate:
+        if (
+            type(snapshot.derivation) is ExpertDeterministicCompositionDerivation
+            or composition_admission_fence is not None
+        ):
+            raise ExpertCandidateStoreError(
+                "generic candidate persistence cannot store composition authority"
+            )
         with self._exclusive_lock():
             self._recover_staging()
-            if os.path.lexists(destination):
-                stored = self._read_unlocked(snapshot.manifest.candidate_id)
-                if stored.closure != snapshot or stored.commit_record != commit_record:
-                    raise ExpertCandidateStoreError(
-                        "candidate identity conflicts with persisted closure"
-                    )
-                return stored
-            with tempfile.TemporaryDirectory(
-                prefix=".candidate-",
-                dir=self.staging_root,
-            ) as staging_name:
-                staging = Path(staging_name)
-                staging.chmod(0o700)
-                for relative_path, payload in package_files.items():
-                    self._write_private_file(staging, relative_path, payload)
+            return self._persist_prepared_unlocked(
+                snapshot=snapshot,
+                package_files=package_files,
+                commit_record=commit_record,
+                composition_admission_fence=composition_admission_fence,
+            )
+
+    def _persist_prepared_unlocked(
+        self,
+        *,
+        snapshot: ExpertCandidateClosure,
+        package_files: dict[str, bytes],
+        commit_record: ExpertCandidateCommitRecord,
+        composition_admission_fence: ExpertCompositionAdmissionFence | None,
+    ) -> StoredExpertCandidate:
+        destination = self._candidate_path(snapshot.manifest.candidate_id)
+        if os.path.lexists(destination):
+            stored = self._read_unlocked(snapshot.manifest.candidate_id)
+            if stored.closure != snapshot or stored.commit_record != commit_record:
+                raise ExpertCandidateStoreError(
+                    "candidate identity conflicts with persisted closure"
+                )
+            return stored
+        with tempfile.TemporaryDirectory(
+            prefix=".candidate-",
+            dir=self.staging_root,
+        ) as staging_name:
+            staging = Path(staging_name)
+            staging.chmod(0o700)
+            for relative_path, payload in package_files.items():
+                self._write_private_file(staging, relative_path, payload)
+            self._write_private_file(
+                staging,
+                _COMMIT_PATH,
+                commit_record.to_json_bytes(),
+            )
+            if composition_admission_fence is not None:
                 self._write_private_file(
                     staging,
-                    _COMMIT_PATH,
-                    commit_record.to_json_bytes(),
+                    _COMPOSITION_ADMISSION_PATH,
+                    composition_admission_fence.to_json_bytes(),
                 )
-                self._fsync_tree(staging)
-                staged = self._read_package(
-                    staging,
-                    snapshot.manifest.candidate_id,
+            self._fsync_tree(staging)
+            staged = self._read_package(
+                staging,
+                snapshot.manifest.candidate_id,
+            )
+            if (
+                staged.closure != snapshot
+                or staged.commit_record != commit_record
+                or staged.composition_admission_fence != composition_admission_fence
+            ):
+                raise ExpertCandidateStoreError(
+                    "staged candidate differs from its validated snapshot"
                 )
-                if staged.closure != snapshot or staged.commit_record != commit_record:
-                    raise ExpertCandidateStoreError(
-                        "staged candidate differs from its validated snapshot"
-                    )
-                self._rename_directory_no_replace(staging, destination)
-                self._fsync_directory(self.staging_root)
-                self._fsync_directory(self.object_root)
-            return self._read_unlocked(snapshot.manifest.candidate_id)
+            self._rename_directory_no_replace(staging, destination)
+            self._fsync_directory(self.staging_root)
+            self._fsync_directory(self.object_root)
+        return self._read_unlocked(snapshot.manifest.candidate_id)
+
+    def _validate_composition_sources_unlocked(
+        self,
+        closure: ExpertCandidateClosure,
+    ) -> None:
+        derivation = closure.derivation
+        if type(derivation) is not ExpertDeterministicCompositionDerivation:
+            raise ExpertCandidateStoreError(
+                "composition source validation requires its exact derivation"
+            )
+        for provenance in derivation.source_provenance:
+            stored_source = self._read_unlocked(provenance.candidate_id)
+            expected_source = composition_source_candidate_closure(provenance)
+            if (
+                stored_source.closure != expected_source
+                or stored_source.commit_record != provenance.candidate_commit_record
+                or stored_source.composition_admission_fence is not None
+            ):
+                raise ExpertCandidateStoreError(
+                    "composition source changed before locked persistence"
+                )
 
     @staticmethod
     def _snapshot_closure(
@@ -276,13 +527,16 @@ class ExpertCandidateStore:
     ) -> StoredExpertCandidate:
         files = self._read_private_tree(candidate_root)
         commit_payload = files.get(_COMMIT_PATH)
+        composition_admission_payload = files.get(_COMPOSITION_ADMISSION_PATH)
         if commit_payload is None:
             raise ExpertCandidateStoreError("candidate package is not committed")
         commit = ExpertCandidateCommitRecord.from_json_bytes(commit_payload)
         if commit_payload != commit.to_json_bytes():
             raise ExpertCandidateStoreError("candidate commit record is not canonical")
         payloads = {
-            path: payload for path, payload in files.items() if path != _COMMIT_PATH
+            path: payload
+            for path, payload in files.items()
+            if path not in {_COMMIT_PATH, _COMPOSITION_ADMISSION_PATH}
         }
         if commit.candidate_id != candidate_id or set(payloads) != set(
             commit.file_checksums
@@ -301,10 +555,41 @@ class ExpertCandidateStore:
                 "candidate directory names another manifest"
             )
         self.validator.validate_persisted(closure)
+        composition_admission_fence = None
+        if (
+            closure.manifest.derivation_kind
+            is ExpertCandidateDerivationKind.DETERMINISTIC_COMPOSITION
+        ):
+            if composition_admission_payload is None:
+                raise ExpertCandidateStoreError(
+                    "composition candidate lacks its admission fence"
+                )
+            composition_admission_fence = (
+                ExpertCompositionAdmissionFence.from_json_bytes(
+                    composition_admission_payload
+                )
+            )
+            if (
+                composition_admission_payload
+                != composition_admission_fence.to_json_bytes()
+            ):
+                raise ExpertCandidateStoreError(
+                    "composition admission fence is not canonical"
+                )
+            validate_expert_composition_admission_fence(
+                fence=composition_admission_fence,
+                closure=closure,
+                commit_record=commit,
+            )
+        elif composition_admission_payload is not None:
+            raise ExpertCandidateStoreError(
+                "agent candidate cannot contain composition admission authority"
+            )
         return StoredExpertCandidate(
             root=candidate_root,
             closure=closure,
             commit_record=commit,
+            composition_admission_fence=composition_admission_fence,
         )
 
     @staticmethod
@@ -843,6 +1128,91 @@ class ExpertCandidateStore:
                 error_number,
                 f"candidate publication failed: {errno.errorcode.get(error_number)}",
             )
+
+
+class _SealedExpertCompositionAdmission:
+    """One-shot process-local permission to persist one fenced composition."""
+
+    __slots__ = (
+        "_authority",
+        "_approval_lease",
+        "_commit_record",
+        "_consumed",
+        "_freshness_context",
+        "_owner_process_id",
+        "_package_files",
+        "_snapshot",
+        "_store",
+    )
+
+    def __init__(
+        self,
+        *,
+        seal: object,
+        store: ExpertCandidateStore,
+        authority: ExpertCompositionAdmissionAuthority,
+        approval_lease: ExpertCompositionApprovalLease,
+        snapshot: ExpertCandidateClosure,
+        package_files: dict[str, bytes],
+        commit_record: ExpertCandidateCommitRecord,
+        freshness_context: object,
+    ) -> None:
+        if seal is not _SEALED_COMPOSITION_ADMISSION:
+            raise ExpertCandidateStoreError(
+                "composition admission authority is not store sealed"
+            )
+        object.__setattr__(self, "_store", store)
+        object.__setattr__(self, "_authority", authority)
+        object.__setattr__(self, "_approval_lease", approval_lease)
+        object.__setattr__(self, "_owner_process_id", os.getpid())
+        object.__setattr__(self, "_snapshot", snapshot)
+        object.__setattr__(self, "_package_files", dict(package_files))
+        object.__setattr__(self, "_commit_record", commit_record)
+        object.__setattr__(self, "_freshness_context", freshness_context)
+        object.__setattr__(self, "_consumed", False)
+
+    def __setattr__(self, name, value) -> None:
+        raise ExpertCandidateStoreError("composition admission authority is immutable")
+
+    def __reduce__(self):
+        raise ExpertCandidateStoreError(
+            "composition admission authority cannot be serialized"
+        )
+
+    def __reduce_ex__(self, protocol):
+        raise ExpertCandidateStoreError(
+            "composition admission authority cannot be serialized"
+        )
+
+    def _consume(
+        self,
+        *,
+        store: ExpertCandidateStore,
+        authority: object,
+    ) -> tuple[
+        ExpertCandidateClosure,
+        dict[str, bytes],
+        ExpertCandidateCommitRecord,
+        object,
+        ExpertCompositionApprovalLease,
+    ]:
+        if (
+            self._consumed
+            or self._owner_process_id != os.getpid()
+            or self._store is not store
+            or self._authority is not authority
+        ):
+            raise ExpertCandidateStoreError(
+                "composition admission authority is consumed or foreign"
+            )
+        object.__setattr__(self, "_consumed", True)
+        return (
+            self._snapshot,
+            dict(self._package_files),
+            self._commit_record,
+            self._freshness_context,
+            self._approval_lease,
+        )
 
 
 class _CandidateStoreLock:

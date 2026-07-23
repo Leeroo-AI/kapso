@@ -27,7 +27,10 @@ from kapso.cross_run.contracts import (
     ExpertValidationTrack,
     TaskAdapterPackagePin,
 )
-from kapso.cross_run.expert.store import StoredExpertCandidate
+from kapso.cross_run.expert.store import (
+    StoredExpertCandidate,
+    stored_candidate_admission_dependency_ids,
+)
 from kapso.cross_run.expert.replay import _derive_expert_source_replay_selection
 from kapso.cross_run.expert.replay_publication_contracts import (
     ExpertSourceReplayStageResultRecord,
@@ -366,6 +369,7 @@ class ExpertCandidateEligibilityEvaluator:
             *(pin.verification_receipt_id for pin in adapter_pins),
             *adapter_verification_ids,
             *source_adapter_dependency_ids,
+            *stored_candidate_admission_dependency_ids(stored),
         }
         if manifest.parent_release_id is not None:
             dependencies.add(manifest.parent_release_id)
@@ -818,6 +822,9 @@ class ExpertValidationReducer:
             or manifest.scope_contract_id != attempt.scope_contract_id
             or manifest.parent_release_id != attempt.parent_release_id
             or context.scope_contract.scope_contract_id != attempt.scope_contract_id
+            or not set(stored_candidate_admission_dependency_ids(stored)).issubset(
+                attempt.eligibility_dependency_ids
+            )
         ):
             raise ExpertValidationError(
                 "active attempt differs from its immutable candidate closure"
@@ -913,6 +920,9 @@ class ExpertValidationReducer:
             != parent_receipt.source_extraction_receipt.extraction_receipt_id
             or request.parent_tree_hash != parent_receipt.parent_tree_hash
             or current_parent != attempt.parent_release_id
+            or not set(stored_candidate_admission_dependency_ids(stored)).issubset(
+                attempt.eligibility_dependency_ids
+            )
         ):
             raise ExpertValidationError(
                 "source replay request differs from current validation authority"

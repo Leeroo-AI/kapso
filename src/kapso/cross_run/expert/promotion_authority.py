@@ -16,6 +16,9 @@ from kapso.cross_run.expert.candidate_derivations import (
     ExpertCompositionSourceProvenance,
     ExpertDeterministicCompositionDerivation,
 )
+from kapso.cross_run.expert.composition_admission_contracts import (
+    ExpertCompositionAdmissionFence,
+)
 from kapso.cross_run.expert.promotion import (
     decide_expert_release_matrix_promotion,
 )
@@ -37,7 +40,10 @@ from kapso.cross_run.expert.replay_publication_contracts import (
 from kapso.cross_run.expert.review_contracts import (
     ExpertAutomatedReviewStageResultRecord,
 )
-from kapso.cross_run.expert.store import StoredExpertCandidate
+from kapso.cross_run.expert.store import (
+    StoredExpertCandidate,
+    stored_candidate_admission_dependency_ids,
+)
 from kapso.cross_run.expert.task_evaluation_authority_contracts import (
     TaskEvaluationCurrentReleaseObservation,
 )
@@ -350,6 +356,9 @@ class ExpertPublicationEligibilityCoordinator:
             or manifest.scope_contract_id != attempt.scope_contract_id
             or manifest.parent_release_id != attempt.parent_release_id
             or scope_contract.scope_contract_id != attempt.scope_contract_id
+            or not set(stored_candidate_admission_dependency_ids(stored)).issubset(
+                attempt.eligibility_dependency_ids
+            )
         ):
             raise ExpertPublicationEligibilityError(
                 "publication eligibility candidate differs from validation authority"
@@ -578,13 +587,32 @@ def publication_eligibility_candidate_security_subject_ids(
         manifest.derivation_kind is ExpertCandidateDerivationKind.AGENT_PROPOSAL
         and type(derivation) is ExpertAgentProposalDerivation
     ):
+        if stored_candidate.composition_admission_fence is not None:
+            raise ExpertPublicationEligibilityError(
+                "direct candidate cannot carry composition admission authority"
+            )
         subjects.update(_agent_derivation_security_subject_ids(derivation))
     elif (
         manifest.derivation_kind
         is ExpertCandidateDerivationKind.DETERMINISTIC_COMPOSITION
         and type(derivation) is ExpertDeterministicCompositionDerivation
     ):
+        admission_fence = stored_candidate.composition_admission_fence
+        if type(admission_fence) is not ExpertCompositionAdmissionFence:
+            raise ExpertPublicationEligibilityError(
+                "composition candidate lacks its admission authority"
+            )
         subjects.update(_composition_derivation_security_subject_ids(derivation))
+        subjects.update(
+            {
+                admission_fence.admission_fence_id,
+                admission_fence.security_denylist_observation.observation_id,
+                admission_fence.security_denylist_observation.snapshot_id,
+                admission_fence.security_denylist_observation.publication_id,
+                *admission_fence.exact_dependency_ids,
+                *admission_fence.security_subject_ids,
+            }
+        )
     else:
         raise ExpertPublicationEligibilityError(
             "candidate security projection does not recognize its derivation"

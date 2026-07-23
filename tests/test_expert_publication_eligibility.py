@@ -14,6 +14,11 @@ from kapso.cross_run.contracts import (
     ExpertValidationStage,
 )
 from kapso.cross_run.expert.composition import ExpertCompositionReducer
+from kapso.cross_run.expert.composition_admission_contracts import (
+    ExpertCompositionAdmissionFence,
+    ExpertCompositionSourceAdmissionAuthority,
+    composition_admission_security_subject_ids,
+)
 from kapso.cross_run.expert.composition_base import (
     build_expert_composition_base_closure,
 )
@@ -36,6 +41,9 @@ from kapso.cross_run.expert.promotion_authority import (
 )
 from kapso.cross_run.expert.proposal_contract import (
     mint_expert_candidate_ancestor_input,
+)
+from kapso.cross_run.expert.replay_authority_contracts import (
+    SourceReplayCurrentReleaseObservation,
 )
 from kapso.cross_run.expert.promotion_decision_contracts import (
     ExpertReleaseMatrixDecisionOutcome,
@@ -787,6 +795,118 @@ def test_composition_candidate_security_subjects_cover_outer_and_source_authorit
             },
         ),
     )
+    source_authority = ExpertCompositionSourceAdmissionAuthority.mint(
+        source_reference_id=source.source_reference.source_reference_id,
+        candidate_id=source.source_reference.candidate_id,
+        candidate_commit_record_id=(source.source_reference.candidate_commit_record_id),
+        source_reference_authority_ids=(source.source_reference.stable_authority_ids),
+        approval_transition_id=source.approval_snapshot.transition.transition_id,
+        approval_state_id=source.approval_snapshot.state.validation_state_id,
+        validation_attempt_id=(
+            source.approval_snapshot.latest_attempt.validation_attempt_id
+        ),
+        publication_eligibility_result_id=(
+            source.publication_eligibility_result.stage_result_record_id
+        ),
+        publication_result_dependency_ids=(
+            source.publication_eligibility_result.exact_dependency_ids
+        ),
+        publication_authority_fence_id=(
+            source.publication_eligibility_result.publication_authority_fence.fence_id
+        ),
+        publication_fence_security_subject_ids=(
+            source.publication_eligibility_result.publication_authority_fence.security_subject_ids
+        ),
+        publication_fence_dependency_ids=(
+            source.publication_eligibility_result.publication_authority_fence.exact_dependency_ids
+        ),
+        security_subject_ids=source.security_subject_ids,
+    )
+    current_observation = SourceReplayCurrentReleaseObservation.mint(
+        scope_id=parent_base.scope_contract.scope_id,
+        release_id=parent_base.release_manifest.release_id,
+        publication_id=content_id(
+            "github-publication",
+            {"composition_security_parent": parent_base.release_manifest.release_id},
+        ),
+        repository_full_name="Leeroo-AI/kapso-expert",
+        repository_node_id="expert_repository_node",
+        current_pointer_digest=tree_or_blob_digest(b"composition security current"),
+        current_pointer_commit_sha="d" * 40,
+        validation_closure_ids=(
+            content_id(
+                "expert-validation-closure",
+                {
+                    "composition_security_parent": parent_base.release_manifest.release_id
+                },
+            ),
+        ),
+    )
+    base_security_subject_ids = tuple(
+        sorted(
+            {
+                parent_base.reference.base_reference_id,
+                *parent_base.reference.stable_authority_ids,
+                parent_base.parent_tree_receipt.parent_tree_receipt_id,
+                parent_base.parent_tree_receipt.source_extraction_receipt.extraction_receipt_id,
+                current_observation.observation_id,
+                current_observation.publication_id,
+                *current_observation.validation_closure_ids,
+                *parent_base.release_manifest.dependency_closure_ids,
+            }
+        )
+    )
+    source_publication_fence = (
+        source.publication_eligibility_result.publication_authority_fence
+    )
+    assert source_publication_fence is not None
+    adapter_observations = source_publication_fence.task_adapter_trust_observations
+    admission_subjects = composition_admission_security_subject_ids(
+        closure=closure,
+        commit_record=stored.commit_record,
+        base_security_subject_ids=base_security_subject_ids,
+        source_authorities=(source_authority,),
+        current_release_observation=current_observation,
+        task_adapter_trust_observations=adapter_observations,
+    )
+    admission_denylist = SecurityDenylistObservation.mint(
+        scope_id=parent_base.scope_contract.scope_id,
+        scope_contract_id=parent_base.scope_contract.scope_contract_id,
+        scope_repository_binding_hash=tree_or_blob_digest(b"scope binding"),
+        snapshot_id=content_id(
+            "security-denylist-snapshot",
+            {"composition_security": True},
+        ),
+        generation=8,
+        publication_id=content_id(
+            "github-publication",
+            {"composition_security_denylist": True},
+        ),
+        repository_full_name="Leeroo-AI/kapso-security",
+        repository_node_id="security_repo_node",
+        pointer_digest=tree_or_blob_digest(b"composition security denylist"),
+        authority_commit_sha="e" * 40,
+        release_attestation_ref="attestations/composition-security",
+        checked_subject_ids=admission_subjects,
+        denied_subject_ids=(),
+    )
+    admission_fence = ExpertCompositionAdmissionFence.mint(
+        candidate_id=closure.manifest.candidate_id,
+        candidate_commit_record_id=stored.commit_record.commit_record_id,
+        candidate_tree_hash=closure.manifest.candidate_tree_hash,
+        scope_id=parent_base.scope_contract.scope_id,
+        scope_contract_id=parent_base.scope_contract.scope_contract_id,
+        expected_parent_release_id=parent_base.release_manifest.release_id,
+        composition_plan_id=plan.composition_plan_id,
+        composition_materialization_id=(reduction.materialization.materialization_id),
+        base_reference_id=parent_base.reference.base_reference_id,
+        base_security_subject_ids=base_security_subject_ids,
+        source_authorities=(source_authority,),
+        current_release_observation=current_observation,
+        task_adapter_trust_observations=adapter_observations,
+        security_denylist_observation=admission_denylist,
+    )
+    stored = replace(stored, composition_admission_fence=admission_fence)
     derivation = closure.derivation
     provenance = derivation.source_provenance[0]
     nested_manifest = provenance.candidate_manifest
@@ -800,6 +920,8 @@ def test_composition_candidate_security_subjects_cover_outer_and_source_authorit
         derivation.materialization.materialization_id,
         derivation.materialization.composition_assessment.assessment_id,
         plan.composition_plan_id,
+        admission_fence.admission_fence_id,
+        admission_denylist.observation_id,
         nested_manifest.candidate_id,
         provenance.candidate_commit_record.commit_record_id,
         nested_manifest.validation_context_ref,

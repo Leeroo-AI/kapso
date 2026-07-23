@@ -156,6 +156,21 @@ def test_candidate_store_rejects_agent_artifact_corruption(tmp_path):
         store.read(closure.manifest.candidate_id)
 
 
+def test_candidate_store_rejects_composition_admission_on_agent_candidate(tmp_path):
+    store = candidate_store(tmp_path)
+    closure = bootstrap_candidate_closure()
+    stored = store.persist(closure)
+    admission = stored.root / "ADMISSION.json"
+    admission.write_bytes(b"{}")
+    admission.chmod(0o600)
+
+    with pytest.raises(
+        ExpertCandidateStoreError,
+        match="agent candidate cannot contain composition admission authority",
+    ):
+        store.read(closure.manifest.candidate_id)
+
+
 def test_candidate_store_syncs_both_rename_parents(tmp_path, monkeypatch):
     synchronized: list[Path] = []
     synchronize = ExpertCandidateStore._fsync_directory
