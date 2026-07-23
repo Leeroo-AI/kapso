@@ -296,7 +296,6 @@ class ExpertCandidateProposalEngine:
                 candidate_tree=stored.closure.candidate_tree,
                 repository_map=stored.closure.repository_map,
                 module_contracts=stored.closure.module_contracts,
-                workspace_delta=stored.closure.derivation.workspace_delta,
                 sanitation_report=stored.closure.sanitation_report,
                 candidate_contents=stored.closure.candidate_contents,
             )

@@ -232,7 +232,6 @@ class ExpertAutomatedReviewCoordinator:
             candidate_tree=closure.candidate_tree,
             repository_map=closure.repository_map,
             module_contracts=closure.module_contracts,
-            workspace_delta=closure.derivation.workspace_delta,
             sanitation_report=closure.sanitation_report,
             candidate_contents=closure.candidate_contents,
         )

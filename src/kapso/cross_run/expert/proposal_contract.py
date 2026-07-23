@@ -9,11 +9,9 @@ from typing import Any, Mapping
 from kapso.cross_run.canonical import (
     canonical_json_bytes,
     parse_json_bytes,
-    source_tree_digest,
     tree_or_blob_digest,
 )
 from kapso.cross_run.contracts import (
-    CodingAgentWorkspaceDelta,
     ExpertCandidateManifest,
     ExpertCandidateOperationKind,
     ExpertCandidatePatch,
@@ -32,7 +30,6 @@ from kapso.cross_run.expert.book import (
     EXPERT_BOOK_PATH,
     EXPERT_REPOSITORY_MAP_PATH,
     compile_expert_semantic_book,
-    expert_control_paths,
     expert_module_contract_path,
     expert_semantic_book_digest,
 )
@@ -191,7 +188,6 @@ class ExpertCandidateAncestorInput(StrictContract):
     candidate_tree: ExpertSourceTreeManifest
     repository_map: ExpertRepositoryMap
     module_contracts: tuple[ExpertModuleContract, ...]
-    workspace_delta: CodingAgentWorkspaceDelta
     sanitation_report: ExpertCandidateSanitationReport
     candidate_contents_text: Mapping[str, str]
 
@@ -221,7 +217,6 @@ class ExpertCandidateAncestorInput(StrictContract):
             or self.manifest.sanitation_report_id
             != self.sanitation_report.sanitation_report_id
             or self.patch.candidate_tree_hash != self.candidate_tree.tree_hash
-            or self.workspace_delta.edited_tree_hash != self._editable_tree_hash()
         ):
             raise ExpertProposalContractError(
                 "ancestor materialization differs from its candidate manifest"
@@ -248,19 +243,6 @@ class ExpertCandidateAncestorInput(StrictContract):
             path: payload.encode("utf-8")
             for path, payload in self.candidate_contents_text.items()
         }
-
-    def _editable_tree_hash(self) -> str:
-        control_paths = set(expert_control_paths(self.module_contracts))
-        editable = {
-            file.relative_path: (file.digest, file.mode, file.size)
-            for file in self.candidate_tree.files
-            if file.relative_path not in control_paths
-        }
-        if not editable:
-            raise ExpertProposalContractError(
-                "ancestor candidate has no editable source"
-            )
-        return source_tree_digest(editable)
 
     def _validate_generated_controls(self, contents: Mapping[str, bytes]) -> None:
         expected_book = compile_expert_semantic_book(
@@ -295,7 +277,6 @@ def mint_expert_candidate_ancestor_input(
     candidate_tree: ExpertSourceTreeManifest,
     repository_map: ExpertRepositoryMap,
     module_contracts: tuple[ExpertModuleContract, ...],
-    workspace_delta: CodingAgentWorkspaceDelta,
     sanitation_report: ExpertCandidateSanitationReport,
     candidate_contents: Mapping[str, bytes],
 ) -> ExpertCandidateAncestorInput:
@@ -306,7 +287,6 @@ def mint_expert_candidate_ancestor_input(
         candidate_tree=candidate_tree,
         repository_map=repository_map,
         module_contracts=module_contracts,
-        workspace_delta=workspace_delta,
         sanitation_report=sanitation_report,
         candidate_contents_text={
             path: payload.decode("utf-8")

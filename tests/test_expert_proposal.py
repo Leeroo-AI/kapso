@@ -477,7 +477,7 @@ def test_architect_persists_exact_ancestor_source_input(tmp_path):
 
     assert second.closure.manifest.candidate_id != first.closure.manifest.candidate_id
     assert ancestor.manifest == first.closure.manifest
-    assert ancestor.workspace_delta == first.closure.derivation.workspace_delta
+    assert "workspace_delta" not in ancestor.to_dict()
     assert ancestor.candidate_contents() == first.closure.candidate_contents
     assert ancestor.candidate_contents_text["src/execution.py"].startswith(
         "def execute"

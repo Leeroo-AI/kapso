@@ -112,6 +112,10 @@ class ExpertCandidateClosure:
             return ExpertValidationTrack.MECHANICAL_GENERAL_FIX
         return ExpertValidationTrack.BEHAVIORAL_CAPABILITY
 
+    @property
+    def ancestor_inputs(self) -> tuple[ExpertCandidateAncestorInput, ...]:
+        return self.derivation.ancestor_inputs
+
 
 class ExpertCandidateValidator:
     """Join every candidate record into one exact, authority-safe closure."""
@@ -910,8 +914,7 @@ class ExpertCandidateValidator:
     def _validate_ancestors(self, closure: ExpertCandidateClosure) -> None:
         manifest = closure.manifest
         ancestor_ids = tuple(
-            ancestor.manifest.candidate_id
-            for ancestor in closure.derivation.ancestor_inputs
+            ancestor.manifest.candidate_id for ancestor in closure.ancestor_inputs
         )
         if ancestor_ids != manifest.ancestor_candidate_ids:
             raise ExpertCandidateValidationError(
@@ -925,12 +928,12 @@ class ExpertCandidateValidator:
             ancestor.manifest.scope_contract_id != manifest.scope_contract_id
             or ancestor.manifest.parent_tree_hash != manifest.parent_tree_hash
             or ancestor.manifest.candidate_id == manifest.candidate_id
-            for ancestor in closure.derivation.ancestor_inputs
+            for ancestor in closure.ancestor_inputs
         ):
             raise ExpertCandidateValidationError(
                 "candidate ancestor is incompatible with this proposal"
             )
-        for ancestor in closure.derivation.ancestor_inputs:
+        for ancestor in closure.ancestor_inputs:
             self._validate_ancestor_input(closure, ancestor)
 
     def _validate_ancestor_input(
@@ -963,66 +966,14 @@ class ExpertCandidateValidator:
             raise ExpertCandidateValidationError(
                 "candidate ancestor patch differs from the shared parent"
             )
-        parent_controls = set(
-            expert_control_paths(closure.validation_context.parent_module_contracts)
-        )
-        candidate_controls = set(expert_control_paths(ancestor.module_contracts))
-        editable_parent = {
-            path: descriptor
-            for path, descriptor in parent_files.items()
-            if path not in parent_controls
-        }
-        editable_candidate = {
-            path: descriptor
-            for path, descriptor in candidate_files.items()
-            if path not in candidate_controls
-        }
-        baseline_tree_hash = (
-            EMPTY_EXPERT_TREE_DIGEST
-            if not editable_parent
-            else source_tree_digest(
-                {
-                    path: (descriptor.digest, descriptor.mode, descriptor.size)
-                    for path, descriptor in editable_parent.items()
-                }
-            )
-        )
-        edited_tree_hash = source_tree_digest(
-            {
-                path: (descriptor.digest, descriptor.mode, descriptor.size)
-                for path, descriptor in editable_candidate.items()
-            }
-        )
-        changed_paths = tuple(
-            path
-            for path in sorted(editable_candidate)
-            if editable_parent.get(path) != editable_candidate[path]
-        )
-        deleted_paths = tuple(
-            path for path in sorted(editable_parent) if path not in editable_candidate
-        )
         contents = ancestor.candidate_contents()
-        expected_delta = CodingAgentWorkspaceDelta.mint(
-            baseline_tree_hash=baseline_tree_hash,
-            edited_tree_hash=edited_tree_hash,
-            changed_files=tuple(
-                CodingAgentWorkspaceChangedFile(
-                    before=editable_parent.get(path),
-                    after=editable_candidate[path],
-                    content_base64=base64.b64encode(contents[path]).decode("ascii"),
-                )
-                for path in changed_paths
-            ),
-            deleted_files=tuple(editable_parent[path] for path in deleted_paths),
-        )
         expected_sanitation = self.sanitizer.scan(
             manifest.scope_contract_id,
             ancestor.candidate_tree,
             contents,
         )
         if (
-            ancestor.workspace_delta != expected_delta
-            or ancestor.sanitation_report != expected_sanitation
+            ancestor.sanitation_report != expected_sanitation
             or ancestor.sanitation_report.status
             is not ExpertCandidateSanitationStatus.ADMITTED
         ):
