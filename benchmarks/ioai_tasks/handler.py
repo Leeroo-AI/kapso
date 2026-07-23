@@ -89,9 +89,9 @@ you train on and the data you are scored on (class balance, source/session
 structure, unseen conditions), a naive random split will over-report — carve
 a split that reflects the real evaluation, and trust that, not raw training
 accuracy. Report each experiment's measured {self.eval_spec['metric_name']}
-in <score></score> tags AND write kapso_evaluation/result.json:
-{{"score": <float>, "notes": "..."}}. Never fabricate a score; a failed run
-is reported as such.
+in <score></score> tags in your FINAL message — that tag is the ONLY thing
+the search reads to score your solution, so it must be present every run.
+Never fabricate a score; a failed run is reported as such.
 """
 
     def stop_condition(self) -> bool:
