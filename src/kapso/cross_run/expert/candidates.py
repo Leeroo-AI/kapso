@@ -926,7 +926,6 @@ class ExpertCandidateValidator:
             )
         if any(
             ancestor.manifest.scope_contract_id != manifest.scope_contract_id
-            or ancestor.manifest.parent_tree_hash != manifest.parent_tree_hash
             or ancestor.manifest.candidate_id == manifest.candidate_id
             for ancestor in closure.ancestor_inputs
         ):
@@ -945,26 +944,6 @@ class ExpertCandidateValidator:
         if ancestor.scope_contract != closure.validation_context.scope_contract:
             raise ExpertCandidateValidationError(
                 "candidate ancestor uses another scope contract"
-            )
-        parent_files = {file.relative_path: file for file in closure.parent_files}
-        candidate_files = {
-            file.relative_path: file for file in ancestor.candidate_tree.files
-        }
-        expected_patch_changes = tuple(
-            ExpertCandidatePatchChange(
-                relative_path=path,
-                before=parent_files.get(path),
-                after=candidate_files.get(path),
-            )
-            for path in sorted(set(parent_files) | set(candidate_files))
-            if parent_files.get(path) != candidate_files.get(path)
-        )
-        if (
-            ancestor.patch.parent_tree_hash != manifest.parent_tree_hash
-            or ancestor.patch.changes != expected_patch_changes
-        ):
-            raise ExpertCandidateValidationError(
-                "candidate ancestor patch differs from the shared parent"
             )
         contents = ancestor.candidate_contents()
         expected_sanitation = self.sanitizer.scan(

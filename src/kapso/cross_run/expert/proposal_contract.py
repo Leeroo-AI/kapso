@@ -9,12 +9,15 @@ from typing import Any, Mapping
 from kapso.cross_run.canonical import (
     canonical_json_bytes,
     parse_json_bytes,
+    source_tree_digest,
     tree_or_blob_digest,
 )
 from kapso.cross_run.contracts import (
+    EMPTY_EXPERT_TREE_DIGEST,
     ExpertCandidateManifest,
     ExpertCandidateOperationKind,
     ExpertCandidatePatch,
+    ExpertCandidatePatchChange,
     ExpertCandidateSanitationReport,
     ExpertCapabilityLineage,
     ExpertCapabilityNode,
@@ -236,6 +239,43 @@ class ExpertCandidateAncestorInput(StrictContract):
                 raise ExpertProposalContractError(
                     f"ancestor source differs from its descriptor: {path}"
                 )
+        parent_descriptors = dict(descriptors)
+        for change in self.patch.changes:
+            if descriptors.get(change.relative_path) != change.after:
+                raise ExpertProposalContractError(
+                    "ancestor patch differs from its candidate tree"
+                )
+            if change.before is None:
+                parent_descriptors.pop(change.relative_path, None)
+            else:
+                parent_descriptors[change.relative_path] = change.before
+        parent_tree_hash = (
+            EMPTY_EXPERT_TREE_DIGEST
+            if not parent_descriptors
+            else source_tree_digest(
+                {
+                    path: (descriptor.digest, descriptor.mode, descriptor.size)
+                    for path, descriptor in parent_descriptors.items()
+                }
+            )
+        )
+        expected_changes = tuple(
+            ExpertCandidatePatchChange(
+                relative_path=path,
+                before=parent_descriptors.get(path),
+                after=descriptors.get(path),
+            )
+            for path in sorted(set(parent_descriptors) | set(descriptors))
+            if parent_descriptors.get(path) != descriptors.get(path)
+        )
+        if (
+            self.patch.parent_tree_hash != self.manifest.parent_tree_hash
+            or self.patch.parent_tree_hash != parent_tree_hash
+            or self.patch.changes != expected_changes
+        ):
+            raise ExpertProposalContractError(
+                "ancestor patch does not transform its exact parent tree"
+            )
         self._validate_generated_controls(contents)
 
     def candidate_contents(self) -> dict[str, bytes]:
