@@ -22,6 +22,7 @@ from kapso.cross_run.contracts import (
     ExpertCandidateOperationRecord,
     ExpertCandidateEligibilityDecision,
     ExpertCandidateValidationState,
+    ExpertBaseReleaseManifest,
     ExpertEvaluatorOutcome,
     ExpertEvaluatorResultRecord,
     ExpertPromotionState,
@@ -122,6 +123,13 @@ from kapso.cross_run.expert.review_contracts import (
     ExpertAutomatedReviewPacket,
     ExpertAutomatedReviewStageResultRecord,
 )
+from kapso.cross_run.expert.release_contracts import (
+    ExpertReleasePublicationIntent,
+    ExpertReleasePublicationPlan,
+    ExpertReleasePublicationStaleResolution,
+)
+from kapso.cross_run.expert.release import ExpertReleaseAssembler
+from kapso.cross_run.expert.publisher import ExpertReleasePublisher
 from kapso.cross_run.expert.task_evaluation_authority_contracts import (
     TaskEvaluationCurrentReleaseObservation,
 )
@@ -161,6 +169,8 @@ class ExpertValidationJournal(StrictContract):
     candidate_tree_hash: str
     transition_ids: tuple[str, ...]
     operation_transition_ids: Mapping[str, str]
+    release_publication_intent_id: str | None
+    release_publication_stale_resolution_id: str | None
 
     def _validate(self) -> None:
         require_content_id(self.candidate_id, "journal candidate_id")
@@ -177,6 +187,36 @@ class ExpertValidationJournal(StrictContract):
                 raise ContractValidationError(
                     "journal operation names an absent transition"
                 )
+        if self.release_publication_intent_id is not None:
+            require_content_id(
+                self.release_publication_intent_id,
+                "journal release publication intent",
+            )
+            if self.release_publication_intent_id.split(":sha256:", 1)[0] != (
+                "expert-release-publication-intent"
+            ):
+                raise ContractValidationError(
+                    "journal release publication intent uses the wrong namespace"
+                )
+        if self.release_publication_stale_resolution_id is not None:
+            require_content_id(
+                self.release_publication_stale_resolution_id,
+                "journal stale release publication resolution",
+            )
+            if (
+                self.release_publication_stale_resolution_id.split(":sha256:", 1)[0]
+                != "expert-release-publication-stale-resolution"
+            ):
+                raise ContractValidationError(
+                    "journal stale release publication resolution uses the wrong namespace"
+                )
+        if (
+            self.release_publication_intent_id is not None
+            and self.release_publication_stale_resolution_id is not None
+        ):
+            raise ContractValidationError(
+                "journal cannot contain pending and stale release publication authority"
+            )
 
 
 @dataclass(frozen=True)
@@ -262,6 +302,165 @@ class ExpertPublicationEligibilityStageCommitResult:
     stage_result: ExpertPublicationEligibilityStageResultRecord
     snapshot: ExpertValidationSnapshot
     replayed: bool
+
+
+@dataclass(frozen=True)
+class ExpertReleasePublicationReservation:
+    intent: ExpertReleasePublicationIntent
+    plan: ExpertReleasePublicationPlan
+    manifest: ExpertBaseReleaseManifest
+    snapshot: ExpertValidationSnapshot
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.intent) is not ExpertReleasePublicationIntent
+            or type(self.plan) is not ExpertReleasePublicationPlan
+            or type(self.manifest) is not ExpertBaseReleaseManifest
+            or type(self.snapshot) is not ExpertValidationSnapshot
+            or self.intent.publication_plan_id != self.plan.publication_plan_id
+            or self.plan.release_id != self.manifest.release_id
+            or self.plan.candidate_id != self.snapshot.state.candidate_id
+            or self.plan.approval_transition_id
+            != self.snapshot.transition.transition_id
+            or self.plan.approval_state_id != self.snapshot.state.validation_state_id
+        ):
+            raise ExpertValidationStoreError(
+                "release publication reservation authority is inconsistent"
+            )
+
+
+@dataclass(frozen=True)
+class ExpertReleasePublicationReservationCommitResult:
+    reservation: ExpertReleasePublicationReservation
+    replayed: bool
+
+
+_RELEASE_PUBLICATION_PLAN_PERMIT_SEAL = object()
+
+
+class ExpertReleasePublicationPlanPermit:
+    """One-shot process-local authority over an assembler-verified release plan."""
+
+    __slots__ = (
+        "_assembler",
+        "_consumed",
+        "_manifest",
+        "_owner_process_id",
+        "_plan",
+        "_store",
+    )
+
+    def __init__(
+        self,
+        seal: object,
+        store: ExpertValidationStore,
+        assembler: object,
+        plan: ExpertReleasePublicationPlan,
+        manifest: ExpertBaseReleaseManifest,
+    ) -> None:
+        if seal is not _RELEASE_PUBLICATION_PLAN_PERMIT_SEAL:
+            raise ExpertValidationStoreError(
+                "release publication plan permit is not store sealed"
+            )
+        object.__setattr__(self, "_store", store)
+        object.__setattr__(self, "_assembler", assembler)
+        object.__setattr__(self, "_owner_process_id", os.getpid())
+        object.__setattr__(self, "_consumed", False)
+        object.__setattr__(self, "_plan", plan)
+        object.__setattr__(self, "_manifest", manifest)
+
+    def __setattr__(self, name, value) -> None:
+        raise ExpertValidationStoreError("release publication plan permit is immutable")
+
+    def _consume(
+        self,
+        store: ExpertValidationStore,
+        assembler: object,
+    ) -> tuple[ExpertReleasePublicationPlan, ExpertBaseReleaseManifest]:
+        self._require_bound(store, assembler)
+        object.__setattr__(self, "_consumed", True)
+        return self._plan, self._manifest
+
+    def _require_bound(
+        self,
+        store: ExpertValidationStore,
+        assembler: object,
+    ) -> None:
+        if (
+            self._consumed
+            or self._store is not store
+            or self._assembler is not assembler
+            or self._owner_process_id != os.getpid()
+        ):
+            raise ExpertValidationStoreError(
+                "release publication plan permit is consumed or foreign"
+            )
+
+
+_RELEASE_PUBLICATION_STALE_PERMIT_SEAL = object()
+
+
+class ExpertReleasePublicationStalePermit:
+    """One-shot authority over a publisher-classified losing reservation."""
+
+    __slots__ = (
+        "_consumed",
+        "_observed_current",
+        "_owner_process_id",
+        "_publisher",
+        "_reservation",
+        "_resolved_at",
+        "_store",
+    )
+
+    def __init__(
+        self,
+        seal: object,
+        store: ExpertValidationStore,
+        publisher: object,
+        reservation: ExpertReleasePublicationReservation,
+        observed_current: TaskEvaluationCurrentReleaseObservation,
+        resolved_at: str,
+    ) -> None:
+        if seal is not _RELEASE_PUBLICATION_STALE_PERMIT_SEAL:
+            raise ExpertValidationStoreError(
+                "release publication stale permit is not store sealed"
+            )
+        object.__setattr__(self, "_store", store)
+        object.__setattr__(self, "_publisher", publisher)
+        object.__setattr__(self, "_owner_process_id", os.getpid())
+        object.__setattr__(self, "_consumed", False)
+        object.__setattr__(self, "_reservation", reservation)
+        object.__setattr__(self, "_observed_current", observed_current)
+        object.__setattr__(self, "_resolved_at", resolved_at)
+
+    def __setattr__(self, name, value) -> None:
+        raise ExpertValidationStoreError(
+            "release publication stale permit is immutable"
+        )
+
+    def _consume(
+        self,
+        store: ExpertValidationStore,
+        publisher: object,
+    ) -> None:
+        self._require_bound(store, publisher)
+        object.__setattr__(self, "_consumed", True)
+
+    def _require_bound(
+        self,
+        store: ExpertValidationStore,
+        publisher: object,
+    ) -> None:
+        if (
+            self._consumed
+            or self._store is not store
+            or self._publisher is not publisher
+            or self._owner_process_id != os.getpid()
+        ):
+            raise ExpertValidationStoreError(
+                "release publication stale permit is consumed or foreign"
+            )
 
 
 @dataclass(frozen=True)
@@ -377,6 +576,8 @@ class ExpertValidationStore:
         self._automated_review_coordinator = None
         self._release_matrix_stage_coordinator = None
         self._publication_eligibility_coordinator = None
+        self._release_assembler = None
+        self._release_publisher = None
         initialization_lock = state_root / f".{root.name}.initialization.lock"
         with _ValidationStoreLock(initialization_lock, exclusive=True, create=True):
             self._prepare_layout()
@@ -389,6 +590,246 @@ class ExpertValidationStore:
         require_content_id(candidate_id, "candidate_id")
         with self._lock(exclusive=False):
             return self._snapshot_unlocked(candidate_id)
+
+    def reserve_release_publication(
+        self,
+        publication_permit: ExpertReleasePublicationPlanPermit,
+        *,
+        committed_at: str,
+    ) -> ExpertReleasePublicationReservationCommitResult:
+        """Freeze one terminal approval to a first-writer-wins publication intent."""
+
+        if type(publication_permit) is not ExpertReleasePublicationPlanPermit:
+            raise ExpertValidationStoreError(
+                "release publication reservation requires an assembler-sealed permit"
+            )
+        assembler = self._require_bound_release_assembly_authority(
+            self._release_assembler
+        )
+        publication_permit._require_bound(self, assembler)
+        plan = publication_permit._plan
+        manifest = publication_permit._manifest
+        proposed_intent = ExpertReleasePublicationIntent.mint(
+            publication_plan_id=plan.publication_plan_id,
+            committed_at=committed_at,
+        )
+        with self._lock(exclusive=True):
+            journal = self._read_journal_unlocked(plan.candidate_id)
+            current = self._current_from_journal_unlocked(journal)
+            if current is None:
+                raise ExpertValidationStoreError(
+                    "release publication reservation has no validation head"
+                )
+            if journal.release_publication_stale_resolution_id is not None:
+                raise ExpertValidationCompareAndSwapError(
+                    "candidate already has a stale release publication resolution"
+                )
+            if journal.release_publication_intent_id is not None:
+                stored_intent = self._read_contract_unlocked(
+                    journal.release_publication_intent_id,
+                    ExpertReleasePublicationIntent,
+                )
+                stored_plan = self._read_contract_unlocked(
+                    stored_intent.publication_plan_id,
+                    ExpertReleasePublicationPlan,
+                )
+                stored_manifest = self._read_contract_unlocked(
+                    stored_plan.release_id,
+                    ExpertBaseReleaseManifest,
+                )
+                if stored_plan != plan or stored_manifest != manifest:
+                    raise ExpertValidationCompareAndSwapError(
+                        "validation approval is reserved for another release plan"
+                    )
+                self._validate_release_publication_reservation_unlocked(
+                    stored_intent,
+                    stored_plan,
+                    stored_manifest,
+                    current,
+                )
+                publication_permit._consume(self, assembler)
+                return ExpertReleasePublicationReservationCommitResult(
+                    reservation=ExpertReleasePublicationReservation(
+                        intent=stored_intent,
+                        plan=stored_plan,
+                        manifest=stored_manifest,
+                        snapshot=current,
+                    ),
+                    replayed=True,
+                )
+            self._validate_release_publication_reservation_unlocked(
+                proposed_intent,
+                plan,
+                manifest,
+                current,
+            )
+            publication_permit._consume(self, assembler)
+            self._write_contract_unlocked(manifest)
+            self._write_contract_unlocked(plan)
+            self._write_contract_unlocked(proposed_intent)
+            updated = ExpertValidationJournal(
+                candidate_id=journal.candidate_id,
+                candidate_tree_hash=journal.candidate_tree_hash,
+                transition_ids=journal.transition_ids,
+                operation_transition_ids=journal.operation_transition_ids,
+                release_publication_intent_id=(proposed_intent.publication_intent_id),
+                release_publication_stale_resolution_id=None,
+            )
+            self._publish_journal_unlocked(updated)
+            return ExpertReleasePublicationReservationCommitResult(
+                reservation=ExpertReleasePublicationReservation(
+                    intent=proposed_intent,
+                    plan=plan,
+                    manifest=manifest,
+                    snapshot=current,
+                ),
+                replayed=False,
+            )
+
+    def reopen_release_publication(
+        self,
+        candidate_id: str,
+    ) -> ExpertReleasePublicationReservation | None:
+        """Reopen the exact frozen approval and publication intent."""
+
+        require_content_id(candidate_id, "release publication candidate_id")
+        with self._lock(exclusive=False):
+            journal = self._read_journal_unlocked(candidate_id)
+            intent_id = journal.release_publication_intent_id
+            if intent_id is None:
+                return None
+            intent = self._read_contract_unlocked(
+                intent_id,
+                ExpertReleasePublicationIntent,
+            )
+            plan = self._read_contract_unlocked(
+                intent.publication_plan_id,
+                ExpertReleasePublicationPlan,
+            )
+            manifest = self._read_contract_unlocked(
+                plan.release_id,
+                ExpertBaseReleaseManifest,
+            )
+            current = self._current_from_journal_unlocked(journal)
+            if current is None:
+                raise ExpertValidationStoreError(
+                    "release publication reservation lost its validation head"
+                )
+            self._validate_release_publication_reservation_unlocked(
+                intent,
+                plan,
+                manifest,
+                current,
+            )
+            return ExpertReleasePublicationReservation(
+                intent=intent,
+                plan=plan,
+                manifest=manifest,
+                snapshot=current,
+            )
+
+    def resolve_stale_release_publication(
+        self,
+        stale_permit: ExpertReleasePublicationStalePermit,
+    ) -> ExpertReleasePublicationStaleResolution:
+        """Terminalize one publisher-classified losing publication intent."""
+
+        if type(stale_permit) is not ExpertReleasePublicationStalePermit:
+            raise ExpertValidationStoreError(
+                "stale publication resolution requires a publisher-sealed permit"
+            )
+        publisher = self._require_bound_release_publisher_authority(
+            self._release_publisher
+        )
+        stale_permit._require_bound(self, publisher)
+        reservation = stale_permit._reservation
+        plan = reservation.plan
+        observed = stale_permit._observed_current
+        dependencies = {
+            reservation.intent.publication_intent_id,
+            plan.publication_plan_id,
+            plan.release_id,
+            plan.candidate_id,
+            plan.approval_transition_id,
+            plan.approval_state_id,
+            plan.current_release_observation.observation_id,
+            observed.observation_id,
+            *observed.validation_closure_ids,
+        }
+        if observed.release_id is not None:
+            dependencies.add(observed.release_id)
+        if observed.publication_id is not None:
+            dependencies.add(observed.publication_id)
+        resolution = ExpertReleasePublicationStaleResolution.mint(
+            publication_intent_id=reservation.intent.publication_intent_id,
+            publication_plan_id=plan.publication_plan_id,
+            release_id=plan.release_id,
+            candidate_id=plan.candidate_id,
+            approval_transition_id=plan.approval_transition_id,
+            approval_state_id=plan.approval_state_id,
+            planned_current_observation_id=(
+                plan.current_release_observation.observation_id
+            ),
+            observed_current_release=observed,
+            resolved_at=stale_permit._resolved_at,
+            exact_dependency_ids=tuple(sorted(dependencies)),
+        )
+        with self._lock(exclusive=True):
+            journal = self._read_journal_unlocked(plan.candidate_id)
+            if journal.release_publication_stale_resolution_id is not None:
+                stored = self._read_contract_unlocked(
+                    journal.release_publication_stale_resolution_id,
+                    ExpertReleasePublicationStaleResolution,
+                )
+                if (
+                    stored.publication_intent_id
+                    != reservation.intent.publication_intent_id
+                    or stored.publication_plan_id != plan.publication_plan_id
+                ):
+                    raise ExpertValidationCompareAndSwapError(
+                        "stale publication resolution conflicts with durable outcome"
+                    )
+                stale_permit._consume(self, publisher)
+                return stored
+            if journal.release_publication_intent_id != (
+                reservation.intent.publication_intent_id
+            ):
+                raise ExpertValidationCompareAndSwapError(
+                    "release publication intent changed before stale resolution"
+                )
+            stale_permit._consume(self, publisher)
+            self._write_contract_unlocked(resolution)
+            updated = ExpertValidationJournal(
+                candidate_id=journal.candidate_id,
+                candidate_tree_hash=journal.candidate_tree_hash,
+                transition_ids=journal.transition_ids,
+                operation_transition_ids=journal.operation_transition_ids,
+                release_publication_intent_id=None,
+                release_publication_stale_resolution_id=(
+                    resolution.stale_resolution_id
+                ),
+            )
+            self._publish_journal_unlocked(updated)
+            return resolution
+
+    def reopen_stale_release_publication(
+        self,
+        candidate_id: str,
+    ) -> ExpertReleasePublicationStaleResolution:
+        """Reopen the first durable terminal outcome for a losing reservation."""
+
+        require_content_id(candidate_id, "stale release publication candidate_id")
+        with self._lock(exclusive=False):
+            journal = self._read_journal_unlocked(candidate_id)
+            resolution_id = journal.release_publication_stale_resolution_id
+            if resolution_id is None:
+                raise ExpertValidationStoreError(
+                    "candidate has no stale release publication resolution"
+                )
+            return self._read_contract_unlocked(
+                resolution_id,
+                ExpertReleasePublicationStaleResolution,
+            )
 
     def reopen_or_replay_automated_review(
         self,
@@ -616,6 +1057,144 @@ class ExpertValidationStore:
                 "validation store has invalid publication eligibility authority"
             )
         self._publication_eligibility_coordinator = coordinator
+
+    def _bind_release_assembly_authority(self, assembler: object) -> None:
+        if type(assembler) is not ExpertReleaseAssembler:
+            raise ExpertValidationStoreError(
+                "release publication assembler is not the concrete authority"
+            )
+        if self._release_assembler is not None and self._release_assembler is not (
+            assembler
+        ):
+            raise ExpertValidationStoreError(
+                "validation store already has another release assembler"
+            )
+        self._release_assembler = assembler
+
+    def _bind_release_publisher_authority(self, publisher: object) -> None:
+        if (
+            type(publisher) is not ExpertReleasePublisher
+            or publisher.validation_store is not self
+            or publisher.assembler is not self._release_assembler
+        ):
+            raise ExpertValidationStoreError(
+                "release publisher is not the concrete bound authority"
+            )
+        if self._release_publisher is not None and self._release_publisher is not (
+            publisher
+        ):
+            raise ExpertValidationStoreError(
+                "validation store already has another release publisher"
+            )
+        self._release_publisher = publisher
+
+    def _require_bound_release_publisher_authority(
+        self,
+        publisher: object,
+    ) -> ExpertReleasePublisher:
+        if (
+            type(publisher) is not ExpertReleasePublisher
+            or publisher is not self._release_publisher
+            or publisher.validation_store is not self
+            or publisher.assembler is not self._release_assembler
+        ):
+            raise ExpertValidationStoreError(
+                "release publication lacks its bound publisher authority"
+            )
+        return publisher
+
+    def _seal_stale_release_publication(
+        self,
+        *,
+        publisher: object,
+        reservation: ExpertReleasePublicationReservation,
+        observed_current: TaskEvaluationCurrentReleaseObservation,
+        resolved_at: str,
+    ) -> ExpertReleasePublicationStalePermit:
+        self._require_bound_release_publisher_authority(publisher)
+        if (
+            type(reservation) is not ExpertReleasePublicationReservation
+            or type(observed_current) is not TaskEvaluationCurrentReleaseObservation
+        ):
+            raise ExpertValidationStoreError(
+                "stale publication sealing requires exact reservation and CURRENT"
+            )
+        plan = reservation.plan
+        planned = plan.current_release_observation
+        if (
+            observed_current.scope_id != plan.scope_id
+            or observed_current.repository_full_name != planned.repository_full_name
+            or observed_current.repository_node_id != planned.repository_node_id
+            or observed_current.release_id is None
+            or observed_current.release_id == plan.release_id
+            or observed_current.release_id == plan.parent_release_id
+            or observed_current == planned
+        ):
+            raise ExpertValidationStoreError(
+                "stale publication sealing lacks displaced CURRENT authority"
+            )
+        with self._lock(exclusive=False):
+            journal = self._read_journal_unlocked(plan.candidate_id)
+            current_intent_id = journal.release_publication_intent_id
+            if current_intent_id != reservation.intent.publication_intent_id:
+                raise ExpertValidationCompareAndSwapError(
+                    "release publication intent changed before stale sealing"
+                )
+            current = self._current_from_journal_unlocked(journal)
+            if current is None:
+                raise ExpertValidationStoreError(
+                    "stale publication reservation lost its validation head"
+                )
+            self._validate_release_publication_reservation_unlocked(
+                reservation.intent,
+                plan,
+                reservation.manifest,
+                current,
+            )
+        return ExpertReleasePublicationStalePermit(
+            _RELEASE_PUBLICATION_STALE_PERMIT_SEAL,
+            self,
+            publisher,
+            reservation,
+            observed_current,
+            resolved_at,
+        )
+
+    def _require_bound_release_assembly_authority(
+        self,
+        assembler: object,
+    ) -> object:
+        if (
+            assembler is None
+            or assembler is not self._release_assembler
+            or type(assembler) is not ExpertReleaseAssembler
+        ):
+            raise ExpertValidationStoreError(
+                "release publication lacks its bound assembler authority"
+            )
+        return assembler
+
+    def _seal_release_publication_plan(
+        self,
+        assembler: object,
+        plan: ExpertReleasePublicationPlan,
+        manifest: ExpertBaseReleaseManifest,
+    ) -> ExpertReleasePublicationPlanPermit:
+        self._require_bound_release_assembly_authority(assembler)
+        if (
+            type(plan) is not ExpertReleasePublicationPlan
+            or type(manifest) is not ExpertBaseReleaseManifest
+        ):
+            raise ExpertValidationStoreError(
+                "release publication sealing requires exact plan and manifest"
+            )
+        return ExpertReleasePublicationPlanPermit(
+            _RELEASE_PUBLICATION_PLAN_PERMIT_SEAL,
+            self,
+            assembler,
+            plan,
+            manifest,
+        )
 
     def _require_bound_publication_eligibility_authority(
         self,
@@ -3147,6 +3726,141 @@ class ExpertValidationStore:
             raise ExpertValidationStoreError(
                 "validation replay operation does not bind its transition"
             )
+        if journal.release_publication_intent_id is not None:
+            if (
+                previous_transition is None
+                or previous_state is None
+                or previous_latest_attempt is None
+            ):
+                raise ExpertValidationStoreError(
+                    "release publication intent lacks a validation head"
+                )
+            intent = self._read_contract_unlocked(
+                journal.release_publication_intent_id,
+                ExpertReleasePublicationIntent,
+            )
+            plan = self._read_contract_unlocked(
+                intent.publication_plan_id,
+                ExpertReleasePublicationPlan,
+            )
+            manifest = self._read_contract_unlocked(
+                plan.release_id,
+                ExpertBaseReleaseManifest,
+            )
+            snapshot = ExpertValidationSnapshot(
+                transition=previous_transition,
+                state=previous_state,
+                latest_attempt=previous_latest_attempt,
+                accepted_stage_results=tuple(
+                    self._read_stage_result_unlocked(result_id)
+                    for result_id in (
+                        previous_transition.accepted_stage_result_record_ids
+                    )
+                ),
+            )
+            self._validate_release_publication_reservation_unlocked(
+                intent,
+                plan,
+                manifest,
+                snapshot,
+            )
+        if journal.release_publication_stale_resolution_id is not None:
+            resolution = self._read_contract_unlocked(
+                journal.release_publication_stale_resolution_id,
+                ExpertReleasePublicationStaleResolution,
+            )
+            intent = self._read_contract_unlocked(
+                resolution.publication_intent_id,
+                ExpertReleasePublicationIntent,
+            )
+            plan = self._read_contract_unlocked(
+                intent.publication_plan_id,
+                ExpertReleasePublicationPlan,
+            )
+            manifest = self._read_contract_unlocked(
+                plan.release_id,
+                ExpertBaseReleaseManifest,
+            )
+            if (
+                resolution.publication_plan_id != plan.publication_plan_id
+                or resolution.release_id != manifest.release_id
+                or resolution.candidate_id != journal.candidate_id
+                or resolution.candidate_id != manifest.candidate_id
+                or resolution.approval_transition_id not in journal.transition_ids
+                or resolution.approval_transition_id != manifest.approval_transition_id
+                or resolution.approval_state_id != manifest.approval_state_id
+                or resolution.planned_current_observation_id
+                != plan.current_release_observation.observation_id
+                or resolution.observed_current_release.scope_id != plan.scope_id
+                or resolution.observed_current_release.repository_full_name
+                != plan.current_release_observation.repository_full_name
+                or resolution.observed_current_release.repository_node_id
+                != plan.current_release_observation.repository_node_id
+            ):
+                raise ExpertValidationStoreError(
+                    "stale release publication resolution closure is inconsistent"
+                )
+
+    @staticmethod
+    def _validate_release_publication_reservation_unlocked(
+        intent: ExpertReleasePublicationIntent,
+        plan: ExpertReleasePublicationPlan,
+        manifest: ExpertBaseReleaseManifest,
+        snapshot: ExpertValidationSnapshot,
+    ) -> None:
+        attempt = snapshot.latest_attempt
+        publication_result = (
+            None
+            if not snapshot.accepted_stage_results
+            else snapshot.accepted_stage_results[-1]
+        )
+        if (
+            intent.publication_plan_id != plan.publication_plan_id
+            or plan.release_id != manifest.release_id
+            or plan.scope_contract_id != manifest.scope_contract_id
+            or plan.scope_id != manifest.scope_id
+            or plan.candidate_id != manifest.candidate_id
+            or plan.candidate_tree_hash != manifest.candidate_tree_hash
+            or plan.validation_attempt_id != manifest.validation_attempt_id
+            or plan.approval_transition_id != manifest.approval_transition_id
+            or plan.approval_state_id != manifest.approval_state_id
+            or plan.publication_eligibility_result_id
+            != manifest.publication_eligibility_result_id
+            or plan.parent_release_id != manifest.parent_release_id
+            or plan.manifest_digest != tree_or_blob_digest(manifest.to_json_bytes())
+            or plan.manifest_dependency_ids != manifest.dependency_closure_ids
+            or attempt is None
+            or type(publication_result)
+            is not ExpertPublicationEligibilityStageResultRecord
+            or publication_result.promotion_decision.outcome
+            is not ExpertReleaseMatrixDecisionOutcome.APPROVED
+            or publication_result.publication_authority_fence is None
+            or snapshot.state.promotion_state is not ExpertPromotionState.APPROVED
+            or snapshot.state.next_stage is not None
+            or plan.candidate_id != snapshot.state.candidate_id
+            or plan.candidate_tree_hash != snapshot.state.candidate_tree_hash
+            or plan.validation_attempt_id != attempt.validation_attempt_id
+            or plan.approval_transition_id != snapshot.transition.transition_id
+            or plan.approval_state_id != snapshot.state.validation_state_id
+            or plan.publication_eligibility_result_id
+            != publication_result.stage_result_record_id
+            or plan.scope_contract_id != attempt.scope_contract_id
+            or plan.scope_contract_id != publication_result.scope_contract_id
+            or plan.scope_id != publication_result.scope_id
+            or plan.parent_release_id != attempt.parent_release_id
+            or plan.parent_release_id != publication_result.expected_current_release_id
+            or plan.current_release_observation
+            != publication_result.publication_authority_fence.current_release_observation
+            or publication_result.validation_attempt_id != attempt.validation_attempt_id
+            or publication_result.candidate_id != plan.candidate_id
+            or publication_result.candidate_tree_hash != plan.candidate_tree_hash
+            or publication_result.validation_policy_id != attempt.validation_policy_id
+            or publication_result.configuration_fingerprint
+            != attempt.configuration_fingerprint
+        ):
+            raise ExpertValidationStoreError(
+                "release publication intent differs from terminal approval authority"
+            )
 
     def _validate_release_matrix_plan_alias_unlocked(
         self,
@@ -4417,6 +5131,10 @@ class ExpertValidationStore:
         journal: ExpertValidationJournal,
         transition: ExpertValidationTransition,
     ) -> ExpertValidationJournal:
+        if journal.release_publication_intent_id is not None:
+            raise ExpertValidationCompareAndSwapError(
+                "validation approval is frozen for release publication"
+            )
         operations = dict(journal.operation_transition_ids)
         operations[transition.operation_id] = transition.transition_id
         return ExpertValidationJournal(
@@ -4428,6 +5146,10 @@ class ExpertValidationStore:
             ),
             transition_ids=(*journal.transition_ids, transition.transition_id),
             operation_transition_ids=operations,
+            release_publication_intent_id=None,
+            release_publication_stale_resolution_id=(
+                journal.release_publication_stale_resolution_id
+            ),
         )
 
     @staticmethod
@@ -4436,6 +5158,10 @@ class ExpertValidationStore:
         operation: ExpertValidationOperation,
         transition: ExpertValidationTransition,
     ) -> ExpertValidationJournal:
+        if journal.release_publication_intent_id is not None:
+            raise ExpertValidationCompareAndSwapError(
+                "validation approval is frozen for release publication"
+            )
         operations = dict(journal.operation_transition_ids)
         operations[operation.operation_id] = transition.transition_id
         return ExpertValidationJournal(
@@ -4443,6 +5169,10 @@ class ExpertValidationStore:
             candidate_tree_hash=journal.candidate_tree_hash,
             transition_ids=journal.transition_ids,
             operation_transition_ids=operations,
+            release_publication_intent_id=None,
+            release_publication_stale_resolution_id=(
+                journal.release_publication_stale_resolution_id
+            ),
         )
 
     def _read_journal_unlocked(
@@ -4456,6 +5186,8 @@ class ExpertValidationStore:
                 candidate_tree_hash="sha256:" + "0" * 64,
                 transition_ids=(),
                 operation_transition_ids={},
+                release_publication_intent_id=None,
+                release_publication_stale_resolution_id=None,
             )
         payload = self._read_private_file(path, "validation journal")
         journal = ExpertValidationJournal.from_json_bytes(payload)

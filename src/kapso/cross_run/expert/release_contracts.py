@@ -7,16 +7,30 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import ClassVar, Mapping
 
-from kapso.cross_run.canonical import require_content_id
+from kapso.cross_run.canonical import (
+    normalize_utc_timestamp,
+    require_content_id,
+    require_identifier,
+    tree_or_blob_digest,
+)
 from kapso.cross_run.contracts import (
+    PublicationArtifactKind,
     StrictContract,
 )
 from kapso.cross_run.expert.promotion_contracts import ExpertReleaseMatrixMode
 from kapso.cross_run.expert.promotion_decision_contracts import (
     ExpertReleaseMatrixDecisionOutcome,
 )
+from kapso.cross_run.expert.task_evaluation_authority_contracts import (
+    TaskEvaluationCurrentReleaseObservation,
+)
+from kapso.cross_run.github.resolver import CurrentArtifactPointer
 
 _DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
+_ASSET_NAME_PATTERN = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$")
+_MEDIA_TYPE_PATTERN = re.compile(
+    r"^[!#$%&'*+.^_`|~0-9A-Za-z-]+/[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
+)
 
 
 class ExpertReleaseContractError(ValueError):
@@ -186,8 +200,310 @@ class ExpertReleaseEvidenceManifest(StrictContract):
             )
 
 
+@dataclass(frozen=True)
+class ExpertReleaseAssetDescriptor(StrictContract):
+    """Stable identity of one immutable expert release asset."""
+
+    name: str
+    media_type: str
+    size: int
+    sha256: str
+
+    def _validate(self) -> None:
+        if (
+            not isinstance(self.name, str)
+            or _ASSET_NAME_PATTERN.fullmatch(self.name) is None
+        ):
+            raise ExpertReleaseContractError("release asset name is invalid")
+        if (
+            not isinstance(self.media_type, str)
+            or _MEDIA_TYPE_PATTERN.fullmatch(self.media_type) is None
+        ):
+            raise ExpertReleaseContractError("release asset media type is invalid")
+        if type(self.size) is not int or self.size <= 0:
+            raise ExpertReleaseContractError("release asset size must be positive")
+        _require_digest(self.sha256, "release asset digest")
+
+
+@dataclass(frozen=True)
+class ExpertReleasePublicationPlan(StrictContract):
+    """Deterministic expert package and predecessor selected for publication."""
+
+    publication_plan_id: str
+    scope_contract_id: str
+    scope_id: str
+    release_id: str
+    candidate_id: str
+    candidate_tree_hash: str
+    validation_attempt_id: str
+    approval_transition_id: str
+    approval_state_id: str
+    publication_eligibility_result_id: str
+    parent_release_id: str | None
+    current_release_observation: TaskEvaluationCurrentReleaseObservation
+    parent_pointer: CurrentArtifactPointer | None
+    generation: int
+    tag: str
+    manifest_digest: str
+    publication_source_tree_digest: str
+    assets: tuple[ExpertReleaseAssetDescriptor, ...]
+    manifest_dependency_ids: tuple[str, ...]
+    validation_closure_ids: tuple[str, ...]
+
+    CONTENT_NAMESPACE: ClassVar[str] = "expert-release-publication-plan"
+    IDENTITY_FIELD: ClassVar[str] = "publication_plan_id"
+
+    def _validate(self) -> None:
+        for value, namespace, name in (
+            (self.scope_contract_id, "expert-scope-contract", "release plan scope"),
+            (self.release_id, "expert-base-release", "release plan release"),
+            (self.candidate_id, "expert-candidate", "release plan candidate"),
+            (
+                self.validation_attempt_id,
+                "expert-validation-attempt",
+                "release plan validation attempt",
+            ),
+            (
+                self.approval_transition_id,
+                "expert-validation-transition",
+                "release plan approval transition",
+            ),
+            (
+                self.approval_state_id,
+                "expert-candidate-validation-state",
+                "release plan approval state",
+            ),
+            (
+                self.publication_eligibility_result_id,
+                "expert-publication-eligibility-stage-result",
+                "release plan publication result",
+            ),
+        ):
+            _require_namespaced_id(value, namespace, name)
+        require_identifier(self.scope_id, "release plan scope_id")
+        _require_digest(self.candidate_tree_hash, "release plan candidate tree")
+        _require_digest(self.manifest_digest, "release plan manifest")
+        _require_digest(
+            self.publication_source_tree_digest,
+            "release plan publication source tree",
+        )
+        if self.parent_release_id is not None:
+            _require_namespaced_id(
+                self.parent_release_id,
+                "expert-base-release",
+                "release plan parent release",
+            )
+        current = self.current_release_observation
+        if (
+            type(current) is not TaskEvaluationCurrentReleaseObservation
+            or current.scope_id != self.scope_id
+            or current.release_id != self.parent_release_id
+        ):
+            raise ExpertReleaseContractError(
+                "release plan CURRENT observation differs from its parent"
+            )
+        if (self.parent_release_id is None) != (self.parent_pointer is None):
+            raise ExpertReleaseContractError(
+                "release plan parent pointer presence is inconsistent"
+            )
+        if self.parent_pointer is not None:
+            parent_record = self.parent_pointer.publication_record
+            if (
+                self.parent_pointer.scope_id != self.scope_id
+                or parent_record.artifact_kind
+                is not PublicationArtifactKind.EXPERT_BASE_RELEASE
+                or parent_record.artifact_id != self.parent_release_id
+                or parent_record.publication_id != current.publication_id
+                or parent_record.repository_full_name != current.repository_full_name
+                or parent_record.repository_node_id != current.repository_node_id
+                or tree_or_blob_digest(self.parent_pointer.to_json_bytes())
+                != current.current_pointer_digest
+                or self.parent_pointer.validation_closure_ids
+                != current.validation_closure_ids
+            ):
+                raise ExpertReleaseContractError(
+                    "release plan parent pointer differs from CURRENT observation"
+                )
+        if type(self.generation) is not int or self.generation < 0:
+            raise ExpertReleaseContractError(
+                "release plan generation must be non-negative"
+            )
+        if (self.parent_release_id is None) != (self.generation == 0):
+            raise ExpertReleaseContractError(
+                "release plan bootstrap and generation disagree"
+            )
+        if not isinstance(self.tag, str) or not self.tag.endswith(
+            f"/E{self.generation:06d}"
+        ):
+            raise ExpertReleaseContractError(
+                "release plan tag differs from its generation"
+            )
+        if self.parent_pointer is not None:
+            parent_tag_match = re.fullmatch(r"(.*/E)([0-9]+)", parent_record.tag)
+            new_tag_match = re.fullmatch(r"(.*/E)([0-9]+)", self.tag)
+            if (
+                parent_tag_match is None
+                or new_tag_match is None
+                or parent_tag_match.group(1) != new_tag_match.group(1)
+                or int(parent_tag_match.group(2)) + 1 != self.generation
+            ):
+                raise ExpertReleaseContractError(
+                    "release plan generation is not the CURRENT successor"
+                )
+        asset_names = tuple(asset.name for asset in self.assets)
+        if (
+            not self.assets
+            or any(
+                type(asset) is not ExpertReleaseAssetDescriptor for asset in self.assets
+            )
+            or asset_names != tuple(sorted(set(asset_names)))
+        ):
+            raise ExpertReleaseContractError(
+                "release plan assets must be non-empty, sorted, and unique"
+            )
+        _require_sorted_content_ids(
+            self.manifest_dependency_ids,
+            "release plan manifest dependencies",
+        )
+        if self.parent_release_id is not None and (
+            self.parent_release_id not in self.manifest_dependency_ids
+        ):
+            raise ExpertReleaseContractError(
+                "release plan manifest dependencies omit its parent"
+            )
+        _require_sorted_content_ids(
+            self.validation_closure_ids,
+            "release plan validation closure",
+        )
+        if set(self.validation_closure_ids) != {
+            self.release_id,
+            *self.manifest_dependency_ids,
+        }:
+            raise ExpertReleaseContractError(
+                "release plan validation closure is not exact"
+            )
+
+
+@dataclass(frozen=True)
+class ExpertReleasePublicationIntent(StrictContract):
+    """First-writer-wins timestamped reservation for one publication plan."""
+
+    publication_intent_id: str
+    publication_plan_id: str
+    committed_at: str
+
+    CONTENT_NAMESPACE: ClassVar[str] = "expert-release-publication-intent"
+    IDENTITY_FIELD: ClassVar[str] = "publication_intent_id"
+
+    def _validate(self) -> None:
+        _require_namespaced_id(
+            self.publication_plan_id,
+            "expert-release-publication-plan",
+            "release publication intent plan",
+        )
+        if normalize_utc_timestamp(self.committed_at, "committed_at") != (
+            self.committed_at
+        ):
+            raise ExpertReleaseContractError(
+                "release publication timestamp is not canonical"
+            )
+
+
+@dataclass(frozen=True)
+class ExpertReleasePublicationStaleResolution(StrictContract):
+    """Durable proof that a reserved publication lost its CURRENT authority."""
+
+    stale_resolution_id: str
+    publication_intent_id: str
+    publication_plan_id: str
+    release_id: str
+    candidate_id: str
+    approval_transition_id: str
+    approval_state_id: str
+    planned_current_observation_id: str
+    observed_current_release: TaskEvaluationCurrentReleaseObservation
+    resolved_at: str
+    exact_dependency_ids: tuple[str, ...]
+
+    CONTENT_NAMESPACE: ClassVar[str] = "expert-release-publication-stale-resolution"
+    IDENTITY_FIELD: ClassVar[str] = "stale_resolution_id"
+
+    def _validate(self) -> None:
+        for value, namespace, name in (
+            (
+                self.publication_intent_id,
+                "expert-release-publication-intent",
+                "stale resolution intent",
+            ),
+            (
+                self.publication_plan_id,
+                "expert-release-publication-plan",
+                "stale resolution plan",
+            ),
+            (self.release_id, "expert-base-release", "stale resolution release"),
+            (self.candidate_id, "expert-candidate", "stale resolution candidate"),
+            (
+                self.approval_transition_id,
+                "expert-validation-transition",
+                "stale resolution approval transition",
+            ),
+            (
+                self.approval_state_id,
+                "expert-candidate-validation-state",
+                "stale resolution approval state",
+            ),
+            (
+                self.planned_current_observation_id,
+                "task-evaluation-current-release-observation",
+                "stale resolution planned CURRENT",
+            ),
+        ):
+            _require_namespaced_id(value, namespace, name)
+        if type(self.observed_current_release) is not (
+            TaskEvaluationCurrentReleaseObservation
+        ):
+            raise ExpertReleaseContractError(
+                "stale resolution requires an exact CURRENT observation"
+            )
+        if self.observed_current_release.observation_id == (
+            self.planned_current_observation_id
+        ):
+            raise ExpertReleaseContractError(
+                "stale resolution must observe changed CURRENT authority"
+            )
+        normalize_utc_timestamp(self.resolved_at, "resolved_at")
+        _require_sorted_content_ids(
+            self.exact_dependency_ids,
+            "stale resolution exact dependencies",
+        )
+        observed = self.observed_current_release
+        required = {
+            self.publication_intent_id,
+            self.publication_plan_id,
+            self.release_id,
+            self.candidate_id,
+            self.approval_transition_id,
+            self.approval_state_id,
+            self.planned_current_observation_id,
+            observed.observation_id,
+            *observed.validation_closure_ids,
+        }
+        if observed.release_id is not None:
+            required.add(observed.release_id)
+        if observed.publication_id is not None:
+            required.add(observed.publication_id)
+        if set(self.exact_dependency_ids) != required:
+            raise ExpertReleaseContractError(
+                "stale resolution dependency closure is not exact"
+            )
+
+
 __all__ = [
+    "ExpertReleaseAssetDescriptor",
     "ExpertReleaseContractError",
     "ExpertReleaseEvidenceManifest",
     "ExpertReleaseMatrixSummary",
+    "ExpertReleasePublicationIntent",
+    "ExpertReleasePublicationPlan",
+    "ExpertReleasePublicationStaleResolution",
 ]

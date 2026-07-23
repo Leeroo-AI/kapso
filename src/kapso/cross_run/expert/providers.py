@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from kapso.cross_run.canonical import require_content_id, tree_or_blob_digest
 from kapso.cross_run.contracts import PublicationArtifactKind
-from kapso.cross_run.expert.replay_authority import (
+from kapso.cross_run.expert.replay_authority_contracts import (
     SourceReplayCurrentReleaseObservation,
 )
 from kapso.cross_run.expert.task_evaluation_authority_contracts import (

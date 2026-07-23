@@ -21,9 +21,13 @@ from kapso.cross_run.expert.release import (
     ExpertReleasePackage,
 )
 from kapso.cross_run.expert.release_contracts import (
+    ExpertReleaseAssetDescriptor,
     ExpertReleaseContractError,
     ExpertReleaseEvidenceManifest,
     ExpertReleaseMatrixSummary,
+    ExpertReleasePublicationIntent,
+    ExpertReleasePublicationPlan,
+    ExpertReleasePublicationStaleResolution,
 )
 from kapso.cross_run.expert.architect import ExpertRepositoryArchitect
 from kapso.cross_run.expert.candidates import (
@@ -110,6 +114,10 @@ from kapso.cross_run.expert.proposal_contract import (
     ExpertProposalContractError,
 )
 from kapso.cross_run.expert.providers import GitHubExpertCurrentReleaseProvider
+from kapso.cross_run.expert.publisher import (
+    ExpertReleasePublicationError,
+    ExpertReleasePublisher,
+)
 from kapso.cross_run.expert.replay_context import (
     SourceReplayContextProvider,
     VerifiedSourceReplayContext,
@@ -299,6 +307,10 @@ from kapso.cross_run.expert.validation_store import (
     ExpertAutomatedReviewStageCommitResult,
     ExpertPublicationEligibilityStageCommitResult,
     ExpertReleaseMatrixStageCommitResult,
+    ExpertReleasePublicationPlanPermit,
+    ExpertReleasePublicationReservation,
+    ExpertReleasePublicationReservationCommitResult,
+    ExpertReleasePublicationStalePermit,
     ExpertSourceReplayStageCommitResult,
     ExpertTaskEvaluationReservationCommitResult,
     ExpertValidationCommitResult,
@@ -441,11 +453,21 @@ __all__ = [
     "ExpertReleaseMatrixStageExecution",
     "ExpertReleaseMatrixStageResultRecord",
     "ExpertReleaseAssembler",
+    "ExpertReleaseAssetDescriptor",
     "ExpertReleaseAssemblyError",
     "ExpertReleaseContractError",
     "ExpertReleaseEvidenceManifest",
     "ExpertReleaseMatrixSummary",
     "ExpertReleasePackage",
+    "ExpertReleasePublicationIntent",
+    "ExpertReleasePublicationPlan",
+    "ExpertReleasePublicationPlanPermit",
+    "ExpertReleasePublicationError",
+    "ExpertReleasePublisher",
+    "ExpertReleasePublicationReservation",
+    "ExpertReleasePublicationReservationCommitResult",
+    "ExpertReleasePublicationStalePermit",
+    "ExpertReleasePublicationStaleResolution",
     "ExpertSourceReplayBundleProvider",
     "ExpertSourceReplayCandidateReader",
     "ExpertSourceReplayDecisionPublicationCoordinator",

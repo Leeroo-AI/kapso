@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Mapping
+from typing import TYPE_CHECKING, Mapping
 
 from kapso.cross_run.canonical import (
     canonical_json_bytes,
@@ -34,8 +34,10 @@ from kapso.cross_run.expert.promotion_stage_contracts import (
     ExpertReleaseMatrixStageResultRecord,
 )
 from kapso.cross_run.expert.release_contracts import (
+    ExpertReleaseAssetDescriptor,
     ExpertReleaseEvidenceManifest,
     ExpertReleaseMatrixSummary,
+    ExpertReleasePublicationPlan,
 )
 from kapso.cross_run.expert.review_contracts import (
     ExpertAutomatedReviewStageResultRecord,
@@ -49,9 +51,14 @@ from kapso.cross_run.expert.validation_snapshots import (
     ExpertValidationSnapshot,
     ExpertValidationTransition,
 )
-from kapso.cross_run.expert.validation_store import ExpertValidationStore
 from kapso.cross_run.settings import ExpertSettings, GitHubSettings
 from kapso.cross_run.source_archives import build_deterministic_tar_zst
+
+if TYPE_CHECKING:
+    from kapso.cross_run.expert.validation_store import (
+        ExpertReleasePublicationPlanPermit,
+        ExpertValidationStore,
+    )
 
 EXPERT_RELEASE_MANIFEST_PATH = ".kapso/expert/release.json"
 EXPERT_RELEASE_EVIDENCE_ROOT = ".kapso/expert/release-evidence"
@@ -161,6 +168,79 @@ class ExpertReleaseAssembler:
         self.candidate_validator: ExpertCandidateValidator = candidate_store.validator
         self.expert_settings = expert_settings
         self.github_settings = github_settings
+        self.validation_store._bind_release_assembly_authority(self)
+
+    def authorize_publication_plan(
+        self,
+        *,
+        package: ExpertReleasePackage,
+        plan: ExpertReleasePublicationPlan,
+    ) -> ExpertReleasePublicationPlanPermit:
+        """Seal a plan only when it is the exact freshly assembled package."""
+
+        if (
+            type(package) is not ExpertReleasePackage
+            or type(plan) is not ExpertReleasePublicationPlan
+        ):
+            raise ExpertReleaseAssemblyError(
+                "publication planning requires exact package and plan"
+            )
+        rebuilt = self.build(candidate_id=package.manifest.candidate_id)
+        expected_assets = tuple(
+            sorted(
+                (
+                    ExpertReleaseAssetDescriptor(
+                        name=name,
+                        media_type="application/zstd",
+                        size=len(payload),
+                        sha256=tree_or_blob_digest(payload),
+                    )
+                    for name, payload in (
+                        (EXPERT_RELEASE_CONTROL_ARCHIVE, package.control_archive),
+                        (EXPERT_RELEASE_EVIDENCE_ARCHIVE, package.evidence_archive),
+                        (EXPERT_RELEASE_SOURCE_ARCHIVE, package.source_archive),
+                    )
+                ),
+                key=lambda asset: asset.name,
+            )
+        )
+        manifest = package.manifest
+        if (
+            rebuilt != package
+            or plan.scope_contract_id != manifest.scope_contract_id
+            or plan.scope_id != manifest.scope_id
+            or plan.release_id != manifest.release_id
+            or plan.candidate_id != manifest.candidate_id
+            or plan.candidate_tree_hash != manifest.candidate_tree_hash
+            or plan.validation_attempt_id != manifest.validation_attempt_id
+            or plan.approval_transition_id != manifest.approval_transition_id
+            or plan.approval_state_id != manifest.approval_state_id
+            or plan.publication_eligibility_result_id
+            != manifest.publication_eligibility_result_id
+            or plan.parent_release_id != manifest.parent_release_id
+            or plan.tag
+            != f"{self.github_settings.expert_tag_prefix}E{plan.generation:06d}"
+            or plan.manifest_digest != tree_or_blob_digest(manifest.to_json_bytes())
+            or plan.publication_source_tree_digest
+            != source_tree_digest(
+                {
+                    path: (tree_or_blob_digest(payload), mode, len(payload))
+                    for path, (payload, mode) in package.publication_files.items()
+                }
+            )
+            or plan.assets != expected_assets
+            or plan.manifest_dependency_ids != manifest.dependency_closure_ids
+            or set(plan.validation_closure_ids)
+            != {manifest.release_id, *manifest.dependency_closure_ids}
+        ):
+            raise ExpertReleaseAssemblyError(
+                "publication plan differs from exact release package"
+            )
+        return self.validation_store._seal_release_publication_plan(
+            self,
+            plan,
+            manifest,
+        )
 
     def build(
         self,
