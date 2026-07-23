@@ -76,7 +76,7 @@ deterministically to success in 400/400 cases).
    scratch, from the demos); no external AI services/APIs in the solution.
 2. Code competition: the submitted kernel generates `submission.csv`
    itself, runs with **Internet OFF**, and must be reproducible from
-   competition data + code alone. Daily submission cap: **5 per day**.
+   competition data + code alone.
 3. The written rules restrict *resources*, not *methods*; the task framing
    above states the spirit (learning from demos). Weigh both — the
    reproducibility review reads the submitted kernel.

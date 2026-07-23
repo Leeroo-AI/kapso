@@ -68,4 +68,3 @@ Gryllus Campestris, Tettigonia Viridissima.
 - The kernel must reproduce the submission from the competition data +
   provided checkpoint alone — i.e. **train inside the kernel**
   (≤ ~10 GPU-minutes), then predict.
-- Daily submission cap: **5 per day**.
