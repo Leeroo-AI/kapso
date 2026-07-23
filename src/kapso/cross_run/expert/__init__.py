@@ -23,8 +23,25 @@ from kapso.cross_run.expert.composition_contracts import (
     ExpertCompositionConflictSubjectKind,
     ExpertCompositionContractError,
     ExpertCompositionDisposition,
+    ExpertCompositionMaterialization,
     ExpertCompositionPlan,
     ExpertCompositionSourceReference,
+)
+from kapso.cross_run.expert.composition_base import (
+    ExpertCompositionBaseClosure,
+    ExpertCompositionBaseError,
+    build_expert_composition_base_closure,
+)
+from kapso.cross_run.expert.composition_source import (
+    ApprovedExpertCompositionSource,
+    ExpertCompositionSourceError,
+    ExpertCompositionSourceResolver,
+    project_expert_composition_source_reference,
+)
+from kapso.cross_run.expert.composition import (
+    ExpertCompositionError,
+    ExpertCompositionReducer,
+    ExpertCompositionReduction,
 )
 from kapso.cross_run.expert.sanitation import ExpertCandidateSanitizer
 from kapso.cross_run.expert.generalizer import ExpertCapabilityGeneralizer
@@ -283,14 +300,23 @@ __all__ = [
     "ExpertCandidateValidationError",
     "ExpertCandidateValidator",
     "ExpertCompositionAssessment",
+    "ExpertCompositionBaseClosure",
+    "ExpertCompositionBaseError",
     "ExpertCompositionBaseReference",
     "ExpertCompositionConflict",
     "ExpertCompositionConflictKind",
     "ExpertCompositionConflictSubjectKind",
     "ExpertCompositionContractError",
     "ExpertCompositionDisposition",
+    "ExpertCompositionError",
+    "ExpertCompositionMaterialization",
     "ExpertCompositionPlan",
+    "ExpertCompositionReducer",
+    "ExpertCompositionReduction",
+    "ExpertCompositionSourceError",
     "ExpertCompositionSourceReference",
+    "ExpertCompositionSourceResolver",
+    "ApprovedExpertCompositionSource",
     "ExpertCapabilityGeneralizer",
     "ExpertEligibilityResult",
     "ExpertEvaluatorRunBuilder",
@@ -417,9 +443,11 @@ __all__ = [
     "VerifiedTaskEvaluationStartingArtifact",
     "VerifiedSourceReplayContext",
     "VerifiedSourceReplayStartingArtifact",
+    "build_expert_composition_base_closure",
     "materialize_task_evaluation_starting_artifacts",
     "publication_eligibility_security_subject_ids",
     "publication_eligibility_task_adapter_trust_observations",
+    "project_expert_composition_source_reference",
     "project_prepared_task_evaluation_cases",
     "task_evaluation_adapter_trust_observations",
     "task_evaluation_allocation_case_leg",

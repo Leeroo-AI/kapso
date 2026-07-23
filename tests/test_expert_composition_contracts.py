@@ -1,12 +1,29 @@
 from __future__ import annotations
 
-from dataclasses import fields
+from dataclasses import fields, replace
 from types import SimpleNamespace
 
 import pytest
 
-from kapso.cross_run.canonical import content_id, tree_or_blob_digest
-from kapso.cross_run.contracts import CandidateChangeKind
+from kapso.cross_run.canonical import (
+    content_id,
+    source_tree_digest,
+    tree_or_blob_digest,
+)
+from kapso.cross_run.contracts import (
+    CandidateChangeKind,
+    ExpertCandidatePatch,
+    ExpertCandidatePatchChange,
+    ExpertSourceTreeManifest,
+    SourceFileDescriptor,
+)
+from kapso.cross_run.expert.book import (
+    EXPERT_BOOK_PATH,
+    EXPERT_REPOSITORY_MAP_PATH,
+    compile_expert_semantic_book,
+    expert_module_contract_path,
+    expert_semantic_book_digest,
+)
 from kapso.cross_run.expert.composition_contracts import (
     ExpertCompositionAssessment,
     ExpertCompositionBaseReference,
@@ -15,6 +32,7 @@ from kapso.cross_run.expert.composition_contracts import (
     ExpertCompositionConflictSubjectKind,
     ExpertCompositionContractError,
     ExpertCompositionDisposition,
+    ExpertCompositionMaterialization,
     ExpertCompositionPlan,
     ExpertCompositionSourceReference,
 )
@@ -39,7 +57,7 @@ def _remint(record, **changes):
     return type(record).mint(**payload)
 
 
-def _base_reference(scope, module, repository_map, release):
+def _base_reference(scope, module, repository_map, release, source_tree_hash):
     authorities = {
         release.release_id,
         scope.scope_contract_id,
@@ -50,7 +68,7 @@ def _base_reference(scope, module, repository_map, release):
         release_id=release.release_id,
         scope_contract_id=scope.scope_contract_id,
         scope_id=scope.scope_id,
-        source_tree_hash=_digest("current source tree"),
+        source_tree_hash=source_tree_hash,
         repository_map_id=repository_map.repository_map_id,
         module_contract_ids=(module.module_contract_id,),
         semantic_book_digest=release.semantic_book_digest,
@@ -200,10 +218,161 @@ def _assessment(
     )
 
 
+def _materialization(composition_case, assessment):
+    book = compile_expert_semantic_book(
+        composition_case.scope,
+        composition_case.repository_map,
+        (composition_case.module,),
+    )
+    contents = dict(composition_case.parent_contents)
+    contents["src/reproducible_execution/__init__.py"] = b"changed source"
+    descriptors = tuple(
+        SourceFileDescriptor(
+            relative_path=path,
+            digest=tree_or_blob_digest(payload),
+            mode="100644",
+            size=len(payload),
+        )
+        for path, payload in sorted(contents.items())
+    )
+    tree_hash = source_tree_digest(
+        {
+            descriptor.relative_path: (
+                descriptor.digest,
+                descriptor.mode,
+                descriptor.size,
+            )
+            for descriptor in descriptors
+        }
+    )
+    source_tree = ExpertSourceTreeManifest.mint(
+        tree_hash=tree_hash,
+        files=descriptors,
+    )
+    parent_files = {
+        descriptor.relative_path: descriptor
+        for descriptor in composition_case.parent_tree.files
+    }
+    source_files = {
+        descriptor.relative_path: descriptor for descriptor in source_tree.files
+    }
+    patch = ExpertCandidatePatch.mint(
+        parent_tree_hash=composition_case.base.source_tree_hash,
+        candidate_tree_hash=tree_hash,
+        changes=tuple(
+            ExpertCandidatePatchChange(
+                relative_path=path,
+                before=parent_files.get(path),
+                after=source_files.get(path),
+            )
+            for path in sorted(set(parent_files) | set(source_files))
+            if parent_files.get(path) != source_files.get(path)
+        ),
+    )
+    authorities = {
+        assessment.assessment_id,
+        *assessment.stable_authority_ids,
+        composition_case.parent_tree.source_tree_manifest_id,
+        patch.patch_id,
+        source_tree.source_tree_manifest_id,
+        composition_case.repository_map.repository_map_id,
+        composition_case.module.module_contract_id,
+    }
+    return ExpertCompositionMaterialization.mint(
+        composition_assessment=assessment,
+        parent_tree=composition_case.parent_tree,
+        patch=patch,
+        source_tree=source_tree,
+        repository_map=composition_case.repository_map,
+        module_contracts=(composition_case.module,),
+        semantic_book_digest=expert_semantic_book_digest(book),
+        stable_authority_ids=tuple(sorted(authorities)),
+    )
+
+
+def _remint_materialization_tree(materialization, source_tree):
+    parent_files = {
+        descriptor.relative_path: descriptor
+        for descriptor in materialization.parent_tree.files
+    }
+    source_files = {
+        descriptor.relative_path: descriptor for descriptor in source_tree.files
+    }
+    patch = _remint(
+        materialization.patch,
+        candidate_tree_hash=source_tree.tree_hash,
+        changes=tuple(
+            ExpertCandidatePatchChange(
+                relative_path=path,
+                before=parent_files.get(path),
+                after=source_files.get(path),
+            )
+            for path in sorted(set(parent_files) | set(source_files))
+            if parent_files.get(path) != source_files.get(path)
+        ),
+    )
+    authorities = tuple(
+        sorted(
+            {
+                *materialization.stable_authority_ids,
+                patch.patch_id,
+                source_tree.source_tree_manifest_id,
+            }
+            - {
+                materialization.patch.patch_id,
+                materialization.source_tree.source_tree_manifest_id,
+            }
+        )
+    )
+    return _remint(
+        materialization,
+        patch=patch,
+        source_tree=source_tree,
+        stable_authority_ids=authorities,
+    )
+
+
 @pytest.fixture(scope="module")
 def composition_case():
     scope, module, repository_map, release = expert_records()
-    base = _base_reference(scope, module, repository_map, release)
+    book = compile_expert_semantic_book(scope, repository_map, (module,))
+    parent_contents = {
+        "src/reproducible_execution/__init__.py": b"parent source",
+        "tests/test_resume.py": b"def test_resume():\n    pass\n",
+        "tests/replay_resume.py": b"def replay_resume():\n    pass\n",
+        EXPERT_BOOK_PATH: book,
+        EXPERT_REPOSITORY_MAP_PATH: repository_map.to_json_bytes(),
+        expert_module_contract_path(module.module_contract_id): module.to_json_bytes(),
+    }
+    parent_descriptors = tuple(
+        SourceFileDescriptor(
+            relative_path=path,
+            digest=tree_or_blob_digest(payload),
+            mode="100644",
+            size=len(payload),
+        )
+        for path, payload in sorted(parent_contents.items())
+    )
+    parent_tree = ExpertSourceTreeManifest.mint(
+        tree_hash=source_tree_digest(
+            {
+                descriptor.relative_path: (
+                    descriptor.digest,
+                    descriptor.mode,
+                    descriptor.size,
+                )
+                for descriptor in parent_descriptors
+            }
+        ),
+        files=parent_descriptors,
+    )
+    base = _base_reference(
+        scope,
+        module,
+        repository_map,
+        release,
+        parent_tree.tree_hash,
+    )
     sources = tuple(
         _source_reference(scope, module, label=label) for label in ("first", "second")
     )
@@ -214,6 +383,8 @@ def composition_case():
         repository_map=repository_map,
         release=release,
         base=base,
+        parent_contents=parent_contents,
+        parent_tree=parent_tree,
         sources=plan.sources,
         plan=plan,
     )
@@ -602,3 +773,219 @@ def test_assessment_stable_authority_closure_is_exact(composition_case, mutation
 
     with pytest.raises(ExpertCompositionContractError, match="closure is not exact"):
         _remint(assessment, stable_authority_ids=changed)
+
+
+def test_clean_materialization_roundtrips_and_binds_exact_output(composition_case):
+    assessment = _assessment(
+        composition_case.plan,
+        ExpertCompositionDisposition.CLEAN,
+        applicable=composition_case.plan.source_reference_ids,
+    )
+    materialization = _materialization(composition_case, assessment)
+
+    assert (
+        ExpertCompositionMaterialization.from_json_bytes(
+            materialization.to_json_bytes()
+        )
+        == materialization
+    )
+    assert (
+        materialization.patch.parent_tree_hash
+        == composition_case.plan.current_base.source_tree_hash
+    )
+    assert (
+        materialization.patch.candidate_tree_hash
+        == materialization.source_tree.tree_hash
+    )
+
+
+def test_materialization_requires_clean_assessment_and_exact_tree_binding(
+    composition_case,
+):
+    clean = _assessment(
+        composition_case.plan,
+        ExpertCompositionDisposition.CLEAN,
+        applicable=composition_case.plan.source_reference_ids,
+    )
+    materialization = _materialization(composition_case, clean)
+    conflicted = _assessment(
+        composition_case.plan,
+        ExpertCompositionDisposition.CONFLICTED,
+        conflicts=(
+            _conflict(
+                ExpertCompositionConflictKind.PATH_OVERLAP,
+                composition_case.plan,
+            ),
+        ),
+    )
+
+    with pytest.raises(ExpertCompositionContractError, match="clean assessment"):
+        _remint(materialization, composition_assessment=conflicted)
+    with pytest.raises(ExpertCompositionContractError, match="plan or source tree"):
+        _remint(
+            materialization,
+            patch=_remint(
+                materialization.patch,
+                parent_tree_hash=_digest("other parent"),
+            ),
+        )
+
+    changed_path = "src/reproducible_execution/__init__.py"
+    changed_descriptor = next(
+        descriptor
+        for descriptor in materialization.source_tree.files
+        if descriptor.relative_path == changed_path
+    )
+    inexact_patch = _remint(
+        materialization.patch,
+        changes=(
+            ExpertCandidatePatchChange(
+                relative_path=changed_path,
+                before=None,
+                after=changed_descriptor,
+            ),
+        ),
+    )
+    with pytest.raises(ExpertCompositionContractError, match="exact tree transform"):
+        _remint(materialization, patch=inexact_patch)
+
+
+def test_materialization_rejects_map_module_book_and_authority_substitution(
+    composition_case,
+):
+    assessment = _assessment(
+        composition_case.plan,
+        ExpertCompositionDisposition.CLEAN,
+        applicable=composition_case.plan.source_reference_ids,
+    )
+    materialization = _materialization(composition_case, assessment)
+
+    with pytest.raises(ExpertCompositionContractError, match="semantic book"):
+        _remint(
+            materialization,
+            semantic_book_digest=_digest("other book"),
+        )
+    with pytest.raises(ExpertCompositionContractError, match="bijection"):
+        _remint(materialization, module_contracts=())
+    with pytest.raises(ExpertCompositionContractError, match="closure is not exact"):
+        _remint(
+            materialization,
+            stable_authority_ids=materialization.stable_authority_ids[1:],
+        )
+
+
+def test_materialization_rejects_noncanonical_generated_control_descriptor(
+    composition_case,
+):
+    assessment = _assessment(
+        composition_case.plan,
+        ExpertCompositionDisposition.CLEAN,
+        applicable=composition_case.plan.source_reference_ids,
+    )
+    materialization = _materialization(composition_case, assessment)
+    changed_files = tuple(
+        (
+            replace(descriptor, mode="100755")
+            if descriptor.relative_path == EXPERT_BOOK_PATH
+            else descriptor
+        )
+        for descriptor in materialization.source_tree.files
+    )
+    changed_tree_hash = source_tree_digest(
+        {
+            descriptor.relative_path: (
+                descriptor.digest,
+                descriptor.mode,
+                descriptor.size,
+            )
+            for descriptor in changed_files
+        }
+    )
+    changed_tree = ExpertSourceTreeManifest.mint(
+        tree_hash=changed_tree_hash,
+        files=changed_files,
+    )
+    with pytest.raises(
+        ExpertCompositionContractError,
+        match="generated controls differ",
+    ):
+        _remint_materialization_tree(materialization, changed_tree)
+
+
+def test_materialization_rejects_undeclared_generated_control_path(
+    composition_case,
+):
+    assessment = _assessment(
+        composition_case.plan,
+        ExpertCompositionDisposition.CLEAN,
+        applicable=composition_case.plan.source_reference_ids,
+    )
+    materialization = _materialization(composition_case, assessment)
+    undeclared = SourceFileDescriptor(
+        relative_path=".kapso/expert/undeclared.json",
+        digest=_digest("undeclared control"),
+        mode="100644",
+        size=len(b"undeclared control"),
+    )
+    changed_files = tuple(
+        sorted(
+            (*materialization.source_tree.files, undeclared),
+            key=lambda descriptor: descriptor.relative_path,
+        )
+    )
+    changed_tree_hash = source_tree_digest(
+        {
+            descriptor.relative_path: (
+                descriptor.digest,
+                descriptor.mode,
+                descriptor.size,
+            )
+            for descriptor in changed_files
+        }
+    )
+    changed_tree = ExpertSourceTreeManifest.mint(
+        tree_hash=changed_tree_hash,
+        files=changed_files,
+    )
+    with pytest.raises(
+        ExpertCompositionContractError,
+        match="undeclared expert control file",
+    ):
+        _remint_materialization_tree(materialization, changed_tree)
+
+
+def test_materialization_rejects_unowned_output_path(composition_case):
+    assessment = _assessment(
+        composition_case.plan,
+        ExpertCompositionDisposition.CLEAN,
+        applicable=composition_case.plan.source_reference_ids,
+    )
+    materialization = _materialization(composition_case, assessment)
+    unowned = SourceFileDescriptor(
+        relative_path="outside.py",
+        digest=_digest("unowned source"),
+        mode="100644",
+        size=len(b"unowned source"),
+    )
+    changed_files = tuple(
+        sorted(
+            (*materialization.source_tree.files, unowned),
+            key=lambda descriptor: descriptor.relative_path,
+        )
+    )
+    changed_tree = ExpertSourceTreeManifest.mint(
+        tree_hash=source_tree_digest(
+            {
+                descriptor.relative_path: (
+                    descriptor.digest,
+                    descriptor.mode,
+                    descriptor.size,
+                )
+                for descriptor in changed_files
+            }
+        ),
+        files=changed_files,
+    )
+
+    with pytest.raises(ExpertCompositionContractError, match="exactly one owner"):
+        _remint_materialization_tree(materialization, changed_tree)

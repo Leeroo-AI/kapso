@@ -8,11 +8,31 @@ from enum import Enum
 from pathlib import PurePosixPath
 from typing import ClassVar
 
-from kapso.cross_run.canonical import require_content_id, require_identifier
+from kapso.cross_run.canonical import (
+    require_content_id,
+    require_identifier,
+    tree_or_blob_digest,
+)
 from kapso.cross_run.contracts import (
     CandidateChangeKind,
+    ExpertCandidatePatch,
+    ExpertCandidatePatchChange,
+    ExpertModuleContract,
+    ExpertRepositoryMap,
     ExpertScopeContract,
+    ExpertSourceTreeManifest,
     StrictContract,
+)
+from kapso.cross_run.expert.book import (
+    EXPERT_BOOK_PATH,
+    EXPERT_REPOSITORY_MAP_PATH,
+    compile_expert_semantic_book,
+    expert_module_contract_path,
+    expert_semantic_book_digest,
+)
+from kapso.cross_run.expert.topology import (
+    validate_expert_repository_topology,
+    validate_expert_tree_ownership,
 )
 
 _DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -600,4 +620,140 @@ class ExpertCompositionAssessment(StrictContract):
         if set(self.stable_authority_ids) != expected_authorities:
             raise ExpertCompositionContractError(
                 "composition assessment stable authority closure is not exact"
+            )
+
+
+@dataclass(frozen=True)
+class ExpertCompositionMaterialization(StrictContract):
+    """Exact typed successor produced by one clean deterministic assessment."""
+
+    materialization_id: str
+    composition_assessment: ExpertCompositionAssessment
+    parent_tree: ExpertSourceTreeManifest
+    patch: ExpertCandidatePatch
+    source_tree: ExpertSourceTreeManifest
+    repository_map: ExpertRepositoryMap
+    module_contracts: tuple[ExpertModuleContract, ...]
+    semantic_book_digest: str
+    stable_authority_ids: tuple[str, ...]
+
+    CONTENT_NAMESPACE: ClassVar[str] = "expert-composition-materialization"
+    IDENTITY_FIELD: ClassVar[str] = "materialization_id"
+
+    def _validate(self) -> None:
+        if (
+            type(self.composition_assessment) is not ExpertCompositionAssessment
+            or type(self.parent_tree) is not ExpertSourceTreeManifest
+            or type(self.patch) is not ExpertCandidatePatch
+            or type(self.source_tree) is not ExpertSourceTreeManifest
+            or type(self.repository_map) is not ExpertRepositoryMap
+            or type(self.module_contracts) is not tuple
+            or any(
+                type(module) is not ExpertModuleContract
+                for module in self.module_contracts
+            )
+        ):
+            raise ExpertCompositionContractError(
+                "composition materialization requires exact typed authorities"
+            )
+        assessment = self.composition_assessment
+        plan = assessment.composition_plan
+        if assessment.disposition is not ExpertCompositionDisposition.CLEAN:
+            raise ExpertCompositionContractError(
+                "composition materialization requires a clean assessment"
+            )
+        if (
+            self.parent_tree.tree_hash != plan.current_base.source_tree_hash
+            or self.patch.parent_tree_hash != self.parent_tree.tree_hash
+            or self.patch.candidate_tree_hash != self.source_tree.tree_hash
+            or self.repository_map.scope_contract_id
+            != plan.scope_contract.scope_contract_id
+        ):
+            raise ExpertCompositionContractError(
+                "composition materialization differs from its plan or source tree"
+            )
+        parent_files = {
+            descriptor.relative_path: descriptor
+            for descriptor in self.parent_tree.files
+        }
+        source_files = {
+            descriptor.relative_path: descriptor
+            for descriptor in self.source_tree.files
+        }
+        expected_changes = tuple(
+            ExpertCandidatePatchChange(
+                relative_path=path,
+                before=parent_files.get(path),
+                after=source_files.get(path),
+            )
+            for path in sorted(set(parent_files) | set(source_files))
+            if parent_files.get(path) != source_files.get(path)
+        )
+        if self.patch.changes != expected_changes:
+            raise ExpertCompositionContractError(
+                "composition materialization patch is not the exact tree transform"
+            )
+        module_contract_ids = tuple(
+            sorted(module.module_contract_id for module in self.module_contracts)
+        )
+        validate_expert_repository_topology(
+            self.repository_map,
+            self.module_contracts,
+            validation_error_type=ExpertCompositionContractError,
+        )
+        _require_digest(
+            self.semantic_book_digest,
+            "composition materialization semantic book",
+        )
+        expected_book = compile_expert_semantic_book(
+            plan.scope_contract,
+            self.repository_map,
+            self.module_contracts,
+        )
+        if self.semantic_book_digest != expert_semantic_book_digest(expected_book):
+            raise ExpertCompositionContractError(
+                "composition materialization semantic book differs from its topology"
+            )
+        expected_controls = {
+            EXPERT_BOOK_PATH: expected_book,
+            EXPERT_REPOSITORY_MAP_PATH: self.repository_map.to_json_bytes(),
+            **{
+                expert_module_contract_path(module.module_contract_id): (
+                    module.to_json_bytes()
+                )
+                for module in self.module_contracts
+            },
+        }
+        if any(
+            path not in source_files
+            or source_files[path].digest != tree_or_blob_digest(payload)
+            or source_files[path].size != len(payload)
+            or source_files[path].mode != "100644"
+            for path, payload in expected_controls.items()
+        ):
+            raise ExpertCompositionContractError(
+                "composition materialization generated controls differ from topology"
+            )
+        validate_expert_tree_ownership(
+            self.repository_map,
+            self.module_contracts,
+            source_files,
+            validation_error_type=ExpertCompositionContractError,
+        )
+        _require_sorted_content_ids(
+            self.stable_authority_ids,
+            "composition materialization stable authorities",
+        )
+        expected_authorities = {
+            assessment.assessment_id,
+            *assessment.stable_authority_ids,
+            self.parent_tree.source_tree_manifest_id,
+            self.patch.patch_id,
+            self.source_tree.source_tree_manifest_id,
+            self.repository_map.repository_map_id,
+            *module_contract_ids,
+        }
+        if set(self.stable_authority_ids) != expected_authorities:
+            raise ExpertCompositionContractError(
+                "composition materialization stable authority closure is not exact"
             )

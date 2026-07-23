@@ -1074,37 +1074,55 @@ foundation separates scientific identity from time-sensitive admission:
   records form a complete disjoint partition of the plan's sources; their subject
   syntax and structural-versus-nonstructural outcome are derived rather than
   caller-selected.
-- The source resolver must reopen every exact candidate package and complete
-  validation-store history, independently rederive terminal `APPROVED`, and return
-  a process-local verified capability. A later admission fence owns those capabilities,
-  two fresh `CURRENT` observations, and the security closure. Serialized IDs alone
-  are never approval authority. Temporal facts authorize one materialization/
-  publication attempt and never enter scientific identity.
+- `ExpertCompositionBaseClosure` verifies the release/tree/map/module/book joins and
+  exact source bytes, but is deliberately not current-release authority. The future
+  GitHub base provider must seal it only after authenticating the release and observing
+  `CURRENT`.
+- The implemented source resolver reopens every exact candidate package and complete
+  validation-store history, independently rederives terminal `APPROVED`, and returns
+  a process-local capability whose exposed candidate and approval values are defensive
+  copies. Serialized IDs alone are never approval authority.
+- A later admission fence must own those source capabilities, a sealed current-base
+  capability, fresh denylist and adapter-trust observations, two fresh `CURRENT`
+  observations, and the security closure. It is consumed under the persistence lease;
+  `require_current()` is only a diagnostic precheck. Temporal facts authorize one
+  persistence/publication attempt and never enter scientific identity.
 
-The deterministic reducer will treat each patch path relative to current source as
+The implemented deterministic reducer treats each patch path relative to current source as
 follows: current equals `before` means applicable, current equals `after` means
 already present, and any third value means conflict. Multiple approved sources that
 touch the same path conflict even if their resulting bytes match; automatic merging
 must not invent shared provenance. Only capability changes may compose mechanically.
 Architecture candidates, topology ambiguity, incompatible module ownership,
-dependency cycles, adapter leakage, or incompatible resource envelopes require a
-fresh architect/generalizer proposal. A coding agent that resolves any conflict also
+dependency cycles, adapter leakage, cross-source capability incompatibility, or an
+aggregate source limit require a fresh architect/generalizer proposal. A coding agent
+that resolves any conflict also
 creates a fresh proposal rather than laundering that judgment through the pure
-reducer.
+reducer. A clean materialization embeds both parent and successor tree manifests,
+rederives the exact patch, regenerates every control file and semantic book, and reruns
+the shared topology and ownership validators. Module resource-bound maps remain opaque
+domain contracts; the generic reducer enforces configured aggregate tree limits rather
+than inventing arithmetic across unrelated schemas.
 
 Before release:
 
 - [x] Define stable base/source references, composition-plan identity, typed conflict,
       and complete deterministic assessment contracts.
-- [ ] Resolve every reference through the candidate/release/validation stores and
+- [x] Resolve every source reference through the candidate/validation stores and
       issue process-local approved-source capabilities.
 - [ ] Resolve the latest stable expert release through M2 and compare it with every
       candidate's parent commit/tree.
-- [ ] If the parent moved, rebase or compose into a new candidate tree with a new
-      identity; never patch the old release in place.
-- [ ] Detect overlapping paths, module-contract conflicts, capability-lineage
-      conflicts, dependency cycles, adapter leakage, and incompatible resource
-      bounds.
+- [x] If the parent moved, deterministically rebase compatible capability effects into
+      an exact new tree identity; never patch the old release in place.
+- [x] Detect overlapping paths, module-contract conflicts, topology drift, adapter
+      leakage, cross-source capability incompatibility, and configured aggregate tree
+      limits.
+- [ ] Seal the authenticated GitHub `CURRENT` base and consume fresh source/denylist/
+      adapter/current observations atomically when persisting the composed candidate.
+- [ ] Persist the clean materialization as a new candidate with new proposal and
+      validation identities.
+- [ ] Route conflicts and architecture changes through a fresh architect/generalizer
+      proposal rather than treating them as reducer output.
 - [ ] Rerun the complete cascade/release matrix on the exact composed tree.
 - [ ] Preserve all candidate ancestry/evidence in the release manifest.
 - [ ] Serialize final publication through the explicit expected-parent/CAS protocol.

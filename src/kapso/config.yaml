@@ -172,6 +172,7 @@ cross_run:
       timeout_seconds: 900
       effort: "xhigh"
       allowed_tools: ["Read"]
+    composition_policy_version: "kapso.expert_composition.v1"
     triggers:
       policy_version: "kapso.expert_triggers.v1"
       inspection_policy_version: "kapso.expert_inspection.v1"

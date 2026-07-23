@@ -1379,6 +1379,7 @@ class ExpertSettings(StrictContract):
     generalizer_id: str
     generalizer_role: str
     generalizer: CodingAgentSettings
+    composition_policy_version: str
     triggers: ExpertTriggerSettings
     task_adapters: TaskAdapterStoreSettings
     validation: ExpertValidationSettings
@@ -1451,6 +1452,10 @@ class ExpertSettings(StrictContract):
             (self.architect_role, "expert.architect_role"),
             (self.generalizer_id, "expert.generalizer_id"),
             (self.generalizer_role, "expert.generalizer_role"),
+            (
+                self.composition_policy_version,
+                "expert.composition_policy_version",
+            ),
         ):
             require_identifier(value, name)
         if self.architect_id == self.generalizer_id:
