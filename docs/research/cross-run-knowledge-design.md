@@ -1249,13 +1249,28 @@ immutable history-free artifact, then advances `CURRENT` with compare-and-swap.
 adapter compatibility, and the intended runtime. An incompatible or stale
 `CURRENT` fails before a new run rather than becoming its implicit baseline.
 
-Revocation appends a signed event and publishes a successor view. Existing runs
-remain reproducible. A performance revocation marks their output ineligible for
-promotion until reviewed. A security or contamination revocation is also added to
-an emergency denylist checked at launch, resume, before agent execution, before
-evaluation, and before publication. Those checks require fresh authenticated
-state and fail closed on network or verification failure; only performance
-revocations may continue purely from an offline pin. The observed denylist
+Scientific release-use revocation appends an immutable catalog event and becomes
+effective only when the checksummed, publisher-attested successor KnowledgeSnapshot
+wins `CURRENT`. V1 events are release-wide, irreversible, and classified as
+`performance` or `compatibility`; context-specific incompatibility remains an exact
+launch-precondition failure instead of being mislabeled as a release revocation.
+Multiple findings accumulate. A review may waive one exact output for promotion,
+but never reinstates the release for new launches; recovery publishes a new release
+identity. Existing runs remain reproducible, and an offline pin may continue, but
+its output is not promotable without a current online policy observation.
+
+These events are neither scientific `CatalogRevocation` records nor expert
+lifecycle/security transitions. Their presence and exact absence are authenticated
+by the observed KnowledgeSnapshot package; a local catalog commit is pending until
+the snapshot activation CAS. A narrow resume/promotion policy reader may refresh
+the latest projection without replacing the run's pinned scientific snapshot.
+Unlike the emergency lineage, this availability policy intentionally permits an
+offline pin and does not claim fail-closed fresh-host anti-rollback semantics.
+
+A security or contamination revocation is instead added to an emergency denylist
+checked at launch, resume, before agent execution, before evaluation, and before
+publication. Those checks require fresh authenticated state and fail closed on
+network or verification failure. The observed denylist
 generation is checkpointed, and local ideas/artifacts citing newly revoked prior
 references are tainted as derivatives.
 

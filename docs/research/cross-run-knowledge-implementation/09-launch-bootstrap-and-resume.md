@@ -153,8 +153,11 @@ M9 owns these high-conflict files until M10 performs final cleanup/activation.
 - [ ] On resume, require the original `BootstrapPin`, workspace tree, read-only
       snapshot package, adapter, checkpoint, IdeaArchive, experiment store, journal,
       and branches to reconcile.
-- [ ] Never re-resolve expert/knowledge `CURRENT` or replace a pinned component.
-- [ ] Refresh and authenticate only the current security/contamination denylist.
+- [ ] Never replace a pinned expert or scientific knowledge component. A narrow
+      policy-only reader may resolve current knowledge `CURRENT` solely to refresh
+      the release-use projection.
+- [ ] Refresh and authenticate the current security/contamination denylist and,
+      when online eligibility is required, the release-use policy projection.
 - [ ] If a new performance revocation exists, preserve reproducibility but mark run
       output/promotion eligibility under policy.
 - [ ] If a security/contamination revocation affects the pin or derivatives, fail

@@ -1339,9 +1339,30 @@ never rewritten: historical activation reopens as `RELEASED`, while the current
 lifecycle state reopens as `REVOKED`. Exact retry is offline and publication retry
 fails before touching GitHub.
 
+Performance and compatibility findings use a separate scientific availability
+plane. `ExpertReleaseUseRevocation` is an irreversible, release-wide catalog fact;
+it binds the exact activated release/publication, reason, evidence, and time, and
+accepts only `performance` or `compatibility`. It never enters `CatalogRevocation`,
+the emergency denylist, taint propagation, or `ExpertPromotionState.REVOKED`.
+All findings remain active, including multiple findings of either kind for one
+release. The policy linearization point is the successor KnowledgeSnapshot
+`CURRENT` CAS—not the local catalog commit. The attested snapshot authenticates
+the event projection; a second signature by the same autonomous GitHub credential
+would add no independent authority.
+
+V1 deliberately treats a release-use revocation as global and permanent. A
+task/adapter/runtime-specific mismatch remains a launch compatibility failure.
+Review may authorize one exact pinned output, with its launch/release/event and
+review authority bound, but cannot clear the release for new launches. Recovery
+instead produces a new expert release ID. New launch, promotion, and recovery will
+require a current online policy projection; an existing offline pin may continue
+reproducibly but cannot publish promotable output until refreshed. A narrow policy
+refresh must not replace its pinned scientific knowledge package.
+
 - [x] Append authenticated security/contamination revocation receipts from the
       signed cumulative emergency lineage.
-- [ ] Append separately authenticated performance/compatibility revocation events;
+- [ ] Append separately authenticated performance/compatibility revocation events
+      to the active KnowledgeSnapshot release-use projection;
       they must not enter the fail-closed emergency lineage.
 - [ ] Performance revocation prevents new launch/promotion and marks existing run
       outputs ineligible while preserving offline reproducibility.

@@ -14,6 +14,7 @@ traces are not runtime dependencies.
 ## Owned responsibilities
 
 - Snapshot admission/proof closure and canonical package assembly.
+- Exact active release-use policy projection from irreversible catalog facts.
 - Extraction of one shared OpenAI embedding provider boundary.
 - Portable metadata, lexical, vector, and optional ANN sidecars.
 - Compatibility-first hybrid retrieval and deterministic packet budgets.
@@ -81,6 +82,9 @@ From one exact catalog generation, `KnowledgeSnapshotPublisher`:
       policy.
 - [x] Includes every claim/relative-effect proof dependency, assertion, active
       state, revocation, and sanitation reference required for audit.
+- [ ] Projects every performance/compatibility release-use event as a distinct,
+      sorted, proof-closed manifest field; never mixes it with scientific catalog
+      revocation or retrieval roots.
 - [x] Includes complete canonical JSON records; IDs-only placeholders are not
       sufficient for runtime retrieval.
 - [x] Parses every envelope through the owning dependency-pure `StrictContract`
