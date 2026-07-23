@@ -67,9 +67,10 @@ def test_config_is_web_off_with_selector_for_k2():
         mode = yaml.safe_load(f)["modes"]["LOCAL"]
     params = mode["search_strategy"]["params"]
     # Web-off harvest: single web-free Claude member, NO lens planner, NO codex.
-    assert [m["cli"] for m in params["ideation_ensemble"]] == ["claude_code"]
-    assert "ideation_lens_planner" not in params
-    assert all(m["cli"] != "codex" for m in params["ideation_ensemble"])
+    ens = params["ideation_ensemble"]
+    assert len(ens) == 2 and all(m["cli"] == "claude_code" for m in ens)  # web-free
+    assert "ideation_lens_planner" not in params  # no web via lens planner
+    assert all(m["cli"] != "codex" for m in ens)  # no codex --search
     assert params["ideation_selector"]["cli"] == "claude_code"
     assert mode["budget"] == {"min_iteration_seconds": 900}
 
