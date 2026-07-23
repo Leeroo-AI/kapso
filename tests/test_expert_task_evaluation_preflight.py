@@ -3,13 +3,11 @@ from dataclasses import replace
 import pytest
 
 from kapso.cross_run.canonical import content_id, tree_or_blob_digest
+from kapso.cross_run.contracts import ExpertCandidateCommitRecord
 from kapso.cross_run.expert.promotion_contracts import (
     ExpertReleaseMatrixProvenanceKind,
 )
-from kapso.cross_run.expert.store import (
-    ExpertCandidateCommitRecord,
-    StoredExpertCandidate,
-)
+from kapso.cross_run.expert.store import StoredExpertCandidate
 from kapso.cross_run.expert.task_evaluation_authority_contracts import (
     TaskEvaluationCurrentReleaseObservation,
 )

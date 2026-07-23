@@ -12,7 +12,7 @@ import tempfile
 from contextlib import ExitStack
 from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
-from typing import ClassVar, Mapping
+from typing import Mapping
 
 from kapso.cross_run.agent_artifacts import (
     CodingAgentWorkspaceAccess,
@@ -30,6 +30,8 @@ from kapso.cross_run.capture.safety import (
 )
 from kapso.cross_run.contracts import (
     CodingAgentWorkspaceDelta,
+    EXPERT_CANDIDATE_COMMIT_PATH,
+    ExpertCandidateCommitRecord,
     ExpertCandidateManifest,
     ExpertCandidateOperationRecord,
     ExpertCandidatePatch,
@@ -50,7 +52,7 @@ from kapso.cross_run.expert.triggers import (
     ExpertTriggerEvidencePacket,
 )
 
-_COMMIT_PATH = "COMMITTED.json"
+_COMMIT_PATH = EXPERT_CANDIDATE_COMMIT_PATH
 _MANIFEST_PATH = "candidate.json"
 _TRIGGER_PACKET_PATH = "trigger-packet.json"
 _TRIGGER_DECISION_PATH = "trigger-decision.json"
@@ -72,36 +74,6 @@ _STAGING_PATTERN = re.compile(r"^\.candidate-[A-Za-z0-9_-]+$")
 
 class ExpertCandidateStoreError(ValueError):
     """Candidate package storage is unsafe, corrupt, or conflicting."""
-
-
-@dataclass(frozen=True)
-class ExpertCandidateCommitRecord(StrictContract):
-    commit_record_id: str
-    candidate_id: str
-    file_checksums: Mapping[str, str]
-
-    CONTENT_NAMESPACE: ClassVar[str] = "expert-candidate-commit"
-    IDENTITY_FIELD: ClassVar[str] = "commit_record_id"
-
-    def _validate(self) -> None:
-        require_content_id(self.candidate_id, "candidate_id")
-        if not self.file_checksums:
-            raise ExpertCandidateStoreError("candidate commit has no files")
-        for relative_path, digest in self.file_checksums.items():
-            path = PurePosixPath(relative_path)
-            if (
-                not relative_path
-                or path.is_absolute()
-                or path == PurePosixPath(".")
-                or ".." in path.parts
-                or path.as_posix() != relative_path
-                or relative_path == _COMMIT_PATH
-            ):
-                raise ExpertCandidateStoreError("candidate commit file path is invalid")
-            if _DIGEST_PATTERN.fullmatch(digest) is None:
-                raise ExpertCandidateStoreError(
-                    "candidate commit file digest is invalid"
-                )
 
 
 @dataclass(frozen=True)

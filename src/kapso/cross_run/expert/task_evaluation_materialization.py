@@ -10,6 +10,7 @@ from typing import Mapping
 from kapso.cross_run.canonical import canonical_json_bytes, tree_or_blob_digest
 from kapso.cross_run.contracts import (
     ExpertBaseReleaseManifest,
+    ExpertCandidateCommitRecord,
     ExpertCandidateManifest,
     ExpertSourceTreeManifest,
     SourceFileDescriptor,
@@ -17,7 +18,6 @@ from kapso.cross_run.contracts import (
     TaskAdapterReleaseMatrixCase,
     TaskAdapterReleaseMatrixStartingArtifact,
 )
-from kapso.cross_run.expert.store import ExpertCandidateCommitRecord
 from kapso.cross_run.expert.triggers import ExpertParentTreeReceipt
 from kapso.cross_run.github.materializer import SourceArchiveExtractionReceipt
 from kapso.cross_run.task_adapters import (

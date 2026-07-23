@@ -55,6 +55,7 @@ _SECRET_ENVIRONMENT_KEY_PATTERN = re.compile(
     r"SECRET(?:_ACCESS_KEY)?|SECRETS?|TOKEN)(?:_|$)"
 )
 EMPTY_EXPERT_TREE_DIGEST = tree_or_blob_digest(canonical_json_bytes(()))
+EXPERT_CANDIDATE_COMMIT_PATH = "COMMITTED.json"
 
 
 class CrossRunContractError(ValueError):
@@ -2224,6 +2225,35 @@ class ExpertCandidatePatch(StrictContract):
             raise ContractValidationError(
                 "candidate patch changes must be non-empty, sorted, and unique"
             )
+
+
+@dataclass(frozen=True)
+class ExpertCandidateCommitRecord(StrictContract):
+    """Create-only package checksum closure for one expert candidate."""
+
+    commit_record_id: str
+    candidate_id: str
+    file_checksums: Mapping[str, str]
+
+    CONTENT_NAMESPACE: ClassVar[str] = "expert-candidate-commit"
+    IDENTITY_FIELD: ClassVar[str] = "commit_record_id"
+
+    def _validate(self) -> None:
+        require_content_id(self.candidate_id, "candidate_id")
+        if not self.file_checksums:
+            raise ContractValidationError("candidate commit has no files")
+        for relative_path, digest in self.file_checksums.items():
+            path = PurePosixPath(relative_path)
+            if (
+                not relative_path
+                or path.is_absolute()
+                or path == PurePosixPath(".")
+                or ".." in path.parts
+                or path.as_posix() != relative_path
+                or relative_path == EXPERT_CANDIDATE_COMMIT_PATH
+            ):
+                raise ContractValidationError("candidate commit file path is invalid")
+            _require_digest(digest, "candidate commit file digest")
 
 
 @dataclass(frozen=True)

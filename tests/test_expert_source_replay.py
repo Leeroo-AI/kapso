@@ -16,6 +16,7 @@ from kapso.cross_run.canonical import (
     tree_or_blob_digest,
 )
 from kapso.cross_run.contracts import (
+    ExpertCandidateCommitRecord,
     ExpertCandidateManifest,
     ExpertModuleContract,
     ExpertSourceTreeManifest,
@@ -25,10 +26,7 @@ from kapso.cross_run.contracts import (
     TaskAdapterManifest,
 )
 from kapso.cross_run.expert.replay import _derive_expert_source_replay_selection
-from kapso.cross_run.expert.store import (
-    ExpertCandidateCommitRecord,
-    StoredExpertCandidate,
-)
+from kapso.cross_run.expert.store import StoredExpertCandidate
 from kapso.cross_run.expert.triggers import (
     ExpertTriggerEvaluator,
     ExpertTriggerObservation,
