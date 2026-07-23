@@ -351,7 +351,7 @@ class ExpertCompositionAdmissionCoordinator:
         if (
             type(denylist) is not SecurityDenylistObservation
             or denylist.checked_subject_ids != security_subject_ids
-            or denylist.denied_subject_ids
+            or denylist.matched_revocations
         ):
             raise ExpertCompositionAdmissionError(
                 "composition admission denylist rejected the exact authority closure"

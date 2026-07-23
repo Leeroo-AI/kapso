@@ -285,7 +285,7 @@ class ExpertCompositionAdmissionFence(StrictContract):
             or type(denylist) is not SecurityDenylistObservation
             or denylist.scope_id != self.scope_id
             or denylist.scope_contract_id != self.scope_contract_id
-            or denylist.denied_subject_ids
+            or denylist.matched_revocations
         ):
             raise ExpertCompositionAdmissionContractError(
                 "composition admission external authorities do not share one safe scope"

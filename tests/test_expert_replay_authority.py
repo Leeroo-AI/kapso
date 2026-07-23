@@ -27,6 +27,7 @@ from kapso.cross_run.security_authority_contracts import (
     SecurityDenylistObservation,
 )
 from kapso.cross_run.expert.validation_store import ExpertValidationStoreError
+from security_denylist_fixtures import matched_security_revocations
 from test_expert_source_replay_request import _prepared, _request_fixture
 
 
@@ -80,7 +81,7 @@ class _DenylistAuthority:
         observed_subjects = (
             checked_subject_ids[:-1] if self.substitute_checked else checked_subject_ids
         )
-        denied_subject_ids = (observed_subjects[0],) if self.denied else ()
+        matched_subject_ids = (observed_subjects[0],) if self.denied else ()
         return SecurityDenylistObservation.mint(
             scope_id=scope_id,
             scope_contract_id=scope_contract_id,
@@ -100,7 +101,7 @@ class _DenylistAuthority:
             authority_commit_sha="b" * 40,
             release_attestation_ref="attestations/security-denylist",
             checked_subject_ids=observed_subjects,
-            denied_subject_ids=denied_subject_ids,
+            matched_revocations=matched_security_revocations(matched_subject_ids),
         )
 
 

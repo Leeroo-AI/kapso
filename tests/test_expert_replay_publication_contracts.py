@@ -82,7 +82,7 @@ class _PublicationDenylistAuthority:
         return _remint(
             self.template,
             checked_subject_ids=checked_subject_ids,
-            denied_subject_ids=(),
+            matched_revocations=(),
         )
 
 
@@ -168,7 +168,7 @@ def _publication_evidence(tmp_path, aggregate_by_leg_kind=None):
         authority_commit_sha="d" * 40,
         release_attestation_ref="attestations/security-denylist",
         checked_subject_ids=security_subjects,
-        denied_subject_ids=(),
+        matched_revocations=(),
     )
     request = prepared.request
     fence = SourceReplayDecisionPublicationFence.mint(

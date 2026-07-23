@@ -5381,11 +5381,6 @@ class SecurityDenylistSnapshot(StrictContract):
                 "security denylist evidence bundle is not its exact closure"
             )
 
-    @property
-    def denied_subject_ids(self) -> tuple[str, ...]:
-        return tuple(sorted({item.subject_id for item in self.revocations}))
-
-
 @dataclass(frozen=True)
 class GitHubReleaseAsset(StrictContract):
     asset_id: str

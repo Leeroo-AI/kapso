@@ -37,6 +37,7 @@ from kapso.cross_run.github.publisher import (
 from kapso.cross_run.github.resolver import (
     CurrentArtifactPointer,
     CurrentPointerState,
+    GitHubArtifactActivationWitness,
     RepositoryPolicyReport,
     ResolvedGitHubArtifact,
     release_attestation_reference,
@@ -53,10 +54,14 @@ from kapso.cross_run.security_denylist import (
     SecurityDenylistPublicationGate,
     SecurityDenylistPublisher,
 )
+from kapso.cross_run.security_authority_contracts import (
+    SecurityAuthorityContractError,
+)
 from kapso.cross_run.settings import CrossRunSettings
 from tests.cross_run_github_fixtures import release_attestation
 from tests.test_cross_run_github_publisher import (
     EXPECTED_PARENT,
+    POINTER_COMMIT,
     SOURCE_COMMIT,
     FakePublisherClient,
     FakeResolver,
@@ -66,6 +71,17 @@ from tests.test_cross_run_github_publisher import (
 CANONICAL_CONFIG_PATH = "src/kapso/config.yaml"
 SCOPE_ID = "ml_ai"
 SCOPE_CONTRACT_ID = content_id("scope-contract", {"scope": SCOPE_ID})
+
+
+class _MembershipCountingSubjects(tuple):
+    def __new__(cls, values):
+        instance = super().__new__(cls, values)
+        instance.membership_checks = 0
+        return instance
+
+    def __contains__(self, value):
+        self.membership_checks += 1
+        return super().__contains__(value)
 
 
 class _SnapshotProvider:
@@ -398,7 +414,7 @@ def test_generation_zero_establishes_a_durable_floor_and_live_resolves_again(
     restarted = _authority(provider, _store(tmp_path))
     second = _observe(restarted, (subject_id,))
 
-    assert first.denied_subject_ids == ()
+    assert first.matched_revocations == ()
     assert second.snapshot_id == generation_zero.snapshot_id
     assert provider.calls == [
         ("current", SCOPE_ID),
@@ -439,12 +455,63 @@ def test_multi_generation_lineage_is_authenticated_and_denials_intersect_exactly
         (safe_subject, first_revocation.subject_id),
     )
 
-    assert observation.denied_subject_ids == (first_revocation.subject_id,)
+    assert observation.matched_revocations == (first_revocation,)
+    assert observation.matched_subject_ids == (first_revocation.subject_id,)
     assert provider.calls == [
         ("current", SCOPE_ID),
         ("exact", generation_one.snapshot_id),
         ("exact", generation_zero.snapshot_id),
     ]
+
+    with pytest.raises(SecurityAuthorityContractError, match="were not checked"):
+        replace(observation, matched_revocations=(second_revocation,))
+
+
+def test_observation_preserves_every_revocation_for_one_subject_in_linear_order(
+    tmp_path,
+):
+    security_evidence = _evidence("shared-security")
+    contamination_evidence = _evidence("shared-contamination")
+    security_revocation = _revocation("shared", security_evidence)
+    contamination_revocation = SecurityDenylistRevocation.mint(
+        subject_id=security_revocation.subject_id,
+        kind=SecurityDenylistKind.CONTAMINATION,
+        reason_code="verified_contamination",
+        evidence_ids=(contamination_evidence.evidence_id,),
+        recorded_at="2026-07-21T13:00:00Z",
+    )
+    generation_zero = _snapshot(0, None, ())
+    revocations = tuple(
+        sorted(
+            (security_revocation, contamination_revocation),
+            key=lambda revocation: revocation.revocation_id,
+        )
+    )
+    generation_one = _snapshot(
+        1,
+        generation_zero,
+        revocations,
+        (security_evidence, contamination_evidence),
+    )
+    provider = _SnapshotProvider(
+        _authenticated(generation_one),
+        (_authenticated(generation_zero),),
+    )
+    safe_subject_id = content_id("security-subject", {"label": "shared-safe"})
+    checked_subjects = _MembershipCountingSubjects(
+        tuple(sorted((security_revocation.subject_id, safe_subject_id)))
+    )
+
+    observation = _authority(provider, _store(tmp_path)).observe_exact(
+        scope_id=SCOPE_ID,
+        scope_contract_id=SCOPE_CONTRACT_ID,
+        checked_subject_ids=checked_subjects,
+    )
+
+    assert checked_subjects.membership_checks == 0
+    assert observation.matched_revocations == revocations
+    assert observation.matched_subject_ids == (security_revocation.subject_id,)
+    assert type(observation).from_json_bytes(observation.to_json_bytes()) == observation
 
 
 def test_local_floor_rejects_rollback_and_equal_generation_fork(tmp_path):
@@ -660,7 +727,7 @@ def test_checkpoint_size_is_independent_of_cumulative_revocation_content(tmp_pat
 
     assert checkpoint is not None
     assert "revocation_ids" not in checkpoint.to_dict()
-    assert "denied_subject_ids" not in checkpoint.to_dict()
+    assert "matched_revocations" not in checkpoint.to_dict()
 
 
 def test_checkpoint_store_rejects_a_world_writable_trusted_root(tmp_path):
@@ -900,7 +967,20 @@ def test_security_publication_runs_the_full_immutable_transaction(tmp_path):
     )
     resolver.identity_payload_observer = lambda: client.identity_payload
     resolver.intent_payload_observer = lambda: client.intent_payload
+    resolver.activation_preparation_observer = (
+        lambda: client.activation_preparation_target
+    )
+    resolver.activation_witness_observer = lambda: client.activation_witness_target
     resolver.current_state_observer = lambda: client.events.append("current_gate")
+
+    def observe_head(commit_sha):
+        resolver.current_head = commit_sha
+        if commit_sha == POINTER_COMMIT:
+            resolver.existing = CurrentArtifactPointer.from_json_bytes(
+                client.identity_payload
+            )
+
+    client.head_observer = observe_head
     materializer = GitHubArtifactMaterializer(
         client,
         settings.github,
@@ -925,7 +1005,11 @@ def test_security_publication_runs_the_full_immutable_transaction(tmp_path):
     assert telemetry.publication_record.repository_full_name == repository
     assert telemetry.publication_record.artifact_id == snapshot.snapshot_id
     assert telemetry.source_commit_sha == SOURCE_COMMIT
-    assert client.events[-3:] == ["pointer_commit", "current_gate", "pointer_ref"]
+    assert client.events[-3:] == [
+        "pointer_ref",
+        "current_gate",
+        "activation_witness_ref",
+    ]
 
 
 def test_security_successor_transaction_reauthenticates_the_live_predecessor(
@@ -965,6 +1049,92 @@ def test_security_successor_transaction_reauthenticates_the_live_predecessor(
     )
     resolver.identity_payload_observer = lambda: client.identity_payload
     resolver.intent_payload_observer = lambda: client.intent_payload
+    resolver.activation_preparation_observer = (
+        lambda: client.activation_preparation_target
+    )
+    resolver.activation_witness_observer = lambda: client.activation_witness_target
+    predecessor_intent = SimpleNamespace(
+        artifact_id=current_pointer.publication_record.artifact_id,
+        digest=current_pointer.publication_intent_digest,
+        binds=lambda pointer: pointer == current_pointer,
+    )
+    resolver.read_artifact_intent = lambda scope_id, artifact_kind, artifact_id: (
+        predecessor_intent
+        if artifact_id == current_pointer.publication_record.artifact_id
+        else None
+    )
+    resolver.read_artifact_pointer = lambda scope_id, artifact_kind, artifact_id: (
+        current_pointer
+        if artifact_id == current_pointer.publication_record.artifact_id
+        else None
+    )
+    resolve_activation_preparation = resolver.resolve_artifact_activation_preparation
+    resolve_activation_witness = resolver.resolve_artifact_activation_witness
+    predecessor_id = current_pointer.publication_record.artifact_id
+    predecessor_witness = GitHubArtifactActivationWitness.mint(
+        scope_id=SCOPE_ID,
+        scope_repository_binding_hash=(
+            settings.scopes.resolve(SCOPE_ID).binding_fingerprint
+        ),
+        artifact_kind=PublicationArtifactKind.SECURITY_DENYLIST,
+        artifact_id=predecessor_id,
+        repository_full_name=repository,
+        activation_commit_sha=EXPECTED_PARENT,
+        publication_intent_digest=predecessor_intent.digest,
+        current_pointer_digest=tree_or_blob_digest(current_pointer.to_json_bytes()),
+    )
+
+    def resolve_preparation(
+        scope_id,
+        artifact_kind,
+        artifact_id,
+        intent,
+        pointer,
+        *,
+        allow_missing=False,
+    ):
+        if artifact_id == predecessor_id:
+            return EXPECTED_PARENT
+        return resolve_activation_preparation(
+            scope_id,
+            artifact_kind,
+            artifact_id,
+            intent,
+            pointer,
+            allow_missing=allow_missing,
+        )
+
+    def resolve_witness(
+        scope_id,
+        artifact_kind,
+        artifact_id,
+        intent,
+        pointer,
+        *,
+        allow_missing=False,
+    ):
+        if artifact_id == predecessor_id:
+            return predecessor_witness
+        return resolve_activation_witness(
+            scope_id,
+            artifact_kind,
+            artifact_id,
+            intent,
+            pointer,
+            allow_missing=allow_missing,
+        )
+
+    resolver.resolve_artifact_activation_preparation = resolve_preparation
+    resolver.resolve_artifact_activation_witness = resolve_witness
+
+    def observe_head(commit_sha):
+        resolver.current_head = commit_sha
+        if commit_sha == POINTER_COMMIT:
+            resolver.existing = CurrentArtifactPointer.from_json_bytes(
+                client.identity_payload
+            )
+
+    client.head_observer = observe_head
     materializer = GitHubArtifactMaterializer(
         client,
         settings.github,
@@ -993,7 +1163,7 @@ def test_security_successor_transaction_reauthenticates_the_live_predecessor(
 
     assert telemetry.publication_record.artifact_id == generation_one.snapshot_id
     assert provider.current_calls == 2
-    assert client.events[-1] == "pointer_ref"
+    assert client.events[-2:] == ["pointer_ref", "activation_witness_ref"]
 
 
 def test_generic_publisher_cannot_activate_security_without_the_lineage_gate(

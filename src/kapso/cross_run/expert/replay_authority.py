@@ -205,7 +205,7 @@ class ExpertSourceReplayFreshAuthorityCoordinator:
                 SecurityDenylistObservation,
             )
             or denylist_observation.checked_subject_ids != checked_subject_ids
-            or denylist_observation.denied_subject_ids
+            or denylist_observation.matched_revocations
         ):
             raise ExpertSourceReplayFreshAuthorityError(
                 "fresh spawn denylist authority rejected the exact dependency closure"

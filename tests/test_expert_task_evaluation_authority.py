@@ -23,6 +23,7 @@ from kapso.cross_run.security_authority_contracts import (
     SecurityDenylistObservation,
     TaskAdapterTrustObservation,
 )
+from security_denylist_fixtures import matched_security_revocations
 from test_expert_release_matrix_reservation import (
     _bootstrap_release_matrix_fixture,
 )
@@ -119,7 +120,7 @@ def _second_case_with_shared_legs(first_case):
     )
 
 
-def _denylist(prepared, checked_subject_ids, *, denied_subject_ids=()):
+def _denylist(prepared, checked_subject_ids, *, matched_subject_ids=()):
     request = prepared.plan_join.request
     return SecurityDenylistObservation.mint(
         scope_id=request.scope_id,
@@ -137,7 +138,7 @@ def _denylist(prepared, checked_subject_ids, *, denied_subject_ids=()):
         authority_commit_sha="b" * 40,
         release_attestation_ref="attestations/security-denylist",
         checked_subject_ids=checked_subject_ids,
-        denied_subject_ids=denied_subject_ids,
+        matched_revocations=matched_security_revocations(matched_subject_ids),
     )
 
 

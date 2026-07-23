@@ -1249,8 +1249,11 @@ scope-bound repository and three cooperating responsibilities:
    exact bounded subject tuple, authenticates every predecessor needed to reach a
    private local floor (or generation zero on first use), rejects rollback/fork or
    revocation removal, atomically advances the compact checkpoint, and returns the
-   exact denial intersection. Count and byte bounds are enforced before content
-   validation and sorting. Its checkpoint is never offline authorization.
+   exact matched revocation records rather than only lossy subject IDs. Each
+   observation preserves the kind, revocation identity, reason, evidence
+   identities, and timestamp for the checked-subject intersection. Count and byte
+   bounds are enforced before content validation and sorting. Its checkpoint is
+   never offline authorization.
 
 The checkpoint store requires an owner-private trusted root, private real
 directories and lock/checkpoint files, bounded canonical bytes, per-scope locking,

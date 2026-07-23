@@ -172,7 +172,7 @@ class SourceReplaySpawnAuthorityFence(StrictContract):
             raise ExpertSourceReplayFreshAuthorityError(
                 "source replay spawn adapter observations must be sorted and unique"
             )
-        if self.security_denylist_observation.denied_subject_ids:
+        if self.security_denylist_observation.matched_revocations:
             raise ExpertSourceReplayFreshAuthorityError(
                 "source replay spawn authority contains denied subjects"
             )

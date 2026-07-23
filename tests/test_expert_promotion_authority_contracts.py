@@ -29,6 +29,7 @@ from kapso.cross_run.security_authority_contracts import (
     SecurityDenylistObservation,
     TaskAdapterTrustObservation,
 )
+from security_denylist_fixtures import matched_security_revocations
 
 
 def _id(namespace: str, label: str) -> str:
@@ -271,7 +272,7 @@ def _security_subject_ids(
 def _denylist(
     checked_subject_ids: tuple[str, ...],
     *,
-    denied_subject_ids: tuple[str, ...] = (),
+    matched_subject_ids: tuple[str, ...] = (),
 ) -> SecurityDenylistObservation:
     return SecurityDenylistObservation.mint(
         scope_id="post-training",
@@ -286,7 +287,7 @@ def _denylist(
         authority_commit_sha="b" * 40,
         release_attestation_ref="refs/tags/security-v3",
         checked_subject_ids=checked_subject_ids,
-        denied_subject_ids=denied_subject_ids,
+        matched_revocations=matched_security_revocations(matched_subject_ids),
     )
 
 
@@ -527,7 +528,7 @@ def test_fence_rejects_any_denied_security_subject():
             fence,
             security_denylist_observation=_denylist(
                 fence.security_subject_ids,
-                denied_subject_ids=denied,
+                matched_subject_ids=denied,
             ),
         )
 

@@ -21,6 +21,7 @@ from kapso.cross_run.expert.validation_store import ExpertValidationStoreError
 from kapso.cross_run.security_authority_contracts import (
     SecurityDenylistObservation,
 )
+from security_denylist_fixtures import matched_security_revocations
 from test_expert_release_matrix_reservation import (
     _bootstrap_release_matrix_fixture,
 )
@@ -91,7 +92,7 @@ class _DenylistAuthority:
     ):
         self.calls.append("denylist")
         self.checked_subject_ids = checked_subject_ids
-        denied_subject_ids = (checked_subject_ids[0],) if self.denied else ()
+        matched_subject_ids = (checked_subject_ids[0],) if self.denied else ()
         observation = SecurityDenylistObservation.mint(
             scope_id=scope_id,
             scope_contract_id=scope_contract_id,
@@ -111,7 +112,7 @@ class _DenylistAuthority:
             authority_commit_sha="b" * 40,
             release_attestation_ref="attestations/security-denylist",
             checked_subject_ids=checked_subject_ids,
-            denied_subject_ids=denied_subject_ids,
+            matched_revocations=matched_security_revocations(matched_subject_ids),
         )
         if self.callback is not None:
             self.callback()

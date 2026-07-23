@@ -166,7 +166,7 @@ class ExpertSourceReplayDecisionPublicationCoordinator:
         if (
             not isinstance(denylist, SecurityDenylistObservation)
             or denylist.checked_subject_ids != security_subject_ids
-            or denylist.denied_subject_ids
+            or denylist.matched_revocations
         ):
             raise ExpertSourceReplayPublicationError(
                 "source replay publication denylist rejected the exact closure"

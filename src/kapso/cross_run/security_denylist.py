@@ -815,11 +815,11 @@ class AuthenticatedSecurityDenylistAuthority:
         floor = self.checkpoint_store.checkpoint(scope_id)
         lineage = self._lineage_to_floor(current, floor)
         self.checkpoint_store.accept(current, lineage)
-        denied_subjects = set(snapshot.denied_subject_ids)
-        denied_subject_ids = tuple(
-            subject_id
-            for subject_id in checked_subject_ids
-            if subject_id in denied_subjects
+        checked_subject_id_set = set(checked_subject_ids)
+        matched_revocations = tuple(
+            revocation
+            for revocation in snapshot.revocations
+            if revocation.subject_id in checked_subject_id_set
         )
         return SecurityDenylistObservation.mint(
             scope_id=scope_id,
@@ -834,7 +834,7 @@ class AuthenticatedSecurityDenylistAuthority:
             authority_commit_sha=current.authority_commit_sha,
             release_attestation_ref=current.release_attestation_ref,
             checked_subject_ids=checked_subject_ids,
-            denied_subject_ids=denied_subject_ids,
+            matched_revocations=matched_revocations,
         )
 
     def _lineage_to_floor(

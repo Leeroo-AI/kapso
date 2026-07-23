@@ -179,7 +179,7 @@ class SourceReplayDecisionPublicationFence(StrictContract):
         if (
             denylist.scope_id != self.scope_id
             or denylist.scope_contract_id != self.scope_contract_id
-            or denylist.denied_subject_ids
+            or denylist.matched_revocations
         ):
             raise ExpertSourceReplayPublicationError(
                 "source replay publication denylist authority rejected the fence"

@@ -137,7 +137,7 @@ class TaskEvaluationSpawnAuthorityFence(StrictContract):
                 "task evaluation spawn adapter observations are noncanonical"
             )
         denylist = self.security_denylist_observation
-        if denylist.denied_subject_ids:
+        if denylist.matched_revocations:
             raise TaskEvaluationAuthorityError(
                 "task evaluation spawn authority contains denied subjects"
             )

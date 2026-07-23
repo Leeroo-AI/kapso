@@ -67,6 +67,7 @@ from kapso.cross_run.expert.store import ExpertCandidateStore, StoredExpertCandi
 from kapso.cross_run.security_authority_contracts import (
     SecurityDenylistObservation,
 )
+from security_denylist_fixtures import matched_security_revocations
 from kapso.cross_run.settings import CrossRunSettings
 from test_expert_promotion_decision import _settings
 from test_expert_composition_base import _parent_receipt
@@ -122,7 +123,7 @@ class _DenylistAuthority:
     ):
         self.calls.append("denylist")
         self.checked_subject_ids = checked_subject_ids
-        denied_subject_ids = (checked_subject_ids[0],) if self.denied else ()
+        matched_subject_ids = (checked_subject_ids[0],) if self.denied else ()
         observation = SecurityDenylistObservation.mint(
             scope_id=scope_id,
             scope_contract_id=scope_contract_id,
@@ -144,7 +145,7 @@ class _DenylistAuthority:
             authority_commit_sha="b" * 40,
             release_attestation_ref="attestations/security-denylist",
             checked_subject_ids=checked_subject_ids,
-            denied_subject_ids=denied_subject_ids,
+            matched_revocations=matched_security_revocations(matched_subject_ids),
         )
         if self.callback is not None:
             self.callback()
@@ -896,7 +897,7 @@ def test_composition_candidate_security_subjects_cover_outer_and_source_authorit
         authority_commit_sha="e" * 40,
         release_attestation_ref="attestations/composition-security",
         checked_subject_ids=admission_subjects,
-        denied_subject_ids=(),
+        matched_revocations=(),
     )
     admission_fence = ExpertCompositionAdmissionFence.mint(
         candidate_id=closure.manifest.candidate_id,

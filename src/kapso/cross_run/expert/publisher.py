@@ -778,7 +778,7 @@ class ExpertReleasePublisher:
             != repositories.binding_fingerprint
             or denylist.repository_full_name != repositories.security_repository
             or denylist.checked_subject_ids != security_subject_ids
-            or denylist.denied_subject_ids
+            or denylist.matched_revocations
         ):
             raise ExpertReleasePublicationError(
                 "expert publication denylist differs from fresh authority"

@@ -242,7 +242,7 @@ class ExpertPublicationEligibilityCoordinator:
                 != stored_candidate.closure.validation_context.scope_id
                 or denylist.scope_contract_id != attempt.scope_contract_id
                 or denylist.checked_subject_ids != security_subject_ids
-                or denylist.denied_subject_ids
+                or denylist.matched_revocations
             ):
                 raise ExpertPublicationEligibilityError(
                     "publication eligibility denylist differs from exact authority"

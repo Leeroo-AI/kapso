@@ -59,6 +59,7 @@ from kapso.cross_run.expert.validation import (
 from kapso.cross_run.security_authority_contracts import (
     SecurityDenylistObservation,
 )
+from security_denylist_fixtures import matched_security_revocations
 from test_expert_composition import reducer_case
 from test_expert_publication_eligibility import terminal_cases
 
@@ -96,7 +97,9 @@ class _DenylistAuthority:
             authority_commit_sha="a" * 40,
             release_attestation_ref="attestations/composition-admission",
             checked_subject_ids=checked_subject_ids,
-            denied_subject_ids=(checked_subject_ids[0],) if self.denied else (),
+            matched_revocations=matched_security_revocations(
+                (checked_subject_ids[0],) if self.denied else ()
+            ),
         )
         self.after_observe()
         return observation

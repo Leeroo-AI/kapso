@@ -173,7 +173,7 @@ class ExpertPublicationEligibilityAuthorityFence(StrictContract):
             denylist.scope_id != self.scope_id
             or denylist.scope_contract_id != self.scope_contract_id
             or denylist.checked_subject_ids != self.security_subject_ids
-            or denylist.denied_subject_ids
+            or denylist.matched_revocations
         ):
             raise ExpertPublicationEligibilityContractError(
                 "publication eligibility denylist observation differs from exact authority"

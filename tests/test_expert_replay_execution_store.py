@@ -167,7 +167,7 @@ class _SecurityDenylistAuthority:
             authority_commit_sha="b" * 40,
             release_attestation_ref="attestations/security-denylist",
             checked_subject_ids=checked_subject_ids,
-            denied_subject_ids=(),
+            matched_revocations=(),
         )
 
 

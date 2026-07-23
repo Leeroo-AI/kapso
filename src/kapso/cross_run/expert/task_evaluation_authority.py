@@ -140,7 +140,7 @@ class TaskEvaluationFreshAuthorityCoordinator:
             or denylist_observation.scope_id != request.scope_id
             or denylist_observation.scope_contract_id != request.scope_contract_id
             or denylist_observation.checked_subject_ids != checked_subject_ids
-            or denylist_observation.denied_subject_ids
+            or denylist_observation.matched_revocations
         ):
             raise TaskEvaluationAuthorityError(
                 "fresh task-evaluation denylist differs from exact security authority"

@@ -11,7 +11,7 @@ from kapso.cross_run.canonical import (
     require_content_id,
     require_identifier,
 )
-from kapso.cross_run.contracts import StrictContract
+from kapso.cross_run.contracts import SecurityDenylistRevocation, StrictContract
 
 _DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 _REPOSITORY_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
@@ -25,10 +25,8 @@ class SecurityAuthorityContractError(ValueError):
 def _require_sorted_content_ids(
     values: tuple[str, ...],
     name: str,
-    *,
-    allow_empty: bool = False,
 ) -> None:
-    if (not values and not allow_empty) or values != tuple(sorted(set(values))):
+    if not values or values != tuple(sorted(set(values))):
         raise SecurityAuthorityContractError(f"{name} must be sorted and unique")
     for value in values:
         require_content_id(value, name)
@@ -102,7 +100,7 @@ class SecurityDenylistObservation(StrictContract):
     authority_commit_sha: str
     release_attestation_ref: str
     checked_subject_ids: tuple[str, ...]
-    denied_subject_ids: tuple[str, ...]
+    matched_revocations: tuple[SecurityDenylistRevocation, ...]
 
     CONTENT_NAMESPACE: ClassVar[str] = "security-denylist-observation"
     IDENTITY_FIELD: ClassVar[str] = "observation_id"
@@ -160,12 +158,22 @@ class SecurityDenylistObservation(StrictContract):
             self.checked_subject_ids,
             "denylist observation checked subjects",
         )
-        _require_sorted_content_ids(
-            self.denied_subject_ids,
-            "denylist observation denied subjects",
-            allow_empty=True,
+        revocation_ids = tuple(
+            revocation.revocation_id for revocation in self.matched_revocations
         )
-        if not set(self.denied_subject_ids).issubset(self.checked_subject_ids):
+        if revocation_ids != tuple(sorted(set(revocation_ids))):
             raise SecurityAuthorityContractError(
-                "denylist observation denied subjects were not checked"
+                "denylist observation matched revocations must be sorted and unique"
             )
+        if not {
+            revocation.subject_id for revocation in self.matched_revocations
+        }.issubset(self.checked_subject_ids):
+            raise SecurityAuthorityContractError(
+                "denylist observation matched revocations were not checked"
+            )
+
+    @property
+    def matched_subject_ids(self) -> tuple[str, ...]:
+        return tuple(
+            sorted({revocation.subject_id for revocation in self.matched_revocations})
+        )

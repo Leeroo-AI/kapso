@@ -156,7 +156,7 @@ def build_task_evaluation_spawn_authority_fence(
         or denylist.scope_id != request.scope_id
         or denylist.scope_contract_id != request.scope_contract_id
         or denylist.checked_subject_ids != expected_subjects
-        or denylist.denied_subject_ids
+        or denylist.matched_revocations
     ):
         raise TaskEvaluationAuthorityError(
             "task evaluation spawn denylist differs from exact security authority"
