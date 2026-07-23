@@ -17,6 +17,32 @@ cross-year similarity analysis.
 | **Radar** (Individual + At-Home) | Vision | 2800 .pt tiles **in-repo** (~1.4 GB each) | none (from-scratch) | GPU (heavy) | T5 | Only extreme class-imbalance weighting overlaps |
 | **Synthetic Speech Detector** (GAITE) | **Audio** | 13.7k .pt **in-repo** (679 MB) | none (from-scratch) | GPU | T4 | Same *domain* (spectrogram→CNN) but from-scratch binary classifier — no CIL core |
 
+## Submission format + compute (VERIFIED from the task notebooks)
+
+Read from each notebook's submission cells — not the platform spec. None of
+these are a "re-run your full training notebook on hidden data" kernel like the
+2026 Kaggle tasks; almost all upload **output predictions**.
+
+| Task | Compute (from notebook) | Time limit | You submit |
+|---|---|---|---|
+| **Antique** | **CPU** (SVM on tabular features) | none stated | **Predictions** — `submission.zip` = submissionA.csv + submissionB.csv |
+| **Radar** | GPU (CNN segmentation, from-scratch) | none stated | **Predictions** — `submission.zip` = submission_val.csv + submission_test.csv |
+| **Restroom** | GPU (CLIP ViT-B/16 encoder) | **timed — exceed ⇒ score 0** (value platform-set, not in notebook) | **Predictions** — `submission.zip` = submission_a.npy + submission_b.npy (timed code re-run) |
+| **Pixel** | GPU (CLIP) | **explicit: under 8 min for 698 imgs** | **Predictions** — mask coords, ≤6.25% pixels retained (timed code re-run) |
+| **Chameleon** | GPU/CPU (SentenceTransformer FT, epochs=1) | none stated | **Checkpoint + code** — `submission.zip` = submission_model.py + `./model/` (fine-tuned model dir) |
+| Speech Detector | GPU (spectrogram CNN) | — | (notebook not fetched — UNVERIFIED) |
+
+- **Output predictions (zip of CSV/NPY):** Antique, Radar, Restroom, Pixel.
+- **Checkpoint + inference code:** Chameleon (the only one that ships a model).
+- **Exact GPU SKU** is a Bohrium platform parameter, not stated in the
+  notebooks — not asserting one. All GPU tasks use single-GPU CUDA; Antique is
+  pure CPU.
+- **Harness implication:** because scoring is predictions-vs-labels (not a
+  kernel re-run), these harness like Help_BOBAI / Animal-Deduction — the agent's
+  `solution.py` emits predictions, scored on a carved private held-out. No
+  kernel-push infrastructure (unlike the Kaggle harness). For Pixel/Restroom the
+  harness can enforce the stated time budget as part of the metric.
+
 ## ❌ BLOCKED (data not obtainable)
 
 | Task | Why blocked |
