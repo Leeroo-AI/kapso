@@ -307,6 +307,19 @@ def build_reference(work_root: Path) -> str:
     kapso = load_kapso_results(work_root)
     roi_order, cpu_safe = _campaign_orders()
 
+    # RelBench v1 task set = the 30 tasks in the original benchmark (all
+    # evaluated by KumoRFM-ft). Everything else in the native 66 is a v2
+    # addition (the autocomplete family + the 4 v2-only databases + extra
+    # entity/rec tasks). The relbench-hf submission leaderboard ranks 31
+    # tasks — the 30 v1 tasks split into Classification (12) / Regression
+    # (9) / Recommendation (9), plus the one v2 rec task the board carries
+    # (rel-f1/driver-circuit-compete) → 10 in the Recommendation category.
+    v1_tasks = set()
+    for _sect in ("v1_classification_auroc_pct", "v1_regression_mae",
+                  "v1_recommendation_map_pct"):
+        v1_tasks |= {k for k in baselines["kumorfm_fine_tuned"][_sect] if not k.startswith("_")}
+    board_tasks = v1_tasks | {"rel-f1/driver-circuit-compete"}
+
     ra_clf = baselines["relagent"]["v1_classification_auroc_pct"]
     ra_reg = baselines["relagent"]["v1_regression_mae"]
     ra_v2 = baselines["relagent"]["v2_subset"]
@@ -333,6 +346,7 @@ def build_reference(work_root: Path) -> str:
             if ds == "rel-mimic":
                 rows.append({"task": task_id, "family": "clf", "metric": "auroc_pct",
                              "sota": sota.get(task_id, {}), "hw": "blocked",
+                             "ver": "v2", "board": False,
                              "status": "⛔ credentialed data", "roi": None})
                 continue
             family, primary_metric = _family_and_metric(ds, task_name)
@@ -375,6 +389,8 @@ def build_reference(work_root: Path) -> str:
 
             rows.append({
                 "task": task_id, "family": fam, "metric": entry.get("metric", primary_metric),
+                "ver": "v1" if task_id in v1_tasks else "v2",
+                "board": task_id in board_tasks,
                 "sota": entry, "relagent": relagent, "kumo": kumo,
                 "kumo_v1_ic": in_context_cell(ic_v1, task_id),
                 "kumo_v2_ic": in_context_cell(ic_v2, task_id),
@@ -407,6 +423,21 @@ def build_reference(work_root: Path) -> str:
         f"Status: **{n_done}/66 tasks run**, {n_beats_sota} beating the best published number. "
         "Category-level gates: run the scorecard (same module, no flags).",
         "",
+        "## Benchmark version & leaderboard submission",
+        "",
+        "Each task is tagged **v1** or **v2** in the `Ver` column. The public "
+        "**relbench-hf submission leaderboard ranks 31 tasks** (marked ★): the 30 "
+        "original v1 tasks — Classification (12) / Regression (9) / Recommendation (9) "
+        "— plus the one v2 recommendation task the board carries "
+        "(`rel-f1/driver-circuit-compete`), making 10 in Recommendation. The other 35 "
+        "tasks (the 23-task autocomplete family + the v2-only databases rel-arxiv / "
+        "rel-salt / rel-ratebeer / rel-mimic + extra v2 entity/rec tasks) are **not on "
+        "the submission board** — they are tracked here for completeness against the "
+        "v2 paper. **Submit v1**: the three categories are independent but each requires "
+        "predictions for *all* its tasks (per `relbench.leaderboard.LEADERBOARD_TASKS`; "
+        "package with `python -m relbench.leaderboard preds/ --package`, then open a "
+        "submission issue on stanford-star/relbench@relbench-hf).",
+        "",
         "## Hardware requirements",
         "",
         "- **CPU-ok** (39 tasks): rel-f1 (1 MB), rel-salt (34 MB), rel-event (100 MB), "
@@ -434,14 +465,18 @@ def build_reference(work_root: Path) -> str:
         "Values in the best-known number's units (AUROC/acc/MAP in %, NMAE, R², raw MAE). "
         "'Best known' = strongest published result anywhere (board ∪ papers).",
         "",
-        "| ROI# | Task | Fam | Best known (method) | RelAgent | KumoRFM-ft | KumoRFM-v1 (ic) | KumoRFM-v2 (ic) | Kapso | vs best | HW | Cap | Status |",
-        "|---|---|---|---|---|---|---|---|---|---|---|---|---|",
+        "'Ver' = benchmark version; ★ = one of the 31 tasks on the relbench-hf "
+        "submission leaderboard.",
+        "",
+        "| ROI# | Task | Fam | Ver | Best known (method) | RelAgent | KumoRFM-ft | KumoRFM-v1 (ic) | KumoRFM-v2 (ic) | Kapso | vs best | HW | Cap | Status |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for r in rows:
         e = r["sota"]
         best = f"{f(e.get('value'))} ({e.get('method', '?').split(' (')[0][:24]})" if e else "—"
+        ver_cell = r.get("ver", "—") + ("★" if r.get("board") else "")
         lines.append(
-            f"| {f(r['roi'], 0)} | {r['task']} | {r['family']} | {best} "
+            f"| {f(r['roi'], 0)} | {r['task']} | {r['family']} | {ver_cell} | {best} "
             f"| {f(r.get('relagent'))} | {f(r.get('kumo'))} "
             f"| {f(r.get('kumo_v1_ic'))} | {f(r.get('kumo_v2_ic'))} | {f(r.get('kapso'))} "
             f"| {r.get('beats') or '—'} | {r['hw']} | {r.get('tier', '—')} | {r['status']} |"
