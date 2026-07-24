@@ -224,16 +224,21 @@ dependency/runtime contract
 security denylist snapshot ID + generation
 ```
 
-If the pinned scope has no release, the resolver first completes the
-`ExpertRepoArchitect` bootstrap pipeline and publishes validated `E0`; it never
-launches a scientific run from an unstructured mutable directory.
+If the pinned scope has no release or snapshot, ordinary resolution fails before
+spend. An explicit administrative coordinator may complete the normal validated
+publication workflows for `E0` and `S-EMPTY`, after which launch restarts from
+GitHub `CURRENT`; absence never grants implicit bootstrap authority.
 
-The launcher verifies the manifest and its publisher attestation, materializes the
-expert base and task adapter atomically, checks the resulting workspace tree hash,
-and writes a pre-orchestrator `BootstrapPin` before the first paid action. The pin
-is absorbed into `RunCheckpoint` after strategy construction; current checkpoint
-state cannot exist early enough to serve this bootstrap role.
-The knowledge snapshot remains read-only. The run then:
+The launcher accepts only the resolver's one-shot `ResolvedLaunch`, not a manifest
+alone. It writes fresh copies of the expert source and immutable knowledge,
+adapter-runtime, and task-input closures into a private staging run root, creates
+a deterministic Git baseline over only the expert source, embeds the complete
+manifest plus its exact installation receipt in `BootstrapPin`, fsyncs the closure,
+and atomically publishes the whole run root with a no-replace rename. Thus a
+visible fresh run root is always complete and pinned; pinless staging debris is
+never resumable. The immutable roots remain outside the writable Git repository.
+The pin is absorbed into `RunCheckpoint` after strategy construction; checkpoint
+state cannot exist early enough to serve this bootstrap role. The run then:
 
 1. starts from the pinned expert-base source plus a task adapter;
 2. builds a local `RepoMemory` for that actual workspace;
@@ -920,7 +925,7 @@ release tag, and asset digests; it never resolves `latest` after startup.
 | `ExpertReleasePublisher` | Approved candidate set | Immutable release + CAS pointer | Rebase/compose, compile and validate the semantic book, rerun the release matrix, publish history-free source, support revocation |
 | `AuthenticatedSecurityDenylistAuthority` | Scope registry, live authenticated pointer, immutable lineage, local anti-rollback floor, exact subject tuple | Exact denylist observation | Re-resolve on every dangerous boundary; reject rollback, fork, removed revocation, substitution, corruption, or offline authorization |
 | `LaunchResolver` | Scope registry, task binding, snapshot, release, adapter, runtime, trust roots | Attested launch manifest | Resolve one configured repository triple; prevent torn combinations; enforce lineage, eligibility, compatibility, freshness, and denylist state |
-| `StarterWorkspaceBuilder` | Launch manifest and optional bootstrap pin | Atomic live workspace | Verify attestations; on fresh launch stage/fsync/rename, on resume verify the existing tree before workspace construction; never reuse `initial_repo` |
+| `StarterWorkspaceBuilder` | One-shot `ResolvedLaunch` | Atomically published run root + self-contained `BootstrapPin` | Copy only verified byte closures; validate topology/controls/composition; create a deterministic expert-only Git baseline; keep knowledge/adapter/input roots outside the writable repository; fsync and no-replace rename the complete container; never reuse `initial_repo` |
 
 The catalog and expert-base release store are separate. A high-confidence episode
 can immediately improve retrieval while its code remains quarantined.
@@ -1464,7 +1469,12 @@ though the autonomous agent also has direct GitHub authority. For a fresh run it
    package/tree digests, and the snapshot's transitive proof closure;
 6. atomically installs content-addressed, read-only local cache entries; and
 7. emits one `LaunchManifest` binding both scientific artifacts and the exact
-   live denylist floor, then writes `BootstrapPin`.
+   live denylist floor.
+
+The workspace transaction then copies the verified in-memory closures into a
+run-local staging container, writes the self-contained `BootstrapPin` last, fsyncs
+all files and directories, and publishes the complete container in one atomic
+no-replace rename. Cache pruning therefore cannot invalidate an admitted run.
 
 Cache roots and kind directories must be ordinary directories with no symlinked
 ancestor. One advisory cache lease serializes cooperating Kapso materialization,

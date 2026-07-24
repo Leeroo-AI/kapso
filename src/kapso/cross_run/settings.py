@@ -209,9 +209,14 @@ class GitHubSettings(StrictContract):
         )
         if not re.fullmatch(r"[A-Za-z0-9-]+", self.publisher_login):
             raise CrossRunConfigurationError("invalid GitHub publisher login")
-        if not self.commit_author_name.strip():
+        if not self.commit_author_name.strip() or any(
+            character in self.commit_author_name for character in "\r\n<>"
+        ):
             raise CrossRunConfigurationError("GitHub commit author name is required")
-        if not re.fullmatch(r"[^@\s]+@[^@\s]+", self.commit_author_email):
+        if not re.fullmatch(
+            r"[^<>\s@]+@[^<>\s@]+",
+            self.commit_author_email,
+        ):
             raise CrossRunConfigurationError("invalid GitHub commit author email")
         for name in (
             "expert_tag_prefix",
@@ -1535,7 +1540,17 @@ class ExpertSettings(StrictContract):
 @dataclass(frozen=True)
 class LaunchSettings(StrictContract):
     cache_path: str
+    workspace_path: str
+    immutable_root_path: str
+    knowledge_snapshot_path: str
+    task_adapter_path: str
+    starting_artifacts_path: str
+    launch_manifest_path: str
     bootstrap_pin_path: str
+    launch_manifest_size_bytes: int
+    bootstrap_pin_size_bytes: int
+    knowledge_snapshot_file_size_bytes: int
+    workspace_git_branch: str
     compatibility_policy_version: str
     starting_artifact_materializer_id: str
     starting_artifact_materializer_version: str
@@ -1552,7 +1567,84 @@ class LaunchSettings(StrictContract):
 
     def _validate(self) -> None:
         _require_path(self.cache_path, "launch.cache_path")
-        _require_path(self.bootstrap_pin_path, "launch.bootstrap_pin_path")
+        workspace = _require_relative_path(
+            self.workspace_path,
+            "launch.workspace_path",
+        )
+        immutable_root = _require_relative_path(
+            self.immutable_root_path,
+            "launch.immutable_root_path",
+        )
+        immutable_children = tuple(
+            _require_relative_path(getattr(self, field), f"launch.{field}")
+            for field in (
+                "knowledge_snapshot_path",
+                "task_adapter_path",
+                "starting_artifacts_path",
+            )
+        )
+        if any(immutable_root not in child.parents for child in immutable_children):
+            raise CrossRunConfigurationError(
+                "launch immutable component roots must be strict descendants of "
+                "immutable_root_path"
+            )
+        if any(
+            left == right or left in right.parents or right in left.parents
+            for position, left in enumerate(immutable_children)
+            for right in immutable_children[position + 1 :]
+        ):
+            raise CrossRunConfigurationError(
+                "launch immutable component roots must be prefix-disjoint"
+            )
+        if (
+            workspace == immutable_root
+            or workspace in immutable_root.parents
+            or immutable_root in workspace.parents
+        ):
+            raise CrossRunConfigurationError(
+                "launch workspace and immutable root must be prefix-disjoint"
+            )
+        control_paths = tuple(
+            _require_relative_path(getattr(self, field), f"launch.{field}")
+            for field in ("launch_manifest_path", "bootstrap_pin_path")
+        )
+        materialized_roots = (workspace, immutable_root)
+        if (
+            control_paths[0] == control_paths[1]
+            or control_paths[0] in control_paths[1].parents
+            or control_paths[1] in control_paths[0].parents
+            or any(
+                control == root or root in control.parents or control in root.parents
+                for control in control_paths
+                for root in materialized_roots
+            )
+        ):
+            raise CrossRunConfigurationError(
+                "launch control files must be prefix-disjoint and outside "
+                "materialized roots"
+            )
+        _require_positive(
+            self.launch_manifest_size_bytes,
+            "launch.launch_manifest_size_bytes",
+        )
+        _require_positive(
+            self.bootstrap_pin_size_bytes,
+            "launch.bootstrap_pin_size_bytes",
+        )
+        _require_positive(
+            self.knowledge_snapshot_file_size_bytes,
+            "launch.knowledge_snapshot_file_size_bytes",
+        )
+        if self.bootstrap_pin_size_bytes <= self.launch_manifest_size_bytes:
+            raise CrossRunConfigurationError(
+                "launch bootstrap pin bound must exceed the manifest bound"
+            )
+        require_git_ref_name(
+            f"refs/heads/{self.workspace_git_branch}",
+            "launch.workspace_git_branch",
+            qualified=True,
+            error_type=CrossRunConfigurationError,
+        )
         if (
             not isinstance(self.compatibility_policy_version, str)
             or re.fullmatch(
@@ -1661,6 +1753,19 @@ class CrossRunSettings(StrictContract):
             raise CrossRunConfigurationError(
                 "task evaluation journal event bound cannot contain its denylist and "
                 "task-request authorities"
+            )
+        if (
+            self.launch.launch_manifest_size_bytes
+            <= self.launch.security_denylist_checked_subject_size_bytes
+            or self.launch.bootstrap_pin_size_bytes
+            <= (
+                self.launch.launch_manifest_size_bytes
+                + self.github.control_blob_size_bytes
+            )
+        ):
+            raise CrossRunConfigurationError(
+                "launch control-file bounds cannot contain their configured "
+                "authority closures"
             )
 
     @classmethod

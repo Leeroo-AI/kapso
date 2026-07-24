@@ -5,8 +5,9 @@ Parent plan: [`00-orchestrator-plan.md`](00-orchestrator-plan.md)
 Depends on: M2, M5, and M8.
 
 Status: **in progress**. The transactional launch resolver and exact authority
-contracts are implemented; explicit E0/S-EMPTY provisioning orchestration,
-workspace/bootstrap-pin installation, resume, and API/runner activation remain.
+contracts plus atomic workspace/bootstrap-pin installation are implemented;
+explicit E0/S-EMPTY provisioning orchestration, resume, and API/runner activation
+remain.
 
 ## Objective
 
@@ -132,23 +133,44 @@ missing scientific `CURRENT`.
 
 For a fresh launch:
 
-1. materialize expert source and knowledge/search packages through M2 cache;
-2. materialize/verify the read-only task adapter;
-3. stage a new workspace from the expert source archive;
-4. bind adapter/evaluation/data interfaces without copying mutable shared state;
-5. validate source composition hash, module contracts, semantic book, and task
-   adapter boundary;
-6. flush and atomically rename the complete workspace;
-7. write/flush `BootstrapPin` containing launch ID, local paths/tree hashes,
-   denylist snapshot/generation, and verification receipts; and
-8. only then construct `ExperimentWorkspace`, strategy, and coding agent.
+1. require and atomically consume the resolver's live one-shot `ResolvedLaunch`;
+2. pin the owned, non-shared destination parent and private staging root by file
+   descriptor, and reject any pathname/inode substitution;
+3. copy the verified in-memory expert, knowledge, adapter-runtime, and task-input
+   byte closures—never links or mutable cache paths;
+4. revalidate expert topology, ownership, generated controls, semantic book, task
+   adapter projection, and expected source composition;
+5. keep knowledge, adapter runtime, and task inputs under one exact-mode read-only
+   envelope outside the writable expert repository; reject links, shared inodes,
+   special files, extra paths, or writable descendants;
+6. construct deterministic raw Git blobs/trees/commit/index over exactly the
+   expert source, with no porcelain, hooks, global filters, clock, or host identity;
+7. mint a `WorkspaceInstallationReceipt` that pins the knowledge-cache tree join
+   and exact Git object/index closure, embed it and the full `LaunchManifest` in
+   `BootstrapPin`, enforce launch-specific byte bounds for every staged/reopened
+   source, knowledge, Git, and control file, and write the pin last;
+8. fsync every file and directory, atomically no-replace rename the complete run
+   root, fsync its parent, and reopen every layout path through descriptor-relative
+   no-follow walks;
+9. issue one non-clonable `PreparedLaunchWorkspace`; burn its authority before
+   repeating the complete descriptor-safe closure check at orchestration handoff;
+   and
+10. only then construct `ExperimentWorkspace`, strategy, or any paid dependency.
 
-- [ ] Partial workspace construction has no bootstrap marker and is never resumed.
-- [ ] Snapshot/search and shared adapter roots remain read-only.
-- [ ] Local experiments branch only inside the new workspace.
+- [x] Partial construction remains hidden staging and is never resumable.
+- [x] Every visible fresh run root contains the complete self-contained pin.
+- [x] Symlinked component/control ancestors, extra run-root state, replaced inodes,
+      and cloned or replayed prepared handles fail closed.
+- [x] Snapshot/search, adapter runtime, and task-input roots are fresh read-only
+      copies outside the writable Git repository.
+- [x] The baseline commit, tree, and index are deterministic across local paths,
+      umasks, and host Git configuration; reopen requires the exact config,
+      identity, ref, loose-object, index, file-mode, and directory closure.
+- [x] Local experiments can branch only inside the new expert workspace.
 - [ ] `RepoMemory` is rebuilt from the actual composed workspace, not reused from
       the expert release or another run.
-- [ ] No model/embedding/evaluator call begins before step 7.
+- [ ] API activation proves no model/embedding/evaluator call begins before step 9
+      completes.
 
 ## API and CLI integration
 

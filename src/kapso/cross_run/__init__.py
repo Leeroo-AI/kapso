@@ -13,7 +13,6 @@ from kapso.cross_run.canonical import (
 )
 from kapso.cross_run.contracts import (
     ArtifactEnvironment,
-    BootstrapPin,
     CaptureManifest,
     CatalogEntryState,
     CodingAgentOperationReceipt,
@@ -57,7 +56,7 @@ from kapso.cross_run.contracts import (
     TaskEvaluatorMetricComparisonBinding,
     TransferEpisode,
 )
-from kapso.cross_run.launch.contracts import LaunchManifest
+from kapso.cross_run.launch.contracts import BootstrapPin, LaunchManifest
 from kapso.cross_run.settings import (
     CrossRunConfigurationError,
     CrossRunSettings,

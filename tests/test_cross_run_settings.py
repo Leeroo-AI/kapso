@@ -439,6 +439,7 @@ def test_task_binding_has_exact_three_fields_and_unknown_scope_fails():
         (("github", "source_tree_size_bytes"), 0),
         (("github", "zstd_window_size_bytes"), 1),
         (("github", "zstd_window_size_bytes"), 1023),
+        (("launch", "knowledge_snapshot_file_size_bytes"), 0),
         (("capture", "git_command_timeout_seconds"), 0),
         (("capture", "git_command_output_bytes"), 1),
         (("capture", "bundle_lineage_limit"), 0),
@@ -723,6 +724,49 @@ def test_github_rate_budget_scales_with_failed_upload_recovery():
     raw["github"]["content_write_budget_per_minute"] = 43
 
     with pytest.raises(CrossRunConfigurationError, match="content-write budget"):
+        CrossRunSettings.from_dict(raw)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("commit_author_name", "unsafe\nname"),
+        ("commit_author_name", "unsafe <name>"),
+        ("commit_author_email", "unsafe<author@example.com"),
+    ],
+)
+def test_github_commit_identity_rejects_git_header_injection(field, value):
+    raw = copy.deepcopy(load_config(CANONICAL_CONFIG_PATH)["cross_run"])
+    raw["github"][field] = value
+
+    with pytest.raises(CrossRunConfigurationError):
+        CrossRunSettings.from_dict(raw)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("workspace_path", "/absolute/workspace"),
+        ("knowledge_snapshot_path", "workspace/knowledge"),
+        ("task_adapter_path", "readonly"),
+        ("launch_manifest_path", "workspace/launch.json"),
+        ("bootstrap_pin_path", "readonly/knowledge/pin.json"),
+        (
+            "bootstrap_pin_path",
+            ".kapso/launch_manifest.json/pin.json",
+        ),
+        (
+            "launch_manifest_path",
+            ".kapso/bootstrap_pin.json/manifest.json",
+        ),
+        ("workspace_git_branch", "../unsafe"),
+    ],
+)
+def test_launch_workspace_layout_is_relative_and_prefix_disjoint(field, value):
+    raw = copy.deepcopy(load_config(CANONICAL_CONFIG_PATH)["cross_run"])
+    raw["launch"][field] = value
+
+    with pytest.raises(CrossRunConfigurationError):
         CrossRunSettings.from_dict(raw)
 
 

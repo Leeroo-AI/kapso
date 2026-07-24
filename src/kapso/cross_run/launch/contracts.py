@@ -43,6 +43,7 @@ from kapso.cross_run.github.resolver import (
     CurrentArtifactPointer,
     GitHubArtifactActivationWitness,
 )
+from kapso.cross_run.git_refs import require_git_ref_name
 from kapso.cross_run.security_authority_contracts import (
     SecurityDenylistObservation,
 )
@@ -73,6 +74,20 @@ def _require_digest(value: str, name: str) -> None:
 def _require_sorted_unique(values: tuple[str, ...], name: str) -> None:
     if values != tuple(sorted(set(values))):
         raise LaunchContractError(f"{name} must be sorted and unique")
+
+
+def _require_relative_path(value: str, name: str) -> PurePosixPath:
+    if not isinstance(value, str) or not value:
+        raise LaunchContractError(f"{name} must be a non-empty relative path")
+    path = PurePosixPath(value)
+    if (
+        path.is_absolute()
+        or path == PurePosixPath(".")
+        or ".." in path.parts
+        or path.as_posix() != value
+    ):
+        raise LaunchContractError(f"{name} must be normalized and relative")
+    return path
 
 
 def _reject_repository_routing(value: Any, path: str) -> None:
@@ -1135,7 +1150,307 @@ class LaunchManifest(StrictContract):
         return tree_or_blob_digest(self.to_json_bytes())
 
 
+@dataclass(frozen=True)
+class LaunchWorkspaceLayout(StrictContract):
+    """Machine-independent paths inside one atomically published run root."""
+
+    workspace_relative_path: str
+    immutable_root_relative_path: str
+    knowledge_snapshot_relative_path: str
+    task_adapter_relative_path: str
+    starting_artifacts_relative_path: str
+    starting_artifact_roots: Mapping[str, str]
+    launch_manifest_relative_path: str
+    bootstrap_pin_relative_path: str
+
+    def _validate(self) -> None:
+        workspace = _require_relative_path(
+            self.workspace_relative_path,
+            "launch workspace_relative_path",
+        )
+        immutable_root = _require_relative_path(
+            self.immutable_root_relative_path,
+            "launch immutable_root_relative_path",
+        )
+        immutable_children = (
+            _require_relative_path(
+                self.knowledge_snapshot_relative_path,
+                "launch knowledge_snapshot_relative_path",
+            ),
+            _require_relative_path(
+                self.task_adapter_relative_path,
+                "launch task_adapter_relative_path",
+            ),
+            _require_relative_path(
+                self.starting_artifacts_relative_path,
+                "launch starting_artifacts_relative_path",
+            ),
+        )
+        if any(immutable_root not in child.parents for child in immutable_children):
+            raise LaunchContractError(
+                "launch immutable components must be strict descendants of their root"
+            )
+        if any(
+            left == right or left in right.parents or right in left.parents
+            for position, left in enumerate(immutable_children)
+            for right in immutable_children[position + 1 :]
+        ):
+            raise LaunchContractError(
+                "launch immutable component roots must be prefix-disjoint"
+            )
+        if (
+            workspace == immutable_root
+            or workspace in immutable_root.parents
+            or immutable_root in workspace.parents
+        ):
+            raise LaunchContractError(
+                "launch workspace and immutable root must be prefix-disjoint"
+            )
+        control_paths = (
+            _require_relative_path(
+                self.launch_manifest_relative_path,
+                "launch launch_manifest_relative_path",
+            ),
+            _require_relative_path(
+                self.bootstrap_pin_relative_path,
+                "launch bootstrap_pin_relative_path",
+            ),
+        )
+        materialized_roots = (workspace, immutable_root)
+        if (
+            control_paths[0] == control_paths[1]
+            or control_paths[0] in control_paths[1].parents
+            or control_paths[1] in control_paths[0].parents
+            or any(
+                control == root or root in control.parents or control in root.parents
+                for control in control_paths
+                for root in materialized_roots
+            )
+        ):
+            raise LaunchContractError(
+                "launch control files must be prefix-disjoint and outside "
+                "materialized roots"
+            )
+        starting_root = immutable_children[2]
+        materialized_roots: list[PurePosixPath] = []
+        for artifact_id in sorted(self.starting_artifact_roots):
+            require_content_id(artifact_id, "launch starting artifact ID")
+            artifact_root = _require_relative_path(
+                self.starting_artifact_roots[artifact_id],
+                "launch starting artifact root",
+            )
+            if starting_root not in artifact_root.parents:
+                raise LaunchContractError(
+                    "launch starting artifact lies outside its read-only root"
+                )
+            materialized_roots.append(artifact_root)
+        if len(materialized_roots) != len(set(materialized_roots)) or any(
+            left in right.parents or right in left.parents
+            for position, left in enumerate(materialized_roots)
+            for right in materialized_roots[position + 1 :]
+        ):
+            raise LaunchContractError("launch starting-artifact roots overlap")
+
+
+@dataclass(frozen=True)
+class WorkspaceInstallationReceipt(StrictContract):
+    """Exact durable installation derived from one complete launch manifest."""
+
+    workspace_installation_receipt_id: str
+    launch_manifest_id: str
+    launch_manifest_full_digest: str
+    run_id: str
+    campaign_id: str
+    layout: LaunchWorkspaceLayout
+    expert_source_tree_hash: str
+    knowledge_package_tree_hash: str
+    task_adapter_runtime_tree_hash: str
+    starting_artifact_materialization_receipt_id: str
+    starting_artifact_tree_hashes: Mapping[str, str]
+    expected_source_composition_hash: str
+    workspace_git_branch: str
+    workspace_baseline_commit_sha: str
+    workspace_baseline_tree_sha: str
+    workspace_git_index_digest: str
+    workspace_git_object_ids: tuple[str, ...]
+    installer_id: str
+    installer_version: str
+    exact_dependency_ids: tuple[str, ...]
+
+    CONTENT_NAMESPACE: ClassVar[str] = "workspace-installation-receipt"
+    IDENTITY_FIELD: ClassVar[str] = "workspace_installation_receipt_id"
+
+    def _validate(self) -> None:
+        for value, name, namespace in (
+            (self.launch_manifest_id, "launch_manifest_id", "launch-manifest"),
+            (
+                self.starting_artifact_materialization_receipt_id,
+                "starting_artifact_materialization_receipt_id",
+                "launch-starting-artifact-materialization",
+            ),
+        ):
+            require_content_id(value, name)
+            if value.split(":sha256:", 1)[0] != namespace:
+                raise LaunchContractError(
+                    f"workspace installation {name} uses the wrong namespace"
+                )
+        if type(self.layout) is not LaunchWorkspaceLayout:
+            raise LaunchContractError(
+                "workspace installation requires one typed layout"
+            )
+        for value, name in (
+            (self.launch_manifest_full_digest, "launch_manifest_full_digest"),
+            (self.expert_source_tree_hash, "expert_source_tree_hash"),
+            (self.knowledge_package_tree_hash, "knowledge_package_tree_hash"),
+            (
+                self.task_adapter_runtime_tree_hash,
+                "task_adapter_runtime_tree_hash",
+            ),
+            (
+                self.expected_source_composition_hash,
+                "expected_source_composition_hash",
+            ),
+            (self.workspace_git_index_digest, "workspace_git_index_digest"),
+        ):
+            _require_digest(value, f"workspace installation {name}")
+        for value, name in (
+            (self.run_id, "run_id"),
+            (self.campaign_id, "campaign_id"),
+            (self.installer_id, "installer_id"),
+            (self.installer_version, "installer_version"),
+        ):
+            require_identifier(value, f"workspace installation {name}")
+        require_git_ref_name(
+            f"refs/heads/{self.workspace_git_branch}",
+            "workspace installation workspace_git_branch",
+            qualified=True,
+            error_type=LaunchContractError,
+        )
+        for value, name in (
+            (self.workspace_baseline_commit_sha, "workspace_baseline_commit_sha"),
+            (self.workspace_baseline_tree_sha, "workspace_baseline_tree_sha"),
+        ):
+            if _COMMIT_PATTERN.fullmatch(value) is None:
+                raise LaunchContractError(
+                    f"workspace installation {name} must be a Git object ID"
+                )
+        if (
+            self.workspace_git_object_ids
+            != tuple(sorted(set(self.workspace_git_object_ids)))
+            or self.workspace_baseline_commit_sha not in self.workspace_git_object_ids
+            or self.workspace_baseline_tree_sha not in self.workspace_git_object_ids
+            or any(
+                _COMMIT_PATTERN.fullmatch(object_id) is None
+                for object_id in self.workspace_git_object_ids
+            )
+        ):
+            raise LaunchContractError(
+                "workspace installation Git object closure is not exact"
+            )
+        if set(self.starting_artifact_tree_hashes) != set(
+            self.layout.starting_artifact_roots
+        ):
+            raise LaunchContractError(
+                "workspace installation starting-artifact roots and hashes differ"
+            )
+        for artifact_id, tree_hash in self.starting_artifact_tree_hashes.items():
+            require_content_id(
+                artifact_id,
+                "workspace installation starting artifact ID",
+            )
+            _require_digest(
+                tree_hash,
+                "workspace installation starting artifact tree hash",
+            )
+        _require_sorted_unique(
+            self.exact_dependency_ids,
+            "workspace installation exact_dependency_ids",
+        )
+        if set(self.exact_dependency_ids) != {
+            self.launch_manifest_id,
+            self.starting_artifact_materialization_receipt_id,
+        }:
+            raise LaunchContractError(
+                "workspace installation dependency closure is not exact"
+            )
+
+
+@dataclass(frozen=True)
+class BootstrapPin(StrictContract):
+    """Self-contained launch and installation authority published before spend."""
+
+    bootstrap_pin_id: str
+    launch_manifest: LaunchManifest
+    launch_manifest_full_digest: str
+    installation_receipt: WorkspaceInstallationReceipt
+    exact_dependency_ids: tuple[str, ...]
+
+    CONTENT_NAMESPACE: ClassVar[str] = "bootstrap-pin"
+    IDENTITY_FIELD: ClassVar[str] = "bootstrap_pin_id"
+
+    def _validate(self) -> None:
+        if (
+            type(self.launch_manifest) is not LaunchManifest
+            or type(self.installation_receipt) is not WorkspaceInstallationReceipt
+        ):
+            raise LaunchContractError(
+                "bootstrap pin requires typed launch and installation authorities"
+            )
+        expected_runtime_files = tuple(
+            descriptor
+            for descriptor in self.launch_manifest.task_adapter.source_extraction_receipt.source_tree_files
+            if PurePosixPath(descriptor.relative_path).parts[0]
+            != "release_matrix_assets"
+        )
+        expected_runtime_tree_hash = source_tree_digest(
+            {
+                descriptor.relative_path: (
+                    descriptor.digest,
+                    descriptor.mode,
+                    descriptor.size,
+                )
+                for descriptor in expected_runtime_files
+            }
+        )
+        expected_starting_artifact_hashes = {
+            artifact.starting_artifact_content_id: artifact.materialized_tree_hash
+            for artifact in self.launch_manifest.starting_artifacts.starting_artifacts
+        }
+        if (
+            self.launch_manifest_full_digest != self.launch_manifest.full_digest
+            or self.installation_receipt.launch_manifest_id
+            != self.launch_manifest.launch_manifest_id
+            or self.installation_receipt.launch_manifest_full_digest
+            != self.launch_manifest_full_digest
+            or self.installation_receipt.expert_source_tree_hash
+            != self.launch_manifest.expert_manifest.candidate_tree_hash
+            or self.installation_receipt.starting_artifact_materialization_receipt_id
+            != self.launch_manifest.starting_artifacts.materialization_receipt_id
+            or self.installation_receipt.expected_source_composition_hash
+            != self.launch_manifest.expected_source_composition_hash
+            or self.installation_receipt.task_adapter_runtime_tree_hash
+            != expected_runtime_tree_hash
+            or self.installation_receipt.knowledge_package_tree_hash
+            != self.launch_manifest.knowledge_component.cache_receipt.materialized_tree_digest
+            or dict(self.installation_receipt.starting_artifact_tree_hashes)
+            != expected_starting_artifact_hashes
+        ):
+            raise LaunchContractError(
+                "bootstrap pin launch and installation authorities do not join"
+            )
+        _require_sorted_unique(
+            self.exact_dependency_ids,
+            "bootstrap pin exact_dependency_ids",
+        )
+        if set(self.exact_dependency_ids) != {
+            self.launch_manifest.launch_manifest_id,
+            self.installation_receipt.workspace_installation_receipt_id,
+        }:
+            raise LaunchContractError("bootstrap pin dependency closure is not exact")
+
+
 __all__ = [
+    "BootstrapPin",
     "expected_launch_source_composition_hash",
     "launch_security_subject_ids",
     "LaunchCompatibilityAdmissionMode",
@@ -1150,4 +1465,6 @@ __all__ = [
     "LaunchStartingArtifactMaterializationReceipt",
     "LaunchTaskAdapterPin",
     "LaunchTaskContextRequest",
+    "LaunchWorkspaceLayout",
+    "WorkspaceInstallationReceipt",
 ]

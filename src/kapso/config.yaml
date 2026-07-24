@@ -362,7 +362,17 @@ cross_run:
               noise_floor_ratio: *expert_noise_floor_ratio
   launch:
     cache_path: ".kapso/cross_run/launch_cache"
+    workspace_path: "workspace"
+    immutable_root_path: "readonly"
+    knowledge_snapshot_path: "readonly/knowledge"
+    task_adapter_path: "readonly/task_adapter"
+    starting_artifacts_path: "readonly/starting_artifacts"
+    launch_manifest_path: ".kapso/launch_manifest.json"
     bootstrap_pin_path: ".kapso/bootstrap_pin.json"
+    launch_manifest_size_bytes: 33554432
+    bootstrap_pin_size_bytes: 67108864
+    knowledge_snapshot_file_size_bytes: 268435456
+    workspace_git_branch: "main"
     compatibility_policy_version: "kapso.launch_compatibility.v1"
     starting_artifact_materializer_id: "launch_starting_artifact_materializer"
     starting_artifact_materializer_version: "kapso.launch_starting_artifact_materializer.v1"

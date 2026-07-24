@@ -309,6 +309,7 @@ def _resolved_artifact(
     manifest_digest,
     manifest_relative_path,
     commit_character,
+    materialized_tree_digest=None,
 ):
     repositories = settings.scopes.resolve("ml_ai")
     repository = (
@@ -349,7 +350,8 @@ def _resolved_artifact(
         size=asset.size,
         sha256=asset.sha256,
     )
-    materialized_tree_digest = digest(f"{artifact_kind.value}-materialized")
+    if materialized_tree_digest is None:
+        materialized_tree_digest = digest(f"{artifact_kind.value}-materialized")
     intent = ArtifactPublicationIntent(
         scope_id="ml_ai",
         artifact_kind=artifact_kind,
@@ -511,8 +513,18 @@ def resolver_case(tmp_path, monkeypatch):
             manifest_digest=tree_or_blob_digest(
                 knowledge_package.manifest.to_json_bytes()
             ),
-            manifest_relative_path="manifest.json",
+            manifest_relative_path="snapshot.json",
             commit_character="2",
+            materialized_tree_digest=source_tree_digest(
+                {
+                    relative_path: (
+                        tree_or_blob_digest(payload),
+                        "100644",
+                        len(payload),
+                    )
+                    for relative_path, payload in knowledge_package.files.items()
+                }
+            ),
         )
     )
     expert_artifact = MaterializedArtifact(

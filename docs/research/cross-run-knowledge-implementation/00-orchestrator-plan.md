@@ -138,6 +138,8 @@ SecurityDenylistRevocation
 SecurityDenylistSnapshot
 GitHubPublicationRecord
 LaunchManifest
+LaunchWorkspaceLayout
+WorkspaceInstallationReceipt
 BootstrapPin
 ```
 

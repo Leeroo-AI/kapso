@@ -16,7 +16,6 @@ from kapso.cross_run.contracts import (
     AdmissionState,
     ArtifactCompleteness,
     ArtifactEnvironment,
-    BootstrapPin,
     BundleArtifactRef,
     CandidateChangeKind,
     CaptureManifest,
@@ -589,12 +588,7 @@ def build_records(
         dependency_lock_hash=digest("lock"),
     )
     initial_snapshot_id = fixture_id("empty-snapshot")
-    security_denylist_snapshot_id = content_id(
-        "security-denylist-snapshot",
-        {"generation": 1},
-    )
     launch_manifest_id = fixture_id("launch-manifest")
-    launch_request_hash = digest("launch-request")
     capture = CaptureManifest.mint(
         scope_contract_id=scope.scope_contract_id,
         scope_id="ml_ai",
@@ -1066,21 +1060,6 @@ def build_records(
         published_at="2026-07-20T14:05:00Z",
         publisher_identity="leeroo-coder",
     )
-    bootstrap = BootstrapPin.mint(
-        launch_manifest_id=launch_manifest_id,
-        launch_request_hash=launch_request_hash,
-        scope_id="ml_ai",
-        scope_contract_id=scope.scope_contract_id,
-        task_family_id="language_model_post_training",
-        task_adapter_id="posttrain",
-        knowledge_snapshot_id=initial_snapshot_id,
-        expert_base_release_id=expert_release.release_id,
-        task_adapter_manifest_id=task_adapter.task_adapter_manifest_id,
-        security_denylist_snapshot_id=security_denylist_snapshot_id,
-        security_denylist_generation=1,
-        workspace_tree_hash=digest("workspace"),
-        created_at="2026-07-20T12:00:00Z",
-    )
     dependency_edge = ExpertDependencyEdge(
         source_capability_id="language.template_parity",
         target_capability_id="shared.reproducible_execution",
@@ -1128,7 +1107,6 @@ def build_records(
         candidate,
         publication_asset,
         publication,
-        bootstrap,
         lineage,
     )
 
