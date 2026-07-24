@@ -204,6 +204,7 @@ with `gcp/20_fetch_results.sh <run_id>`. Layout per run:
 | #17 | arenahard × Qwen3-4B 10h | **89.64** | `arenahardwriting-qwen3-4b-base-07181341` | `reviews/run17-review.md` — CELL RECORD, above human; first relaxed-rules run |
 | #18 | arenahard × Qwen3-1.7B 10h | **42.40** | `arenahardwriting-qwen3-1-7b-base-0718134` | `reviews/run18-review.md` — clean despite 3h dead-timer hang (R18-P2-1) |
 | #19 | arenahard × SmolLM3 10h | **56.58** | `arenahardwriting-smollm3-3b-base-0718134` | `reviews/run19-review.md` — top proven row, above human; zh/ru/ja mix unfixed |
+| #20 | arenahard × Qwen3-1.7B 10h | in flight | `arenahardwriting-qwen3-1-7b-base-0724124` | launched 2026-07-24 12:40Z; FIRST run on new ideation stack (fable-5 lens planner + max Claude reasoning + embedding search); re-run of #18 (42.40), best-known trace 74.85 (opus-4.8) |
 | #15 | bfcl × gemma-3-4b 10h | **93.0** | `bfcl-gemma-3-4b-pt-07171548` | `reviews/run15-review.md` |
 | #14 | bfcl × Qwen3-4B 10h | **95.0** | `bfcl-qwen3-4b-base-07171548` | `reviews/run14-review.md` |
 | #10 | bfcl × SmolLM3-3B 10h | **93.0** | `bfcl-smollm3-3b-base-07161232` | `reviews/run10-review.md` |
