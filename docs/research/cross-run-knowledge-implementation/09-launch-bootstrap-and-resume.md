@@ -6,9 +6,11 @@ Depends on: M2, M5, and M8.
 
 Status: **in progress**. The transactional launch resolver and exact authority
 contracts, atomic workspace/bootstrap-pin installation, exact run-checkpoint
-contracts, and the dormant protected checkpoint CAS store are implemented.
-Transactional derived-memory promotion, executor isolation, explicit E0/S-EMPTY
-provisioning orchestration, resume, and API/runner activation remain.
+contracts, the protected checkpoint CAS store, and the immutable
+derived-generation contract/layout foundation are implemented. The single-lock
+checkpoint/generation publisher, mutable-view promotion, executor isolation,
+explicit E0/S-EMPTY provisioning orchestration, resume, and API/runner activation
+remain.
 
 ## Objective
 
@@ -200,10 +202,29 @@ M9 owns these high-conflict files until M10 performs final cleanup/activation.
 ## Checkpoint and resume
 
 The implemented checkpoint foundation is deliberately dormant until the execution
-permit and transactional memory-promotion work below lands. One exact
-`RunCheckpoint` owns strategy, safety, cost, feedback, termination, bootstrap, and
-derivative-frontier authority. A candidate can advance only the exact predecessor;
-Generic and tree strategy states enforce their own exact revision transitions.
+permit and transactional view-promotion work below lands. One exact
+`RunCheckpoint` owns strategy, safety, cost, feedback, termination, bootstrap,
+derivative-frontier, and derived-generation authority. A candidate can advance
+only the exact predecessor; Generic and tree strategy states enforce their own
+exact revision transitions.
+
+Every checkpoint transition embeds one content-addressed
+`RunDerivedStateGeneration`. It binds the exact predecessor checkpoint-head,
+checkpoint and evidence frontier, a bootstrap-pinned strategy-specific state
+layout, and the old/new digest, revision, and size of every state projection.
+Generic owns `idea_archive`, `experiment_history`, and `execution_journal`; tree
+owns only the latter two. The archive bytes must exactly equal the archive snapshot
+inside Generic strategy state, while history and journal revisions must agree with
+the exact number of executed node revisions.
+
+The builder creates separate private object and staging directories outside the
+writable expert repository. A retained `generation-<digest>.bundle` will contain
+the canonical manifest plus the exact archive/history/event bytes, including
+non-reconstructible embeddings and timestamps. Public JSON/JSONL files are
+read-only, repairable views—not peer authorities. Generation objects remain
+reachable until a future safe-GC proof shows no checkpoint/capture dependency.
+The current checkpoint staging cleaner cannot inspect or delete this separate
+generation store.
 
 The checkpoint pathname is a replaceable current projection. Its monotonic local
 floor is a builder-created append-only journal on one inode whose device/inode,
@@ -237,8 +258,13 @@ agent. Descriptor-safe execution permits and policy probes must prove that agent
 and evaluator processes cannot resolve `.kapso` or any path outside the writable
 expert workspace before the new runtime becomes reachable.
 
-- [ ] Replace `RunCheckpoint` and Generic state with exact new schemas carrying the
-      launch ID and bootstrap-pin digest.
+- [x] Replace `RunCheckpoint` and Generic state with exact new schemas carrying the
+      launch ID, bootstrap pin, strategy-specific state layout, and immutable
+      derived-generation dependency.
+- [ ] Make one shared-lock publisher stage/fsync the complete generation, CAS the
+      checkpoint, idempotently promote every mutable view, verify all bytes/refs,
+      and return a non-clonable reconciled-frontier receipt. A durable checkpoint
+      alone must never authorize capture or another paid/dangerous action.
 - [ ] On resume, require the original `BootstrapPin`, workspace tree, read-only
       snapshot package, adapter, checkpoint, IdeaArchive, experiment store, journal,
       and branches to reconcile.

@@ -1166,6 +1166,11 @@ class LaunchWorkspaceLayout(StrictContract):
     run_checkpoint_journal_relative_path: str
     run_checkpoint_lock_relative_path: str
     run_checkpoint_staging_relative_path: str
+    run_idea_archive_relative_path: str
+    run_experiment_history_relative_path: str
+    run_execution_journal_relative_path: str
+    run_derived_state_store_relative_path: str
+    run_derived_state_staging_relative_path: str
 
     def _validate(self) -> None:
         workspace = _require_relative_path(
@@ -1235,15 +1240,30 @@ class LaunchWorkspaceLayout(StrictContract):
                 self.run_checkpoint_staging_relative_path,
                 "launch run_checkpoint_staging_relative_path",
             ),
+            _require_relative_path(
+                self.run_idea_archive_relative_path,
+                "launch run_idea_archive_relative_path",
+            ),
+            _require_relative_path(
+                self.run_experiment_history_relative_path,
+                "launch run_experiment_history_relative_path",
+            ),
+            _require_relative_path(
+                self.run_execution_journal_relative_path,
+                "launch run_execution_journal_relative_path",
+            ),
+            _require_relative_path(
+                self.run_derived_state_store_relative_path,
+                "launch run_derived_state_store_relative_path",
+            ),
+            _require_relative_path(
+                self.run_derived_state_staging_relative_path,
+                "launch run_derived_state_staging_relative_path",
+            ),
         )
-        if not (
-            control_paths[2].parent
-            == control_paths[3].parent
-            == control_paths[4].parent
-            == control_paths[5].parent
-        ):
+        if any(path.parent != control_paths[2].parent for path in control_paths[3:]):
             raise LaunchContractError(
-                "launch checkpoint controls must share one parent"
+                "launch mutable run controls must share one parent"
             )
         materialized_roots = (workspace, immutable_root)
         if any(

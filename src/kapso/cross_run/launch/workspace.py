@@ -61,6 +61,12 @@ _GIT_COMMIT_MESSAGE = b"Kapso launch baseline\n"
 _RUN_CHECKPOINT_STAGING_PATTERN = re.compile(
     r"^checkpoint-[0-9a-f]{64}-[0-9a-f]{32}[.]tmp$"
 )
+_RUN_DERIVED_STATE_OBJECT_PATTERN = re.compile(
+    r"^generation-[0-9a-f]{64}[.]bundle$"
+)
+_RUN_DERIVED_STATE_STAGING_PATTERN = re.compile(
+    r"^generation-[0-9a-f]{64}-[0-9a-f]{32}[.]tmp$"
+)
 
 
 class _WorkspaceBuilderAuthority:
@@ -89,6 +95,8 @@ def _required_layout_directory_paths(
         PurePosixPath(layout.task_adapter_relative_path),
         PurePosixPath(layout.starting_artifacts_relative_path),
         PurePosixPath(layout.run_checkpoint_staging_relative_path),
+        PurePosixPath(layout.run_derived_state_store_relative_path),
+        PurePosixPath(layout.run_derived_state_staging_relative_path),
         *(
             PurePosixPath(relative_path)
             for relative_path in layout.starting_artifact_roots.values()
@@ -100,6 +108,9 @@ def _required_layout_directory_paths(
         PurePosixPath(layout.run_checkpoint_relative_path),
         PurePosixPath(layout.run_checkpoint_journal_relative_path),
         PurePosixPath(layout.run_checkpoint_lock_relative_path),
+        PurePosixPath(layout.run_idea_archive_relative_path),
+        PurePosixPath(layout.run_experiment_history_relative_path),
+        PurePosixPath(layout.run_execution_journal_relative_path),
     )
     for path in (*directory_roots, *control_paths):
         required.update(
@@ -737,6 +748,13 @@ class StarterWorkspaceBuilder:
             checkpoint_staging = staging / layout.run_checkpoint_staging_relative_path
             checkpoint_staging.mkdir(parents=True, mode=0o700)
             checkpoint_staging.chmod(0o700)
+            for derived_state_directory in (
+                layout.run_derived_state_store_relative_path,
+                layout.run_derived_state_staging_relative_path,
+            ):
+                directory = staging / derived_state_directory
+                directory.mkdir(parents=True, mode=0o700)
+                directory.chmod(0o700)
             self._fsync_tree(staging)
             self._require_parent_identity(
                 normalized_run_root.parent,
@@ -788,6 +806,17 @@ class StarterWorkspaceBuilder:
             run_checkpoint_journal_relative_path=(launch.run_checkpoint_journal_path),
             run_checkpoint_lock_relative_path=launch.run_checkpoint_lock_path,
             run_checkpoint_staging_relative_path=(launch.run_checkpoint_staging_path),
+            run_idea_archive_relative_path=launch.run_idea_archive_path,
+            run_experiment_history_relative_path=(
+                launch.run_experiment_history_path
+            ),
+            run_execution_journal_relative_path=launch.run_execution_journal_path,
+            run_derived_state_store_relative_path=(
+                launch.run_derived_state_store_path
+            ),
+            run_derived_state_staging_relative_path=(
+                launch.run_derived_state_staging_path
+            ),
         )
 
     @staticmethod
@@ -1975,6 +2004,23 @@ class StarterWorkspaceBuilder:
         checkpoint_journal = PurePosixPath(layout.run_checkpoint_journal_relative_path)
         checkpoint_lock = PurePosixPath(layout.run_checkpoint_lock_relative_path)
         checkpoint_staging = PurePosixPath(layout.run_checkpoint_staging_relative_path)
+        projection_files = {
+            PurePosixPath(layout.run_idea_archive_relative_path): (
+                self._settings.launch.run_idea_archive_size_bytes
+            ),
+            PurePosixPath(layout.run_experiment_history_relative_path): (
+                self._settings.launch.run_experiment_history_size_bytes
+            ),
+            PurePosixPath(layout.run_execution_journal_relative_path): (
+                self._settings.launch.run_execution_journal_size_bytes
+            ),
+        }
+        derived_state_store = PurePosixPath(
+            layout.run_derived_state_store_relative_path
+        )
+        derived_state_staging = PurePosixPath(
+            layout.run_derived_state_staging_relative_path
+        )
         control_directories = {
             parent
             for control_file in (
@@ -1982,13 +2028,22 @@ class StarterWorkspaceBuilder:
                 checkpoint_file,
                 checkpoint_journal,
                 checkpoint_lock,
+                *projection_files,
             )
             for parent in control_file.parents
             if parent != PurePosixPath(".")
         }
-        control_directories.add(checkpoint_staging)
+        control_directories.update(
+            {
+                checkpoint_staging,
+                derived_state_store,
+                derived_state_staging,
+            }
+        )
         envelope_directories = component_ancestors | control_directories
         staging_entry_count = 0
+        derived_state_entry_count = 0
+        derived_state_staging_entry_count = 0
         observed_checkpoint_journal = False
         observed_checkpoint_lock = False
         for path in run_root.rglob("*"):
@@ -2005,6 +2060,8 @@ class StarterWorkspaceBuilder:
                 requires_private_mode = relative_path in {
                     checkpoint_file.parent,
                     checkpoint_staging,
+                    derived_state_store,
+                    derived_state_staging,
                 }
                 if (
                     not stat.S_ISDIR(metadata.st_mode)
@@ -2065,6 +2122,18 @@ class StarterWorkspaceBuilder:
                         "published run checkpoint lock is unsafe"
                     )
                 continue
+            if relative_path in projection_files:
+                if (
+                    not stat.S_ISREG(metadata.st_mode)
+                    or metadata.st_uid != os.geteuid()
+                    or metadata.st_nlink != 1
+                    or stat.S_IMODE(metadata.st_mode) != 0o400
+                    or metadata.st_size > projection_files[relative_path]
+                ):
+                    raise LaunchWorkspaceError(
+                        "published run projection file is unsafe"
+                    )
+                continue
             if checkpoint_staging in relative_path.parents:
                 staging_entry_count += 1
                 if (
@@ -2080,6 +2149,45 @@ class StarterWorkspaceBuilder:
                         "published run checkpoint staging entry is unsafe"
                     )
                 continue
+            if derived_state_store in relative_path.parents:
+                derived_state_entry_count += 1
+                if (
+                    relative_path.parent != derived_state_store
+                    or _RUN_DERIVED_STATE_OBJECT_PATTERN.fullmatch(
+                        relative_path.name
+                    )
+                    is None
+                    or not stat.S_ISREG(metadata.st_mode)
+                    or metadata.st_uid != os.geteuid()
+                    or metadata.st_nlink != 1
+                    or stat.S_IMODE(metadata.st_mode) != 0o400
+                    or metadata.st_size == 0
+                    or metadata.st_size
+                    > self._settings.launch.run_derived_generation_size_bytes
+                ):
+                    raise LaunchWorkspaceError(
+                        "published derived-state object is unsafe"
+                    )
+                continue
+            if derived_state_staging in relative_path.parents:
+                derived_state_staging_entry_count += 1
+                if (
+                    relative_path.parent != derived_state_staging
+                    or _RUN_DERIVED_STATE_STAGING_PATTERN.fullmatch(
+                        relative_path.name
+                    )
+                    is None
+                    or not stat.S_ISREG(metadata.st_mode)
+                    or metadata.st_uid != os.geteuid()
+                    or metadata.st_nlink != 1
+                    or stat.S_IMODE(metadata.st_mode) not in {0o400, 0o600}
+                    or metadata.st_size
+                    > self._settings.launch.run_derived_generation_size_bytes
+                ):
+                    raise LaunchWorkspaceError(
+                        "published derived-state staging entry is unsafe"
+                    )
+                continue
             raise LaunchWorkspaceError(
                 "published run-root filesystem closure is not exact"
             )
@@ -2089,6 +2197,20 @@ class StarterWorkspaceBuilder:
         ):
             raise LaunchWorkspaceError(
                 "published run checkpoint staging exceeds its entry bound"
+            )
+        if (
+            derived_state_entry_count
+            > self._settings.launch.run_derived_state_store_entry_limit
+        ):
+            raise LaunchWorkspaceError(
+                "published derived-state store exceeds its entry bound"
+            )
+        if (
+            derived_state_staging_entry_count
+            > self._settings.launch.run_derived_state_staging_entry_limit
+        ):
+            raise LaunchWorkspaceError(
+                "published derived-state staging exceeds its entry bound"
             )
         if not observed_checkpoint_journal or not observed_checkpoint_lock:
             raise LaunchWorkspaceError(

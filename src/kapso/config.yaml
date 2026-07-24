@@ -373,11 +373,22 @@ cross_run:
     run_checkpoint_journal_path: ".kapso/run_checkpoint.journal"
     run_checkpoint_lock_path: ".kapso/run_checkpoint.lock"
     run_checkpoint_staging_path: ".kapso/run_checkpoint_staging"
+    run_idea_archive_path: ".kapso/idea_archive.json"
+    run_experiment_history_path: ".kapso/experiment_history.json"
+    run_execution_journal_path: ".kapso/execution_events.jsonl"
+    run_derived_state_store_path: ".kapso/run_derived_state_objects"
+    run_derived_state_staging_path: ".kapso/run_derived_state_staging"
     launch_manifest_size_bytes: 33554432
     bootstrap_pin_size_bytes: 67108864
     run_checkpoint_size_bytes: 67108864
     run_checkpoint_journal_size_bytes: 1073741824
     run_checkpoint_staging_entry_limit: 64
+    run_idea_archive_size_bytes: 67108864
+    run_experiment_history_size_bytes: 67108864
+    run_execution_journal_size_bytes: 1073741824
+    run_derived_generation_size_bytes: 1342177280
+    run_derived_state_store_entry_limit: 10000
+    run_derived_state_staging_entry_limit: 64
     knowledge_snapshot_file_size_bytes: 268435456
     workspace_git_branch: "main"
     compatibility_policy_version: "kapso.launch_compatibility.v1"

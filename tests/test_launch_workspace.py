@@ -65,6 +65,12 @@ def test_builder_atomically_publishes_self_contained_launch(resolver_case, tmp_p
     checkpoint_lock = (
         prepared.run_root / receipt.layout.run_checkpoint_lock_relative_path
     )
+    derived_state_store = (
+        prepared.run_root / receipt.layout.run_derived_state_store_relative_path
+    )
+    derived_state_staging = (
+        prepared.run_root / receipt.layout.run_derived_state_staging_relative_path
+    )
     assert (
         checkpoint_journal.stat().st_dev,
         checkpoint_journal.stat().st_ino,
@@ -79,6 +85,16 @@ def test_builder_atomically_publishes_self_contained_launch(resolver_case, tmp_p
         receipt.run_checkpoint_lock_device,
         receipt.run_checkpoint_lock_inode,
     )
+    for directory in (derived_state_store, derived_state_staging):
+        assert directory.is_dir()
+        assert stat.S_IMODE(directory.stat(follow_symlinks=False).st_mode) == 0o700
+        assert tuple(directory.iterdir()) == ()
+    for projection_path in (
+        receipt.layout.run_idea_archive_relative_path,
+        receipt.layout.run_experiment_history_relative_path,
+        receipt.layout.run_execution_journal_relative_path,
+    ):
+        assert not (prepared.run_root / projection_path).exists()
     assert not (prepared.workspace / ".kapso" / "bootstrap_pin.json").exists()
     assert not (prepared.workspace / ".gitmodules").exists()
     assert not (prepared.workspace / ".git" / "hooks").exists()
@@ -693,6 +709,193 @@ def test_existing_destination_fails_without_consuming_authority(
     )
 
     assert prepared.bootstrap_pin_path.is_file()
+
+
+def test_published_envelope_accepts_bounded_derived_state_files(
+    resolver_case,
+    tmp_path,
+):
+    prepared = _build(resolver_case, (tmp_path / "run").absolute())
+    layout = prepared.bootstrap_pin.installation_receipt.layout
+    builder = prepared._builder_verifier
+    projection_payloads = {
+        layout.run_idea_archive_relative_path: b"{}",
+        layout.run_experiment_history_relative_path: b"{}",
+        layout.run_execution_journal_relative_path: b'{"event":"one"}\n',
+    }
+    for relative_path, payload in projection_payloads.items():
+        target = prepared.run_root / relative_path
+        target.write_bytes(payload)
+        target.chmod(0o400)
+    generation = (
+        prepared.run_root
+        / layout.run_derived_state_store_relative_path
+        / f"generation-{'a' * 64}.bundle"
+    )
+    generation.write_bytes(b"{}")
+    generation.chmod(0o400)
+    staged = (
+        prepared.run_root
+        / layout.run_derived_state_staging_relative_path
+        / f"generation-{'b' * 64}-{'c' * 32}.tmp"
+    )
+    staged.write_bytes(b"{}")
+    staged.chmod(0o600)
+
+    builder._verify_outer_run_root_closure(
+        prepared.run_root,
+        layout,
+        prepared._published_root_identity,
+    )
+
+
+@pytest.mark.parametrize(
+    ("relative_path_name", "entry_name", "mode", "message"),
+    [
+        (
+            "run_derived_state_store_relative_path",
+            "unknown.json",
+            0o400,
+            "derived-state object",
+        ),
+        (
+            "run_derived_state_staging_relative_path",
+            "generation-invalid.tmp",
+            0o600,
+            "derived-state staging",
+        ),
+    ],
+)
+def test_published_envelope_rejects_unrecognized_derived_state_entries(
+    resolver_case,
+    tmp_path,
+    relative_path_name,
+    entry_name,
+    mode,
+    message,
+):
+    prepared = _build(resolver_case, (tmp_path / "run").absolute())
+    layout = prepared.bootstrap_pin.installation_receipt.layout
+    target = prepared.run_root / getattr(layout, relative_path_name) / entry_name
+    target.write_bytes(b"unsafe")
+    target.chmod(mode)
+
+    with pytest.raises(LaunchWorkspaceError, match=message):
+        prepared._builder_verifier._verify_outer_run_root_closure(
+            prepared.run_root,
+            layout,
+            prepared._published_root_identity,
+        )
+
+
+def test_published_envelope_rejects_writable_projection(
+    resolver_case,
+    tmp_path,
+):
+    prepared = _build(resolver_case, (tmp_path / "run").absolute())
+    layout = prepared.bootstrap_pin.installation_receipt.layout
+    archive = prepared.run_root / layout.run_idea_archive_relative_path
+    archive.write_bytes(b"{}")
+    archive.chmod(0o600)
+
+    with pytest.raises(LaunchWorkspaceError, match="projection"):
+        prepared._builder_verifier._verify_outer_run_root_closure(
+            prepared.run_root,
+            layout,
+            prepared._published_root_identity,
+        )
+
+
+def test_published_envelope_rejects_oversized_projection(
+    resolver_case,
+    tmp_path,
+):
+    prepared = _build(resolver_case, (tmp_path / "run").absolute())
+    layout = prepared.bootstrap_pin.installation_receipt.layout
+    settings = resolver_case["resolver"]._settings
+    launch = replace(settings.launch, run_idea_archive_size_bytes=1)
+    builder = StarterWorkspaceBuilder(replace(settings, launch=launch))
+    archive = prepared.run_root / layout.run_idea_archive_relative_path
+    archive.write_bytes(b"{}")
+    archive.chmod(0o400)
+
+    with pytest.raises(LaunchWorkspaceError, match="projection"):
+        builder._verify_outer_run_root_closure(
+            prepared.run_root,
+            layout,
+            prepared._published_root_identity,
+        )
+
+
+def test_published_envelope_rejects_empty_permanent_generation(
+    resolver_case,
+    tmp_path,
+):
+    prepared = _build(resolver_case, (tmp_path / "run").absolute())
+    layout = prepared.bootstrap_pin.installation_receipt.layout
+    generation = (
+        prepared.run_root
+        / layout.run_derived_state_store_relative_path
+        / f"generation-{'a' * 64}.bundle"
+    )
+    generation.touch(mode=0o400)
+
+    with pytest.raises(LaunchWorkspaceError, match="derived-state object"):
+        prepared._builder_verifier._verify_outer_run_root_closure(
+            prepared.run_root,
+            layout,
+            prepared._published_root_identity,
+        )
+
+
+@pytest.mark.parametrize(
+    ("directory_field", "entry_names", "limit_field", "message"),
+    [
+        (
+            "run_derived_state_store_relative_path",
+            (
+                f"generation-{'a' * 64}.bundle",
+                f"generation-{'b' * 64}.bundle",
+            ),
+            "run_derived_state_store_entry_limit",
+            "derived-state store",
+        ),
+        (
+            "run_derived_state_staging_relative_path",
+            (
+                f"generation-{'a' * 64}-{'b' * 32}.tmp",
+                f"generation-{'c' * 64}-{'d' * 32}.tmp",
+            ),
+            "run_derived_state_staging_entry_limit",
+            "derived-state staging",
+        ),
+    ],
+)
+def test_published_envelope_enforces_derived_state_entry_bounds(
+    resolver_case,
+    tmp_path,
+    directory_field,
+    entry_names,
+    limit_field,
+    message,
+):
+    prepared = _build(resolver_case, (tmp_path / "run").absolute())
+    layout = prepared.bootstrap_pin.installation_receipt.layout
+    settings = resolver_case["resolver"]._settings
+    launch = replace(settings.launch, **{limit_field: 1})
+    builder = StarterWorkspaceBuilder(replace(settings, launch=launch))
+    directory = prepared.run_root / getattr(layout, directory_field)
+    for entry_name in entry_names:
+        entry = directory / entry_name
+        entry.write_bytes(b"{}")
+        entry.chmod(0o400)
+
+    with pytest.raises(LaunchWorkspaceError, match=message):
+        builder._verify_outer_run_root_closure(
+            prepared.run_root,
+            layout,
+            prepared._published_root_identity,
+        )
 
 
 def test_workspace_contracts_reject_spliced_or_legacy_authority(

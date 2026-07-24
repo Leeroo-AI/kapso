@@ -13,9 +13,15 @@ from kapso.cross_run.canonical import (
     parse_json_bytes,
     require_content_id,
     require_identifier,
+    tree_or_blob_digest,
 )
 from kapso.cross_run.contracts import StrictContract
 from kapso.cross_run.launch.contracts import BootstrapPin
+from kapso.cross_run.launch.derived_state_contracts import (
+    RunDerivedStateGeneration,
+    RunStateAuthority,
+    RunStateLayout,
+)
 from kapso.cross_run.launch.resume_contracts import (
     RunEligibilityDisposition,
     RunSafetyState,
@@ -137,6 +143,13 @@ class RunCheckpointHead(StrictContract):
         ):
             raise RunCheckpointContractError(
                 "run checkpoint head carries another launch frontier"
+            )
+        if (
+            self.checkpoint.derived_state_generation.predecessor_checkpoint_head_id
+            != self.predecessor_head_id
+        ):
+            raise RunCheckpointContractError(
+                "run checkpoint derived generation names another predecessor head"
             )
 
     @classmethod
@@ -815,6 +828,15 @@ class RunStrategyState(StrictContract):
             return nodes
         return _validate_tree_state(state)
 
+    @property
+    def durable_revision_count(self) -> int:
+        """Return the exact number of executed node revisions in this state."""
+
+        state = self.parsed_state()
+        if self.strategy_kind is RunStrategyKind.GENERIC:
+            return sum(node.execution_revision + 1 for node in self.nodes())
+        return len(state["node_history_ids"])
+
     def describes_empty_durable_frontier(self) -> bool:
         state = self.parsed_state()
         if state["previous_errors"]:
@@ -1027,6 +1049,7 @@ class RunCheckpoint(StrictContract):
     termination_decision: RunTerminationDecision | None
     strategy_state: RunStrategyState
     safety_state: RunSafetyState
+    derived_state_generation: RunDerivedStateGeneration
     exact_dependency_ids: tuple[str, ...]
 
     CONTENT_NAMESPACE: ClassVar[str] = "run-checkpoint"
@@ -1074,9 +1097,10 @@ class RunCheckpoint(StrictContract):
         if (
             type(self.strategy_state) is not RunStrategyState
             or type(self.safety_state) is not RunSafetyState
+            or type(self.derived_state_generation) is not RunDerivedStateGeneration
         ):
             raise RunCheckpointContractError(
-                "run checkpoint requires typed strategy and safety states"
+                "run checkpoint requires typed strategy, safety, and derived states"
             )
         if (self.feedback_source is None) != (self.current_feedback is None):
             raise RunCheckpointContractError(
@@ -1120,17 +1144,93 @@ class RunCheckpoint(StrictContract):
                 "active run checkpoint cannot carry a terminal decision"
             )
         self.strategy_state.require_bootstrap_pin(self.safety_state.bootstrap_pin)
-        archive = self.strategy_state.archive_state()
-        idea_archive_revision = self.safety_state.derivative_frontier.evidence.state_authority_revisions.get(
-            "idea_archive"
-        )
+        generation = self.derived_state_generation
+        bootstrap_pin = self.safety_state.bootstrap_pin
+        evidence = self.safety_state.derivative_frontier.evidence
         if (
-            idea_archive_revision is None
-            or (archive is not None and archive.revision != idea_archive_revision)
-            or (archive is None and idea_archive_revision != 0)
+            generation.bootstrap_pin_id != bootstrap_pin.bootstrap_pin_id
+            or generation.predecessor_checkpoint_id
+            != self.predecessor_checkpoint_id
+            or generation.target_evidence_id != evidence.evidence_id
         ):
             raise RunCheckpointContractError(
-                "run checkpoint archive and safety frontiers differ"
+                "run checkpoint derived generation belongs to another frontier"
+            )
+        receipt_layout = bootstrap_pin.installation_receipt.layout
+        authority_paths = {
+            RunStateAuthority.EXPERIMENT_HISTORY: (
+                receipt_layout.run_experiment_history_relative_path
+            ),
+            RunStateAuthority.EXECUTION_JOURNAL: (
+                receipt_layout.run_execution_journal_relative_path
+            ),
+        }
+        if self.strategy_state.strategy_kind is RunStrategyKind.GENERIC:
+            authority_paths[RunStateAuthority.IDEA_ARCHIVE] = (
+                receipt_layout.run_idea_archive_relative_path
+            )
+        expected_layout = RunStateLayout.build(
+            strategy_kind=self.strategy_state.strategy_kind.value,
+            authority_paths=authority_paths,
+        )
+        if generation.run_state_layout != expected_layout:
+            raise RunCheckpointContractError(
+                "run checkpoint derived-state layout differs from its launch"
+            )
+        transitions_by_binding = {
+            transition.authority_binding_id: transition
+            for transition in generation.payload_transitions
+        }
+        if (
+            set(evidence.state_authority_digests)
+            != {authority.value for authority in authority_paths}
+            or set(evidence.state_authority_revisions)
+            != {authority.value for authority in authority_paths}
+        ):
+            raise RunCheckpointContractError(
+                "run checkpoint state-authority set differs from its strategy"
+            )
+        transitions_by_authority = {
+            binding.authority: transitions_by_binding[binding.authority_binding_id]
+            for binding in generation.run_state_layout.bindings
+        }
+        if any(
+            transition.target_digest
+            != evidence.state_authority_digests[authority.value]
+            or transition.target_revision
+            != evidence.state_authority_revisions[authority.value]
+            for authority, transition in transitions_by_authority.items()
+        ):
+            raise RunCheckpointContractError(
+                "run checkpoint derived generation differs from safety evidence"
+            )
+        archive = self.strategy_state.archive_state()
+        if archive is not None:
+            archive_payload = canonical_json_bytes(archive.to_dict())
+            archive_transition = transitions_by_authority[
+                RunStateAuthority.IDEA_ARCHIVE
+            ]
+            if (
+                archive.revision != archive_transition.target_revision
+                or tree_or_blob_digest(archive_payload)
+                != archive_transition.target_digest
+                or len(archive_payload) != archive_transition.target_size_bytes
+            ):
+                raise RunCheckpointContractError(
+                    "run checkpoint archive and derived generation differ"
+                )
+        experiment_revision = evidence.state_authority_revisions[
+            RunStateAuthority.EXPERIMENT_HISTORY.value
+        ]
+        journal_revision = evidence.state_authority_revisions[
+            RunStateAuthority.EXECUTION_JOURNAL.value
+        ]
+        if (
+            experiment_revision != journal_revision
+            or journal_revision != self.strategy_state.durable_revision_count
+        ):
+            raise RunCheckpointContractError(
+                "run checkpoint executed-revision frontiers differ"
             )
         if self.completed_iterations != self.strategy_state.iteration_count:
             raise RunCheckpointContractError(
@@ -1143,6 +1243,7 @@ class RunCheckpoint(StrictContract):
         expected_dependencies = {
             self.strategy_state.strategy_state_id,
             self.safety_state.safety_state_id,
+            self.derived_state_generation.generation_id,
         }
         if self.predecessor_checkpoint_id is not None:
             expected_dependencies.add(self.predecessor_checkpoint_id)
@@ -1164,6 +1265,10 @@ class RunCheckpoint(StrictContract):
             or self.strategy_state.iteration_count != 0
             or not self.strategy_state.describes_empty_durable_frontier()
             or self.safety_state.predecessor_safety_state_id is not None
+            or self.derived_state_generation.predecessor_checkpoint_head_id
+            != RunCheckpointHead.initial(
+                self.safety_state.bootstrap_pin
+            ).run_checkpoint_head_id
         ):
             raise RunCheckpointContractError(
                 "initial run checkpoint must describe the empty durable frontier"
@@ -1185,11 +1290,13 @@ class RunCheckpoint(StrictContract):
         termination_decision: RunTerminationDecision | None,
         strategy_state: RunStrategyState,
         safety_state: RunSafetyState,
+        derived_state_generation: RunDerivedStateGeneration,
     ) -> "RunCheckpoint":
         predecessor_id = None if predecessor is None else predecessor.run_checkpoint_id
         dependencies = {
             strategy_state.strategy_state_id,
             safety_state.safety_state_id,
+            derived_state_generation.generation_id,
         }
         if predecessor_id is not None:
             dependencies.add(predecessor_id)
@@ -1211,6 +1318,7 @@ class RunCheckpoint(StrictContract):
             termination_decision=termination_decision,
             strategy_state=strategy_state,
             safety_state=safety_state,
+            derived_state_generation=derived_state_generation,
             exact_dependency_ids=tuple(sorted(dependencies)),
         )
         checkpoint.require_predecessor(predecessor)
@@ -1264,6 +1372,32 @@ class RunCheckpoint(StrictContract):
             )
         self.strategy_state.require_predecessor(predecessor.strategy_state)
         self.safety_state.require_predecessor(predecessor.safety_state)
+        predecessor_generation = predecessor.derived_state_generation
+        generation = self.derived_state_generation
+        if (
+            generation.run_state_layout != predecessor_generation.run_state_layout
+            or generation.predecessor_evidence_id
+            != predecessor.safety_state.derivative_frontier.evidence.evidence_id
+        ):
+            raise RunCheckpointContractError(
+                "run checkpoint derived generation changed its predecessor"
+            )
+        predecessor_targets = {
+            transition.authority_binding_id: transition
+            for transition in predecessor_generation.payload_transitions
+        }
+        if any(
+            transition.predecessor_digest
+            != predecessor_targets[transition.authority_binding_id].target_digest
+            or transition.predecessor_revision
+            != predecessor_targets[transition.authority_binding_id].target_revision
+            or transition.predecessor_size_bytes
+            != predecessor_targets[transition.authority_binding_id].target_size_bytes
+            for transition in generation.payload_transitions
+        ):
+            raise RunCheckpointContractError(
+                "run checkpoint derived payloads changed or skipped their predecessor"
+            )
 
 
 __all__ = [

@@ -766,12 +766,61 @@ def test_github_commit_identity_rejects_git_header_injection(field, value):
             "run_checkpoint_staging_path",
             ".kapso/run_checkpoint.json/staging",
         ),
+        ("run_idea_archive_path", "workspace/idea_archive.json"),
+        ("run_experiment_history_path", ".other/experiment_history.json"),
+        ("run_execution_journal_path", "readonly/execution_events.jsonl"),
+        (
+            "run_derived_state_store_path",
+            ".kapso/run_derived_state_staging",
+        ),
+        (
+            "run_derived_state_staging_path",
+            ".kapso/idea_archive.json/staging",
+        ),
         ("workspace_git_branch", "../unsafe"),
     ],
 )
 def test_launch_workspace_layout_is_relative_and_prefix_disjoint(field, value):
     raw = copy.deepcopy(load_config(CANONICAL_CONFIG_PATH)["cross_run"])
     raw["launch"][field] = value
+
+    with pytest.raises(CrossRunConfigurationError):
+        CrossRunSettings.from_dict(raw)
+
+
+def test_launch_derived_generation_bound_covers_all_projection_authorities():
+    raw = copy.deepcopy(load_config(CANONICAL_CONFIG_PATH)["cross_run"])
+    authority_bound = raw["launch"]["run_checkpoint_size_bytes"] + sum(
+        raw["launch"][field]
+        for field in (
+            "run_idea_archive_size_bytes",
+            "run_experiment_history_size_bytes",
+            "run_execution_journal_size_bytes",
+        )
+    )
+    raw["launch"]["run_derived_generation_size_bytes"] = authority_bound
+
+    with pytest.raises(
+        CrossRunConfigurationError,
+        match="generation bound",
+    ):
+        CrossRunSettings.from_dict(raw)
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "run_idea_archive_size_bytes",
+        "run_experiment_history_size_bytes",
+        "run_execution_journal_size_bytes",
+        "run_derived_generation_size_bytes",
+        "run_derived_state_store_entry_limit",
+        "run_derived_state_staging_entry_limit",
+    ],
+)
+def test_launch_derived_state_bounds_are_positive(field):
+    raw = copy.deepcopy(load_config(CANONICAL_CONFIG_PATH)["cross_run"])
+    raw["launch"][field] = 0
 
     with pytest.raises(CrossRunConfigurationError):
         CrossRunSettings.from_dict(raw)

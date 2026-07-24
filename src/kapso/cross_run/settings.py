@@ -1551,11 +1551,22 @@ class LaunchSettings(StrictContract):
     run_checkpoint_journal_path: str
     run_checkpoint_lock_path: str
     run_checkpoint_staging_path: str
+    run_idea_archive_path: str
+    run_experiment_history_path: str
+    run_execution_journal_path: str
+    run_derived_state_store_path: str
+    run_derived_state_staging_path: str
     launch_manifest_size_bytes: int
     bootstrap_pin_size_bytes: int
     run_checkpoint_size_bytes: int
     run_checkpoint_journal_size_bytes: int
     run_checkpoint_staging_entry_limit: int
+    run_idea_archive_size_bytes: int
+    run_experiment_history_size_bytes: int
+    run_execution_journal_size_bytes: int
+    run_derived_generation_size_bytes: int
+    run_derived_state_store_entry_limit: int
+    run_derived_state_staging_entry_limit: int
     knowledge_snapshot_file_size_bytes: int
     workspace_git_branch: str
     compatibility_policy_version: str
@@ -1615,22 +1626,28 @@ class LaunchSettings(StrictContract):
             _require_relative_path(getattr(self, field), f"launch.{field}")
             for field in ("launch_manifest_path", "bootstrap_pin_path")
         )
-        checkpoint_paths = tuple(
+        mutable_run_paths = tuple(
             _require_relative_path(getattr(self, field), f"launch.{field}")
             for field in (
                 "run_checkpoint_path",
                 "run_checkpoint_journal_path",
                 "run_checkpoint_lock_path",
                 "run_checkpoint_staging_path",
+                "run_idea_archive_path",
+                "run_experiment_history_path",
+                "run_execution_journal_path",
+                "run_derived_state_store_path",
+                "run_derived_state_staging_path",
             )
         )
         if any(
-            path.parent != checkpoint_paths[0].parent for path in checkpoint_paths[1:]
+            path.parent != mutable_run_paths[0].parent
+            for path in mutable_run_paths[1:]
         ):
             raise CrossRunConfigurationError(
-                "launch checkpoint paths must share one private parent"
+                "launch mutable run paths must share one private parent"
             )
-        control_paths = immutable_control_paths + checkpoint_paths
+        control_paths = immutable_control_paths + mutable_run_paths
         materialized_roots = (workspace, immutable_root)
         if any(
             left == right or left in right.parents or right in left.parents
@@ -1676,6 +1693,41 @@ class LaunchSettings(StrictContract):
         _require_positive(
             self.run_checkpoint_staging_entry_limit,
             "launch.run_checkpoint_staging_entry_limit",
+        )
+        projection_size_bounds = (
+            (
+                self.run_idea_archive_size_bytes,
+                "launch.run_idea_archive_size_bytes",
+            ),
+            (
+                self.run_experiment_history_size_bytes,
+                "launch.run_experiment_history_size_bytes",
+            ),
+            (
+                self.run_execution_journal_size_bytes,
+                "launch.run_execution_journal_size_bytes",
+            ),
+        )
+        for bound, name in projection_size_bounds:
+            _require_positive(bound, name)
+        _require_positive(
+            self.run_derived_generation_size_bytes,
+            "launch.run_derived_generation_size_bytes",
+        )
+        if self.run_derived_generation_size_bytes <= (
+            self.run_checkpoint_size_bytes
+            + sum(bound for bound, _name in projection_size_bounds)
+        ):
+            raise CrossRunConfigurationError(
+                "launch derived generation bound must exceed all authority bounds"
+            )
+        _require_positive(
+            self.run_derived_state_store_entry_limit,
+            "launch.run_derived_state_store_entry_limit",
+        )
+        _require_positive(
+            self.run_derived_state_staging_entry_limit,
+            "launch.run_derived_state_staging_entry_limit",
         )
         require_git_ref_name(
             f"refs/heads/{self.workspace_git_branch}",

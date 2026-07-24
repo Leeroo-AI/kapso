@@ -3,7 +3,12 @@ from dataclasses import replace
 
 import pytest
 
-from kapso.cross_run.canonical import CanonicalizationError, content_id
+from kapso.cross_run.canonical import (
+    CanonicalizationError,
+    canonical_json_bytes,
+    content_id,
+    tree_or_blob_digest,
+)
 from kapso.cross_run.contracts import ContractValidationError, TaskContextBinding
 from kapso.cross_run.launch.checkpoint_contracts import (
     RunCheckpoint,
@@ -16,7 +21,14 @@ from kapso.cross_run.launch.checkpoint_contracts import (
     RunStrategyState,
     RunTerminationDecision,
 )
+from kapso.cross_run.launch.derived_state_contracts import (
+    RunDerivedStateGeneration,
+    RunStateAuthority,
+    RunStateLayout,
+    RunStatePayloadTransition,
+)
 from kapso.cross_run.launch.resume_contracts import (
+    RunDerivativeFrontier,
     RunReleaseUseMode,
     RunSafetyBoundary,
     RunSafetyState,
@@ -37,6 +49,7 @@ from test_launch_resolver import resolver_case
 from test_launch_resume_contracts import (
     _bootstrap_pin,
     _empty_frontier,
+    _remint_evidence,
     _security_observation,
     _subjects,
 )
@@ -138,8 +151,24 @@ def _contract_generic_state(tmp_path):
     }
 
 
-def _initial_safety(pin):
-    frontier = _empty_frontier(pin)
+def _initial_safety(pin, strategy_state):
+    empty_frontier = _empty_frontier(pin)
+    archive = strategy_state.archive_state()
+    archive_payload = canonical_json_bytes(archive.to_dict())
+    evidence = _remint_evidence(
+        empty_frontier.evidence,
+        state_authority_digests={
+            **empty_frontier.evidence.state_authority_digests,
+            RunStateAuthority.IDEA_ARCHIVE.value: tree_or_blob_digest(
+                archive_payload
+            ),
+        },
+    )
+    frontier = RunDerivativeFrontier.build(
+        launch_subject_ids=empty_frontier.launch_subject_ids,
+        evidence=evidence,
+        derivatives=(),
+    )
     release_use = pin.launch_manifest.release_use_observation
     return RunSafetyState.build(
         predecessor=None,
@@ -173,7 +202,126 @@ def _successor_safety(pin, predecessor):
     )
 
 
+def _derived_state_generation(pin, strategy_state, safety_state, predecessor):
+    receipt_layout = pin.installation_receipt.layout
+    layout = RunStateLayout.build(
+        strategy_kind=strategy_state.strategy_kind.value,
+        authority_paths={
+            RunStateAuthority.IDEA_ARCHIVE: (
+                receipt_layout.run_idea_archive_relative_path
+            ),
+            RunStateAuthority.EXPERIMENT_HISTORY: (
+                receipt_layout.run_experiment_history_relative_path
+            ),
+            RunStateAuthority.EXECUTION_JOURNAL: (
+                receipt_layout.run_execution_journal_relative_path
+            ),
+        },
+    )
+    evidence = safety_state.derivative_frontier.evidence
+    predecessor_transitions = (
+        {}
+        if predecessor is None
+        else {
+            transition.authority_binding_id: transition
+            for transition in predecessor.derived_state_generation.payload_transitions
+        }
+    )
+    archive = strategy_state.archive_state()
+    archive_payload = canonical_json_bytes(archive.to_dict())
+    target_sizes = {
+        RunStateAuthority.IDEA_ARCHIVE: len(archive_payload),
+        RunStateAuthority.EXPERIMENT_HISTORY: len(
+            f"experiments-{evidence.state_authority_revisions['experiment_history']}".encode(
+                "utf-8"
+            )
+        ),
+        RunStateAuthority.EXECUTION_JOURNAL: len(
+            f"journal-{evidence.state_authority_revisions['execution_journal']}".encode(
+                "utf-8"
+            )
+        ),
+    }
+    transitions = []
+    for binding in layout.bindings:
+        previous = predecessor_transitions.get(binding.authority_binding_id)
+        transitions.append(
+            RunStatePayloadTransition.mint(
+                authority_binding_id=binding.authority_binding_id,
+                predecessor_digest=(
+                    None if previous is None else previous.target_digest
+                ),
+                predecessor_revision=(
+                    None if previous is None else previous.target_revision
+                ),
+                predecessor_size_bytes=(
+                    None if previous is None else previous.target_size_bytes
+                ),
+                target_digest=evidence.state_authority_digests[
+                    binding.authority.value
+                ],
+                target_revision=evidence.state_authority_revisions[
+                    binding.authority.value
+                ],
+                target_size_bytes=(
+                    previous.target_size_bytes
+                    if previous is not None
+                    and previous.target_digest
+                    == evidence.state_authority_digests[binding.authority.value]
+                    else target_sizes[binding.authority]
+                ),
+            )
+        )
+    predecessor_head_id = (
+        RunCheckpointHead.initial(pin).run_checkpoint_head_id
+        if predecessor is None
+        else (
+            RunCheckpointHead.initial(pin)
+            .advance(predecessor)
+            .run_checkpoint_head_id
+            if predecessor.checkpoint_sequence == 0
+            else content_id(
+                "run-checkpoint-head",
+                {"predecessor": predecessor.run_checkpoint_id},
+            )
+        )
+    )
+    return RunDerivedStateGeneration.build(
+        bootstrap_pin_id=pin.bootstrap_pin_id,
+        run_state_layout=layout,
+        predecessor_checkpoint_head_id=predecessor_head_id,
+        predecessor_checkpoint_id=(
+            None if predecessor is None else predecessor.run_checkpoint_id
+        ),
+        predecessor_evidence_id=(
+            None
+            if predecessor is None
+            else predecessor.safety_state.derivative_frontier.evidence.evidence_id
+        ),
+        target_evidence_id=evidence.evidence_id,
+        payload_transitions=tuple(transitions),
+    )
+
+
+def _remint_generation(generation, **changes):
+    values = {
+        "bootstrap_pin_id": generation.bootstrap_pin_id,
+        "run_state_layout": generation.run_state_layout,
+        "predecessor_checkpoint_head_id": (
+            generation.predecessor_checkpoint_head_id
+        ),
+        "predecessor_checkpoint_id": generation.predecessor_checkpoint_id,
+        "predecessor_evidence_id": generation.predecessor_evidence_id,
+        "target_evidence_id": generation.target_evidence_id,
+        "payload_transitions": generation.payload_transitions,
+    }
+    values.update(changes)
+    return RunDerivedStateGeneration.build(**values)
+
+
 def _initial_checkpoint(pin):
+    strategy_state = _generic_strategy_state(pin)
+    safety_state = _initial_safety(pin, strategy_state)
     return RunCheckpoint.build(
         predecessor=None,
         status=RunCheckpointStatus.ACTIVE,
@@ -185,9 +333,93 @@ def _initial_checkpoint(pin):
         feedback_source=None,
         current_feedback=None,
         termination_decision=None,
-        strategy_state=_generic_strategy_state(pin),
-        safety_state=_initial_safety(pin),
+        strategy_state=strategy_state,
+        safety_state=safety_state,
+        derived_state_generation=_derived_state_generation(
+            pin,
+            strategy_state,
+            safety_state,
+            None,
+        ),
     )
+
+
+def test_checkpoint_requires_exact_derived_generation_join(
+    resolver_case,
+    tmp_path,
+):
+    pin = _bootstrap_pin(resolver_case, tmp_path)
+    initial = _initial_checkpoint(pin)
+    generation = initial.derived_state_generation
+
+    foreign_evidence_generation = _remint_generation(
+        generation,
+        target_evidence_id=content_id(
+            "run-derivative-evidence",
+            {"foreign": True},
+        ),
+    )
+    with pytest.raises(RunCheckpointContractError, match="another frontier"):
+        RunCheckpoint.build(
+            predecessor=None,
+            status=RunCheckpointStatus.ACTIVE,
+            last_stop=None,
+            completed_iterations=0,
+            cumulative_cost=0,
+            elapsed_seconds=0,
+            cost_by_component={},
+            feedback_source=None,
+            current_feedback=None,
+            termination_decision=None,
+            strategy_state=initial.strategy_state,
+            safety_state=initial.safety_state,
+            derived_state_generation=foreign_evidence_generation,
+        )
+
+    archive_binding_id = next(
+        binding.authority_binding_id
+        for binding in generation.run_state_layout.bindings
+        if binding.authority is RunStateAuthority.IDEA_ARCHIVE
+    )
+    wrong_size_transitions = tuple(
+        (
+            RunStatePayloadTransition.mint(
+                authority_binding_id=transition.authority_binding_id,
+                predecessor_digest=transition.predecessor_digest,
+                predecessor_revision=transition.predecessor_revision,
+                predecessor_size_bytes=transition.predecessor_size_bytes,
+                target_digest=transition.target_digest,
+                target_revision=transition.target_revision,
+                target_size_bytes=transition.target_size_bytes + 1,
+            )
+            if transition.authority_binding_id == archive_binding_id
+            else transition
+        )
+        for transition in generation.payload_transitions
+    )
+    wrong_size_generation = _remint_generation(
+        generation,
+        payload_transitions=wrong_size_transitions,
+    )
+    with pytest.raises(
+        RunCheckpointContractError,
+        match="archive and derived generation",
+    ):
+        RunCheckpoint.build(
+            predecessor=None,
+            status=RunCheckpointStatus.ACTIVE,
+            last_stop=None,
+            completed_iterations=0,
+            cumulative_cost=0,
+            elapsed_seconds=0,
+            cost_by_component={},
+            feedback_source=None,
+            current_feedback=None,
+            termination_decision=None,
+            strategy_state=initial.strategy_state,
+            safety_state=initial.safety_state,
+            derived_state_generation=wrong_size_generation,
+        )
 
 
 def test_checkpoint_is_content_addressed_and_requires_exact_successor(
@@ -196,6 +428,7 @@ def test_checkpoint_is_content_addressed_and_requires_exact_successor(
 ):
     pin = _bootstrap_pin(resolver_case, tmp_path)
     initial = _initial_checkpoint(pin)
+    successor_safety = _successor_safety(pin, initial.safety_state)
     successor = RunCheckpoint.build(
         predecessor=initial,
         status=RunCheckpointStatus.ACTIVE,
@@ -208,7 +441,13 @@ def test_checkpoint_is_content_addressed_and_requires_exact_successor(
         current_feedback=None,
         termination_decision=None,
         strategy_state=initial.strategy_state,
-        safety_state=_successor_safety(pin, initial.safety_state),
+        safety_state=successor_safety,
+        derived_state_generation=_derived_state_generation(
+            pin,
+            initial.strategy_state,
+            successor_safety,
+            initial,
+        ),
     )
 
     assert RunCheckpoint.from_json_bytes(initial.to_json_bytes()) == initial
@@ -219,6 +458,32 @@ def test_checkpoint_is_content_addressed_and_requires_exact_successor(
         successor.require_predecessor(successor)
     with pytest.raises(CanonicalizationError, match="run_checkpoint_id mismatch"):
         replace(successor, last_stop=None)
+
+    wrong_head_generation = _remint_generation(
+        successor.derived_state_generation,
+        predecessor_checkpoint_head_id=content_id(
+            "run-checkpoint-head",
+            {"foreign": True},
+        ),
+    )
+    wrong_head_successor = RunCheckpoint.build(
+        predecessor=initial,
+        status=successor.status,
+        last_stop=successor.last_stop,
+        completed_iterations=successor.completed_iterations,
+        cumulative_cost=successor.cumulative_cost,
+        elapsed_seconds=successor.elapsed_seconds,
+        cost_by_component=successor.cost_by_component,
+        feedback_source=successor.feedback_source,
+        current_feedback=successor.current_feedback,
+        termination_decision=successor.termination_decision,
+        strategy_state=successor.strategy_state,
+        safety_state=successor.safety_state,
+        derived_state_generation=wrong_head_generation,
+    )
+    current_head = RunCheckpointHead.initial(pin).advance(initial)
+    with pytest.raises(RunCheckpointContractError, match="predecessor head"):
+        current_head.advance(wrong_head_successor)
 
     old_shape = {
         "schema_version": 2,
@@ -256,6 +521,12 @@ def test_checkpoint_rejects_identity_budget_and_terminal_rollbacks(
                 state=foreign_state,
             ),
             safety_state=successor_safety,
+            derived_state_generation=_derived_state_generation(
+                pin,
+                initial.strategy_state,
+                successor_safety,
+                initial,
+            ),
         )
 
     advanced = RunCheckpoint.build(
@@ -271,7 +542,14 @@ def test_checkpoint_rejects_identity_budget_and_terminal_rollbacks(
         termination_decision=None,
         strategy_state=initial.strategy_state,
         safety_state=successor_safety,
+        derived_state_generation=_derived_state_generation(
+            pin,
+            initial.strategy_state,
+            successor_safety,
+            initial,
+        ),
     )
+    next_safety = _successor_safety(pin, advanced.safety_state)
     with pytest.raises(RunCheckpointContractError, match="rolled back"):
         RunCheckpoint.build(
             predecessor=advanced,
@@ -285,7 +563,13 @@ def test_checkpoint_rejects_identity_budget_and_terminal_rollbacks(
             current_feedback=None,
             termination_decision=None,
             strategy_state=advanced.strategy_state,
-            safety_state=_successor_safety(pin, advanced.safety_state),
+            safety_state=next_safety,
+            derived_state_generation=_derived_state_generation(
+                pin,
+                advanced.strategy_state,
+                next_safety,
+                advanced,
+            ),
         )
 
     stale_feedback = object.__new__(RunCheckpoint)
@@ -316,7 +600,13 @@ def test_checkpoint_rejects_identity_budget_and_terminal_rollbacks(
             current_feedback=None,
             termination_decision=None,
             strategy_state=advanced.strategy_state,
-            safety_state=_successor_safety(pin, advanced.safety_state),
+            safety_state=next_safety,
+            derived_state_generation=_derived_state_generation(
+                pin,
+                advanced.strategy_state,
+                next_safety,
+                advanced,
+            ),
         )
     with pytest.raises(RunCheckpointContractError, match="policy reasons"):
         RunTerminationDecision(
@@ -336,7 +626,7 @@ def test_checkpoint_rejects_identity_budget_and_terminal_rollbacks(
     )
     with pytest.raises(
         RunCheckpointContractError,
-        match="archive and safety|empty durable frontier",
+        match="archive and derived generation|empty durable frontier",
     ):
         RunCheckpoint.build(
             predecessor=None,
@@ -351,6 +641,7 @@ def test_checkpoint_rejects_identity_budget_and_terminal_rollbacks(
             termination_decision=None,
             strategy_state=impossible_initial_strategy,
             safety_state=initial.safety_state,
+            derived_state_generation=initial.derived_state_generation,
         )
 
 

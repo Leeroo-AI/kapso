@@ -25,6 +25,7 @@ from kapso.cross_run.launch.workspace import (
     StarterWorkspaceBuilder,
 )
 from test_launch_checkpoint_contracts import (
+    _derived_state_generation,
     _initial_checkpoint,
     _successor_safety,
 )
@@ -48,6 +49,7 @@ def _active_launch(resolver_case, tmp_path):
 
 def _successor(initial, *, cost, stop=RunCheckpointStop.COST_BUDGET):
     pin = initial.safety_state.bootstrap_pin
+    safety_state = _successor_safety(pin, initial.safety_state)
     return RunCheckpoint.build(
         predecessor=initial,
         status=RunCheckpointStatus.ACTIVE,
@@ -60,7 +62,13 @@ def _successor(initial, *, cost, stop=RunCheckpointStop.COST_BUDGET):
         current_feedback=None,
         termination_decision=None,
         strategy_state=initial.strategy_state,
-        safety_state=_successor_safety(pin, initial.safety_state),
+        safety_state=safety_state,
+        derived_state_generation=_derived_state_generation(
+            pin,
+            initial.strategy_state,
+            safety_state,
+            initial,
+        ),
     )
 
 
