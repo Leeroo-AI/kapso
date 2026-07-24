@@ -120,17 +120,19 @@ modes:
         ideation_timeout: 1800
         # One experiment = implement + run the registered full evaluation
         # (candidate training, up to the task's full timeout) inside the
-        # session: cap must cover both.
-        implementation_timeout: 10800
+        # session: cap must cover both. Sized to contain a 4h full-eval cap
+        # (RELBENCH_FULL_TIMEOUT=14400) plus the implement phase (~1h).
+        implementation_timeout: 18000
         ideation_gates: ["experiment_history", "repo_memory"]
         implementation_gates: ["repo_memory"]
         # Bash-tool clock policy (finding 14): without these the CLI
         # auto-backgrounds any foreground command at 120s, making a
-        # blocking registered evaluation structurally impossible. Sized to
-        # cover a full grader run (train + eval, 30 min default / 4h max).
+        # blocking registered evaluation structurally impossible. Max sized
+        # above the 4h full-eval cap so the agent can hold a foreground eval
+        # to completion (30 min default / 5h max).
         session_env_defaults:
           BASH_DEFAULT_TIMEOUT_MS: "1800000"
-          BASH_MAX_TIMEOUT_MS: "14400000"
+          BASH_MAX_TIMEOUT_MS: "18000000"
         # Durable-archive recovery root for the registered evaluation
         # (Issue 2): the grader archives runs (incl. manifest.txt) here,
         # outside the session workspace, so a completed eval's score is
@@ -183,7 +185,7 @@ modes:
         auth_mode: "oauth"
         effort: "xhigh"
         streaming: true
-        timeout: 10800
+        timeout: 18000
 
     feedback_generator:
       type: "claude_code"
