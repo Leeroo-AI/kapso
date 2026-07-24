@@ -209,7 +209,7 @@ with `gcp/20_fetch_results.sh <run_id>`. Layout per run:
 | #22 | arenahard × gemma-3-4b 10h | ABORTED @t+25m | `arenahardwriting-gemma-3-4b-pt-07241440` | killed 15:0xZ (same); its first attempt 07241426 died on the transient host-python preflight, boot now hardened (2703dc24) |
 | #23 | arenahard × Qwen3-1.7B 10h | in flight | `arenahardwriting-qwen3-1-7b-base-0724154` | launched 2026-07-24 15:45Z on the negative-space build; watch: Not-measured lines present? locale finally measured? (R20-P1-1 counterfactual) |
 | #24 | arenahard × gemma-3-4b 10h | in flight | `arenahardwriting-gemma-3-4b-pt-07241547` | launched 2026-07-24 15:47Z (parallel), same build; best-known proven 47.4 (opus-4.8-max), human 94.8 |
-| #25 | aime2025 × Qwen3-1.7B 10h | flex-queued | `aime2025-qwen3-1-7b-base-07242018` | launched 2026-07-24 20:18Z (3rd parallel — flex-start PENDING, request valid 2h); FIRST AIME cell: base 0.0, best proven 6.7 (opus-4.7), human 26.7, heaviest weight .2265 |
+| #25 | aime2025 × Qwen3-1.7B 10h | in flight (us-east4-a) | `aime2025-qwen3-1-7b-base-07242238` | original us-central1-a request 07242018 never granted (2¼h PENDING past validity, deleted); region-probe per user directive found quota in us-east4-a, relaunched 22:38Z; FIRST AIME cell: base 0.0, best proven 6.7 (opus-4.7), human 26.7, heaviest weight .2265 |
 | #15 | bfcl × gemma-3-4b 10h | **93.0** | `bfcl-gemma-3-4b-pt-07171548` | `reviews/run15-review.md` |
 | #14 | bfcl × Qwen3-4B 10h | **95.0** | `bfcl-qwen3-4b-base-07171548` | `reviews/run14-review.md` |
 | #10 | bfcl × SmolLM3-3B 10h | **93.0** | `bfcl-smollm3-3b-base-07161232` | `reviews/run10-review.md` |
