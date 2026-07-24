@@ -51,6 +51,7 @@ _STAGING_NAME_PATTERN = re.compile(
 _MAXIMUM_EVENT_COUNT = 4
 _RUN_ACTION_STORE_AUTHORITY = object()
 _RUN_ACTION_MUTATION_AUTHORITY = object()
+_RUN_ACTION_RECOVERY_AUTHORITY = object()
 
 
 class RunActionStoreError(RunActionContractError):
@@ -1106,6 +1107,22 @@ class RunActionExecutionStore:
         ):
             raise RunActionStoreError(
                 "run action session requires sealed mutation authority"
+            )
+        return _RunActionSessionContext(self, reservation)
+
+    def _recovery_session(
+        self,
+        reservation: RunActionReservation,
+        *,
+        _authority: object,
+    ) -> _RunActionSessionContext:
+        self._require_owner_process()
+        if (
+            type(reservation) is not RunActionReservation
+            or _authority is not _RUN_ACTION_RECOVERY_AUTHORITY
+        ):
+            raise RunActionStoreError(
+                "run action recovery session requires sealed recovery authority"
             )
         return _RunActionSessionContext(self, reservation)
 

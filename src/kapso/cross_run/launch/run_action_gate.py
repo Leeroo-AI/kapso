@@ -27,6 +27,11 @@ from kapso.cross_run.launch.run_action_ledger import (
     RunActionExecutionEventKind,
     RunActionLedgerSnapshot,
 )
+from kapso.cross_run.launch.run_action_recovery import (
+    _RUN_ACTION_RECOVERY_COORDINATOR_AUTHORITY,
+    RunActionRecoveryAdapterRegistry,
+    RunActionRecoveryCoordinator,
+)
 from kapso.cross_run.launch.run_action_store import (
     _RUN_ACTION_MUTATION_AUTHORITY,
     RunActionAcceptance,
@@ -327,6 +332,24 @@ class RunFrontierActionGate:
         self._registry_lock = Lock()
         self._issued_permits: dict[int, RunFrontierUsePermit] = {}
         self._active_leases: dict[int, RunFrontierUseLease] = {}
+
+    def recovery_coordinator(
+        self,
+        adapter_registry: RunActionRecoveryAdapterRegistry,
+    ) -> RunActionRecoveryCoordinator:
+        """Issue the sole recovery authority sharing this gate's live runtime."""
+        self._require_owner_process()
+        if type(adapter_registry) is not RunActionRecoveryAdapterRegistry:
+            raise RunFrontierActionError(
+                "run action recovery requires an issued adapter registry"
+            )
+        return RunActionRecoveryCoordinator(
+            active_workspace=self._active_workspace,
+            publisher=self._publisher,
+            security_authority=self._security_authority,
+            adapter_registry=adapter_registry,
+            _authority=_RUN_ACTION_RECOVERY_COORDINATOR_AUTHORITY,
+        )
 
     def issue(
         self,

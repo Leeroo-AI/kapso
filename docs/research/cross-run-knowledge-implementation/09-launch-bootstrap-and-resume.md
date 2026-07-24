@@ -11,9 +11,10 @@ contract/layout, and the dependency-pure reconciled archive/history/journal
 projection and retained bundle layer, single-lock checkpoint/generation
 publisher, mutable-view promotion, current-frontier action lease, receipt-pinned
 create-only action store, mandatory action-ledger projection, and durable
-gate/publication composition are implemented. Boundary-specific adapters, OS
-executor isolation, explicit E0/S-EMPTY provisioning orchestration, resume, and
-API/runner activation remain.
+gate/publication composition, descriptor-safe runtime reopen, and deterministic
+nonterminal action recovery are implemented. Boundary-specific production
+adapters, OS executor isolation, explicit E0/S-EMPTY provisioning orchestration,
+full policy refresh on resume, and API/runner activation remain.
 
 ## Objective
 
@@ -289,6 +290,10 @@ expert workspace before the new runtime becomes reachable.
       reservation against the exact predecessor ledger, persist spawn/result/
       acceptance events, hold the receipt-pinned workspace lock, require terminal
       live state for publication, and derive branch accounting from durable events.
+- [x] Recover one exact final nonterminal prefix without replaying a committed
+      spawn; bind recovery to the complete frontier and an issued exact-adapter
+      catalog, burn fresh-spawn authority once, and replay terminal accepted bytes
+      without provider access.
 - [ ] On resume, require the original `BootstrapPin`, workspace tree, read-only
       snapshot package, adapter, checkpoint, IdeaArchive, experiment store, journal,
       and branches to reconcile.
@@ -395,6 +400,33 @@ boundary identity: action kind, adapter ID and version, recovery protocol
 version, and sandbox-policy ID. A substituted adapter is rejected before the
 fresh security observation or provider spawn.
 
+`RunActionRecoveryCoordinator` classifies the exact action-ledger suffix under
+the current checkpoint and workspace locks. The suffix must be one predecessor
+chain with at most one final nonterminal operation, and every reservation must
+match the complete current frontier, including all mutable-view digests.
+Terminal operations replay their complete accepted bytes without contacting an
+adapter.
+
+Recovery is an explicit state machine. An unspawned reservation may allocate
+locally, but it receives neither request bytes nor workspace authority; security
+and workspace are checked again immediately before the durable spawn commit.
+Only then does a one-shot, same-process/same-thread capability expose the complete
+request and a capability-owned duplicate workspace descriptor for exactly one
+adapter invocation. The capability burns on success or exception and closes that
+descriptor. A committed spawn receives only its durable execution identity:
+`RESULT_AVAILABLE` records the exact bytes, `RUNNING_REATTACHABLE` may reattach
+only under the unchanged security observation, proven quiescence interrupts, and
+`UNKNOWN` remains unresolved. Recovery never routes a committed spawn through
+fresh preparation or start.
+
+The coordinator owns one process-bound, non-clonable adapter catalog fixed at
+composition; `recover()` accepts no caller-selected implementation. Catalog
+resolution rechecks exact adapter object, class methods, and content-addressed
+boundary identity. Result acceptance is local and deterministic, and the
+workspace is reconciled both after repeated interpretation and after the durable
+terminal append. A crash after spawn commit therefore reopens only as committed
+work; a crash after raw-result persistence re-runs only local interpretation.
+
 Publication takes the locks in checkpoint → workspace → registry order and
 retains them through bundle/checkpoint/view commit. The candidate `ACTION_LEDGER`
 must equal the live store exactly, every new prefix must be terminal and bind the
@@ -405,8 +437,9 @@ its durable before/after identities. Missing post-crash workspace identity stays
 blocked rather than being guessed. Read-only and otherwise unchanged terminals
 still form one exact full workspace-identity chain, including source and admitted
 Git closure digests, whose final identity must equal the live workspace. Resume
-still must classify and reconcile each nonterminal prefix without blindly
-reinvoking a committed provider.
+can now classify and reconcile each nonterminal prefix without blindly
+reinvoking a committed provider. Production adapter/supervisor implementations
+and their OS isolation remain required before this path is activated.
 
 ## Failure and trust behavior
 
@@ -438,6 +471,11 @@ reinvoking a committed provider.
 - Reject stopped/completed action frontiers, duplicate operations, cloned permits,
   request changes, invalid boundary/capability combinations, and workspace
   mutation between issuance and consumption.
+- Inject death at reserved, spawn-committed, and raw-result prefixes; prove
+  committed work is never freshly replayed, ambiguous provider state remains
+  unresolved, adapter catalogs and fresh capabilities reject clone/fork/reuse,
+  security movement before commit cancels, and workspace mutation during local
+  acceptance never becomes a terminal event.
 - Prove embeddings receive no workspace capability; prove edits exclude parallel
   edits/readers across processes, poison old permits/publication candidates, and
   become usable only after an exact branch-advance checkpoint successor.
