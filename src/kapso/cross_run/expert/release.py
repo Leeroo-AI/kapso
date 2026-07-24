@@ -36,6 +36,9 @@ from kapso.cross_run.expert.promotion_decision_contracts import (
 from kapso.cross_run.expert.promotion_stage_contracts import (
     ExpertReleaseMatrixStageResultRecord,
 )
+from kapso.cross_run.expert.recovery_candidate_contracts import (
+    ExpertRecoveryCandidateAdmission,
+)
 from kapso.cross_run.expert.release_contracts import (
     ExpertReleaseAssetDescriptor,
     ExpertReleaseEvidenceManifest,
@@ -221,10 +224,17 @@ class ExpertReleaseAssembler:
         else:
             predecessor_tag = activation_predecessor_pointer.publication_record.tag
             match = re.fullmatch(
-                rf"{re.escape(self.github_settings.expert_tag_prefix)}E([0-9]+)",
+                rf"{re.escape(self.github_settings.expert_tag_prefix)}"
+                r"E([0-9]+)-([0-9a-f]{64})",
                 predecessor_tag,
             )
-            if match is None:
+            predecessor_release_id = (
+                activation_predecessor_pointer.publication_record.artifact_id
+            )
+            if (
+                match is None
+                or match.group(2) != predecessor_release_id.rsplit(":sha256:", 1)[1]
+            ):
                 raise ExpertReleaseAssemblyError(
                     "activation predecessor tag differs from expert release order"
                 )
@@ -245,7 +255,10 @@ class ExpertReleaseAssembler:
             current_release_observation=current_release_observation,
             activation_predecessor_pointer=activation_predecessor_pointer,
             generation=generation,
-            tag=f"{self.github_settings.expert_tag_prefix}E{generation:06d}",
+            tag=(
+                f"{self.github_settings.expert_tag_prefix}E{generation:06d}-"
+                f"{manifest.release_id.rsplit(':sha256:', 1)[1]}"
+            ),
             manifest_digest=tree_or_blob_digest(manifest.to_json_bytes()),
             publication_source_tree_digest=source_tree_digest(
                 {
@@ -385,6 +398,17 @@ class ExpertReleaseAssembler:
         }
         if candidate.source_base_release_id is not None:
             direct_dependencies.add(candidate.source_base_release_id)
+        dependency_universe = {*direct_dependencies, *evidence_dependency_ids}
+        recovery_admission = stored_candidate.recovery_admission
+        control_dependency_ids = (
+            ()
+            if recovery_admission is None
+            else recovery_admission.control_dependency_ids
+        )
+        if not set(control_dependency_ids).issubset(dependency_universe):
+            raise ExpertReleaseAssemblyError(
+                "recovery control authority is absent from release evidence"
+            )
         manifest = ExpertBaseReleaseManifest.mint(
             scope_contract_id=candidate.scope_contract_id,
             scope_id=closure.validation_context.scope_id,
@@ -435,9 +459,9 @@ class ExpertReleaseAssembler:
             test_matrix_summary_ref=matrix_summary.summary_id,
             evidence_dependency_ids=evidence_dependency_ids,
             consumed_dependency_ids=tuple(
-                sorted({*direct_dependencies, *evidence_dependency_ids})
+                sorted(dependency_universe - set(control_dependency_ids))
             ),
-            control_dependency_ids=(),
+            control_dependency_ids=control_dependency_ids,
             checksums={
                 **{
                     path: tree_or_blob_digest(payload)
@@ -531,6 +555,7 @@ class ExpertReleaseAssembler:
             or not self._evidence_records_join_manifest(manifest, evidence_records)
             or manifest.evidence_dependency_ids != evidence_dependency_ids
             or set(manifest.consumed_dependency_ids)
+            | set(manifest.control_dependency_ids)
             != {
                 manifest.scope_contract_id,
                 manifest.candidate_id,
@@ -562,8 +587,12 @@ class ExpertReleaseAssembler:
                     if manifest.lineage.source_base_release_id
                     else ()
                 ),
+                *(
+                    (manifest.lineage.activation_predecessor_release_id,)
+                    if manifest.lineage.activation_predecessor_release_id
+                    else ()
+                ),
             }
-            or manifest.control_dependency_ids
             or (
                 manifest.candidate_id,
                 manifest.candidate_commit_record_id,
@@ -677,6 +706,15 @@ class ExpertReleaseAssembler:
             )
         ):
             return False
+        typed_attempt = ExpertValidationAttempt.from_json_bytes(
+            canonical_json_bytes(attempt)
+        )
+        typed_publication = (
+            ExpertPublicationEligibilityStageResultRecord.from_json_bytes(
+                canonical_json_bytes(publication)
+            )
+        )
+        publication_fence = typed_publication.publication_authority_fence
         accepted = state.get("accepted_stage_results")
         if not isinstance(accepted, list):
             return False
@@ -706,8 +744,27 @@ class ExpertReleaseAssembler:
             manifest.release_matrix_stage_result_id,
             *safe_accepted_ids,
         }
+        recovery_admission_ids = {
+            record_id
+            for record_id in records
+            if record_id.startswith("expert-recovery-candidate-admission:sha256:")
+        }
+        if recovery_admission_ids:
+            required_record_ids.update(recovery_admission_ids)
+        recovery_admission = (
+            None
+            if len(recovery_admission_ids) != 1
+            else ExpertRecoveryCandidateAdmission.from_json_bytes(
+                canonical_json_bytes(records[sorted(recovery_admission_ids)[0]])
+            )
+        )
         promotion = publication.get("promotion_decision")
         report = matrix.get("release_matrix_report")
+        attempt_control_dependency_ids = typed_attempt.control_dependency_ids
+        publication_control_dependency_ids = typed_publication.control_dependency_ids
+        source_base_release_id = typed_attempt.source_base_release_id
+        expected_current_release_id = typed_attempt.expected_current_release_id
+        recovery_plan_id = typed_attempt.recovery_plan_id
         return (
             set(records) == required_record_ids
             and candidate.get("candidate_tree_ref") == manifest.candidate_tree_ref
@@ -729,17 +786,70 @@ class ExpertReleaseAssembler:
             and tuple(candidate.get("consumed_expert_release_ids", ()))
             == manifest.candidate_consumed_expert_release_ids
             and commit.get("candidate_id") == manifest.candidate_id
-            and attempt.get("candidate_id") == manifest.candidate_id
-            and attempt.get("candidate_tree_hash") == manifest.candidate_tree_hash
-            and attempt.get("candidate_commit_record_id")
+            and typed_attempt.candidate_id == manifest.candidate_id
+            and typed_attempt.candidate_tree_hash == manifest.candidate_tree_hash
+            and typed_attempt.candidate_commit_record_id
             == manifest.candidate_commit_record_id
-            and attempt.get("validation_policy_id") == manifest.validation_policy_id
-            and attempt.get("configuration_fingerprint")
+            and typed_attempt.validation_policy_id == manifest.validation_policy_id
+            and typed_attempt.configuration_fingerprint
             == manifest.configuration_fingerprint
+            and typed_publication.validation_attempt_id
+            == manifest.validation_attempt_id
+            and source_base_release_id == manifest.lineage.source_base_release_id
+            and expected_current_release_id
+            == manifest.lineage.activation_predecessor_release_id
+            and typed_publication.source_base_release_id == source_base_release_id
+            and typed_publication.expected_current_release_id
+            == expected_current_release_id
+            and typed_publication.recovery_plan_id == recovery_plan_id
+            and attempt_control_dependency_ids == manifest.control_dependency_ids
+            and publication_control_dependency_ids == manifest.control_dependency_ids
+            and publication_fence is not None
+            and publication_fence.source_base_release_id == source_base_release_id
+            and publication_fence.expected_current_release_id
+            == expected_current_release_id
+            and publication_fence.recovery_plan_id == recovery_plan_id
+            and publication_fence.control_dependency_ids
+            == manifest.control_dependency_ids
+            and publication_fence.allowed_control_security_subject_ids
+            == typed_publication.allowed_control_security_subject_ids
+            and (
+                (
+                    recovery_plan_id is None
+                    and not recovery_admission_ids
+                    and not manifest.control_dependency_ids
+                    and not typed_publication.allowed_control_security_subject_ids
+                )
+                or (
+                    recovery_plan_id is not None
+                    and len(recovery_admission_ids) == 1
+                    and recovery_plan_id in manifest.control_dependency_ids
+                    and recovery_admission is not None
+                    and recovery_admission.candidate_id == manifest.candidate_id
+                    and recovery_admission.candidate_commit_record_id
+                    == manifest.candidate_commit_record_id
+                    and recovery_admission.recovery_plan.recovery_plan_id
+                    == recovery_plan_id
+                    and recovery_admission.recovery_plan.source_base_release_id
+                    == source_base_release_id
+                    and recovery_admission.recovery_plan.activation_predecessor_release_id
+                    == expected_current_release_id
+                    and recovery_admission.control_dependency_ids
+                    == manifest.control_dependency_ids
+                    and typed_publication.allowed_control_security_subject_ids
+                    == recovery_admission.allowed_control_security_subject_ids
+                )
+            )
             and transition.get("candidate_id") == manifest.candidate_id
             and transition.get("target_state_id") == manifest.approval_state_id
+            and transition.get("latest_attempt_id") == manifest.validation_attempt_id
+            and transition.get("transition_stage_result_record_id")
+            == manifest.publication_eligibility_result_id
             and state.get("candidate_id") == manifest.candidate_id
             and state.get("candidate_tree_hash") == manifest.candidate_tree_hash
+            and state.get("validation_attempt_id") == manifest.validation_attempt_id
+            and state.get("transition_evidence_id")
+            == manifest.publication_eligibility_result_id
             and state.get("promotion_state") == "approved"
             and tuple(state.get("review_assertion_ids", ()))
             == manifest.approval_assertion_ids
@@ -863,6 +973,22 @@ class ExpertReleaseAssembler:
         matrix_result = matrix_results[0]
         review_result = review_results[0]
         decision = publication_result.promotion_decision
+        recovery_admission = stored_candidate.recovery_admission
+        recovery_plan_id = (
+            None
+            if recovery_admission is None
+            else recovery_admission.recovery_plan.recovery_plan_id
+        )
+        control_dependency_ids = (
+            ()
+            if recovery_admission is None
+            else recovery_admission.control_dependency_ids
+        )
+        allowed_control_security_subject_ids = (
+            ()
+            if recovery_admission is None
+            else recovery_admission.allowed_control_security_subject_ids
+        )
         if (
             decision.outcome is not ExpertReleaseMatrixDecisionOutcome.APPROVED
             or publication_result.release_use_decision is None
@@ -885,6 +1011,16 @@ class ExpertReleaseAssembler:
             != stored_candidate.commit_record.commit_record_id
             or attempt.scope_contract_id != candidate.scope_contract_id
             or attempt.source_base_release_id != candidate.source_base_release_id
+            or attempt.recovery_plan_id != recovery_plan_id
+            or attempt.control_dependency_ids != control_dependency_ids
+            or publication_result.source_base_release_id
+            != attempt.source_base_release_id
+            or publication_result.expected_current_release_id
+            != attempt.expected_current_release_id
+            or publication_result.recovery_plan_id != recovery_plan_id
+            or publication_result.control_dependency_ids != control_dependency_ids
+            or publication_result.allowed_control_security_subject_ids
+            != allowed_control_security_subject_ids
             or publication_result.candidate_commit_record_id
             != stored_candidate.commit_record.commit_record_id
         ):
@@ -949,6 +1085,11 @@ class ExpertReleaseAssembler:
             *closure.module_contracts,
             closure.sanitation_report,
             closure.derivation.record,
+            *(
+                (stored_candidate.recovery_admission,)
+                if stored_candidate.recovery_admission is not None
+                else ()
+            ),
             attempt,
             snapshot.transition,
             snapshot.state,

@@ -1705,7 +1705,10 @@ def test_ordinary_expert_release_requires_one_consumed_lineage_release():
     omitted["consumed_dependency_ids"] = bootstrap.consumed_dependency_ids
     with pytest.raises(MissingReferenceError, match="candidate release inputs"):
         ExpertBaseReleaseManifest.mint(**omitted)
-    with pytest.raises(ContractValidationError, match="identical source base"):
+    with pytest.raises(
+        MissingReferenceError,
+        match="categorized dependency closure",
+    ):
         replace(
             normal,
             lineage=ExpertReleaseLineage(

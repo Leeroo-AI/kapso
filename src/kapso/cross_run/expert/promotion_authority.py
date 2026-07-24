@@ -18,6 +18,7 @@ from kapso.cross_run.expert.candidate_derivations import (
     ExpertAgentProposalDerivation,
     ExpertCompositionSourceProvenance,
     ExpertDeterministicCompositionDerivation,
+    ExpertDeterministicRecoveryRestoreDerivation,
 )
 from kapso.cross_run.expert.composition_admission_contracts import (
     ExpertCompositionAdmissionFence,
@@ -39,6 +40,9 @@ from kapso.cross_run.expert.promotion_stage_contracts import (
     ExpertReleaseMatrixStageResultRecord,
 )
 from kapso.cross_run.expert.proposal_contract import ExpertCandidateAncestorInput
+from kapso.cross_run.expert.recovery_candidate_contracts import (
+    ExpertRecoveryCandidateAdmission,
+)
 from kapso.cross_run.expert.replay_publication_contracts import (
     ExpertSourceReplayStageResultRecord,
 )
@@ -240,9 +244,18 @@ class ExpertPublicationEligibilityCoordinator:
         stored_candidate = self._reopen_candidate(input_snapshot)
         fence = None
         release_use_decision = None
+        recovery_admission = publication_eligibility_recovery_admission(
+            attempt=attempt,
+            stored_candidate=stored_candidate,
+        )
+        allowed_control_security_subject_ids = (
+            ()
+            if recovery_admission is None
+            else recovery_admission.allowed_control_security_subject_ids
+        )
         if decision.outcome is ExpertReleaseMatrixDecisionOutcome.APPROVED:
             current_before = self._observe_current(stored_candidate)
-            if current_before.release_id != attempt.source_base_release_id:
+            if current_before.release_id != attempt.expected_current_release_id:
                 return self._invalidate_current_authority(input_snapshot)
             adapter_observations = self._reverify_adapters(input_snapshot)
             security_subject_ids = publication_eligibility_security_subject_ids(
@@ -263,7 +276,9 @@ class ExpertPublicationEligibilityCoordinator:
                 != stored_candidate.closure.validation_context.scope_id
                 or denylist.scope_contract_id != attempt.scope_contract_id
                 or denylist.checked_subject_ids != security_subject_ids
-                or denylist.matched_revocations
+                or not set(denylist.matched_subject_ids).issubset(
+                    allowed_control_security_subject_ids
+                )
             ):
                 raise ExpertPublicationEligibilityError(
                     "publication eligibility denylist differs from exact authority"
@@ -288,7 +303,7 @@ class ExpertPublicationEligibilityCoordinator:
                     "publication eligibility release-use policy differs from candidate inputs"
                 )
             current_after = self._observe_current(stored_candidate)
-            if current_after.release_id != attempt.source_base_release_id:
+            if current_after.release_id != attempt.expected_current_release_id:
                 return self._invalidate_current_authority(input_snapshot)
             if current_after != current_before:
                 raise ExpertPublicationEligibilityError(
@@ -334,7 +349,13 @@ class ExpertPublicationEligibilityCoordinator:
                     candidate_commit_record_id=attempt.candidate_commit_record_id,
                     scope_contract_id=attempt.scope_contract_id,
                     scope_id=(stored_candidate.closure.validation_context.scope_id),
-                    expected_current_release_id=attempt.source_base_release_id,
+                    source_base_release_id=attempt.source_base_release_id,
+                    expected_current_release_id=attempt.expected_current_release_id,
+                    recovery_plan_id=attempt.recovery_plan_id,
+                    control_dependency_ids=attempt.control_dependency_ids,
+                    allowed_control_security_subject_ids=(
+                        allowed_control_security_subject_ids
+                    ),
                     validation_policy_id=attempt.validation_policy_id,
                     configuration_fingerprint=attempt.configuration_fingerprint,
                     release_matrix_stage_result_id=(
@@ -510,6 +531,53 @@ def publication_eligibility_task_adapter_trust_observations(
     )
 
 
+def publication_eligibility_recovery_admission(
+    *,
+    attempt: ExpertValidationAttempt,
+    stored_candidate: StoredExpertCandidate,
+) -> ExpertRecoveryCandidateAdmission | None:
+    """Reopen the exact durable recovery authority carried by an attempt."""
+
+    if (
+        type(attempt) is not ExpertValidationAttempt
+        or type(stored_candidate) is not StoredExpertCandidate
+    ):
+        raise ExpertPublicationEligibilityError(
+            "publication recovery authority requires exact durable inputs"
+        )
+    admission = stored_candidate.recovery_admission
+    if admission is None:
+        if (
+            attempt.recovery_plan_id is not None
+            or attempt.control_dependency_ids
+            or attempt.expected_current_release_id != attempt.source_base_release_id
+        ):
+            raise ExpertPublicationEligibilityError(
+                "publication attempt claims recovery without durable admission"
+            )
+        return None
+    if type(admission) is not ExpertRecoveryCandidateAdmission:
+        raise ExpertPublicationEligibilityError(
+            "publication recovery admission uses another contract"
+        )
+    plan = admission.recovery_plan
+    if (
+        plan.recovery_plan_id != attempt.recovery_plan_id
+        or plan.source_base_release_id != attempt.source_base_release_id
+        or plan.activation_predecessor_release_id != attempt.expected_current_release_id
+        or admission.candidate_id != attempt.candidate_id
+        or admission.candidate_commit_record_id != attempt.candidate_commit_record_id
+        or admission.control_dependency_ids != attempt.control_dependency_ids
+        or not set(admission.dependency_ids).issubset(
+            attempt.eligibility_dependency_ids
+        )
+    ):
+        raise ExpertPublicationEligibilityError(
+            "publication recovery admission differs from validation authority"
+        )
+    return admission
+
+
 def publication_eligibility_security_subject_ids(
     *,
     input_snapshot: ExpertPublicationEligibilitySnapshot,
@@ -544,27 +612,45 @@ def publication_eligibility_security_subject_ids(
         or stored_candidate.closure.manifest.candidate_id != attempt.candidate_id
         or current_release_observation.scope_id
         != stored_candidate.closure.validation_context.scope_id
-        or current_release_observation.release_id != attempt.source_base_release_id
+        or current_release_observation.release_id != attempt.expected_current_release_id
         or task_adapter_trust_observations
         != publication_eligibility_task_adapter_trust_observations(input_snapshot)
     ):
         raise ExpertPublicationEligibilityError(
             "publication eligibility security inputs do not share one authority"
         )
+    recovery_admission = publication_eligibility_recovery_admission(
+        attempt=attempt,
+        stored_candidate=stored_candidate,
+    )
     validation_context = stored_candidate.closure.validation_context
+    candidate_security_subject_ids = (
+        publication_eligibility_candidate_security_subject_ids(stored_candidate)
+    )
+    if recovery_admission is not None and set(
+        recovery_admission.allowed_control_security_subject_ids
+    ) & set(candidate_security_subject_ids):
+        raise ExpertPublicationEligibilityError(
+            "publication recovery waiver overlaps candidate scientific authority"
+        )
     subjects = {
         snapshot.transition.transition_id,
         snapshot.state.validation_state_id,
         attempt.validation_attempt_id,
         *attempt.eligibility_dependency_ids,
+        *attempt.control_dependency_ids,
         decision.promotion_decision_id,
         *decision.exact_dependency_ids,
-        *publication_eligibility_candidate_security_subject_ids(stored_candidate),
+        *candidate_security_subject_ids,
         current_release_observation.observation_id,
         *current_release_observation.validation_closure_ids,
     }
     if attempt.source_base_release_id is not None:
         subjects.add(attempt.source_base_release_id)
+    if attempt.expected_current_release_id is not None:
+        subjects.add(attempt.expected_current_release_id)
+    if attempt.recovery_plan_id is not None:
+        subjects.add(attempt.recovery_plan_id)
     source_base_release = validation_context.source_base_release
     if source_base_release is not None:
         subjects.update(source_base_release.consumed_dependency_ids)
@@ -605,6 +691,8 @@ def publication_eligibility_security_subject_ids(
                 *observation.dependency_ids,
             }
         )
+    if recovery_admission is not None:
+        subjects.update(recovery_admission.allowed_control_security_subject_ids)
     ordered = tuple(sorted(subjects))
     for subject_id in ordered:
         require_content_id(subject_id, "publication eligibility security subject")
@@ -638,12 +726,28 @@ def publication_eligibility_candidate_security_subject_ids(
         subjects.update(source_base_release.consumed_dependency_ids)
     derivation = closure.derivation
     if (
-        manifest.derivation_kind is ExpertCandidateDerivationKind.AGENT_PROPOSAL
+        manifest.derivation_kind
+        in {
+            ExpertCandidateDerivationKind.AGENT_PROPOSAL,
+            ExpertCandidateDerivationKind.AGENT_RECOVERY_BOOTSTRAP,
+        }
         and type(derivation) is ExpertAgentProposalDerivation
     ):
-        if stored_candidate.composition_admission_fence is not None:
+        if (
+            stored_candidate.composition_admission_fence is not None
+            or (
+                manifest.derivation_kind is ExpertCandidateDerivationKind.AGENT_PROPOSAL
+                and stored_candidate.recovery_admission is not None
+            )
+            or (
+                manifest.derivation_kind
+                is ExpertCandidateDerivationKind.AGENT_RECOVERY_BOOTSTRAP
+                and type(stored_candidate.recovery_admission)
+                is not ExpertRecoveryCandidateAdmission
+            )
+        ):
             raise ExpertPublicationEligibilityError(
-                "direct candidate cannot carry composition admission authority"
+                "agent candidate admission authority differs from its derivation"
             )
         subjects.update(_agent_derivation_security_subject_ids(derivation))
     elif (
@@ -667,6 +771,20 @@ def publication_eligibility_candidate_security_subject_ids(
                 *admission_fence.security_subject_ids,
             }
         )
+    elif (
+        manifest.derivation_kind
+        is ExpertCandidateDerivationKind.DETERMINISTIC_RECOVERY_RESTORE
+        and type(derivation) is ExpertDeterministicRecoveryRestoreDerivation
+    ):
+        if (
+            stored_candidate.composition_admission_fence is not None
+            or type(stored_candidate.recovery_admission)
+            is not ExpertRecoveryCandidateAdmission
+        ):
+            raise ExpertPublicationEligibilityError(
+                "recovery restore lacks its exact admission authority"
+            )
+        subjects.update(_recovery_restore_security_subject_ids(derivation))
     else:
         raise ExpertPublicationEligibilityError(
             "candidate security projection does not recognize its derivation"
@@ -720,6 +838,23 @@ def _agent_derivation_security_subject_ids(
         operation.workspace_receipt.workspace_receipt_id,
         operation.workspace_delta_ref,
         derivation.workspace_delta.workspace_delta_id,
+    }
+
+
+def _recovery_restore_security_subject_ids(
+    derivation: ExpertDeterministicRecoveryRestoreDerivation,
+) -> set[str]:
+    if type(derivation) is not ExpertDeterministicRecoveryRestoreDerivation:
+        raise ExpertPublicationEligibilityError(
+            "recovery security projection requires its exact derivation"
+        )
+    record = derivation.record
+    return {
+        record.derivation_id,
+        record.replay_basis_packet_id,
+        record.source_base_release_id,
+        record.source_base_tree_receipt_id,
+        *record.source_dependency_ids,
     }
 
 
@@ -967,6 +1102,15 @@ def build_publication_eligibility_stage_result(
         raise ExpertPublicationEligibilityError(
             "publication eligibility result has no validation attempt"
         )
+    recovery_admission = publication_eligibility_recovery_admission(
+        attempt=attempt,
+        stored_candidate=stored_candidate,
+    )
+    allowed_control_security_subject_ids = (
+        ()
+        if recovery_admission is None
+        else recovery_admission.allowed_control_security_subject_ids
+    )
     scope_id = stored_candidate.closure.validation_context.scope_id
     dependencies = {
         snapshot.transition.transition_id,
@@ -982,9 +1126,15 @@ def build_publication_eligibility_stage_result(
         ),
         decision.promotion_decision_id,
         *decision.exact_dependency_ids,
+        *attempt.control_dependency_ids,
+        *allowed_control_security_subject_ids,
     }
     if attempt.source_base_release_id is not None:
         dependencies.add(attempt.source_base_release_id)
+    if attempt.expected_current_release_id is not None:
+        dependencies.add(attempt.expected_current_release_id)
+    if attempt.recovery_plan_id is not None:
+        dependencies.add(attempt.recovery_plan_id)
     if release_use_decision is not None:
         dependencies.update(
             {
@@ -1008,7 +1158,11 @@ def build_publication_eligibility_stage_result(
         candidate_commit_record_id=attempt.candidate_commit_record_id,
         scope_contract_id=attempt.scope_contract_id,
         scope_id=scope_id,
-        expected_current_release_id=attempt.source_base_release_id,
+        source_base_release_id=attempt.source_base_release_id,
+        expected_current_release_id=attempt.expected_current_release_id,
+        recovery_plan_id=attempt.recovery_plan_id,
+        control_dependency_ids=attempt.control_dependency_ids,
+        allowed_control_security_subject_ids=(allowed_control_security_subject_ids),
         validation_policy_id=attempt.validation_policy_id,
         configuration_fingerprint=attempt.configuration_fingerprint,
         accepted_stage_results=snapshot.state.accepted_stage_results,

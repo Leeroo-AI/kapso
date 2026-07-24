@@ -302,11 +302,6 @@ class ExpertReleasePublicationPlan(StrictContract):
         activation_predecessor_release_id = (
             self.lineage.activation_predecessor_release_id
         )
-        if source_base_release_id != activation_predecessor_release_id:
-            raise ExpertReleaseContractError(
-                "ordinary release plan requires identical source base and "
-                "activation predecessor"
-            )
         current = self.current_release_observation
         if (
             type(current) is not TaskEvaluationCurrentReleaseObservation
@@ -325,20 +320,16 @@ class ExpertReleasePublicationPlan(StrictContract):
                 "inconsistent"
             )
         if self.activation_predecessor_pointer is not None:
-            predecessor_record = (
-                self.activation_predecessor_pointer.publication_record
-            )
+            predecessor_record = self.activation_predecessor_pointer.publication_record
             if (
                 self.activation_predecessor_pointer.scope_id != self.scope_id
                 or predecessor_record.artifact_kind
                 is not PublicationArtifactKind.EXPERT_BASE_RELEASE
-                or predecessor_record.artifact_id
-                != activation_predecessor_release_id
+                or predecessor_record.artifact_id != activation_predecessor_release_id
                 or predecessor_record.publication_id != current.publication_id
                 or predecessor_record.repository_full_name
                 != current.repository_full_name
-                or predecessor_record.repository_node_id
-                != current.repository_node_id
+                or predecessor_record.repository_node_id != current.repository_node_id
                 or tree_or_blob_digest(
                     self.activation_predecessor_pointer.to_json_bytes()
                 )
@@ -358,22 +349,30 @@ class ExpertReleasePublicationPlan(StrictContract):
             raise ExpertReleaseContractError(
                 "release plan bootstrap and generation disagree"
             )
+        release_digest = self.release_id.rsplit(":sha256:", 1)[1]
         if not isinstance(self.tag, str) or not self.tag.endswith(
-            f"/E{self.generation:06d}"
+            f"/E{self.generation:06d}-{release_digest}"
         ):
             raise ExpertReleaseContractError(
-                "release plan tag differs from its generation"
+                "release plan tag differs from its generation or release identity"
             )
         if self.activation_predecessor_pointer is not None:
             predecessor_tag_match = re.fullmatch(
-                r"(.*/E)([0-9]+)", predecessor_record.tag
+                r"(.*/E)([0-9]+)-([0-9a-f]{64})",
+                predecessor_record.tag,
             )
-            new_tag_match = re.fullmatch(r"(.*/E)([0-9]+)", self.tag)
+            new_tag_match = re.fullmatch(
+                r"(.*/E)([0-9]+)-([0-9a-f]{64})",
+                self.tag,
+            )
             if (
                 predecessor_tag_match is None
                 or new_tag_match is None
                 or predecessor_tag_match.group(1) != new_tag_match.group(1)
                 or int(predecessor_tag_match.group(2)) + 1 != self.generation
+                or predecessor_tag_match.group(3)
+                != predecessor_record.artifact_id.rsplit(":sha256:", 1)[1]
+                or new_tag_match.group(3) != release_digest
             ):
                 raise ExpertReleaseContractError(
                     "release plan generation is not the CURRENT successor"
@@ -410,6 +409,35 @@ class ExpertReleasePublicationPlan(StrictContract):
             raise ExpertReleaseContractError(
                 "release plan manifest dependency classes overlap"
             )
+        if source_base_release_id == activation_predecessor_release_id:
+            if self.manifest_control_dependency_ids:
+                raise ExpertReleaseContractError(
+                    "ordinary release plan cannot carry control dependencies"
+                )
+        else:
+            recovery_plan_ids = {
+                dependency_id
+                for dependency_id in self.manifest_control_dependency_ids
+                if dependency_id.split(":sha256:", 1)[0]
+                == "expert-clean-forward-recovery-plan"
+            }
+            recovery_admission_ids = {
+                dependency_id
+                for dependency_id in self.manifest_control_dependency_ids
+                if dependency_id.split(":sha256:", 1)[0]
+                == "expert-recovery-candidate-admission"
+            }
+            if (
+                activation_predecessor_release_id is None
+                or activation_predecessor_release_id
+                not in self.manifest_control_dependency_ids
+                or source_base_release_id in self.manifest_control_dependency_ids
+                or len(recovery_plan_ids) != 1
+                or len(recovery_admission_ids) != 1
+            ):
+                raise ExpertReleaseContractError(
+                    "recovery release plan dependency partition is invalid"
+                )
         _require_sorted_content_ids(
             self.validation_closure_ids,
             "release plan validation closure",

@@ -1230,9 +1230,14 @@ Before release:
 
 - [x] A release ID is the source tree plus exact manifest/contract closure, not a
       sequential display label.
-- [x] `E000007` is display/version order; launch pins content ID, commit, tag, asset
-      IDs/digests, and publication record.
+- [x] `E000007` is display/version order, while the immutable tag
+      `expert/E000007-<release-sha256>` is release-specific; launch pins the full
+      content ID, commit, tag, asset IDs/digests, and publication record.
 - [x] Publication retry with identical content is idempotent.
+- [x] A final policy/security rejection may leave immutable, non-current release
+      evidence. It cannot consume the generation for another candidate because
+      equal-generation attempts have distinct release-specific tags; `CURRENT.json`
+      remains the sole active-order authority.
 - [x] CAS conflict requires re-resolution/revalidation, not force push. A durable
       stale outcome retains an authenticated losing intent/identity and exact
       prepared commit, while the post-CAS success witness prevents historically
@@ -1363,13 +1368,16 @@ candidate closure, and replay evidence are scientific; only recovery ordering an
 blocked-history authority remain control. Journal replay checks the split fields,
 and CURRENT invalidation is evaluated and reopened against the temporal barrier.
 
-The remaining recovery path must rerun the full applicable matrix, publish a new
-immutable release, and CAS-advance from the blocked CURRENT release. Normal
-evolution continues to require scientific source and activation predecessor to be
-equal. A fresh publication fence must prove that every consumed subject remains
-clear and that every allowed match is an exact control-only revocation of the
-publication barrier. Partial repair from revoked source bytes remains unsupported
-until content-level consuming-edge provenance can prove exclusion.
+The recovery publication path reruns the full applicable matrix, publishes a new
+immutable release, and CAS-advances from the blocked CURRENT release. Normal
+evolution still requires scientific source and activation predecessor to be equal.
+The fresh publication fence proves that every consumed subject remains clear and
+that every allowed match is an exact control-only revocation of the publication
+barrier. Every control subject is still checked; a match on an intermediate blocked
+ancestor, recovery plan/admission, candidate input, or selected scientific source
+fails closed rather than inheriting the barrier waiver. Partial repair from revoked
+source bytes remains unsupported until content-level consuming-edge provenance can
+prove exclusion.
 
 ## Revocation
 
@@ -1522,7 +1530,7 @@ contract; it can never reinstate a release or create an M8 publication fence.
       operation with offline durable replay.
 - [x] Name immutable scientific inputs, temporal CURRENT authority, and experimental
       controls distinctly across all expert contracts and persisted artifacts.
-- [ ] Publish a clean successor/rollback pointer; never move or delete the old
+- [x] Publish a clean successor/rollback pointer; never move or delete the old
       immutable release as the history mechanism.
 
 ## Tests

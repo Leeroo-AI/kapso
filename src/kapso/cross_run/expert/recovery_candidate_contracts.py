@@ -112,6 +112,7 @@ class ExpertRecoveryCandidateAdmission(StrictContract):
         required_scientific_dependencies = {
             self.candidate_id,
             self.candidate_commit_record_id,
+            self.recovery_plan.scope_contract.scope_contract_id,
         }
         if self.recovery_plan.source_base_release_id is None:
             if (
@@ -155,6 +156,7 @@ class ExpertRecoveryCandidateAdmission(StrictContract):
             self.recovery_plan.recovery_plan_id,
             *self.recovery_plan.control_dependency_ids,
         }
+        dependencies.discard(self.recovery_plan.scope_contract.scope_contract_id)
         if self.recovery_plan.source_base_release_id is not None:
             selected_assessment = self.recovery_plan.assessments[-1]
             selected_source = selected_assessment.manifest
@@ -189,11 +191,12 @@ class ExpertRecoveryCandidateAdmission(StrictContract):
     def allowed_control_security_subject_ids(self) -> tuple[str, ...]:
         """Return only barrier revocation subjects authenticated by the plan."""
 
-        matched_subject_ids = {
-            subject_id
-            for assessment in self.recovery_plan.assessments
-            for subject_id in assessment.security_observation.matched_subject_ids
-        }
+        barrier = self.recovery_plan.assessments[0]
+        matched_subject_ids = (
+            {barrier.release_id}
+            if barrier.release_id in barrier.security_observation.matched_subject_ids
+            else set()
+        )
         scientific_dependency_ids = set(self.scientific_dependency_ids)
         control_dependency_ids = set(self.control_dependency_ids)
         if matched_subject_ids & scientific_dependency_ids or not (
@@ -237,6 +240,58 @@ def validate_recovery_candidate_admission(
     ):
         raise ExpertRecoveryCandidateContractError(
             "recovery admission does not join its source, barrier, and candidate"
+        )
+    scientific_candidate_subject_ids = {
+        manifest.candidate_id,
+        commit_record.commit_record_id,
+        manifest.scope_contract_id,
+        manifest.derivation_ref,
+        manifest.validation_context_ref,
+        manifest.patch_ref,
+        manifest.candidate_tree_ref,
+        manifest.proposed_repository_map_ref,
+        manifest.sanitation_report_id,
+        *manifest.module_contract_refs,
+        *manifest.consumed_expert_release_ids,
+        *manifest.source_dependency_ids,
+        *manifest.ancestor_candidate_ids,
+        *context.stable_dependency_ids,
+    }
+    if context.source_base_release is not None:
+        scientific_candidate_subject_ids.update(
+            context.source_base_release.consumed_dependency_ids
+        )
+    if type(derivation) is ExpertAgentProposalDerivation:
+        operation = derivation.operation
+        scientific_candidate_subject_ids.update(
+            {
+                derivation.record.derivation_id,
+                derivation.record.trigger_evidence_packet_id,
+                derivation.record.trigger_decision_id,
+                *derivation.record.source_dependency_ids,
+                operation.operation_record_id,
+                operation.proposer_authority.authority_id,
+                operation.operation_receipt.operation_receipt_id,
+                operation.workspace_receipt.workspace_receipt_id,
+                operation.workspace_delta_ref,
+                derivation.workspace_delta.workspace_delta_id,
+            }
+        )
+    elif type(derivation) is ExpertDeterministicRecoveryRestoreDerivation:
+        scientific_candidate_subject_ids.update(
+            {
+                derivation.record.derivation_id,
+                derivation.record.replay_basis_packet_id,
+                derivation.record.source_base_release_id,
+                derivation.record.source_base_tree_receipt_id,
+                *derivation.record.source_dependency_ids,
+            }
+        )
+    if set(admission.allowed_control_security_subject_ids) & (
+        scientific_candidate_subject_ids
+    ):
+        raise ExpertRecoveryCandidateContractError(
+            "recovery security waiver overlaps scientific candidate authority"
         )
     if plan.source_base_release_id is not None:
         selected = plan.assessments[-1].manifest

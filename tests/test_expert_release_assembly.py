@@ -165,7 +165,10 @@ def _activation_predecessor_pointer(release_id, settings):
         repository_full_name="Leeroo-AI/kapso-expert",
         commit_sha="a" * 40,
         immutable_release_id="predecessor-release",
-        tag=f"{settings.github.expert_tag_prefix}E000000",
+        tag=(
+            f"{settings.github.expert_tag_prefix}E000000-"
+            f"{release_id.rsplit(':sha256:', 1)[1]}"
+        ),
         assets=(asset,),
         release_attestation_ref="attestation-predecessor",
         published_at="2026-07-21T11:00:00Z",
@@ -481,6 +484,7 @@ def test_normal_release_binds_source_base_and_activation_predecessor(
     assert plan.current_release_observation.release_id == source_base_id
     assert plan.activation_predecessor_pointer == predecessor_pointer
     assert plan.generation == 1
+    assert plan.tag.endswith(f"/E000001-{plan.release_id.rsplit(':sha256:', 1)[1]}")
     assert source_base_id in package.manifest.consumed_dependency_ids
     assert source_base_id in package.manifest.candidate_consumed_expert_release_ids
     assert package.manifest.control_dependency_ids == ()
@@ -988,7 +992,7 @@ def test_release_publication_reservation_rejects_caller_plan_shapes(
             {"release": "unexpected-current"},
         ),
     )
-    with pytest.raises(ValueError, match="identical source base"):
+    with pytest.raises(ValueError, match="CURRENT observation differs"):
         ExpertReleasePublicationPlan.mint(**unequal_values)
     changed_values = plan.to_dict()
     changed_values.pop("publication_plan_id")

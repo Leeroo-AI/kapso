@@ -100,6 +100,7 @@ from kapso.cross_run.expert.promotion_authority import (
     ExpertPublicationEligibilityCoordinator,
     ExpertPublicationEligibilityExecution,
     build_publication_eligibility_stage_result,
+    publication_eligibility_recovery_admission,
     publication_eligibility_security_subject_ids,
 )
 from kapso.cross_run.expert.promotion_authority_contracts import (
@@ -4212,6 +4213,29 @@ class ExpertValidationStore:
             )
         release_use = execution.stage_result.release_use_decision
         fence = execution.stage_result.publication_authority_fence
+        recovery_admission = publication_eligibility_recovery_admission(
+            attempt=attempt,
+            stored_candidate=stored_candidate,
+        )
+        expected_allowed_control_security_subject_ids = (
+            ()
+            if recovery_admission is None
+            else recovery_admission.allowed_control_security_subject_ids
+        )
+        if (
+            execution.stage_result.source_base_release_id
+            != attempt.source_base_release_id
+            or execution.stage_result.expected_current_release_id
+            != attempt.expected_current_release_id
+            or execution.stage_result.recovery_plan_id != attempt.recovery_plan_id
+            or execution.stage_result.control_dependency_ids
+            != attempt.control_dependency_ids
+            or execution.stage_result.allowed_control_security_subject_ids
+            != expected_allowed_control_security_subject_ids
+        ):
+            raise ExpertValidationStoreError(
+                "publication eligibility recovery authority is not exact"
+            )
         if expected_decision.outcome is ExpertReleaseMatrixDecisionOutcome.APPROVED:
             if release_use is None:
                 raise ExpertValidationStoreError(
@@ -4981,8 +5005,18 @@ class ExpertValidationStore:
             or plan.scope_contract_id != publication_result.scope_contract_id
             or plan.scope_id != publication_result.scope_id
             or plan.lineage.source_base_release_id != attempt.source_base_release_id
+            or publication_result.source_base_release_id
+            != attempt.source_base_release_id
             or plan.lineage.activation_predecessor_release_id
-            != publication_result.expected_current_release_id
+            != attempt.expected_current_release_id
+            or publication_result.expected_current_release_id
+            != attempt.expected_current_release_id
+            or publication_result.recovery_plan_id != attempt.recovery_plan_id
+            or manifest.control_dependency_ids != attempt.control_dependency_ids
+            or publication_result.control_dependency_ids
+            != attempt.control_dependency_ids
+            or publication_result.allowed_control_security_subject_ids
+            != publication_result.publication_authority_fence.allowed_control_security_subject_ids
             or plan.current_release_observation
             != publication_result.publication_authority_fence.current_release_observation
             or publication_result.validation_attempt_id != attempt.validation_attempt_id
@@ -5911,6 +5945,15 @@ class ExpertValidationStore:
         stored_candidate = self.reducer.candidate_store.read(
             latest_attempt.candidate_id
         )
+        recovery_admission = publication_eligibility_recovery_admission(
+            attempt=latest_attempt,
+            stored_candidate=stored_candidate,
+        )
+        expected_allowed_control_security_subject_ids = (
+            ()
+            if recovery_admission is None
+            else recovery_admission.allowed_control_security_subject_ids
+        )
         release_use = result_record.release_use_decision
         if release_use is not None:
             stored_release_use = self._read_contract_unlocked(
@@ -6009,8 +6052,15 @@ class ExpertValidationStore:
             or result_record.candidate_commit_record_id
             != latest_attempt.candidate_commit_record_id
             or result_record.scope_contract_id != latest_attempt.scope_contract_id
+            or result_record.source_base_release_id
+            != latest_attempt.source_base_release_id
             or result_record.expected_current_release_id
             != latest_attempt.expected_current_release_id
+            or result_record.recovery_plan_id != latest_attempt.recovery_plan_id
+            or result_record.control_dependency_ids
+            != latest_attempt.control_dependency_ids
+            or result_record.allowed_control_security_subject_ids
+            != expected_allowed_control_security_subject_ids
             or result_record.validation_policy_id != latest_attempt.validation_policy_id
             or result_record.configuration_fingerprint
             != latest_attempt.configuration_fingerprint

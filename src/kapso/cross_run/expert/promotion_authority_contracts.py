@@ -60,6 +60,18 @@ def _require_sorted_content_ids(values: tuple[str, ...], name: str) -> None:
         require_content_id(value, name)
 
 
+def _require_canonical_content_ids(
+    values: tuple[str, ...],
+    name: str,
+) -> None:
+    if values != tuple(sorted(set(values))):
+        raise ExpertPublicationEligibilityContractError(
+            f"{name} must be sorted and unique"
+        )
+    for value in values:
+        require_content_id(value, name)
+
+
 class ExpertCandidateReleaseUseOutcome(str, Enum):
     """Publication availability derived from one exact current policy read."""
 
@@ -186,7 +198,11 @@ class ExpertPublicationEligibilityAuthorityFence(StrictContract):
     candidate_commit_record_id: str
     scope_contract_id: str
     scope_id: str
+    source_base_release_id: str | None
     expected_current_release_id: str | None
+    recovery_plan_id: str | None
+    control_dependency_ids: tuple[str, ...]
+    allowed_control_security_subject_ids: tuple[str, ...]
     validation_policy_id: str
     configuration_fingerprint: str
     release_matrix_stage_result_id: str
@@ -254,12 +270,66 @@ class ExpertPublicationEligibilityAuthorityFence(StrictContract):
             ),
         ):
             _require_namespaced_id(value, namespace, name)
-        if self.expected_current_release_id is not None:
-            _require_namespaced_id(
+        for value, name in (
+            (
+                self.source_base_release_id,
+                "publication eligibility scientific source release",
+            ),
+            (
                 self.expected_current_release_id,
-                "expert-base-release",
                 "publication eligibility expected CURRENT release",
+            ),
+        ):
+            if value is not None:
+                _require_namespaced_id(value, "expert-base-release", name)
+        if self.recovery_plan_id is not None:
+            _require_namespaced_id(
+                self.recovery_plan_id,
+                "expert-clean-forward-recovery-plan",
+                "publication eligibility recovery plan",
             )
+        _require_canonical_content_ids(
+            self.control_dependency_ids,
+            "publication eligibility control dependencies",
+        )
+        _require_canonical_content_ids(
+            self.allowed_control_security_subject_ids,
+            "publication eligibility allowed control security subjects",
+        )
+        if not set(self.allowed_control_security_subject_ids).issubset(
+            self.control_dependency_ids
+        ):
+            raise ExpertPublicationEligibilityContractError(
+                "publication eligibility security waiver exceeds control authority"
+            )
+        if self.recovery_plan_id is None:
+            if (
+                self.source_base_release_id != self.expected_current_release_id
+                or self.control_dependency_ids
+                or self.allowed_control_security_subject_ids
+            ):
+                raise ExpertPublicationEligibilityContractError(
+                    "ordinary publication must bind CURRENT to its scientific source "
+                    "without recovery controls"
+                )
+        else:
+            admission_ids = tuple(
+                dependency_id
+                for dependency_id in self.control_dependency_ids
+                if dependency_id.split(":sha256:", 1)[0]
+                == "expert-recovery-candidate-admission"
+            )
+            if (
+                self.expected_current_release_id is None
+                or self.expected_current_release_id == self.source_base_release_id
+                or len(admission_ids) != 1
+                or self.recovery_plan_id not in self.control_dependency_ids
+                or self.expected_current_release_id not in self.control_dependency_ids
+                or self.source_base_release_id in self.control_dependency_ids
+            ):
+                raise ExpertPublicationEligibilityContractError(
+                    "recovery publication authority partition is invalid"
+                )
         require_identifier(self.scope_id, "publication eligibility scope")
         _require_digest(
             self.candidate_tree_hash,
@@ -296,10 +366,18 @@ class ExpertPublicationEligibilityAuthorityFence(StrictContract):
             denylist.scope_id != self.scope_id
             or denylist.scope_contract_id != self.scope_contract_id
             or denylist.checked_subject_ids != self.security_subject_ids
-            or denylist.matched_revocations
+            or not set(denylist.matched_subject_ids).issubset(
+                self.allowed_control_security_subject_ids
+            )
         ):
             raise ExpertPublicationEligibilityContractError(
                 "publication eligibility denylist observation differs from exact authority"
+            )
+        if not set(self.allowed_control_security_subject_ids).issubset(
+            self.security_subject_ids
+        ):
+            raise ExpertPublicationEligibilityContractError(
+                "publication eligibility security authority omits allowed controls"
             )
         required_subjects = {
             self.release_matrix_acceptance_transition_id,
@@ -313,7 +391,10 @@ class ExpertPublicationEligibilityAuthorityFence(StrictContract):
             self.promotion_decision_id,
             current.observation_id,
             *current.validation_closure_ids,
+            *self.allowed_control_security_subject_ids,
         }
+        if self.source_base_release_id is not None:
+            required_subjects.add(self.source_base_release_id)
         if self.expected_current_release_id is not None:
             required_subjects.add(self.expected_current_release_id)
         if current.publication_id is not None:
@@ -328,6 +409,8 @@ class ExpertPublicationEligibilityAuthorityFence(StrictContract):
                     *observation.dependency_ids,
                 }
             )
+        required_subjects.update(self.control_dependency_ids)
+        required_subjects.update(self.allowed_control_security_subject_ids)
         if not required_subjects.issubset(self.security_subject_ids):
             raise ExpertPublicationEligibilityContractError(
                 "publication eligibility security authority omits mandatory subjects"
@@ -349,14 +432,20 @@ class ExpertPublicationEligibilityAuthorityFence(StrictContract):
             self.promotion_decision_id,
             self.release_use_decision_id,
             *self.security_subject_ids,
+            *self.control_dependency_ids,
+            *self.allowed_control_security_subject_ids,
             current.observation_id,
             *current.validation_closure_ids,
             denylist.observation_id,
             denylist.snapshot_id,
             denylist.publication_id,
         }
+        if self.source_base_release_id is not None:
+            dependencies.add(self.source_base_release_id)
         if self.expected_current_release_id is not None:
             dependencies.add(self.expected_current_release_id)
+        if self.recovery_plan_id is not None:
+            dependencies.add(self.recovery_plan_id)
         if current.publication_id is not None:
             dependencies.add(current.publication_id)
         for observation in self.task_adapter_trust_observations:
@@ -385,7 +474,11 @@ class ExpertPublicationEligibilityStageResultRecord(StrictContract):
     candidate_commit_record_id: str
     scope_contract_id: str
     scope_id: str
+    source_base_release_id: str | None
     expected_current_release_id: str | None
+    recovery_plan_id: str | None
+    control_dependency_ids: tuple[str, ...]
+    allowed_control_security_subject_ids: tuple[str, ...]
     validation_policy_id: str
     configuration_fingerprint: str
     accepted_stage_results: tuple[ExpertAcceptedStageResultRef, ...]
@@ -436,11 +529,37 @@ class ExpertPublicationEligibilityStageResultRecord(StrictContract):
             ),
         ):
             _require_namespaced_id(value, namespace, name)
-        if self.expected_current_release_id is not None:
-            _require_namespaced_id(
+        for value, name in (
+            (
+                self.source_base_release_id,
+                "publication result scientific source release",
+            ),
+            (
                 self.expected_current_release_id,
-                "expert-base-release",
                 "publication result expected CURRENT release",
+            ),
+        ):
+            if value is not None:
+                _require_namespaced_id(value, "expert-base-release", name)
+        if self.recovery_plan_id is not None:
+            _require_namespaced_id(
+                self.recovery_plan_id,
+                "expert-clean-forward-recovery-plan",
+                "publication result recovery plan",
+            )
+        _require_canonical_content_ids(
+            self.control_dependency_ids,
+            "publication result control dependencies",
+        )
+        _require_canonical_content_ids(
+            self.allowed_control_security_subject_ids,
+            "publication result allowed control security subjects",
+        )
+        if not set(self.allowed_control_security_subject_ids).issubset(
+            self.control_dependency_ids
+        ):
+            raise ExpertPublicationEligibilityContractError(
+                "publication result security waiver exceeds control authority"
             )
         require_identifier(self.scope_id, "publication result scope")
         _require_digest(
@@ -463,11 +582,41 @@ class ExpertPublicationEligibilityStageResultRecord(StrictContract):
             raise ExpertPublicationEligibilityContractError(
                 "publication result decision differs from accepted matrix authority"
             )
-        if (decision.mode is ExpertReleaseMatrixMode.BOOTSTRAP) != (
-            self.expected_current_release_id is None
-        ):
+        if decision.mode is ExpertReleaseMatrixMode.BOOTSTRAP:
+            authority_shape_is_valid = (
+                self.source_base_release_id is None
+                and self.expected_current_release_id is None
+                and self.recovery_plan_id is None
+                and not self.control_dependency_ids
+                and not self.allowed_control_security_subject_ids
+            )
+        elif decision.mode is ExpertReleaseMatrixMode.CONTROL_COMPARISON:
+            authority_shape_is_valid = (
+                self.source_base_release_id is not None
+                and self.expected_current_release_id == self.source_base_release_id
+                and self.recovery_plan_id is None
+                and not self.control_dependency_ids
+                and not self.allowed_control_security_subject_ids
+            )
+        else:
+            admission_ids = tuple(
+                dependency_id
+                for dependency_id in self.control_dependency_ids
+                if dependency_id.split(":sha256:", 1)[0]
+                == "expert-recovery-candidate-admission"
+            )
+            authority_shape_is_valid = (
+                self.expected_current_release_id is not None
+                and self.expected_current_release_id != self.source_base_release_id
+                and self.recovery_plan_id is not None
+                and len(admission_ids) == 1
+                and self.recovery_plan_id in self.control_dependency_ids
+                and self.expected_current_release_id in self.control_dependency_ids
+                and self.source_base_release_id not in self.control_dependency_ids
+            )
+        if not authority_shape_is_valid:
             raise ExpertPublicationEligibilityContractError(
-                "publication result CURRENT expectation differs from matrix mode"
+                "publication result authority partition differs from matrix mode"
             )
         fence = self.publication_authority_fence
         approved = decision.outcome is ExpertReleaseMatrixDecisionOutcome.APPROVED
@@ -503,9 +652,15 @@ class ExpertPublicationEligibilityStageResultRecord(StrictContract):
             *(result.stage_result_record_id for result in self.accepted_stage_results),
             decision.promotion_decision_id,
             *decision.exact_dependency_ids,
+            *self.control_dependency_ids,
+            *self.allowed_control_security_subject_ids,
         }
+        if self.source_base_release_id is not None:
+            expected_dependencies.add(self.source_base_release_id)
         if self.expected_current_release_id is not None:
             expected_dependencies.add(self.expected_current_release_id)
+        if self.recovery_plan_id is not None:
+            expected_dependencies.add(self.recovery_plan_id)
         if release_use is not None:
             expected_dependencies.update(
                 {
@@ -579,7 +734,12 @@ class ExpertPublicationEligibilityStageResultRecord(StrictContract):
             or fence.candidate_commit_record_id != self.candidate_commit_record_id
             or fence.scope_contract_id != self.scope_contract_id
             or fence.scope_id != self.scope_id
+            or fence.source_base_release_id != self.source_base_release_id
             or fence.expected_current_release_id != self.expected_current_release_id
+            or fence.recovery_plan_id != self.recovery_plan_id
+            or fence.control_dependency_ids != self.control_dependency_ids
+            or fence.allowed_control_security_subject_ids
+            != self.allowed_control_security_subject_ids
             or fence.validation_policy_id != self.validation_policy_id
             or fence.configuration_fingerprint != self.configuration_fingerprint
             or fence.release_matrix_stage_result_id
@@ -602,7 +762,14 @@ class ExpertPublicationEligibilityStageResultRecord(StrictContract):
             decision.promotion_decision_id,
             *decision.exact_dependency_ids,
         }
-        if self.expected_current_release_id is not None:
+        required_security_subjects.update(self.control_dependency_ids)
+        required_security_subjects.update(self.allowed_control_security_subject_ids)
+        if self.source_base_release_id is not None:
+            required_security_subjects.add(self.source_base_release_id)
+        if (
+            self.expected_current_release_id is not None
+            and self.recovery_plan_id is None
+        ):
             required_security_subjects.add(self.expected_current_release_id)
         if not required_security_subjects.issubset(fence.security_subject_ids):
             raise ExpertPublicationEligibilityContractError(

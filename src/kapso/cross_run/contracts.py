@@ -4943,14 +4943,10 @@ class ExpertBaseReleaseManifest(StrictContract):
                 "candidate_derivation_ref uses the wrong namespace"
             )
         require_identifier(self.scope_id, "scope_id")
-        if (
-            self.lineage.source_base_release_id
-            != self.lineage.activation_predecessor_release_id
-        ):
-            raise ContractValidationError(
-                "ordinary expert release requires identical source base and "
-                "activation predecessor"
-            )
+        source_base_release_id = self.lineage.source_base_release_id
+        activation_predecessor_release_id = (
+            self.lineage.activation_predecessor_release_id
+        )
         _require_digest(self.candidate_tree_hash, "candidate_tree_hash")
         for values, name, required in (
             (self.candidate_ancestor_ids, "candidate_ancestor_ids", False),
@@ -4987,9 +4983,8 @@ class ExpertBaseReleaseManifest(StrictContract):
             raise ContractValidationError(
                 "candidate_consumed_expert_release_ids use the wrong namespace"
             )
-        if self.lineage.source_base_release_id is not None and (
-            self.lineage.source_base_release_id
-            not in self.candidate_consumed_expert_release_ids
+        if source_base_release_id is not None and (
+            source_base_release_id not in self.candidate_consumed_expert_release_ids
         ):
             raise MissingReferenceError(
                 "release candidate consumption omits its source base"
@@ -5079,17 +5074,65 @@ class ExpertBaseReleaseManifest(StrictContract):
             self.evidence_manifest_ref,
             self.test_matrix_summary_ref,
         }
-        if self.lineage.source_base_release_id is not None:
-            required_dependencies.add(self.lineage.source_base_release_id)
+        scientific_dependencies = {
+            self.scope_contract_id,
+            self.candidate_id,
+            self.candidate_commit_record_id,
+            self.candidate_tree_ref,
+            self.candidate_derivation_ref,
+            self.candidate_validation_context_ref,
+            self.candidate_patch_ref,
+            self.candidate_sanitation_report_id,
+            *self.candidate_ancestor_ids,
+            *self.candidate_source_dependency_ids,
+            *self.candidate_consumed_expert_release_ids,
+            self.repository_map_ref,
+            *self.module_contract_refs,
+        }
+        if source_base_release_id is not None:
+            required_dependencies.add(source_base_release_id)
+            scientific_dependencies.add(source_base_release_id)
+        if activation_predecessor_release_id is not None:
+            required_dependencies.add(activation_predecessor_release_id)
         required_dependencies.update(self.evidence_dependency_ids)
-        if set(self.consumed_dependency_ids) != required_dependencies:
+        consumed_dependency_ids = set(self.consumed_dependency_ids)
+        control_dependency_ids = set(self.control_dependency_ids)
+        if not scientific_dependencies.issubset(consumed_dependency_ids):
             raise MissingReferenceError(
-                "expert release consumed dependency closure is not exact"
+                "expert release consumed dependencies omit scientific inputs"
             )
-        if self.control_dependency_ids:
-            raise ContractValidationError(
-                "ordinary expert release cannot carry control dependencies"
+        if consumed_dependency_ids | control_dependency_ids != required_dependencies:
+            raise MissingReferenceError(
+                "expert release categorized dependency closure is not exact"
             )
+        if source_base_release_id == activation_predecessor_release_id:
+            if control_dependency_ids:
+                raise ContractValidationError(
+                    "ordinary expert release cannot carry control dependencies"
+                )
+        else:
+            recovery_plan_ids = {
+                dependency_id
+                for dependency_id in control_dependency_ids
+                if dependency_id.split(":sha256:", 1)[0]
+                == "expert-clean-forward-recovery-plan"
+            }
+            recovery_admission_ids = {
+                dependency_id
+                for dependency_id in control_dependency_ids
+                if dependency_id.split(":sha256:", 1)[0]
+                == "expert-recovery-candidate-admission"
+            }
+            if (
+                activation_predecessor_release_id is None
+                or activation_predecessor_release_id not in control_dependency_ids
+                or source_base_release_id in control_dependency_ids
+                or len(recovery_plan_ids) != 1
+                or len(recovery_admission_ids) != 1
+            ):
+                raise ContractValidationError(
+                    "recovery expert release dependency partition is invalid"
+                )
         _require_checksum_mapping(self.checksums, "checksums")
         if not {
             self.source_archive_ref,

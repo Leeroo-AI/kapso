@@ -38,6 +38,7 @@ from kapso.cross_run.expert.promotion_authority import (
     ExpertPublicationEligibilityError,
     _candidate_ancestor_security_subject_ids,
     publication_eligibility_candidate_security_subject_ids,
+    publication_eligibility_recovery_admission,
     publication_eligibility_security_subject_ids,
 )
 from kapso.cross_run.expert.release_use_policy_contracts import (
@@ -60,6 +61,10 @@ from kapso.cross_run.expert.task_evaluation_contracts import (
 )
 from kapso.cross_run.expert.task_evaluation_authority_contracts import (
     TaskEvaluationCurrentReleaseObservation,
+)
+from kapso.cross_run.expert.validation import (
+    ExpertCandidateEligibilityEvaluator,
+    ExpertValidationReducer,
 )
 from kapso.cross_run.expert.validation_store import (
     ExpertValidationCompareAndSwapError,
@@ -85,9 +90,23 @@ from test_expert_promotion_evidence import (
     _execution_runtime,
 )
 from test_expert_promotion_stage import _completed_runtime
+from test_expert_clean_recovery import _historical_candidate_system
+from test_expert_recovery_release_matrix_e2e import (
+    _recovery_validation_settings,
+    _reopen_candidate_store_for_validation,
+)
+from test_expert_source_replay import (
+    _AdapterProvider,
+    _CurrentReleaseProvider,
+)
 from test_expert_task_evaluation_execution import (
     _parent_prepared_with_additional_case,
 )
+from test_expert_validation import (
+    _AttestationVerifier,
+    _ValidationStateProvider,
+)
+from test_cross_run_retrieval import source_fixture
 
 CROSS_RUN_SETTINGS = CrossRunSettings.from_dict(
     load_config("src/kapso/config.yaml")["cross_run"]
@@ -872,6 +891,63 @@ def test_direct_agent_candidate_security_subjects_remain_exact(terminal_cases):
     assert publication_eligibility_candidate_security_subject_ids(stored) == tuple(
         sorted(expected)
     )
+
+
+def test_publication_reopens_exact_canonical_empty_recovery_admission(tmp_path):
+    _scope, _context, episode, _prior, _claim, _bundle, _report = source_fixture()
+    recovery = _historical_candidate_system(
+        tmp_path / "publication-recovery",
+        empty_selection=True,
+        episodes=(episode,),
+    )
+    recovery.fixture.security.blocked_release_ids.add(recovery.barrier.release_id)
+    stored_candidate = recovery.coordinator.bootstrap_empty(
+        scope_contract=recovery.fixture.case.scope,
+        replay_basis_packet=recovery.replay_basis,
+    ).stored_candidate
+    settings = _recovery_validation_settings()
+    workspace_root, _configured_expert_settings, candidate_store = (
+        _reopen_candidate_store_for_validation(recovery, settings)
+    )
+    adapter_provider = _AdapterProvider(recovery.replay_basis)
+    current_provider = _CurrentReleaseProvider(recovery.barrier.release_id)
+    eligibility = ExpertCandidateEligibilityEvaluator(
+        settings,
+        candidate_store,
+        adapter_provider,
+        current_provider,
+    ).decide(candidate_id=stored_candidate.closure.manifest.candidate_id)
+    validation_store = ExpertValidationStore(
+        (workspace_root / settings.state_path).resolve(),
+        workspace_root,
+        settings,
+        ExpertValidationReducer(
+            settings,
+            candidate_store,
+            _AttestationVerifier(),
+            adapter_provider,
+            current_provider,
+            _ValidationStateProvider(),
+        ),
+    )
+    attempt = validation_store.publish_start(
+        expected_transition_id=None,
+        eligibility=eligibility,
+    ).snapshot.latest_attempt
+    assert attempt is not None
+
+    admission = publication_eligibility_recovery_admission(
+        attempt=attempt,
+        stored_candidate=stored_candidate,
+    )
+
+    assert admission == stored_candidate.recovery_admission
+    assert admission is not None
+    assert (
+        admission.recovery_plan.activation_predecessor_release_id
+        == attempt.expected_current_release_id
+    )
+    assert admission.control_dependency_ids == attempt.control_dependency_ids
 
 
 def test_composition_candidate_security_subjects_cover_outer_and_source_authority(

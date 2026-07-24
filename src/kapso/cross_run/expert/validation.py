@@ -1563,7 +1563,10 @@ class ExpertValidationReducer:
             or result.candidate_tree_hash != attempt.candidate_tree_hash
             or result.candidate_commit_record_id != attempt.candidate_commit_record_id
             or result.scope_contract_id != attempt.scope_contract_id
-            or result.expected_current_release_id != attempt.source_base_release_id
+            or result.source_base_release_id != attempt.source_base_release_id
+            or result.expected_current_release_id != attempt.expected_current_release_id
+            or result.recovery_plan_id != attempt.recovery_plan_id
+            or result.control_dependency_ids != attempt.control_dependency_ids
             or result.validation_policy_id != attempt.validation_policy_id
             or result.configuration_fingerprint != attempt.configuration_fingerprint
             or result.accepted_stage_results != state.accepted_stage_results

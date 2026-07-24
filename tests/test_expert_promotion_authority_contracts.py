@@ -301,7 +301,12 @@ def _approved_fence(
     decision: ExpertReleaseMatrixPromotionDecision,
     release_use_decision: ExpertCandidateReleaseUseDecision,
     accepted_stage_results: tuple[ExpertAcceptedStageResultRef, ...],
+    source_base_release_id: str | None,
     expected_current_release_id: str | None,
+    recovery_plan_id: str | None,
+    control_dependency_ids: tuple[str, ...],
+    allowed_control_security_subject_ids: tuple[str, ...],
+    matched_subject_ids: tuple[str, ...] = (),
 ) -> ExpertPublicationEligibilityAuthorityFence:
     current = _current_observation(
         expected_current_release_id=expected_current_release_id
@@ -313,6 +318,16 @@ def _approved_fence(
         expected_current_release_id=expected_current_release_id,
         current=current,
         trust_observations=trust_observations,
+    )
+    security_subject_ids = tuple(
+        sorted(
+            {
+                *security_subject_ids,
+                *control_dependency_ids,
+                *allowed_control_security_subject_ids,
+                *(() if source_base_release_id is None else (source_base_release_id,)),
+            }
+        )
     )
     return ExpertPublicationEligibilityAuthorityFence.mint(
         release_matrix_acceptance_transition_id=_id(
@@ -332,7 +347,11 @@ def _approved_fence(
         ),
         scope_contract_id=_id("expert-scope-contract", "scope-contract"),
         scope_id="post-training",
+        source_base_release_id=source_base_release_id,
         expected_current_release_id=expected_current_release_id,
+        recovery_plan_id=recovery_plan_id,
+        control_dependency_ids=control_dependency_ids,
+        allowed_control_security_subject_ids=(allowed_control_security_subject_ids),
         validation_policy_id=decision.validation_policy_id,
         configuration_fingerprint=decision.configuration_fingerprint,
         release_matrix_stage_result_id=decision.release_matrix_stage_result_id,
@@ -341,7 +360,10 @@ def _approved_fence(
         security_subject_ids=security_subject_ids,
         current_release_observation=current,
         task_adapter_trust_observations=trust_observations,
-        security_denylist_observation=_denylist(security_subject_ids),
+        security_denylist_observation=_denylist(
+            security_subject_ids,
+            matched_subject_ids=matched_subject_ids,
+        ),
     )
 
 
@@ -403,6 +425,7 @@ def _stage_result(
     outcome: ExpertReleaseMatrixDecisionOutcome,
     *,
     mode: ExpertReleaseMatrixMode = ExpertReleaseMatrixMode.CONTROL_COMPARISON,
+    recovery_source_base: bool = True,
 ) -> ExpertPublicationEligibilityStageResultRecord:
     decision = _decision(outcome, mode=mode)
     accepted_stage_results = (
@@ -411,11 +434,32 @@ def _stage_result(
             stage_result_record_id=decision.release_matrix_stage_result_id,
         ),
     )
-    expected_current_release_id = (
+    source_base_release_id = (
         None
         if mode is ExpertReleaseMatrixMode.BOOTSTRAP
-        else _id("expert-base-release", "parent")
+        or (
+            mode is ExpertReleaseMatrixMode.CLEAN_FORWARD_RECOVERY
+            and not recovery_source_base
+        )
+        else _id("expert-base-release", "source")
     )
+    expected_current_release_id = source_base_release_id
+    recovery_plan_id = None
+    control_dependency_ids: tuple[str, ...] = ()
+    allowed_control_security_subject_ids: tuple[str, ...] = ()
+    if mode is ExpertReleaseMatrixMode.CLEAN_FORWARD_RECOVERY:
+        expected_current_release_id = _id("expert-base-release", "blocked-barrier")
+        recovery_plan_id = _id("expert-clean-forward-recovery-plan", "recovery")
+        control_dependency_ids = tuple(
+            sorted(
+                {
+                    expected_current_release_id,
+                    recovery_plan_id,
+                    _id("expert-recovery-candidate-admission", "admission"),
+                }
+            )
+        )
+        allowed_control_security_subject_ids = (expected_current_release_id,)
     release_use_decision = (
         _release_use_decision(
             decision=decision,
@@ -433,7 +477,16 @@ def _stage_result(
             decision=decision,
             release_use_decision=release_use_decision,
             accepted_stage_results=accepted_stage_results,
+            source_base_release_id=source_base_release_id,
             expected_current_release_id=expected_current_release_id,
+            recovery_plan_id=recovery_plan_id,
+            control_dependency_ids=control_dependency_ids,
+            allowed_control_security_subject_ids=(allowed_control_security_subject_ids),
+            matched_subject_ids=(
+                allowed_control_security_subject_ids
+                if mode is ExpertReleaseMatrixMode.CLEAN_FORWARD_RECOVERY
+                else ()
+            ),
         )
         if outcome is ExpertReleaseMatrixDecisionOutcome.APPROVED
         else None
@@ -449,9 +502,15 @@ def _stage_result(
         *(result.stage_result_record_id for result in accepted_stage_results),
         decision.promotion_decision_id,
         *decision.exact_dependency_ids,
+        *control_dependency_ids,
+        *allowed_control_security_subject_ids,
     }
+    if source_base_release_id is not None:
+        dependencies.add(source_base_release_id)
     if expected_current_release_id is not None:
         dependencies.add(expected_current_release_id)
+    if recovery_plan_id is not None:
+        dependencies.add(recovery_plan_id)
     if release_use_decision is not None:
         dependencies.update(
             {
@@ -479,7 +538,11 @@ def _stage_result(
         ),
         scope_contract_id=_id("expert-scope-contract", "scope-contract"),
         scope_id="post-training",
+        source_base_release_id=source_base_release_id,
         expected_current_release_id=expected_current_release_id,
+        recovery_plan_id=recovery_plan_id,
+        control_dependency_ids=control_dependency_ids,
+        allowed_control_security_subject_ids=(allowed_control_security_subject_ids),
         validation_policy_id=decision.validation_policy_id,
         configuration_fingerprint=decision.configuration_fingerprint,
         accepted_stage_results=accepted_stage_results,
@@ -538,6 +601,89 @@ def test_bootstrap_approval_binds_authenticated_current_absence():
     assert fence is not None
     assert fence.current_release_observation.release_id is None
     assert fence.current_release_observation.publication_id is None
+
+
+def test_recovery_approval_separates_scientific_source_from_current_control():
+    result = _stage_result(
+        ExpertReleaseMatrixDecisionOutcome.APPROVED,
+        mode=ExpertReleaseMatrixMode.CLEAN_FORWARD_RECOVERY,
+    )
+    fence = result.publication_authority_fence
+
+    assert fence is not None
+    assert result.source_base_release_id != result.expected_current_release_id
+    assert result.recovery_plan_id in result.control_dependency_ids
+    assert result.expected_current_release_id in result.control_dependency_ids
+    assert result.source_base_release_id not in result.control_dependency_ids
+    assert result.allowed_control_security_subject_ids == (
+        result.expected_current_release_id,
+    )
+    assert fence.security_denylist_observation.matched_subject_ids == (
+        result.expected_current_release_id,
+    )
+    assert set(result.control_dependency_ids).issubset(fence.security_subject_ids)
+    assert (
+        fence.current_release_observation.release_id
+        == result.expected_current_release_id
+    )
+
+
+def test_canonical_empty_recovery_approval_names_no_scientific_source():
+    result = _stage_result(
+        ExpertReleaseMatrixDecisionOutcome.APPROVED,
+        mode=ExpertReleaseMatrixMode.CLEAN_FORWARD_RECOVERY,
+        recovery_source_base=False,
+    )
+    fence = result.publication_authority_fence
+
+    assert result.source_base_release_id is None
+    assert result.expected_current_release_id is not None
+    assert result.recovery_plan_id is not None
+    assert fence is not None
+    assert fence.source_base_release_id is None
+    assert fence.expected_current_release_id == result.expected_current_release_id
+
+
+def test_recovery_fence_rejects_revocation_of_scientific_source():
+    result = _stage_result(
+        ExpertReleaseMatrixDecisionOutcome.APPROVED,
+        mode=ExpertReleaseMatrixMode.CLEAN_FORWARD_RECOVERY,
+    )
+    fence = result.publication_authority_fence
+    assert fence is not None
+    assert result.source_base_release_id is not None
+
+    with pytest.raises(ValueError):
+        _remint(
+            fence,
+            security_denylist_observation=_denylist(
+                fence.security_subject_ids,
+                matched_subject_ids=(result.source_base_release_id,),
+            ),
+        )
+
+
+def test_recovery_fence_rejects_revocation_of_unwaived_control():
+    result = _stage_result(
+        ExpertReleaseMatrixDecisionOutcome.APPROVED,
+        mode=ExpertReleaseMatrixMode.CLEAN_FORWARD_RECOVERY,
+    )
+    fence = result.publication_authority_fence
+    assert fence is not None
+    unwaived_control = next(
+        dependency_id
+        for dependency_id in result.control_dependency_ids
+        if dependency_id not in result.allowed_control_security_subject_ids
+    )
+
+    with pytest.raises(ValueError):
+        _remint(
+            fence,
+            security_denylist_observation=_denylist(
+                fence.security_subject_ids,
+                matched_subject_ids=(unwaived_control,),
+            ),
+        )
 
 
 def test_fence_rejects_current_release_substitution():

@@ -969,6 +969,12 @@ class ExpertReleasePublisher:
                 "expert publication CURRENT differs from its approved authority"
             )
         adapter_observations = self._reverify_task_adapters(fence)
+        allowed_control_security_subject_ids = (
+            self._allowed_control_security_subject_ids(
+                reservation=reservation,
+                fence=fence,
+            )
+        )
         security_subject_ids = self._publication_security_subject_ids(
             reservation=reservation,
             fence=fence,
@@ -990,7 +996,9 @@ class ExpertReleasePublisher:
             != repositories.binding_fingerprint
             or denylist.repository_full_name != repositories.security_repository
             or denylist.checked_subject_ids != security_subject_ids
-            or denylist.matched_revocations
+            or not set(denylist.matched_subject_ids).issubset(
+                allowed_control_security_subject_ids
+            )
         ):
             raise ExpertReleasePublicationError(
                 "expert publication denylist differs from fresh authority"
@@ -1092,6 +1100,57 @@ class ExpertReleasePublisher:
             )
         return result.publication_authority_fence
 
+    def _allowed_control_security_subject_ids(
+        self,
+        *,
+        reservation: ExpertReleasePublicationReservation,
+        fence: ExpertPublicationEligibilityAuthorityFence,
+    ) -> tuple[str, ...]:
+        stored_candidate = self.validation_store.reducer.candidate_store.read(
+            reservation.plan.candidate_id
+        )
+        admission = stored_candidate.recovery_admission
+        attempt = reservation.snapshot.latest_attempt
+        allowed_control_security_subject_ids = (
+            () if admission is None else admission.allowed_control_security_subject_ids
+        )
+        recovery_plan_id = (
+            None if admission is None else admission.recovery_plan.recovery_plan_id
+        )
+        control_dependency_ids = (
+            () if admission is None else admission.control_dependency_ids
+        )
+        if (
+            attempt is None
+            or attempt.source_base_release_id
+            != reservation.plan.lineage.source_base_release_id
+            or attempt.expected_current_release_id
+            != reservation.plan.lineage.activation_predecessor_release_id
+            or attempt.recovery_plan_id != recovery_plan_id
+            or attempt.control_dependency_ids != control_dependency_ids
+            or fence.source_base_release_id
+            != reservation.plan.lineage.source_base_release_id
+            or fence.expected_current_release_id
+            != reservation.plan.lineage.activation_predecessor_release_id
+            or fence.recovery_plan_id != recovery_plan_id
+            or fence.control_dependency_ids != control_dependency_ids
+            or fence.allowed_control_security_subject_ids
+            != allowed_control_security_subject_ids
+            or (
+                admission is not None
+                and (
+                    admission.recovery_plan.source_base_release_id
+                    != reservation.plan.lineage.source_base_release_id
+                    or admission.recovery_plan.activation_predecessor_release_id
+                    != reservation.plan.lineage.activation_predecessor_release_id
+                )
+            )
+        ):
+            raise ExpertReleasePublicationError(
+                "expert publication recovery security authority is not exact"
+            )
+        return allowed_control_security_subject_ids
+
     @staticmethod
     def _publication_security_subject_ids(
         *,
@@ -1136,6 +1195,7 @@ class ExpertReleasePublisher:
                     *observation.dependency_ids,
                 }
             )
+        subjects.update(fence.allowed_control_security_subject_ids)
         ordered = tuple(sorted(subjects))
         for subject_id in ordered:
             require_content_id(subject_id, "expert publication security subject")

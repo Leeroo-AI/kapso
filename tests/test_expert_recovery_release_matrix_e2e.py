@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import replace
+from types import SimpleNamespace
 
 import pytest
 
@@ -405,14 +406,19 @@ def _execute_and_publish_recovery_matrix(
     )
 
 
-def test_historical_clean_forward_recovery_reaches_durable_matrix_decision(
+def _historical_recovery_matrix_case(
     tmp_path,
     monkeypatch,
+    *,
+    chain_length=2,
 ):
     source_fixture_root = tmp_path / "source-fixture"
     source_fixture_root.mkdir()
     source_fixture = _request_fixture(source_fixture_root)
-    recovery = _historical_candidate_system(tmp_path / "recovery")
+    recovery = _historical_candidate_system(
+        tmp_path / "recovery",
+        chain_length=chain_length,
+    )
     replay_basis = type(source_fixture.packet).mint(
         knowledge_snapshot_manifest=(source_fixture.packet.knowledge_snapshot_manifest),
         knowledge_record_closure_digest=(
@@ -688,9 +694,29 @@ def test_historical_clean_forward_recovery_reaches_durable_matrix_decision(
     assert committed_stage.snapshot.state.promotion_state is (
         ExpertPromotionState.VALIDATING
     )
+    return SimpleNamespace(
+        recovery=recovery,
+        stored_candidate=stored_candidate,
+        admission=admission,
+        settings=settings,
+        configured_expert_settings=configured_expert_settings,
+        candidate_store=candidate_store,
+        validation_store=restarted_validation_store,
+        matrix_snapshot=matrix_snapshot,
+        prepared_task=prepared_task,
+        committed_stage=committed_stage,
+        decision=decision,
+    )
 
 
-def test_canonical_empty_recovery_reaches_durable_standalone_decision(
+def test_historical_clean_forward_recovery_reaches_durable_matrix_decision(
+    tmp_path,
+    monkeypatch,
+):
+    _historical_recovery_matrix_case(tmp_path, monkeypatch)
+
+
+def _canonical_empty_recovery_matrix_case(
     tmp_path,
     monkeypatch,
 ):
@@ -889,3 +915,23 @@ def test_canonical_empty_recovery_reaches_durable_standalone_decision(
     assert decision.reason is (
         ExpertReleaseMatrixDecisionReason.RECOVERY_STANDALONE_COVERAGE
     )
+    return SimpleNamespace(
+        recovery=recovery,
+        stored_candidate=stored_candidate,
+        admission=admission,
+        settings=settings,
+        configured_expert_settings=configured_expert_settings,
+        candidate_store=candidate_store,
+        validation_store=restarted_validation_store,
+        matrix_snapshot=matrix_snapshot,
+        prepared_task=prepared_task,
+        committed_stage=committed_stage,
+        decision=decision,
+    )
+
+
+def test_canonical_empty_recovery_reaches_durable_standalone_decision(
+    tmp_path,
+    monkeypatch,
+):
+    _canonical_empty_recovery_matrix_case(tmp_path, monkeypatch)

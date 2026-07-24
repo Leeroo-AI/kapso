@@ -66,6 +66,23 @@ class _TracingPublicationGate:
         self.events.append("gate")
 
 
+class _ExpertTagLivenessGate:
+    def __init__(self, events, reject_activation):
+        self.events = events
+        self.reject_activation = reject_activation
+        self.preflight_complete = False
+
+    def validate_before_publication(self, **_arguments):
+        self.preflight_complete = True
+        self.events.append("preflight")
+
+    def revalidate_before_activation(self, **_arguments):
+        assert self.preflight_complete
+        self.events.append("activation")
+        if self.reject_activation:
+            raise InjectedFailure("activation")
+
+
 def cross_run_settings():
     return CrossRunSettings.from_dict(load_config(CANONICAL_CONFIG_PATH)["cross_run"])
 
@@ -148,12 +165,16 @@ def build_envelope(tmp_path):
     return envelope, manifest
 
 
-def build_expert_envelope(tmp_path):
+def build_expert_envelope(
+    tmp_path,
+    *,
+    fixture_identity="expert-publication",
+):
     scope_contract_id = content_id("expert-scope-contract", {"scope": "ml_ai"})
     repository_map_id = content_id("expert-repository-map", {"scope": "ml_ai"})
     approval_assertion_id = content_id("fixture", {"approval": "expert"})
     release_ids = {
-        namespace: content_id(namespace, {"fixture": "expert-publication"})
+        namespace: content_id(namespace, {"fixture": fixture_identity})
         for namespace in (
             "expert-candidate",
             "expert-candidate-commit",
@@ -185,8 +206,8 @@ def build_expert_envelope(tmp_path):
             }
         )
     )
-    source_payload = b"expert source"
-    evidence_payload = b"expert evidence"
+    source_payload = f"expert source: {fixture_identity}".encode("utf-8")
+    evidence_payload = f"expert evidence: {fixture_identity}".encode("utf-8")
     manifest = ExpertBaseReleaseManifest.mint(
         scope_contract_id=scope_contract_id,
         scope_id="ml_ai",
@@ -237,11 +258,22 @@ def build_expert_envelope(tmp_path):
             "expert-evidence.tar.zst": tree_or_blob_digest(evidence_payload),
         },
     )
-    source = tmp_path / "expert-source"
+    source = tmp_path / f"{fixture_identity}-source"
     source.mkdir()
     (source / "expert-release.json").write_bytes(manifest.to_json_bytes())
-    asset = tmp_path / "expert-source.tar.zst"
-    asset.write_bytes(source_payload)
+    asset = tmp_path / f"{fixture_identity}-package.tar"
+    with tarfile.open(asset, "w") as package:
+        for name, payload in (
+            ("expert-evidence.tar.zst", evidence_payload),
+            ("expert-release.json", manifest.to_json_bytes()),
+            ("expert-source.tar.zst", source_payload),
+        ):
+            member = tarfile.TarInfo(name)
+            member.size = len(payload)
+            member.mtime = 0
+            package.addfile(member, io.BytesIO(payload))
+    asset_payload = asset.read_bytes()
+    release_digest = manifest.release_id.rsplit(":sha256:", 1)[1]
     return PublicationEnvelope(
         artifact_kind=PublicationArtifactKind.EXPERT_BASE_RELEASE,
         artifact_id=manifest.release_id,
@@ -253,12 +285,12 @@ def build_expert_envelope(tmp_path):
             ReleaseAssetInput(
                 path=asset,
                 name=asset.name,
-                media_type="application/zstd",
-                size=len(source_payload),
-                sha256=tree_or_blob_digest(source_payload),
+                media_type="application/x-tar",
+                size=len(asset_payload),
+                sha256=tree_or_blob_digest(asset_payload),
             ),
         ),
-        tag="expert/E000000",
+        tag=f"expert/E000000-{release_digest}",
         committed_at="2026-07-20T15:00:00Z",
         validation_closure_ids=tuple(
             sorted(
@@ -766,6 +798,27 @@ class FakePublisherClient:
     def _git_sha(self, object_kind, payload):
         header = f"{object_kind} {len(payload)}\0".encode("ascii")
         return hashlib.sha1(header + payload, usedforsecurity=False).hexdigest()
+
+
+class SharedImmutableTagPublisherClient(FakePublisherClient):
+    def __init__(self, *args, tag_owners, artifact_id, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.tag_owners = tag_owners
+        self.artifact_id = artifact_id
+
+    def create_ref_if_absent(self, repository, qualified_ref, commit_sha):
+        if qualified_ref == f"refs/tags/{self.tag}":
+            prior_owner = self.tag_owners.get(self.tag)
+            if prior_owner is not None and prior_owner != self.artifact_id:
+                raise GitHubCompareAndSwapError(
+                    "immutable tag already belongs to another artifact"
+                )
+            self.tag_owners[self.tag] = self.artifact_id
+        return super().create_ref_if_absent(
+            repository,
+            qualified_ref,
+            commit_sha,
+        )
 
 
 def build_publisher(client, resolver, tmp_path, settings=None):
@@ -1780,6 +1833,100 @@ def test_expert_publication_requires_sealed_domain_authorization_before_writes(
         publisher.publish(envelope)
 
     assert client.events == []
+
+
+def test_rejected_expert_activation_does_not_consume_successor_generation_tag(
+    tmp_path,
+    monkeypatch,
+):
+    authority = (
+        _ExpertTagLivenessGate.__module__,
+        _ExpertTagLivenessGate.__name__,
+    )
+    monkeypatch.setitem(
+        github_publisher_module._ACTIVATION_VERIFIER_AUTHORITIES,
+        PublicationArtifactKind.EXPERT_BASE_RELEASE,
+        authority,
+    )
+    tag_owners = {}
+
+    def authorized_publisher(envelope, reject_activation):
+        client = SharedImmutableTagPublisherClient(
+            envelope.assets[0],
+            repository=repositories().expert_repository,
+            artifact_kind=PublicationArtifactKind.EXPERT_BASE_RELEASE,
+            tag=envelope.tag,
+            tag_owners=tag_owners,
+            artifact_id=envelope.artifact_id,
+        )
+        resolver = FakeResolver(
+            artifact_kind=PublicationArtifactKind.EXPERT_BASE_RELEASE,
+            repository=repositories().expert_repository,
+        )
+        publisher = build_publisher(client, resolver, tmp_path)
+        publisher._bind_activation_verifier(
+            PublicationArtifactKind.EXPERT_BASE_RELEASE,
+            _ExpertTagLivenessGate,
+        )
+        events = []
+        gate = _ExpertTagLivenessGate(events, reject_activation)
+        authorization = publisher._authorize_publication(envelope, gate)
+        return client, publisher, authorization, events
+
+    rejected = build_expert_envelope(
+        tmp_path,
+        fixture_identity="rejected-expert-publication",
+    )
+    (
+        rejected_client,
+        rejected_publisher,
+        rejected_authorization,
+        rejected_gate_events,
+    ) = authorized_publisher(rejected, True)
+
+    with pytest.raises(InjectedFailure, match="activation"):
+        rejected_publisher.publish(
+            rejected,
+            activation_authorization=rejected_authorization,
+        )
+
+    assert rejected_client.release_published
+    assert rejected_client.head == EXPECTED_PARENT
+    assert "identity_ref" in rejected_client.events
+    assert "pointer_ref" not in rejected_client.events
+    assert rejected_gate_events == ["preflight", "activation"]
+
+    successor = build_expert_envelope(
+        tmp_path,
+        fixture_identity="successful-expert-publication",
+    )
+    assert successor.artifact_id != rejected.artifact_id
+    assert successor.tag != rejected.tag
+    assert successor.tag.split("-", 1)[0] == rejected.tag.split("-", 1)[0]
+    (
+        successor_client,
+        successor_publisher,
+        successor_authorization,
+        successor_gate_events,
+    ) = authorized_publisher(successor, False)
+
+    telemetry = successor_publisher.publish(
+        successor,
+        activation_authorization=successor_authorization,
+    )
+
+    assert telemetry.publication_record.artifact_id == successor.artifact_id
+    assert telemetry.publication_record.tag == successor.tag
+    assert successor_client.release_published
+    assert successor_client.events[-2:] == [
+        "pointer_ref",
+        "activation_witness_ref",
+    ]
+    assert successor_gate_events == ["preflight", "activation"]
+    assert tag_owners == {
+        rejected.tag: rejected.artifact_id,
+        successor.tag: successor.artifact_id,
+    }
 
 
 @pytest.mark.parametrize("closure_change", ("missing", "extra"))

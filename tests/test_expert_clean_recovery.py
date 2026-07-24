@@ -205,7 +205,10 @@ def _remote_activation(case, release, position, settings):
         repository_full_name="Leeroo-AI/kapso-expert",
         commit_sha=f"{position + 1:040x}",
         immutable_release_id=str(position + 1),
-        tag=f"{settings.github.expert_tag_prefix}E{position:06d}",
+        tag=(
+            f"{settings.github.expert_tag_prefix}E{position:06d}-"
+            f"{release.release_id.rsplit(':sha256:', 1)[1]}"
+        ),
         assets=(
             GitHubReleaseAsset(
                 asset_id=f"asset-{position}",
@@ -911,7 +914,7 @@ def test_historical_recovery_candidate_is_exact_admitted_restore(tmp_path):
         system.candidate_store.read(stored.closure.manifest.candidate_id)
 
 
-def test_recovery_admission_authorizes_every_blocked_control_ancestor(tmp_path):
+def test_recovery_admission_authorizes_only_the_activation_barrier(tmp_path):
     system = _historical_candidate_system(tmp_path, chain_length=3)
     intermediate = system.fixture.releases[1]
     system.fixture.security.blocked_release_ids.add(system.barrier.release_id)
@@ -921,13 +924,13 @@ def test_recovery_admission_authorizes_every_blocked_control_ancestor(tmp_path):
         replay_basis_packet=system.replay_basis,
     )
 
-    assert stored.recovery_admission.allowed_control_security_subject_ids == tuple(
-        sorted(
-            {
-                system.barrier.release_id,
-                intermediate.release_id,
-            }
-        )
+    assert stored.recovery_admission.allowed_control_security_subject_ids == (
+        system.barrier.release_id,
+    )
+    assert intermediate.release_id in stored.recovery_admission.control_dependency_ids
+    assert (
+        intermediate.release_id
+        not in stored.recovery_admission.allowed_control_security_subject_ids
     )
 
 
@@ -960,15 +963,17 @@ def test_empty_recovery_is_agent_authored_admitted_and_reopenable(tmp_path):
     assert stored.recovery_admission.recovery_plan.source_base_release_id is None
     assert stored.recovery_admission.barrier_replay_basis == system.replay_basis
     admission = stored.recovery_admission
-    assert set(admission.control_dependency_ids) == {
+    expected_control_dependency_ids = {
         admission.admission_id,
         admission.recovery_plan.recovery_plan_id,
         admission.barrier_replay_basis.evidence_packet_id,
         *admission.recovery_plan.control_dependency_ids,
-    }
+    } - {admission.recovery_plan.scope_contract.scope_contract_id}
+    assert set(admission.control_dependency_ids) == expected_control_dependency_ids
     assert set(admission.scientific_dependency_ids) == {
         closure.manifest.candidate_id,
         stored.commit_record.commit_record_id,
+        admission.recovery_plan.scope_contract.scope_contract_id,
     }
     assert set(admission.control_dependency_ids).isdisjoint(
         admission.scientific_dependency_ids

@@ -1365,9 +1365,13 @@ and generates release provenance. Publication first creates a draft, streams eve
 asset through the raw upload endpoint with its manifest-bound filename and media
 type, verifies each returned SHA-256 digest, and only then publishes it.
 
-An expert release tag such as `expert/E000007` points at the exact validated source
-commit and carries `expert-release.json` plus its checksums. A knowledge release
-tag such as `knowledge/S000025` carries:
+An expert release tag such as
+`expert/E000007-<release-sha256>` points at the exact validated source commit and
+carries `expert-release.json` plus its checksums. `E000007` is activation order,
+while the release digest makes equal-generation immutable attempts collision-free:
+a final policy rejection can leave non-current release evidence without preventing
+another candidate from attempting the same next generation. A knowledge release tag
+such as `knowledge/S000025` carries:
 
 ```text
 knowledge-snapshot-S000025.tar.zst    # complete semantic/proof closure
