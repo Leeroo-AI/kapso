@@ -17,6 +17,7 @@ from kapso.cross_run.launch.resume_contracts import (
     RunSafetyBoundary,
 )
 from kapso.cross_run.launch.run_action_contracts import (
+    RunActionBoundaryIdentity,
     RunActionContractError,
     RunActionIntent,
     RunFrontierActionKind,
@@ -336,6 +337,7 @@ class RunFrontierActionGate:
         operation_id: str,
         request_payload: bytes,
         workspace_access: RunFrontierWorkspaceAccess,
+        boundary_identity: RunActionBoundaryIdentity,
     ) -> RunFrontierUsePermit:
         """Persist complete request bytes before returning an action capability."""
         self._require_owner_process()
@@ -345,6 +347,7 @@ class RunFrontierActionGate:
             operation_id=operation_id,
             request_payload=request_payload,
             workspace_access=workspace_access,
+            boundary_identity=boundary_identity,
         )
         with ExitStack() as descriptors:
             checkpoint = self._publisher._hold_current(frontier, descriptors)
@@ -432,9 +435,17 @@ class RunFrontierActionGate:
         *,
         kind: RunFrontierActionKind,
         provider_execution_id: str,
+        boundary_identity: RunActionBoundaryIdentity,
     ) -> int | None:
         """Durably commit the exact provider invocation before it may spawn."""
         self._require_live_lease(lease, kind=kind, require_claimed=False)
+        if (
+            type(boundary_identity) is not RunActionBoundaryIdentity
+            or boundary_identity != lease._reservation.intent.boundary_identity
+        ):
+            raise RunFrontierActionError(
+                "run action claim boundary differs from its reservation"
+            )
         required_security = lease._security_observation
         current_security = self._security_authority.observe_exact_descendant_of(
             scope_id=required_security.scope_id,
@@ -452,6 +463,7 @@ class RunFrontierActionGate:
         spawn_commit = lease._session.commit_spawn(
             provider_execution_id=provider_execution_id,
             security_observation_id=(current_security.observation_id),
+            boundary_identity=boundary_identity,
         )
         object.__setattr__(lease, "_claimed", True)
         object.__setattr__(lease, "_spawn_commit", spawn_commit)
@@ -549,6 +561,7 @@ class RunFrontierActionGate:
             operation_id=intent.operation_id,
             request_payload=request_payload,
             workspace_access=intent.workspace_access,
+            boundary_identity=intent.boundary_identity,
         )
         if observed_intent != intent:
             raise RunFrontierActionError(

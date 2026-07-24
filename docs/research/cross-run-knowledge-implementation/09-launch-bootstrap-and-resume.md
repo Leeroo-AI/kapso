@@ -390,7 +390,10 @@ for resume. Admission is a ledger compare-and-swap, so reconstructed gates and
 concurrent processes cannot both reserve against the same live floor.
 Mutation entry points are internal and sealed to the gate. Provider execution
 IDs and invocation nonces are unique across the full store, not merely within
-one operation.
+one operation. Every reservation and spawn also pins one content-addressed
+boundary identity: action kind, adapter ID and version, recovery protocol
+version, and sandbox-policy ID. A substituted adapter is rejected before the
+fresh security observation or provider spawn.
 
 Publication takes the locks in checkpoint → workspace → registry order and
 retains them through bundle/checkpoint/view commit. The candidate `ACTION_LEDGER`

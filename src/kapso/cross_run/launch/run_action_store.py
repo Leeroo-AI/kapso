@@ -22,6 +22,7 @@ from kapso.cross_run.canonical import (
 )
 from kapso.cross_run.contracts import StrictContract
 from kapso.cross_run.launch.run_action_contracts import (
+    RunActionBoundaryIdentity,
     RunActionContractError,
     RunActionIntent,
     RunFrontierWorkspaceAccess,
@@ -352,6 +353,7 @@ class RunActionSpawnCommit(StrictContract):
     provider_execution_id: str
     invocation_nonce: str
     security_observation_id: str
+    boundary_identity: RunActionBoundaryIdentity
 
     CONTENT_NAMESPACE: ClassVar[str] = "run-action-spawn-commit"
     IDENTITY_FIELD: ClassVar[str] = "spawn_commit_id"
@@ -375,6 +377,10 @@ class RunActionSpawnCommit(StrictContract):
             raise RunActionStoreError(
                 "run action spawn nonce must be 128-bit lowercase hex"
             )
+        if type(self.boundary_identity) is not RunActionBoundaryIdentity:
+            raise RunActionStoreError(
+                "run action spawn requires one exact boundary identity"
+            )
 
     @classmethod
     def build(
@@ -383,12 +389,14 @@ class RunActionSpawnCommit(StrictContract):
         reservation_id: str,
         provider_execution_id: str,
         security_observation_id: str,
+        boundary_identity: RunActionBoundaryIdentity,
     ) -> "RunActionSpawnCommit":
         return cls.mint(
             reservation_id=reservation_id,
             provider_execution_id=provider_execution_id,
             invocation_nonce=secrets.token_hex(16),
             security_observation_id=security_observation_id,
+            boundary_identity=boundary_identity,
         )
 
 
@@ -761,12 +769,21 @@ class _RunActionExecutionSession:
         *,
         provider_execution_id: str,
         security_observation_id: str,
+        boundary_identity: RunActionBoundaryIdentity,
     ) -> RunActionSpawnCommit:
         self._require_tail(RunActionExecutionEventKind.INTENT_RESERVED)
+        if (
+            type(boundary_identity) is not RunActionBoundaryIdentity
+            or boundary_identity != self.reservation.intent.boundary_identity
+        ):
+            raise RunActionStoreError(
+                "run action spawn boundary differs from its reservation"
+            )
         spawn_commit = RunActionSpawnCommit.build(
             reservation_id=self.reservation.reservation_id,
             provider_execution_id=provider_execution_id,
             security_observation_id=security_observation_id,
+            boundary_identity=boundary_identity,
         )
         event = self._event(
             RunActionExecutionEventKind.SPAWN_COMMITTED,
@@ -2128,6 +2145,7 @@ def _validate_event_prefix(events: tuple[RunActionExecutionEvent, ...]) -> None:
             spawn.reservation_id != reservation.reservation_id
             or spawn.security_observation_id
             != reservation.frontier.security_observation_id
+            or spawn.boundary_identity != reservation.intent.boundary_identity
         ):
             raise RunActionStoreError("run action spawn differs from its reservation")
     if len(events) >= 3 and events[2].event_kind is (

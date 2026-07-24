@@ -69,6 +69,34 @@ _ALLOWED_ACTION_WORKSPACE_ACCESS = {
 
 
 @dataclass(frozen=True)
+class RunActionBoundaryIdentity(StrictContract):
+    """Exact provider adapter, recovery protocol, and sandbox policy identity."""
+
+    boundary_identity_id: str
+    kind: RunFrontierActionKind
+    adapter_id: str
+    adapter_version: str
+    recovery_protocol_version: str
+    sandbox_policy_id: str
+
+    CONTENT_NAMESPACE: ClassVar[str] = "run-action-boundary-identity"
+    IDENTITY_FIELD: ClassVar[str] = "boundary_identity_id"
+
+    def _validate(self) -> None:
+        if type(self.kind) is not RunFrontierActionKind:
+            raise RunActionContractError(
+                "run action boundary identity uses an unrecognized kind"
+            )
+        for value, name in (
+            (self.adapter_id, "adapter ID"),
+            (self.adapter_version, "adapter version"),
+            (self.recovery_protocol_version, "recovery protocol version"),
+            (self.sandbox_policy_id, "sandbox policy ID"),
+        ):
+            require_identifier(value, f"run action boundary {name}")
+
+
+@dataclass(frozen=True)
 class RunActionIntent(StrictContract):
     """Content identity derived from one complete boundary request."""
 
@@ -79,6 +107,7 @@ class RunActionIntent(StrictContract):
     request_digest: str
     request_size_bytes: int
     workspace_access: RunFrontierWorkspaceAccess
+    boundary_identity: RunActionBoundaryIdentity
 
     CONTENT_NAMESPACE: ClassVar[str] = "run-frontier-action-intent"
     IDENTITY_FIELD: ClassVar[str] = "action_intent_id"
@@ -88,10 +117,10 @@ class RunActionIntent(StrictContract):
             type(self.kind) is not RunFrontierActionKind
             or type(self.boundary) is not RunSafetyBoundary
             or type(self.workspace_access) is not RunFrontierWorkspaceAccess
+            or type(self.boundary_identity) is not RunActionBoundaryIdentity
+            or self.boundary_identity.kind is not self.kind
         ):
-            raise RunActionContractError(
-                "run action intent uses an unrecognized enum"
-            )
+            raise RunActionContractError("run action intent uses an unrecognized enum")
         require_identifier(self.operation_id, "run action operation_id")
         if (
             _DIGEST_PATTERN.fullmatch(self.request_digest) is None
@@ -122,6 +151,7 @@ class RunActionIntent(StrictContract):
         operation_id: str,
         request_payload: bytes,
         workspace_access: RunFrontierWorkspaceAccess,
+        boundary_identity: RunActionBoundaryIdentity,
     ) -> "RunActionIntent":
         if type(request_payload) is not bytes or not request_payload:
             raise RunActionContractError(
@@ -134,11 +164,13 @@ class RunActionIntent(StrictContract):
             request_digest=tree_or_blob_digest(request_payload),
             request_size_bytes=len(request_payload),
             workspace_access=workspace_access,
+            boundary_identity=boundary_identity,
         )
 
 
 __all__ = [
     "RunActionContractError",
+    "RunActionBoundaryIdentity",
     "RunActionIntent",
     "RunFrontierActionKind",
     "RunFrontierWorkspaceAccess",

@@ -27,6 +27,7 @@ from kapso.cross_run.launch.resume_contracts import (
     RunSafetyBoundary,
     RunSafetyState,
 )
+from kapso.cross_run.launch.run_action_contracts import RunActionBoundaryIdentity
 from kapso.cross_run.launch.run_action_gate import (
     RunFrontierActionError,
     RunFrontierActionGate,
@@ -52,6 +53,18 @@ from test_launch_resume_contracts import (
     _subjects,
 )
 from test_run_state_publisher import _publish_genesis, publisher_case
+
+
+def _boundary_identity(
+    kind: RunFrontierActionKind,
+) -> RunActionBoundaryIdentity:
+    return RunActionBoundaryIdentity.mint(
+        kind=kind,
+        adapter_id=f"test.{kind.value}.adapter",
+        adapter_version="test.adapter.v1",
+        recovery_protocol_version="test.recovery.v1",
+        sandbox_policy_id=f"test.{kind.value}.sandbox.v1",
+    )
 
 
 class _StaticSecurityAuthority:
@@ -204,6 +217,7 @@ def _issue_ideation_agent(gate, receipt, payload=b'{"prompt":"complete"}'):
         operation_id="agent_call_0123456789abcdef0123456789abcdef",
         request_payload=payload,
         workspace_access=RunFrontierWorkspaceAccess.READ_ONLY,
+        boundary_identity=_boundary_identity(RunFrontierActionKind.CODING_AGENT),
     )
 
 
@@ -220,6 +234,7 @@ def _issue_implementation_agent(
         operation_id=f"implementation_{operation_suffix}_0123456789abcdef",
         request_payload=payload,
         workspace_access=RunFrontierWorkspaceAccess.EDIT_WORKSPACE,
+        boundary_identity=_boundary_identity(RunFrontierActionKind.CODING_AGENT),
     )
 
 
@@ -262,6 +277,7 @@ def _claim_action(gate, lease, kind=RunFrontierActionKind.CODING_AGENT):
         lease,
         kind=kind,
         provider_execution_id=(f"provider_{lease._reservation.intent.operation_id}"),
+        boundary_identity=lease._reservation.intent.boundary_identity,
     )
 
 
@@ -418,6 +434,7 @@ def test_action_gate_holds_current_frontier_and_claims_once(
                 lease,
                 kind=RunFrontierActionKind.CODING_AGENT,
                 provider_execution_id="duplicate_execution_0123456789abcdef",
+                boundary_identity=lease._reservation.intent.boundary_identity,
             )
         _accept_action(gate, lease)
 
@@ -437,6 +454,52 @@ def test_action_gate_holds_current_frontier_and_claims_once(
     with pytest.raises(RunFrontierActionError, match="consumed"):
         with gate.hold(permit, payload):
             raise AssertionError("consumed permit entered")
+
+
+def test_action_claim_rejects_adapter_substitution_before_security_use(
+    publisher_case,
+) -> None:
+    _publisher, receipt, security, gate = _action_case(publisher_case)
+    payload = b'{"prompt":"adapter-bound"}'
+    permit = _issue_ideation_agent(gate, receipt, payload)
+    substituted = RunActionBoundaryIdentity.mint(
+        kind=RunFrontierActionKind.CODING_AGENT,
+        adapter_id="test.coding_agent.adapter",
+        adapter_version="test.adapter.v2",
+        recovery_protocol_version="test.recovery.v1",
+        sandbox_policy_id="test.coding_agent.sandbox.v1",
+    )
+
+    with gate.hold(permit, payload) as lease:
+        with pytest.raises(RunFrontierActionError, match="claim boundary"):
+            gate.claim(
+                lease,
+                kind=RunFrontierActionKind.CODING_AGENT,
+                provider_execution_id="substituted_adapter_0123456789abcdef",
+                boundary_identity=substituted,
+            )
+        assert not security.calls
+        _complete_action(gate, lease)
+
+
+def test_action_issue_rejects_boundary_kind_substitution(
+    publisher_case,
+) -> None:
+    publisher, receipt, _security, gate = _action_case(publisher_case)
+    before = publisher.action_ledger_snapshot()
+
+    with pytest.raises(RunFrontierActionError, match="unrecognized enum"):
+        gate.issue(
+            receipt,
+            kind=RunFrontierActionKind.CODING_AGENT,
+            boundary=RunSafetyBoundary.IDEATION,
+            operation_id="wrong_adapter_kind_0123456789abcdef",
+            request_payload=b'{"prompt":"complete"}',
+            workspace_access=RunFrontierWorkspaceAccess.READ_ONLY,
+            boundary_identity=_boundary_identity(RunFrontierActionKind.EMBEDDING),
+        )
+
+    assert publisher.action_ledger_snapshot() == before
 
 
 @pytest.mark.parametrize("mutation", ("clone", "request"))
@@ -500,6 +563,7 @@ def test_action_gate_rejects_wrong_checkpoint_boundary(
             operation_id="evaluation_0123456789abcdef",
             request_payload=b'{"evaluation":"full"}',
             workspace_access=RunFrontierWorkspaceAccess.READ_ONLY,
+            boundary_identity=_boundary_identity(RunFrontierActionKind.EVALUATOR),
         )
 
 
@@ -591,6 +655,7 @@ def test_multiple_read_only_actions_form_one_workspace_chain(
         operation_id="second_read_action_0123456789abcdef",
         request_payload=second_payload,
         workspace_access=RunFrontierWorkspaceAccess.READ_ONLY,
+        boundary_identity=_boundary_identity(RunFrontierActionKind.CODING_AGENT),
     )
     with gate.hold(second, second_payload) as lease:
         _complete_action(gate, lease)
@@ -732,6 +797,7 @@ def test_action_gate_enforces_exact_capability_matrix(
             operation_id="forbidden_action_0123456789abcdef",
             request_payload=b'{"request":"complete"}',
             workspace_access=access,
+            boundary_identity=_boundary_identity(kind),
         )
 
 
@@ -747,6 +813,7 @@ def test_embedding_action_receives_no_workspace_capability(
         operation_id="embedding_0123456789abcdef",
         request_payload=payload,
         workspace_access=RunFrontierWorkspaceAccess.NONE,
+        boundary_identity=_boundary_identity(RunFrontierActionKind.EMBEDDING),
     )
 
     assert permit.workspace_frontier is None
@@ -778,6 +845,7 @@ def test_duplicate_action_intent_and_operation_are_reserved_once(
             operation_id=first.intent.operation_id,
             request_payload=b'{"prompt":"another complete request"}',
             workspace_access=RunFrontierWorkspaceAccess.READ_ONLY,
+            boundary_identity=_boundary_identity(RunFrontierActionKind.CODING_AGENT),
         )
 
     with gate.hold(first, payload) as lease:
@@ -1149,6 +1217,7 @@ def test_workspace_edit_is_exclusive_and_requires_accounting_successor(
             operation_id="post_edit_0123456789abcdef",
             request_payload=payload,
             workspace_access=RunFrontierWorkspaceAccess.EDIT_WORKSPACE,
+            boundary_identity=_boundary_identity(RunFrontierActionKind.CODING_AGENT),
         )
     alternate_publisher = RunStatePublisher(
         publisher_case["active"],
@@ -1194,6 +1263,7 @@ def test_workspace_edit_is_exclusive_and_requires_accounting_successor(
         operation_id="evaluation_after_edit_0123456789abcdef",
         request_payload=b'{"evaluation":"complete"}',
         workspace_access=RunFrontierWorkspaceAccess.READ_ONLY,
+        boundary_identity=_boundary_identity(RunFrontierActionKind.EVALUATOR),
     )
 
     assert evaluation_permit.workspace_frontier.commit_sha == commit_sha

@@ -33,7 +33,7 @@ from kapso.cross_run.launch.resume_contracts import RunSafetyBoundary
 from kapso.cross_run.launch.workspace_frontier import (
     inspect_run_workspace_frontier,
 )
-from test_run_frontier_action_gate import _action_case
+from test_run_frontier_action_gate import _action_case, _boundary_identity
 from test_launch_resolver import resolver_case
 from test_run_state_publisher import publisher_case
 
@@ -92,6 +92,7 @@ def _reserved_action(
         operation_id=operation_id,
         request_payload=request_payload,
         workspace_access=RunFrontierWorkspaceAccess.READ_ONLY,
+        boundary_identity=_boundary_identity(RunFrontierActionKind.CODING_AGENT),
     )
     if workspace is None:
         with ExitStack() as descriptors:
@@ -135,7 +136,9 @@ def test_action_store_reopens_complete_request_result_and_terminal_prefix(
             security_observation_id=(
                 frontier.checkpoint.safety_state.security_observation.observation_id
             ),
+            boundary_identity=session.reservation.intent.boundary_identity,
         )
+        assert spawn.boundary_identity == session.reservation.intent.boundary_identity
         raw_result = b'{"provider_response":"complete"}'
         result = session.record_result(
             spawn_commit=spawn,
@@ -267,6 +270,7 @@ def test_action_store_cancel_and_interrupted_prefixes_are_terminal(
                 security_observation_id=(
                     frontier.checkpoint.safety_state.security_observation.observation_id
                 ),
+                boundary_identity=session.reservation.intent.boundary_identity,
             )
 
     (
@@ -287,6 +291,7 @@ def test_action_store_cancel_and_interrupted_prefixes_are_terminal(
             security_observation_id=(
                 second_frontier.checkpoint.safety_state.security_observation.observation_id
             ),
+            boundary_identity=session.reservation.intent.boundary_identity,
         )
         session.interrupt(
             reason=RunActionTerminalReason.PROVIDER_INTERRUPTED,
@@ -319,6 +324,7 @@ def test_action_store_rejects_request_substitution_and_result_corruption(
         spawn = session.commit_spawn(
             provider_execution_id="corrupt_result_0123456789abcdef",
             security_observation_id=(reservation.frontier.security_observation_id),
+            boundary_identity=session.reservation.intent.boundary_identity,
         )
         result = session.record_result(
             spawn_commit=spawn,
@@ -445,6 +451,7 @@ def test_action_store_rejects_reused_provider_execution_identity(
             security_observation_id=(
                 frontier.checkpoint.safety_state.security_observation.observation_id
             ),
+            boundary_identity=session.reservation.intent.boundary_identity,
         )
         result = session.record_result(
             spawn_commit=spawn,
@@ -470,6 +477,7 @@ def test_action_store_rejects_reused_provider_execution_identity(
                 security_observation_id=(
                     frontier.checkpoint.safety_state.security_observation.observation_id
                 ),
+                boundary_identity=session.reservation.intent.boundary_identity,
             )
 
 
