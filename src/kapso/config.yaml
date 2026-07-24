@@ -369,8 +369,15 @@ cross_run:
     starting_artifacts_path: "readonly/starting_artifacts"
     launch_manifest_path: ".kapso/launch_manifest.json"
     bootstrap_pin_path: ".kapso/bootstrap_pin.json"
+    run_checkpoint_path: ".kapso/run_checkpoint.json"
+    run_checkpoint_journal_path: ".kapso/run_checkpoint.journal"
+    run_checkpoint_lock_path: ".kapso/run_checkpoint.lock"
+    run_checkpoint_staging_path: ".kapso/run_checkpoint_staging"
     launch_manifest_size_bytes: 33554432
     bootstrap_pin_size_bytes: 67108864
+    run_checkpoint_size_bytes: 67108864
+    run_checkpoint_journal_size_bytes: 1073741824
+    run_checkpoint_staging_entry_limit: 64
     knowledge_snapshot_file_size_bytes: 268435456
     workspace_git_branch: "main"
     compatibility_policy_version: "kapso.launch_compatibility.v1"

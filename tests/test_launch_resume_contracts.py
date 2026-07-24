@@ -269,7 +269,7 @@ def test_safety_state_derives_eligibility_and_transitive_taint(
     eligible = RunSafetyState.build(
         predecessor=None,
         bootstrap_pin=pin,
-        boundary=RunSafetyBoundary.RESUME,
+        boundary=RunSafetyBoundary.INITIALIZATION,
         derivative_frontier=initial_frontier,
         security_observation=_security_observation(
             pin,
@@ -471,7 +471,7 @@ def test_offline_release_use_is_always_reproducibility_only(
     state = RunSafetyState.build(
         predecessor=None,
         bootstrap_pin=pin,
-        boundary=RunSafetyBoundary.RESUME,
+        boundary=RunSafetyBoundary.INITIALIZATION,
         derivative_frontier=frontier,
         security_observation=_security_observation(
             pin,
@@ -503,7 +503,7 @@ def test_offline_release_use_is_always_reproducibility_only(
         RunSafetyState.build(
             predecessor=None,
             bootstrap_pin=pin,
-            boundary=RunSafetyBoundary.RESUME,
+            boundary=RunSafetyBoundary.INITIALIZATION,
             derivative_frontier=frontier,
             security_observation=_security_observation(
                 pin,
@@ -540,7 +540,7 @@ def test_frontier_rejects_unknown_sources_and_safety_rejects_splicing(
     state = RunSafetyState.build(
         predecessor=None,
         bootstrap_pin=pin,
-        boundary=RunSafetyBoundary.RESUME,
+        boundary=RunSafetyBoundary.INITIALIZATION,
         derivative_frontier=frontier,
         security_observation=_security_observation(
             pin,
@@ -561,7 +561,7 @@ def test_frontier_rejects_unknown_sources_and_safety_rejects_splicing(
         RunSafetyState.build(
             predecessor=None,
             bootstrap_pin=pin,
-            boundary=RunSafetyBoundary.RESUME,
+            boundary=RunSafetyBoundary.INITIALIZATION,
             derivative_frontier=nonempty_initial_frontier,
             security_observation=_security_observation(
                 pin,

@@ -37,6 +37,7 @@ class RunDerivativeKind(str, Enum):
 class RunSafetyBoundary(str, Enum):
     """Dangerous boundaries requiring freshly checked run safety."""
 
+    INITIALIZATION = "initialization"
     RESUME = "resume"
     IDEATION = "ideation"
     IMPLEMENTATION = "implementation"
@@ -724,6 +725,7 @@ class RunSafetyState(StrictContract):
                 != expected_initial_branches
                 or dict(self.derivative_frontier.evidence.branch_heads)
                 != expected_initial_branches
+                or self.boundary is not RunSafetyBoundary.INITIALIZATION
             ):
                 raise ResumeContractError(
                     "initial run safety state must have an empty predecessor frontier"
@@ -736,6 +738,10 @@ class RunSafetyState(StrictContract):
             if self.boundary_sequence <= 0:
                 raise ResumeContractError(
                     "successor run safety state requires a positive sequence"
+                )
+            if self.boundary is RunSafetyBoundary.INITIALIZATION:
+                raise ResumeContractError(
+                    "successor run safety state cannot initialize the run"
                 )
         if type(self.boundary_sequence) is not int or self.boundary_sequence < 0:
             raise ResumeContractError(

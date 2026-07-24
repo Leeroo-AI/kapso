@@ -6,6 +6,7 @@ import ctypes
 import errno
 import hashlib
 import os
+import re
 import stat
 import struct
 import tempfile
@@ -19,6 +20,7 @@ from typing import Any, Mapping
 from weakref import WeakValueDictionary
 
 from kapso.cross_run.canonical import (
+    content_id,
     require_identifier,
     source_tree_digest,
     tree_or_blob_digest,
@@ -37,6 +39,7 @@ from kapso.cross_run.expert.topology import (
 )
 from kapso.cross_run.git_refs import git_object_sha, git_tree_shas
 from kapso.cross_run.knowledge.package import KnowledgeSnapshotPackage
+from kapso.cross_run.launch.checkpoint_contracts import RunCheckpointHead
 from kapso.cross_run.launch.contracts import (
     BootstrapPin,
     LaunchManifest,
@@ -55,6 +58,9 @@ _GIT_INDEX_HEADER = struct.Struct("!4sLL")
 _GIT_INDEX_PATH_LIMIT = 0xFFF
 _GIT_COMMIT_TIME = "0 +0000"
 _GIT_COMMIT_MESSAGE = b"Kapso launch baseline\n"
+_RUN_CHECKPOINT_STAGING_PATTERN = re.compile(
+    r"^checkpoint-[0-9a-f]{64}-[0-9a-f]{32}[.]tmp$"
+)
 
 
 class _WorkspaceBuilderAuthority:
@@ -62,7 +68,9 @@ class _WorkspaceBuilderAuthority:
 
 
 _WORKSPACE_BUILDER_AUTHORITY = _WorkspaceBuilderAuthority()
+_ACTIVE_LAUNCH_AUTHORITY = object()
 _ISSUED_PREPARED_WORKSPACES: WeakValueDictionary[int, object] = WeakValueDictionary()
+_ISSUED_ACTIVE_WORKSPACES: WeakValueDictionary[int, object] = WeakValueDictionary()
 _PREPARED_WORKSPACE_AUTHORITY_LOCK = Lock()
 
 
@@ -80,6 +88,7 @@ def _required_layout_directory_paths(
         PurePosixPath(layout.knowledge_snapshot_relative_path),
         PurePosixPath(layout.task_adapter_relative_path),
         PurePosixPath(layout.starting_artifacts_relative_path),
+        PurePosixPath(layout.run_checkpoint_staging_relative_path),
         *(
             PurePosixPath(relative_path)
             for relative_path in layout.starting_artifact_roots.values()
@@ -88,6 +97,9 @@ def _required_layout_directory_paths(
     control_paths = (
         PurePosixPath(layout.launch_manifest_relative_path),
         PurePosixPath(layout.bootstrap_pin_relative_path),
+        PurePosixPath(layout.run_checkpoint_relative_path),
+        PurePosixPath(layout.run_checkpoint_journal_relative_path),
+        PurePosixPath(layout.run_checkpoint_lock_relative_path),
     )
     for path in (*directory_roots, *control_paths):
         required.update(
@@ -300,6 +312,8 @@ class PreparedLaunchWorkspace:
         expected_control_paths = {
             layout.launch_manifest_relative_path,
             layout.bootstrap_pin_relative_path,
+            layout.run_checkpoint_journal_relative_path,
+            layout.run_checkpoint_lock_relative_path,
         }
         if (
             self.run_root.is_symlink()
@@ -356,7 +370,7 @@ class PreparedLaunchWorkspace:
             MappingProxyType(dict(self._pinned_control_file_identities)),
         )
 
-    def require_builder_authority(self) -> None:
+    def require_builder_authority(self) -> "ActiveLaunchWorkspace":
         identity = id(self)
         with _PREPARED_WORKSPACE_AUTHORITY_LOCK:
             issued = _ISSUED_PREPARED_WORKSPACES.pop(identity, None)
@@ -379,6 +393,17 @@ class PreparedLaunchWorkspace:
         )
         self._require_verified_identity(terminal_verified)
         self._require_filesystem_identity()
+        active = ActiveLaunchWorkspace(
+            run_root=self.run_root,
+            workspace=self.workspace,
+            bootstrap_pin=self.bootstrap_pin,
+            published_root_identity=self._published_root_identity,
+            _prepared=self,
+            _authority=_ACTIVE_LAUNCH_AUTHORITY,
+        )
+        _issue_active_workspace(active)
+        active.require_control_authority()
+        return active
 
     def _require_verified_identity(
         self,
@@ -430,6 +455,58 @@ class PreparedLaunchWorkspace:
                     raise LaunchWorkspaceError(
                         "prepared launch control file changed after publication"
                     )
+
+
+@dataclass(frozen=True)
+class ActiveLaunchWorkspace:
+    """Live, verified authority shared by run controls and orchestration."""
+
+    run_root: Path
+    workspace: Path
+    bootstrap_pin: BootstrapPin
+    published_root_identity: tuple[int, int]
+    _prepared: PreparedLaunchWorkspace = field(repr=False, compare=False)
+    _authority: object = field(repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        if (
+            type(self._prepared) is not PreparedLaunchWorkspace
+            or self._authority is not _ACTIVE_LAUNCH_AUTHORITY
+            or self.run_root != self._prepared.run_root
+            or self.workspace != self._prepared.workspace
+            or self.bootstrap_pin != self._prepared.bootstrap_pin
+            or self.published_root_identity != self._prepared._published_root_identity
+        ):
+            raise LaunchWorkspaceError(
+                "active launch requires consumed workspace-builder authority"
+            )
+        self._prepared._require_filesystem_identity()
+
+    def require_control_authority(self) -> None:
+        with _PREPARED_WORKSPACE_AUTHORITY_LOCK:
+            issued = _ISSUED_ACTIVE_WORKSPACES.get(id(self))
+        if self._authority is not _ACTIVE_LAUNCH_AUTHORITY or issued is not self:
+            raise LaunchWorkspaceError("active launch control authority is invalid")
+        self._prepared._require_filesystem_identity()
+        self._prepared._builder_verifier._verify_outer_run_root_closure(
+            self.run_root,
+            self.bootstrap_pin.installation_receipt.layout,
+            self.published_root_identity,
+        )
+
+
+def _issue_active_workspace(active: ActiveLaunchWorkspace) -> None:
+    if (
+        type(active) is not ActiveLaunchWorkspace
+        or active._authority is not _ACTIVE_LAUNCH_AUTHORITY
+    ):
+        raise LaunchWorkspaceError(
+            "only consumed workspace authority may activate a launch"
+        )
+    with _PREPARED_WORKSPACE_AUTHORITY_LOCK:
+        if id(active) in _ISSUED_ACTIVE_WORKSPACES:
+            raise LaunchWorkspaceError("active launch was already issued")
+        _ISSUED_ACTIVE_WORKSPACES[id(active)] = active
 
 
 def _issue_prepared_workspace(
@@ -548,6 +625,28 @@ class StarterWorkspaceBuilder:
                 manifest.expert_source.extraction_receipt.source_tree_files,
                 resolved_launch.expert_source.source_contents,
             )
+            checkpoint_journal_path = (
+                staging / layout.run_checkpoint_journal_relative_path
+            )
+            checkpoint_lock_path = staging / layout.run_checkpoint_lock_relative_path
+            self._write_plain_file(
+                checkpoint_journal_path,
+                b"",
+                mode=0o600,
+            )
+            self._write_plain_file(
+                checkpoint_lock_path,
+                b"",
+                mode=0o600,
+            )
+            checkpoint_journal_metadata = checkpoint_journal_path.stat(
+                follow_symlinks=False
+            )
+            checkpoint_lock_metadata = checkpoint_lock_path.stat(follow_symlinks=False)
+            launch_settings_id = content_id(
+                "launch-settings",
+                self._settings.launch.to_dict(),
+            )
 
             installation = WorkspaceInstallationReceipt.mint(
                 launch_manifest_id=manifest.launch_manifest_id,
@@ -573,6 +672,11 @@ class StarterWorkspaceBuilder:
                 workspace_baseline_tree_sha=baseline_tree_sha,
                 workspace_git_index_digest=git_index_digest,
                 workspace_git_object_ids=git_object_ids,
+                launch_settings_id=launch_settings_id,
+                run_checkpoint_journal_device=(checkpoint_journal_metadata.st_dev),
+                run_checkpoint_journal_inode=(checkpoint_journal_metadata.st_ino),
+                run_checkpoint_lock_device=checkpoint_lock_metadata.st_dev,
+                run_checkpoint_lock_inode=checkpoint_lock_metadata.st_ino,
                 installer_id=STARTER_WORKSPACE_INSTALLER_ID,
                 installer_version=STARTER_WORKSPACE_INSTALLER_VERSION,
                 exact_dependency_ids=tuple(
@@ -580,6 +684,7 @@ class StarterWorkspaceBuilder:
                         {
                             manifest.launch_manifest_id,
                             manifest.starting_artifacts.materialization_receipt_id,
+                            launch_settings_id,
                         }
                     )
                 ),
@@ -617,6 +722,21 @@ class StarterWorkspaceBuilder:
                 staging / layout.bootstrap_pin_relative_path,
                 pin_bytes,
             )
+            initial_checkpoint_head = (
+                RunCheckpointHead.initial(pin).to_json_bytes() + b"\n"
+            )
+            self._require_control_file_bound(
+                initial_checkpoint_head,
+                self._settings.launch.run_checkpoint_journal_size_bytes,
+                "run checkpoint journal",
+            )
+            self._append_plain_file(
+                checkpoint_journal_path,
+                initial_checkpoint_head,
+            )
+            checkpoint_staging = staging / layout.run_checkpoint_staging_relative_path
+            checkpoint_staging.mkdir(parents=True, mode=0o700)
+            checkpoint_staging.chmod(0o700)
             self._fsync_tree(staging)
             self._require_parent_identity(
                 normalized_run_root.parent,
@@ -664,6 +784,10 @@ class StarterWorkspaceBuilder:
             starting_artifact_roots=artifact_roots,
             launch_manifest_relative_path=launch.launch_manifest_path,
             bootstrap_pin_relative_path=launch.bootstrap_pin_path,
+            run_checkpoint_relative_path=launch.run_checkpoint_path,
+            run_checkpoint_journal_relative_path=(launch.run_checkpoint_journal_path),
+            run_checkpoint_lock_relative_path=launch.run_checkpoint_lock_path,
+            run_checkpoint_staging_relative_path=(launch.run_checkpoint_staging_path),
         )
 
     @staticmethod
@@ -1547,6 +1671,18 @@ class StarterWorkspaceBuilder:
             os.fchmod(handle.fileno(), mode)
             os.fsync(handle.fileno())
 
+    @staticmethod
+    def _append_plain_file(path: Path, payload: bytes) -> None:
+        descriptor = os.open(
+            path,
+            os.O_WRONLY | os.O_APPEND | os.O_NOFOLLOW | os.O_CLOEXEC,
+        )
+        with os.fdopen(descriptor, "ab", buffering=0) as handle:
+            written = handle.write(payload)
+            if written != len(payload):
+                raise LaunchWorkspaceError("checkpoint journal append was incomplete")
+            os.fsync(handle.fileno())
+
     def _verify_published(
         self,
         run_root: Path,
@@ -1599,6 +1735,78 @@ class StarterWorkspaceBuilder:
                 raise LaunchWorkspaceError(
                     "published launch control files differ from their authority"
                 )
+            journal_descriptor = _open_layout_file(
+                verified_root_descriptor,
+                opened_directories,
+                layout.run_checkpoint_journal_relative_path,
+            )
+            descriptors.callback(os.close, journal_descriptor)
+            journal_metadata = os.fstat(journal_descriptor)
+            receipt = pin.installation_receipt
+            if (
+                journal_metadata.st_uid != os.geteuid()
+                or journal_metadata.st_nlink != 1
+                or stat.S_IMODE(journal_metadata.st_mode) != 0o600
+                or journal_metadata.st_size
+                > self._settings.launch.run_checkpoint_journal_size_bytes
+                or (
+                    journal_metadata.st_dev,
+                    journal_metadata.st_ino,
+                )
+                != (
+                    receipt.run_checkpoint_journal_device,
+                    receipt.run_checkpoint_journal_inode,
+                )
+            ):
+                raise LaunchWorkspaceError("published checkpoint journal is unsafe")
+            journal_payload = os.read(
+                journal_descriptor,
+                self._settings.launch.run_checkpoint_journal_size_bytes + 1,
+            )
+            journal_reopened = os.fstat(journal_descriptor)
+            if (
+                len(journal_payload)
+                > self._settings.launch.run_checkpoint_journal_size_bytes
+                or (
+                    journal_reopened.st_dev,
+                    journal_reopened.st_ino,
+                    journal_reopened.st_size,
+                    stat.S_IMODE(journal_reopened.st_mode),
+                )
+                != (
+                    journal_metadata.st_dev,
+                    journal_metadata.st_ino,
+                    journal_metadata.st_size,
+                    stat.S_IMODE(journal_metadata.st_mode),
+                )
+                or journal_payload
+                != RunCheckpointHead.initial(pin).to_json_bytes() + b"\n"
+                or receipt.launch_settings_id
+                != content_id("launch-settings", self._settings.launch.to_dict())
+            ):
+                raise LaunchWorkspaceError(
+                    "published checkpoint journal differs from its authority"
+                )
+            lock_descriptor = _open_layout_file(
+                verified_root_descriptor,
+                opened_directories,
+                layout.run_checkpoint_lock_relative_path,
+            )
+            descriptors.callback(os.close, lock_descriptor)
+            lock_metadata = os.fstat(lock_descriptor)
+            if (
+                lock_metadata.st_uid != os.geteuid()
+                or lock_metadata.st_nlink != 1
+                or lock_metadata.st_size != 0
+                or stat.S_IMODE(lock_metadata.st_mode) != 0o600
+                or (lock_metadata.st_dev, lock_metadata.st_ino)
+                != (
+                    receipt.run_checkpoint_lock_device,
+                    receipt.run_checkpoint_lock_inode,
+                )
+            ):
+                raise LaunchWorkspaceError("published checkpoint lock is unsafe")
+            lock_identity = (lock_metadata.st_dev, lock_metadata.st_ino)
             workspace_root = self._descriptor_path(
                 opened_directories[layout.workspace_relative_path]
             )
@@ -1726,12 +1934,17 @@ class StarterWorkspaceBuilder:
                 _pinned_control_file_identities={
                     layout.launch_manifest_relative_path: manifest_identity,
                     layout.bootstrap_pin_relative_path: pin_identity,
+                    layout.run_checkpoint_journal_relative_path: (
+                        journal_metadata.st_dev,
+                        journal_metadata.st_ino,
+                    ),
+                    layout.run_checkpoint_lock_relative_path: lock_identity,
                 },
                 _builder_verifier=self,
             )
 
-    @staticmethod
     def _verify_outer_run_root_closure(
+        self,
         run_root: Path,
         layout: LaunchWorkspaceLayout,
         expected_root_identity: tuple[int, int],
@@ -1741,6 +1954,7 @@ class StarterWorkspaceBuilder:
             not stat.S_ISDIR(root_metadata.st_mode)
             or (root_metadata.st_dev, root_metadata.st_ino) != expected_root_identity
             or stat.S_IMODE(root_metadata.st_mode) != 0o700
+            or root_metadata.st_uid != os.geteuid()
         ):
             raise LaunchWorkspaceError("published run-root envelope is unsafe")
         component_roots = (
@@ -1753,17 +1967,30 @@ class StarterWorkspaceBuilder:
             for parent in component_root.parents
             if parent != PurePosixPath(".")
         }
-        control_files = {
+        immutable_control_files = {
             PurePosixPath(layout.launch_manifest_relative_path),
             PurePosixPath(layout.bootstrap_pin_relative_path),
         }
+        checkpoint_file = PurePosixPath(layout.run_checkpoint_relative_path)
+        checkpoint_journal = PurePosixPath(layout.run_checkpoint_journal_relative_path)
+        checkpoint_lock = PurePosixPath(layout.run_checkpoint_lock_relative_path)
+        checkpoint_staging = PurePosixPath(layout.run_checkpoint_staging_relative_path)
         control_directories = {
             parent
-            for control_file in control_files
+            for control_file in (
+                *immutable_control_files,
+                checkpoint_file,
+                checkpoint_journal,
+                checkpoint_lock,
+            )
             for parent in control_file.parents
             if parent != PurePosixPath(".")
         }
+        control_directories.add(checkpoint_staging)
         envelope_directories = component_ancestors | control_directories
+        staging_entry_count = 0
+        observed_checkpoint_journal = False
+        observed_checkpoint_lock = False
         for path in run_root.rglob("*"):
             relative_path = PurePosixPath(path.relative_to(run_root).as_posix())
             if path.is_symlink():
@@ -1775,10 +2002,22 @@ class StarterWorkspaceBuilder:
                 continue
             metadata = path.stat(follow_symlinks=False)
             if relative_path in envelope_directories:
-                if not stat.S_ISDIR(metadata.st_mode) or metadata.st_mode & 0o022:
+                requires_private_mode = relative_path in {
+                    checkpoint_file.parent,
+                    checkpoint_staging,
+                }
+                if (
+                    not stat.S_ISDIR(metadata.st_mode)
+                    or metadata.st_uid != os.geteuid()
+                    or (
+                        stat.S_IMODE(metadata.st_mode) != 0o700
+                        if requires_private_mode
+                        else metadata.st_mode & 0o022
+                    )
+                ):
                     raise LaunchWorkspaceError("published envelope directory is unsafe")
                 continue
-            if relative_path in control_files:
+            if relative_path in immutable_control_files:
                 if (
                     not stat.S_ISREG(metadata.st_mode)
                     or metadata.st_nlink != 1
@@ -1786,8 +2025,74 @@ class StarterWorkspaceBuilder:
                 ):
                     raise LaunchWorkspaceError("published control file is unsafe")
                 continue
+            if relative_path == checkpoint_file:
+                if (
+                    not stat.S_ISREG(metadata.st_mode)
+                    or metadata.st_uid != os.geteuid()
+                    or metadata.st_nlink != 1
+                    or stat.S_IMODE(metadata.st_mode) != 0o400
+                    or metadata.st_size
+                    > self._settings.launch.run_checkpoint_size_bytes
+                ):
+                    raise LaunchWorkspaceError(
+                        "published run checkpoint file is unsafe"
+                    )
+                continue
+            if relative_path == checkpoint_journal:
+                observed_checkpoint_journal = True
+                if (
+                    not stat.S_ISREG(metadata.st_mode)
+                    or metadata.st_uid != os.geteuid()
+                    or metadata.st_nlink != 1
+                    or stat.S_IMODE(metadata.st_mode) != 0o600
+                    or metadata.st_size
+                    > self._settings.launch.run_checkpoint_journal_size_bytes
+                ):
+                    raise LaunchWorkspaceError(
+                        "published run checkpoint journal is unsafe"
+                    )
+                continue
+            if relative_path == checkpoint_lock:
+                observed_checkpoint_lock = True
+                if (
+                    not stat.S_ISREG(metadata.st_mode)
+                    or metadata.st_uid != os.geteuid()
+                    or metadata.st_nlink != 1
+                    or stat.S_IMODE(metadata.st_mode) != 0o600
+                    or metadata.st_size != 0
+                ):
+                    raise LaunchWorkspaceError(
+                        "published run checkpoint lock is unsafe"
+                    )
+                continue
+            if checkpoint_staging in relative_path.parents:
+                staging_entry_count += 1
+                if (
+                    relative_path.parent != checkpoint_staging
+                    or _RUN_CHECKPOINT_STAGING_PATTERN.fullmatch(relative_path.name)
+                    is None
+                    or not stat.S_ISREG(metadata.st_mode)
+                    or metadata.st_uid != os.geteuid()
+                    or metadata.st_nlink != 1
+                    or stat.S_IMODE(metadata.st_mode) not in {0o400, 0o600}
+                ):
+                    raise LaunchWorkspaceError(
+                        "published run checkpoint staging entry is unsafe"
+                    )
+                continue
             raise LaunchWorkspaceError(
                 "published run-root filesystem closure is not exact"
+            )
+        if (
+            staging_entry_count
+            > self._settings.launch.run_checkpoint_staging_entry_limit
+        ):
+            raise LaunchWorkspaceError(
+                "published run checkpoint staging exceeds its entry bound"
+            )
+        if not observed_checkpoint_journal or not observed_checkpoint_lock:
+            raise LaunchWorkspaceError(
+                "published run checkpoint authority is incomplete"
             )
 
     def _verify_git_baseline(
@@ -2171,6 +2476,7 @@ class StarterWorkspaceBuilder:
 
 
 __all__ = [
+    "ActiveLaunchWorkspace",
     "LaunchWorkspaceError",
     "PreparedLaunchWorkspace",
     "STARTER_WORKSPACE_INSTALLER_ID",

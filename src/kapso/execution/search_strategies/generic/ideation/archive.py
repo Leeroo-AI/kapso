@@ -14,16 +14,19 @@ from kapso.cross_run.knowledge.access import PriorKnowledgeAccess
 from kapso.execution.coding_agents.structured_call import CodingAgentCallResult
 from kapso.execution.search_strategies.generic.ideation.types import (
     AnalyzedCandidate,
+    BATCH_TRANSITIONS,
     BatchStatus,
     CandidateDispositionKind,
     EvaluationGap,
     EvidenceClaim,
     EvidenceStatus,
     GapState,
+    GAP_TRANSITIONS,
     IdeaBatch,
     IdeaOutcome,
     IdeaRecord,
     IdeaStatus,
+    IDEA_TRANSITIONS,
     ImplementationStatus,
     ResurfacedIdea,
     SelectionDecision,
@@ -169,6 +172,145 @@ def _gap_is_compatible_descendant(
         and original.deferral_count <= current.deferral_count
         and current.state in state_descendants[original.state]
         and same_resolution
+    )
+
+
+def _status_is_compatible_descendant(current, target, transitions) -> bool:
+    if current == target:
+        return True
+    pending = list(transitions[current])
+    visited = set()
+    while pending:
+        status = pending.pop()
+        if status == target:
+            return True
+        if status not in visited:
+            visited.add(status)
+            pending.extend(transitions[status])
+    return False
+
+
+def _preserves_populated_fields(
+    original: Any,
+    current: Any,
+    field_names: Tuple[str, ...],
+) -> bool:
+    for field_name in field_names:
+        original_value = getattr(original, field_name)
+        if (
+            original_value is not None
+            and original_value != ()
+            and original_value != ""
+            and getattr(current, field_name) != original_value
+        ):
+            return False
+    return True
+
+
+def archive_is_compatible_descendant(
+    original: "IdeaArchiveState",
+    current: "IdeaArchiveState",
+) -> bool:
+    """Return whether *current* preserves every durable archive fact in *original*."""
+
+    if (
+        not isinstance(original, IdeaArchiveState)
+        or not isinstance(current, IdeaArchiveState)
+        or current.schema != original.schema
+        or current.campaign_id != original.campaign_id
+        or current.revision < original.revision
+        or current.created_at != original.created_at
+        or datetime.fromisoformat(current.updated_at)
+        < datetime.fromisoformat(original.updated_at)
+    ):
+        return False
+    if current.revision == original.revision:
+        return current == original
+    record_specs = (
+        (original.batches, current.batches, "batch_id"),
+        (original.ideas, current.ideas, "idea_id"),
+        (original.claims, current.claims, "claim_id"),
+        (original.gaps, current.gaps, "gap_id"),
+    )
+    if any(
+        tuple(getattr(record, identifier) for record in old_records)
+        != tuple(
+            getattr(record, identifier) for record in new_records[: len(old_records)]
+        )
+        for old_records, new_records, identifier in record_specs
+    ):
+        return False
+    current_batches = {batch.batch_id: batch for batch in current.batches}
+    for batch in original.batches:
+        successor = current_batches[batch.batch_id]
+        if (
+            IdeaArchive._batch_identity(batch) != IdeaArchive._batch_identity(successor)
+            or not _status_is_compatible_descendant(
+                batch.status,
+                successor.status,
+                BATCH_TRANSITIONS,
+            )
+            or datetime.fromisoformat(successor.updated_at)
+            < datetime.fromisoformat(batch.updated_at)
+            or not _preserves_populated_fields(
+                batch,
+                successor,
+                (
+                    "generated_idea_ids",
+                    "generation_calls",
+                    "resurfaced_ideas",
+                    "considered_idea_ids",
+                    "analyses",
+                    "embedding_telemetry",
+                    "selection",
+                    "selection_call",
+                    "abandoned_reason",
+                ),
+            )
+        ):
+            return False
+    current_ideas = {idea.idea_id: idea for idea in current.ideas}
+    for idea in original.ideas:
+        successor = current_ideas[idea.idea_id]
+        if (
+            IdeaArchive._idea_generation_identity(idea)
+            != IdeaArchive._idea_generation_identity(successor)
+            or not _status_is_compatible_descendant(
+                idea.status,
+                successor.status,
+                IDEA_TRANSITIONS,
+            )
+            or not _preserves_populated_fields(
+                idea,
+                successor,
+                (
+                    "embedding",
+                    "exact_duplicate_of",
+                    "nearest_experiment_node_ids",
+                    "similarity_flags",
+                    "selection_reason",
+                    "deferral_reason",
+                    "rejection_reason",
+                    "selected_in_batch_id",
+                    "experiment_node_id",
+                    "outcome",
+                ),
+            )
+        ):
+            return False
+    current_claims = {claim.claim_id: claim for claim in current.claims}
+    if any(
+        not _claim_is_compatible_descendant(
+            claim,
+            current_claims[claim.claim_id],
+        )
+        for claim in original.claims
+    ):
+        return False
+    current_gaps = {gap.gap_id: gap for gap in current.gaps}
+    return all(
+        _gap_is_compatible_descendant(gap, current_gaps[gap.gap_id])
+        for gap in original.gaps
     )
 
 

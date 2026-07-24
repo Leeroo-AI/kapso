@@ -1162,6 +1162,10 @@ class LaunchWorkspaceLayout(StrictContract):
     starting_artifact_roots: Mapping[str, str]
     launch_manifest_relative_path: str
     bootstrap_pin_relative_path: str
+    run_checkpoint_relative_path: str
+    run_checkpoint_journal_relative_path: str
+    run_checkpoint_lock_relative_path: str
+    run_checkpoint_staging_relative_path: str
 
     def _validate(self) -> None:
         workspace = _require_relative_path(
@@ -1215,17 +1219,41 @@ class LaunchWorkspaceLayout(StrictContract):
                 self.bootstrap_pin_relative_path,
                 "launch bootstrap_pin_relative_path",
             ),
+            _require_relative_path(
+                self.run_checkpoint_relative_path,
+                "launch run_checkpoint_relative_path",
+            ),
+            _require_relative_path(
+                self.run_checkpoint_journal_relative_path,
+                "launch run_checkpoint_journal_relative_path",
+            ),
+            _require_relative_path(
+                self.run_checkpoint_lock_relative_path,
+                "launch run_checkpoint_lock_relative_path",
+            ),
+            _require_relative_path(
+                self.run_checkpoint_staging_relative_path,
+                "launch run_checkpoint_staging_relative_path",
+            ),
         )
-        materialized_roots = (workspace, immutable_root)
-        if (
-            control_paths[0] == control_paths[1]
-            or control_paths[0] in control_paths[1].parents
-            or control_paths[1] in control_paths[0].parents
-            or any(
-                control == root or root in control.parents or control in root.parents
-                for control in control_paths
-                for root in materialized_roots
+        if not (
+            control_paths[2].parent
+            == control_paths[3].parent
+            == control_paths[4].parent
+            == control_paths[5].parent
+        ):
+            raise LaunchContractError(
+                "launch checkpoint controls must share one parent"
             )
+        materialized_roots = (workspace, immutable_root)
+        if any(
+            left == right or left in right.parents or right in left.parents
+            for position, left in enumerate(control_paths)
+            for right in control_paths[position + 1 :]
+        ) or any(
+            control == root or root in control.parents or control in root.parents
+            for control in control_paths
+            for root in materialized_roots
         ):
             raise LaunchContractError(
                 "launch control files must be prefix-disjoint and outside "
@@ -1273,6 +1301,11 @@ class WorkspaceInstallationReceipt(StrictContract):
     workspace_baseline_tree_sha: str
     workspace_git_index_digest: str
     workspace_git_object_ids: tuple[str, ...]
+    launch_settings_id: str
+    run_checkpoint_journal_device: int
+    run_checkpoint_journal_inode: int
+    run_checkpoint_lock_device: int
+    run_checkpoint_lock_inode: int
     installer_id: str
     installer_version: str
     exact_dependency_ids: tuple[str, ...]
@@ -1294,6 +1327,28 @@ class WorkspaceInstallationReceipt(StrictContract):
                 raise LaunchContractError(
                     f"workspace installation {name} uses the wrong namespace"
                 )
+        require_content_id(
+            self.launch_settings_id,
+            "workspace installation launch settings ID",
+        )
+        if self.launch_settings_id.split(":sha256:", 1)[0] != "launch-settings":
+            raise LaunchContractError(
+                "workspace installation launch settings uses the wrong namespace"
+            )
+        for value, name in (
+            (
+                self.run_checkpoint_journal_device,
+                "run checkpoint journal device",
+            ),
+            (
+                self.run_checkpoint_journal_inode,
+                "run checkpoint journal inode",
+            ),
+            (self.run_checkpoint_lock_device, "run checkpoint lock device"),
+            (self.run_checkpoint_lock_inode, "run checkpoint lock inode"),
+        ):
+            if type(value) is not int or value < 0:
+                raise LaunchContractError(f"workspace installation {name} is invalid")
         if type(self.layout) is not LaunchWorkspaceLayout:
             raise LaunchContractError(
                 "workspace installation requires one typed layout"
@@ -1368,6 +1423,7 @@ class WorkspaceInstallationReceipt(StrictContract):
         )
         if set(self.exact_dependency_ids) != {
             self.launch_manifest_id,
+            self.launch_settings_id,
             self.starting_artifact_materialization_receipt_id,
         }:
             raise LaunchContractError(

@@ -759,6 +759,13 @@ def test_github_commit_identity_rejects_git_header_injection(field, value):
             "launch_manifest_path",
             ".kapso/bootstrap_pin.json/manifest.json",
         ),
+        ("run_checkpoint_path", "workspace/checkpoint.json"),
+        ("run_checkpoint_journal_path", ".other/checkpoint.journal"),
+        ("run_checkpoint_lock_path", ".other/checkpoint.lock"),
+        (
+            "run_checkpoint_staging_path",
+            ".kapso/run_checkpoint.json/staging",
+        ),
         ("workspace_git_branch", "../unsafe"),
     ],
 )

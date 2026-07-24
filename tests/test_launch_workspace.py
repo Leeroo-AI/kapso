@@ -59,6 +59,26 @@ def test_builder_atomically_publishes_self_contained_launch(resolver_case, tmp_p
         pin.launch_manifest_full_digest
     )
     assert receipt.layout.workspace_relative_path == "workspace"
+    checkpoint_journal = (
+        prepared.run_root / receipt.layout.run_checkpoint_journal_relative_path
+    )
+    checkpoint_lock = (
+        prepared.run_root / receipt.layout.run_checkpoint_lock_relative_path
+    )
+    assert (
+        checkpoint_journal.stat().st_dev,
+        checkpoint_journal.stat().st_ino,
+    ) == (
+        receipt.run_checkpoint_journal_device,
+        receipt.run_checkpoint_journal_inode,
+    )
+    assert (
+        checkpoint_lock.stat().st_dev,
+        checkpoint_lock.stat().st_ino,
+    ) == (
+        receipt.run_checkpoint_lock_device,
+        receipt.run_checkpoint_lock_inode,
+    )
     assert not (prepared.workspace / ".kapso" / "bootstrap_pin.json").exists()
     assert not (prepared.workspace / ".gitmodules").exists()
     assert not (prepared.workspace / ".git" / "hooks").exists()

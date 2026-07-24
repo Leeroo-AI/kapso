@@ -1547,8 +1547,15 @@ class LaunchSettings(StrictContract):
     starting_artifacts_path: str
     launch_manifest_path: str
     bootstrap_pin_path: str
+    run_checkpoint_path: str
+    run_checkpoint_journal_path: str
+    run_checkpoint_lock_path: str
+    run_checkpoint_staging_path: str
     launch_manifest_size_bytes: int
     bootstrap_pin_size_bytes: int
+    run_checkpoint_size_bytes: int
+    run_checkpoint_journal_size_bytes: int
+    run_checkpoint_staging_entry_limit: int
     knowledge_snapshot_file_size_bytes: int
     workspace_git_branch: str
     compatibility_policy_version: str
@@ -1604,20 +1611,35 @@ class LaunchSettings(StrictContract):
             raise CrossRunConfigurationError(
                 "launch workspace and immutable root must be prefix-disjoint"
             )
-        control_paths = tuple(
+        immutable_control_paths = tuple(
             _require_relative_path(getattr(self, field), f"launch.{field}")
             for field in ("launch_manifest_path", "bootstrap_pin_path")
         )
-        materialized_roots = (workspace, immutable_root)
-        if (
-            control_paths[0] == control_paths[1]
-            or control_paths[0] in control_paths[1].parents
-            or control_paths[1] in control_paths[0].parents
-            or any(
-                control == root or root in control.parents or control in root.parents
-                for control in control_paths
-                for root in materialized_roots
+        checkpoint_paths = tuple(
+            _require_relative_path(getattr(self, field), f"launch.{field}")
+            for field in (
+                "run_checkpoint_path",
+                "run_checkpoint_journal_path",
+                "run_checkpoint_lock_path",
+                "run_checkpoint_staging_path",
             )
+        )
+        if any(
+            path.parent != checkpoint_paths[0].parent for path in checkpoint_paths[1:]
+        ):
+            raise CrossRunConfigurationError(
+                "launch checkpoint paths must share one private parent"
+            )
+        control_paths = immutable_control_paths + checkpoint_paths
+        materialized_roots = (workspace, immutable_root)
+        if any(
+            left == right or left in right.parents or right in left.parents
+            for position, left in enumerate(control_paths)
+            for right in control_paths[position + 1 :]
+        ) or any(
+            control == root or root in control.parents or control in root.parents
+            for control in control_paths
+            for root in materialized_roots
         ):
             raise CrossRunConfigurationError(
                 "launch control files must be prefix-disjoint and outside "
@@ -1639,6 +1661,22 @@ class LaunchSettings(StrictContract):
             raise CrossRunConfigurationError(
                 "launch bootstrap pin bound must exceed the manifest bound"
             )
+        _require_positive(
+            self.run_checkpoint_size_bytes,
+            "launch.run_checkpoint_size_bytes",
+        )
+        _require_positive(
+            self.run_checkpoint_journal_size_bytes,
+            "launch.run_checkpoint_journal_size_bytes",
+        )
+        if self.run_checkpoint_journal_size_bytes <= self.run_checkpoint_size_bytes:
+            raise CrossRunConfigurationError(
+                "launch checkpoint journal bound must exceed the checkpoint bound"
+            )
+        _require_positive(
+            self.run_checkpoint_staging_entry_limit,
+            "launch.run_checkpoint_staging_entry_limit",
+        )
         require_git_ref_name(
             f"refs/heads/{self.workspace_git_branch}",
             "launch.workspace_git_branch",

@@ -1,5 +1,22 @@
 """Transactional cross-run launch resolution and workspace bootstrap."""
 
+from kapso.cross_run.launch.checkpoint_contracts import (
+    RunCheckpoint,
+    RunCheckpointContractError,
+    RunCheckpointHead,
+    RunCheckpointStatus,
+    RunCheckpointStop,
+    RunFeedbackSource,
+    RunStrategyKind,
+    RunStrategyState,
+    RunTerminationDecision,
+)
+from kapso.cross_run.launch.checkpoint_store import (
+    DurableRunCheckpoint,
+    RunCheckpointStore,
+    RunCheckpointStoreError,
+    RunCheckpointWritePermit,
+)
 from kapso.cross_run.launch.contracts import (
     BootstrapPin,
     LaunchCompatibilityAdmissionMode,
@@ -44,13 +61,16 @@ from kapso.cross_run.launch.resume_contracts import (
     RunSafetyState,
 )
 from kapso.cross_run.launch.workspace import (
+    ActiveLaunchWorkspace,
     LaunchWorkspaceError,
     PreparedLaunchWorkspace,
     StarterWorkspaceBuilder,
 )
 
 __all__ = [
+    "ActiveLaunchWorkspace",
     "BootstrapPin",
+    "DurableRunCheckpoint",
     "ExpertLaunchEvidence",
     "expected_launch_source_composition_hash",
     "launch_security_subject_ids",
@@ -75,6 +95,15 @@ __all__ = [
     "resume_security_subject_ids",
     "ResumeContractError",
     "ResolvedLaunch",
+    "RunCheckpoint",
+    "RunCheckpointContractError",
+    "RunCheckpointHead",
+    "RunCheckpointStatus",
+    "RunCheckpointStop",
+    "RunCheckpointStore",
+    "RunCheckpointStoreError",
+    "RunCheckpointWritePermit",
+    "RunFeedbackSource",
     "RunBranchAdvance",
     "RunDerivativeEvidence",
     "RunDerivativeFrontier",
@@ -85,6 +114,9 @@ __all__ = [
     "RunReleaseUseMode",
     "RunSafetyBoundary",
     "RunSafetyState",
+    "RunStrategyKind",
+    "RunStrategyState",
+    "RunTerminationDecision",
     "SystemLaunchClock",
     "StarterWorkspaceBuilder",
     "VerifiedLaunchStartingArtifact",

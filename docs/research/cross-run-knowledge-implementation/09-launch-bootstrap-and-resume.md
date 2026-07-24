@@ -5,9 +5,10 @@ Parent plan: [`00-orchestrator-plan.md`](00-orchestrator-plan.md)
 Depends on: M2, M5, and M8.
 
 Status: **in progress**. The transactional launch resolver and exact authority
-contracts plus atomic workspace/bootstrap-pin installation are implemented;
-explicit E0/S-EMPTY provisioning orchestration, resume, and API/runner activation
-remain.
+contracts, atomic workspace/bootstrap-pin installation, exact run-checkpoint
+contracts, and the dormant protected checkpoint CAS store are implemented.
+Transactional derived-memory promotion, executor isolation, explicit E0/S-EMPTY
+provisioning orchestration, resume, and API/runner activation remain.
 
 ## Objective
 
@@ -166,7 +167,9 @@ For a fresh launch:
 - [x] The baseline commit, tree, and index are deterministic across local paths,
       umasks, and host Git configuration; reopen requires the exact config,
       identity, ref, loose-object, index, file-mode, and directory closure.
-- [x] Local experiments can branch only inside the new expert workspace.
+- [ ] Before activation, route every coding-agent/evaluator process through a
+      fail-closed execution permit whose OS sandbox cannot resolve the run-root
+      control plane; a writable working directory alone is not isolation.
 - [ ] `RepoMemory` is rebuilt from the actual composed workspace, not reused from
       the expert release or another run.
 - [ ] API activation proves no model/embedding/evaluator call begins before step 9
@@ -195,6 +198,44 @@ For a fresh launch:
 M9 owns these high-conflict files until M10 performs final cleanup/activation.
 
 ## Checkpoint and resume
+
+The implemented checkpoint foundation is deliberately dormant until the execution
+permit and transactional memory-promotion work below lands. One exact
+`RunCheckpoint` owns strategy, safety, cost, feedback, termination, bootstrap, and
+derivative-frontier authority. A candidate can advance only the exact predecessor;
+Generic and tree strategy states enforce their own exact revision transitions.
+
+The checkpoint pathname is a replaceable current projection. Its monotonic local
+floor is a builder-created append-only journal on one inode whose device/inode,
+lock inode, and exact launch-settings identity are sealed into
+`WorkspaceInstallationReceipt` and therefore `BootstrapPin`. Every hash-chained
+journal record retains the full canonical checkpoint, so recovery can rerun the
+complete strategy/archive/safety predecessor relation rather than trusting an ID.
+CAS runs under the pinned lock and:
+
+1. reopens and validates the complete canonical journal lineage and current
+   checkpoint through descriptor-relative no-follow paths;
+2. binds a one-shot permit to the exact checkpoint ID, journal-head ID, journal
+   byte position, and candidate ID;
+3. computes the successor record and rejects journal-capacity exhaustion before
+   changing the checkpoint;
+4. stages/fsyncs/replaces/reopens the checkpoint, then appends/fsyncs/reopens the
+   journal; and
+5. returns a non-clonable durable receipt only after both authorities agree.
+
+On reopen, only one crash seam is repairable: the checkpoint is exactly one fully
+validated successor ahead of the journal. A partial final journal record is
+repairable only when it is an exact prefix of that deterministic successor record;
+all unrelated tails, missing/stale checkpoints, skipped revisions, canonical
+rollback substitutions, journal/lock inode changes, and malformed records fail
+loudly.
+
+The process UID remains inside the local filesystem trust boundary: an unrestricted
+same-UID process can rewrite an append-only-by-protocol regular file in place.
+Therefore M9 must not activate this layout through the legacy unsandboxed coding
+agent. Descriptor-safe execution permits and policy probes must prove that agent
+and evaluator processes cannot resolve `.kapso` or any path outside the writable
+expert workspace before the new runtime becomes reachable.
 
 - [ ] Replace `RunCheckpoint` and Generic state with exact new schemas carrying the
       launch ID and bootstrap-pin digest.
