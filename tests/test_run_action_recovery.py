@@ -16,6 +16,7 @@ from kapso.cross_run.launch.resume_contracts import (
     RunSafetyBoundary,
 )
 from kapso.cross_run.launch.run_action_contracts import (
+    RunActionBoundaryIdentity,
     RunActionIntent,
     RunFrontierActionKind,
     RunFrontierWorkspaceAccess,
@@ -25,14 +26,15 @@ from kapso.cross_run.launch.run_action_ledger import (
     RunActionExecutionEventKind,
 )
 from kapso.cross_run.launch.run_action_recovery import (
-    _RUN_ACTION_RECOVERY_ADAPTER_REGISTRY_AUTHORITY,
-    RunActionAdapterAcceptance,
+    _RUN_ACTION_RECOVERY_IMPLEMENTATION_REGISTRY_AUTHORITY,
     RunActionCommittedSpawnObservation,
     RunActionCommittedSpawnState,
+    RunActionInterpretedResult,
     RunActionPreparedSpawn,
     RunActionProviderResult,
-    RunActionRecoveryAdapterRegistry,
     RunActionRecoveryError,
+    RunActionRecoveryImplementation,
+    RunActionRecoveryImplementationRegistry,
 )
 from kapso.cross_run.launch.run_action_store import (
     RunActionFrontierBinding,
@@ -59,7 +61,31 @@ from test_run_frontier_action_gate import (
 from test_run_state_publisher import publisher_case
 
 
-class _FakeRecoveryAdapter:
+class _FakeResultInterpreter:
+    def __init__(
+        self,
+        result_interpreter_identity,
+        *,
+        disposition=RunActionResultDisposition.SUCCEEDED,
+    ) -> None:
+        self.result_interpreter_identity = result_interpreter_identity
+        self.disposition = disposition
+        self.interpret_calls = []
+
+    def interpret(
+        self,
+        *,
+        request_payload,
+        result_payload,
+    ):
+        self.interpret_calls.append((request_payload, result_payload))
+        return RunActionInterpretedResult(
+            disposition=self.disposition,
+            accepted_result_payload=b'{"accepted":"deterministic"}',
+        )
+
+
+class _FakeExecutionAdapter:
     def __init__(
         self,
         boundary_identity,
@@ -69,23 +95,27 @@ class _FakeRecoveryAdapter:
         reattach_result=True,
         disposition=RunActionResultDisposition.SUCCEEDED,
     ) -> None:
-        self.boundary_identity = boundary_identity
+        self.execution_lifecycle_identity = (
+            boundary_identity.execution_lifecycle_identity
+        )
+        self.result_interpreter = _FakeResultInterpreter(
+            boundary_identity.result_interpreter_identity,
+            disposition=disposition,
+        )
         self.observation_state = observation_state
         self.fail_fresh_start = fail_fresh_start
         self.reattach_result = reattach_result
-        self.disposition = disposition
         self.prepare_calls = []
         self.start_calls = []
         self.start_workspace_descriptors = []
         self.inspect_calls = []
         self.reattach_calls = []
-        self.accept_calls = []
 
     def prepare_fresh(self, reservation):
         self.prepare_calls.append(reservation)
         return RunActionPreparedSpawn(
             provider_execution_id=(f"recovered_{reservation.intent.operation_id}"),
-            boundary_identity=self.boundary_identity,
+            execution_lifecycle_identity=self.execution_lifecycle_identity,
         )
 
     def start_once(self, capability):
@@ -128,51 +158,47 @@ class _FakeRecoveryAdapter:
             result_payload=b'{"provider":"reattached-complete"}'
         )
 
-    def accept_result(
-        self,
-        *,
-        request_payload,
-        result_payload,
-        workspace_before,
-        workspace_after,
-    ):
-        self.accept_calls.append(
-            (
-                request_payload,
-                result_payload,
-                workspace_before,
-                workspace_after,
+
+def _recovery_registry(
+    *execution_adapters,
+) -> RunActionRecoveryImplementationRegistry:
+    return RunActionRecoveryImplementationRegistry(
+        tuple(
+            RunActionRecoveryImplementation(
+                boundary_identity=RunActionBoundaryIdentity.mint(
+                    kind=execution_adapter.execution_lifecycle_identity.kind,
+                    execution_lifecycle_identity=(
+                        execution_adapter.execution_lifecycle_identity
+                    ),
+                    result_interpreter_identity=(
+                        execution_adapter.result_interpreter.result_interpreter_identity
+                    ),
+                ),
+                execution_adapter=execution_adapter,
+                result_interpreter=execution_adapter.result_interpreter,
             )
-        )
-        return RunActionAdapterAcceptance(
-            disposition=self.disposition,
-            accepted_result_payload=b'{"accepted":"deterministic"}',
-        )
-
-
-def _recovery_registry(*adapters) -> RunActionRecoveryAdapterRegistry:
-    return RunActionRecoveryAdapterRegistry(
-        tuple(adapters),
-        _authority=_RUN_ACTION_RECOVERY_ADAPTER_REGISTRY_AUTHORITY,
+            for execution_adapter in execution_adapters
+        ),
+        _authority=_RUN_ACTION_RECOVERY_IMPLEMENTATION_REGISTRY_AUTHORITY,
     )
 
 
-def _recovery_coordinator(gate, *adapters):
-    return gate.recovery_coordinator(_recovery_registry(*adapters))
+def _recovery_coordinator(gate, *execution_adapters):
+    return gate.recovery_coordinator(_recovery_registry(*execution_adapters))
 
 
-class _NondeterministicAcceptanceAdapter(_FakeRecoveryAdapter):
-    def accept_result(self, **arguments):
-        acceptance = super().accept_result(**arguments)
-        if len(self.accept_calls) == 1:
-            return acceptance
-        return RunActionAdapterAcceptance(
-            disposition=acceptance.disposition,
+class _NondeterministicResultInterpreter(_FakeResultInterpreter):
+    def interpret(self, **arguments):
+        interpreted = super().interpret(**arguments)
+        if len(self.interpret_calls) == 1:
+            return interpreted
+        return RunActionInterpretedResult(
+            disposition=interpreted.disposition,
             accepted_result_payload=b'{"accepted":"changed"}',
         )
 
 
-class _SecurityAdvancingPrepareAdapter(_FakeRecoveryAdapter):
+class _SecurityAdvancingPrepareAdapter(_FakeExecutionAdapter):
     def __init__(self, boundary_identity, advance_security) -> None:
         super().__init__(boundary_identity)
         self.advance_security = advance_security
@@ -183,27 +209,73 @@ class _SecurityAdvancingPrepareAdapter(_FakeRecoveryAdapter):
         return prepared
 
 
-class _WorkspaceMutatingAcceptanceAdapter(_FakeRecoveryAdapter):
+class _AccessGuardedExecutionAdapter(_FakeExecutionAdapter):
+    _GUARDED_NAMES = frozenset(
+        {
+            "execution_lifecycle_identity",
+            "inspect_committed",
+            "prepare_fresh",
+            "reattach",
+            "start_once",
+        }
+    )
+
     def __init__(self, boundary_identity) -> None:
         super().__init__(boundary_identity)
+        self.reject_execution_access = False
+
+    def __getattribute__(self, name):
+        if name in type(self)._GUARDED_NAMES and object.__getattribute__(
+            self, "reject_execution_access"
+        ):
+            raise AssertionError("result recovery accessed the execution adapter")
+        return super().__getattribute__(name)
+
+
+class _WorkspaceMutatingResultInterpreter(_FakeResultInterpreter):
+    def __init__(self, result_interpreter_identity) -> None:
+        super().__init__(result_interpreter_identity)
         self.retained_workspace_descriptor = None
 
-    def start_once(self, capability):
-        self.retained_workspace_descriptor = os.dup(capability.workspace_descriptor)
-        return super().start_once(capability)
-
-    def accept_result(self, **arguments):
-        acceptance = super().accept_result(**arguments)
-        if len(self.accept_calls) == 2:
+    def interpret(self, **arguments):
+        interpreted = super().interpret(**arguments)
+        if len(self.interpret_calls) == 2:
             descriptor = os.open(
-                "acceptance-mutation.txt",
+                "interpretation-mutation.txt",
                 os.O_WRONLY | os.O_CREAT | os.O_EXCL,
                 0o600,
                 dir_fd=self.retained_workspace_descriptor,
             )
             with os.fdopen(descriptor, "wb") as handle:
-                handle.write(b"mutated during acceptance")
-        return acceptance
+                handle.write(b"mutated during interpretation")
+        return interpreted
+
+
+class _WorkspaceRetainingExecutionAdapter(_FakeExecutionAdapter):
+    def __init__(self, boundary_identity) -> None:
+        super().__init__(boundary_identity)
+        self.result_interpreter = _WorkspaceMutatingResultInterpreter(
+            boundary_identity.result_interpreter_identity
+        )
+
+    def start_once(self, capability):
+        self.result_interpreter.retained_workspace_descriptor = os.dup(
+            capability.workspace_descriptor
+        )
+        return super().start_once(capability)
+
+
+def test_recovery_implementation_requires_distinct_lifecycle_and_interpreter() -> None:
+    boundary_identity = _boundary_identity(RunFrontierActionKind.CODING_AGENT)
+    combined = _FakeExecutionAdapter(boundary_identity)
+    combined.result_interpreter_identity = boundary_identity.result_interpreter_identity
+
+    with pytest.raises(RunActionRecoveryError, match="differs from its boundary"):
+        RunActionRecoveryImplementation(
+            boundary_identity=boundary_identity,
+            execution_adapter=combined,
+            result_interpreter=combined,
+        )
 
 
 def _reserved_case(case):
@@ -248,7 +320,7 @@ def test_reserved_action_recovers_through_one_fresh_spawn(
     publisher_case,
 ) -> None:
     frontier, gate, _permit, _payload = _reserved_case(publisher_case)
-    adapter = _FakeRecoveryAdapter(
+    adapter = _FakeExecutionAdapter(
         _boundary_identity(RunFrontierActionKind.CODING_AGENT)
     )
     coordinator = _recovery_coordinator(gate, adapter)
@@ -274,7 +346,7 @@ def test_fresh_spawn_capability_is_spent_and_clone_fork_invalid(
     publisher_case,
 ) -> None:
     frontier, gate, permit, _payload = _reserved_case(publisher_case)
-    adapter = _FakeRecoveryAdapter(permit.intent.boundary_identity)
+    adapter = _FakeExecutionAdapter(permit.intent.boundary_identity)
 
     report = _recovery_coordinator(gate, adapter).recover(frontier)
 
@@ -318,7 +390,7 @@ def test_failed_edit_recovery_terminates_with_unchanged_workspace(
         "failed_recovery",
         payload,
     )
-    adapter = _FakeRecoveryAdapter(
+    adapter = _FakeExecutionAdapter(
         permit.intent.boundary_identity,
         disposition=RunActionResultDisposition.FAILED,
     )
@@ -362,7 +434,7 @@ def test_committed_spawn_is_queried_and_never_freshly_replayed(
 ) -> None:
     frontier, gate, permit, payload = _reserved_case(publisher_case)
     _leave_spawn_committed(gate, permit, payload)
-    adapter = _FakeRecoveryAdapter(
+    adapter = _FakeExecutionAdapter(
         permit.intent.boundary_identity,
         observation_state=state,
     )
@@ -401,7 +473,7 @@ def test_quiescent_edit_recovers_only_one_clean_direct_successor(
                 "RECOVERED = True\n",
             )
             raise RuntimeError("injected death after clean edit")
-    adapter = _FakeRecoveryAdapter(
+    adapter = _FakeExecutionAdapter(
         permit.intent.boundary_identity,
         observation_state=(
             RunActionCommittedSpawnState.PROVEN_QUIESCENT_WITHOUT_RESULT
@@ -451,7 +523,7 @@ def test_ambiguous_edit_workspace_remains_nonterminal(
                     "SECOND = True\n",
                 )
             raise RuntimeError("injected death after ambiguous edit")
-    adapter = _FakeRecoveryAdapter(
+    adapter = _FakeExecutionAdapter(
         permit.intent.boundary_identity,
         observation_state=(
             RunActionCommittedSpawnState.PROVEN_QUIESCENT_WITHOUT_RESULT
@@ -475,7 +547,7 @@ def test_unknown_committed_spawn_remains_unresolved_without_replay(
 ) -> None:
     frontier, gate, permit, payload = _reserved_case(publisher_case)
     _leave_spawn_committed(gate, permit, payload)
-    adapter = _FakeRecoveryAdapter(
+    adapter = _FakeExecutionAdapter(
         permit.intent.boundary_identity,
         observation_state=RunActionCommittedSpawnState.UNKNOWN,
     )
@@ -497,7 +569,7 @@ def test_reattachment_without_a_result_remains_unresolved(
 ) -> None:
     frontier, gate, permit, payload = _reserved_case(publisher_case)
     _leave_spawn_committed(gate, permit, payload)
-    adapter = _FakeRecoveryAdapter(
+    adapter = _FakeExecutionAdapter(
         permit.intent.boundary_identity,
         observation_state=(RunActionCommittedSpawnState.RUNNING_REATTACHABLE),
         reattach_result=False,
@@ -516,7 +588,7 @@ def test_security_advance_prevents_committed_spawn_reattachment(
     frontier, gate, permit, payload = _reserved_case(publisher_case)
     _leave_spawn_committed(gate, permit, payload)
     _advance_security(publisher_case, gate, frontier)
-    adapter = _FakeRecoveryAdapter(
+    adapter = _FakeExecutionAdapter(
         permit.intent.boundary_identity,
         observation_state=(RunActionCommittedSpawnState.RUNNING_REATTACHABLE),
     )
@@ -529,12 +601,12 @@ def test_security_advance_prevents_committed_spawn_reattachment(
     assert not adapter.start_calls
 
 
-def test_received_result_runs_only_deterministic_local_acceptance(
+def test_received_result_runs_only_pure_local_interpretation(
     publisher_case,
 ) -> None:
     frontier, gate, permit, payload = _reserved_case(publisher_case)
     raw_result = _leave_result_received(gate, permit, payload)
-    adapter = _FakeRecoveryAdapter(permit.intent.boundary_identity)
+    adapter = _FakeExecutionAdapter(permit.intent.boundary_identity)
 
     report = _recovery_coordinator(gate, adapter).recover(frontier)
 
@@ -543,17 +615,37 @@ def test_received_result_runs_only_deterministic_local_acceptance(
     assert not adapter.start_calls
     assert not adapter.inspect_calls
     assert not adapter.reattach_calls
-    assert len(adapter.accept_calls) == 2
-    assert adapter.accept_calls[0][0] == payload
-    assert adapter.accept_calls[0][1] == raw_result
+    assert len(adapter.result_interpreter.interpret_calls) == 2
+    assert adapter.result_interpreter.interpret_calls[0] == (payload, raw_result)
 
 
-def test_nondeterministic_local_acceptance_never_becomes_durable(
+def test_received_result_does_not_access_execution_adapter(
+    publisher_case,
+) -> None:
+    frontier, gate, permit, payload = _reserved_case(publisher_case)
+    raw_result = _leave_result_received(gate, permit, payload)
+    execution_adapter = _AccessGuardedExecutionAdapter(permit.intent.boundary_identity)
+    coordinator = _recovery_coordinator(gate, execution_adapter)
+    execution_adapter.reject_execution_access = True
+
+    report = coordinator.recover(frontier)
+
+    assert report.is_complete
+    assert execution_adapter.result_interpreter.interpret_calls[0] == (
+        payload,
+        raw_result,
+    )
+
+
+def test_nondeterministic_local_interpretation_never_becomes_durable(
     publisher_case,
 ) -> None:
     frontier, gate, permit, payload = _reserved_case(publisher_case)
     _leave_result_received(gate, permit, payload)
-    adapter = _NondeterministicAcceptanceAdapter(permit.intent.boundary_identity)
+    adapter = _FakeExecutionAdapter(permit.intent.boundary_identity)
+    adapter.result_interpreter = _NondeterministicResultInterpreter(
+        permit.intent.boundary_identity.result_interpreter_identity
+    )
     coordinator = _recovery_coordinator(gate, adapter)
 
     with pytest.raises(RunActionRecoveryError, match="nondeterministic"):
@@ -566,11 +658,11 @@ def test_nondeterministic_local_acceptance_never_becomes_durable(
     )
 
 
-def test_workspace_mutation_during_acceptance_never_becomes_terminal(
+def test_workspace_mutation_during_interpretation_never_becomes_terminal(
     publisher_case,
 ) -> None:
     frontier, gate, permit, _payload = _reserved_case(publisher_case)
-    adapter = _WorkspaceMutatingAcceptanceAdapter(
+    adapter = _WorkspaceRetainingExecutionAdapter(
         permit.intent.boundary_identity,
     )
     coordinator = _recovery_coordinator(gate, adapter)
@@ -578,7 +670,7 @@ def test_workspace_mutation_during_acceptance_never_becomes_terminal(
     with pytest.raises(RunWorkspaceFrontierError):
         coordinator.recover(frontier)
 
-    os.close(adapter.retained_workspace_descriptor)
+    os.close(adapter.result_interpreter.retained_workspace_descriptor)
     plan = coordinator.inspect(frontier)
     assert plan.pending_operation_id == permit.intent.operation_id
     assert plan.live_ledger.operation_tails[-1].tail_kind is (
@@ -586,13 +678,13 @@ def test_workspace_mutation_during_acceptance_never_becomes_terminal(
     )
 
 
-def test_terminal_replay_reads_accepted_bytes_without_adapter_use(
+def test_terminal_replay_reads_accepted_bytes_without_implementation_use(
     publisher_case,
 ) -> None:
     frontier, gate, permit, payload = _reserved_case(publisher_case)
     with gate.hold(permit, payload) as lease:
         _complete_action(gate, lease)
-    adapter = _FakeRecoveryAdapter(permit.intent.boundary_identity)
+    adapter = _FakeExecutionAdapter(permit.intent.boundary_identity)
 
     report = _recovery_coordinator(gate, adapter).recover(frontier)
 
@@ -603,14 +695,14 @@ def test_terminal_replay_reads_accepted_bytes_without_adapter_use(
     assert not adapter.prepare_calls
     assert not adapter.start_calls
     assert not adapter.inspect_calls
-    assert not adapter.accept_calls
+    assert not adapter.result_interpreter.interpret_calls
 
 
 def test_fresh_spawn_crash_is_reopened_only_as_committed_work(
     publisher_case,
 ) -> None:
     frontier, gate, permit, _payload = _reserved_case(publisher_case)
-    crashing = _FakeRecoveryAdapter(
+    crashing = _FakeExecutionAdapter(
         permit.intent.boundary_identity,
         fail_fresh_start=True,
     )
@@ -633,7 +725,7 @@ def test_security_advance_cancels_unspawned_reservation(
 ) -> None:
     frontier, gate, permit, _payload = _reserved_case(publisher_case)
     _advance_security(publisher_case, gate, frontier)
-    adapter = _FakeRecoveryAdapter(permit.intent.boundary_identity)
+    adapter = _FakeExecutionAdapter(permit.intent.boundary_identity)
 
     report = _recovery_coordinator(gate, adapter).recover(frontier)
 
@@ -663,12 +755,12 @@ def test_security_advance_during_prepare_prevents_spawn_commit(
     )
 
 
-def test_recovery_rejects_adapter_identity_substitution(
+def test_recovery_rejects_boundary_identity_substitution(
     publisher_case,
 ) -> None:
     frontier, gate, permit, payload = _reserved_case(publisher_case)
     _leave_result_received(gate, permit, payload)
-    substituted = _FakeRecoveryAdapter(
+    substituted = _FakeExecutionAdapter(
         _boundary_identity(RunFrontierActionKind.EMBEDDING)
     )
 
@@ -681,21 +773,50 @@ def test_recovery_rejects_adapter_identity_substitution(
     )
 
 
-def test_recovery_rejects_same_identity_adapter_object_substitution(
+def test_recovery_rejects_same_identity_execution_object_substitution(
     publisher_case,
 ) -> None:
     frontier, gate, permit, _payload = _reserved_case(publisher_case)
-    original = _FakeRecoveryAdapter(permit.intent.boundary_identity)
-    substituted = _FakeRecoveryAdapter(permit.intent.boundary_identity)
-    adapter_registry = _recovery_registry(original)
-    coordinator = gate.recovery_coordinator(adapter_registry)
-    adapter_registry._adapters = (substituted,)
+    original = _FakeExecutionAdapter(permit.intent.boundary_identity)
+    substituted = _FakeExecutionAdapter(permit.intent.boundary_identity)
+    implementation_registry = _recovery_registry(original)
+    coordinator = gate.recovery_coordinator(implementation_registry)
+    original_implementation = implementation_registry._implementations[0]
+    implementation_registry._implementations = (
+        RunActionRecoveryImplementation(
+            boundary_identity=original_implementation.boundary_identity,
+            execution_adapter=substituted,
+            result_interpreter=original_implementation.result_interpreter,
+        ),
+    )
 
     with pytest.raises(RunActionRecoveryError, match="altered"):
         coordinator.recover(frontier)
 
     assert not original.prepare_calls
     assert not substituted.prepare_calls
+
+
+def test_recovery_rejects_same_identity_interpreter_object_substitution(
+    publisher_case,
+) -> None:
+    frontier, gate, permit, payload = _reserved_case(publisher_case)
+    _leave_result_received(gate, permit, payload)
+    execution_adapter = _FakeExecutionAdapter(permit.intent.boundary_identity)
+    implementation_registry = _recovery_registry(execution_adapter)
+    coordinator = gate.recovery_coordinator(implementation_registry)
+    implementation = implementation_registry._implementations[0]
+    substituted = _FakeResultInterpreter(
+        permit.intent.boundary_identity.result_interpreter_identity
+    )
+    object.__setattr__(implementation, "result_interpreter", substituted)
+
+    with pytest.raises(RunActionRecoveryError, match="interpreter.*substituted"):
+        coordinator.recover(frontier)
+
+    assert not execution_adapter.prepare_calls
+    assert not execution_adapter.inspect_calls
+    assert not substituted.interpret_calls
 
 
 def test_recovery_rejects_substituted_frontier_view_binding(
@@ -733,7 +854,7 @@ def test_recovery_rejects_substituted_frontier_view_binding(
         frontier=substituted_frontier,
         predecessor_ledger=frontier.projection.action_ledger,
     )
-    adapter = _FakeRecoveryAdapter(original.intent.boundary_identity)
+    adapter = _FakeExecutionAdapter(original.intent.boundary_identity)
 
     with pytest.raises(RunActionRecoveryError, match="current frontier"):
         _recovery_coordinator(gate, adapter)._require_reservation_frontier(
@@ -764,7 +885,7 @@ def test_recovery_rejects_exact_frontier_at_another_safety_boundary(
         frontier=original.frontier,
         predecessor_ledger=frontier.projection.action_ledger,
     )
-    adapter = _FakeRecoveryAdapter(original.intent.boundary_identity)
+    adapter = _FakeExecutionAdapter(original.intent.boundary_identity)
 
     with pytest.raises(RunActionRecoveryError, match="current frontier"):
         _recovery_coordinator(gate, adapter)._require_reservation_frontier(
@@ -816,7 +937,7 @@ def test_recovery_rejects_a_nonactionable_current_frontier(
     for field_name, value in vars(frontier).items():
         object.__setattr__(ineligible_frontier, field_name, value)
     object.__setattr__(ineligible_frontier, "checkpoint", checkpoint)
-    adapter = _FakeRecoveryAdapter(reservation.intent.boundary_identity)
+    adapter = _FakeExecutionAdapter(reservation.intent.boundary_identity)
 
     with pytest.raises(RunActionRecoveryError, match="current frontier"):
         _recovery_coordinator(gate, adapter)._require_reservation_frontier(
@@ -829,11 +950,11 @@ def test_recovery_coordinator_clone_and_forked_copy_are_invalid(
     publisher_case,
 ) -> None:
     frontier, gate, permit, _payload = _reserved_case(publisher_case)
-    adapter = _FakeRecoveryAdapter(permit.intent.boundary_identity)
-    adapter_registry = _recovery_registry(adapter)
-    coordinator = gate.recovery_coordinator(adapter_registry)
+    adapter = _FakeExecutionAdapter(permit.intent.boundary_identity)
+    implementation_registry = _recovery_registry(adapter)
+    coordinator = gate.recovery_coordinator(implementation_registry)
     cloned = copy(coordinator)
-    cloned_registry = copy(adapter_registry)
+    cloned_registry = copy(implementation_registry)
 
     with pytest.raises(RunActionRecoveryError, match="cloned"):
         cloned.inspect(frontier)
@@ -846,7 +967,7 @@ def test_recovery_coordinator_clone_and_forked_copy_are_invalid(
         with pytest.raises(RunActionRecoveryError, match="foreign"):
             coordinator.inspect(frontier)
         with pytest.raises(RunActionRecoveryError, match="foreign"):
-            adapter_registry.resolve(adapter.boundary_identity)
+            implementation_registry.resolve_execution(permit.intent.boundary_identity)
         os.write(write_descriptor, b"invalid")
         os._exit(0)
     os.close(write_descriptor)
@@ -878,11 +999,11 @@ def test_result_received_recovers_after_full_runtime_restart(
         publisher=publisher,
         security_authority=security,
     )
-    adapter = _FakeRecoveryAdapter(permit.intent.boundary_identity)
+    adapter = _FakeExecutionAdapter(permit.intent.boundary_identity)
     report = _recovery_coordinator(reopened_gate, adapter).recover(reopened_frontier)
 
     assert report.is_complete
-    assert adapter.accept_calls[0][1] == raw_result
+    assert adapter.result_interpreter.interpret_calls[0][1] == raw_result
     assert not adapter.inspect_calls
     active.close()
 
@@ -901,7 +1022,7 @@ def test_fresh_embedding_recovery_never_receives_workspace_descriptor(
         workspace_access=RunFrontierWorkspaceAccess.NONE,
         boundary_identity=_boundary_identity(RunFrontierActionKind.EMBEDDING),
     )
-    adapter = _FakeRecoveryAdapter(permit.intent.boundary_identity)
+    adapter = _FakeExecutionAdapter(permit.intent.boundary_identity)
 
     report = _recovery_coordinator(gate, adapter).recover(frontier)
 

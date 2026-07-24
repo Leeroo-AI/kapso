@@ -19,6 +19,8 @@ from kapso.cross_run.launch.checkpoint_contracts import RunCheckpointStatus
 from kapso.cross_run.launch.resume_contracts import RunEligibilityDisposition
 from kapso.cross_run.launch.run_action_contracts import (
     RunActionBoundaryIdentity,
+    RunActionExecutionLifecycleIdentity,
+    RunActionResultInterpreterIdentity,
     RunFrontierWorkspaceAccess,
 )
 from kapso.cross_run.launch.run_action_ledger import (
@@ -52,33 +54,33 @@ from kapso.cross_run.security_authority_contracts import (
 )
 
 _RUN_ACTION_RECOVERY_COORDINATOR_AUTHORITY = object()
-_RUN_ACTION_RECOVERY_ADAPTER_REGISTRY_AUTHORITY = object()
+_RUN_ACTION_RECOVERY_IMPLEMENTATION_REGISTRY_AUTHORITY = object()
 _RUN_ACTION_FRESH_SPAWN_AUTHORITY = object()
 _ISSUED_RECOVERY_COORDINATORS: WeakValueDictionary[int, object] = WeakValueDictionary()
-_ISSUED_RECOVERY_ADAPTER_REGISTRIES: WeakValueDictionary[int, object] = (
+_ISSUED_RECOVERY_IMPLEMENTATION_REGISTRIES: WeakValueDictionary[int, object] = (
     WeakValueDictionary()
 )
-_ISSUED_RECOVERY_ADAPTER_BINDINGS: WeakKeyDictionary[object, tuple] = (
+_ISSUED_RECOVERY_IMPLEMENTATION_BINDINGS: WeakKeyDictionary[object, tuple] = (
     WeakKeyDictionary()
 )
 _ISSUED_FRESH_SPAWN_CAPABILITIES: WeakValueDictionary[int, object] = (
     WeakValueDictionary()
 )
 _RECOVERY_COORDINATOR_LOCK = Lock()
-_RECOVERY_ADAPTER_REGISTRY_LOCK = Lock()
+_RECOVERY_IMPLEMENTATION_REGISTRY_LOCK = Lock()
 _FRESH_SPAWN_CAPABILITY_LOCK = Lock()
 _TERMINAL_KINDS = {
     RunActionExecutionEventKind.RESULT_ACCEPTED,
     RunActionExecutionEventKind.CANCELLED,
     RunActionExecutionEventKind.INTERRUPTED,
 }
-_RECOVERY_ADAPTER_METHOD_NAMES = (
+_EXECUTION_ADAPTER_METHOD_NAMES = (
     "prepare_fresh",
     "start_once",
     "inspect_committed",
     "reattach",
-    "accept_result",
 )
+_RESULT_INTERPRETER_METHOD_NAMES = ("interpret",)
 
 
 class RunActionRecoveryError(RuntimeError):
@@ -99,16 +101,19 @@ class RunActionPreparedSpawn:
     """Local-only allocation made before a durable spawn commitment."""
 
     provider_execution_id: str
-    boundary_identity: RunActionBoundaryIdentity
+    execution_lifecycle_identity: RunActionExecutionLifecycleIdentity
 
     def __post_init__(self) -> None:
         require_identifier(
             self.provider_execution_id,
             "prepared run action provider execution ID",
         )
-        if type(self.boundary_identity) is not RunActionBoundaryIdentity:
+        if (
+            type(self.execution_lifecycle_identity)
+            is not RunActionExecutionLifecycleIdentity
+        ):
             raise RunActionRecoveryError(
-                "prepared run action lacks its exact boundary identity"
+                "prepared run action lacks its exact execution lifecycle identity"
             )
 
 
@@ -126,8 +131,8 @@ class RunActionProviderResult:
 
 
 @dataclass(frozen=True)
-class RunActionAdapterAcceptance:
-    """Deterministic adapter interpretation of one durable raw result."""
+class RunActionInterpretedResult:
+    """Dependency-pure interpretation of one complete request and raw result."""
 
     disposition: RunActionResultDisposition
     accepted_result_payload: bytes
@@ -138,7 +143,7 @@ class RunActionAdapterAcceptance:
             or type(self.accepted_result_payload) is not bytes
             or not self.accepted_result_payload
         ):
-            raise RunActionRecoveryError("recovered adapter acceptance is invalid")
+            raise RunActionRecoveryError("interpreted run action result is invalid")
 
 
 @dataclass(frozen=True)
@@ -247,10 +252,10 @@ class RunActionFreshSpawnCapability:
 
     def _invoke_once(
         self,
-        adapter: "RunActionRecoveryAdapter",
+        execution_adapter: "RunActionExecutionAdapter",
     ) -> RunActionProviderResult:
         with self._begin_invocation():
-            return adapter.start_once(self)
+            return execution_adapter.start_once(self)
 
     def _begin_invocation(self) -> "_RunActionFreshSpawnInvocation":
         with _FRESH_SPAWN_CAPABILITY_LOCK:
@@ -334,10 +339,10 @@ class RunActionCommittedSpawnQuery:
             )
 
 
-class RunActionRecoveryAdapter(Protocol):
-    """Exact adapter boundary used by the deterministic recovery state machine."""
+class RunActionExecutionAdapter(Protocol):
+    """Provider execution lifecycle with no result-interpretation authority."""
 
-    boundary_identity: RunActionBoundaryIdentity
+    execution_lifecycle_identity: RunActionExecutionLifecycleIdentity
 
     def prepare_fresh(
         self,
@@ -360,130 +365,216 @@ class RunActionRecoveryAdapter(Protocol):
         observation: RunActionCommittedSpawnObservation,
     ) -> RunActionProviderResult | None: ...
 
-    def accept_result(
+
+class RunActionResultInterpreter(Protocol):
+    """Dependency-pure interpreter with no provider or workspace authority."""
+
+    result_interpreter_identity: RunActionResultInterpreterIdentity
+
+    def interpret(
         self,
         *,
         request_payload: bytes,
         result_payload: bytes,
-        workspace_before: RunActionWorkspaceBinding | None,
-        workspace_after: RunActionWorkspaceBinding | None,
-    ) -> RunActionAdapterAcceptance: ...
+    ) -> RunActionInterpretedResult: ...
 
 
-class RunActionRecoveryAdapterRegistry:
-    """Process-bound exact-object catalog issued only by boundary composition."""
+@dataclass(frozen=True)
+class RunActionRecoveryImplementation:
+    """Exact lifecycle/interpreter objects composing one durable boundary."""
+
+    boundary_identity: RunActionBoundaryIdentity
+    execution_adapter: RunActionExecutionAdapter
+    result_interpreter: RunActionResultInterpreter
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.boundary_identity) is not RunActionBoundaryIdentity
+            or self.execution_adapter is self.result_interpreter
+            or not hasattr(self.execution_adapter, "execution_lifecycle_identity")
+            or self.execution_adapter.execution_lifecycle_identity
+            != self.boundary_identity.execution_lifecycle_identity
+            or not hasattr(self.result_interpreter, "result_interpreter_identity")
+            or self.result_interpreter.result_interpreter_identity
+            != self.boundary_identity.result_interpreter_identity
+        ):
+            raise RunActionRecoveryError(
+                "run action recovery implementation differs from its boundary"
+            )
+
+
+class RunActionRecoveryImplementationRegistry:
+    """Process-bound exact lifecycle/interpreter composition catalog."""
 
     def __init__(
         self,
-        adapters: tuple[RunActionRecoveryAdapter, ...],
+        implementations: tuple[RunActionRecoveryImplementation, ...],
         *,
         _authority: object,
     ) -> None:
         if (
-            type(adapters) is not tuple
-            or not adapters
-            or _authority is not _RUN_ACTION_RECOVERY_ADAPTER_REGISTRY_AUTHORITY
+            type(implementations) is not tuple
+            or not implementations
+            or _authority is not _RUN_ACTION_RECOVERY_IMPLEMENTATION_REGISTRY_AUTHORITY
         ):
             raise RunActionRecoveryError(
-                "run action recovery adapter registry lacks issuance authority"
+                "run action recovery implementation registry lacks issuance authority"
             )
         indexed = {}
         bindings = []
-        for adapter in adapters:
-            if not hasattr(adapter, "boundary_identity"):
+        for implementation in implementations:
+            if type(implementation) is not RunActionRecoveryImplementation:
                 raise RunActionRecoveryError(
-                    "run action recovery adapter lacks a boundary identity"
+                    "run action recovery implementation has an invalid type"
                 )
-            identity = adapter.boundary_identity
-            implementation = tuple(
-                getattr(type(adapter), name, None)
-                for name in _RECOVERY_ADAPTER_METHOD_NAMES
+            boundary_identity = implementation.boundary_identity
+            execution_adapter = implementation.execution_adapter
+            result_interpreter = implementation.result_interpreter
+            execution_methods = tuple(
+                getattr(type(execution_adapter), name, None)
+                for name in _EXECUTION_ADAPTER_METHOD_NAMES
+            )
+            interpreter_methods = tuple(
+                getattr(type(result_interpreter), name, None)
+                for name in _RESULT_INTERPRETER_METHOD_NAMES
             )
             if (
-                type(identity) is not RunActionBoundaryIdentity
-                or identity.boundary_identity_id in indexed
-                or any(method is None for method in implementation)
+                boundary_identity.boundary_identity_id in indexed
+                or any(method is None for method in execution_methods)
                 or any(
-                    getattr(getattr(adapter, name), "__self__", None) is not adapter
-                    or getattr(getattr(adapter, name), "__func__", None) is not method
+                    getattr(getattr(execution_adapter, name), "__self__", None)
+                    is not execution_adapter
+                    or getattr(getattr(execution_adapter, name), "__func__", None)
+                    is not method
                     for name, method in zip(
-                        _RECOVERY_ADAPTER_METHOD_NAMES,
-                        implementation,
+                        _EXECUTION_ADAPTER_METHOD_NAMES,
+                        execution_methods,
+                    )
+                )
+                or any(method is None for method in interpreter_methods)
+                or any(
+                    getattr(getattr(result_interpreter, name), "__self__", None)
+                    is not result_interpreter
+                    or getattr(getattr(result_interpreter, name), "__func__", None)
+                    is not method
+                    for name, method in zip(
+                        _RESULT_INTERPRETER_METHOD_NAMES,
+                        interpreter_methods,
                     )
                 )
             ):
                 raise RunActionRecoveryError(
-                    "run action recovery adapter registry is ambiguous or invalid"
+                    "run action recovery implementation registry is ambiguous or invalid"
                 )
-            indexed[identity.boundary_identity_id] = adapter
+            indexed[boundary_identity.boundary_identity_id] = implementation
             bindings.append(
                 (
-                    adapter,
-                    identity,
-                    type(adapter),
                     implementation,
+                    boundary_identity,
+                    execution_adapter,
+                    type(execution_adapter),
+                    execution_methods,
+                    result_interpreter,
+                    type(result_interpreter),
+                    interpreter_methods,
                 )
             )
-        self._adapters = adapters
+        self._implementations = implementations
         self._owner_process_id = os.getpid()
-        with _RECOVERY_ADAPTER_REGISTRY_LOCK:
-            _ISSUED_RECOVERY_ADAPTER_REGISTRIES[id(self)] = self
-            _ISSUED_RECOVERY_ADAPTER_BINDINGS[self] = tuple(bindings)
+        with _RECOVERY_IMPLEMENTATION_REGISTRY_LOCK:
+            _ISSUED_RECOVERY_IMPLEMENTATION_REGISTRIES[id(self)] = self
+            _ISSUED_RECOVERY_IMPLEMENTATION_BINDINGS[self] = tuple(bindings)
 
-    def resolve(
+    def resolve_execution(
         self,
         boundary_identity: RunActionBoundaryIdentity,
-    ) -> RunActionRecoveryAdapter:
+    ) -> RunActionExecutionAdapter:
         self._require_owner_process()
+        matching = self._matching_binding(boundary_identity)
+        if (
+            matching[0].boundary_identity != boundary_identity
+            or matching[0].execution_adapter is not matching[2]
+            or matching[2].execution_lifecycle_identity
+            != boundary_identity.execution_lifecycle_identity
+            or type(matching[2]) is not matching[3]
+            or any(
+                getattr(getattr(matching[2], name), "__self__", None) is not matching[2]
+                or getattr(getattr(matching[2], name), "__func__", None) is not method
+                for name, method in zip(
+                    _EXECUTION_ADAPTER_METHOD_NAMES,
+                    matching[4],
+                )
+            )
+        ):
+            raise RunActionRecoveryError(
+                "run action execution adapter is absent or substituted"
+            )
+        return matching[2]
+
+    def resolve_interpreter(
+        self,
+        boundary_identity: RunActionBoundaryIdentity,
+    ) -> RunActionResultInterpreter:
+        self._require_owner_process()
+        matching = self._matching_binding(boundary_identity)
+        if (
+            matching[0].boundary_identity != boundary_identity
+            or matching[0].result_interpreter is not matching[5]
+            or matching[5].result_interpreter_identity
+            != boundary_identity.result_interpreter_identity
+            or type(matching[5]) is not matching[6]
+            or any(
+                getattr(getattr(matching[5], name), "__self__", None) is not matching[5]
+                or getattr(getattr(matching[5], name), "__func__", None) is not method
+                for name, method in zip(
+                    _RESULT_INTERPRETER_METHOD_NAMES,
+                    matching[7],
+                )
+            )
+        ):
+            raise RunActionRecoveryError(
+                "run action result interpreter is absent or substituted"
+            )
+        return matching[5]
+
+    def _matching_binding(
+        self,
+        boundary_identity: RunActionBoundaryIdentity,
+    ) -> tuple:
         if type(boundary_identity) is not RunActionBoundaryIdentity:
             raise RunActionRecoveryError(
-                "run action adapter lookup requires an exact boundary identity"
+                "run action implementation lookup requires an exact boundary identity"
             )
-        with _RECOVERY_ADAPTER_REGISTRY_LOCK:
-            bindings = _ISSUED_RECOVERY_ADAPTER_BINDINGS.get(self)
+        with _RECOVERY_IMPLEMENTATION_REGISTRY_LOCK:
+            bindings = _ISSUED_RECOVERY_IMPLEMENTATION_BINDINGS.get(self)
         matching = tuple(
             binding
             for binding in bindings
             if binding[1].boundary_identity_id == boundary_identity.boundary_identity_id
         )
-        if (
-            len(matching) != 1
-            or matching[0][1] != boundary_identity
-            or matching[0][0].boundary_identity != boundary_identity
-            or type(matching[0][0]) is not matching[0][2]
-            or any(
-                getattr(getattr(matching[0][0], name), "__self__", None)
-                is not matching[0][0]
-                or getattr(getattr(matching[0][0], name), "__func__", None)
-                is not method
-                for name, method in zip(
-                    _RECOVERY_ADAPTER_METHOD_NAMES,
-                    matching[0][3],
-                )
-            )
-        ):
+        if len(matching) != 1 or matching[0][1] != boundary_identity:
             raise RunActionRecoveryError(
-                "run action recovery adapter is absent or substituted"
+                "run action recovery implementation is absent or substituted"
             )
-        return matching[0][0]
+        return matching[0]
 
     def _require_owner_process(self) -> None:
-        with _RECOVERY_ADAPTER_REGISTRY_LOCK:
-            issued = _ISSUED_RECOVERY_ADAPTER_REGISTRIES.get(id(self))
-            bindings = _ISSUED_RECOVERY_ADAPTER_BINDINGS.get(self)
+        with _RECOVERY_IMPLEMENTATION_REGISTRY_LOCK:
+            issued = _ISSUED_RECOVERY_IMPLEMENTATION_REGISTRIES.get(id(self))
+            bindings = _ISSUED_RECOVERY_IMPLEMENTATION_BINDINGS.get(self)
         if (
             issued is not self
             or bindings is None
-            or type(self._adapters) is not tuple
-            or len(bindings) != len(self._adapters)
+            or type(self._implementations) is not tuple
+            or len(bindings) != len(self._implementations)
             or any(
-                adapter is not binding[0]
-                for adapter, binding in zip(self._adapters, bindings)
+                implementation is not binding[0]
+                for implementation, binding in zip(self._implementations, bindings)
             )
             or self._owner_process_id != os.getpid()
         ):
             raise RunActionRecoveryError(
-                "run action recovery adapter registry is cloned, foreign, or altered"
+                "run action recovery implementation registry is cloned, foreign, or altered"
             )
 
 
@@ -599,7 +690,7 @@ class RunActionRecoveryCoordinator:
         active_workspace: ActiveLaunchWorkspace,
         publisher: RunStatePublisher,
         security_authority: object,
-        adapter_registry: RunActionRecoveryAdapterRegistry,
+        implementation_registry: RunActionRecoveryImplementationRegistry,
         _authority: object,
     ) -> None:
         if (
@@ -607,7 +698,8 @@ class RunActionRecoveryCoordinator:
             or type(publisher) is not RunStatePublisher
             or publisher._authority is not active_workspace
             or not hasattr(security_authority, "observe_exact_descendant_of")
-            or type(adapter_registry) is not RunActionRecoveryAdapterRegistry
+            or type(implementation_registry)
+            is not RunActionRecoveryImplementationRegistry
             or _authority is not _RUN_ACTION_RECOVERY_COORDINATOR_AUTHORITY
         ):
             raise RunActionRecoveryError(
@@ -618,8 +710,8 @@ class RunActionRecoveryCoordinator:
         self._publisher = publisher
         self._store = publisher._action_store
         self._security_authority = security_authority
-        adapter_registry._require_owner_process()
-        self._adapter_registry = adapter_registry
+        implementation_registry._require_owner_process()
+        self._implementation_registry = implementation_registry
         self._owner_process_id = os.getpid()
         with _RECOVERY_COORDINATOR_LOCK:
             _ISSUED_RECOVERY_COORDINATORS[id(self)] = self
@@ -645,7 +737,7 @@ class RunActionRecoveryCoordinator:
     ) -> RunActionRecoveryReport:
         """Advance only the exact admitted durable tail, then replay terminals."""
         self._require_owner_process()
-        self._adapter_registry._require_owner_process()
+        self._implementation_registry._require_owner_process()
         with ExitStack() as descriptors:
             self._publisher._hold_current(frontier, descriptors)
             self._store.lock_workspace(
@@ -699,14 +791,18 @@ class RunActionRecoveryCoordinator:
             ) != expected_workspace:
                 session.cancel(RunActionTerminalReason.STALE_FRONTIER)
                 return
-            adapter = self._resolve_adapter(self._adapter_registry, reservation)
-            prepared = adapter.prepare_fresh(reservation)
+            execution_adapter = self._resolve_execution_adapter(
+                self._implementation_registry,
+                reservation,
+            )
+            prepared = execution_adapter.prepare_fresh(reservation)
             if (
                 type(prepared) is not RunActionPreparedSpawn
-                or prepared.boundary_identity != reservation.intent.boundary_identity
+                or prepared.execution_lifecycle_identity
+                != reservation.intent.boundary_identity.execution_lifecycle_identity
             ):
                 raise RunActionRecoveryError(
-                    "adapter prepared another run action boundary"
+                    "execution adapter prepared another run action lifecycle"
                 )
             _descriptor, confirmed_workspace = self._inspect_workspace(
                 reservation,
@@ -735,30 +831,31 @@ class RunActionRecoveryCoordinator:
                 workspace_descriptor=workspace_descriptor,
                 _authority=_RUN_ACTION_FRESH_SPAWN_AUTHORITY,
             )
-            result = capability._invoke_once(adapter)
-            self._record_and_accept(
+            result = capability._invoke_once(execution_adapter)
+            self._record_and_interpret(
                 session,
-                adapter,
                 result,
                 descriptors,
             )
             return
-        adapter = self._resolve_adapter(self._adapter_registry, reservation)
         if tail_kind is RunActionExecutionEventKind.SPAWN_COMMITTED:
+            execution_adapter = self._resolve_execution_adapter(
+                self._implementation_registry,
+                reservation,
+            )
             spawn_commit = events[-1].spawn_commit
             query = RunActionCommittedSpawnQuery(
                 reservation=reservation,
                 spawn_commit=spawn_commit,
             )
-            observation = adapter.inspect_committed(query)
+            observation = execution_adapter.inspect_committed(query)
             if type(observation) is not RunActionCommittedSpawnObservation:
                 raise RunActionRecoveryError(
-                    "adapter returned an invalid committed-spawn observation"
+                    "execution adapter returned an invalid committed-spawn observation"
                 )
             if observation.state is RunActionCommittedSpawnState.RESULT_AVAILABLE:
-                self._record_and_accept(
+                self._record_and_interpret(
                     session,
-                    adapter,
                     observation.result,
                     descriptors,
                 )
@@ -766,11 +863,10 @@ class RunActionRecoveryCoordinator:
                 observation.state is RunActionCommittedSpawnState.RUNNING_REATTACHABLE
                 and self._security_is_current(frontier)
             ):
-                result = adapter.reattach(query, observation)
+                result = execution_adapter.reattach(query, observation)
                 if result is not None:
-                    self._record_and_accept(
+                    self._record_and_interpret(
                         session,
-                        adapter,
                         result,
                         descriptors,
                     )
@@ -789,9 +885,8 @@ class RunActionRecoveryCoordinator:
                 )
             return
         if tail_kind is RunActionExecutionEventKind.RESULT_RECEIVED:
-            self._accept_received(
+            self._interpret_received(
                 session,
-                adapter,
                 descriptors,
             )
             return
@@ -799,26 +894,26 @@ class RunActionRecoveryCoordinator:
             "run action recovery received a terminal operation"
         )
 
-    def _record_and_accept(
+    def _record_and_interpret(
         self,
         session,
-        adapter: RunActionRecoveryAdapter,
         result: RunActionProviderResult,
         descriptors: ExitStack,
     ) -> RunActionAcceptance:
         if type(result) is not RunActionProviderResult:
-            raise RunActionRecoveryError("adapter returned an invalid provider result")
+            raise RunActionRecoveryError(
+                "execution adapter returned an invalid provider result"
+            )
         spawn_commit = session.events[-1].spawn_commit
         session.record_result(
             spawn_commit=spawn_commit,
             result_payload=result.result_payload,
         )
-        return self._accept_received(session, adapter, descriptors)
+        return self._interpret_received(session, descriptors)
 
-    def _accept_received(
+    def _interpret_received(
         self,
         session,
-        adapter: RunActionRecoveryAdapter,
         descriptors: ExitStack,
     ) -> RunActionAcceptance:
         reservation = session.reservation
@@ -830,29 +925,24 @@ class RunActionRecoveryCoordinator:
             descriptors,
             allow_edit_successor=True,
         )
-        after = (
-            None
-            if observed_workspace is None
-            else RunActionWorkspaceBinding.from_identity(observed_workspace)
+        interpreter = self._resolve_result_interpreter(
+            self._implementation_registry,
+            reservation,
         )
-        acceptance = adapter.accept_result(
+        interpreted = interpreter.interpret(
             request_payload=request_payload,
             result_payload=result_payload,
-            workspace_before=reservation.frontier.workspace_before,
-            workspace_after=after,
         )
-        repeated_acceptance = adapter.accept_result(
+        repeated_interpretation = interpreter.interpret(
             request_payload=request_payload,
             result_payload=result_payload,
-            workspace_before=reservation.frontier.workspace_before,
-            workspace_after=after,
         )
         if (
-            type(acceptance) is not RunActionAdapterAcceptance
-            or repeated_acceptance != acceptance
+            type(interpreted) is not RunActionInterpretedResult
+            or repeated_interpretation != interpreted
         ):
             raise RunActionRecoveryError(
-                "adapter acceptance is invalid or nondeterministic"
+                "run action result interpretation is invalid or nondeterministic"
             )
         _descriptor, confirmed_workspace = self._inspect_workspace(
             reservation,
@@ -861,12 +951,12 @@ class RunActionRecoveryCoordinator:
         )
         if confirmed_workspace != observed_workspace:
             raise RunActionRecoveryError(
-                "workspace changed during run action result acceptance"
+                "workspace changed during run action result interpretation"
             )
         durable_acceptance = session.accept_result(
             result_receipt=result_receipt,
-            disposition=acceptance.disposition,
-            accepted_result_payload=acceptance.accepted_result_payload,
+            disposition=interpreted.disposition,
+            accepted_result_payload=interpreted.accepted_result_payload,
             workspace_after=confirmed_workspace,
         )
         _descriptor, terminal_workspace = self._inspect_workspace(
@@ -991,28 +1081,46 @@ class RunActionRecoveryCoordinator:
         )
 
     @staticmethod
-    def _resolve_adapter(
-        registry: RunActionRecoveryAdapterRegistry,
+    def _resolve_execution_adapter(
+        registry: RunActionRecoveryImplementationRegistry,
         reservation: RunActionReservation,
-    ) -> RunActionRecoveryAdapter:
+    ) -> RunActionExecutionAdapter:
         identity = reservation.intent.boundary_identity
-        adapter = registry.resolve(identity)
-        required_methods = (
-            "prepare_fresh",
-            "start_once",
-            "inspect_committed",
-            "reattach",
-            "accept_result",
-        )
+        execution_adapter = registry.resolve_execution(identity)
         if (
-            not hasattr(adapter, "boundary_identity")
-            or adapter.boundary_identity != identity
-            or any(not hasattr(adapter, name) for name in required_methods)
+            not hasattr(execution_adapter, "execution_lifecycle_identity")
+            or execution_adapter.execution_lifecycle_identity
+            != identity.execution_lifecycle_identity
+            or any(
+                not hasattr(execution_adapter, name)
+                for name in _EXECUTION_ADAPTER_METHOD_NAMES
+            )
         ):
             raise RunActionRecoveryError(
-                "run action recovery adapter differs from its durable identity"
+                "run action execution adapter differs from its durable identity"
             )
-        return adapter
+        return execution_adapter
+
+    @staticmethod
+    def _resolve_result_interpreter(
+        registry: RunActionRecoveryImplementationRegistry,
+        reservation: RunActionReservation,
+    ) -> RunActionResultInterpreter:
+        identity = reservation.intent.boundary_identity
+        interpreter = registry.resolve_interpreter(identity)
+        if (
+            not hasattr(interpreter, "result_interpreter_identity")
+            or interpreter.result_interpreter_identity
+            != identity.result_interpreter_identity
+            or any(
+                not hasattr(interpreter, name)
+                for name in _RESULT_INTERPRETER_METHOD_NAMES
+            )
+        ):
+            raise RunActionRecoveryError(
+                "run action result interpreter differs from its durable identity"
+            )
+        return interpreter
 
     @staticmethod
     def _require_reservation_frontier(
@@ -1079,18 +1187,20 @@ class RunActionRecoveryCoordinator:
 
 
 __all__ = [
-    "RunActionAdapterAcceptance",
     "RunActionCommittedSpawnObservation",
     "RunActionCommittedSpawnQuery",
     "RunActionCommittedSpawnState",
+    "RunActionExecutionAdapter",
     "RunActionFreshSpawnCapability",
+    "RunActionInterpretedResult",
     "RunActionPreparedSpawn",
     "RunActionProviderResult",
     "RunActionRecoveredOperation",
-    "RunActionRecoveryAdapter",
-    "RunActionRecoveryAdapterRegistry",
     "RunActionRecoveryCoordinator",
     "RunActionRecoveryError",
+    "RunActionRecoveryImplementation",
+    "RunActionRecoveryImplementationRegistry",
     "RunActionRecoveryPlan",
     "RunActionRecoveryReport",
+    "RunActionResultInterpreter",
 ]

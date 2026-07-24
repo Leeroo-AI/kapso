@@ -29,7 +29,10 @@ from kapso.cross_run.launch.resume_contracts import (
 )
 from kapso.cross_run.launch.run_action_contracts import (
     RunActionBoundaryIdentity,
+    RunActionContractError,
+    RunActionExecutionLifecycleIdentity,
     RunActionIntent,
+    RunActionResultInterpreterIdentity,
 )
 from kapso.cross_run.launch.run_action_gate import (
     RunFrontierActionError,
@@ -69,10 +72,19 @@ def _boundary_identity(
 ) -> RunActionBoundaryIdentity:
     return RunActionBoundaryIdentity.mint(
         kind=kind,
-        adapter_id=f"test.{kind.value}.adapter",
-        adapter_version="test.adapter.v1",
-        recovery_protocol_version="test.recovery.v1",
-        sandbox_policy_id=f"test.{kind.value}.sandbox.v1",
+        execution_lifecycle_identity=RunActionExecutionLifecycleIdentity.mint(
+            kind=kind,
+            implementation_id=f"test.{kind.value}.execution",
+            implementation_version="test.execution.v1",
+            recovery_protocol_version="test.recovery.v1",
+            sandbox_policy_id=f"test.{kind.value}.sandbox.v1",
+        ),
+        result_interpreter_identity=RunActionResultInterpreterIdentity.mint(
+            kind=kind,
+            implementation_id=f"test.{kind.value}.interpreter",
+            implementation_version="test.interpreter.v1",
+            interpretation_protocol_version="test.interpretation.v1",
+        ),
     )
 
 
@@ -473,10 +485,16 @@ def test_action_claim_rejects_adapter_substitution_before_security_use(
     permit = _issue_ideation_agent(gate, receipt, payload)
     substituted = RunActionBoundaryIdentity.mint(
         kind=RunFrontierActionKind.CODING_AGENT,
-        adapter_id="test.coding_agent.adapter",
-        adapter_version="test.adapter.v2",
-        recovery_protocol_version="test.recovery.v1",
-        sandbox_policy_id="test.coding_agent.sandbox.v1",
+        execution_lifecycle_identity=RunActionExecutionLifecycleIdentity.mint(
+            kind=RunFrontierActionKind.CODING_AGENT,
+            implementation_id="test.coding_agent.execution",
+            implementation_version="test.execution.v2",
+            recovery_protocol_version="test.recovery.v1",
+            sandbox_policy_id="test.coding_agent.sandbox.v1",
+        ),
+        result_interpreter_identity=(
+            permit.intent.boundary_identity.result_interpreter_identity
+        ),
     )
 
     with gate.hold(permit, payload) as lease:
@@ -509,6 +527,28 @@ def test_action_issue_rejects_boundary_kind_substitution(
         )
 
     assert publisher.action_ledger_snapshot() == before
+
+
+def test_boundary_rejects_cross_kind_lifecycle_or_interpreter() -> None:
+    coding_boundary = _boundary_identity(RunFrontierActionKind.CODING_AGENT)
+    embedding_boundary = _boundary_identity(RunFrontierActionKind.EMBEDDING)
+
+    with pytest.raises(RunActionContractError, match="components"):
+        RunActionBoundaryIdentity.mint(
+            kind=RunFrontierActionKind.CODING_AGENT,
+            execution_lifecycle_identity=(
+                embedding_boundary.execution_lifecycle_identity
+            ),
+            result_interpreter_identity=(coding_boundary.result_interpreter_identity),
+        )
+    with pytest.raises(RunActionContractError, match="components"):
+        RunActionBoundaryIdentity.mint(
+            kind=RunFrontierActionKind.CODING_AGENT,
+            execution_lifecycle_identity=(coding_boundary.execution_lifecycle_identity),
+            result_interpreter_identity=(
+                embedding_boundary.result_interpreter_identity
+            ),
+        )
 
 
 @pytest.mark.parametrize("mutation", ("clone", "request"))

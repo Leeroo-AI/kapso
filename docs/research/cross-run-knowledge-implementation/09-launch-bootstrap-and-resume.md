@@ -295,9 +295,9 @@ expert workspace before the new runtime becomes reachable.
       acceptance events, hold the receipt-pinned workspace lock, require terminal
       live state for publication, and derive branch accounting from durable events.
 - [x] Recover one exact final nonterminal prefix without replaying a committed
-      spawn; bind recovery to the complete frontier and an issued exact-adapter
-      catalog, burn fresh-spawn authority once, and replay terminal accepted bytes
-      without provider access.
+      spawn; bind recovery to the complete frontier and an issued exact
+      implementation catalog, burn fresh-spawn authority once, and replay terminal
+      accepted bytes without execution or interpretation access.
 - [ ] On resume, require the original `BootstrapPin`, workspace tree, read-only
       snapshot package, adapter, checkpoint, IdeaArchive, experiment store, journal,
       and branches to reconcile.
@@ -402,16 +402,18 @@ concurrent processes cannot both reserve against the same live floor.
 Mutation entry points are internal and sealed to the gate. Provider execution
 IDs and invocation nonces are unique across the full store, not merely within
 one operation. Every reservation and spawn also pins one content-addressed
-boundary identity: action kind, adapter ID and version, recovery protocol
-version, and sandbox-policy ID. A substituted adapter is rejected before the
-fresh security observation or provider spawn.
+boundary identity. The boundary jointly embeds an action-kind-bound,
+content-addressed execution-lifecycle identity and an action-kind-bound,
+content-addressed pure result-interpreter identity. A substituted lifecycle,
+interpreter, implementation method, recovery protocol, or sandbox policy is
+rejected against the exact process-local composition.
 
 `RunActionRecoveryCoordinator` classifies the exact action-ledger suffix under
 the current checkpoint and workspace locks. The suffix must be one predecessor
 chain with at most one final nonterminal operation, and every reservation must
 match the complete current frontier, including all mutable-view digests.
 Terminal operations replay their complete accepted bytes without contacting an
-adapter.
+execution adapter, result interpreter, or provider.
 
 Recovery is an explicit state machine. An unspawned reservation may allocate
 locally, but it receives neither request bytes nor workspace authority; security
@@ -419,20 +421,24 @@ and workspace are checked again immediately before the durable spawn commit, and
 the reservation boundary must still equal the checkpoint safety boundary. Only
 then does a one-shot, same-process/same-thread capability expose the complete
 request and a capability-owned duplicate workspace descriptor for exactly one
-adapter invocation. The capability burns on success or exception and closes that
-descriptor. A committed spawn receives only its durable execution identity:
-`RESULT_AVAILABLE` records the exact bytes, `RUNNING_REATTACHABLE` may reattach
-only under the unchanged security observation, proven quiescence interrupts, and
-`UNKNOWN` remains unresolved. Recovery never routes a committed spawn through
-fresh preparation or start.
+execution-adapter invocation. The capability burns on success or exception and
+closes that descriptor. A committed spawn receives only its durable execution
+identity: `RESULT_AVAILABLE` records the exact bytes, `RUNNING_REATTACHABLE` may
+reattach only under the unchanged security observation, proven quiescence
+interrupts, and `UNKNOWN` remains unresolved. Recovery never routes a committed
+spawn through fresh preparation or start.
 
-The coordinator owns one process-bound, non-clonable adapter catalog fixed at
-composition; `recover()` accepts no caller-selected implementation. Catalog
-resolution rechecks exact adapter object, class methods, and content-addressed
-boundary identity. Result acceptance is local and deterministic, and the
-workspace is reconciled both after repeated interpretation and after the durable
-terminal append. A crash after spawn commit therefore reopens only as committed
-work; a crash after raw-result persistence re-runs only local interpretation.
+The coordinator owns one process-bound, non-clonable implementation catalog fixed
+at composition; `recover()` accepts no caller-selected implementation. Each
+catalog entry exact-object binds one execution adapter and one result interpreter
+to the two identities in its durable boundary. Execution adapters own only
+prepare/start/inspect/reattach. Result interpreters receive only the complete
+request and raw-result bytes: no workspace binding, descriptor, provider object,
+or execution method. A `RESULT_RECEIVED` tail resolves and invokes only the
+interpreter. Interpretation is repeated to detect nondeterminism, while the
+coordinator alone reconciles the workspace before, during, and after durable
+acceptance. A crash after spawn commit therefore reopens only as committed work;
+a crash after raw-result persistence re-runs only local interpretation.
 
 Publication takes the locks in checkpoint → workspace → registry order and
 retains them through bundle/checkpoint/view commit. The candidate `ACTION_LEDGER`
@@ -481,9 +487,9 @@ this path is activated.
   mutation between issuance and consumption.
 - Inject death at reserved, spawn-committed, and raw-result prefixes; prove
   committed work is never freshly replayed, ambiguous provider state remains
-  unresolved, adapter catalogs and fresh capabilities reject clone/fork/reuse,
-  security movement before commit cancels, and workspace mutation during local
-  acceptance never becomes a terminal event.
+  unresolved, implementation catalogs and fresh capabilities reject
+  clone/fork/reuse, security movement before commit cancels, and workspace
+  mutation during local interpretation never becomes a terminal event.
 - Prove embeddings receive no workspace capability; prove edits exclude parallel
   edits/readers across processes, poison old permits/publication candidates, and
   become usable only after an exact branch-advance checkpoint successor.

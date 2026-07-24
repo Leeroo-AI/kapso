@@ -69,15 +69,67 @@ _ALLOWED_ACTION_WORKSPACE_ACCESS = {
 
 
 @dataclass(frozen=True)
+class RunActionExecutionLifecycleIdentity(StrictContract):
+    """Content identity of one kind-bound provider execution lifecycle."""
+
+    execution_lifecycle_identity_id: str
+    kind: RunFrontierActionKind
+    implementation_id: str
+    implementation_version: str
+    recovery_protocol_version: str
+    sandbox_policy_id: str
+
+    CONTENT_NAMESPACE: ClassVar[str] = "run-action-execution-lifecycle-identity"
+    IDENTITY_FIELD: ClassVar[str] = "execution_lifecycle_identity_id"
+
+    def _validate(self) -> None:
+        if type(self.kind) is not RunFrontierActionKind:
+            raise RunActionContractError(
+                "run action execution lifecycle uses an unrecognized kind"
+            )
+        for value, name in (
+            (self.implementation_id, "implementation ID"),
+            (self.implementation_version, "implementation version"),
+            (self.recovery_protocol_version, "recovery protocol version"),
+            (self.sandbox_policy_id, "sandbox policy ID"),
+        ):
+            require_identifier(value, f"run action execution lifecycle {name}")
+
+
+@dataclass(frozen=True)
+class RunActionResultInterpreterIdentity(StrictContract):
+    """Content identity of one kind-bound dependency-pure result interpreter."""
+
+    result_interpreter_identity_id: str
+    kind: RunFrontierActionKind
+    implementation_id: str
+    implementation_version: str
+    interpretation_protocol_version: str
+
+    CONTENT_NAMESPACE: ClassVar[str] = "run-action-result-interpreter-identity"
+    IDENTITY_FIELD: ClassVar[str] = "result_interpreter_identity_id"
+
+    def _validate(self) -> None:
+        if type(self.kind) is not RunFrontierActionKind:
+            raise RunActionContractError(
+                "run action result interpreter uses an unrecognized kind"
+            )
+        for value, name in (
+            (self.implementation_id, "implementation ID"),
+            (self.implementation_version, "implementation version"),
+            (self.interpretation_protocol_version, "interpretation protocol version"),
+        ):
+            require_identifier(value, f"run action result interpreter {name}")
+
+
+@dataclass(frozen=True)
 class RunActionBoundaryIdentity(StrictContract):
-    """Exact provider adapter, recovery protocol, and sandbox policy identity."""
+    """Exact execution lifecycle and pure result interpreter composition."""
 
     boundary_identity_id: str
     kind: RunFrontierActionKind
-    adapter_id: str
-    adapter_version: str
-    recovery_protocol_version: str
-    sandbox_policy_id: str
+    execution_lifecycle_identity: RunActionExecutionLifecycleIdentity
+    result_interpreter_identity: RunActionResultInterpreterIdentity
 
     CONTENT_NAMESPACE: ClassVar[str] = "run-action-boundary-identity"
     IDENTITY_FIELD: ClassVar[str] = "boundary_identity_id"
@@ -87,13 +139,17 @@ class RunActionBoundaryIdentity(StrictContract):
             raise RunActionContractError(
                 "run action boundary identity uses an unrecognized kind"
             )
-        for value, name in (
-            (self.adapter_id, "adapter ID"),
-            (self.adapter_version, "adapter version"),
-            (self.recovery_protocol_version, "recovery protocol version"),
-            (self.sandbox_policy_id, "sandbox policy ID"),
+        if (
+            type(self.execution_lifecycle_identity)
+            is not RunActionExecutionLifecycleIdentity
+            or type(self.result_interpreter_identity)
+            is not RunActionResultInterpreterIdentity
+            or self.execution_lifecycle_identity.kind is not self.kind
+            or self.result_interpreter_identity.kind is not self.kind
         ):
-            require_identifier(value, f"run action boundary {name}")
+            raise RunActionContractError(
+                "run action boundary components differ from its action kind"
+            )
 
 
 @dataclass(frozen=True)
@@ -171,7 +227,9 @@ class RunActionIntent(StrictContract):
 __all__ = [
     "RunActionContractError",
     "RunActionBoundaryIdentity",
+    "RunActionExecutionLifecycleIdentity",
     "RunActionIntent",
+    "RunActionResultInterpreterIdentity",
     "RunFrontierActionKind",
     "RunFrontierWorkspaceAccess",
 ]

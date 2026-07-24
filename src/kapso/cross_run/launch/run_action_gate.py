@@ -29,8 +29,8 @@ from kapso.cross_run.launch.run_action_ledger import (
 )
 from kapso.cross_run.launch.run_action_recovery import (
     _RUN_ACTION_RECOVERY_COORDINATOR_AUTHORITY,
-    RunActionRecoveryAdapterRegistry,
     RunActionRecoveryCoordinator,
+    RunActionRecoveryImplementationRegistry,
 )
 from kapso.cross_run.launch.run_action_store import (
     _RUN_ACTION_MUTATION_AUTHORITY,
@@ -335,19 +335,19 @@ class RunFrontierActionGate:
 
     def recovery_coordinator(
         self,
-        adapter_registry: RunActionRecoveryAdapterRegistry,
+        implementation_registry: RunActionRecoveryImplementationRegistry,
     ) -> RunActionRecoveryCoordinator:
         """Issue the sole recovery authority sharing this gate's live runtime."""
         self._require_owner_process()
-        if type(adapter_registry) is not RunActionRecoveryAdapterRegistry:
+        if type(implementation_registry) is not RunActionRecoveryImplementationRegistry:
             raise RunFrontierActionError(
-                "run action recovery requires an issued adapter registry"
+                "run action recovery requires an issued implementation registry"
             )
         return RunActionRecoveryCoordinator(
             active_workspace=self._active_workspace,
             publisher=self._publisher,
             security_authority=self._security_authority,
-            adapter_registry=adapter_registry,
+            implementation_registry=implementation_registry,
             _authority=_RUN_ACTION_RECOVERY_COORDINATOR_AUTHORITY,
         )
 
