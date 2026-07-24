@@ -45,8 +45,13 @@ if [ ! -f /etc/ptb-image-ready ]; then
     apt-get install -y nvidia-driver-570-server || apt-get install -y nvidia-driver-550-server
 fi
 # run_task.sh calls bare `python` on the host (prompt/judge/trace helpers);
-# Ubuntu ships only python3.
-command -v python >/dev/null || apt-get install -y python-is-python3
+# Ubuntu ships only python3. A transient apt failure here self-destructed a
+# run at preflight (gemma 07241426): retry once, then fall back to a manual
+# symlink — python3 is guaranteed above, so `python` must never be the sole
+# reason a $65 boot dies. Preflight remains the fail-loud backstop.
+command -v python >/dev/null || apt-get install -y python-is-python3 \
+    || { apt-get update && apt-get install -y python-is-python3; } || true
+command -v python >/dev/null || ln -sf "$(command -v python3)" /usr/local/bin/python
 
 for _ in $(seq 1 40); do nvidia-smi && break; sleep 15; done
 nvidia-smi || exit 1
