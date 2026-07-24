@@ -1536,6 +1536,7 @@ class ExpertSettings(StrictContract):
 class LaunchSettings(StrictContract):
     cache_path: str
     bootstrap_pin_path: str
+    compatibility_policy_version: str
     security_denylist_state_path: str
     security_denylist_checkpoint_size_bytes: int
     security_denylist_checked_subject_limit: int
@@ -1548,6 +1549,10 @@ class LaunchSettings(StrictContract):
     def _validate(self) -> None:
         _require_path(self.cache_path, "launch.cache_path")
         _require_path(self.bootstrap_pin_path, "launch.bootstrap_pin_path")
+        require_identifier(
+            self.compatibility_policy_version,
+            "launch.compatibility_policy_version",
+        )
         _require_path(
             self.security_denylist_state_path,
             "launch.security_denylist_state_path",

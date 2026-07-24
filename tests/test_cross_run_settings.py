@@ -590,6 +590,7 @@ def test_task_binding_has_exact_three_fields_and_unknown_scope_fails():
         ),
         (("expert", "task_adapters", "zstd_window_size_bytes"), 0),
         (("launch", "cache_path"), "../escape"),
+        (("launch", "compatibility_policy_version"), "invalid policy"),
         (("launch", "security_denylist_checkpoint_size_bytes"), 0),
         (("launch", "security_denylist_checked_subject_limit"), 0),
         (("launch", "security_denylist_checked_subject_size_bytes"), 0),

@@ -12,7 +12,7 @@ from kapso.cross_run.contracts import (
     CompletionState,
     EvaluationFingerprint,
     ExpertScopeContract,
-    LaunchManifest,
+    RunBundle,
     TaskContextBinding,
 )
 from kapso.cross_run.settings import CrossRunSettings
@@ -293,7 +293,7 @@ def make_capture_fixture(
     environment = next(
         item for item in records if isinstance(item, ArtifactEnvironment)
     )
-    launch = next(item for item in records if isinstance(item, LaunchManifest))
+    run_bundle = next(item for item in records if isinstance(item, RunBundle))
     request = RunCaptureRequest(
         workspace_dir=workspace,
         idea_archive_path=archive.path,
@@ -305,8 +305,8 @@ def make_capture_fixture(
         completion_state=completion_state,
         started_at=STARTED_AT,
         kapso_commit="0" * 40,
-        launch_manifest_id=launch.launch_manifest_id,
-        knowledge_snapshot_id=launch.knowledge_snapshot_id,
+        launch_manifest_id=run_bundle.launch_manifest_id,
+        knowledge_snapshot_id=run_bundle.knowledge_snapshot_id,
         expert_base_release_id=environment.expert_base_release_id,
         task_context_binding=context,
         artifact_environment=environment,

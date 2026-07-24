@@ -363,6 +363,7 @@ cross_run:
   launch:
     cache_path: ".kapso/cross_run/launch_cache"
     bootstrap_pin_path: ".kapso/bootstrap_pin.json"
+    compatibility_policy_version: "kapso.launch_compatibility.v1"
     security_denylist_state_path: ".kapso/cross_run/security_denylist"
     security_denylist_checkpoint_size_bytes: 1048576
     security_denylist_checked_subject_limit: 100000

@@ -65,7 +65,6 @@ from kapso.cross_run.contracts import (
     InterventionStructure,
     KnowledgeClaim,
     KnowledgeSnapshotManifest,
-    LaunchManifest,
     LineageEdge,
     LineageRelation,
     MissingReferenceError,
@@ -594,26 +593,8 @@ def build_records(
         "security-denylist-snapshot",
         {"generation": 1},
     )
-    launch = LaunchManifest.mint(
-        launch_request_hash=digest("launch-request"),
-        scope_id="ml_ai",
-        scope_contract_id=scope.scope_contract_id,
-        scope_repository_binding_hash=repository_settings.binding_fingerprint,
-        configuration_fingerprint=digest("launch-config"),
-        task_family_id="language_model_post_training",
-        task_adapter_id="posttrain",
-        knowledge_snapshot_id=initial_snapshot_id,
-        knowledge_publication_ref=fixture_id("empty-snapshot-publication"),
-        expert_base_release_id=expert_release.release_id,
-        expert_publication_ref=fixture_id("expert-publication"),
-        embedding_space_id=fixture_id("embedding-space"),
-        dependency_runtime_contract={"python": ">=3.10"},
-        sanitation_policy_generation=1,
-        security_denylist_snapshot_id=security_denylist_snapshot_id,
-        security_denylist_generation=1,
-        expected_source_composition_hash=digest("workspace"),
-        publisher_attestation={"issuer": "test-publisher", "signature": "launch"},
-    )
+    launch_manifest_id = fixture_id("launch-manifest")
+    launch_request_hash = digest("launch-request")
     capture = CaptureManifest.mint(
         scope_contract_id=scope.scope_contract_id,
         scope_id="ml_ai",
@@ -646,7 +627,7 @@ def build_records(
         started_at="2026-07-20T12:00:00Z",
         captured_at="2026-07-20T13:00:00Z",
         kapso_commit="0" * 40,
-        launch_manifest_id=launch.launch_manifest_id,
+        launch_manifest_id=launch_manifest_id,
         knowledge_snapshot_id=initial_snapshot_id,
         expert_base_release_id=expert_release.release_id,
         task_context_binding=context,
@@ -1086,8 +1067,8 @@ def build_records(
         publisher_identity="leeroo-coder",
     )
     bootstrap = BootstrapPin.mint(
-        launch_manifest_id=launch.launch_manifest_id,
-        launch_request_hash=launch.launch_request_hash,
+        launch_manifest_id=launch_manifest_id,
+        launch_request_hash=launch_request_hash,
         scope_id="ml_ai",
         scope_contract_id=scope.scope_contract_id,
         task_family_id="language_model_post_training",
@@ -1127,7 +1108,6 @@ def build_records(
         expert_release,
         artifact_environment,
         task_adapter,
-        launch,
         capture,
         run_bundle,
         attempt,

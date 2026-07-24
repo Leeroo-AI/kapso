@@ -42,7 +42,6 @@ from kapso.cross_run.contracts import (
     GitHubPublicationRecord,
     KnowledgeClaim,
     KnowledgeSnapshotManifest,
-    LaunchManifest,
     PriorIdea,
     PriorKnowledgeSnapshot,
     ReviewAssertion,
@@ -58,6 +57,7 @@ from kapso.cross_run.contracts import (
     TaskEvaluatorMetricComparisonBinding,
     TransferEpisode,
 )
+from kapso.cross_run.launch.contracts import LaunchManifest
 from kapso.cross_run.settings import (
     CrossRunConfigurationError,
     CrossRunSettings,
