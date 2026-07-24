@@ -401,7 +401,9 @@ def build_reference(work_root: Path) -> str:
                 "roi": roi_order.index(task_id) + 1 if task_id in roi_order else None,
             })
 
-    rows.sort(key=lambda r: (r["roi"] is None, r["roi"] or 999))
+    # Order: v1 tasks first, then v2; within each version by ROI rank
+    # (unranked tasks last).
+    rows.sort(key=lambda r: (r.get("ver") != "v1", r["roi"] is None, r["roi"] or 999))
 
     # Durable evidence for every winning cell (organizer handoff).
     claims = []
@@ -460,7 +462,7 @@ def build_reference(work_root: Path) -> str:
         "21 entity tasks, no recommendation), "
         "full board field in `data/leaderboard_snapshot.json`, per-task best-known in `data/sota.json`.",
         "",
-        "## Per-task table (ROI order)",
+        "## Per-task table (v1 then v2; ROI order within each)",
         "",
         "Values in the best-known number's units (AUROC/acc/MAP in %, NMAE, R², raw MAE). "
         "'Best known' = strongest published result anywhere (board ∪ papers).",
