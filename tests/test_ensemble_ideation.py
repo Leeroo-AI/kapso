@@ -137,10 +137,12 @@ def make_ensemble_strategy(tmp_path, monkeypatch, *, ensemble, selector,
         def cleanup(self):
             pass
 
-    def fake_codex(prompt, model, cwd, timeout_seconds, effort=None, artifacts_dir=None):
+    def fake_codex(prompt, model, cwd, timeout_seconds, effort=None, artifacts_dir=None,
+                   web_search=True):
         events["codex_calls"].append(
             {"model": model, "cwd": cwd, "timeout": timeout_seconds,
-             "effort": effort, "artifacts_dir": artifacts_dir, "prompt": prompt}
+             "effort": effort, "artifacts_dir": artifacts_dir, "prompt": prompt,
+             "web_search": web_search}
         )
         meta = {"last_message_empty": not codex_output, "stream_tail": "",
                 "stream_path": None, "last_path": None}
@@ -177,6 +179,16 @@ def make_ensemble_strategy(tmp_path, monkeypatch, *, ensemble, selector,
     strategy.env_defaults = {}
     strategy.ideation_ensemble = ensemble
     strategy.ideation_selector = selector
+    # Mirror __init__-set attributes the ensemble path reads (stub gotcha:
+    # every new GenericSearch instance attribute must be added here too).
+    strategy.llm = None
+    strategy.ideation_web_search = True
+    strategy._web_disallowed_tools = []
+    strategy.ideation_lens_planner = None
+    strategy.node_expansion_value = 1
+    strategy.expansion_lane_env = None
+    strategy.shared_cache_dir = None
+    strategy.shared_artifacts_brief = "No shared-cache artifacts registered yet."
     return strategy, events
 
 
@@ -193,7 +205,7 @@ def test_fanout_pools_candidates_and_selector_choice_wins(tmp_path, monkeypatch)
             "<solution>the synthesized winner</solution>"
         ),
     )
-    solution, sections, telemetry = strategy._generate_solution("problem", "main")
+    (solution,), sections, telemetry = strategy._generate_solution("problem", "main")
 
     assert solution == "the synthesized winner"
     # selector prompt carried every pooled candidate
@@ -218,7 +230,7 @@ def test_selector_failure_falls_back_to_first_claude_candidate(tmp_path, monkeyp
         selector_output="",
         selector_success=False,
     )
-    solution, _, _ = strategy._generate_solution("problem", "main")
+    (solution,), _, _ = strategy._generate_solution("problem", "main")
     assert solution == _plan("claude first")
 
 
@@ -233,7 +245,7 @@ def test_all_members_failing_falls_back_to_template(tmp_path, monkeypatch):
         codex_timed_out=True,
         selector_output="unused",
     )
-    solution, _, _ = strategy._generate_solution("problem", "main")
+    (solution,), _, _ = strategy._generate_solution("problem", "main")
     assert "Fallback solution due to ideation failure" in solution
 
 
@@ -246,7 +258,7 @@ def test_single_candidate_skips_selector(tmp_path, monkeypatch):
         codex_output=f"<solution>{_plan('only codex')}</solution>",
         selector_output="unused",
     )
-    solution, _, _ = strategy._generate_solution("problem", "main")
+    (solution,), _, _ = strategy._generate_solution("problem", "main")
     assert solution == _plan("only codex")
     assert not [p for is_sel, p in events["claude_prompts"] if is_sel]
 
@@ -262,7 +274,7 @@ def test_codex_timeout_salvages_substantive_output(tmp_path, monkeypatch):
         codex_timed_out=True,
         selector_output="unused",
     )
-    solution, _, _ = strategy._generate_solution("problem", "main")
+    (solution,), _, _ = strategy._generate_solution("problem", "main")
     assert "Salvaged from a deadline-terminated ideation session" in solution
     assert "research notes" in solution
 
@@ -276,7 +288,7 @@ def test_no_ensemble_config_keeps_single_session_path(tmp_path, monkeypatch):
         codex_output="never called",
         selector_output="never called",
     )
-    solution, _, _ = strategy._generate_solution("problem", "main")
+    (solution,), _, _ = strategy._generate_solution("problem", "main")
     assert solution == "single path"
     assert events["codex_calls"] == []
     assert len(events["claude_prompts"]) == 1
@@ -376,7 +388,7 @@ def test_pool_hygiene_drops_degenerate_and_duplicate_candidates(tmp_path, monkey
         claude_output=f"<solution>{real_plan}</solution>",
         selector_output="unused",
     )
-    solution, _, _ = strategy._generate_solution("problem", "main")
+    (solution,), _, _ = strategy._generate_solution("problem", "main")
     # after hygiene only ONE candidate remains -> selector skipped entirely
     assert solution == real_plan
     assert not [p for is_sel, p in events["claude_prompts"] if is_sel]
@@ -395,7 +407,7 @@ def test_codex_zero_candidates_retries_once(tmp_path, monkeypatch):
         selector_output="unused",
     )
 
-    def flaky_codex(prompt, model, cwd, timeout_seconds, effort=None, artifacts_dir=None):
+    def flaky_codex(prompt, model, cwd, timeout_seconds, effort=None, artifacts_dir=None, web_search=True):
         calls["n"] += 1
         meta = {"last_message_empty": calls["n"] == 1, "stream_tail": "boom",
                 "stream_path": None, "last_path": None}
@@ -404,7 +416,7 @@ def test_codex_zero_candidates_retries_once(tmp_path, monkeypatch):
         return f"<solution>{plan}</solution>", False, 1.0, meta
 
     monkeypatch.setattr(codex_module, "run_codex_ideation", flaky_codex)
-    solution, _, _ = strategy._generate_solution("problem", "main")
+    (solution,), _, _ = strategy._generate_solution("problem", "main")
     assert calls["n"] == 2
     assert solution == plan
 
@@ -420,13 +432,13 @@ def test_codex_timeout_does_not_retry(tmp_path, monkeypatch):
         selector_output="unused",
     )
 
-    def timing_out_codex(prompt, model, cwd, timeout_seconds, effort=None, artifacts_dir=None):
+    def timing_out_codex(prompt, model, cwd, timeout_seconds, effort=None, artifacts_dir=None, web_search=True):
         calls["n"] += 1
         return "short", True, 1.0, {"last_message_empty": True, "stream_tail": "",
                                     "stream_path": None, "last_path": None}
 
     monkeypatch.setattr(codex_module, "run_codex_ideation", timing_out_codex)
-    solution, _, _ = strategy._generate_solution("problem", "main")
+    (solution,), _, _ = strategy._generate_solution("problem", "main")
     assert calls["n"] == 1
     assert "Fallback solution due to ideation failure" in solution
 
@@ -444,7 +456,7 @@ def test_prompt_echo_candidates_are_dropped(tmp_path, monkeypatch):
     )
     real = _plan("genuine")
 
-    def echoing_codex(prompt, model, cwd, timeout_seconds, effort=None, artifacts_dir=None):
+    def echoing_codex(prompt, model, cwd, timeout_seconds, effort=None, artifacts_dir=None, web_search=True):
         # echo a large verbatim chunk of the prompt inside solution tags,
         # plus one genuine candidate
         echo = prompt[100:600]
@@ -453,7 +465,7 @@ def test_prompt_echo_candidates_are_dropped(tmp_path, monkeypatch):
                                  "stream_path": None, "last_path": None}
 
     monkeypatch.setattr(codex_module, "run_codex_ideation", echoing_codex)
-    solution, _, _ = strategy._generate_solution("problem", "main")
+    (solution,), _, _ = strategy._generate_solution("problem", "main")
     assert solution == real  # echo dropped -> single candidate -> selector skipped
 
 
