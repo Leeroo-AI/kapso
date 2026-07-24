@@ -756,6 +756,42 @@ class AuthenticatedSecurityDenylistAuthority:
         scope_contract_id: str,
         checked_subject_ids: tuple[str, ...],
     ) -> SecurityDenylistObservation:
+        return self._observe_exact(
+            scope_id=scope_id,
+            scope_contract_id=scope_contract_id,
+            checked_subject_ids=checked_subject_ids,
+            required_ancestor=None,
+        )
+
+    def observe_exact_descendant_of(
+        self,
+        *,
+        scope_id: str,
+        scope_contract_id: str,
+        checked_subject_ids: tuple[str, ...],
+        required_ancestor: SecurityDenylistObservation,
+    ) -> SecurityDenylistObservation:
+        """Observe current only after proving ancestry to a run's pinned floor."""
+
+        if type(required_ancestor) is not SecurityDenylistObservation:
+            raise SecurityDenylistError(
+                "security denylist required ancestor must be one exact observation"
+            )
+        return self._observe_exact(
+            scope_id=scope_id,
+            scope_contract_id=scope_contract_id,
+            checked_subject_ids=checked_subject_ids,
+            required_ancestor=required_ancestor,
+        )
+
+    def _observe_exact(
+        self,
+        *,
+        scope_id: str,
+        scope_contract_id: str,
+        checked_subject_ids: tuple[str, ...],
+        required_ancestor: SecurityDenylistObservation | None,
+    ) -> SecurityDenylistObservation:
         require_identifier(scope_id, "security denylist scope_id")
         require_content_id(scope_contract_id, "security denylist scope_contract_id")
         if not isinstance(checked_subject_ids, tuple) or not checked_subject_ids:
@@ -788,6 +824,17 @@ class AuthenticatedSecurityDenylistAuthority:
                 "security denylist checked subjects must be sorted and unique"
             )
         repositories = self.scopes.resolve(scope_id)
+        if required_ancestor is not None and (
+            required_ancestor.scope_id != scope_id
+            or required_ancestor.scope_contract_id != scope_contract_id
+            or required_ancestor.scope_repository_binding_hash
+            != repositories.binding_fingerprint
+            or required_ancestor.repository_full_name
+            != repositories.security_repository
+        ):
+            raise SecurityDenylistError(
+                "security denylist required ancestor uses another scope authority"
+            )
         current = self.provider.resolve_current(scope_id)
         snapshot = current.snapshot
         if (
@@ -813,7 +860,15 @@ class AuthenticatedSecurityDenylistAuthority:
                 "security denylist current exceeds the finite lineage horizon"
             )
         floor = self.checkpoint_store.checkpoint(scope_id)
-        lineage = self._lineage_to_floor(current, floor)
+        lineage = (
+            self._lineage_to_floor(current, floor)
+            if required_ancestor is None
+            else self._lineage_to_floor_and_ancestor(
+                current,
+                floor,
+                required_ancestor,
+            )
+        )
         self.checkpoint_store.accept(current, lineage)
         checked_subject_id_set = set(checked_subject_ids)
         matched_revocations = tuple(
@@ -836,6 +891,122 @@ class AuthenticatedSecurityDenylistAuthority:
             checked_subject_ids=checked_subject_ids,
             matched_revocations=matched_revocations,
         )
+
+    def _lineage_to_floor_and_ancestor(
+        self,
+        current: AuthenticatedSecurityDenylistSnapshot,
+        floor: SecurityDenylistCheckpoint | None,
+        required_ancestor: SecurityDenylistObservation,
+    ) -> tuple[AuthenticatedSecurityDenylistSnapshot, ...]:
+        snapshot = current.snapshot
+        candidate = SecurityDenylistCheckpoint.mint(
+            scope_id=snapshot.scope_id,
+            scope_contract_id=snapshot.scope_contract_id,
+            scope_repository_binding_hash=snapshot.scope_repository_binding_hash,
+            repository_full_name=current.repository_full_name,
+            repository_node_id=current.repository_node_id,
+            snapshot_id=snapshot.snapshot_id,
+            generation=snapshot.generation,
+            publication_id=current.publication_id,
+            pointer_digest=current.pointer_digest,
+            authority_commit_sha=current.authority_commit_sha,
+        )
+        if floor is not None:
+            SecurityDenylistCheckpointStore._require_same_authority(floor, candidate)
+        if current.repository_node_id != required_ancestor.repository_node_id:
+            raise SecurityDenylistError(
+                "security denylist required ancestor authority changed"
+            )
+        required_generations = [required_ancestor.generation]
+        if floor is not None:
+            required_generations.append(floor.generation)
+        if snapshot.generation < max(required_generations):
+            raise SecurityDenylistError(
+                "security denylist current is below a required resume floor"
+            )
+
+        required_snapshot_ids = {required_ancestor.snapshot_id}
+        if floor is not None:
+            required_snapshot_ids.add(floor.snapshot_id)
+        reached_snapshot_ids: set[str] = set()
+        lineage = [current]
+        while True:
+            if snapshot.snapshot_id == required_ancestor.snapshot_id:
+                self._require_observation_snapshot(
+                    current=lineage[-1], observation=required_ancestor
+                )
+                reached_snapshot_ids.add(snapshot.snapshot_id)
+            if floor is not None and snapshot.snapshot_id == floor.snapshot_id:
+                self._require_checkpoint_snapshot(current=lineage[-1], checkpoint=floor)
+                reached_snapshot_ids.add(snapshot.snapshot_id)
+            if reached_snapshot_ids == required_snapshot_ids and (
+                floor is not None or snapshot.generation == 0
+            ):
+                return tuple(lineage)
+            if snapshot.generation == 0:
+                raise SecurityDenylistError(
+                    "security denylist lineage does not reach every required floor"
+                )
+            if len(lineage) >= self.launch_settings.security_denylist_lineage_limit:
+                raise SecurityDenylistError(
+                    "security denylist lineage exceeds its configured bound"
+                )
+            predecessor_id = snapshot.predecessor_snapshot_id
+            if predecessor_id is None:
+                raise SecurityDenylistError(
+                    "security denylist successor omits its predecessor"
+                )
+            predecessor = self.provider.resolve_exact(snapshot.scope_id, predecessor_id)
+            self._validate_successor(lineage[-1], predecessor)
+            if len(predecessor.snapshot.revocations) > (
+                self.launch_settings.security_denylist_revocation_limit
+            ):
+                raise SecurityDenylistError(
+                    "security denylist historical revocations exceed their bound"
+                )
+            lineage.append(predecessor)
+            snapshot = predecessor.snapshot
+
+    @staticmethod
+    def _require_observation_snapshot(
+        *,
+        current: AuthenticatedSecurityDenylistSnapshot,
+        observation: SecurityDenylistObservation,
+    ) -> None:
+        snapshot = current.snapshot
+        if (
+            snapshot.snapshot_id != observation.snapshot_id
+            or snapshot.generation != observation.generation
+            or current.publication_id != observation.publication_id
+            or current.repository_full_name != observation.repository_full_name
+            or current.repository_node_id != observation.repository_node_id
+            or current.pointer_digest != observation.pointer_digest
+            or current.authority_commit_sha != observation.authority_commit_sha
+            or current.release_attestation_ref != observation.release_attestation_ref
+        ):
+            raise SecurityDenylistError(
+                "security denylist lineage substitutes the required run ancestor"
+            )
+
+    @staticmethod
+    def _require_checkpoint_snapshot(
+        *,
+        current: AuthenticatedSecurityDenylistSnapshot,
+        checkpoint: SecurityDenylistCheckpoint,
+    ) -> None:
+        snapshot = current.snapshot
+        if (
+            snapshot.snapshot_id != checkpoint.snapshot_id
+            or snapshot.generation != checkpoint.generation
+            or current.publication_id != checkpoint.publication_id
+            or current.repository_full_name != checkpoint.repository_full_name
+            or current.repository_node_id != checkpoint.repository_node_id
+            or current.pointer_digest != checkpoint.pointer_digest
+            or current.authority_commit_sha != checkpoint.authority_commit_sha
+        ):
+            raise SecurityDenylistError(
+                "security denylist lineage substitutes the local floor"
+            )
 
     def _lineage_to_floor(
         self,

@@ -549,6 +549,124 @@ def test_local_floor_rejects_rollback_and_equal_generation_fork(tmp_path):
         _observe(authority, (first_revocation.subject_id,))
 
 
+def test_resume_observation_proves_run_ancestor_before_advancing_floor(tmp_path):
+    evidence = _evidence("resume-ancestor")
+    revocation = _revocation("resume-ancestor", evidence)
+    generation_zero = _snapshot(0, None, ())
+    generation_one = _snapshot(
+        1,
+        generation_zero,
+        (revocation,),
+        (evidence,),
+    )
+    generation_two = _snapshot(
+        2,
+        generation_one,
+        (revocation,),
+        (evidence,),
+    )
+    safe_subject = content_id("security-subject", {"label": "resume-safe"})
+    pinned_root = tmp_path / "pinned"
+    pinned_root.mkdir(mode=0o700)
+    pinned = _observe(
+        _authority(
+            _SnapshotProvider(
+                _authenticated(generation_one),
+                (_authenticated(generation_zero),),
+            ),
+            _store(pinned_root),
+        ),
+        (safe_subject,),
+    )
+    resume_root = tmp_path / "resume"
+    resume_root.mkdir(mode=0o700)
+    resume_store = _store(resume_root)
+    resumed = _authority(
+        _SnapshotProvider(
+            _authenticated(generation_two),
+            (
+                _authenticated(generation_zero),
+                _authenticated(generation_one),
+            ),
+        ),
+        resume_store,
+    ).observe_exact_descendant_of(
+        scope_id=SCOPE_ID,
+        scope_contract_id=SCOPE_CONTRACT_ID,
+        checked_subject_ids=(safe_subject,),
+        required_ancestor=pinned,
+    )
+
+    assert resumed.snapshot_id == generation_two.snapshot_id
+    assert resume_store.checkpoint(SCOPE_ID).snapshot_id == generation_two.snapshot_id
+
+
+def test_incompatible_run_ancestor_cannot_poison_an_existing_floor(tmp_path):
+    ancestor_evidence = _evidence("run-ancestor")
+    floor_evidence = _evidence("machine-floor")
+    ancestor_revocation = _revocation("run-ancestor", ancestor_evidence)
+    floor_revocation = _revocation("machine-floor", floor_evidence)
+    generation_zero = _snapshot(0, None, ())
+    run_ancestor = _snapshot(
+        1,
+        generation_zero,
+        (ancestor_revocation,),
+        (ancestor_evidence,),
+    )
+    machine_floor = _snapshot(
+        1,
+        generation_zero,
+        (floor_revocation,),
+        (floor_evidence,),
+    )
+    machine_current = _snapshot(
+        2,
+        machine_floor,
+        (floor_revocation,),
+        (floor_evidence,),
+    )
+    safe_subject = content_id("security-subject", {"label": "fork-safe"})
+    pinned_root = tmp_path / "pinned"
+    pinned_root.mkdir(mode=0o700)
+    pinned = _observe(
+        _authority(
+            _SnapshotProvider(
+                _authenticated(run_ancestor),
+                (_authenticated(generation_zero),),
+            ),
+            _store(pinned_root),
+        ),
+        (safe_subject,),
+    )
+    resume_root = tmp_path / "resume"
+    resume_root.mkdir(mode=0o700)
+    resume_store = _store(resume_root)
+    floor_provider = _SnapshotProvider(
+        _authenticated(machine_floor),
+        (_authenticated(generation_zero),),
+    )
+    _observe(
+        _authority(floor_provider, resume_store),
+        (safe_subject,),
+    )
+    floor_before = resume_store.checkpoint(SCOPE_ID)
+    floor_provider.current = _authenticated(machine_current)
+    floor_provider.historical[machine_floor.snapshot_id] = _authenticated(machine_floor)
+
+    with pytest.raises(SecurityDenylistError, match="every required floor"):
+        _authority(
+            floor_provider,
+            resume_store,
+        ).observe_exact_descendant_of(
+            scope_id=SCOPE_ID,
+            scope_contract_id=SCOPE_CONTRACT_ID,
+            checked_subject_ids=(safe_subject,),
+            required_ancestor=pinned,
+        )
+
+    assert resume_store.checkpoint(SCOPE_ID) == floor_before
+
+
 def test_lineage_rejects_missing_history_and_removed_revocations(tmp_path):
     evidence = _evidence("revoked")
     revoked = _revocation("revoked", evidence)
