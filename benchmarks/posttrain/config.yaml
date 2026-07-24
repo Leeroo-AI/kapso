@@ -86,7 +86,7 @@ modes:
         # while this is enabled (the planner owns every lens).
         ideation_lens_planner:
           cli: "claude_code"
-          model: "claude-opus-4-8"
+          model: "claude-fable-5"
           effort: "max"
           timeout: 600
         ideation_selector:
