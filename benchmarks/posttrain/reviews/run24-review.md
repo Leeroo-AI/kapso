@@ -64,3 +64,57 @@ Verdict: **continue** — execution excellent; the one material risk is the
 anti-skeleton static-corpora+DPO bet, properly gated behind a banked
 final_model. P2 watch: DPO time-box, multilingual ratio of the built set,
 teacher-distillation option 13b if DPO stalls.
+
+## P2 (17:13Z → 20:33Z)
+
+Headline: **R24-P1-1 resolved in the best possible way — the anti-skeleton
+DPO bet was abandoned BEFORE starting.** After Stage-1's 0.109 landed
+(17:41) the agent diagnosed "coherent-but-plain… exactly what teacher
+distillation fixes" and executed option 13b directly: gemma-3-27b-it
+(same-family, 52GB pulled in ~1 min), 2× upsampled distill (5,644) +
+no_robots (4,394), 1-epoch SFT. Skywork-RM probed but never used. The
+proven skeleton self-restored without reviewer intervention. Score wobble
+decoded: all limit-50 seed-42 fixed subset; 0.1274 was a deliberate
+temp-0.7 A/B probe on a ckpt COPY (final_model untouched), not a
+regression — the promoted trajectory is monotone.
+
+- **R24-P2-1 — P3 (recipe/eval), 20:22-20:23.** Final promotion not
+  stderr-aware: 0.2091 (±0.0275) over 0.1907 (±0.0283) is +1.8pt — inside
+  1 SE even paired — yet "Gate passed. Let me promote." Mitigations real:
+  paired subset, mechanistic rationale (length-cap curbed rambling),
+  load-check passed (eos [1,106], stops_with_eot True), and a full-250
+  confirmation launched 20:24 (lands next segment). Downgrade-proof but
+  noise-level.
+- **R24-P2-2 — OBS (recipe), 17:45-18:45.** Teacher gen ran 56 min vs
+  ~20-25 est (27B multimodal OOM → enforce_eager halved throughput); yield
+  2,822/4,955 (57%) with NO language split of the kept set — R24-P1-5
+  remains half-closed (pool measured ≈47% non-en; built-set counts never
+  verified; only functional zh/ru/es smoke tests).
+- **R24-P2-3 — OBS (framework), 20:23.** Promotion executed 8 min past the
+  agent's own stated "freeze 20:15" (training finished pre-freeze; only
+  the gated eval+promote overran). Freeze not enforced as stated.
+- **R24-P2-4 — OBS (framework), 19:29.** Latent deliverable-eval bug
+  caught by the agent: relative-cwd question.jsonl FileNotFoundError —
+  fixed in the session wrapper too ("same bug would break the deliverable
+  eval"). The cwd bug class AGAIN (5th sighting campaign-wide) — harvest
+  bug-screen candidate confirmed.
+- **R24-P2-5 — OBS, 19:13.** One rate_limit_event, recovered ~57s. Zero
+  ScheduleWakeup. No boundary events in delta (session boundary ~21:06).
+
+Integrity clean throughout: eos [1,106] verified in all four artifacts;
+vision freeze persisted through both trainings; final_model never empty
+(safety-copy before eval); A/B probes on copies only; distill data
+registered to shared cache.
+
+LADDER: base 1.7 → SFT-static 10.9 → +27B-distill 19.1 → +length-cap 20.9
+(limit-50; full-250 confirm pending ~20:49Z).
+
+SOTA OUTLOOK: 20.9 is ~12× base but 44% of proven 47.4. Unexploited levers
+(agent's own notes): response length (median ~395 vs baseline 640 tok),
+residual rambling, 1-epoch training, RM-guided selection. With ~5h left,
+25-30 is realistic; 47.4 needs a qualitatively stronger data engine this
+run hasn't built.
+
+Verdict: **continue** — risky plan self-corrected into the proven
+skeleton; gating/banking discipline held; the noise-level promotion is
+being adjudicated by the in-flight full-250.
