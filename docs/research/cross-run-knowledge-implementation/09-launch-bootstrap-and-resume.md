@@ -367,6 +367,20 @@ an empty permanent lock. Structurally valid orphan staging files and final blobs
 without a referencing event are cleaned under the pinned registry lock before
 reuse.
 
+Fresh activation and restart now converge on one process-bound
+`ActiveLaunchWorkspace`. `StarterWorkspaceBuilder.reopen()` reads the bounded,
+canonical local `BootstrapPin` without consulting a resolver or remote
+`CURRENT`, validates its exact configured layout and settings identity, acquires
+the receipt-pinned runtime lock with nonblocking exclusive semantics, and only
+then repeats the full immutable/control closure verification. The authority
+retains both the root and runtime-lock descriptors for its lifetime; checkpoint,
+workspace, and action-store access begins from a duplicate of that root
+descriptor. Explicit close, process death, or garbage collection releases the
+lease. Forked children close inherited descriptors, lose both prepared and active
+registries, and cannot use or release the parent's authority. Resume deliberately
+does not require the initial checkpoint journal or initial writable expert tree:
+the publisher and action-recovery layers own those evolved authorities.
+
 The gate now persists `INTENT_RESERVED` before returning a permit,
 `SPAWN_COMMITTED` before exposing provider/workspace authority, complete raw
 results before interpretation, and complete accepted results with the exact
@@ -428,6 +442,11 @@ reinvoking a committed provider.
   objects, missing reachable objects, index behavior flags, malformed commit
   headers, admitted-metadata changes, and workspace/Git entry-limit exhaustion.
 - Resume after remote pointers advance and require original local pin.
+- Hold one runtime in one process and prove same-process and cross-process reopen
+  fail nonblocking until close or process death; prove a forked child cannot use
+  the copied authority or release the parent's lease.
+- Publish a durable frontier, close the original runtime, reopen solely from the
+  local pin, and reconcile that exact checkpoint, generation, journal, and views.
 - Corrupt each local component/receipt/tree and require fail-loud resume.
 - Exercise performance and security revocation differences.
 - Verify expert repo is writable only inside the run workspace and snapshot/adapter

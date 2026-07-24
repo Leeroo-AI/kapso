@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ctypes
 import errno
+import fcntl
 import hashlib
 import os
 import re
@@ -17,7 +18,7 @@ from pathlib import Path, PurePosixPath
 from threading import Lock
 from types import MappingProxyType
 from typing import Any, Mapping
-from weakref import WeakValueDictionary
+from weakref import WeakValueDictionary, finalize
 
 from kapso.cross_run.canonical import (
     content_id,
@@ -48,7 +49,7 @@ from kapso.cross_run.launch.contracts import (
     expected_launch_source_composition_hash,
 )
 from kapso.cross_run.launch.resolver import ResolvedLaunch
-from kapso.cross_run.settings import CrossRunSettings
+from kapso.cross_run.settings import CrossRunSettings, LaunchSettings
 
 STARTER_WORKSPACE_INSTALLER_ID = "kapso_starter_workspace_builder"
 STARTER_WORKSPACE_INSTALLER_VERSION = "kapso.starter_workspace_builder.v1"
@@ -61,9 +62,7 @@ _GIT_COMMIT_MESSAGE = b"Kapso launch baseline\n"
 _RUN_CHECKPOINT_STAGING_PATTERN = re.compile(
     r"^checkpoint-[0-9a-f]{64}-[0-9a-f]{32}[.]tmp$"
 )
-_RUN_DERIVED_STATE_OBJECT_PATTERN = re.compile(
-    r"^generation-[0-9a-f]{64}[.]bundle$"
-)
+_RUN_DERIVED_STATE_OBJECT_PATTERN = re.compile(r"^generation-[0-9a-f]{64}[.]bundle$")
 _RUN_DERIVED_STATE_STAGING_PATTERN = re.compile(
     r"^generation-[0-9a-f]{64}-[0-9a-f]{32}[.]tmp$"
 )
@@ -282,6 +281,59 @@ def _read_bounded_regular_file(
 
 
 @dataclass(frozen=True)
+class _VerifiedWorkspaceClosure:
+    """Exact local closure shared by fresh and resumed runtime authority."""
+
+    run_root: Path
+    workspace: Path
+    bootstrap_pin: BootstrapPin
+    published_root_identity: tuple[int, int]
+    pinned_directory_identities: Mapping[str, tuple[int, int]]
+    pinned_control_file_identities: Mapping[str, tuple[int, int]]
+    verifier: object = field(repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        if type(self.verifier) is not StarterWorkspaceBuilder:
+            raise LaunchWorkspaceError(
+                "verified workspace closure requires its exact verifier"
+            )
+        object.__setattr__(
+            self,
+            "pinned_directory_identities",
+            MappingProxyType(dict(self.pinned_directory_identities)),
+        )
+        object.__setattr__(
+            self,
+            "pinned_control_file_identities",
+            MappingProxyType(dict(self.pinned_control_file_identities)),
+        )
+
+
+@dataclass
+class _RuntimeDescriptorLease:
+    """Process-local lifetime ownership of the root and runtime-lock descriptors."""
+
+    root_descriptor: int
+    runtime_lock_descriptor: int
+    owner_process_id: int
+    descriptors: ExitStack | None = None
+    closed: bool = False
+
+    def adopt(self, descriptors: ExitStack) -> None:
+        if self.descriptors is not None or self.closed:
+            raise LaunchWorkspaceError("runtime descriptor lease was already adopted")
+        self.descriptors = descriptors
+
+    def close(self) -> None:
+        if self.closed:
+            return
+        self.closed = True
+        if self.descriptors is not None:
+            self.descriptors.close()
+            self.descriptors = None
+
+
+@dataclass(frozen=True)
 class PreparedLaunchWorkspace:
     """Verified local paths returned only after atomic publication and reopen."""
 
@@ -298,12 +350,14 @@ class PreparedLaunchWorkspace:
     _pinned_directory_identities: Mapping[str, tuple[int, int]]
     _pinned_control_file_identities: Mapping[str, tuple[int, int]]
     _builder_verifier: object = field(repr=False, compare=False)
+    _requires_initial_state: bool = field(repr=False, compare=False)
 
     def __post_init__(self) -> None:
         if (
             type(self.bootstrap_pin) is not BootstrapPin
             or self._builder_authority is not _WORKSPACE_BUILDER_AUTHORITY
             or type(self._builder_verifier) is not StarterWorkspaceBuilder
+            or type(self._requires_initial_state) is not bool
         ):
             raise LaunchWorkspaceError(
                 "prepared launch requires live workspace-builder authority"
@@ -394,7 +448,7 @@ class PreparedLaunchWorkspace:
             MappingProxyType(dict(self._pinned_control_file_identities)),
         )
 
-    def require_builder_authority(self) -> "ActiveLaunchWorkspace":
+    def activate(self) -> "ActiveLaunchWorkspace":
         identity = id(self)
         with _PREPARED_WORKSPACE_AUTHORITY_LOCK:
             issued = _ISSUED_PREPARED_WORKSPACES.pop(identity, None)
@@ -405,29 +459,7 @@ class PreparedLaunchWorkspace:
             raise LaunchWorkspaceError(
                 "prepared launch lacks live workspace-builder authority"
             )
-        verified = self._builder_verifier._verify_published(
-            self.run_root,
-            self.bootstrap_pin,
-        )
-        self._require_verified_identity(verified)
-        terminal_verified = StarterWorkspaceBuilder._verify_published(
-            self._builder_verifier,
-            self.run_root,
-            self.bootstrap_pin,
-        )
-        self._require_verified_identity(terminal_verified)
-        self._require_filesystem_identity()
-        active = ActiveLaunchWorkspace(
-            run_root=self.run_root,
-            workspace=self.workspace,
-            bootstrap_pin=self.bootstrap_pin,
-            published_root_identity=self._published_root_identity,
-            _prepared=self,
-            _authority=_ACTIVE_LAUNCH_AUTHORITY,
-        )
-        _issue_active_workspace(active)
-        active.require_control_authority()
-        return active
+        return self._builder_verifier._activate_prepared(self)
 
     def _require_verified_identity(
         self,
@@ -439,6 +471,7 @@ class PreparedLaunchWorkspace:
             != dict(self._pinned_directory_identities)
             or dict(verified._pinned_control_file_identities)
             != dict(self._pinned_control_file_identities)
+            or verified._requires_initial_state != self._requires_initial_state
         ):
             raise LaunchWorkspaceError(
                 "prepared launch filesystem changed before authority consumption"
@@ -481,57 +514,183 @@ class PreparedLaunchWorkspace:
                     )
 
 
+def _close_active_workspace(
+    identity: int,
+    lifecycle: _RuntimeDescriptorLease,
+) -> None:
+    with _PREPARED_WORKSPACE_AUTHORITY_LOCK:
+        _ISSUED_ACTIVE_WORKSPACES.pop(identity, None)
+    lifecycle.close()
+
+
+def _require_workspace_closure(
+    closure: _VerifiedWorkspaceClosure,
+    root_descriptor: int,
+) -> None:
+    if (
+        StarterWorkspaceBuilder._directory_identity(root_descriptor)
+        != closure.published_root_identity
+    ):
+        raise LaunchWorkspaceError("active run root no longer names its verified inode")
+    layout = closure.bootstrap_pin.installation_receipt.layout
+    with ExitStack() as descriptors:
+        opened, identities = _open_layout_directories(
+            root_descriptor,
+            layout,
+            descriptors,
+        )
+        if identities != dict(closure.pinned_directory_identities):
+            raise LaunchWorkspaceError(
+                "active launch directories changed after verification"
+            )
+        for (
+            relative_path,
+            expected_identity,
+        ) in closure.pinned_control_file_identities.items():
+            descriptor = _open_layout_file(
+                root_descriptor,
+                opened,
+                relative_path,
+            )
+            descriptors.callback(os.close, descriptor)
+            metadata = os.fstat(descriptor)
+            if (metadata.st_dev, metadata.st_ino) != expected_identity:
+                raise LaunchWorkspaceError(
+                    "active launch control file changed after verification"
+                )
+
+
 @dataclass(frozen=True)
 class ActiveLaunchWorkspace:
-    """Live, verified authority shared by run controls and orchestration."""
+    """Process-bound runtime authority retaining the root and lifetime lock."""
 
     run_root: Path
     workspace: Path
     bootstrap_pin: BootstrapPin
     published_root_identity: tuple[int, int]
-    _prepared: PreparedLaunchWorkspace = field(repr=False, compare=False)
+    _closure: _VerifiedWorkspaceClosure = field(repr=False, compare=False)
+    _lifecycle: _RuntimeDescriptorLease = field(repr=False, compare=False)
     _authority: object = field(repr=False, compare=False)
+    _finalizer: Any = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         if (
-            type(self._prepared) is not PreparedLaunchWorkspace
+            type(self._closure) is not _VerifiedWorkspaceClosure
+            or type(self._lifecycle) is not _RuntimeDescriptorLease
             or self._authority is not _ACTIVE_LAUNCH_AUTHORITY
-            or self.run_root != self._prepared.run_root
-            or self.workspace != self._prepared.workspace
-            or self.bootstrap_pin != self._prepared.bootstrap_pin
-            or self.published_root_identity != self._prepared._published_root_identity
+            or self.run_root != self._closure.run_root
+            or self.workspace != self._closure.workspace
+            or self.bootstrap_pin != self._closure.bootstrap_pin
+            or self.published_root_identity != self._closure.published_root_identity
+            or self._lifecycle.owner_process_id != os.getpid()
+            or self._lifecycle.closed
         ):
             raise LaunchWorkspaceError(
-                "active launch requires consumed workspace-builder authority"
+                "active launch requires consumed runtime authority"
             )
-        self._prepared._require_filesystem_identity()
+        _require_workspace_closure(
+            self._closure,
+            self._lifecycle.root_descriptor,
+        )
 
-    def require_control_authority(self) -> None:
+    def __enter__(self) -> "ActiveLaunchWorkspace":
+        self.require_control_authority()
+        return self
+
+    def __exit__(self, *_arguments: object) -> None:
+        self.close()
+
+    def close(self) -> None:
+        if not hasattr(self, "_finalizer"):
+            raise LaunchWorkspaceError("active launch control authority is invalid")
         with _PREPARED_WORKSPACE_AUTHORITY_LOCK:
             issued = _ISSUED_ACTIVE_WORKSPACES.get(id(self))
-        if self._authority is not _ACTIVE_LAUNCH_AUTHORITY or issued is not self:
+        if issued is not self:
             raise LaunchWorkspaceError("active launch control authority is invalid")
-        self._prepared._require_filesystem_identity()
-        self._prepared._builder_verifier._verify_outer_run_root_closure(
-            self.run_root,
-            self.bootstrap_pin.installation_receipt.layout,
-            self.published_root_identity,
+        self._finalizer()
+
+    def _require_live_authority(self) -> None:
+        with _PREPARED_WORKSPACE_AUTHORITY_LOCK:
+            issued = _ISSUED_ACTIVE_WORKSPACES.get(id(self))
+        if (
+            self._authority is not _ACTIVE_LAUNCH_AUTHORITY
+            or issued is not self
+            or self._lifecycle.closed
+            or self._lifecycle.descriptors is None
+            or self._lifecycle.owner_process_id != os.getpid()
+        ):
+            raise LaunchWorkspaceError("active launch control authority is invalid")
+        root_metadata = os.fstat(self._lifecycle.root_descriptor)
+        lock_metadata = os.fstat(self._lifecycle.runtime_lock_descriptor)
+        layout = self.bootstrap_pin.installation_receipt.layout
+        expected_lock_identity = self._closure.pinned_control_file_identities[
+            layout.run_runtime_lock_relative_path
+        ]
+        if (
+            not stat.S_ISDIR(root_metadata.st_mode)
+            or (root_metadata.st_dev, root_metadata.st_ino)
+            != self.published_root_identity
+            or not stat.S_ISREG(lock_metadata.st_mode)
+            or (lock_metadata.st_dev, lock_metadata.st_ino) != expected_lock_identity
+        ):
+            raise LaunchWorkspaceError(
+                "active launch retained descriptors changed during use"
+            )
+
+    def require_control_authority(self) -> None:
+        self._require_live_authority()
+        with ExitStack() as descriptors:
+            root_descriptor = self._open_run_root(descriptors)
+            _require_workspace_closure(self._closure, root_descriptor)
+            self._closure.verifier._verify_outer_run_root_closure(
+                self._closure.verifier._descriptor_path(root_descriptor),
+                self.bootstrap_pin.installation_receipt.layout,
+                self.published_root_identity,
+            )
+        self._require_live_authority()
+
+    def require_launch_settings(self, settings: object) -> None:
+        if type(settings) is not LaunchSettings:
+            raise LaunchWorkspaceError(
+                "active launch settings require the exact settings type"
+            )
+        if self.bootstrap_pin.installation_receipt.launch_settings_id != content_id(
+            "launch-settings",
+            settings.to_dict(),
+        ):
+            raise LaunchWorkspaceError(
+                "active launch settings differ from the bootstrap receipt"
+            )
+        self.require_control_authority()
+
+    def _open_run_root(self, descriptors: ExitStack) -> int:
+        """Duplicate the lifetime-pinned root without reopening public descendants."""
+        self._require_live_authority()
+        public_identity = StarterWorkspaceBuilder._path_directory_identity(
+            self.run_root
         )
+        if public_identity != self.published_root_identity:
+            raise LaunchWorkspaceError(
+                "active run-root pathname differs from its retained inode"
+            )
+        descriptor = os.dup(self._lifecycle.root_descriptor)
+        os.set_inheritable(descriptor, False)
+        descriptors.callback(os.close, descriptor)
+        if (
+            StarterWorkspaceBuilder._directory_identity(descriptor)
+            != self.published_root_identity
+        ):
+            raise LaunchWorkspaceError(
+                "active run root changed before descriptor duplication"
+            )
+        return descriptor
 
     def _open_execution_workspace(
         self,
         descriptors: ExitStack,
     ) -> tuple[int, tuple[int, int]]:
         """Open the pinned writable workspace without following public paths."""
-        self.require_control_authority()
-        root_descriptor = _open_real_root(self.run_root, descriptors)
-        if (
-            StarterWorkspaceBuilder._directory_identity(root_descriptor)
-            != self.published_root_identity
-        ):
-            raise LaunchWorkspaceError(
-                "active run root changed before execution workspace access"
-            )
+        root_descriptor = self._open_run_root(descriptors)
         current_descriptor = root_descriptor
         current_path = PurePosixPath(".")
         layout = self.bootstrap_pin.installation_receipt.layout
@@ -548,7 +707,7 @@ class ActiveLaunchWorkspace:
                 else current_path / component
             )
             metadata = os.fstat(child_descriptor)
-            expected_identity = self._prepared._pinned_directory_identities.get(
+            expected_identity = self._closure.pinned_directory_identities.get(
                 current_path.as_posix()
             )
             if (
@@ -572,15 +731,7 @@ class ActiveLaunchWorkspace:
         descriptors: ExitStack,
     ) -> tuple[int, tuple[int, int]]:
         """Open the receipt-pinned create-only action store by descriptor."""
-        self.require_control_authority()
-        root_descriptor = _open_real_root(self.run_root, descriptors)
-        if (
-            StarterWorkspaceBuilder._directory_identity(root_descriptor)
-            != self.published_root_identity
-        ):
-            raise LaunchWorkspaceError(
-                "active run root changed before action-store access"
-            )
+        root_descriptor = self._open_run_root(descriptors)
         opened, identities = _open_layout_directories(
             root_descriptor,
             self.bootstrap_pin.installation_receipt.layout,
@@ -615,7 +766,7 @@ class ActiveLaunchWorkspace:
             or (metadata.st_dev, metadata.st_ino) != identity
         ):
             raise LaunchWorkspaceError("active execution workspace changed during use")
-        expected = self._prepared._pinned_directory_identities[
+        expected = self._closure.pinned_directory_identities[
             self.bootstrap_pin.installation_receipt.layout.workspace_relative_path
         ]
         if identity != expected:
@@ -637,6 +788,16 @@ def _issue_active_workspace(active: ActiveLaunchWorkspace) -> None:
         if id(active) in _ISSUED_ACTIVE_WORKSPACES:
             raise LaunchWorkspaceError("active launch was already issued")
         _ISSUED_ACTIVE_WORKSPACES[id(active)] = active
+    object.__setattr__(
+        active,
+        "_finalizer",
+        finalize(
+            active,
+            _close_active_workspace,
+            id(active),
+            active._lifecycle,
+        ),
+    )
 
 
 def _issue_prepared_workspace(
@@ -656,6 +817,21 @@ def _issue_prepared_workspace(
         _ISSUED_PREPARED_WORKSPACES[id(prepared)] = prepared
 
 
+def _invalidate_inherited_workspace_authority() -> None:
+    global _ISSUED_ACTIVE_WORKSPACES
+    global _ISSUED_PREPARED_WORKSPACES
+    global _PREPARED_WORKSPACE_AUTHORITY_LOCK
+
+    for active in tuple(_ISSUED_ACTIVE_WORKSPACES.values()):
+        active._lifecycle.close()
+    _ISSUED_ACTIVE_WORKSPACES = WeakValueDictionary()
+    _ISSUED_PREPARED_WORKSPACES = WeakValueDictionary()
+    _PREPARED_WORKSPACE_AUTHORITY_LOCK = Lock()
+
+
+os.register_at_fork(after_in_child=_invalidate_inherited_workspace_authority)
+
+
 @dataclass(frozen=True)
 class _GitLeaf:
     mode: str
@@ -672,6 +848,189 @@ class StarterWorkspaceBuilder:
                 "workspace builder requires exact cross-run settings"
             )
         self._settings = settings
+
+    def reopen(self, run_root: Path) -> ActiveLaunchWorkspace:
+        """Reconstruct one exclusive runtime from its durable local bootstrap pin."""
+        with ExitStack() as descriptors:
+            normalized_run_root, root_descriptor = self._open_existing_run_root(
+                run_root,
+                descriptors,
+            )
+            pin_payload = self._read_configured_bootstrap_pin(
+                root_descriptor,
+                descriptors,
+            )
+            pin = BootstrapPin.from_json_bytes(pin_payload)
+            if (
+                pin.to_json_bytes() != pin_payload
+                or pin.installation_receipt.layout != self._layout(pin.launch_manifest)
+                or pin.installation_receipt.launch_settings_id
+                != content_id(
+                    "launch-settings",
+                    self._settings.launch.to_dict(),
+                )
+            ):
+                raise LaunchWorkspaceError(
+                    "reopened bootstrap pin differs from configured launch authority"
+                )
+            root_identity = self._directory_identity(root_descriptor)
+        return self._activate_workspace(
+            normalized_run_root,
+            pin,
+            expected_root_identity=root_identity,
+            requires_initial_state=False,
+            expected_prepared=None,
+        )
+
+    def _activate_prepared(
+        self,
+        prepared: PreparedLaunchWorkspace,
+    ) -> ActiveLaunchWorkspace:
+        if (
+            type(prepared) is not PreparedLaunchWorkspace
+            or prepared._builder_verifier is not self
+        ):
+            raise LaunchWorkspaceError(
+                "workspace activation requires its exact prepared launch"
+            )
+        return self._activate_workspace(
+            prepared.run_root,
+            prepared.bootstrap_pin,
+            expected_root_identity=prepared._published_root_identity,
+            requires_initial_state=prepared._requires_initial_state,
+            expected_prepared=prepared,
+        )
+
+    def _activate_workspace(
+        self,
+        run_root: Path,
+        bootstrap_pin: BootstrapPin,
+        *,
+        expected_root_identity: tuple[int, int],
+        requires_initial_state: bool,
+        expected_prepared: PreparedLaunchWorkspace | None,
+    ) -> ActiveLaunchWorkspace:
+        with ExitStack() as descriptors:
+            normalized_run_root, root_descriptor = self._open_existing_run_root(
+                run_root,
+                descriptors,
+            )
+            if (
+                normalized_run_root != run_root
+                or self._directory_identity(root_descriptor) != expected_root_identity
+            ):
+                raise LaunchWorkspaceError("run root changed before runtime activation")
+            layout = bootstrap_pin.installation_receipt.layout
+            opened_directories, _identities = _open_layout_directories(
+                root_descriptor,
+                layout,
+                descriptors,
+            )
+            runtime_lock_path = PurePosixPath(layout.run_runtime_lock_relative_path)
+            runtime_lock_parent = (
+                root_descriptor
+                if runtime_lock_path.parent == PurePosixPath(".")
+                else opened_directories[runtime_lock_path.parent.as_posix()]
+            )
+            runtime_lock_descriptor = os.open(
+                runtime_lock_path.name,
+                os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC,
+                dir_fd=runtime_lock_parent,
+            )
+            descriptors.callback(os.close, runtime_lock_descriptor)
+            runtime_lock_metadata = os.fstat(runtime_lock_descriptor)
+            receipt = bootstrap_pin.installation_receipt
+            if (
+                not stat.S_ISREG(runtime_lock_metadata.st_mode)
+                or runtime_lock_metadata.st_uid != os.geteuid()
+                or runtime_lock_metadata.st_nlink != 1
+                or runtime_lock_metadata.st_size != 0
+                or stat.S_IMODE(runtime_lock_metadata.st_mode) != 0o600
+                or (
+                    runtime_lock_metadata.st_dev,
+                    runtime_lock_metadata.st_ino,
+                )
+                != (
+                    receipt.run_runtime_lock_device,
+                    receipt.run_runtime_lock_inode,
+                )
+            ):
+                raise LaunchWorkspaceError(
+                    "runtime lock differs from its bootstrap receipt"
+                )
+            fcntl.flock(
+                runtime_lock_descriptor,
+                fcntl.LOCK_EX | fcntl.LOCK_NB,
+            )
+            verified = self._verify_published(
+                self._descriptor_path(root_descriptor),
+                bootstrap_pin,
+                exposed_run_root=run_root,
+                expected_root_identity=expected_root_identity,
+                root_descriptor=root_descriptor,
+                requires_initial_state=requires_initial_state,
+            )
+            if expected_prepared is not None:
+                expected_prepared._require_verified_identity(verified)
+            terminal_verified = StarterWorkspaceBuilder._verify_published(
+                self,
+                self._descriptor_path(root_descriptor),
+                bootstrap_pin,
+                exposed_run_root=run_root,
+                expected_root_identity=expected_root_identity,
+                root_descriptor=root_descriptor,
+                requires_initial_state=requires_initial_state,
+            )
+            verified._require_verified_identity(terminal_verified)
+            closure = _VerifiedWorkspaceClosure(
+                run_root=terminal_verified.run_root,
+                workspace=terminal_verified.workspace,
+                bootstrap_pin=terminal_verified.bootstrap_pin,
+                published_root_identity=(terminal_verified._published_root_identity),
+                pinned_directory_identities=(
+                    terminal_verified._pinned_directory_identities
+                ),
+                pinned_control_file_identities=(
+                    terminal_verified._pinned_control_file_identities
+                ),
+                verifier=self,
+            )
+            with ExitStack() as retained_descriptors:
+                retained_root_descriptor = os.dup(root_descriptor)
+                os.set_inheritable(retained_root_descriptor, False)
+                retained_descriptors.callback(
+                    os.close,
+                    retained_root_descriptor,
+                )
+                retained_runtime_lock_descriptor = os.dup(runtime_lock_descriptor)
+                os.set_inheritable(
+                    retained_runtime_lock_descriptor,
+                    False,
+                )
+                retained_descriptors.callback(
+                    os.close,
+                    retained_runtime_lock_descriptor,
+                )
+                lifecycle = _RuntimeDescriptorLease(
+                    root_descriptor=retained_root_descriptor,
+                    runtime_lock_descriptor=(retained_runtime_lock_descriptor),
+                    owner_process_id=os.getpid(),
+                )
+                active = ActiveLaunchWorkspace(
+                    run_root=terminal_verified.run_root,
+                    workspace=terminal_verified.workspace,
+                    bootstrap_pin=terminal_verified.bootstrap_pin,
+                    published_root_identity=(
+                        terminal_verified._published_root_identity
+                    ),
+                    _closure=closure,
+                    _lifecycle=lifecycle,
+                    _authority=_ACTIVE_LAUNCH_AUTHORITY,
+                )
+                _issue_active_workspace(active)
+                lifecycle.adopt(retained_descriptors.pop_all())
+        active.require_control_authority()
+        return active
 
     def build(
         self,
@@ -838,18 +1197,12 @@ class StarterWorkspaceBuilder:
                 run_checkpoint_lock_inode=checkpoint_lock_metadata.st_ino,
                 run_action_store_device=action_store_metadata.st_dev,
                 run_action_store_inode=action_store_metadata.st_ino,
-                run_action_registry_lock_device=(
-                    action_registry_lock_metadata.st_dev
-                ),
-                run_action_registry_lock_inode=(
-                    action_registry_lock_metadata.st_ino
-                ),
+                run_action_registry_lock_device=(action_registry_lock_metadata.st_dev),
+                run_action_registry_lock_inode=(action_registry_lock_metadata.st_ino),
                 run_action_workspace_lock_device=(
                     action_workspace_lock_metadata.st_dev
                 ),
-                run_action_workspace_lock_inode=(
-                    action_workspace_lock_metadata.st_ino
-                ),
+                run_action_workspace_lock_inode=(action_workspace_lock_metadata.st_ino),
                 run_runtime_lock_device=runtime_lock_metadata.st_dev,
                 run_runtime_lock_inode=runtime_lock_metadata.st_ino,
                 installer_id=STARTER_WORKSPACE_INSTALLER_ID,
@@ -939,6 +1292,7 @@ class StarterWorkspaceBuilder:
                 exposed_run_root=normalized_run_root,
                 expected_root_identity=staging_identity,
                 root_descriptor=final_descriptor,
+                requires_initial_state=True,
             )
             self._require_published_identity(
                 parent_descriptor,
@@ -971,13 +1325,9 @@ class StarterWorkspaceBuilder:
             run_checkpoint_lock_relative_path=launch.run_checkpoint_lock_path,
             run_checkpoint_staging_relative_path=(launch.run_checkpoint_staging_path),
             run_idea_archive_relative_path=launch.run_idea_archive_path,
-            run_experiment_history_relative_path=(
-                launch.run_experiment_history_path
-            ),
+            run_experiment_history_relative_path=(launch.run_experiment_history_path),
             run_execution_journal_relative_path=launch.run_execution_journal_path,
-            run_derived_state_store_relative_path=(
-                launch.run_derived_state_store_path
-            ),
+            run_derived_state_store_relative_path=(launch.run_derived_state_store_path),
             run_derived_state_staging_relative_path=(
                 launch.run_derived_state_staging_path
             ),
@@ -1041,6 +1391,105 @@ class StarterWorkspaceBuilder:
                 "run root parent changed while opening its authority"
             )
         return normalized, parent_descriptor, (metadata.st_dev, metadata.st_ino)
+
+    def _open_existing_run_root(
+        self,
+        run_root: Path,
+        descriptors: ExitStack,
+    ) -> tuple[Path, int]:
+        if not isinstance(run_root, Path):
+            raise LaunchWorkspaceError("run root must be one pathlib.Path")
+        normalized = Path(os.path.abspath(run_root))
+        if (
+            not run_root.is_absolute()
+            or run_root != normalized
+            or normalized.parent == normalized
+            or len(normalized.parts) < 3
+        ):
+            raise LaunchWorkspaceError(
+                "existing run root must be absolute, normalized, and narrow"
+            )
+        parent = normalized.parent
+        if (
+            parent.is_symlink()
+            or not parent.is_dir()
+            or parent.resolve() != parent.absolute()
+        ):
+            raise LaunchWorkspaceError(
+                "existing run root parent must be one real directory"
+            )
+        parent_descriptor = os.open(
+            parent,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+        )
+        descriptors.callback(os.close, parent_descriptor)
+        parent_metadata = os.fstat(parent_descriptor)
+        if parent_metadata.st_uid != os.geteuid() or parent_metadata.st_mode & 0o022:
+            raise LaunchWorkspaceError(
+                "existing run root parent must be owned and private"
+            )
+        root_metadata = os.stat(
+            normalized.name,
+            dir_fd=parent_descriptor,
+            follow_symlinks=False,
+        )
+        if not stat.S_ISDIR(root_metadata.st_mode):
+            raise LaunchWorkspaceError("existing run root is absent or unsafe")
+        root_descriptor = os.open(
+            normalized.name,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+            dir_fd=parent_descriptor,
+        )
+        descriptors.callback(os.close, root_descriptor)
+        reopened = os.fstat(root_descriptor)
+        if (
+            reopened.st_uid != os.geteuid()
+            or stat.S_IMODE(reopened.st_mode) != 0o700
+            or (reopened.st_dev, reopened.st_ino)
+            != (root_metadata.st_dev, root_metadata.st_ino)
+        ):
+            raise LaunchWorkspaceError(
+                "existing run root changed while opening its authority"
+            )
+        return normalized, root_descriptor
+
+    def _read_configured_bootstrap_pin(
+        self,
+        root_descriptor: int,
+        descriptors: ExitStack,
+    ) -> bytes:
+        relative_path = PurePosixPath(self._settings.launch.bootstrap_pin_path)
+        opened: dict[str, int] = {}
+        parent_descriptor = root_descriptor
+        current = PurePosixPath(".")
+        for component in relative_path.parent.parts:
+            child_descriptor = os.open(
+                component,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                dir_fd=parent_descriptor,
+            )
+            descriptors.callback(os.close, child_descriptor)
+            metadata = os.fstat(child_descriptor)
+            if (
+                not stat.S_ISDIR(metadata.st_mode)
+                or metadata.st_uid != os.geteuid()
+                or metadata.st_mode & 0o022
+            ):
+                raise LaunchWorkspaceError("bootstrap pin parent is absent or unsafe")
+            current = (
+                PurePosixPath(component)
+                if current == PurePosixPath(".")
+                else current / component
+            )
+            opened[current.as_posix()] = child_descriptor
+            parent_descriptor = child_descriptor
+        payload, _identity = self._read_control_file(
+            root_descriptor,
+            opened,
+            relative_path.as_posix(),
+            self._settings.launch.bootstrap_pin_size_bytes,
+        )
+        return payload
 
     @staticmethod
     def _require_parent_identity(
@@ -1894,10 +2343,15 @@ class StarterWorkspaceBuilder:
         run_root: Path,
         expected_pin: BootstrapPin,
         *,
+        requires_initial_state: bool,
         exposed_run_root: Path | None = None,
         expected_root_identity: tuple[int, int] | None = None,
         root_descriptor: int | None = None,
     ) -> PreparedLaunchWorkspace:
+        if type(requires_initial_state) is not bool:
+            raise LaunchWorkspaceError(
+                "workspace verification mode must be an exact boolean"
+            )
         layout = expected_pin.installation_receipt.layout
         with ExitStack() as descriptors:
             if root_descriptor is None:
@@ -1935,6 +2389,9 @@ class StarterWorkspaceBuilder:
             if (
                 pin != expected_pin
                 or manifest != pin.launch_manifest
+                or pin.to_json_bytes() != pin_bytes
+                or manifest.to_json_bytes() != manifest_bytes
+                or layout != self._layout(manifest)
                 or tree_or_blob_digest(manifest_bytes)
                 != pin.launch_manifest_full_digest
             ):
@@ -1985,8 +2442,11 @@ class StarterWorkspaceBuilder:
                     journal_metadata.st_size,
                     stat.S_IMODE(journal_metadata.st_mode),
                 )
-                or journal_payload
-                != RunCheckpointHead.initial(pin).to_json_bytes() + b"\n"
+                or (
+                    requires_initial_state
+                    and journal_payload
+                    != RunCheckpointHead.initial(pin).to_json_bytes() + b"\n"
+                )
                 or receipt.launch_settings_id
                 != content_id("launch-settings", self._settings.launch.to_dict())
             ):
@@ -2111,21 +2571,22 @@ class StarterWorkspaceBuilder:
             expert_descriptors = (
                 manifest.expert_source.extraction_receipt.source_tree_files
             )
-            self._verify_tree(
-                workspace_root,
-                expert_descriptors,
-                None,
-                name="published expert source",
-                ignore_git_metadata=True,
-                expected_root_identity=directory_identities[
-                    layout.workspace_relative_path
-                ],
-            )
-            self._verify_git_baseline(
-                workspace_root,
-                pin.installation_receipt,
-                expert_descriptors,
-            )
+            if requires_initial_state:
+                self._verify_tree(
+                    workspace_root,
+                    expert_descriptors,
+                    None,
+                    name="published expert source",
+                    ignore_git_metadata=True,
+                    expected_root_identity=directory_identities[
+                        layout.workspace_relative_path
+                    ],
+                )
+                self._verify_git_baseline(
+                    workspace_root,
+                    pin.installation_receipt,
+                    expert_descriptors,
+                )
             self._verify_knowledge_root(
                 knowledge_root,
                 manifest.knowledge_manifest,
@@ -2231,6 +2692,7 @@ class StarterWorkspaceBuilder:
                     layout.run_runtime_lock_relative_path: runtime_lock_identity,
                 },
                 _builder_verifier=self,
+                _requires_initial_state=requires_initial_state,
             )
 
     def _verify_outer_run_root_closure(
@@ -2439,9 +2901,7 @@ class StarterWorkspaceBuilder:
                 derived_state_entry_count += 1
                 if (
                     relative_path.parent != derived_state_store
-                    or _RUN_DERIVED_STATE_OBJECT_PATTERN.fullmatch(
-                        relative_path.name
-                    )
+                    or _RUN_DERIVED_STATE_OBJECT_PATTERN.fullmatch(relative_path.name)
                     is None
                     or not stat.S_ISREG(metadata.st_mode)
                     or metadata.st_uid != os.geteuid()
@@ -2459,9 +2919,7 @@ class StarterWorkspaceBuilder:
                 derived_state_staging_entry_count += 1
                 if (
                     relative_path.parent != derived_state_staging
-                    or _RUN_DERIVED_STATE_STAGING_PATTERN.fullmatch(
-                        relative_path.name
-                    )
+                    or _RUN_DERIVED_STATE_STAGING_PATTERN.fullmatch(relative_path.name)
                     is None
                     or not stat.S_ISREG(metadata.st_mode)
                     or metadata.st_uid != os.geteuid()
@@ -2480,17 +2938,13 @@ class StarterWorkspaceBuilder:
                     "registry.lock",
                     "workspace.lock",
                 }
-                event_match = _RUN_ACTION_EVENT_PATTERN.fullmatch(
-                    relative_path.name
-                )
+                event_match = _RUN_ACTION_EVENT_PATTERN.fullmatch(relative_path.name)
                 is_event = event_match is not None
                 is_input = (
-                    _RUN_ACTION_INPUT_PATTERN.fullmatch(relative_path.name)
-                    is not None
+                    _RUN_ACTION_INPUT_PATTERN.fullmatch(relative_path.name) is not None
                 )
                 is_result = (
-                    _RUN_ACTION_RESULT_PATTERN.fullmatch(relative_path.name)
-                    is not None
+                    _RUN_ACTION_RESULT_PATTERN.fullmatch(relative_path.name) is not None
                 )
                 is_accepted = (
                     _RUN_ACTION_ACCEPTED_PATTERN.fullmatch(relative_path.name)
@@ -2501,9 +2955,7 @@ class StarterWorkspaceBuilder:
                     is not None
                 )
                 if event_match is not None:
-                    action_store_operation_digests.add(
-                        event_match.group("operation")
-                    )
+                    action_store_operation_digests.add(event_match.group("operation"))
                 action_store_size_bytes += metadata.st_size
                 if (
                     relative_path.parent != action_store
@@ -2529,10 +2981,7 @@ class StarterWorkspaceBuilder:
                             else stat.S_IMODE(metadata.st_mode) != 0o400
                         )
                     )
-                    or (
-                        is_fixed_lock
-                        and metadata.st_size != 0
-                    )
+                    or (is_fixed_lock and metadata.st_size != 0)
                     or (
                         is_event
                         and metadata.st_size
@@ -2607,9 +3056,7 @@ class StarterWorkspaceBuilder:
             or not observed_checkpoint_lock
             or not observed_runtime_lock
         ):
-            raise LaunchWorkspaceError(
-                "published run control authority is incomplete"
-            )
+            raise LaunchWorkspaceError("published run control authority is incomplete")
 
     def _verify_git_baseline(
         self,

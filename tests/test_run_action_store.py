@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import os
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack
 from dataclasses import replace
-from multiprocessing import get_context
+from threading import Barrier, Event
 
 import pytest
 
@@ -52,14 +53,14 @@ def _open_session(store, reservation):
     )
 
 
-def _reserve_in_subprocess(active, settings, reservation, request_payload, start):
+def _reserve_concurrently(active, settings, reservation, request_payload, start):
     store = _open_store(active, settings)
     start.wait()
     with _open_session(store, reservation) as session:
         session.reserve(request_payload)
 
 
-def _acquire_workspace_lock_in_subprocess(
+def _acquire_workspace_lock_concurrently(
     active,
     settings,
     start,
@@ -472,34 +473,33 @@ def test_action_store_rejects_reused_provider_execution_identity(
             )
 
 
-def test_action_store_cross_process_reservation_is_create_once(
+def test_action_store_concurrent_reservation_is_create_once(
     publisher_case,
 ):
     _frontier, request_payload, reservation, _workspace = _reserved_action(
         publisher_case
     )
-    process_context = get_context("fork")
-    start = process_context.Event()
-    processes = tuple(
-        process_context.Process(
-            target=_reserve_in_subprocess,
-            args=(
+    start = Barrier(3)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = tuple(
+            pool.submit(
+                _reserve_concurrently,
                 publisher_case["active"],
                 publisher_case["settings"],
                 reservation,
                 request_payload,
                 start,
-            ),
+            )
+            for _position in range(2)
         )
-        for _position in range(2)
+        start.wait()
+    outcomes = tuple(
+        future.exception() if future.exception() is not None else future.result()
+        for future in futures
     )
-    for process in processes:
-        process.start()
-    start.set()
-    for process in processes:
-        process.join(10)
 
-    assert sorted(process.exitcode for process in processes) == [0, 1]
+    assert sum(outcome is None for outcome in outcomes) == 1
+    assert sum(isinstance(outcome, RunActionStoreError) for outcome in outcomes) == 1
     store = _open_store(
         publisher_case["active"],
         publisher_case["settings"],
@@ -507,7 +507,7 @@ def test_action_store_cross_process_reservation_is_create_once(
     assert store.snapshot().event_count == 1
 
 
-def test_action_store_cross_process_distinct_reservations_share_one_floor(
+def test_action_store_concurrent_distinct_reservations_share_one_floor(
     publisher_case,
 ):
     frontier, request_payload, first, workspace = _reserved_action(
@@ -520,37 +520,34 @@ def test_action_store_cross_process_distinct_reservations_share_one_floor(
         frontier=frontier,
         workspace=workspace,
     )
-    process_context = get_context("fork")
-    start = process_context.Event()
-    processes = (
-        process_context.Process(
-            target=_reserve_in_subprocess,
-            args=(
+    start = Barrier(3)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = (
+            pool.submit(
+                _reserve_concurrently,
                 publisher_case["active"],
                 publisher_case["settings"],
                 first,
                 request_payload,
                 start,
             ),
-        ),
-        process_context.Process(
-            target=_reserve_in_subprocess,
-            args=(
+            pool.submit(
+                _reserve_concurrently,
                 publisher_case["active"],
                 publisher_case["settings"],
                 second,
                 second_payload,
                 start,
             ),
-        ),
+        )
+        start.wait()
+    outcomes = tuple(
+        future.exception() if future.exception() is not None else future.result()
+        for future in futures
     )
-    for process in processes:
-        process.start()
-    start.set()
-    for process in processes:
-        process.join(10)
 
-    assert sorted(process.exitcode for process in processes) == [0, 1]
+    assert sum(outcome is None for outcome in outcomes) == 1
+    assert sum(isinstance(outcome, RunActionStoreError) for outcome in outcomes) == 1
     store = _open_store(
         publisher_case["active"],
         publisher_case["settings"],
@@ -612,33 +609,29 @@ def test_action_store_rejects_fixed_lock_inode_substitution(
         store.snapshot()
 
 
-def test_action_store_workspace_lock_excludes_another_process(
+def test_action_store_workspace_lock_excludes_concurrent_sessions(
     publisher_case,
 ):
-    process_context = get_context("fork")
-    start = process_context.Event()
-    acquired = process_context.Event()
-    process = process_context.Process(
-        target=_acquire_workspace_lock_in_subprocess,
-        args=(
+    start = Event()
+    acquired = Event()
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(
+            _acquire_workspace_lock_concurrently,
             publisher_case["active"],
             publisher_case["settings"],
             start,
             acquired,
-        ),
-    )
-    process.start()
-    store = _open_store(
-        publisher_case["active"],
-        publisher_case["settings"],
-    )
-    with ExitStack() as descriptors:
-        store.lock_workspace(
-            RunFrontierWorkspaceAccess.EDIT_WORKSPACE,
-            descriptors,
         )
-        start.set()
-        assert not acquired.wait(0.1)
-    assert acquired.wait(5)
-    process.join(5)
-    assert process.exitcode == 0
+        store = _open_store(
+            publisher_case["active"],
+            publisher_case["settings"],
+        )
+        with ExitStack() as descriptors:
+            store.lock_workspace(
+                RunFrontierWorkspaceAccess.EDIT_WORKSPACE,
+                descriptors,
+            )
+            start.set()
+            assert not acquired.wait(0.1)
+        assert acquired.wait(5)
+        assert future.result() is None

@@ -51,9 +51,7 @@ from test_reconciled_run_state_projection import _resolved_projection
 def _layout(active, strategy_kind="generic") -> RunStateLayout:
     installed = active.bootstrap_pin.installation_receipt.layout
     authority_paths = {
-        RunStateAuthority.ACTION_LEDGER: (
-            installed.run_action_ledger_relative_path
-        ),
+        RunStateAuthority.ACTION_LEDGER: (installed.run_action_ledger_relative_path),
         RunStateAuthority.EXPERIMENT_HISTORY: (
             installed.run_experiment_history_relative_path
         ),
@@ -199,7 +197,7 @@ def publisher_case(resolver_case, tmp_path):
         run_id="run-state-publisher",
         campaign_id="campaign-state-publisher",
     )
-    active = prepared.require_builder_authority()
+    active = prepared.activate()
     projection, bundle, checkpoint = _genesis(active, resolver_case)
     return {
         "active": active,
@@ -586,7 +584,7 @@ def test_tree_publication_owns_history_journal_and_action_ledger(
         run_id="run-state-publisher-tree",
         campaign_id="campaign-state-publisher-tree",
     )
-    active = prepared.require_builder_authority()
+    active = prepared.activate()
     settings = resolver_case["resolver"]._settings.launch
     projection, bundle, checkpoint = _genesis(
         active,

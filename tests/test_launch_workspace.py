@@ -225,7 +225,7 @@ def test_builder_accepts_valid_nested_shared_layout_ancestors(
     assert prepared.knowledge_snapshot == (
         prepared.run_root / launch.knowledge_snapshot_path
     )
-    prepared.require_builder_authority()
+    prepared.activate()
 
 
 def test_builder_consumes_resolver_authority_once_under_concurrency(
@@ -326,7 +326,11 @@ def test_published_byte_tamper_fails_complete_reopen(resolver_case, tmp_path):
     builder = StarterWorkspaceBuilder(resolver_case["resolver"]._settings)
 
     with pytest.raises((LaunchWorkspaceError, ValueError)):
-        builder._verify_published(prepared.run_root, prepared.bootstrap_pin)
+        builder._verify_published(
+            prepared.run_root,
+            prepared.bootstrap_pin,
+            requires_initial_state=True,
+        )
 
 
 def test_published_git_control_plane_tamper_fails_complete_reopen(
@@ -443,7 +447,11 @@ def test_published_git_control_plane_tamper_fails_complete_reopen(
         shutil.copytree(prepared.run_root, root)
         mutation(root)
         with pytest.raises(LaunchWorkspaceError):
-            builder._verify_published(root, prepared.bootstrap_pin)
+            builder._verify_published(
+                root,
+                prepared.bootstrap_pin,
+                requires_initial_state=True,
+            )
 
 
 def test_published_immutable_tree_rejects_shared_files_and_writable_parents(
@@ -457,7 +465,11 @@ def test_published_immutable_tree_rejects_shared_files_and_writable_parents(
     os.link(snapshot, external_link)
 
     with pytest.raises(LaunchWorkspaceError, match="shared"):
-        builder._verify_published(prepared.run_root, prepared.bootstrap_pin)
+        builder._verify_published(
+            prepared.run_root,
+            prepared.bootstrap_pin,
+            requires_initial_state=True,
+        )
 
     external_link.unlink()
     immutable_root = (
@@ -466,7 +478,11 @@ def test_published_immutable_tree_rejects_shared_files_and_writable_parents(
     )
     immutable_root.chmod(0o755)
     with pytest.raises(LaunchWorkspaceError, match="writable"):
-        builder._verify_published(prepared.run_root, prepared.bootstrap_pin)
+        builder._verify_published(
+            prepared.run_root,
+            prepared.bootstrap_pin,
+            requires_initial_state=True,
+        )
 
 
 def test_publication_rejects_staging_path_substitution(
@@ -537,7 +553,7 @@ def test_prepared_workspace_authority_is_bound_and_one_shot(
             workspace=(tmp_path / "forged-workspace").absolute(),
         )
     with pytest.raises(LaunchWorkspaceError, match="authority"):
-        clone.require_builder_authority()
+        clone.activate()
 
     receipt_payload = prepared.bootstrap_pin.installation_receipt.to_dict()
     receipt_payload.pop("workspace_installation_receipt_id")
@@ -560,12 +576,12 @@ def test_prepared_workspace_authority_is_bound_and_one_shot(
     )
     spliced_clone = replace(prepared, bootstrap_pin=spliced_pin)
     with pytest.raises(LaunchWorkspaceError, match="authority"):
-        spliced_clone.require_builder_authority()
+        spliced_clone.activate()
 
     assert type(prepared) is PreparedLaunchWorkspace
-    prepared.require_builder_authority()
+    prepared.activate()
     with pytest.raises(LaunchWorkspaceError, match="authority"):
-        prepared.require_builder_authority()
+        prepared.activate()
 
 
 def test_prepared_workspace_consumption_rechecks_pinned_inodes(
@@ -593,9 +609,9 @@ def test_prepared_workspace_consumption_rechecks_pinned_inodes(
             target.write_bytes(bytes((payload[0] ^ 1,)) + payload[1:])
 
         with pytest.raises((LaunchWorkspaceError, OSError)):
-            prepared.require_builder_authority()
+            prepared.activate()
         with pytest.raises(LaunchWorkspaceError, match="authority"):
-            prepared.require_builder_authority()
+            prepared.activate()
 
 
 def test_prepared_workspace_consumption_has_terminal_identity_check(
@@ -615,9 +631,9 @@ def test_prepared_workspace_consumption_has_terminal_identity_check(
 
     monkeypatch.setattr(builder, "_verify_published", verify_then_replace)
     with pytest.raises(LaunchWorkspaceError, match="filesystem closure"):
-        prepared.require_builder_authority()
+        prepared.activate()
     with pytest.raises(LaunchWorkspaceError, match="authority"):
-        prepared.require_builder_authority()
+        prepared.activate()
 
 
 def test_prepared_workspace_consumption_has_terminal_byte_check(
@@ -641,9 +657,9 @@ def test_prepared_workspace_consumption_has_terminal_byte_check(
 
     monkeypatch.setattr(builder, "_verify_published", verify_then_mutate)
     with pytest.raises(LaunchWorkspaceError, match="verified descriptor"):
-        prepared.require_builder_authority()
+        prepared.activate()
     with pytest.raises(LaunchWorkspaceError, match="authority"):
-        prepared.require_builder_authority()
+        prepared.activate()
 
 
 def test_reopen_rejects_external_component_aliases_and_extra_root_state(
@@ -682,7 +698,11 @@ def test_reopen_rejects_external_component_aliases_and_extra_root_state(
         shutil.copytree(prepared.run_root, root)
         mutation(root, name)
         with pytest.raises((LaunchWorkspaceError, OSError)):
-            builder._verify_published(root, prepared.bootstrap_pin)
+            builder._verify_published(
+                root,
+                prepared.bootstrap_pin,
+                requires_initial_state=True,
+            )
 
 
 def test_existing_destination_fails_without_consuming_authority(

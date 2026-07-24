@@ -9,7 +9,7 @@ import secrets
 import stat
 from contextlib import ExitStack
 from dataclasses import dataclass
-from pathlib import Path, PurePosixPath
+from pathlib import PurePosixPath
 
 from kapso.cross_run.canonical import content_id
 from kapso.cross_run.launch.checkpoint_contracts import (
@@ -54,11 +54,7 @@ class _RunCheckpointControl:
             raise RunCheckpointControlError(
                 "run checkpoint store requires exact launch settings"
             )
-        authority.require_control_authority()
-        if settings != authority._prepared._builder_verifier._settings.launch:
-            raise RunCheckpointControlError(
-                "run checkpoint settings differ from the active launch"
-            )
+        authority.require_launch_settings(settings)
         self._authority = authority
         self._settings = settings
         self._checkpoint_relative = _require_control_path(
@@ -116,10 +112,7 @@ class _RunCheckpointControl:
             self._clean_staging(parent_descriptor, descriptors)
 
     def _open_control_parent(self, descriptors: ExitStack) -> int:
-        root_descriptor = _open_absolute_directory(
-            self._authority.run_root,
-            descriptors,
-        )
+        root_descriptor = self._authority._open_run_root(descriptors)
         if (
             _directory_identity(root_descriptor, "active run root")
             != self._authority.published_root_identity
@@ -797,28 +790,6 @@ def _same_frontier(
         and left.incomplete_tail == right.incomplete_tail
         and left.checkpoint_ahead is right.checkpoint_ahead
     )
-
-
-def _open_absolute_directory(path: Path, descriptors: ExitStack) -> int:
-    normalized = Path(os.path.abspath(path))
-    if not path.is_absolute() or path != normalized or normalized.parent == normalized:
-        raise RunCheckpointControlError(
-            "active run root must be absolute and normalized"
-        )
-    descriptor = os.open(
-        normalized.anchor,
-        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
-    )
-    descriptors.callback(os.close, descriptor)
-    for name in normalized.parts[1:]:
-        child_descriptor = os.open(
-            name,
-            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
-            dir_fd=descriptor,
-        )
-        descriptors.callback(os.close, child_descriptor)
-        descriptor = child_descriptor
-    return descriptor
 
 
 def _require_private_directory(descriptor: int, name: str) -> None:
