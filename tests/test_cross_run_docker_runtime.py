@@ -109,7 +109,7 @@ def _info(settings):
 
 
 def _runtime_contract():
-    return DockerImageAuthority(
+    return DockerImageAuthority.mint(
         image_reference=(
             "registry.example/kapso/replay-runtime@" + tree_or_blob_digest(b"manifest")
         ),
@@ -446,12 +446,23 @@ def test_image_authority_requires_a_canonical_registry_qualified_digest_referenc
 def test_image_authority_accepts_canonical_registry_qualified_repositories(
     repository,
 ):
-    authority = replace(
-        _runtime_contract(),
+    runtime_contract = _runtime_contract()
+    authority = DockerImageAuthority.mint(
         image_reference=f"{repository}@sha256:" + "a" * 64,
+        image_config_digest=runtime_contract.image_config_digest,
+        operating_system=runtime_contract.operating_system,
+        architecture=runtime_contract.architecture,
+        architecture_variant=runtime_contract.architecture_variant,
     )
 
     assert authority.image_reference.startswith(repository)
+
+
+def test_image_authority_round_trips_with_verified_content_identity():
+    authority = _runtime_contract()
+
+    assert DockerImageAuthority.from_json_bytes(authority.to_json_bytes()) == authority
+    assert authority.image_authority_id.startswith("docker-image-authority:sha256:")
 
 
 @pytest.mark.parametrize(

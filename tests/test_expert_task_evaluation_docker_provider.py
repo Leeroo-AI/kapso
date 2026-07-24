@@ -185,7 +185,7 @@ def test_task_adapter_image_projection_is_exact(task_evaluation_authority):
     _prepared, requirements, _invocation = task_evaluation_authority
     runtime = requirements.runtime_contract
 
-    assert task_adapter_docker_image_authority(runtime) == DockerImageAuthority(
+    assert task_adapter_docker_image_authority(runtime) == DockerImageAuthority.mint(
         image_reference=runtime.image_reference,
         image_config_digest=runtime.image_config_digest,
         operating_system=runtime.operating_system,

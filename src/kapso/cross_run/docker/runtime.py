@@ -11,9 +11,10 @@ from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Mapping, Protocol
+from typing import Any, ClassVar, Mapping, Protocol
 
 from kapso.cross_run.canonical import tree_or_blob_digest
+from kapso.cross_run.contracts import StrictContract
 from kapso.cross_run.process import (
     BoundedProcessOutcome,
     BoundedProcessRequest,
@@ -45,16 +46,20 @@ class PinnedDockerProcessRunner(Protocol):
 
 
 @dataclass(frozen=True)
-class DockerImageAuthority:
+class DockerImageAuthority(StrictContract):
     """Exact content and platform identity admitted by the pinned runtime."""
 
+    image_authority_id: str
     image_reference: str
     image_config_digest: str
     operating_system: str
     architecture: str
     architecture_variant: str | None
 
-    def __post_init__(self) -> None:
+    CONTENT_NAMESPACE: ClassVar[str] = "docker-image-authority"
+    IDENTITY_FIELD: ClassVar[str] = "image_authority_id"
+
+    def _validate(self) -> None:
         if (
             not _is_canonical_pinned_image_reference(self.image_reference)
             or not isinstance(self.image_config_digest, str)

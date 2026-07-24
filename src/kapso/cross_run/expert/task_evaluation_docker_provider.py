@@ -341,7 +341,7 @@ def task_adapter_docker_image_authority(
         raise TaskEvaluationDockerSandboxError(
             "task evaluation Docker image projection requires exact adapter runtime"
         )
-    return DockerImageAuthority(
+    return DockerImageAuthority.mint(
         image_reference=runtime.image_reference,
         image_config_digest=runtime.image_config_digest,
         operating_system=runtime.operating_system,
