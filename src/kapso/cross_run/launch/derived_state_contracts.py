@@ -22,12 +22,14 @@ _STRATEGY_AUTHORITIES = {
             "idea_archive",
             "experiment_history",
             "execution_journal",
+            "action_ledger",
         }
     ),
     "benchmark_tree_search": frozenset(
         {
             "experiment_history",
             "execution_journal",
+            "action_ledger",
         }
     ),
 }
@@ -43,6 +45,7 @@ class RunStateAuthority(str, Enum):
     IDEA_ARCHIVE = "idea_archive"
     EXPERIMENT_HISTORY = "experiment_history"
     EXECUTION_JOURNAL = "execution_journal"
+    ACTION_LEDGER = "action_ledger"
 
 
 class RunStatePayloadFormat(str, Enum):
@@ -56,6 +59,7 @@ _AUTHORITY_FORMATS = {
     RunStateAuthority.IDEA_ARCHIVE: RunStatePayloadFormat.CANONICAL_JSON,
     RunStateAuthority.EXPERIMENT_HISTORY: RunStatePayloadFormat.CANONICAL_JSON,
     RunStateAuthority.EXECUTION_JOURNAL: RunStatePayloadFormat.CANONICAL_JSONL,
+    RunStateAuthority.ACTION_LEDGER: RunStatePayloadFormat.CANONICAL_JSON,
 }
 
 

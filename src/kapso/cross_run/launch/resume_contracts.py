@@ -276,8 +276,10 @@ class RunDerivativeEvidence(StrictContract):
     IDENTITY_FIELD: ClassVar[str] = "evidence_id"
 
     def _validate(self) -> None:
-        if not self.state_authority_digests or set(self.state_authority_digests) != set(
-            self.state_authority_revisions
+        if (
+            "action_ledger" not in self.state_authority_digests
+            or set(self.state_authority_digests)
+            != set(self.state_authority_revisions)
         ):
             raise ResumeContractError(
                 "run derivative evidence state authorities are incomplete"

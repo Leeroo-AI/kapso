@@ -27,6 +27,7 @@ from kapso.cross_run.launch.run_state_projection import (
     ReconciledRunStateProjection,
     RunStateProjectionError,
 )
+from kapso.cross_run.launch.run_action_ledger import RunActionLedgerSnapshot
 from kapso.execution.memories.experiment_memory.projection import (
     build_experiment_history_genesis,
     project_records,
@@ -68,6 +69,7 @@ _EMBEDDING_MODEL = "test-embedding"
 _EMBEDDING_DIMENSIONS = 1
 _EMBEDDING_CANONICALIZER_VERSION = "kapso.embedding_input.v1"
 _TREE_BASE_COMMIT = "b" * 40
+_EMPTY_ACTION_LEDGER = RunActionLedgerSnapshot.empty()
 _EMBEDDING_SPACE_ID = content_id(
     "embedding-space",
     {
@@ -96,6 +98,7 @@ def _embedding(solution: str, value: float) -> EmbeddingRecord:
 
 def _layout(strategy_kind: str) -> RunStateLayout:
     paths = {
+        RunStateAuthority.ACTION_LEDGER: ".kapso/action_ledger.json",
         RunStateAuthority.EXPERIMENT_HISTORY: ".kapso/experiment_history.json",
         RunStateAuthority.EXECUTION_JOURNAL: ".kapso/execution_events.jsonl",
     }
@@ -213,6 +216,7 @@ def _projection(
         experiment_history=history,
         execution_journal=journal,
         idea_archive=archive,
+        action_ledger=_EMPTY_ACTION_LEDGER,
     )
 
 
@@ -323,6 +327,7 @@ def _tree_projection_with_nodes(
         experiment_history=history,
         execution_journal=journal,
         idea_archive=None,
+        action_ledger=_EMPTY_ACTION_LEDGER,
     )
 
 
@@ -534,6 +539,7 @@ def test_projection_rejects_cross_identity_and_strategy_authority_mix() -> None:
             experiment_history=generic.experiment_history,
             execution_journal=wrong_journal,
             idea_archive=generic.idea_archive,
+            action_ledger=_EMPTY_ACTION_LEDGER,
         )
     with pytest.raises(RunStateProjectionError, match="cannot contain"):
         ReconciledRunStateProjection(
@@ -543,6 +549,7 @@ def test_projection_rejects_cross_identity_and_strategy_authority_mix() -> None:
             experiment_history=generic.experiment_history,
             execution_journal=generic.execution_journal,
             idea_archive=generic.idea_archive,
+            action_ledger=_EMPTY_ACTION_LEDGER,
         )
 
 
@@ -567,6 +574,7 @@ def test_bundle_builder_rejects_same_campaign_from_another_run(
             require_contiguous_node_ids=True,
         ),
         idea_archive=current.idea_archive,
+        action_ledger=_EMPTY_ACTION_LEDGER,
     )
 
     with pytest.raises(RunStateProjectionError, match="another installed run"):
@@ -719,6 +727,7 @@ def test_nonempty_history_requires_exact_journal_semantics() -> None:
         experiment_history=history,
         execution_journal=journal,
         idea_archive=None,
+        action_ledger=_EMPTY_ACTION_LEDGER,
     )
 
     assert reconciled.experiment_history.records == (record,)
@@ -761,6 +770,7 @@ def test_nonempty_history_requires_exact_journal_semantics() -> None:
             experiment_history=history,
             execution_journal=branch_only_journal,
             idea_archive=None,
+            action_ledger=_EMPTY_ACTION_LEDGER,
         )
 
     with pytest.raises(RunStateProjectionError, match="nodes differ"):
@@ -773,6 +783,7 @@ def test_nonempty_history_requires_exact_journal_semantics() -> None:
             experiment_history=history,
             execution_journal=journal,
             idea_archive=None,
+            action_ledger=_EMPTY_ACTION_LEDGER,
         )
 
     wrong_journal, _ = ExecutionRevisionProjection(
@@ -812,6 +823,7 @@ def test_nonempty_history_requires_exact_journal_semantics() -> None:
             experiment_history=history,
             execution_journal=wrong_journal,
             idea_archive=None,
+            action_ledger=_EMPTY_ACTION_LEDGER,
         )
 
     wrong_commit_journal, _ = ExecutionRevisionProjection(
@@ -851,6 +863,7 @@ def test_nonempty_history_requires_exact_journal_semantics() -> None:
             experiment_history=history,
             execution_journal=wrong_commit_journal,
             idea_archive=None,
+            action_ledger=_EMPTY_ACTION_LEDGER,
         )
 
     immutable_base = "a" * 40
@@ -906,6 +919,7 @@ def test_nonempty_history_requires_exact_journal_semantics() -> None:
             experiment_history=history,
             execution_journal=wrong_lineage_journal,
             idea_archive=None,
+            action_ledger=_EMPTY_ACTION_LEDGER,
         )
 
     record.metrics["post_validation_tamper"] = 1.0
@@ -1018,6 +1032,7 @@ def test_generic_projection_rejects_numeric_delta_for_unmeasured_baseline(
         experiment_history=history,
         execution_journal=journal,
         idea_archive=archive,
+        action_ledger=_EMPTY_ACTION_LEDGER,
     )
     wrong_archive = project_outcome(
         linked_archive,
@@ -1044,6 +1059,7 @@ def test_generic_projection_rejects_numeric_delta_for_unmeasured_baseline(
             experiment_history=history,
             execution_journal=journal,
             idea_archive=wrong_archive,
+            action_ledger=_EMPTY_ACTION_LEDGER,
         )
 
 
@@ -1292,6 +1308,7 @@ def test_generic_projection_rejects_parent_commit_spliced_across_events(
             experiment_history=history,
             execution_journal=journal,
             idea_archive=archive,
+            action_ledger=_EMPTY_ACTION_LEDGER,
         )
     mismatched_child = replace(
         child_idea,
@@ -1319,6 +1336,7 @@ def test_generic_projection_rejects_parent_commit_spliced_across_events(
             experiment_history=history,
             execution_journal=journal,
             idea_archive=mismatched_archive,
+            action_ledger=_EMPTY_ACTION_LEDGER,
         )
 
 
@@ -1409,6 +1427,7 @@ def test_recovery_successor_binds_implementation_base_to_prior_candidate(
         experiment_history=failed_history,
         execution_journal=failed_journal,
         idea_archive=linked_archive,
+        action_ledger=_EMPTY_ACTION_LEDGER,
     )
     recovered_attempt = EvaluationAttempt(
         commit_sha="c" * 40,
@@ -1504,6 +1523,7 @@ def test_recovery_successor_binds_implementation_base_to_prior_candidate(
         experiment_history=recovered_history,
         execution_journal=recovered_journal,
         idea_archive=recovered_archive,
+        action_ledger=_EMPTY_ACTION_LEDGER,
     )
 
     successor.require_predecessor(predecessor)
@@ -1595,6 +1615,7 @@ def test_tree_projection_preserves_arbitrary_strategy_history_id() -> None:
         experiment_history=history,
         execution_journal=journal,
         idea_archive=None,
+        action_ledger=_EMPTY_ACTION_LEDGER,
     )
 
     assert tuple(
@@ -1650,6 +1671,7 @@ def test_tree_projection_allows_unexecuted_synthetic_root_baseline() -> None:
         experiment_history=history,
         execution_journal=journal,
         idea_archive=None,
+        action_ledger=_EMPTY_ACTION_LEDGER,
     )
 
     assert projection.experiment_history.records == (record,)
@@ -1743,6 +1765,7 @@ def test_tree_projection_rejects_child_spliced_to_unrelated_commit() -> None:
             experiment_history=history,
             execution_journal=journal,
             idea_archive=None,
+            action_ledger=_EMPTY_ACTION_LEDGER,
         )
 
 
@@ -1820,6 +1843,7 @@ def test_tree_projection_rejects_reordered_journal_chronology() -> None:
             experiment_history=history,
             execution_journal=journal,
             idea_archive=None,
+            action_ledger=_EMPTY_ACTION_LEDGER,
         )
 
 

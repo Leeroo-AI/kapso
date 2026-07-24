@@ -1,0 +1,395 @@
+"""Crash-durable create-only execution state for run-scoped actions."""
+
+from __future__ import annotations
+
+from contextlib import ExitStack
+from dataclasses import replace
+from multiprocessing import get_context
+
+import pytest
+
+from kapso.cross_run.canonical import tree_or_blob_digest
+from kapso.cross_run.launch.run_action_contracts import RunActionIntent
+from kapso.cross_run.launch.run_action_gate import (
+    bind_run_action_frontier,
+    RunFrontierActionError,
+    RunFrontierActionKind,
+    RunFrontierWorkspaceAccess,
+)
+from kapso.cross_run.launch.run_action_ledger import RunActionLedgerError
+from kapso.cross_run.launch.run_action_store import (
+    RunActionExecutionEventKind,
+    RunActionExecutionStore,
+    RunActionReservation,
+    RunActionResultDisposition,
+    RunActionStoreError,
+    RunActionTerminalReason,
+)
+from kapso.cross_run.launch.resume_contracts import RunSafetyBoundary
+from kapso.cross_run.launch.workspace_frontier import (
+    inspect_run_workspace_frontier,
+)
+from test_run_frontier_action_gate import _action_case
+from test_launch_resolver import resolver_case
+from test_run_state_publisher import publisher_case
+
+
+def _reserve_in_subprocess(active, settings, reservation, request_payload, start):
+    store = RunActionExecutionStore(
+        active_workspace=active,
+        settings=settings,
+    )
+    start.wait()
+    with store.session(reservation) as session:
+        session.reserve(request_payload)
+
+
+def _reserved_action(
+    case,
+    *,
+    operation_id="durable_agent_0123456789abcdef",
+    frontier=None,
+    workspace=None,
+):
+    if frontier is None:
+        _publisher, frontier, _security, _gate = _action_case(case)
+    request_payload = b'{"prompt":"complete, untruncated request"}'
+    intent = RunActionIntent.from_request(
+        kind=RunFrontierActionKind.CODING_AGENT,
+        boundary=RunSafetyBoundary.IDEATION,
+        operation_id=operation_id,
+        request_payload=request_payload,
+        workspace_access=RunFrontierWorkspaceAccess.READ_ONLY,
+    )
+    if workspace is None:
+        with ExitStack() as descriptors:
+            workspace_descriptor, _identity = case[
+                "active"
+            ]._open_execution_workspace(descriptors)
+            workspace = inspect_run_workspace_frontier(
+                workspace_descriptor,
+                settings=case["settings"],
+                expected_commit_sha=frontier.checkpoint.safety_state.derivative_frontier.evidence.branch_heads[
+                    case["settings"].workspace_git_branch
+                ],
+            )
+    binding = bind_run_action_frontier(frontier, workspace)
+    reservation = RunActionReservation.build(intent=intent, frontier=binding)
+    return frontier, request_payload, reservation, workspace
+
+
+def test_action_store_reopens_complete_request_result_and_terminal_prefix(
+    publisher_case,
+):
+    frontier, request_payload, reservation, workspace = _reserved_action(
+        publisher_case
+    )
+    store = RunActionExecutionStore(
+        active_workspace=publisher_case["active"],
+        settings=publisher_case["settings"],
+    )
+    with store.session(reservation) as session:
+        reserved = session.reserve(request_payload)
+        assert reserved.event_kind is RunActionExecutionEventKind.INTENT_RESERVED
+        assert session.read_request() == request_payload
+        spawn = session.commit_spawn(
+            provider_execution_id="codex_cli_invocation_0123456789abcdef",
+            security_observation_id=(
+                frontier.checkpoint.safety_state.security_observation.observation_id
+            ),
+        )
+        raw_result = b'{"provider_response":"complete"}'
+        result = session.record_result(
+            spawn_commit=spawn,
+            result_payload=raw_result,
+        )
+        assert session.read_result(result) == raw_result
+        accepted_result = b'{"proposal":"complete"}'
+        acceptance = session.accept_result(
+            result_receipt=result,
+            disposition=RunActionResultDisposition.SUCCEEDED,
+            accepted_result_payload=accepted_result,
+            workspace_after=workspace,
+        )
+        assert session.read_accepted_result(acceptance) == accepted_result
+        assert acceptance.workspace_after.to_identity() == workspace
+
+    snapshot = store.snapshot()
+    assert snapshot.event_count == 4
+    assert snapshot.operation_tails[0].tail_kind is (
+        RunActionExecutionEventKind.RESULT_ACCEPTED
+    )
+
+    reopened = RunActionExecutionStore(
+        active_workspace=publisher_case["active"],
+        settings=publisher_case["settings"],
+    )
+    assert reopened.snapshot() == snapshot
+    with reopened.session(reservation) as session:
+        assert session.read_request() == request_payload
+        assert session.read_result(session.events[2].result_receipt) == raw_result
+        assert (
+            session.read_accepted_result(session.events[3].acceptance)
+            == accepted_result
+        )
+
+
+def test_action_store_durably_rejects_duplicate_operation(
+    publisher_case,
+):
+    _frontier, request_payload, reservation, _workspace = _reserved_action(
+        publisher_case
+    )
+    store = RunActionExecutionStore(
+        active_workspace=publisher_case["active"],
+        settings=publisher_case["settings"],
+    )
+    with store.session(reservation) as session:
+        session.reserve(request_payload)
+    with store.session(reservation) as session:
+        with pytest.raises(RunActionStoreError, match="already reserved"):
+            session.reserve(request_payload)
+
+    assert store.snapshot().event_count == 1
+
+
+def test_action_store_cancel_and_interrupted_prefixes_are_terminal(
+    publisher_case,
+):
+    frontier, request_payload, reservation, workspace = _reserved_action(
+        publisher_case,
+        operation_id="cancelled_action_0123456789abcdef",
+    )
+    store = RunActionExecutionStore(
+        active_workspace=publisher_case["active"],
+        settings=publisher_case["settings"],
+    )
+    with store.session(reservation) as session:
+        session.reserve(request_payload)
+        session.cancel(RunActionTerminalReason.STALE_FRONTIER)
+        with pytest.raises(RunActionStoreError, match="terminal reason"):
+            replace(
+                session.events[-1],
+                terminal_reason=RunActionTerminalReason.PROVIDER_FAILED,
+            )
+        with pytest.raises(RunActionStoreError, match="requires a"):
+            session.commit_spawn(
+                provider_execution_id="forbidden_spawn_0123456789abcdef",
+                security_observation_id=(
+                    frontier.checkpoint.safety_state.security_observation.observation_id
+                ),
+            )
+
+    (
+        second_frontier,
+        second_payload,
+        second_reservation,
+        second_workspace,
+    ) = _reserved_action(
+        publisher_case,
+        operation_id="interrupted_action_0123456789abcdef",
+        frontier=frontier,
+        workspace=workspace,
+    )
+    with store.session(second_reservation) as session:
+        session.reserve(second_payload)
+        session.commit_spawn(
+            provider_execution_id="lost_provider_0123456789abcdef",
+            security_observation_id=(
+                second_frontier.checkpoint.safety_state.security_observation.observation_id
+            ),
+        )
+        session.interrupt(
+            reason=RunActionTerminalReason.PROVIDER_INTERRUPTED,
+            workspace_after=second_workspace,
+        )
+    tails = {tail.operation_id: tail for tail in store.snapshot().operation_tails}
+    assert tails[reservation.intent.operation_id].tail_kind is (
+        RunActionExecutionEventKind.CANCELLED
+    )
+    assert tails[second_reservation.intent.operation_id].tail_kind is (
+        RunActionExecutionEventKind.INTERRUPTED
+    )
+    assert workspace == second_workspace
+
+
+def test_action_store_rejects_request_substitution_and_result_corruption(
+    publisher_case,
+):
+    _frontier, request_payload, reservation, _workspace = _reserved_action(
+        publisher_case
+    )
+    store = RunActionExecutionStore(
+        active_workspace=publisher_case["active"],
+        settings=publisher_case["settings"],
+    )
+    with store.session(reservation) as session:
+        with pytest.raises(RunActionStoreError, match="complete request"):
+            session.reserve(request_payload + b" altered")
+        session.reserve(request_payload)
+        spawn = session.commit_spawn(
+            provider_execution_id="corrupt_result_0123456789abcdef",
+            security_observation_id=(
+                reservation.frontier.security_observation_id
+            ),
+        )
+        result = session.record_result(
+            spawn_commit=spawn,
+            result_payload=b'{"result":"durable"}',
+        )
+    result_path = (
+        publisher_case["active"].run_root
+        / publisher_case["settings"].run_action_store_path
+        / f"result-{result.result_blob.digest.removeprefix('sha256:')}.blob"
+    )
+    result_path.chmod(0o600)
+    result_path.write_bytes(b'{"result":"corrupt"}')
+    result_path.chmod(0o400)
+    with pytest.raises(RunActionStoreError):
+        store.snapshot()
+
+
+def test_action_ledger_snapshot_is_canonical_and_content_addressed(
+    publisher_case,
+):
+    _frontier, request_payload, reservation, _workspace = _reserved_action(
+        publisher_case
+    )
+    store = RunActionExecutionStore(
+        active_workspace=publisher_case["active"],
+        settings=publisher_case["settings"],
+    )
+    assert store.snapshot().event_count == 0
+    with store.session(reservation) as session:
+        session.reserve(request_payload)
+    snapshot = store.snapshot()
+    assert snapshot == type(snapshot).from_json_bytes(snapshot.to_json_bytes())
+    assert tree_or_blob_digest(snapshot.to_json_bytes()).startswith("sha256:")
+    with pytest.raises(RunActionLedgerError, match="tail is invalid"):
+        replace(
+            snapshot.operation_tails[0],
+            tail_kind=RunActionExecutionEventKind.RESULT_ACCEPTED,
+        )
+    with pytest.raises(RunActionLedgerError, match="changed or extended"):
+        type(snapshot).empty().require_predecessor(snapshot)
+
+
+def test_action_binding_rejects_workspace_outside_checkpoint_frontier(
+    publisher_case,
+):
+    frontier, _payload, _reservation, workspace = _reserved_action(
+        publisher_case
+    )
+    with pytest.raises(RunFrontierActionError, match="checkpoint branch frontier"):
+        bind_run_action_frontier(
+            frontier,
+            replace(workspace, commit_sha="f" * 40),
+        )
+
+
+def test_action_store_cleans_crash_staging_before_reopen(
+    publisher_case,
+):
+    store_path = (
+        publisher_case["active"].run_root
+        / publisher_case["settings"].run_action_store_path
+    )
+    staged_paths = tuple(
+        store_path / f".accepted-{position:032x}.tmp"
+        for position in range(
+            publisher_case["settings"].run_action_staging_entry_limit + 1
+        )
+    )
+    for staged_path in staged_paths:
+        staged_path.write_bytes(b'{"accepted":"crash-window"}')
+        staged_path.chmod(0o400)
+
+    reopened = RunActionExecutionStore(
+        active_workspace=publisher_case["active"],
+        settings=publisher_case["settings"],
+    )
+
+    assert not any(staged_path.exists() for staged_path in staged_paths)
+    assert reopened.snapshot().event_count == 0
+
+
+def test_action_store_cross_process_reservation_is_create_once(
+    publisher_case,
+):
+    _frontier, request_payload, reservation, _workspace = _reserved_action(
+        publisher_case
+    )
+    process_context = get_context("fork")
+    start = process_context.Event()
+    processes = tuple(
+        process_context.Process(
+            target=_reserve_in_subprocess,
+            args=(
+                publisher_case["active"],
+                publisher_case["settings"],
+                reservation,
+                request_payload,
+                start,
+            ),
+        )
+        for _position in range(2)
+    )
+    for process in processes:
+        process.start()
+    start.set()
+    for process in processes:
+        process.join(10)
+
+    assert sorted(process.exitcode for process in processes) == [0, 1]
+    store = RunActionExecutionStore(
+        active_workspace=publisher_case["active"],
+        settings=publisher_case["settings"],
+    )
+    assert store.snapshot().event_count == 1
+
+
+def test_action_store_rejects_event_sequence_gap(
+    publisher_case,
+):
+    _frontier, request_payload, reservation, _workspace = _reserved_action(
+        publisher_case
+    )
+    store = RunActionExecutionStore(
+        active_workspace=publisher_case["active"],
+        settings=publisher_case["settings"],
+    )
+    with store.session(reservation) as session:
+        session.reserve(request_payload)
+    operation_digest = tree_or_blob_digest(
+        reservation.intent.operation_id.encode("utf-8")
+    ).removeprefix("sha256:")
+    store_path = (
+        publisher_case["active"].run_root
+        / publisher_case["settings"].run_action_store_path
+    )
+    (store_path / f"operation-{operation_digest}-event-0001.json").rename(
+        store_path / f"operation-{operation_digest}-event-0002.json"
+    )
+
+    with pytest.raises(RunActionStoreError, match="sequence has a gap"):
+        store.snapshot()
+
+
+def test_action_store_rejects_fixed_lock_inode_substitution(
+    publisher_case,
+    tmp_path,
+):
+    store = RunActionExecutionStore(
+        active_workspace=publisher_case["active"],
+        settings=publisher_case["settings"],
+    )
+    lock_path = (
+        publisher_case["active"].run_root
+        / publisher_case["settings"].run_action_store_path
+        / "registry.lock"
+    )
+    lock_path.rename(tmp_path / "original-registry.lock")
+    lock_path.touch(mode=0o600)
+
+    with pytest.raises(RunActionStoreError, match="differs from its receipt"):
+        store.snapshot()

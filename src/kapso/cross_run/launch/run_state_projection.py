@@ -27,6 +27,7 @@ from kapso.cross_run.launch.derived_state_contracts import (
     RunStateLayout,
     RunStatePayloadTransition,
 )
+from kapso.cross_run.launch.run_action_ledger import RunActionLedgerSnapshot
 from kapso.cross_run.record_contracts import ExecutionRevisionEvent
 from kapso.execution.memories.experiment_memory.projection import (
     ExperimentHistoryProjection,
@@ -66,6 +67,7 @@ class ReconciledRunStateProjection:
     experiment_history: ExperimentHistoryProjection
     execution_journal: ExecutionRevisionProjection
     idea_archive: IdeaArchiveState | None
+    action_ledger: RunActionLedgerSnapshot
 
     def __post_init__(self) -> None:
         if type(self.strategy_state) is not RunStrategyState:
@@ -79,6 +81,10 @@ class ReconciledRunStateProjection:
         if type(self.execution_journal) is not ExecutionRevisionProjection:
             raise RunStateProjectionError(
                 "run-state projection requires one exact execution journal"
+            )
+        if type(self.action_ledger) is not RunActionLedgerSnapshot:
+            raise RunStateProjectionError(
+                "run-state projection requires one exact action ledger"
             )
         history = self.experiment_history
         journal = self.execution_journal
@@ -294,6 +300,7 @@ class ReconciledRunStateProjection:
         revisions = {
             RunStateAuthority.EXPERIMENT_HISTORY: self.experiment_history.revision,
             RunStateAuthority.EXECUTION_JOURNAL: self.execution_journal.watermark,
+            RunStateAuthority.ACTION_LEDGER: self.action_ledger.event_count,
         }
         if self.idea_archive is not None:
             revisions[RunStateAuthority.IDEA_ARCHIVE] = self.idea_archive.revision
@@ -307,6 +314,7 @@ class ReconciledRunStateProjection:
                 self.experiment_history.to_json_bytes()
             ),
             RunStateAuthority.EXECUTION_JOURNAL: (self.execution_journal.jsonl_bytes),
+            RunStateAuthority.ACTION_LEDGER: self.action_ledger.to_json_bytes(),
         }
         if self.idea_archive is not None:
             payloads[RunStateAuthority.IDEA_ARCHIVE] = encode_archive_state(
@@ -437,6 +445,9 @@ class ReconciledRunStateProjection:
             experiment_history=history,
             execution_journal=journal,
             idea_archive=archive,
+            action_ledger=RunActionLedgerSnapshot.from_json_bytes(
+                self.action_ledger.to_json_bytes()
+            ),
         )
 
     def require_predecessor(
@@ -470,6 +481,7 @@ class ReconciledRunStateProjection:
                 "run-state predecessor projection identity or policy changed"
             )
         self.strategy_state.require_predecessor(predecessor.strategy_state)
+        self.action_ledger.require_predecessor(predecessor.action_ledger)
         if not self.execution_journal.jsonl_bytes.startswith(
             predecessor.execution_journal.jsonl_bytes
         ):
@@ -548,11 +560,15 @@ class ReconciledRunStateProjection:
             if strategy_kind == "generic"
             else None
         )
+        action_ledger = RunActionLedgerSnapshot.from_json_bytes(
+            payload_by_authority[RunStateAuthority.ACTION_LEDGER]
+        )
         projection = cls(
             strategy_state=strategy_state,
             experiment_history=history,
             execution_journal=journal,
             idea_archive=archive,
+            action_ledger=action_ledger,
         )
         declared_revisions = {
             binding.authority: transition.target_revision

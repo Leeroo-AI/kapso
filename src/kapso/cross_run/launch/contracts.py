@@ -1185,6 +1185,9 @@ class LaunchWorkspaceLayout(StrictContract):
     run_execution_journal_relative_path: str
     run_derived_state_store_relative_path: str
     run_derived_state_staging_relative_path: str
+    run_action_store_relative_path: str
+    run_action_ledger_relative_path: str
+    run_runtime_lock_relative_path: str
 
     def _validate(self) -> None:
         workspace = _require_relative_path(
@@ -1274,6 +1277,18 @@ class LaunchWorkspaceLayout(StrictContract):
                 self.run_derived_state_staging_relative_path,
                 "launch run_derived_state_staging_relative_path",
             ),
+            _require_relative_path(
+                self.run_action_store_relative_path,
+                "launch run_action_store_relative_path",
+            ),
+            _require_relative_path(
+                self.run_action_ledger_relative_path,
+                "launch run_action_ledger_relative_path",
+            ),
+            _require_relative_path(
+                self.run_runtime_lock_relative_path,
+                "launch run_runtime_lock_relative_path",
+            ),
         )
         if any(path.parent != control_paths[2].parent for path in control_paths[3:]):
             raise LaunchContractError(
@@ -1340,6 +1355,14 @@ class WorkspaceInstallationReceipt(StrictContract):
     run_checkpoint_journal_inode: int
     run_checkpoint_lock_device: int
     run_checkpoint_lock_inode: int
+    run_action_store_device: int
+    run_action_store_inode: int
+    run_action_registry_lock_device: int
+    run_action_registry_lock_inode: int
+    run_action_workspace_lock_device: int
+    run_action_workspace_lock_inode: int
+    run_runtime_lock_device: int
+    run_runtime_lock_inode: int
     installer_id: str
     installer_version: str
     exact_dependency_ids: tuple[str, ...]
@@ -1380,6 +1403,26 @@ class WorkspaceInstallationReceipt(StrictContract):
             ),
             (self.run_checkpoint_lock_device, "run checkpoint lock device"),
             (self.run_checkpoint_lock_inode, "run checkpoint lock inode"),
+            (self.run_action_store_device, "run action store device"),
+            (self.run_action_store_inode, "run action store inode"),
+            (
+                self.run_action_registry_lock_device,
+                "run action registry lock device",
+            ),
+            (
+                self.run_action_registry_lock_inode,
+                "run action registry lock inode",
+            ),
+            (
+                self.run_action_workspace_lock_device,
+                "run action workspace lock device",
+            ),
+            (
+                self.run_action_workspace_lock_inode,
+                "run action workspace lock inode",
+            ),
+            (self.run_runtime_lock_device, "run runtime lock device"),
+            (self.run_runtime_lock_inode, "run runtime lock inode"),
         ):
             if type(value) is not int or value < 0:
                 raise LaunchContractError(f"workspace installation {name} is invalid")

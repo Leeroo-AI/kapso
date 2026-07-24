@@ -3,15 +3,22 @@
 from __future__ import annotations
 
 import os
-import re
 from contextlib import ExitStack
 from dataclasses import dataclass, field
-from enum import Enum
 from threading import Condition, Lock
 from typing import Protocol
 
-from kapso.cross_run.canonical import require_identifier, tree_or_blob_digest
-from kapso.cross_run.contracts import StrictContract
+from kapso.cross_run.launch.run_action_contracts import (
+    RunActionContractError,
+    RunActionIntent,
+    RunFrontierActionKind,
+    RunFrontierWorkspaceAccess,
+)
+from kapso.cross_run.launch.run_action_store import (
+    RunActionFrontierBinding,
+    RunActionViewBinding,
+    RunActionWorkspaceBinding,
+)
 from kapso.cross_run.launch.checkpoint_contracts import (
     RunCheckpoint,
     RunCheckpointStatus,
@@ -34,73 +41,66 @@ from kapso.cross_run.security_authority_contracts import (
     SecurityDenylistObservation,
 )
 
-_DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 _USE_PERMIT_AUTHORITY = object()
 _USE_LEASE_AUTHORITY = object()
 
 
-class RunFrontierActionError(RuntimeError):
-    """A run-scoped action lacks current state or fresh safety authority."""
+RunFrontierActionError = RunActionContractError
 
 
-class RunFrontierActionKind(str, Enum):
-    """External boundaries that may spend or execute untrusted code."""
-
-    CODING_AGENT = "coding_agent"
-    EMBEDDING = "embedding"
-    EVALUATOR = "evaluator"
-
-
-class RunFrontierWorkspaceAccess(str, Enum):
-    """Workspace authority required by one external action."""
-
-    NONE = "none"
-    READ_ONLY = "read_only"
-    EDIT_WORKSPACE = "edit_workspace"
-
-
-_ALLOWED_ACTION_BOUNDARIES = {
-    RunFrontierActionKind.CODING_AGENT: {
-        RunSafetyBoundary.IDEATION,
-        RunSafetyBoundary.IMPLEMENTATION,
-        RunSafetyBoundary.EVALUATION,
-    },
-    RunFrontierActionKind.EMBEDDING: {RunSafetyBoundary.IDEATION},
-    RunFrontierActionKind.EVALUATOR: {RunSafetyBoundary.EVALUATION},
-}
-
-_ALLOWED_ACTION_WORKSPACE_ACCESS = {
-    (
-        RunFrontierActionKind.CODING_AGENT,
-        RunSafetyBoundary.IDEATION,
-    ): {
-        RunFrontierWorkspaceAccess.READ_ONLY,
-    },
-    (
-        RunFrontierActionKind.CODING_AGENT,
-        RunSafetyBoundary.IMPLEMENTATION,
-    ): {
-        RunFrontierWorkspaceAccess.EDIT_WORKSPACE,
-    },
-    (
-        RunFrontierActionKind.CODING_AGENT,
-        RunSafetyBoundary.EVALUATION,
-    ): {
-        RunFrontierWorkspaceAccess.READ_ONLY,
-    },
-    (
-        RunFrontierActionKind.EMBEDDING,
-        RunSafetyBoundary.IDEATION,
-    ): {
-        RunFrontierWorkspaceAccess.NONE,
-    },
-    (
-        RunFrontierActionKind.EVALUATOR,
-        RunSafetyBoundary.EVALUATION,
-    ): {
-        RunFrontierWorkspaceAccess.READ_ONLY,
-    },
-}
+def bind_run_action_frontier(
+    frontier: ReconciledRunFrontier,
+    workspace_before: RunWorkspaceFrontierIdentity | None,
+) -> RunActionFrontierBinding:
+    """Bind durable action authority to reconciled content and workspace state."""
+    if (
+        type(frontier) is not ReconciledRunFrontier
+        or (
+            workspace_before is not None
+            and type(workspace_before) is not RunWorkspaceFrontierIdentity
+        )
+    ):
+        raise RunFrontierActionError(
+            "run action binding requires exact reconciled authorities"
+        )
+    if workspace_before is not None:
+        expected_commit = (
+            frontier.checkpoint.safety_state.derivative_frontier.evidence.branch_heads.get(
+                workspace_before.branch
+            )
+        )
+        if expected_commit != workspace_before.commit_sha:
+            raise RunFrontierActionError(
+                "run action workspace differs from its checkpoint branch frontier"
+            )
+    return RunActionFrontierBinding.mint(
+        bootstrap_pin_id=(
+            frontier.checkpoint.safety_state.bootstrap_pin.bootstrap_pin_id
+        ),
+        run_checkpoint_id=frontier.run_checkpoint_id,
+        safety_state_id=frontier.checkpoint.safety_state.safety_state_id,
+        security_observation_id=(
+            frontier.checkpoint.safety_state.security_observation.observation_id
+        ),
+        generation_id=frontier.generation_id,
+        journal_head_id=frontier.journal_head_id,
+        journal_size_bytes=frontier.journal_size_bytes,
+        bundle_digest=frontier.bundle_digest,
+        bundle_size_bytes=frontier.bundle_size_bytes,
+        view_bindings=tuple(
+            RunActionViewBinding(
+                relative_path=identity.relative_path,
+                digest=identity.digest,
+                size_bytes=identity.size_bytes,
+            )
+            for identity in frontier.view_identities
+        ),
+        workspace_before=(
+            None
+            if workspace_before is None
+            else RunActionWorkspaceBinding.from_identity(workspace_before)
+        ),
+    )
 
 
 class RunActionSecurityAuthority(Protocol):
@@ -117,73 +117,6 @@ class RunActionSecurityAuthority(Protocol):
 
 
 @dataclass(frozen=True)
-class _RunFrontierActionIntent(StrictContract):
-    """Canonical identity derived from the complete boundary request."""
-
-    action_intent_id: str
-    kind: RunFrontierActionKind
-    boundary: RunSafetyBoundary
-    operation_id: str
-    request_digest: str
-    request_size_bytes: int
-    workspace_access: RunFrontierWorkspaceAccess
-
-    CONTENT_NAMESPACE = "run-frontier-action-intent"
-    IDENTITY_FIELD = "action_intent_id"
-
-    def _validate(self) -> None:
-        if (
-            type(self.kind) is not RunFrontierActionKind
-            or type(self.boundary) is not RunSafetyBoundary
-            or type(self.workspace_access) is not RunFrontierWorkspaceAccess
-        ):
-            raise RunFrontierActionError("run action intent uses an unrecognized enum")
-        require_identifier(self.operation_id, "run action operation_id")
-        if (
-            _DIGEST_PATTERN.fullmatch(self.request_digest) is None
-            or type(self.request_size_bytes) is not int
-            or self.request_size_bytes <= 0
-        ):
-            raise RunFrontierActionError(
-                "run action intent request identity is invalid"
-            )
-        if self.boundary not in _ALLOWED_ACTION_BOUNDARIES[self.kind]:
-            raise RunFrontierActionError(
-                "run action kind is incompatible with its safety boundary"
-            )
-        if (
-            self.workspace_access
-            not in _ALLOWED_ACTION_WORKSPACE_ACCESS[(self.kind, self.boundary)]
-        ):
-            raise RunFrontierActionError(
-                "run action kind is incompatible with workspace access"
-            )
-
-    @classmethod
-    def from_request(
-        cls,
-        *,
-        kind: RunFrontierActionKind,
-        boundary: RunSafetyBoundary,
-        operation_id: str,
-        request_payload: bytes,
-        workspace_access: RunFrontierWorkspaceAccess,
-    ) -> "_RunFrontierActionIntent":
-        if type(request_payload) is not bytes or not request_payload:
-            raise RunFrontierActionError(
-                "run action request must be complete non-empty bytes"
-            )
-        return cls.mint(
-            kind=kind,
-            boundary=boundary,
-            operation_id=operation_id,
-            request_digest=tree_or_blob_digest(request_payload),
-            request_size_bytes=len(request_payload),
-            workspace_access=workspace_access,
-        )
-
-
-@dataclass(frozen=True)
 class RunFrontierUsePermit:
     """Nonserializable one-shot authority for one exact external request."""
 
@@ -197,7 +130,7 @@ class RunFrontierUsePermit:
     bundle_size_bytes: int
     view_identities: tuple[RunStateViewIdentity, ...]
     workspace_frontier: RunWorkspaceFrontierIdentity | None
-    _intent: _RunFrontierActionIntent = field(repr=False, compare=False)
+    _intent: RunActionIntent = field(repr=False, compare=False)
     _frontier: ReconciledRunFrontier = field(repr=False, compare=False)
     _gate_identity: object = field(repr=False, compare=False)
     _owner_process_id: int = field(repr=False, compare=False)
@@ -206,7 +139,7 @@ class RunFrontierUsePermit:
     def __post_init__(self) -> None:
         frontier = self._frontier
         if (
-            type(self._intent) is not _RunFrontierActionIntent
+            type(self._intent) is not RunActionIntent
             or type(frontier) is not ReconciledRunFrontier
             or self.action_intent_id != self._intent.action_intent_id
             or self.run_checkpoint_id != frontier.run_checkpoint_id
@@ -259,7 +192,7 @@ class RunFrontierUseLease:
         seal: object,
         *,
         gate: "RunFrontierActionGate",
-        intent: _RunFrontierActionIntent,
+        intent: RunActionIntent,
         frontier: ReconciledRunFrontier,
         security_observation: SecurityDenylistObservation,
         workspace_descriptor: int | None,
@@ -403,7 +336,7 @@ class RunFrontierActionGate:
     ) -> RunFrontierUsePermit:
         """Bind complete request bytes to the exact current run-state receipt."""
         self._require_owner_process()
-        intent = _RunFrontierActionIntent.from_request(
+        intent = RunActionIntent.from_request(
             kind=kind,
             boundary=boundary,
             operation_id=operation_id,
@@ -510,7 +443,7 @@ class RunFrontierActionGate:
                 "run frontier use permit is cloned, foreign, consumed, or expired"
             )
         intent = permit._intent
-        observed_intent = _RunFrontierActionIntent.from_request(
+        observed_intent = RunActionIntent.from_request(
             kind=intent.kind,
             boundary=intent.boundary,
             operation_id=intent.operation_id,
@@ -647,7 +580,7 @@ class RunFrontierActionGate:
     @staticmethod
     def _require_actionable(
         checkpoint: RunCheckpoint,
-        intent: _RunFrontierActionIntent,
+        intent: RunActionIntent,
     ) -> None:
         if (
             type(checkpoint) is not RunCheckpoint
@@ -667,7 +600,7 @@ class RunFrontierActionGate:
                 "security-blocked run cannot execute an external action"
             )
 
-    def _reserve_intent(self, intent: _RunFrontierActionIntent) -> None:
+    def _reserve_intent(self, intent: RunActionIntent) -> None:
         with self._action_condition:
             if (
                 intent.action_intent_id in self._reserved_action_intent_ids
@@ -907,6 +840,7 @@ class RunFrontierActionGate:
 
 __all__ = [
     "RunActionSecurityAuthority",
+    "bind_run_action_frontier",
     "RunFrontierActionError",
     "RunFrontierActionGate",
     "RunFrontierActionKind",

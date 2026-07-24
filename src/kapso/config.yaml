@@ -378,6 +378,9 @@ cross_run:
     run_execution_journal_path: ".kapso/execution_events.jsonl"
     run_derived_state_store_path: ".kapso/run_derived_state_objects"
     run_derived_state_staging_path: ".kapso/run_derived_state_staging"
+    run_action_store_path: ".kapso/run_action_store"
+    run_action_ledger_path: ".kapso/action_ledger.json"
+    run_runtime_lock_path: ".kapso/run_runtime.lock"
     launch_manifest_size_bytes: 33554432
     bootstrap_pin_size_bytes: 67108864
     run_checkpoint_size_bytes: 67108864
@@ -386,9 +389,17 @@ cross_run:
     run_idea_archive_size_bytes: 67108864
     run_experiment_history_size_bytes: 67108864
     run_execution_journal_size_bytes: 1073741824
-    run_derived_generation_size_bytes: 1342177280
+    run_derived_generation_size_bytes: 3221225472
     run_derived_state_store_entry_limit: 10000
     run_derived_state_staging_entry_limit: 64
+    run_action_store_entry_limit: 600000
+    run_action_operation_limit: 100000
+    run_action_event_size_bytes: 16777216
+    run_action_request_size_bytes: 268435456
+    run_action_result_size_bytes: 268435456
+    run_action_store_size_bytes: 107374182400
+    run_action_staging_entry_limit: 64
+    run_action_projection_size_bytes: 1073741824
     run_workspace_entry_limit: 10000
     run_workspace_size_bytes: 1073741824
     run_workspace_git_entry_limit: 50000

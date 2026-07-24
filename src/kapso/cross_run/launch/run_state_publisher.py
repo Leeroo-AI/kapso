@@ -251,6 +251,7 @@ class RunStatePublisher:
             "run derived-state staging",
         )
         self._view_bound_by_path = {
+            settings.run_action_ledger_path: settings.run_action_projection_size_bytes,
             settings.run_idea_archive_path: settings.run_idea_archive_size_bytes,
             settings.run_experiment_history_path: (
                 settings.run_experiment_history_size_bytes

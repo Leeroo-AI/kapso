@@ -17,6 +17,7 @@ from kapso.cross_run.launch.derived_state_contracts import (
 
 def _authority_paths(strategy_kind="generic"):
     paths = {
+        RunStateAuthority.ACTION_LEDGER: "state/action_ledger.json",
         RunStateAuthority.EXPERIMENT_HISTORY: "state/experiment_history.json",
         RunStateAuthority.EXECUTION_JOURNAL: "state/execution_journal.jsonl",
     }
@@ -106,6 +107,7 @@ def test_layout_builds_complete_typed_generic_authority_map():
         sorted(RunStateAuthority, key=lambda authority: authority.value)
     )
     assert tuple(binding.payload_format for binding in layout.bindings) == (
+        RunStatePayloadFormat.CANONICAL_JSON,
         RunStatePayloadFormat.CANONICAL_JSONL,
         RunStatePayloadFormat.CANONICAL_JSON,
         RunStatePayloadFormat.CANONICAL_JSON,
@@ -118,6 +120,7 @@ def test_layout_builds_complete_tree_authority_map_without_idea_archive():
     layout = _layout("benchmark_tree_search")
 
     assert tuple(binding.authority for binding in layout.bindings) == (
+        RunStateAuthority.ACTION_LEDGER,
         RunStateAuthority.EXECUTION_JOURNAL,
         RunStateAuthority.EXPERIMENT_HISTORY,
     )
@@ -211,6 +214,7 @@ def test_layout_rejects_equal_and_ancestor_path_collisions(paths):
         RunStateLayout.build(
             strategy_kind="generic",
             authority_paths={
+                RunStateAuthority.ACTION_LEDGER: "state/action_ledger.json",
                 RunStateAuthority.IDEA_ARCHIVE: paths[0],
                 RunStateAuthority.EXPERIMENT_HISTORY: paths[1],
                 RunStateAuthority.EXECUTION_JOURNAL: paths[2],

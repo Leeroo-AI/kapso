@@ -51,6 +51,9 @@ from test_reconciled_run_state_projection import _resolved_projection
 def _layout(active, strategy_kind="generic") -> RunStateLayout:
     installed = active.bootstrap_pin.installation_receipt.layout
     authority_paths = {
+        RunStateAuthority.ACTION_LEDGER: (
+            installed.run_action_ledger_relative_path
+        ),
         RunStateAuthority.EXPERIMENT_HISTORY: (
             installed.run_experiment_history_relative_path
         ),
@@ -565,7 +568,7 @@ def test_publisher_publishes_reconciled_genesis_and_exact_views(
     assert loaded.require_current(publisher) == publisher_case["checkpoint"]
 
 
-def test_tree_publication_owns_only_history_and_journal(
+def test_tree_publication_owns_history_journal_and_action_ledger(
     resolver_case,
     tmp_path,
 ) -> None:
@@ -602,6 +605,7 @@ def test_tree_publication_owns_only_history_and_journal(
     assert receipt.require_current(publisher) == checkpoint
     assert not idea_path.exists()
     assert set(bundle.payload_by_relative_path()) == {
+        settings.run_action_ledger_path,
         settings.run_experiment_history_path,
         settings.run_execution_journal_path,
     }

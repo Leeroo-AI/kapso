@@ -9,9 +9,11 @@ contracts, atomic workspace/bootstrap-pin installation, exact run-checkpoint
 contracts, the protected checkpoint CAS store, the immutable derived-generation
 contract/layout, and the dependency-pure reconciled archive/history/journal
 projection and retained bundle layer, single-lock checkpoint/generation
-publisher, mutable-view promotion, and current-frontier action lease are
-implemented. Boundary-specific adapters, OS executor isolation, explicit
-E0/S-EMPTY provisioning orchestration, resume, and API/runner activation remain.
+publisher, mutable-view promotion, current-frontier action lease, receipt-pinned
+create-only action store, and mandatory action-ledger projection are implemented.
+Gate/publisher integration with that durable store, boundary-specific adapters,
+OS executor isolation, explicit E0/S-EMPTY provisioning orchestration, resume,
+and API/runner activation remain.
 
 ## Objective
 
@@ -349,13 +351,21 @@ Reproducibility-only state may continue scientific work but remains ineligible
 for promotion. The generic provider APIs and OS sandbox are not yet wrapped by
 this gate, so the new runtime remains dormant.
 
-The present one-shot operation registry and pending-edit guard are process-lifetime
-authorities. M9 resume/runtime activation must persist a pre-spawn operation
-record and edit outcome before exposing these adapters; after process death it
-must recover or mark an uncertain action interrupted, never recreate authority
-from the in-memory gate. Cross-process at-most-once execution is therefore a
-remaining resume/runtime deliverable, not a property claimed by this dormant
-lease layer.
+The durable foundation is now receipt-pinned and create-only. It stores complete
+untruncated request bytes, provider result bytes, accepted canonical result bytes,
+predecessor-linked operation events, and a metadata-only `ACTION_LEDGER` in every
+derived-state layout. The ledger is an explicit mandatory projection and
+derivative-evidence authority; terminal prefixes cannot be extended or rolled
+back. Operation, registry, workspace, and lifetime-runtime lock files are
+installed and inode-bound by the workspace receipt. Structurally valid orphan
+staging files are cleaned under the pinned registry lock before reuse.
+
+The current gate still uses its process-lifetime operation registry and
+pending-edit guard. The next integration step replaces those with the durable
+store, writes `SPAWN_COMMITTED` before provider authority is exposed, snapshots
+the store under checkpoint publication, and reconstructs uncertain operations
+on resume. Until that composition lands, cross-process at-most-once execution
+remains a deliverable rather than a property claimed by the dormant lease layer.
 
 ## Failure and trust behavior
 

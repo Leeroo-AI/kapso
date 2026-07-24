@@ -67,6 +67,16 @@ _RUN_DERIVED_STATE_OBJECT_PATTERN = re.compile(
 _RUN_DERIVED_STATE_STAGING_PATTERN = re.compile(
     r"^generation-[0-9a-f]{64}-[0-9a-f]{32}[.]tmp$"
 )
+_RUN_ACTION_EVENT_PATTERN = re.compile(
+    r"^operation-[0-9a-f]{64}-event-[0-9]{4}[.]json$"
+)
+_RUN_ACTION_LOCK_PATTERN = re.compile(r"^operation-[0-9a-f]{64}[.]lock$")
+_RUN_ACTION_RESULT_PATTERN = re.compile(r"^result-[0-9a-f]{64}[.]blob$")
+_RUN_ACTION_ACCEPTED_PATTERN = re.compile(r"^accepted-[0-9a-f]{64}[.]blob$")
+_RUN_ACTION_INPUT_PATTERN = re.compile(r"^input-[0-9a-f]{64}[.]blob$")
+_RUN_ACTION_STAGING_PATTERN = re.compile(
+    r"^[.](?:accepted|event|input|result)-[0-9a-f]{32}[.]tmp$"
+)
 
 
 class _WorkspaceBuilderAuthority:
@@ -97,6 +107,7 @@ def _required_layout_directory_paths(
         PurePosixPath(layout.run_checkpoint_staging_relative_path),
         PurePosixPath(layout.run_derived_state_store_relative_path),
         PurePosixPath(layout.run_derived_state_staging_relative_path),
+        PurePosixPath(layout.run_action_store_relative_path),
         *(
             PurePosixPath(relative_path)
             for relative_path in layout.starting_artifact_roots.values()
@@ -108,9 +119,11 @@ def _required_layout_directory_paths(
         PurePosixPath(layout.run_checkpoint_relative_path),
         PurePosixPath(layout.run_checkpoint_journal_relative_path),
         PurePosixPath(layout.run_checkpoint_lock_relative_path),
+        PurePosixPath(layout.run_runtime_lock_relative_path),
         PurePosixPath(layout.run_idea_archive_relative_path),
         PurePosixPath(layout.run_experiment_history_relative_path),
         PurePosixPath(layout.run_execution_journal_relative_path),
+        PurePosixPath(layout.run_action_ledger_relative_path),
     )
     for path in (*directory_roots, *control_paths):
         required.update(
@@ -325,6 +338,7 @@ class PreparedLaunchWorkspace:
             layout.bootstrap_pin_relative_path,
             layout.run_checkpoint_journal_relative_path,
             layout.run_checkpoint_lock_relative_path,
+            layout.run_runtime_lock_relative_path,
         }
         if (
             self.run_root.is_symlink()
@@ -554,6 +568,41 @@ class ActiveLaunchWorkspace:
         self.require_control_authority()
         return current_descriptor, identity
 
+    def _open_run_action_store(
+        self,
+        descriptors: ExitStack,
+    ) -> tuple[int, tuple[int, int]]:
+        """Open the receipt-pinned create-only action store by descriptor."""
+        self.require_control_authority()
+        root_descriptor = _open_real_root(self.run_root, descriptors)
+        if (
+            StarterWorkspaceBuilder._directory_identity(root_descriptor)
+            != self.published_root_identity
+        ):
+            raise LaunchWorkspaceError(
+                "active run root changed before action-store access"
+            )
+        opened, identities = _open_layout_directories(
+            root_descriptor,
+            self.bootstrap_pin.installation_receipt.layout,
+            descriptors,
+        )
+        relative_path = (
+            self.bootstrap_pin.installation_receipt.layout.run_action_store_relative_path
+        )
+        descriptor = opened[relative_path]
+        identity = identities[relative_path]
+        receipt = self.bootstrap_pin.installation_receipt
+        if identity != (
+            receipt.run_action_store_device,
+            receipt.run_action_store_inode,
+        ):
+            raise LaunchWorkspaceError(
+                "active run action store differs from its receipt"
+            )
+        self.require_control_authority()
+        return descriptor, identity
+
     def _require_execution_workspace(
         self,
         descriptor: int,
@@ -711,6 +760,7 @@ class StarterWorkspaceBuilder:
                 staging / layout.run_checkpoint_journal_relative_path
             )
             checkpoint_lock_path = staging / layout.run_checkpoint_lock_relative_path
+            runtime_lock_path = staging / layout.run_runtime_lock_relative_path
             self._write_plain_file(
                 checkpoint_journal_path,
                 b"",
@@ -721,10 +771,38 @@ class StarterWorkspaceBuilder:
                 b"",
                 mode=0o600,
             )
+            self._write_plain_file(
+                runtime_lock_path,
+                b"",
+                mode=0o600,
+            )
+            action_store_path = staging / layout.run_action_store_relative_path
+            action_store_path.mkdir(parents=True, mode=0o700)
+            action_store_path.chmod(0o700)
+            action_registry_lock_path = action_store_path / "registry.lock"
+            action_workspace_lock_path = action_store_path / "workspace.lock"
+            self._write_plain_file(
+                action_registry_lock_path,
+                b"",
+                mode=0o600,
+            )
+            self._write_plain_file(
+                action_workspace_lock_path,
+                b"",
+                mode=0o600,
+            )
             checkpoint_journal_metadata = checkpoint_journal_path.stat(
                 follow_symlinks=False
             )
             checkpoint_lock_metadata = checkpoint_lock_path.stat(follow_symlinks=False)
+            action_store_metadata = action_store_path.stat(follow_symlinks=False)
+            action_registry_lock_metadata = action_registry_lock_path.stat(
+                follow_symlinks=False
+            )
+            action_workspace_lock_metadata = action_workspace_lock_path.stat(
+                follow_symlinks=False
+            )
+            runtime_lock_metadata = runtime_lock_path.stat(follow_symlinks=False)
             launch_settings_id = content_id(
                 "launch-settings",
                 self._settings.launch.to_dict(),
@@ -759,6 +837,22 @@ class StarterWorkspaceBuilder:
                 run_checkpoint_journal_inode=(checkpoint_journal_metadata.st_ino),
                 run_checkpoint_lock_device=checkpoint_lock_metadata.st_dev,
                 run_checkpoint_lock_inode=checkpoint_lock_metadata.st_ino,
+                run_action_store_device=action_store_metadata.st_dev,
+                run_action_store_inode=action_store_metadata.st_ino,
+                run_action_registry_lock_device=(
+                    action_registry_lock_metadata.st_dev
+                ),
+                run_action_registry_lock_inode=(
+                    action_registry_lock_metadata.st_ino
+                ),
+                run_action_workspace_lock_device=(
+                    action_workspace_lock_metadata.st_dev
+                ),
+                run_action_workspace_lock_inode=(
+                    action_workspace_lock_metadata.st_ino
+                ),
+                run_runtime_lock_device=runtime_lock_metadata.st_dev,
+                run_runtime_lock_inode=runtime_lock_metadata.st_ino,
                 installer_id=STARTER_WORKSPACE_INSTALLER_ID,
                 installer_version=STARTER_WORKSPACE_INSTALLER_VERSION,
                 exact_dependency_ids=tuple(
@@ -888,6 +982,9 @@ class StarterWorkspaceBuilder:
             run_derived_state_staging_relative_path=(
                 launch.run_derived_state_staging_path
             ),
+            run_action_store_relative_path=launch.run_action_store_path,
+            run_action_ledger_relative_path=launch.run_action_ledger_path,
+            run_runtime_lock_relative_path=launch.run_runtime_lock_path,
         )
 
     @staticmethod
@@ -1917,6 +2014,89 @@ class StarterWorkspaceBuilder:
             ):
                 raise LaunchWorkspaceError("published checkpoint lock is unsafe")
             lock_identity = (lock_metadata.st_dev, lock_metadata.st_ino)
+            runtime_lock_descriptor = _open_layout_file(
+                verified_root_descriptor,
+                opened_directories,
+                layout.run_runtime_lock_relative_path,
+            )
+            descriptors.callback(os.close, runtime_lock_descriptor)
+            runtime_lock_metadata = os.fstat(runtime_lock_descriptor)
+            if (
+                runtime_lock_metadata.st_uid != os.geteuid()
+                or runtime_lock_metadata.st_nlink != 1
+                or runtime_lock_metadata.st_size != 0
+                or stat.S_IMODE(runtime_lock_metadata.st_mode) != 0o600
+                or (
+                    runtime_lock_metadata.st_dev,
+                    runtime_lock_metadata.st_ino,
+                )
+                != (
+                    receipt.run_runtime_lock_device,
+                    receipt.run_runtime_lock_inode,
+                )
+            ):
+                raise LaunchWorkspaceError("published runtime lock is unsafe")
+            runtime_lock_identity = (
+                runtime_lock_metadata.st_dev,
+                runtime_lock_metadata.st_ino,
+            )
+            action_store_identity = directory_identities[
+                layout.run_action_store_relative_path
+            ]
+            if action_store_identity != (
+                receipt.run_action_store_device,
+                receipt.run_action_store_inode,
+            ):
+                raise LaunchWorkspaceError(
+                    "published run action store differs from its authority"
+                )
+            action_store_descriptor = opened_directories[
+                layout.run_action_store_relative_path
+            ]
+            for (
+                lock_name,
+                expected_identity,
+                description,
+            ) in (
+                (
+                    "registry.lock",
+                    (
+                        receipt.run_action_registry_lock_device,
+                        receipt.run_action_registry_lock_inode,
+                    ),
+                    "registry",
+                ),
+                (
+                    "workspace.lock",
+                    (
+                        receipt.run_action_workspace_lock_device,
+                        receipt.run_action_workspace_lock_inode,
+                    ),
+                    "workspace",
+                ),
+            ):
+                action_lock_descriptor = os.open(
+                    lock_name,
+                    os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC,
+                    dir_fd=action_store_descriptor,
+                )
+                descriptors.callback(os.close, action_lock_descriptor)
+                action_lock_metadata = os.fstat(action_lock_descriptor)
+                if (
+                    not stat.S_ISREG(action_lock_metadata.st_mode)
+                    or action_lock_metadata.st_uid != os.geteuid()
+                    or action_lock_metadata.st_nlink != 1
+                    or action_lock_metadata.st_size != 0
+                    or stat.S_IMODE(action_lock_metadata.st_mode) != 0o600
+                    or (
+                        action_lock_metadata.st_dev,
+                        action_lock_metadata.st_ino,
+                    )
+                    != expected_identity
+                ):
+                    raise LaunchWorkspaceError(
+                        f"published run action {description} lock is unsafe"
+                    )
             workspace_root = self._descriptor_path(
                 opened_directories[layout.workspace_relative_path]
             )
@@ -2049,6 +2229,7 @@ class StarterWorkspaceBuilder:
                         journal_metadata.st_ino,
                     ),
                     layout.run_checkpoint_lock_relative_path: lock_identity,
+                    layout.run_runtime_lock_relative_path: runtime_lock_identity,
                 },
                 _builder_verifier=self,
             )
@@ -2084,6 +2265,7 @@ class StarterWorkspaceBuilder:
         checkpoint_file = PurePosixPath(layout.run_checkpoint_relative_path)
         checkpoint_journal = PurePosixPath(layout.run_checkpoint_journal_relative_path)
         checkpoint_lock = PurePosixPath(layout.run_checkpoint_lock_relative_path)
+        runtime_lock = PurePosixPath(layout.run_runtime_lock_relative_path)
         checkpoint_staging = PurePosixPath(layout.run_checkpoint_staging_relative_path)
         projection_files = {
             PurePosixPath(layout.run_idea_archive_relative_path): (
@@ -2095,6 +2277,9 @@ class StarterWorkspaceBuilder:
             PurePosixPath(layout.run_execution_journal_relative_path): (
                 self._settings.launch.run_execution_journal_size_bytes
             ),
+            PurePosixPath(layout.run_action_ledger_relative_path): (
+                self._settings.launch.run_action_projection_size_bytes
+            ),
         }
         derived_state_store = PurePosixPath(
             layout.run_derived_state_store_relative_path
@@ -2102,6 +2287,7 @@ class StarterWorkspaceBuilder:
         derived_state_staging = PurePosixPath(
             layout.run_derived_state_staging_relative_path
         )
+        action_store = PurePosixPath(layout.run_action_store_relative_path)
         control_directories = {
             parent
             for control_file in (
@@ -2109,6 +2295,7 @@ class StarterWorkspaceBuilder:
                 checkpoint_file,
                 checkpoint_journal,
                 checkpoint_lock,
+                runtime_lock,
                 *projection_files,
             )
             for parent in control_file.parents
@@ -2119,6 +2306,7 @@ class StarterWorkspaceBuilder:
                 checkpoint_staging,
                 derived_state_store,
                 derived_state_staging,
+                action_store,
             }
         )
         envelope_directories = component_ancestors | control_directories
@@ -2127,6 +2315,10 @@ class StarterWorkspaceBuilder:
         derived_state_staging_entry_count = 0
         observed_checkpoint_journal = False
         observed_checkpoint_lock = False
+        observed_runtime_lock = False
+        action_store_entry_count = 0
+        action_store_operation_count = 0
+        action_store_size_bytes = 0
         for path in run_root.rglob("*"):
             relative_path = PurePosixPath(path.relative_to(run_root).as_posix())
             if path.is_symlink():
@@ -2143,6 +2335,7 @@ class StarterWorkspaceBuilder:
                     checkpoint_staging,
                     derived_state_store,
                     derived_state_staging,
+                    action_store,
                 }
                 if (
                     not stat.S_ISDIR(metadata.st_mode)
@@ -2202,6 +2395,17 @@ class StarterWorkspaceBuilder:
                     raise LaunchWorkspaceError(
                         "published run checkpoint lock is unsafe"
                     )
+                continue
+            if relative_path == runtime_lock:
+                observed_runtime_lock = True
+                if (
+                    not stat.S_ISREG(metadata.st_mode)
+                    or metadata.st_uid != os.geteuid()
+                    or metadata.st_nlink != 1
+                    or stat.S_IMODE(metadata.st_mode) != 0o600
+                    or metadata.st_size != 0
+                ):
+                    raise LaunchWorkspaceError("published runtime lock is unsafe")
                 continue
             if relative_path in projection_files:
                 if (
@@ -2271,6 +2475,97 @@ class StarterWorkspaceBuilder:
                         "published derived-state staging entry is unsafe"
                     )
                 continue
+            if action_store in relative_path.parents:
+                action_store_entry_count += 1
+                is_operation_lock = (
+                    _RUN_ACTION_LOCK_PATTERN.fullmatch(relative_path.name)
+                    is not None
+                )
+                is_fixed_lock = relative_path.name in {
+                    "registry.lock",
+                    "workspace.lock",
+                }
+                is_event = (
+                    _RUN_ACTION_EVENT_PATTERN.fullmatch(relative_path.name)
+                    is not None
+                )
+                is_input = (
+                    _RUN_ACTION_INPUT_PATTERN.fullmatch(relative_path.name)
+                    is not None
+                )
+                is_result = (
+                    _RUN_ACTION_RESULT_PATTERN.fullmatch(relative_path.name)
+                    is not None
+                )
+                is_accepted = (
+                    _RUN_ACTION_ACCEPTED_PATTERN.fullmatch(relative_path.name)
+                    is not None
+                )
+                is_staging = (
+                    _RUN_ACTION_STAGING_PATTERN.fullmatch(relative_path.name)
+                    is not None
+                )
+                if is_operation_lock:
+                    action_store_operation_count += 1
+                action_store_size_bytes += metadata.st_size
+                if (
+                    relative_path.parent != action_store
+                    or not any(
+                        (
+                            is_operation_lock,
+                            is_fixed_lock,
+                            is_event,
+                            is_input,
+                            is_result,
+                            is_accepted,
+                            is_staging,
+                        )
+                    )
+                    or not stat.S_ISREG(metadata.st_mode)
+                    or metadata.st_uid != os.geteuid()
+                    or metadata.st_nlink != 1
+                    or (
+                        stat.S_IMODE(metadata.st_mode) != 0o600
+                        if is_operation_lock or is_fixed_lock
+                        else (
+                            stat.S_IMODE(metadata.st_mode) not in {0o400, 0o600}
+                            if is_staging
+                            else stat.S_IMODE(metadata.st_mode) != 0o400
+                        )
+                    )
+                    or (
+                        (is_operation_lock or is_fixed_lock)
+                        and metadata.st_size != 0
+                    )
+                    or (
+                        is_event
+                        and metadata.st_size
+                        > self._settings.launch.run_action_event_size_bytes
+                    )
+                    or (
+                        is_input
+                        and metadata.st_size
+                        > self._settings.launch.run_action_request_size_bytes
+                    )
+                    or (
+                        (is_result or is_accepted)
+                        and metadata.st_size
+                        > self._settings.launch.run_action_result_size_bytes
+                    )
+                    or (
+                        is_staging
+                        and metadata.st_size
+                        > max(
+                            self._settings.launch.run_action_event_size_bytes,
+                            self._settings.launch.run_action_request_size_bytes,
+                            self._settings.launch.run_action_result_size_bytes,
+                        )
+                    )
+                ):
+                    raise LaunchWorkspaceError(
+                        "published run action store entry is unsafe"
+                    )
+                continue
             raise LaunchWorkspaceError(
                 "published run-root filesystem closure is not exact"
             )
@@ -2295,9 +2590,29 @@ class StarterWorkspaceBuilder:
             raise LaunchWorkspaceError(
                 "published derived-state staging exceeds its entry bound"
             )
-        if not observed_checkpoint_journal or not observed_checkpoint_lock:
+        if (
+            action_store_entry_count
+            > self._settings.launch.run_action_store_entry_limit
+        ):
             raise LaunchWorkspaceError(
-                "published run checkpoint authority is incomplete"
+                "published run action store exceeds its entry bound"
+            )
+        if (
+            action_store_operation_count
+            > self._settings.launch.run_action_operation_limit
+            or action_store_size_bytes
+            > self._settings.launch.run_action_store_size_bytes
+        ):
+            raise LaunchWorkspaceError(
+                "published run action store exceeds its configured bounds"
+            )
+        if (
+            not observed_checkpoint_journal
+            or not observed_checkpoint_lock
+            or not observed_runtime_lock
+        ):
+            raise LaunchWorkspaceError(
+                "published run control authority is incomplete"
             )
 
     def _verify_git_baseline(

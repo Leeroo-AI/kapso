@@ -23,6 +23,7 @@ from kapso.cross_run.launch.resume_contracts import (
     RunSafetyBoundary,
     RunSafetyState,
 )
+from kapso.cross_run.launch.run_action_ledger import RunActionLedgerSnapshot
 from kapso.cross_run.launch.workspace import StarterWorkspaceBuilder
 from kapso.cross_run.record_contracts import (
     ExpertReleaseUseRevocation,
@@ -61,8 +62,10 @@ def _launch_subjects(pin):
 
 
 def _derivative_evidence(pin, derivatives, revision):
+    action_ledger = RunActionLedgerSnapshot.empty()
     return RunDerivativeEvidence.mint(
         state_authority_digests={
+            "action_ledger": tree_or_blob_digest(action_ledger.to_json_bytes()),
             "idea_archive": tree_or_blob_digest(f"ideas-{revision}".encode("utf-8")),
             "experiment_history": tree_or_blob_digest(
                 f"experiments-{revision}".encode("utf-8")
@@ -72,6 +75,7 @@ def _derivative_evidence(pin, derivatives, revision):
             ),
         },
         state_authority_revisions={
+            "action_ledger": action_ledger.event_count,
             "idea_archive": revision,
             "experiment_history": revision,
             "execution_journal": revision,
@@ -257,6 +261,25 @@ def _subjects(pin, release_use, frontier, predecessor=None):
             else predecessor.security_observation.checked_subject_ids
         ),
     )
+
+
+def test_derivative_evidence_requires_action_ledger_authority(
+    resolver_case,
+    tmp_path,
+):
+    pin = _bootstrap_pin(resolver_case, tmp_path)
+    evidence = _derivative_evidence(pin, (), 0)
+    digests = dict(evidence.state_authority_digests)
+    revisions = dict(evidence.state_authority_revisions)
+    del digests["action_ledger"]
+    del revisions["action_ledger"]
+
+    with pytest.raises(ResumeContractError, match="authorities are incomplete"):
+        _remint_evidence(
+            evidence,
+            state_authority_digests=digests,
+            state_authority_revisions=revisions,
+        )
 
 
 def test_safety_state_derives_eligibility_and_transitive_taint(

@@ -1193,6 +1193,9 @@ class RunCheckpoint(StrictContract):
             )
         receipt_layout = bootstrap_pin.installation_receipt.layout
         authority_paths = {
+            RunStateAuthority.ACTION_LEDGER: (
+                receipt_layout.run_action_ledger_relative_path
+            ),
             RunStateAuthority.EXPERIMENT_HISTORY: (
                 receipt_layout.run_experiment_history_relative_path
             ),

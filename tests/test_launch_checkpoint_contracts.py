@@ -33,6 +33,7 @@ from kapso.cross_run.launch.resume_contracts import (
     RunSafetyBoundary,
     RunSafetyState,
 )
+from kapso.cross_run.launch.run_action_ledger import RunActionLedgerSnapshot
 from kapso.execution.evaluation_integrity import AGENT_GENERATED
 from kapso.execution.fidelity import EvaluationAttempt
 from kapso.execution.search_strategies.node import SearchNode
@@ -155,10 +156,14 @@ def _initial_safety(pin, strategy_state):
     empty_frontier = _empty_frontier(pin)
     archive = strategy_state.archive_state()
     archive_payload = canonical_json_bytes(archive.to_dict())
+    action_ledger_payload = RunActionLedgerSnapshot.empty().to_json_bytes()
     evidence = _remint_evidence(
         empty_frontier.evidence,
         state_authority_digests={
             **empty_frontier.evidence.state_authority_digests,
+            RunStateAuthority.ACTION_LEDGER.value: tree_or_blob_digest(
+                action_ledger_payload
+            ),
             RunStateAuthority.IDEA_ARCHIVE.value: tree_or_blob_digest(archive_payload),
         },
     )
@@ -205,6 +210,9 @@ def _derived_state_generation(pin, strategy_state, safety_state, predecessor):
     layout = RunStateLayout.build(
         strategy_kind=strategy_state.strategy_kind.value,
         authority_paths={
+            RunStateAuthority.ACTION_LEDGER: (
+                receipt_layout.run_action_ledger_relative_path
+            ),
             RunStateAuthority.IDEA_ARCHIVE: (
                 receipt_layout.run_idea_archive_relative_path
             ),
@@ -228,6 +236,9 @@ def _derived_state_generation(pin, strategy_state, safety_state, predecessor):
     archive = strategy_state.archive_state()
     archive_payload = canonical_json_bytes(archive.to_dict())
     target_sizes = {
+        RunStateAuthority.ACTION_LEDGER: len(
+            RunActionLedgerSnapshot.empty().to_json_bytes()
+        ),
         RunStateAuthority.IDEA_ARCHIVE: len(archive_payload),
         RunStateAuthority.EXPERIMENT_HISTORY: len(
             f"experiments-{evidence.state_authority_revisions['experiment_history']}".encode(

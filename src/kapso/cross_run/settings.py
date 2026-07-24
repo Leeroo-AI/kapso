@@ -1556,6 +1556,9 @@ class LaunchSettings(StrictContract):
     run_execution_journal_path: str
     run_derived_state_store_path: str
     run_derived_state_staging_path: str
+    run_action_store_path: str
+    run_action_ledger_path: str
+    run_runtime_lock_path: str
     launch_manifest_size_bytes: int
     bootstrap_pin_size_bytes: int
     run_checkpoint_size_bytes: int
@@ -1567,6 +1570,14 @@ class LaunchSettings(StrictContract):
     run_derived_generation_size_bytes: int
     run_derived_state_store_entry_limit: int
     run_derived_state_staging_entry_limit: int
+    run_action_store_entry_limit: int
+    run_action_operation_limit: int
+    run_action_event_size_bytes: int
+    run_action_request_size_bytes: int
+    run_action_result_size_bytes: int
+    run_action_store_size_bytes: int
+    run_action_staging_entry_limit: int
+    run_action_projection_size_bytes: int
     run_workspace_entry_limit: int
     run_workspace_size_bytes: int
     run_workspace_git_entry_limit: int
@@ -1642,6 +1653,9 @@ class LaunchSettings(StrictContract):
                 "run_execution_journal_path",
                 "run_derived_state_store_path",
                 "run_derived_state_staging_path",
+                "run_action_store_path",
+                "run_action_ledger_path",
+                "run_runtime_lock_path",
             )
         )
         if any(
@@ -1711,6 +1725,10 @@ class LaunchSettings(StrictContract):
                 self.run_execution_journal_size_bytes,
                 "launch.run_execution_journal_size_bytes",
             ),
+            (
+                self.run_action_projection_size_bytes,
+                "launch.run_action_projection_size_bytes",
+            ),
         )
         for bound, name in projection_size_bounds:
             _require_positive(bound, name)
@@ -1733,6 +1751,23 @@ class LaunchSettings(StrictContract):
             self.run_derived_state_staging_entry_limit,
             "launch.run_derived_state_staging_entry_limit",
         )
+        for value, name in (
+            (self.run_action_store_entry_limit, "run_action_store_entry_limit"),
+            (self.run_action_operation_limit, "run_action_operation_limit"),
+            (self.run_action_event_size_bytes, "run_action_event_size_bytes"),
+            (self.run_action_request_size_bytes, "run_action_request_size_bytes"),
+            (self.run_action_result_size_bytes, "run_action_result_size_bytes"),
+            (self.run_action_store_size_bytes, "run_action_store_size_bytes"),
+            (
+                self.run_action_staging_entry_limit,
+                "run_action_staging_entry_limit",
+            ),
+        ):
+            _require_positive(value, f"launch.{name}")
+        if self.run_action_store_entry_limit <= self.run_action_operation_limit:
+            raise CrossRunConfigurationError(
+                "launch action-store entry bound must exceed its operation bound"
+            )
         for value, name in (
             (self.run_workspace_entry_limit, "run_workspace_entry_limit"),
             (self.run_workspace_size_bytes, "run_workspace_size_bytes"),

@@ -24,6 +24,7 @@ def _identifier(namespace: str, value: str) -> str:
 
 def _bundle() -> RunDerivedStateBundle:
     payload_by_authority = {
+        RunStateAuthority.ACTION_LEDGER: b'{"event_count":0,"operation_tails":[]}',
         RunStateAuthority.IDEA_ARCHIVE: b'{"revision":0}',
         RunStateAuthority.EXECUTION_JOURNAL: (
             b'{"event":"one","unicode":"\xe2\x88\x86"}\n'
@@ -33,6 +34,7 @@ def _bundle() -> RunDerivedStateBundle:
     layout = RunStateLayout.build(
         strategy_kind="generic",
         authority_paths={
+            RunStateAuthority.ACTION_LEDGER: ".kapso/action_ledger.json",
             RunStateAuthority.IDEA_ARCHIVE: ".kapso/idea_archive.json",
             RunStateAuthority.EXPERIMENT_HISTORY: (".kapso/experiment_history.json"),
             RunStateAuthority.EXECUTION_JOURNAL: ".kapso/execution_events.jsonl",
