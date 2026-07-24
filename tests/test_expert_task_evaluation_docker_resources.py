@@ -5,24 +5,22 @@ from dataclasses import replace
 
 import pytest
 
-import kapso.cross_run.expert.task_evaluation_docker_runtime as runtime_module
+import kapso.cross_run.docker.runtime as runtime_module
 from kapso.core.config import load_config
 from kapso.cross_run.canonical import tree_or_blob_digest
+from kapso.cross_run.docker.runtime import PinnedDockerRuntime
 from kapso.cross_run.expert.task_evaluation_docker_resources import (
     TaskEvaluationDockerResourceError,
     TaskEvaluationDockerResourceManager,
-)
-from kapso.cross_run.expert.task_evaluation_docker_runtime import (
-    TaskEvaluationDockerRuntime,
 )
 from kapso.cross_run.process import (
     BoundedProcessOutcome,
     BoundedProcessResult,
 )
 from kapso.cross_run.settings import CrossRunSettings
-from test_expert_task_evaluation_provider_filesystem import _matched_invocation
-from test_expert_task_evaluation_docker_runtime import _info, _json_line, _version
+from test_cross_run_docker_runtime import _info, _json_line, _version
 from test_expert_source_replay_request import _prepared, _request_fixture
+from test_expert_task_evaluation_provider_filesystem import _matched_invocation
 
 _CANONICAL_CONFIG_PATH = "src/kapso/config.yaml"
 _TEST_DOCKER_BYTES = b"resource manager Docker executable"
@@ -116,10 +114,11 @@ def resources(tmp_path, monkeypatch):
     provider_settings = CrossRunSettings.from_dict(
         load_config(_CANONICAL_CONFIG_PATH)["cross_run"]
     ).expert.validation.task_evaluation_provider
-    provider_settings = replace(
-        provider_settings,
+    runtime_settings = replace(
+        provider_settings.runtime,
         runtime_executable_digest=tree_or_blob_digest(_TEST_DOCKER_BYTES),
     )
+    provider_settings = replace(provider_settings, runtime=runtime_settings)
     monkeypatch.setattr(
         runtime_module,
         "read_verified_root_executable",
@@ -127,14 +126,14 @@ def resources(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(runtime_module, "_require_runtime_socket", lambda _path: None)
     tmp_path.chmod(0o700)
-    runner = _StatefulDockerRunner(provider_settings)
-    runtime = TaskEvaluationDockerRuntime(
+    runner = _StatefulDockerRunner(runtime_settings)
+    runtime = PinnedDockerRuntime(
         trusted_root=tmp_path.resolve(),
-        settings=provider_settings,
+        settings=runtime_settings,
         process_runner=runner,
     )
-    manager = TaskEvaluationDockerResourceManager(runtime)
-    return manager, runner
+    manager = TaskEvaluationDockerResourceManager(runtime, provider_settings)
+    return manager, runner, provider_settings
 
 
 @pytest.fixture
@@ -165,7 +164,7 @@ def test_resource_identity_uses_the_full_unpredictable_handle_digest(
     resources,
     replay_invocation,
 ):
-    manager, _ = resources
+    manager, _, _ = resources
     identity = manager.identity(replay_invocation.provider_handle.provider_handle_id)
     suffix = replay_invocation.provider_handle.provider_handle_id.rsplit(":", 1)[-1]
 
@@ -187,7 +186,7 @@ def test_writable_volume_is_fresh_exact_labelled_tmpfs(
     resources,
     replay_invocation,
 ):
-    manager, runner = resources
+    manager, runner, provider_settings = resources
     identity = manager.require_absent(
         replay_invocation.provider_handle.provider_handle_id
     )
@@ -203,8 +202,8 @@ def test_writable_volume_is_fresh_exact_labelled_tmpfs(
     assert observation.payload["Options"] == {
         "device": "tmpfs",
         "o": (
-            f"uid={manager.runtime.settings.container_user_id},"
-            f"gid={manager.runtime.settings.container_group_id},"
+            f"uid={provider_settings.container_user_id},"
+            f"gid={provider_settings.container_group_id},"
             "mode=0700,"
             f"size={compute.writable_storage_byte_limit},"
             f"nr_inodes={compute.writable_inode_limit},"
@@ -231,7 +230,7 @@ def test_cleanup_removes_only_prevalidated_ids_and_is_repeatable(
     resources,
     replay_invocation,
 ):
-    manager, runner = resources
+    manager, runner, _ = resources
     identity = manager.identity(replay_invocation.provider_handle.provider_handle_id)
     evaluator_id = "a" * 64
     keeper_id = "b" * 64
@@ -288,7 +287,7 @@ def test_cleanup_rejects_substituted_labels_before_any_removal(
     resources,
     replay_invocation,
 ):
-    manager, runner = resources
+    manager, runner, _ = resources
     identity = manager.identity(replay_invocation.provider_handle.provider_handle_id)
     runner.containers[identity.evaluator_name] = _container(
         identity.evaluator_name,
@@ -312,7 +311,7 @@ def test_cleanup_rejects_substituted_labels_before_any_removal(
 
 
 def test_ambiguous_resource_lookup_fails_loud(resources, replay_invocation):
-    manager, runner = resources
+    manager, runner, _ = resources
     identity = manager.identity(replay_invocation.provider_handle.provider_handle_id)
     original_dispatch = runner._dispatch
 
@@ -331,7 +330,7 @@ def test_container_removal_normalizes_only_mount_order(
     resources,
     replay_invocation,
 ):
-    manager, runner = resources
+    manager, runner, _ = resources
     identity = manager.identity(replay_invocation.provider_handle.provider_handle_id)
     evaluator_id = "a" * 64
     runner.containers[identity.evaluator_name] = {
@@ -365,7 +364,7 @@ def test_container_removal_rejects_changed_mount_authority(
     resources,
     replay_invocation,
 ):
-    manager, runner = resources
+    manager, runner, _ = resources
     identity = manager.identity(replay_invocation.provider_handle.provider_handle_id)
     runner.containers[identity.evaluator_name] = {
         **_container(

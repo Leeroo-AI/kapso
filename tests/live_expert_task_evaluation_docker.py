@@ -34,15 +34,13 @@ from kapso.cross_run.contracts import (
     TaskAdapterReleaseMatrixStartingArtifact,
     TaskAdapterRuntimeContract,
 )
+from kapso.cross_run.docker.runtime import read_verified_root_executable
 from kapso.cross_run.expert.task_evaluation_authority import (
     TaskEvaluationFreshAuthorityCoordinator,
 )
 from kapso.cross_run.expert.task_evaluation_contracts import TaskEvaluationLegKind
 from kapso.cross_run.expert.task_evaluation_docker_bootstrap import (
     build_task_evaluation_docker_provider_registry,
-)
-from kapso.cross_run.expert.task_evaluation_docker_runtime import (
-    read_verified_root_executable,
 )
 from kapso.cross_run.expert.task_evaluation_execution_journal import (
     TaskEvaluationExecutionJournalEventKind,
@@ -400,19 +398,19 @@ def test_real_docker_executes_parent_and_bootstrap_task_evaluations(
         image_reference = live_adapter.manifest.runtime.image_reference
         cleanup.callback(
             remove_exact_image,
-            provider_settings,
+            provider_settings.runtime,
             docker_config_root,
             image_reference,
         )
         cleanup_handle_ids: list[str] = []
         cleanup.callback(
             cleanup_daemon_resources,
-            provider_settings,
+            provider_settings.runtime,
             docker_config_root,
             cleanup_handle_ids,
         )
         pull_result = run_setup_docker(
-            provider_settings,
+            provider_settings.runtime,
             docker_config_root,
             (
                 "image",
@@ -459,7 +457,7 @@ def test_real_docker_executes_parent_and_bootstrap_task_evaluations(
         assert local_registry.server.request_count == registry_requests_after_pull
         assert local_registry.server.observed_violations == ()
         assert_no_daemon_resources(
-            provider_settings,
+            provider_settings.runtime,
             docker_config_root,
             provider_handle_ids,
             "task evaluation",

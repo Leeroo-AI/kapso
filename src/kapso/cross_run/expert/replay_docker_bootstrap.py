@@ -77,7 +77,7 @@ def build_source_replay_docker_provider_registry(
     dispatch_keys = _distinct_supported_dispatch_keys(prepared_request)
     runtime_authority = TaskEvaluationDockerRuntimeAuthority(
         trusted_root=trusted_root,
-        provider_settings=settings.task_evaluation_provider,
+        runtime_settings=settings.task_evaluation_provider.runtime,
     )
     registry = SourceReplayDockerProviderRegistry(
         prepared_request=prepared_request,

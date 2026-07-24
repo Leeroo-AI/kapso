@@ -161,7 +161,8 @@ arguments; the registry binds both verified expert trees, while the capability
 passes only the exact source-base or candidate byte closure selected by the allocated
 leg. Only its session-registered sealed completion may enter the journal.
 
-The Docker provider executes a digest-namespaced private copy of the pinned CLI
+The domain-neutral `kapso.cross_run.docker` runtime executes a
+digest-namespaced private copy of the pinned CLI
 against only the configured root-owned Unix socket, an empty private Docker
 configuration, and a minimal fixed host environment. Every leg freshly requires
 the exact client/server API, host platform, storage and cgroup authorities,
@@ -176,6 +177,12 @@ complete direct-evaluator environment without relying on Docker's implicit Linux
 defaults. The host kernel, root-owned dynamic
 loader/libraries and daemon, and same-UID processes able to mutate the private
 provider root are explicit trusted computing base; evaluator code is not.
+Its executable, daemon, security, platform, and bounded-control settings are
+owned once by top-level `cross_run.docker`. The task-evaluation provider injects
+that exact settings object into its in-memory dispatch contract while raw config
+contains only evaluator-specific helper bytes, host UID/GID, CPU period,
+workspace, and result-archive overhead under
+`validation.task_evaluation_provider`.
 Registry bootstrap derives every distinct full dispatch key from the prepared
 historical request, requires every implementation-selecting dimension to match
 the concrete provider's code-owned v1 constants, and resolves the full request
@@ -522,8 +529,15 @@ Implemented validation substrate:
   concurrent sessions serialize; and corrupt, forked, substituted, over-bound, or
   unsafe journal state fails loud without a mutable execution snapshot; and
 - source replay and task evaluation now consume one neutral task-evaluation Docker
-  sandbox rather than owning parallel runtime machinery. Pinned CLI/daemon/image
-  authority, handle-labelled resources, owner-private workspaces, verified byte-tree
+  sandbox rather than owning parallel runtime machinery. The pinned
+  CLI/daemon/image authority lives under the domain-neutral
+`kapso.cross_run.docker` package and its shared settings are single-sourced at
+`cross_run.docker`; task-adapter image authority is projected explicitly in
+the expert layer. The generic runtime verifies only the pinned image content and
+platform identity; the expert provider separately enforces the task-image
+environment and absence of inherited commands, entrypoints, volumes, and health
+checks. Handle-labelled resources, owner-private
+  workspaces, verified byte-tree
   publication, the complete container lifecycle, cleanup, stream bounding, and strict
   BusyBox result-snapshot parsing are single-sourced under task-evaluation names. The
   sandbox accepts only a content-addressed handle, explicit byte closures and limits;
@@ -842,8 +856,9 @@ canonical request, cases, legs, compute bindings, and dependency closure; the re
 is immediately rejoined to the plan. Source-reuse provenances never become new
 evaluator cases because their already-accepted rows are reduced separately.
 
-The shared operational authority is single-sourced as
-`validation.task_evaluation_provider` plus `task_evaluation_*` policy fields.
+The shared operational authority is single-sourced across top-level
+`cross_run.docker`, evaluator-specific
+`validation.task_evaluation_provider`, and `task_evaluation_*` policy fields.
 Execution protocol, provider identity/version/settings digest, sandbox, resource and
 stream ceilings, journal/result bounds, accelerator, and aggregate materialization
 limits are common to source replay and adapter-owned matrix cases. Aggregate

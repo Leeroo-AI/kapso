@@ -10,9 +10,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Mapping
 
-from kapso.cross_run.expert.task_evaluation_docker_runtime import (
-    TaskEvaluationDockerRuntime,
-)
+from kapso.cross_run.docker.runtime import PinnedDockerRuntime
 from kapso.cross_run.settings import TaskEvaluationDockerProviderSettings
 
 _HANDLE_LABEL = "io.kapso.task-evaluation.handle"
@@ -68,15 +66,24 @@ class TaskEvaluationDockerVolumeObservation:
 class TaskEvaluationDockerResourceManager:
     """Create and reap only resources bearing one unpredictable handle label."""
 
-    def __init__(self, runtime: TaskEvaluationDockerRuntime) -> None:
-        if type(runtime) is not TaskEvaluationDockerRuntime:
+    def __init__(
+        self,
+        runtime: PinnedDockerRuntime,
+        provider_settings: TaskEvaluationDockerProviderSettings,
+    ) -> None:
+        if (
+            type(runtime) is not PinnedDockerRuntime
+            or type(provider_settings) is not TaskEvaluationDockerProviderSettings
+            or runtime.settings is not provider_settings.runtime
+        ):
             raise TaskEvaluationDockerResourceError(
-                "task evaluation resources require the exact Docker runtime"
+                "task evaluation resources require exact provider and runtime settings"
             )
         self._runtime = runtime
+        self._provider_settings = provider_settings
 
     @property
-    def runtime(self) -> TaskEvaluationDockerRuntime:
+    def runtime(self) -> PinnedDockerRuntime:
         return self._runtime
 
     def identity(
@@ -169,12 +176,11 @@ class TaskEvaluationDockerResourceManager:
             raise TaskEvaluationDockerResourceError(
                 "task evaluation writable volume is not fresh"
             )
-        settings = self._runtime.settings
         options = _writable_volume_options(
             identity,
             writable_storage_byte_limit=writable_storage_byte_limit,
             writable_inode_limit=writable_inode_limit,
-            settings=settings,
+            provider_settings=self._provider_settings,
         )
         labels = identity.labels_for(_VOLUME_ROLE)
         result = self._runtime.run_control(
@@ -434,7 +440,7 @@ def _writable_volume_options(
     *,
     writable_storage_byte_limit: int,
     writable_inode_limit: int,
-    settings: TaskEvaluationDockerProviderSettings,
+    provider_settings: TaskEvaluationDockerProviderSettings,
 ) -> dict[str, str]:
     if not identity.volume_name:
         raise TaskEvaluationDockerResourceError(
@@ -443,8 +449,8 @@ def _writable_volume_options(
     return {
         "device": "tmpfs",
         "o": (
-            f"uid={settings.container_user_id},"
-            f"gid={settings.container_group_id},"
+            f"uid={provider_settings.container_user_id},"
+            f"gid={provider_settings.container_group_id},"
             "mode=0700,"
             f"size={writable_storage_byte_limit},"
             f"nr_inodes={writable_inode_limit},"

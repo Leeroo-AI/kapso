@@ -3,13 +3,11 @@ from dataclasses import replace
 import pytest
 
 import kapso.cross_run.expert.task_evaluation_docker_bootstrap as bootstrap_module
+from kapso.cross_run.docker.runtime import PinnedDockerRuntime
 from kapso.cross_run.expert.task_evaluation_docker_bootstrap import (
     TaskEvaluationDockerBootstrapError,
     TaskEvaluationDockerWorkspaceError,
     build_task_evaluation_docker_provider_registry,
-)
-from kapso.cross_run.expert.task_evaluation_docker_runtime import (
-    TaskEvaluationDockerRuntime,
 )
 from kapso.cross_run.expert.task_evaluation_execution import (
     project_prepared_task_evaluation_cases,
@@ -26,7 +24,7 @@ def prepared_task_evaluation(tmp_path_factory):
 
 
 def _runtime(trusted_root, settings):
-    runtime = object.__new__(TaskEvaluationDockerRuntime)
+    runtime = object.__new__(PinnedDockerRuntime)
     runtime._trusted_root = trusted_root
     runtime._settings = settings
     return runtime
@@ -41,7 +39,7 @@ def test_bootstrap_resolves_the_complete_request_before_lazy_runtime_creation(
     settings = prepared_task_evaluation.plan_join.settings
     provider_settings = settings.task_evaluation_provider
     trusted_root = (tmp_path / provider_settings.workspace_path).resolve()
-    runtime = _runtime(trusted_root, provider_settings)
+    runtime = _runtime(trusted_root, provider_settings.runtime)
     constructions = []
 
     def create_runtime(*, trusted_root, settings):
@@ -49,7 +47,7 @@ def test_bootstrap_resolves_the_complete_request_before_lazy_runtime_creation(
         return runtime
 
     monkeypatch.setattr(
-        bootstrap_module.TaskEvaluationDockerRuntime,
+        bootstrap_module.PinnedDockerRuntime,
         "create",
         create_runtime,
     )
@@ -71,7 +69,7 @@ def test_bootstrap_resolves_the_complete_request_before_lazy_runtime_creation(
     runtime_authority = resolved_cases[0]._provider._runtime_authority
     assert runtime_authority.get() is runtime
     assert runtime_authority.get() is runtime
-    assert constructions == [(trusted_root, provider_settings)]
+    assert constructions == [(trusted_root, provider_settings.runtime)]
 
 
 @pytest.mark.parametrize(
@@ -144,7 +142,7 @@ def test_bootstrap_registry_rejects_foreign_prepared_authority_without_docker(
         raise AssertionError("prepared-authority comparison contacted Docker")
 
     monkeypatch.setattr(
-        bootstrap_module.TaskEvaluationDockerRuntime,
+        bootstrap_module.PinnedDockerRuntime,
         "create",
         reject_runtime_construction,
     )
@@ -168,7 +166,7 @@ def test_bootstrap_rejects_symlinked_configured_root_without_docker(
         raise AssertionError("unsafe workspace contacted Docker")
 
     monkeypatch.setattr(
-        bootstrap_module.TaskEvaluationDockerRuntime,
+        bootstrap_module.PinnedDockerRuntime,
         "create",
         reject_runtime_construction,
     )

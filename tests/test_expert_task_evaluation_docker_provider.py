@@ -3,7 +3,8 @@ from types import MappingProxyType
 
 import pytest
 
-import kapso.cross_run.expert.task_evaluation_docker_runtime as runtime_module
+import kapso.cross_run.docker.runtime as runtime_module
+from kapso.cross_run.docker.runtime import DockerImageAuthority, PinnedDockerRuntime
 from kapso.cross_run.expert.task_evaluation_contracts import (
     TaskEvaluationInvocationAllocation,
 )
@@ -11,10 +12,9 @@ from kapso.cross_run.expert.task_evaluation_docker_provider import (
     TaskEvaluationDockerExecutionProvider,
     TaskEvaluationDockerProviderError,
     TaskEvaluationDockerSandboxCompletion,
+    TaskEvaluationDockerSandboxError,
     TaskEvaluationDockerSandboxInvocation,
-)
-from kapso.cross_run.expert.task_evaluation_docker_runtime import (
-    TaskEvaluationDockerRuntime,
+    task_adapter_docker_image_authority,
 )
 from kapso.cross_run.expert.task_evaluation_execution import (
     TaskEvaluationExecutionProviderRegistry,
@@ -115,6 +115,7 @@ def task_evaluation_authority(tmp_path_factory):
 
 def _runtime(tmp_path, monkeypatch, prepared, requirements):
     provider_settings = prepared.plan_join.settings.task_evaluation_provider
+    runtime_settings = provider_settings.runtime
     adapter_runtime = requirements.runtime_contract
     tmp_path.chmod(0o700)
     docker_path = tmp_path / "docker"
@@ -123,20 +124,21 @@ def _runtime(tmp_path, monkeypatch, prepared, requirements):
     docker_config_root = tmp_path / "config"
     docker_config_root.mkdir(mode=0o700)
     runner = _ProviderDockerRunner(
+        runtime_settings,
         provider_settings,
         adapter_runtime,
         requirements,
     )
-    runtime = object.__new__(TaskEvaluationDockerRuntime)
+    runtime = object.__new__(PinnedDockerRuntime)
     runtime._trusted_root = tmp_path.resolve()
-    runtime._settings = provider_settings
+    runtime._settings = runtime_settings
     runtime._process_runner = runner
     runtime._docker_path = docker_path
-    runtime._docker_digest = provider_settings.runtime_executable_digest
+    runtime._docker_digest = runtime_settings.runtime_executable_digest
     runtime._docker_config_root = docker_config_root
     runtime._environment = MappingProxyType(
         {
-            "DOCKER_API_VERSION": provider_settings.runtime_api_version,
+            "DOCKER_API_VERSION": runtime_settings.runtime_api_version,
             "DOCKER_CONFIG": str(docker_config_root),
             "HOME": str(tmp_path),
             "LANG": "C",
@@ -146,7 +148,7 @@ def _runtime(tmp_path, monkeypatch, prepared, requirements):
     monkeypatch.setattr(
         runtime_module,
         "read_verified_private_executable",
-        lambda _path: provider_settings.runtime_executable_digest,
+        lambda _path: runtime_settings.runtime_executable_digest,
     )
     monkeypatch.setattr(runtime_module, "_require_runtime_socket", lambda _path: None)
     return runtime, runner
@@ -177,6 +179,51 @@ def _provider(tmp_path, monkeypatch, task_evaluation_authority):
         runtime=runtime,
     )
     return provider, runner, invocation
+
+
+def test_task_adapter_image_projection_is_exact(task_evaluation_authority):
+    _prepared, requirements, _invocation = task_evaluation_authority
+    runtime = requirements.runtime_contract
+
+    assert task_adapter_docker_image_authority(runtime) == DockerImageAuthority(
+        image_reference=runtime.image_reference,
+        image_config_digest=runtime.image_config_digest,
+        operating_system=runtime.operating_system,
+        architecture=runtime.architecture,
+        architecture_variant=runtime.architecture_variant,
+    )
+
+
+@pytest.mark.parametrize(
+    ("field_name", "invalid_value"),
+    (
+        ("Env", ["PATH=/usr/bin:/bin", "EXTRA=value"]),
+        ("Cmd", ["inherited"]),
+        ("Entrypoint", ["/inherited-entrypoint"]),
+        ("Volumes", {"/kapso/writable": {}}),
+        ("Healthcheck", {"Test": ["NONE"]}),
+    ),
+)
+def test_provider_rejects_task_image_that_violates_sandbox_policy(
+    tmp_path,
+    monkeypatch,
+    task_evaluation_authority,
+    field_name,
+    invalid_value,
+):
+    provider, runner, invocation = _provider(
+        tmp_path,
+        monkeypatch,
+        task_evaluation_authority,
+    )
+
+    def mutate_image(image):
+        image["Config"][field_name] = invalid_value
+
+    runner.mutate_image = mutate_image
+
+    with pytest.raises(TaskEvaluationDockerSandboxError, match="image violates"):
+        provider.execute_leg(invocation)
 
 
 def test_provider_runs_selected_task_leg_with_exact_mounts_and_reaps_resources(

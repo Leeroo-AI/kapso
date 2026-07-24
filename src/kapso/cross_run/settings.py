@@ -1184,13 +1184,12 @@ class ExpertValidationPolicy(StrictContract):
 
 
 @dataclass(frozen=True)
-class TaskEvaluationDockerProviderSettings(StrictContract):
-    workspace_path: str
+class DockerRuntimeSettings(StrictContract):
+    """Exact host Docker authority shared by isolated execution providers."""
+
     runtime_executable_path: str
     runtime_executable_digest: str
     runtime_socket_path: str
-    helper_executable_path: str
-    helper_executable_digest: str
     runtime_server_version: str
     runtime_api_version: str
     runtime_host_operating_system: str
@@ -1199,39 +1198,27 @@ class TaskEvaluationDockerProviderSettings(StrictContract):
     runtime_cgroup_version: str
     runtime_default_runtime: str
     required_security_options: tuple[str, ...]
-    container_user_id: int
-    container_group_id: int
-    cpu_period_microseconds: int
     command_timeout_seconds: int
     cleanup_timeout_seconds: int
     command_output_byte_limit: int
-    result_archive_overhead_byte_limit: int
 
     def _validate(self) -> None:
-        _require_relative_path(
-            self.workspace_path,
-            "expert.validation.task_evaluation_provider.workspace_path",
-        )
         for value, name in (
             (self.runtime_executable_path, "runtime_executable_path"),
             (self.runtime_socket_path, "runtime_socket_path"),
-            (self.helper_executable_path, "helper_executable_path"),
         ):
             _require_path(
                 value,
-                f"expert.validation.task_evaluation_provider.{name}",
+                f"docker.{name}",
             )
             if not PurePosixPath(value).is_absolute():
-                raise CrossRunConfigurationError(
-                    f"expert.validation.task_evaluation_provider.{name} must be absolute"
-                )
+                raise CrossRunConfigurationError(f"docker.{name} must be absolute")
         for value, name in (
             (self.runtime_executable_digest, "runtime_executable_digest"),
-            (self.helper_executable_digest, "helper_executable_digest"),
         ):
             if re.fullmatch(r"sha256:[0-9a-f]{64}", value) is None:
                 raise CrossRunConfigurationError(
-                    f"expert.validation.task_evaluation_provider.{name} must be a sha256 digest"
+                    f"docker.{name} must be a sha256 digest"
                 )
         for value, name in (
             (self.runtime_server_version, "runtime_server_version"),
@@ -1247,7 +1234,7 @@ class TaskEvaluationDockerProviderSettings(StrictContract):
         ):
             require_identifier(
                 value,
-                f"expert.validation.task_evaluation_provider.{name}",
+                f"docker.{name}",
             )
         if (
             not self.required_security_options
@@ -1260,7 +1247,56 @@ class TaskEvaluationDockerProviderSettings(StrictContract):
             )
         ):
             raise CrossRunConfigurationError(
-                "task evaluation provider security options must be sorted and unique"
+                "Docker runtime security options must be sorted and unique"
+            )
+        for value, name in (
+            (self.command_timeout_seconds, "command_timeout_seconds"),
+            (self.cleanup_timeout_seconds, "cleanup_timeout_seconds"),
+            (self.command_output_byte_limit, "command_output_byte_limit"),
+        ):
+            if type(value) is not int or value <= 0:
+                raise CrossRunConfigurationError(
+                    f"docker.{name} must be a positive integer"
+                )
+        if self.cleanup_timeout_seconds > self.command_timeout_seconds:
+            raise CrossRunConfigurationError(
+                "Docker runtime cleanup timeout exceeds its command timeout"
+            )
+
+
+@dataclass(frozen=True)
+class TaskEvaluationDockerProviderSettings(StrictContract):
+    workspace_path: str
+    runtime: DockerRuntimeSettings
+    helper_executable_path: str
+    helper_executable_digest: str
+    container_user_id: int
+    container_group_id: int
+    cpu_period_microseconds: int
+    result_archive_overhead_byte_limit: int
+
+    def _validate(self) -> None:
+        _require_relative_path(
+            self.workspace_path,
+            "expert.validation.task_evaluation_provider.workspace_path",
+        )
+        if type(self.runtime) is not DockerRuntimeSettings:
+            raise CrossRunConfigurationError(
+                "task evaluation provider requires exact Docker runtime settings"
+            )
+        _require_path(
+            self.helper_executable_path,
+            "expert.validation.task_evaluation_provider.helper_executable_path",
+        )
+        if not PurePosixPath(self.helper_executable_path).is_absolute():
+            raise CrossRunConfigurationError(
+                "expert.validation.task_evaluation_provider."
+                "helper_executable_path must be absolute"
+            )
+        if re.fullmatch(r"sha256:[0-9a-f]{64}", self.helper_executable_digest) is None:
+            raise CrossRunConfigurationError(
+                "expert.validation.task_evaluation_provider."
+                "helper_executable_digest must be a sha256 digest"
             )
         for value, name in (
             (self.container_user_id, "container_user_id"),
@@ -1268,25 +1304,24 @@ class TaskEvaluationDockerProviderSettings(StrictContract):
         ):
             if type(value) is not int or value < 0:
                 raise CrossRunConfigurationError(
-                    f"expert.validation.task_evaluation_provider.{name} must be a non-negative integer"
+                    "expert.validation.task_evaluation_provider."
+                    f"{name} must be a non-negative integer"
                 )
-        for value, name in (
-            (self.cpu_period_microseconds, "cpu_period_microseconds"),
-            (self.command_timeout_seconds, "command_timeout_seconds"),
-            (self.cleanup_timeout_seconds, "cleanup_timeout_seconds"),
-            (self.command_output_byte_limit, "command_output_byte_limit"),
-            (
-                self.result_archive_overhead_byte_limit,
-                "result_archive_overhead_byte_limit",
-            ),
+        if (
+            type(self.cpu_period_microseconds) is not int
+            or self.cpu_period_microseconds <= 0
         ):
-            if type(value) is not int or value <= 0:
-                raise CrossRunConfigurationError(
-                    f"expert.validation.task_evaluation_provider.{name} must be a positive integer"
-                )
-        if self.cleanup_timeout_seconds > self.command_timeout_seconds:
             raise CrossRunConfigurationError(
-                "task evaluation provider cleanup timeout exceeds its command timeout"
+                "expert.validation.task_evaluation_provider."
+                "cpu_period_microseconds must be a positive integer"
+            )
+        if (
+            type(self.result_archive_overhead_byte_limit) is not int
+            or self.result_archive_overhead_byte_limit <= 0
+        ):
+            raise CrossRunConfigurationError(
+                "expert.validation.task_evaluation_provider."
+                "result_archive_overhead_byte_limit must be a positive integer"
             )
 
 
@@ -1306,13 +1341,6 @@ class ExpertValidationSettings(StrictContract):
         ):
             raise CrossRunConfigurationError(
                 "task evaluation millicore limit has no exact runtime quota"
-            )
-        if (
-            self.policy.task_evaluation_termination_grace_seconds
-            >= self.task_evaluation_provider.command_timeout_seconds
-        ):
-            raise CrossRunConfigurationError(
-                "task evaluation provider command timeout cannot contain graceful stop"
             )
 
     @property
@@ -1864,6 +1892,7 @@ class ProductionValidationSettings(StrictContract):
 class CrossRunSettings(StrictContract):
     scopes: ScopeRegistrySettings
     github: GitHubSettings
+    docker: DockerRuntimeSettings
     capture: CaptureSettings
     sanitation: SanitationSettings
     catalog: CatalogSettings
@@ -1873,6 +1902,10 @@ class CrossRunSettings(StrictContract):
     production_validation: ProductionValidationSettings
 
     def _validate(self) -> None:
+        if self.expert.validation.task_evaluation_provider.runtime is not self.docker:
+            raise CrossRunConfigurationError(
+                "task evaluation provider Docker runtime differs from cross_run.docker"
+            )
         if self.capture.git_command_output_bytes < self.sanitation.max_file_bytes:
             raise CrossRunConfigurationError(
                 "capture Git output limit must admit one allowlisted source file"
@@ -1883,6 +1916,13 @@ class CrossRunSettings(StrictContract):
         ):
             raise CrossRunConfigurationError(
                 "capture and task-evaluation aggregate tolerances must match"
+            )
+        if (
+            self.expert.validation.policy.task_evaluation_termination_grace_seconds
+            >= self.docker.command_timeout_seconds
+        ):
+            raise CrossRunConfigurationError(
+                "task evaluation provider command timeout cannot contain graceful stop"
             )
         if (
             self.expert.validation.policy.task_evaluation_journal_event_byte_limit
@@ -1918,6 +1958,7 @@ class CrossRunSettings(StrictContract):
         expected = {
             "scopes",
             "github",
+            "docker",
             "capture",
             "sanitation",
             "catalog",
@@ -1932,27 +1973,60 @@ class CrossRunSettings(StrictContract):
             raise CrossRunConfigurationError(
                 f"cross_run fields mismatch; missing={missing}, unknown={unknown}"
             )
+        docker = DockerRuntimeSettings.from_dict(payload["docker"])
+        expert = payload["expert"]
+        if not isinstance(expert, Mapping) or not isinstance(
+            expert.get("validation"), Mapping
+        ):
+            raise CrossRunConfigurationError(
+                "cross_run.expert.validation must be an object"
+            )
+        validation = expert["validation"]
+        if not isinstance(validation.get("task_evaluation_provider"), Mapping):
+            raise CrossRunConfigurationError(
+                "cross_run.expert.validation.task_evaluation_provider "
+                "must be an object"
+            )
+        provider = validation["task_evaluation_provider"]
+        if "runtime" in provider:
+            raise CrossRunConfigurationError(
+                "task evaluation provider runtime is derived from cross_run.docker"
+            )
+        expert_payload = {
+            **expert,
+            "validation": {
+                **validation,
+                "task_evaluation_provider": {
+                    **provider,
+                    "runtime": docker,
+                },
+            },
+        }
         return cls(
             scopes=ScopeRegistrySettings.from_config(payload["scopes"]),
             github=payload["github"],
+            docker=docker,
             capture=payload["capture"],
             sanitation=payload["sanitation"],
             catalog=payload["catalog"],
             knowledge=payload["knowledge"],
-            expert=payload["expert"],
+            expert=expert_payload,
             launch=payload["launch"],
             production_validation=payload["production_validation"],
         )
 
     def to_dict(self) -> dict[str, Any]:
+        expert = to_json_value(self.expert)
+        del expert["validation"]["task_evaluation_provider"]["runtime"]
         return {
             "scopes": self.scopes.to_config(),
             "github": to_json_value(self.github),
+            "docker": to_json_value(self.docker),
             "capture": to_json_value(self.capture),
             "sanitation": to_json_value(self.sanitation),
             "catalog": to_json_value(self.catalog),
             "knowledge": to_json_value(self.knowledge),
-            "expert": to_json_value(self.expert),
+            "expert": expert,
             "launch": to_json_value(self.launch),
             "production_validation": to_json_value(self.production_validation),
         }

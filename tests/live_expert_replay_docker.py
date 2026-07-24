@@ -37,11 +37,9 @@ from kapso.cross_run.contracts import (
     TaskAdapterManifest,
     TaskAdapterRuntimeContract,
 )
+from kapso.cross_run.docker.runtime import read_verified_root_executable
 from kapso.cross_run.expert.replay_docker_bootstrap import (
     build_source_replay_docker_provider_registry,
-)
-from kapso.cross_run.expert.task_evaluation_docker_runtime import (
-    read_verified_root_executable,
 )
 from kapso.cross_run.expert.replay_execution_store import (
     ExpertSourceReplayExecutionStore,
@@ -104,7 +102,7 @@ fi
 
 expert_source="$(/bin/busybox cat /kapso/input/expert/src/expert.py)"
 case "$expert_source" in
-    'verified parent source') score='0.7' ;;
+    'verified source-base source') score='0.7' ;;
     'verified candidate source') score='0.8' ;;
     *) exit 24 ;;
 esac
@@ -384,12 +382,12 @@ def test_real_docker_executes_both_journal_owned_replay_legs(tmp_path: Path) -> 
         docker_config_path.chmod(0o400)
         cleanup.callback(
             remove_exact_image,
-            provider_settings,
+            provider_settings.runtime,
             docker_config_root,
             local_registry.image_reference,
         )
         pull_result = run_setup_docker(
-            provider_settings,
+            provider_settings.runtime,
             docker_config_root,
             (
                 "image",
@@ -418,7 +416,7 @@ def test_real_docker_executes_both_journal_owned_replay_legs(tmp_path: Path) -> 
         )
         cleanup.callback(
             _cleanup_replay_daemon_resources,
-            provider_settings,
+            provider_settings.runtime,
             docker_config_root,
             execution_store,
             committed.reservation,
@@ -488,7 +486,7 @@ def test_real_docker_executes_both_journal_owned_replay_legs(tmp_path: Path) -> 
         assert local_registry.server.request_count == registry_requests_after_pull
         assert local_registry.server.observed_violations == ()
         assert_no_daemon_resources(
-            provider_settings,
+            provider_settings.runtime,
             docker_config_root,
             tuple(provider_handle_ids),
             "source replay",

@@ -14,6 +14,11 @@ from kapso.cross_run.contracts import (
     SourceFileDescriptor,
     TaskAdapterRuntimeContract,
 )
+from kapso.cross_run.docker.runtime import (
+    DockerImageAuthority,
+    PinnedDockerRuntime,
+    read_verified_root_executable,
+)
 from kapso.cross_run.expert.task_evaluation_docker_resources import (
     TASK_EVALUATION_DOCKER_CONTAINER_HOSTNAME,
     TaskEvaluationDockerContainerObservation,
@@ -21,10 +26,6 @@ from kapso.cross_run.expert.task_evaluation_docker_resources import (
     TaskEvaluationDockerResourceManager,
     TaskEvaluationDockerVolumeObservation,
     task_evaluation_docker_container_observations_match,
-)
-from kapso.cross_run.expert.task_evaluation_docker_runtime import (
-    TaskEvaluationDockerRuntime,
-    read_verified_root_executable,
 )
 from kapso.cross_run.expert.task_evaluation_execution import (
     TaskEvaluationExecutionProviderKey,
@@ -302,13 +303,14 @@ def task_evaluation_docker_sandbox_support_is_exact(
     ):
         return False
     environment = dict(adapter_runtime.environment)
+    runtime_settings = provider_settings.runtime
     cpu_quota_numerator = (
         compute.cpu_millicore_limit * provider_settings.cpu_period_microseconds
     )
     supported_image_platforms = _SUPPORTED_IMAGE_PLATFORMS_BY_HOST.get(
         (
-            provider_settings.runtime_host_operating_system,
-            provider_settings.runtime_host_architecture,
+            runtime_settings.runtime_host_operating_system,
+            runtime_settings.runtime_host_architecture,
         )
     )
     if (
@@ -322,13 +324,30 @@ def task_evaluation_docker_sandbox_support_is_exact(
         or accelerator_count != 0
         or accelerator_class_id is not None
         or not environment.get("PATH")
-        or compute.termination_grace_seconds
-        >= provider_settings.command_timeout_seconds
+        or compute.termination_grace_seconds >= runtime_settings.command_timeout_seconds
         or cpu_quota_numerator % 1000 != 0
         or cpu_quota_numerator // 1000 <= 0
     ):
         return False
     return True
+
+
+def task_adapter_docker_image_authority(
+    runtime: TaskAdapterRuntimeContract,
+) -> DockerImageAuthority:
+    """Project one task-adapter image into the neutral Docker authority."""
+
+    if type(runtime) is not TaskAdapterRuntimeContract:
+        raise TaskEvaluationDockerSandboxError(
+            "task evaluation Docker image projection requires exact adapter runtime"
+        )
+    return DockerImageAuthority(
+        image_reference=runtime.image_reference,
+        image_config_digest=runtime.image_config_digest,
+        operating_system=runtime.operating_system,
+        architecture=runtime.architecture,
+        architecture_variant=runtime.architecture_variant,
+    )
 
 
 class TaskEvaluationDockerSandbox:
@@ -339,13 +358,13 @@ class TaskEvaluationDockerSandbox:
         *,
         provider_settings: TaskEvaluationDockerProviderSettings,
         policy_settings: ExpertValidationPolicySettings,
-        runtime: TaskEvaluationDockerRuntime,
+        runtime: PinnedDockerRuntime,
     ) -> None:
         if (
             type(provider_settings) is not TaskEvaluationDockerProviderSettings
             or type(policy_settings) is not ExpertValidationPolicySettings
-            or type(runtime) is not TaskEvaluationDockerRuntime
-            or runtime.settings != provider_settings
+            or type(runtime) is not PinnedDockerRuntime
+            or runtime.settings is not provider_settings.runtime
         ):
             raise TaskEvaluationDockerSandboxError(
                 "task evaluation Docker sandbox authorities are not exact"
@@ -360,7 +379,7 @@ class TaskEvaluationDockerSandbox:
             )
         if (
             policy_settings.task_evaluation_termination_grace_seconds
-            >= provider_settings.command_timeout_seconds
+            >= runtime.settings.command_timeout_seconds
         ):
             raise TaskEvaluationDockerSandboxError(
                 "task evaluation Docker command timeout cannot contain graceful stop"
@@ -368,7 +387,10 @@ class TaskEvaluationDockerSandbox:
         self._provider_settings = provider_settings
         self._policy_settings = policy_settings
         self._runtime = runtime
-        self._resources = TaskEvaluationDockerResourceManager(runtime)
+        self._resources = TaskEvaluationDockerResourceManager(
+            runtime,
+            provider_settings,
+        )
 
     def _execute_sandbox(
         self,
@@ -380,7 +402,10 @@ class TaskEvaluationDockerSandbox:
             )
         compute = invocation.compute
         adapter_runtime = invocation.adapter_runtime
-        self._runtime.require_exact_image(adapter_runtime)
+        image = self._runtime.inspect_exact_image(
+            task_adapter_docker_image_authority(adapter_runtime)
+        )
+        _require_task_adapter_image_policy(image, adapter_runtime)
         identity = self._resources.require_absent(invocation.provider_handle_id)
 
         with ExitStack() as ownership:
@@ -498,7 +523,7 @@ class TaskEvaluationDockerSandbox:
                 identity=identity,
                 role=_KEEPER_ROLE,
                 compute=compute,
-                settings=self._provider_settings,
+                provider_settings=self._provider_settings,
                 workdir="/",
             ),
             *_container_environment_arguments(adapter_runtime),
@@ -597,7 +622,7 @@ class TaskEvaluationDockerSandbox:
                 identity=identity,
                 role=_EVALUATOR_ROLE,
                 compute=compute,
-                settings=self._provider_settings,
+                provider_settings=self._provider_settings,
                 workdir=TASK_EVALUATOR_ADAPTER_ROOT,
             ),
             *_container_environment_arguments(adapter_runtime),
@@ -721,10 +746,10 @@ class TaskEvaluationDockerSandbox:
                 "-",
                 ".",
             ),
-            timeout_seconds=self._provider_settings.command_timeout_seconds,
-            cleanup_timeout_seconds=self._provider_settings.cleanup_timeout_seconds,
+            timeout_seconds=self._runtime.settings.command_timeout_seconds,
+            cleanup_timeout_seconds=self._runtime.settings.cleanup_timeout_seconds,
             stdout_byte_limit=maximum_snapshot_bytes,
-            stderr_byte_limit=self._provider_settings.command_output_byte_limit,
+            stderr_byte_limit=self._runtime.settings.command_output_byte_limit,
         )
         if (
             snapshot.outcome is not BoundedProcessOutcome.COMPLETED
@@ -767,7 +792,7 @@ class TaskEvaluationDockerExecutionProvider(TaskEvaluationDockerSandbox):
         dispatch_key: TaskEvaluationExecutionProviderKey,
         provider_settings: TaskEvaluationDockerProviderSettings,
         policy_settings: ExpertValidationPolicySettings,
-        runtime: TaskEvaluationDockerRuntime,
+        runtime: PinnedDockerRuntime,
     ) -> None:
         require_task_evaluation_docker_provider_key(
             dispatch_key,
@@ -916,7 +941,7 @@ def _container_create_prefix(
     identity: TaskEvaluationDockerResourceIdentity,
     role: str,
     compute: TaskEvaluationDockerSandboxCompute,
-    settings: TaskEvaluationDockerProviderSettings,
+    provider_settings: TaskEvaluationDockerProviderSettings,
     workdir: str,
 ) -> tuple[str, ...]:
     name = identity.evaluator_name if role == _EVALUATOR_ROLE else identity.keeper_name
@@ -926,7 +951,9 @@ def _container_create_prefix(
         for key, value in sorted(labels.items())
         for argument in ("--label", f"{key}={value}")
     )
-    cpu_quota = compute.cpu_millicore_limit * settings.cpu_period_microseconds // 1000
+    cpu_quota = (
+        compute.cpu_millicore_limit * provider_settings.cpu_period_microseconds // 1000
+    )
     return (
         "container",
         "create",
@@ -956,7 +983,7 @@ def _container_create_prefix(
         str(compute.memory_byte_limit),
         "--oom-kill-disable=false",
         "--cpu-period",
-        str(settings.cpu_period_microseconds),
+        str(provider_settings.cpu_period_microseconds),
         "--cpu-quota",
         str(cpu_quota),
         "--shm-size",
@@ -970,11 +997,11 @@ def _container_create_prefix(
         "--hostname",
         TASK_EVALUATION_DOCKER_CONTAINER_HOSTNAME,
         "--user",
-        f"{settings.container_user_id}:{settings.container_group_id}",
+        f"{provider_settings.container_user_id}:{provider_settings.container_group_id}",
         "--workdir",
         workdir,
         "--runtime",
-        settings.runtime_default_runtime,
+        provider_settings.runtime.runtime_default_runtime,
         "--stop-timeout",
         str(compute.termination_grace_seconds),
     )
@@ -1039,7 +1066,7 @@ def _require_container_contract(
     identity: TaskEvaluationDockerResourceIdentity,
     runtime: TaskAdapterRuntimeContract,
     compute: TaskEvaluationDockerSandboxCompute,
-    settings: TaskEvaluationDockerProviderSettings,
+    provider_settings: TaskEvaluationDockerProviderSettings,
     *,
     entrypoint: str,
     command: tuple[str, ...],
@@ -1061,7 +1088,7 @@ def _require_container_contract(
     )
     expected_command = list(command) if command else None
     expected_quota = (
-        compute.cpu_millicore_limit * settings.cpu_period_microseconds // 1000
+        compute.cpu_millicore_limit * provider_settings.cpu_period_microseconds // 1000
     )
     expected_oom_kill_disable = False if expected_status == "created" else None
     if (
@@ -1073,7 +1100,10 @@ def _require_container_contract(
         or config.get("Image") != runtime.image_reference
         or config.get("Hostname") != TASK_EVALUATION_DOCKER_CONTAINER_HOSTNAME
         or config.get("User")
-        != f"{settings.container_user_id}:{settings.container_group_id}"
+        != (
+            f"{provider_settings.container_user_id}:"
+            f"{provider_settings.container_group_id}"
+        )
         or not _container_environment_is_exact(config.get("Env"), runtime)
         or config.get("Entrypoint") != [entrypoint]
         or config.get("Cmd") != expected_command
@@ -1086,7 +1116,7 @@ def _require_container_contract(
         or host.get("CapDrop") != ["ALL"]
         or host.get("Cgroup") != ""
         or host.get("CgroupnsMode") != "private"
-        or host.get("CpuPeriod") != settings.cpu_period_microseconds
+        or host.get("CpuPeriod") != provider_settings.cpu_period_microseconds
         or host.get("CpuQuota") != expected_quota
         or host.get("Devices") != []
         or host.get("DeviceRequests") is not None
@@ -1110,7 +1140,7 @@ def _require_container_contract(
         or host.get("PublishAllPorts") is not False
         or host.get("ReadonlyRootfs") is not True
         or host.get("RestartPolicy") != {"Name": "no", "MaximumRetryCount": 0}
-        or host.get("Runtime") != settings.runtime_default_runtime
+        or host.get("Runtime") != provider_settings.runtime.runtime_default_runtime
         or host.get("SecurityOpt") != ["no-new-privileges", "seccomp=builtin"]
         or host.get("ShmSize") != compute.shared_memory_byte_limit
         or host.get("UTSMode") != ""
@@ -1161,6 +1191,29 @@ def _container_environment_is_exact(
             return False
         environment[key] = assigned_value
     return environment == dict(_container_environment(runtime))
+
+
+def _require_task_adapter_image_policy(
+    image: Mapping[str, Any],
+    runtime: TaskAdapterRuntimeContract,
+) -> None:
+    config = _require_mapping(image, "Config", "task adapter image config")
+    environment = config.get("Env")
+    command = config.get("Cmd")
+    volumes = config.get("Volumes")
+    expected_environment = [
+        f"{key}={value}" for key, value in sorted(runtime.environment.items())
+    ]
+    if (
+        environment != expected_environment
+        or (command is not None and command != [])
+        or config.get("Entrypoint") is not None
+        or (volumes is not None and volumes != {})
+        or config.get("Healthcheck") is not None
+    ):
+        raise TaskEvaluationDockerSandboxError(
+            "task adapter image violates the task evaluation sandbox policy"
+        )
 
 
 def _container_execution_authority_matches_created(

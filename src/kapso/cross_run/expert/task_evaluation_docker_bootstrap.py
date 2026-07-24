@@ -9,13 +9,11 @@ from contextlib import ExitStack
 from pathlib import Path
 from threading import Lock
 
+from kapso.cross_run.docker.runtime import PinnedDockerRuntime
 from kapso.cross_run.expert.task_evaluation_docker_provider import (
     TaskEvaluationDockerExecutionProvider,
     require_task_evaluation_docker_provider_support,
     task_evaluation_docker_provider_key_is_supported,
-)
-from kapso.cross_run.expert.task_evaluation_docker_runtime import (
-    TaskEvaluationDockerRuntime,
 )
 from kapso.cross_run.expert.task_evaluation_execution import (
     TaskEvaluationExecutionProviderKey,
@@ -30,6 +28,7 @@ from kapso.cross_run.expert.task_evaluation_preflight import (
     PreparedTaskEvaluationRequest,
 )
 from kapso.cross_run.settings import (
+    DockerRuntimeSettings,
     ExpertValidationPolicySettings,
     TaskEvaluationDockerProviderSettings,
 )
@@ -62,7 +61,7 @@ def build_task_evaluation_docker_provider_registry(
     dispatch_keys = _distinct_supported_dispatch_keys(prepared_request)
     runtime_authority = TaskEvaluationDockerRuntimeAuthority(
         trusted_root=trusted_root,
-        provider_settings=settings.task_evaluation_provider,
+        runtime_settings=settings.task_evaluation_provider.runtime,
     )
     registry = TaskEvaluationExecutionProviderRegistry(
         prepared_request,
@@ -110,19 +109,19 @@ class TaskEvaluationDockerRuntimeAuthority:
         self,
         *,
         trusted_root: Path,
-        provider_settings: TaskEvaluationDockerProviderSettings,
+        runtime_settings: DockerRuntimeSettings,
     ) -> None:
         self.trusted_root = trusted_root
-        self.provider_settings = provider_settings
-        self._runtime: TaskEvaluationDockerRuntime | None = None
+        self.runtime_settings = runtime_settings
+        self._runtime: PinnedDockerRuntime | None = None
         self._lock = Lock()
 
-    def get(self) -> TaskEvaluationDockerRuntime:
+    def get(self) -> PinnedDockerRuntime:
         with self._lock:
             if self._runtime is None:
-                self._runtime = TaskEvaluationDockerRuntime.create(
+                self._runtime = PinnedDockerRuntime.create(
                     trusted_root=self.trusted_root,
-                    settings=self.provider_settings,
+                    settings=self.runtime_settings,
                 )
             return self._runtime
 

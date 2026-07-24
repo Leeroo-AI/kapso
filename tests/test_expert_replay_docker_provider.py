@@ -5,16 +5,15 @@ from types import MappingProxyType
 
 import pytest
 
+import kapso.cross_run.docker.runtime as runtime_module
 import kapso.cross_run.expert.replay_docker_provider as provider_module
-import kapso.cross_run.expert.task_evaluation_docker_runtime as runtime_module
+from kapso.cross_run.docker.runtime import PinnedDockerRuntime
 from kapso.cross_run.expert.replay_docker_provider import (
     SourceReplayDockerExecutionProvider,
 )
 from kapso.cross_run.expert.task_evaluation_docker_provider import (
     TaskEvaluationDockerSandboxError,
-)
-from kapso.cross_run.expert.task_evaluation_docker_runtime import (
-    TaskEvaluationDockerRuntime,
+    task_adapter_docker_image_authority,
 )
 from kapso.cross_run.expert.replay_execution import (
     expert_source_replay_execution_provider_key,
@@ -24,7 +23,7 @@ from kapso.cross_run.process import (
     BoundedProcessResult,
 )
 from test_expert_task_evaluation_docker_resources import _StatefulDockerRunner
-from test_expert_task_evaluation_docker_runtime import _image, _json_line
+from test_cross_run_docker_runtime import _image, _json_line
 from test_expert_task_evaluation_provider_filesystem import (
     _RESULT_PAYLOAD,
     _matched_invocation,
@@ -34,8 +33,9 @@ from test_expert_source_replay_request import _prepared, _request_fixture
 
 
 class _ProviderDockerRunner(_StatefulDockerRunner):
-    def __init__(self, settings, adapter_runtime, compute):
-        super().__init__(settings)
+    def __init__(self, runtime_settings, provider_settings, adapter_runtime, compute):
+        super().__init__(runtime_settings)
+        self.provider_settings = provider_settings
         self.adapter_runtime = adapter_runtime
         self.compute = compute
         self.attach_outcome = BoundedProcessOutcome.COMPLETED
@@ -43,6 +43,7 @@ class _ProviderDockerRunner(_StatefulDockerRunner):
         self.attach_oom_killed = False
         self.mutate_evaluator = None
         self.mutate_evaluator_after_attach = None
+        self.mutate_image = None
 
     def run(self, request):
         self.requests.append(request)
@@ -97,7 +98,7 @@ class _ProviderDockerRunner(_StatefulDockerRunner):
                 self.mutate_evaluator_after_attach(container)
             stdout = b"evaluator output\n"
         elif arguments[:2] == ("container", "exec"):
-            stdout = _valid_result_snapshot(self.settings.container_user_id)
+            stdout = _valid_result_snapshot(self.provider_settings.container_user_id)
         else:
             stdout = self._dispatch(arguments)
         return BoundedProcessResult(
@@ -118,7 +119,13 @@ class _ProviderDockerRunner(_StatefulDockerRunner):
             "--format",
             "{{json .}}",
         ):
-            return _json_line(_image(self.adapter_runtime))
+            image = _image(
+                task_adapter_docker_image_authority(self.adapter_runtime),
+                tuple(sorted(self.adapter_runtime.environment.items())),
+            )
+            if self.mutate_image is not None:
+                self.mutate_image(image)
+            return _json_line(image)
         if arguments[:2] == ("container", "create"):
             return self._create_container(arguments)
         if arguments[:2] == ("container", "stop"):
@@ -169,7 +176,7 @@ class _ProviderDockerRunner(_StatefulDockerRunner):
         container_id = ("a" if role == "evaluator" else "b") * 64
         cpu_quota = (
             self.compute.cpu_millicore_limit
-            * self.settings.cpu_period_microseconds
+            * self.provider_settings.cpu_period_microseconds
             // 1000
         )
         environment = {}
@@ -187,8 +194,8 @@ class _ProviderDockerRunner(_StatefulDockerRunner):
                 "Labels": labels,
                 "StopTimeout": self.compute.termination_grace_seconds,
                 "User": (
-                    f"{self.settings.container_user_id}:"
-                    f"{self.settings.container_group_id}"
+                    f"{self.provider_settings.container_user_id}:"
+                    f"{self.provider_settings.container_group_id}"
                 ),
                 "WorkingDir": _flag_value(arguments, "--workdir"),
             },
@@ -199,7 +206,7 @@ class _ProviderDockerRunner(_StatefulDockerRunner):
                 "CapDrop": ["ALL"],
                 "Cgroup": "",
                 "CgroupnsMode": "private",
-                "CpuPeriod": self.settings.cpu_period_microseconds,
+                "CpuPeriod": self.provider_settings.cpu_period_microseconds,
                 "CpuQuota": cpu_quota,
                 "DeviceRequests": None,
                 "DeviceCgroupRules": None,
@@ -345,6 +352,7 @@ def provider(tmp_path, monkeypatch, prepared_replay_request):
     case = invocation.materialized_case
     compute = case.request_case.compute_binding
     settings = prepared_replay_request.settings.task_evaluation_provider
+    runtime_settings = settings.runtime
     adapter_runtime = case.task_adapter.manifest.runtime
     tmp_path.chmod(0o700)
     docker_path = tmp_path / "docker"
@@ -352,17 +360,22 @@ def provider(tmp_path, monkeypatch, prepared_replay_request):
     docker_path.chmod(0o500)
     docker_config_root = tmp_path / "config"
     docker_config_root.mkdir(mode=0o700)
-    runner = _ProviderDockerRunner(settings, adapter_runtime, compute)
-    runtime = object.__new__(TaskEvaluationDockerRuntime)
+    runner = _ProviderDockerRunner(
+        runtime_settings,
+        settings,
+        adapter_runtime,
+        compute,
+    )
+    runtime = object.__new__(PinnedDockerRuntime)
     runtime._trusted_root = tmp_path.resolve()
-    runtime._settings = settings
+    runtime._settings = runtime_settings
     runtime._process_runner = runner
     runtime._docker_path = docker_path
-    runtime._docker_digest = settings.runtime_executable_digest
+    runtime._docker_digest = runtime_settings.runtime_executable_digest
     runtime._docker_config_root = docker_config_root
     runtime._environment = MappingProxyType(
         {
-            "DOCKER_API_VERSION": settings.runtime_api_version,
+            "DOCKER_API_VERSION": runtime_settings.runtime_api_version,
             "DOCKER_CONFIG": str(docker_config_root),
             "HOME": str(tmp_path),
             "LANG": "C",
@@ -372,7 +385,7 @@ def provider(tmp_path, monkeypatch, prepared_replay_request):
     monkeypatch.setattr(
         runtime_module,
         "read_verified_private_executable",
-        lambda _path: settings.runtime_executable_digest,
+        lambda _path: runtime_settings.runtime_executable_digest,
     )
     monkeypatch.setattr(runtime_module, "_require_runtime_socket", lambda _path: None)
 

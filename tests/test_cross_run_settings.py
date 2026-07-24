@@ -88,11 +88,20 @@ def test_expert_proposers_and_trigger_policy_are_fully_typed():
         cross_run_settings.github.zstd_window_size_bytes
     )
     replay_provider = settings.validation.task_evaluation_provider
-    assert replay_provider.runtime_executable_path == "/usr/bin/docker"
-    assert replay_provider.runtime_socket_path == "/run/docker.sock"
+    docker_runtime = cross_run_settings.docker
+    assert replay_provider.runtime is docker_runtime
+    assert replay_provider.to_dict()["runtime"] == docker_runtime.to_dict()
+    assert (
+        "runtime"
+        not in cross_run_settings.to_dict()["expert"]["validation"][
+            "task_evaluation_provider"
+        ]
+    )
+    assert docker_runtime.runtime_executable_path == "/usr/bin/docker"
+    assert docker_runtime.runtime_socket_path == "/run/docker.sock"
     assert replay_provider.helper_executable_path == "/usr/bin/busybox"
-    assert replay_provider.runtime_server_version == "29.1.3"
-    assert replay_provider.required_security_options == (
+    assert docker_runtime.runtime_server_version == "29.1.3"
+    assert docker_runtime.required_security_options == (
         "name=apparmor",
         "name=cgroupns",
         "name=seccomp,profile=builtin",
@@ -123,27 +132,49 @@ def test_expert_state_paths_must_be_disjoint(mutate):
 
 
 @pytest.mark.parametrize(
-    ("field_name", "invalid_value", "message"),
+    ("field_path", "invalid_value", "message"),
     (
-        ("runtime_executable_path", "usr/bin/docker", "must be absolute"),
-        ("helper_executable_digest", "sha256:wrong", "sha256 digest"),
+        (("docker", "runtime_executable_path"), "usr/bin/docker", "must be absolute"),
         (
-            "required_security_options",
+            (
+                "expert",
+                "validation",
+                "task_evaluation_provider",
+                "helper_executable_digest",
+            ),
+            "sha256:wrong",
+            "sha256 digest",
+        ),
+        (
+            ("docker", "required_security_options"),
             ["name=seccomp", "name=apparmor"],
             "sorted and unique",
         ),
-        ("cleanup_timeout_seconds", 61, "exceeds"),
+        (("docker", "cleanup_timeout_seconds"), 61, "exceeds"),
     ),
 )
-def test_task_evaluation_provider_runtime_authority_is_strict(
-    field_name,
+def test_docker_and_task_evaluation_provider_authorities_are_strict(
+    field_path,
     invalid_value,
     message,
 ):
     raw = copy.deepcopy(load_config(CANONICAL_CONFIG_PATH)["cross_run"])
-    raw["expert"]["validation"]["task_evaluation_provider"][field_name] = invalid_value
+    target = raw
+    for part in field_path[:-1]:
+        target = target[part]
+    target[field_path[-1]] = invalid_value
 
     with pytest.raises(CrossRunConfigurationError, match=message):
+        CrossRunSettings.from_dict(raw)
+
+
+def test_raw_provider_cannot_override_derived_docker_runtime():
+    raw = copy.deepcopy(load_config(CANONICAL_CONFIG_PATH)["cross_run"])
+    raw["expert"]["validation"]["task_evaluation_provider"]["runtime"] = copy.deepcopy(
+        raw["docker"]
+    )
+
+    with pytest.raises(CrossRunConfigurationError, match="derived"):
         CrossRunSettings.from_dict(raw)
 
 
@@ -164,7 +195,7 @@ def test_legacy_source_replay_execution_config_is_rejected(mutate):
     raw = copy.deepcopy(load_config(CANONICAL_CONFIG_PATH)["cross_run"])
     mutate(raw["expert"]["validation"])
 
-    with pytest.raises(ContractValidationError, match="fields mismatch"):
+    with pytest.raises((ContractValidationError, CrossRunConfigurationError)):
         CrossRunSettings.from_dict(raw)
 
 
@@ -181,14 +212,10 @@ def test_task_evaluation_cpu_quota_must_be_exact():
 
 def test_task_evaluation_provider_command_must_contain_graceful_stop():
     raw = copy.deepcopy(load_config(CANONICAL_CONFIG_PATH)["cross_run"])
-    raw["expert"]["validation"]["task_evaluation_provider"][
-        "command_timeout_seconds"
-    ] = raw["expert"]["validation"]["policy"][
+    raw["docker"]["command_timeout_seconds"] = raw["expert"]["validation"]["policy"][
         "task_evaluation_termination_grace_seconds"
     ]
-    raw["expert"]["validation"]["task_evaluation_provider"][
-        "cleanup_timeout_seconds"
-    ] = raw["expert"]["validation"]["policy"][
+    raw["docker"]["cleanup_timeout_seconds"] = raw["expert"]["validation"]["policy"][
         "task_evaluation_termination_grace_seconds"
     ]
 

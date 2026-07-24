@@ -57,6 +57,24 @@ cross_run:
     git_tree_metadata_size_bytes: 67108864
     control_blob_size_bytes: 262144
     cache_retention_releases: 3
+  docker:
+    runtime_executable_path: "/usr/bin/docker"
+    runtime_executable_digest: "sha256:7ed12b00293d64742419a6601ae97960a367a0ce97c88b06e3278cc0a409557b"
+    runtime_socket_path: "/run/docker.sock"
+    runtime_server_version: "29.1.3"
+    runtime_api_version: "1.52"
+    runtime_host_operating_system: "linux"
+    runtime_host_architecture: "x86_64"
+    runtime_storage_driver: "overlay2"
+    runtime_cgroup_version: "2"
+    runtime_default_runtime: "runc"
+    required_security_options:
+      - "name=apparmor"
+      - "name=cgroupns"
+      - "name=seccomp,profile=builtin"
+    command_timeout_seconds: 60
+    cleanup_timeout_seconds: 30
+    command_output_byte_limit: 16777216
   capture:
     state_path: ".kapso/cross_run/capture"
     quarantine_path: ".kapso/cross_run/quarantine"
@@ -203,28 +221,11 @@ cross_run:
       state_path: ".kapso/cross_run/expert_validation"
       task_evaluation_provider:
         workspace_path: ".kapso/cross_run/task_evaluation_provider"
-        runtime_executable_path: "/usr/bin/docker"
-        runtime_executable_digest: "sha256:7ed12b00293d64742419a6601ae97960a367a0ce97c88b06e3278cc0a409557b"
-        runtime_socket_path: "/run/docker.sock"
         helper_executable_path: "/usr/bin/busybox"
         helper_executable_digest: "sha256:dbac288c29ba568459550a2da9e7ae0ded6b1fc728ee9fad3044c44e62d6ac14"
-        runtime_server_version: "29.1.3"
-        runtime_api_version: "1.52"
-        runtime_host_operating_system: "linux"
-        runtime_host_architecture: "x86_64"
-        runtime_storage_driver: "overlay2"
-        runtime_cgroup_version: "2"
-        runtime_default_runtime: "runc"
-        required_security_options:
-          - "name=apparmor"
-          - "name=cgroupns"
-          - "name=seccomp,profile=builtin"
         container_user_id: 1000
         container_group_id: 1000
         cpu_period_microseconds: 100000
-        command_timeout_seconds: 60
-        cleanup_timeout_seconds: 30
-        command_output_byte_limit: 16777216
         result_archive_overhead_byte_limit: 1048576
       policy:
         source_replay_selection_policy_version: "kapso.expert_source_replay_selection.v1"

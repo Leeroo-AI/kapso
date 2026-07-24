@@ -9,6 +9,7 @@ from kapso.cross_run.contracts import (
     ExpertSourceReplayComputeBinding,
     SourceFileDescriptor,
 )
+from kapso.cross_run.docker.runtime import PinnedDockerRuntime
 from kapso.cross_run.expert.replay_execution import (
     ExpertSourceReplayExecutionProviderKey,
     ExpertSourceReplayMatchedLegInvocation,
@@ -26,9 +27,6 @@ from kapso.cross_run.expert.task_evaluation_docker_provider import (
     TaskEvaluationDockerSandboxCompute,
     TaskEvaluationDockerSandboxInvocation,
     task_evaluation_docker_sandbox_support_is_exact,
-)
-from kapso.cross_run.expert.task_evaluation_docker_runtime import (
-    TaskEvaluationDockerRuntime,
 )
 from kapso.cross_run.expert.task_evaluation_materialization import (
     VerifiedTaskEvaluationCandidate,
@@ -147,7 +145,7 @@ class SourceReplayDockerExecutionProvider(TaskEvaluationDockerSandbox):
         dispatch_key: ExpertSourceReplayExecutionProviderKey,
         provider_settings: TaskEvaluationDockerProviderSettings,
         policy_settings: ExpertValidationPolicySettings,
-        runtime: TaskEvaluationDockerRuntime,
+        runtime: PinnedDockerRuntime,
     ) -> None:
         require_source_replay_docker_provider_key(
             dispatch_key,

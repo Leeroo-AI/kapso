@@ -1,25 +1,26 @@
-"""Pinned Docker CLI authority for isolated expert task evaluation."""
+"""Domain-neutral pinned Docker CLI and daemon authority."""
 
 from __future__ import annotations
 
 import fcntl
 import json
 import os
+import re
 import stat
 from contextlib import ExitStack
+from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Mapping, Protocol
 
 from kapso.cross_run.canonical import tree_or_blob_digest
-from kapso.cross_run.contracts import TaskAdapterRuntimeContract
 from kapso.cross_run.process import (
     BoundedProcessOutcome,
     BoundedProcessRequest,
     BoundedProcessResult,
     BoundedProcessRunner,
 )
-from kapso.cross_run.settings import TaskEvaluationDockerProviderSettings
+from kapso.cross_run.settings import DockerRuntimeSettings
 
 _AUTHORITY_DIRECTORY_NAME = "authority"
 _DOCKER_CONFIG_DIRECTORY_PREFIX = "docker-config-"
@@ -27,35 +28,70 @@ _DOCKER_CONFIG_FILENAME = "config.json"
 _PINNED_DOCKER_FILENAME_PREFIX = "docker-"
 _EMPTY_DOCKER_CONFIG = b'{"auths":{}}\n'
 _DOCKER_HOST_PREFIX = "unix://"
+_DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
+_PLATFORM_IDENTIFIER_PATTERN = re.compile(r"^[a-z0-9]+(?:[._-][a-z0-9]+)*$")
+_REGISTRY_HOST_LABEL_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$")
+_REPOSITORY_COMPONENT_PATTERN = re.compile(r"^[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*$")
 
 
-class TaskEvaluationDockerRuntimeError(RuntimeError):
+class PinnedDockerRuntimeError(RuntimeError):
     """The Docker client, daemon, image, or command violates pinned authority."""
 
 
-class TaskEvaluationDockerProcessRunner(Protocol):
+class PinnedDockerProcessRunner(Protocol):
     """The bounded host-process primitive used by the Docker runtime."""
 
     def run(self, request: BoundedProcessRequest) -> BoundedProcessResult: ...
 
 
-class TaskEvaluationDockerRuntime:
+@dataclass(frozen=True)
+class DockerImageAuthority:
+    """Exact content and platform identity admitted by the pinned runtime."""
+
+    image_reference: str
+    image_config_digest: str
+    operating_system: str
+    architecture: str
+    architecture_variant: str | None
+
+    def __post_init__(self) -> None:
+        if (
+            not _is_canonical_pinned_image_reference(self.image_reference)
+            or not isinstance(self.image_config_digest, str)
+            or _DIGEST_PATTERN.fullmatch(self.image_config_digest) is None
+            or not isinstance(self.operating_system, str)
+            or _PLATFORM_IDENTIFIER_PATTERN.fullmatch(self.operating_system) is None
+            or not isinstance(self.architecture, str)
+            or _PLATFORM_IDENTIFIER_PATTERN.fullmatch(self.architecture) is None
+            or (
+                self.architecture_variant is not None
+                and (
+                    not isinstance(self.architecture_variant, str)
+                    or _PLATFORM_IDENTIFIER_PATTERN.fullmatch(self.architecture_variant)
+                    is None
+                )
+            )
+        ):
+            raise PinnedDockerRuntimeError("Docker image authority is invalid")
+
+
+class PinnedDockerRuntime:
     """Execute Docker only through privately pinned bytes and an exact daemon."""
 
     def __init__(
         self,
         *,
         trusted_root: Path,
-        settings: TaskEvaluationDockerProviderSettings,
-        process_runner: TaskEvaluationDockerProcessRunner,
+        settings: DockerRuntimeSettings,
+        process_runner: PinnedDockerProcessRunner,
     ) -> None:
-        if not isinstance(settings, TaskEvaluationDockerProviderSettings):
-            raise TaskEvaluationDockerRuntimeError(
-                "task evaluation Docker runtime requires exact provider settings"
+        if type(settings) is not DockerRuntimeSettings:
+            raise PinnedDockerRuntimeError(
+                "pinned Docker runtime requires exact runtime settings"
             )
         if not callable(getattr(process_runner, "run", None)):
-            raise TaskEvaluationDockerRuntimeError(
-                "task evaluation Docker runtime requires a bounded process runner"
+            raise PinnedDockerRuntimeError(
+                "pinned Docker runtime requires a bounded process runner"
             )
         _require_private_root(trusted_root)
         settings_digest_suffix = tree_or_blob_digest(
@@ -112,8 +148,8 @@ class TaskEvaluationDockerRuntime:
         cls,
         *,
         trusted_root: Path,
-        settings: TaskEvaluationDockerProviderSettings,
-    ) -> TaskEvaluationDockerRuntime:
+        settings: DockerRuntimeSettings,
+    ) -> PinnedDockerRuntime:
         return cls(
             trusted_root=trusted_root,
             settings=settings,
@@ -125,7 +161,7 @@ class TaskEvaluationDockerRuntime:
         return self._trusted_root
 
     @property
-    def settings(self) -> TaskEvaluationDockerProviderSettings:
+    def settings(self) -> DockerRuntimeSettings:
         return self._settings
 
     def require_live_authority(self) -> None:
@@ -134,10 +170,13 @@ class TaskEvaluationDockerRuntime:
         info = self.run_json_control(("info", "--format", "{{json .}}"))
         _require_daemon_authority(version, info, self._settings)
 
-    def require_exact_image(self, runtime: TaskAdapterRuntimeContract) -> None:
-        if not isinstance(runtime, TaskAdapterRuntimeContract):
-            raise TaskEvaluationDockerRuntimeError(
-                "task evaluation Docker image requires an exact runtime contract"
+    def inspect_exact_image(
+        self,
+        authority: DockerImageAuthority,
+    ) -> Mapping[str, Any]:
+        if type(authority) is not DockerImageAuthority:
+            raise PinnedDockerRuntimeError(
+                "pinned Docker image requires an exact authority"
             )
         self.require_live_authority()
         image = self.run_json_control(
@@ -146,10 +185,11 @@ class TaskEvaluationDockerRuntime:
                 "inspect",
                 "--format",
                 "{{json .}}",
-                runtime.image_reference,
+                authority.image_reference,
             )
         )
-        _require_image_authority(image, runtime)
+        _require_image_identity(image, authority)
+        return image
 
     def run_control(self, arguments: tuple[str, ...]) -> BoundedProcessResult:
         result = self.run_bounded(
@@ -164,8 +204,8 @@ class TaskEvaluationDockerRuntime:
             or result.returncode != 0
             or result.stderr
         ):
-            raise TaskEvaluationDockerRuntimeError(
-                "task evaluation Docker control command failed or emitted stderr"
+            raise PinnedDockerRuntimeError(
+                "pinned Docker control command failed or emitted stderr"
             )
         return result
 
@@ -189,8 +229,8 @@ class TaskEvaluationDockerRuntime:
                 for argument in arguments
             )
         ):
-            raise TaskEvaluationDockerRuntimeError(
-                "task evaluation Docker arguments must be non-empty strings"
+            raise PinnedDockerRuntimeError(
+                "pinned Docker arguments must be non-empty strings"
             )
         self._require_local_authority()
         request = BoundedProcessRequest(
@@ -212,16 +252,14 @@ class TaskEvaluationDockerRuntime:
         )
         result = self._process_runner.run(request)
         if type(result) is not BoundedProcessResult or result.request != request:
-            raise TaskEvaluationDockerRuntimeError(
-                "task evaluation Docker runner changed its exact request"
+            raise PinnedDockerRuntimeError(
+                "pinned Docker runner changed its exact request"
             )
         return result
 
     def _require_local_authority(self) -> None:
         if read_verified_private_executable(self._docker_path) != self._docker_digest:
-            raise TaskEvaluationDockerRuntimeError(
-                "task evaluation pinned Docker executable changed"
-            )
+            raise PinnedDockerRuntimeError("pinned Docker executable changed")
         _require_runtime_socket(Path(self._settings.runtime_socket_path))
 
 
@@ -234,8 +272,8 @@ def read_verified_root_executable(path: Path, expected_digest: str) -> bytes:
         or path != Path(os.path.abspath(path))
         or path.resolve() != path
     ):
-        raise TaskEvaluationDockerRuntimeError(
-            "task evaluation authority executable path must be absolute and normalized"
+        raise PinnedDockerRuntimeError(
+            "Docker authority executable path must be absolute and normalized"
         )
     descriptor = os.open(
         path,
@@ -250,8 +288,8 @@ def read_verified_root_executable(path: Path, expected_digest: str) -> bytes:
             or stat.S_IMODE(metadata_before.st_mode) & 0o022
             or not metadata_before.st_mode & stat.S_IXUSR
         ):
-            raise TaskEvaluationDockerRuntimeError(
-                "task evaluation authority executable is not immutable root-owned code"
+            raise PinnedDockerRuntimeError(
+                "Docker authority executable is not immutable root-owned code"
             )
         payload = handle.read()
         metadata_after = os.fstat(handle.fileno())
@@ -261,8 +299,8 @@ def read_verified_root_executable(path: Path, expected_digest: str) -> bytes:
         or len(payload) != metadata_before.st_size
         or tree_or_blob_digest(payload) != expected_digest
     ):
-        raise TaskEvaluationDockerRuntimeError(
-            "task evaluation authority executable differs from its pinned digest"
+        raise PinnedDockerRuntimeError(
+            "Docker authority executable differs from its pinned digest"
         )
     return payload
 
@@ -280,9 +318,7 @@ def read_verified_private_executable(path: Path) -> str:
             or metadata_before.st_uid != os.geteuid()
             or stat.S_IMODE(metadata_before.st_mode) != 0o500
         ):
-            raise TaskEvaluationDockerRuntimeError(
-                "task evaluation private executable is unsafe"
-            )
+            raise PinnedDockerRuntimeError("private Docker executable is unsafe")
         payload = handle.read()
         metadata_after = os.fstat(handle.fileno())
     if (metadata_before.st_dev, metadata_before.st_ino, metadata_before.st_size) != (
@@ -290,8 +326,8 @@ def read_verified_private_executable(path: Path) -> str:
         metadata_after.st_ino,
         metadata_after.st_size,
     ) or len(payload) != metadata_before.st_size:
-        raise TaskEvaluationDockerRuntimeError(
-            "task evaluation private executable changed while reading"
+        raise PinnedDockerRuntimeError(
+            "private Docker executable changed while reading"
         )
     return tree_or_blob_digest(payload)
 
@@ -299,7 +335,7 @@ def read_verified_private_executable(path: Path) -> str:
 def _require_daemon_authority(
     version: Mapping[str, Any],
     info: Mapping[str, Any],
-    settings: TaskEvaluationDockerProviderSettings,
+    settings: DockerRuntimeSettings,
 ) -> None:
     client = _require_mapping(version, "Client", "Docker version client")
     server = _require_mapping(version, "Server", "Docker version server")
@@ -334,61 +370,86 @@ def _require_daemon_authority(
         or "null"
         not in _require_string_set(plugins.get("Network"), "Docker network plugins")
     ):
-        raise TaskEvaluationDockerRuntimeError(
-            "task evaluation Docker daemon differs from its exact authority"
-        )
+        raise PinnedDockerRuntimeError("Docker daemon differs from its exact authority")
 
 
-def _require_image_authority(
+def _require_image_identity(
     image: Mapping[str, Any],
-    runtime: TaskAdapterRuntimeContract,
+    authority: DockerImageAuthority,
 ) -> None:
-    config = _require_mapping(image, "Config", "Docker image config")
     repo_digests = _require_string_set(image.get("RepoDigests"), "Docker image digests")
-    environment = _optional_string_tuple(config.get("Env"), "Docker image environment")
-    command = _optional_string_tuple(config.get("Cmd"), "Docker image command")
-    volumes = config.get("Volumes")
     variant = image.get("Variant")
     normalized_variant = None if variant in {None, ""} else variant
-    expected_environment = tuple(
-        f"{key}={value}" for key, value in runtime.environment.items()
-    )
     if (
-        image.get("Id") != runtime.image_config_digest
-        or runtime.image_reference not in repo_digests
-        or image.get("Os") != runtime.operating_system
-        or image.get("Architecture") != runtime.architecture
-        or normalized_variant != runtime.architecture_variant
-        or environment != expected_environment
-        or command
-        or config.get("Entrypoint") is not None
-        or (volumes is not None and volumes != {})
-        or config.get("Healthcheck") is not None
+        image.get("Id") != authority.image_config_digest
+        or authority.image_reference not in repo_digests
+        or image.get("Os") != authority.operating_system
+        or image.get("Architecture") != authority.architecture
+        or normalized_variant != authority.architecture_variant
     ):
-        raise TaskEvaluationDockerRuntimeError(
-            "task evaluation Docker image differs from its exact runtime contract"
+        raise PinnedDockerRuntimeError(
+            "Docker image differs from its exact content identity"
         )
+
+
+def _is_canonical_pinned_image_reference(value: Any) -> bool:
+    if not isinstance(value, str) or value != value.lower() or "\x00" in value:
+        return False
+    repository, separator, manifest_digest = value.rpartition("@")
+    if (
+        separator != "@"
+        or _DIGEST_PATTERN.fullmatch(manifest_digest) is None
+        or "/" not in repository
+    ):
+        return False
+    registry, *components = repository.split("/")
+    if (
+        not registry
+        or not components
+        or any(
+            _REPOSITORY_COMPONENT_PATTERN.fullmatch(component) is None
+            for component in components
+        )
+    ):
+        return False
+    host = registry
+    has_explicit_port = False
+    if ":" in registry:
+        has_explicit_port = True
+        host, port_separator, port = registry.rpartition(":")
+        if (
+            port_separator != ":"
+            or not port.isascii()
+            or not port.isdigit()
+            or len(port) > 5
+            or not 1 <= int(port) <= 65535
+        ):
+            return False
+    if (
+        not host
+        or (host != "localhost" and "." not in host and not has_explicit_port)
+        or any(
+            _REGISTRY_HOST_LABEL_PATTERN.fullmatch(label) is None
+            for label in host.split(".")
+        )
+    ):
+        return False
+    return True
 
 
 def _parse_single_json_object(payload: bytes) -> Mapping[str, Any]:
     if not isinstance(payload, bytes) or not payload.endswith(b"\n"):
-        raise TaskEvaluationDockerRuntimeError(
-            "task evaluation Docker JSON output lacks its exact line ending"
-        )
+        raise PinnedDockerRuntimeError("Docker JSON output lacks its exact line ending")
     encoded = payload[:-1]
     if not encoded or b"\n" in encoded or b"\r" in encoded:
-        raise TaskEvaluationDockerRuntimeError(
-            "task evaluation Docker JSON output is not one document"
-        )
+        raise PinnedDockerRuntimeError("Docker JSON output is not one document")
     decoded = json.loads(
         encoded.decode("utf-8"),
         object_pairs_hook=_unique_json_object,
         parse_constant=_reject_nonstandard_json_constant,
     )
     if not isinstance(decoded, dict):
-        raise TaskEvaluationDockerRuntimeError(
-            "task evaluation Docker JSON output is not an object"
-        )
+        raise PinnedDockerRuntimeError("Docker JSON output is not an object")
     return MappingProxyType(decoded)
 
 
@@ -396,16 +457,16 @@ def _unique_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     decoded: dict[str, Any] = {}
     for key, value in pairs:
         if key in decoded:
-            raise TaskEvaluationDockerRuntimeError(
-                "task evaluation Docker JSON output contains a duplicate key"
+            raise PinnedDockerRuntimeError(
+                "Docker JSON output contains a duplicate key"
             )
         decoded[key] = value
     return decoded
 
 
 def _reject_nonstandard_json_constant(value: str) -> None:
-    raise TaskEvaluationDockerRuntimeError(
-        f"task evaluation Docker JSON output contains nonstandard constant {value}"
+    raise PinnedDockerRuntimeError(
+        f"Docker JSON output contains nonstandard constant {value}"
     )
 
 
@@ -416,7 +477,7 @@ def _require_mapping(
 ) -> Mapping[str, Any]:
     child = value.get(key)
     if not isinstance(child, dict):
-        raise TaskEvaluationDockerRuntimeError(f"{name} is not an object")
+        raise PinnedDockerRuntimeError(f"{name} is not an object")
     return child
 
 
@@ -426,16 +487,8 @@ def _require_string_set(value: Any, name: str) -> frozenset[str]:
         or any(not isinstance(item, str) or not item for item in value)
         or len(value) != len(set(value))
     ):
-        raise TaskEvaluationDockerRuntimeError(f"{name} is not a string list")
+        raise PinnedDockerRuntimeError(f"{name} is not a string list")
     return frozenset(value)
-
-
-def _optional_string_tuple(value: Any, name: str) -> tuple[str, ...]:
-    if value is None:
-        return ()
-    if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
-        raise TaskEvaluationDockerRuntimeError(f"{name} is not a string list")
-    return tuple(value)
 
 
 def _require_runtime_socket(path: Path) -> None:
@@ -444,9 +497,7 @@ def _require_runtime_socket(path: Path) -> None:
         or path != Path(os.path.abspath(path))
         or path.resolve() != path
     ):
-        raise TaskEvaluationDockerRuntimeError(
-            "task evaluation Docker socket path is not absolute and direct"
-        )
+        raise PinnedDockerRuntimeError("Docker socket path is not absolute and direct")
     metadata = path.lstat()
     if (
         not stat.S_ISSOCK(metadata.st_mode)
@@ -454,8 +505,8 @@ def _require_runtime_socket(path: Path) -> None:
         or metadata.st_nlink != 1
         or stat.S_IMODE(metadata.st_mode) & 0o002
     ):
-        raise TaskEvaluationDockerRuntimeError(
-            "task evaluation Docker authority is not a root-owned Unix socket"
+        raise PinnedDockerRuntimeError(
+            "Docker authority is not a root-owned Unix socket"
         )
 
 
@@ -466,8 +517,8 @@ def _require_private_root(path: Path) -> None:
         or path != Path(os.path.abspath(path))
         or path.resolve() != path
     ):
-        raise TaskEvaluationDockerRuntimeError(
-            "task evaluation Docker trusted root must be absolute and resolved"
+        raise PinnedDockerRuntimeError(
+            "Docker trusted root must be absolute and resolved"
         )
     metadata = path.stat()
     if (
@@ -475,15 +526,13 @@ def _require_private_root(path: Path) -> None:
         or stat.S_IMODE(metadata.st_mode) != 0o700
         or metadata.st_uid != os.geteuid()
     ):
-        raise TaskEvaluationDockerRuntimeError(
-            "task evaluation Docker trusted root must be owner-private"
-        )
+        raise PinnedDockerRuntimeError("Docker trusted root must be owner-private")
 
 
 def _ensure_private_directory(path: Path, parent: Path) -> None:
     if path.parent != parent:
-        raise TaskEvaluationDockerRuntimeError(
-            "task evaluation Docker private directory is outside its trusted parent"
+        raise PinnedDockerRuntimeError(
+            "Docker private directory is outside its trusted parent"
         )
     if not path.exists():
         os.mkdir(path, mode=0o700)
@@ -494,17 +543,15 @@ def _ensure_private_directory(path: Path, parent: Path) -> None:
         or stat.S_IMODE(metadata.st_mode) != 0o700
         or metadata.st_uid != os.geteuid()
     ):
-        raise TaskEvaluationDockerRuntimeError(
-            "task evaluation Docker private directory is unsafe"
-        )
+        raise PinnedDockerRuntimeError("Docker private directory is unsafe")
 
 
 def _publish_or_verify_private_executable(path: Path, payload: bytes) -> None:
     if not path.exists():
         _write_private_file(path, payload, 0o500)
     if read_verified_private_executable(path) != tree_or_blob_digest(payload):
-        raise TaskEvaluationDockerRuntimeError(
-            "task evaluation pinned Docker executable conflicts with authority"
+        raise PinnedDockerRuntimeError(
+            "pinned Docker executable conflicts with authority"
         )
 
 
@@ -522,9 +569,7 @@ def _publish_or_verify_private_file(path: Path, payload: bytes) -> None:
         or stat.S_IMODE(metadata.st_mode) != 0o400
         or observed != payload
     ):
-        raise TaskEvaluationDockerRuntimeError(
-            "task evaluation private Docker configuration is unsafe"
-        )
+        raise PinnedDockerRuntimeError("private Docker configuration is unsafe")
 
 
 def _write_private_file(path: Path, payload: bytes, mode: int) -> None:
@@ -541,9 +586,7 @@ def _write_private_file(path: Path, payload: bytes, mode: int) -> None:
             or metadata.st_nlink != 1
             or metadata.st_uid != os.geteuid()
         ):
-            raise TaskEvaluationDockerRuntimeError(
-                "task evaluation private Docker file is unsafe"
-            )
+            raise PinnedDockerRuntimeError("private Docker file is unsafe")
         handle.write(payload)
         handle.flush()
         os.fsync(handle.fileno())

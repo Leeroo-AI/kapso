@@ -12,9 +12,13 @@ projection and retained bundle layer, single-lock checkpoint/generation
 publisher, mutable-view promotion, current-frontier action lease, receipt-pinned
 create-only action store, mandatory action-ledger projection, and durable
 gate/publication composition, descriptor-safe runtime reopen, and deterministic
-nonterminal action recovery are implemented. Boundary-specific production
-adapters, OS executor isolation, explicit E0/S-EMPTY provisioning orchestration,
-full policy refresh on resume, and API/runner activation remain.
+nonterminal action recovery are implemented. The pinned Docker CLI, daemon, and
+image authority is now a domain-neutral runtime reusable by M8 evaluators and
+M9 action adapters, with shared host/runtime authority owned once by top-level
+`cross_run.docker` rather than by either consumer. Boundary-specific production
+adapters, the generic sandbox
+and supervisor, OS executor isolation, explicit E0/S-EMPTY provisioning
+orchestration, full policy refresh on resume, and API/runner activation remain.
 
 ## Objective
 

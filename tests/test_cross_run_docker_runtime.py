@@ -7,13 +7,13 @@ from dataclasses import replace
 
 import pytest
 
-import kapso.cross_run.expert.task_evaluation_docker_runtime as runtime_module
+import kapso.cross_run.docker.runtime as runtime_module
 from kapso.core.config import load_config
 from kapso.cross_run.canonical import tree_or_blob_digest
-from kapso.cross_run.contracts import TaskAdapterRuntimeContract
-from kapso.cross_run.expert.task_evaluation_docker_runtime import (
-    TaskEvaluationDockerRuntime,
-    TaskEvaluationDockerRuntimeError,
+from kapso.cross_run.docker.runtime import (
+    DockerImageAuthority,
+    PinnedDockerRuntime,
+    PinnedDockerRuntimeError,
 )
 from kapso.cross_run.process import (
     BoundedProcessOutcome,
@@ -49,7 +49,7 @@ class _ScriptedProcessRunner:
 def provider_settings():
     settings = CrossRunSettings.from_dict(
         load_config(_CANONICAL_CONFIG_PATH)["cross_run"]
-    ).expert.validation.task_evaluation_provider
+    ).docker
     return replace(
         settings,
         runtime_executable_digest=tree_or_blob_digest(_TEST_EXECUTABLE_BYTES),
@@ -60,8 +60,8 @@ def provider_settings():
 def isolated_local_authority(monkeypatch, provider_settings):
     def read_executable(_path, expected_digest):
         if expected_digest != provider_settings.runtime_executable_digest:
-            raise TaskEvaluationDockerRuntimeError(
-                "task evaluation authority executable differs from its pinned digest"
+            raise PinnedDockerRuntimeError(
+                "Docker authority executable differs from its pinned digest"
             )
         return _TEST_EXECUTABLE_BYTES
 
@@ -109,27 +109,24 @@ def _info(settings):
 
 
 def _runtime_contract():
-    return TaskAdapterRuntimeContract(
-        runtime_protocol_version="kapso.task_adapter_runtime.v1",
-        image_repository="registry.example/kapso/replay-runtime",
-        image_manifest_digest=tree_or_blob_digest(b"manifest"),
+    return DockerImageAuthority(
+        image_reference=(
+            "registry.example/kapso/replay-runtime@" + tree_or_blob_digest(b"manifest")
+        ),
         image_config_digest=tree_or_blob_digest(b"config"),
-        dependency_lock_path="requirements.lock",
-        dependency_lock_digest=tree_or_blob_digest(b"lock"),
         operating_system="linux",
         architecture="amd64",
         architecture_variant=None,
-        environment={"LANG": "C", "PATH": "/usr/bin:/bin", "PYTHONHASHSEED": "0"},
     )
 
 
-def _image(runtime):
+def _image(runtime, environment=()):
     return {
         "Architecture": runtime.architecture,
         "Config": {
             "Cmd": None,
             "Entrypoint": None,
-            "Env": [f"{key}={value}" for key, value in runtime.environment.items()],
+            "Env": [f"{key}={value}" for key, value in environment],
             "Healthcheck": None,
             "Volumes": None,
         },
@@ -157,7 +154,7 @@ def _make_runtime(tmp_path, settings, additional_outputs=()):
             *additional_outputs,
         ]
     )
-    runtime = TaskEvaluationDockerRuntime(
+    runtime = PinnedDockerRuntime(
         trusted_root=tmp_path.resolve(),
         settings=settings,
         process_runner=runner,
@@ -167,7 +164,7 @@ def _make_runtime(tmp_path, settings, additional_outputs=()):
 
 def _construct_runtime_after_signal(trusted_root, settings, start_signal):
     start_signal.wait()
-    TaskEvaluationDockerRuntime(
+    PinnedDockerRuntime(
         trusted_root=trusted_root,
         settings=settings,
         process_runner=_ScriptedProcessRunner([]),
@@ -245,7 +242,7 @@ def test_independent_process_runtimes_serialize_authority_publication(
         observe_private_directory,
     )
     monkeypatch.setattr(
-        runtime_module.TaskEvaluationDockerRuntime,
+        runtime_module.PinnedDockerRuntime,
         "require_live_authority",
         lambda _runtime: None,
     )
@@ -280,7 +277,7 @@ def test_runtime_client_version_is_bound_by_bytes_not_server_version(
         ]
     )
 
-    TaskEvaluationDockerRuntime(
+    PinnedDockerRuntime(
         trusted_root=tmp_path.resolve(),
         settings=provider_settings,
         process_runner=runner,
@@ -327,8 +324,8 @@ def test_runtime_rejects_changed_daemon_authority(
         ]
     )
 
-    with pytest.raises(TaskEvaluationDockerRuntimeError, match="daemon differs"):
-        TaskEvaluationDockerRuntime(
+    with pytest.raises(PinnedDockerRuntimeError, match="daemon differs"):
+        PinnedDockerRuntime(
             trusted_root=tmp_path.resolve(),
             settings=provider_settings,
             process_runner=runner,
@@ -350,8 +347,8 @@ def test_runtime_rejects_ambiguous_or_failed_control_output(
         ]
     )
 
-    with pytest.raises(TaskEvaluationDockerRuntimeError, match="failed"):
-        TaskEvaluationDockerRuntime(
+    with pytest.raises(PinnedDockerRuntimeError, match="failed"):
+        PinnedDockerRuntime(
             trusted_root=tmp_path.resolve(),
             settings=provider_settings,
             process_runner=runner,
@@ -366,8 +363,8 @@ def test_runtime_rejects_duplicate_json_keys(tmp_path, provider_settings):
         ]
     )
 
-    with pytest.raises(TaskEvaluationDockerRuntimeError, match="duplicate key"):
-        TaskEvaluationDockerRuntime(
+    with pytest.raises(PinnedDockerRuntimeError, match="duplicate key"):
+        PinnedDockerRuntime(
             trusted_root=tmp_path.resolve(),
             settings=provider_settings,
             process_runner=runner,
@@ -382,15 +379,18 @@ def test_runtime_rejects_nonstandard_json_constants(tmp_path, provider_settings)
         ]
     )
 
-    with pytest.raises(TaskEvaluationDockerRuntimeError, match="nonstandard constant"):
-        TaskEvaluationDockerRuntime(
+    with pytest.raises(PinnedDockerRuntimeError, match="nonstandard constant"):
+        PinnedDockerRuntime(
             trusted_root=tmp_path.resolve(),
             settings=provider_settings,
             process_runner=runner,
         )
 
 
-def test_runtime_accepts_only_the_exact_local_image(tmp_path, provider_settings):
+def test_runtime_accepts_only_the_exact_local_image_identity(
+    tmp_path,
+    provider_settings,
+):
     runtime_contract = _runtime_contract()
     runtime, runner = _make_runtime(
         tmp_path,
@@ -398,8 +398,9 @@ def test_runtime_accepts_only_the_exact_local_image(tmp_path, provider_settings)
         _fresh_image_outputs(provider_settings, _image(runtime_contract)),
     )
 
-    runtime.require_exact_image(runtime_contract)
+    inspected = runtime.inspect_exact_image(runtime_contract)
 
+    assert inspected == _image(runtime_contract)
     assert len(runner.requests) == 5
     assert runner.requests[-1].argv[-5:] == (
         "image",
@@ -411,39 +412,112 @@ def test_runtime_accepts_only_the_exact_local_image(tmp_path, provider_settings)
 
 
 @pytest.mark.parametrize(
-    ("field_path", "invalid_value"),
+    "image_reference",
     (
-        (("Id",), "sha256:" + "f" * 64),
-        (("RepoDigests",), []),
-        (("Architecture",), "arm64"),
-        (("Variant",), "v8"),
-        (("Config", "Env"), ["LANG=C", "EXTRA=value"]),
-        (("Config", "Cmd"), ["inherited"]),
-        (("Config", "Entrypoint"), ["/inherited-entrypoint"]),
-        (("Config", "Volumes"), {"/kapso/writable": {}}),
-        (("Config", "Healthcheck"), {"Test": ["NONE"]}),
+        "registry.example/kapso/replay-runtime:latest",
+        "--help@sha256:" + "a" * 64,
+        "registry.example/UPPER/replay@sha256:" + "a" * 64,
+        "unqualified/replay@sha256:" + "a" * 64,
+        "registry.example:0/kapso/replay@sha256:" + "a" * 64,
+        "registry.example:999999/kapso/replay@sha256:" + "a" * 64,
     ),
 )
-def test_runtime_rejects_changed_image_authority(
+def test_image_authority_requires_a_canonical_registry_qualified_digest_reference(
+    image_reference,
+):
+    runtime_contract = _runtime_contract()
+
+    with pytest.raises(PinnedDockerRuntimeError, match="image authority is invalid"):
+        replace(
+            runtime_contract,
+            image_reference=image_reference,
+        )
+
+
+@pytest.mark.parametrize(
+    "repository",
+    (
+        "registry.example/kapso/replay-runtime",
+        "localhost:5000/kapso/replay-runtime",
+        "127.0.0.1:5000/kapso/replay-runtime",
+        "registry:5000/kapso/replay-runtime",
+    ),
+)
+def test_image_authority_accepts_canonical_registry_qualified_repositories(
+    repository,
+):
+    authority = replace(
+        _runtime_contract(),
+        image_reference=f"{repository}@sha256:" + "a" * 64,
+    )
+
+    assert authority.image_reference.startswith(repository)
+
+
+@pytest.mark.parametrize(
+    ("field_name", "invalid_value"),
+    (
+        ("Id", "sha256:" + "f" * 64),
+        ("RepoDigests", []),
+        ("Architecture", "arm64"),
+        ("Variant", "v8"),
+    ),
+)
+def test_runtime_rejects_changed_image_identity(
     tmp_path,
     provider_settings,
-    field_path,
+    field_name,
     invalid_value,
 ):
     runtime_contract = _runtime_contract()
     image = _image(runtime_contract)
-    target = image
-    for part in field_path[:-1]:
-        target = target[part]
-    target[field_path[-1]] = invalid_value
+    image[field_name] = invalid_value
     runtime, _ = _make_runtime(
         tmp_path,
         provider_settings,
         _fresh_image_outputs(provider_settings, image),
     )
 
-    with pytest.raises(TaskEvaluationDockerRuntimeError, match="image differs"):
-        runtime.require_exact_image(runtime_contract)
+    with pytest.raises(PinnedDockerRuntimeError, match="image differs"):
+        runtime.inspect_exact_image(runtime_contract)
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    (
+        ("operating_system", " "),
+        ("architecture", "amd 64"),
+        ("architecture_variant", "-v8"),
+    ),
+)
+def test_image_authority_requires_canonical_platform_identifiers(
+    field_name,
+    value,
+):
+    with pytest.raises(PinnedDockerRuntimeError, match="image authority is invalid"):
+        replace(_runtime_contract(), **{field_name: value})
+
+
+def test_runtime_returns_image_configuration_without_imposing_consumer_policy(
+    tmp_path,
+    provider_settings,
+):
+    authority = _runtime_contract()
+    image = _image(authority)
+    image["Config"] = {
+        "Cmd": ["run"],
+        "Entrypoint": ["/usr/bin/tool"],
+        "Env": ["PURPOSE=generic"],
+        "Healthcheck": {"Test": ["NONE"]},
+        "Volumes": {"/data": {}},
+    }
+    runtime, _ = _make_runtime(
+        tmp_path,
+        provider_settings,
+        _fresh_image_outputs(provider_settings, image),
+    )
+
+    assert runtime.inspect_exact_image(authority) == image
 
 
 def test_runtime_revalidates_pinned_cli_before_each_command(
@@ -454,7 +528,7 @@ def test_runtime_revalidates_pinned_cli_before_each_command(
     pinned_path = next((tmp_path / "authority").iterdir())
     pinned_path.chmod(0o700)
 
-    with pytest.raises(TaskEvaluationDockerRuntimeError, match="private executable"):
+    with pytest.raises(PinnedDockerRuntimeError, match="private Docker executable"):
         runtime.require_live_authority()
 
 
@@ -469,8 +543,8 @@ def test_runtime_rejects_provider_settings_with_an_unpinned_cli_digest(
         runtime_executable_digest="sha256:" + "f" * 64,
     )
 
-    with pytest.raises(TaskEvaluationDockerRuntimeError, match="pinned digest"):
-        TaskEvaluationDockerRuntime(
+    with pytest.raises(PinnedDockerRuntimeError, match="pinned digest"):
+        PinnedDockerRuntime(
             trusted_root=tmp_path.resolve(),
             settings=changed,
             process_runner=runner,
