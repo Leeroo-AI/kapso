@@ -19,16 +19,37 @@ from kapso.cross_run.canonical import require_content_id
 from kapso.cross_run.launch.checkpoint_contracts import (
     RunCheckpoint,
     RunCheckpointHead,
+    RunCheckpointStatus,
 )
 from kapso.cross_run.launch.checkpoint_control import (
     _CheckpointFrontierInspection,
     _RunCheckpointControl,
 )
 from kapso.cross_run.launch.derived_state_bundle import RunDerivedStateBundle
+from kapso.cross_run.launch.run_action_contracts import (
+    RunFrontierWorkspaceAccess,
+)
+from kapso.cross_run.launch.run_action_ledger import (
+    RunActionExecutionEventKind,
+    RunActionLedgerSnapshot,
+)
+from kapso.cross_run.launch.run_action_store import (
+    _RUN_ACTION_STORE_AUTHORITY,
+    RunActionExecutionStore,
+    RunActionFrontierBinding,
+    RunActionReservation,
+    RunActionStoreInspection,
+    RunActionViewBinding,
+    RunActionWorkspaceBinding,
+)
+from kapso.cross_run.launch.resume_contracts import RunEligibilityDisposition
 from kapso.cross_run.launch.run_state_projection import (
     ReconciledRunStateProjection,
 )
 from kapso.cross_run.launch.workspace import ActiveLaunchWorkspace
+from kapso.cross_run.launch.workspace_frontier import (
+    inspect_run_workspace_frontier,
+)
 from kapso.cross_run.settings import LaunchSettings
 
 _GENERATION_OBJECT_PATTERN = re.compile(r"^generation-[0-9a-f]{64}[.]bundle$")
@@ -39,8 +60,6 @@ _DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 _RENAME_NOREPLACE = 1
 _PUBLICATION_PERMIT_AUTHORITY = object()
 _RECONCILED_FRONTIER_AUTHORITY = object()
-_ACTION_PUBLICATION_GUARD_LOCK = Lock()
-_ACTION_PUBLICATION_GUARDS: dict[int, object] = {}
 
 
 class RunStatePublisherError(RuntimeError):
@@ -234,8 +253,12 @@ class RunStatePublisher:
         self._authority = authority
         self._settings = settings
         self._checkpoint = _RunCheckpointControl(authority, settings)
+        self._action_store = RunActionExecutionStore(
+            active_workspace=authority,
+            settings=settings,
+            _authority=_RUN_ACTION_STORE_AUTHORITY,
+        )
         self._publisher_identity = object()
-        self._action_publication_guard = None
         self._permit_lock = Lock()
         self._issued_permits: dict[int, RunStatePublicationPermit] = {}
         self._receipt_lock = Lock()
@@ -364,9 +387,15 @@ class RunStatePublisher:
                     )
                 if current is not None:
                     projection.require_predecessor(current.projection)
+            self._action_store.lock_workspace(
+                RunFrontierWorkspaceAccess.READ_ONLY,
+                descriptors,
+            )
             self._require_action_publication_candidate(
-                observed_checkpoint,
+                current,
                 candidate,
+                projection,
+                self._action_store.inspect_locked(descriptors),
             )
             inspection = (
                 self._fresh_inspection(parent_descriptor, descriptors)
@@ -433,6 +462,16 @@ class RunStatePublisher:
                 raise RunStatePublisherError(
                     "run-state publication frontier moved after permit issuance"
                 )
+            self._action_store.lock_workspace(
+                RunFrontierWorkspaceAccess.READ_ONLY,
+                descriptors,
+            )
+            self._require_action_publication_candidate(
+                current,
+                candidate,
+                projection,
+                self._action_store.inspect_locked(descriptors),
+            )
             if current is not None and current.checkpoint == candidate:
                 if (
                     permit.requested_predecessor_checkpoint_id
@@ -442,12 +481,7 @@ class RunStatePublisher:
                     raise RunStatePublisherError(
                         "idempotent publication differs from its durable candidate"
                     )
-                receipt = self._mint_receipt(current)
-                self._commit_action_publication(
-                    candidate.predecessor_checkpoint_id,
-                    candidate,
-                )
-                return receipt
+                return self._mint_receipt(current)
             if current_id != permit.requested_predecessor_checkpoint_id:
                 raise RunStatePublisherError(
                     "run-state publication predecessor changed"
@@ -457,10 +491,6 @@ class RunStatePublisher:
             )
             if current is not None:
                 projection.require_predecessor(current.projection)
-            self._require_action_publication_candidate(
-                None if current is None else current.checkpoint,
-                candidate,
-            )
             successor_head = inspection.head.advance(candidate)
             self._checkpoint._require_journal_append_capacity(
                 parent_descriptor,
@@ -503,12 +533,7 @@ class RunStatePublisher:
                 raise RunStatePublisherError(
                     "published run-state frontier failed final reconciliation"
                 )
-            receipt = self._mint_receipt(reconciled)
-            self._commit_action_publication(
-                candidate.predecessor_checkpoint_id,
-                candidate,
-            )
-            return receipt
+            return self._mint_receipt(reconciled)
 
     def load_reconciled(self) -> ReconciledRunFrontier | None:
         """Recover safe crash seams, repair views, and return the current frontier."""
@@ -530,64 +555,226 @@ class RunStatePublisher:
         with ExitStack() as descriptors:
             return self._hold_current(receipt, descriptors)
 
-    def _bind_action_publication_guard(self, guard) -> None:
-        """Install the sole live-action workspace publication authority."""
-        if (
-            not hasattr(guard, "_require_publication_candidate")
-            or not hasattr(guard, "_commit_publication")
-        ):
-            raise RunStatePublisherError(
-                "run-state publisher action guard is missing or already bound"
-            )
-        with _ACTION_PUBLICATION_GUARD_LOCK:
-            existing = _ACTION_PUBLICATION_GUARDS.get(id(self._authority))
-            if (
-                existing is not None
-                and existing is not guard
-            ) or (
-                self._action_publication_guard is not None
-                and self._action_publication_guard is not guard
-            ):
-                raise RunStatePublisherError(
-                    "run-state publisher action guard is already bound"
-                )
-            _ACTION_PUBLICATION_GUARDS[id(self._authority)] = guard
-            self._action_publication_guard = guard
-
-    def _current_action_publication_guard(self):
-        with _ACTION_PUBLICATION_GUARD_LOCK:
-            registered = _ACTION_PUBLICATION_GUARDS.get(id(self._authority))
-        if (
-            self._action_publication_guard is not None
-            and registered is not self._action_publication_guard
-        ):
-            raise RunStatePublisherError(
-                "run-state publisher action guard registry changed"
-            )
-        return registered
+    def action_ledger_snapshot(self) -> RunActionLedgerSnapshot:
+        """Return the current durable ledger for candidate construction."""
+        self._authority.require_control_authority()
+        return self._action_store.snapshot()
 
     def _require_action_publication_candidate(
         self,
-        current_checkpoint: RunCheckpoint | None,
+        current: _ReconciledMaterial | None,
         candidate: RunCheckpoint,
+        projection: ReconciledRunStateProjection,
+        inspection: RunActionStoreInspection,
     ) -> None:
-        guard = self._current_action_publication_guard()
-        if guard is not None:
-            guard._require_publication_candidate(
-                current_checkpoint,
-                candidate,
+        if (
+            type(inspection) is not RunActionStoreInspection
+            or projection.action_ledger != inspection.ledger
+        ):
+            raise RunStatePublisherError(
+                "candidate action ledger differs from durable execution state"
+            )
+        terminal_kinds = {
+            RunActionExecutionEventKind.RESULT_ACCEPTED,
+            RunActionExecutionEventKind.CANCELLED,
+            RunActionExecutionEventKind.INTERRUPTED,
+        }
+        if any(
+            tail.tail_kind not in terminal_kinds
+            for tail in inspection.ledger.operation_tails
+        ):
+            raise RunStatePublisherError(
+                "candidate action ledger contains an unresolved execution"
+            )
+        if current is None:
+            if inspection.ledger != RunActionLedgerSnapshot.empty():
+                raise RunStatePublisherError("genesis action ledger must be empty")
+            return
+        ordered_new_operations = inspection.operations_since(
+            current.projection.action_ledger,
+        )
+        if any(
+            events[0].reservation.frontier.run_checkpoint_id
+            != current.checkpoint.run_checkpoint_id
+            for events in ordered_new_operations
+        ):
+            raise RunStatePublisherError(
+                "candidate action ledger contains an execution from another frontier"
+            )
+        for events in ordered_new_operations:
+            self._require_action_frontier_binding(
+                current,
+                events[0].reservation,
+            )
+        workspace_pairs = inspection.workspace_chain(
+            ordered_new_operations,
+        )
+        workspace_changes = tuple(
+            pair for pair in workspace_pairs if pair[0] != pair[1]
+        )
+        if len(workspace_changes) > 1:
+            raise RunStatePublisherError(
+                "one checkpoint cannot reconcile multiple workspace edits"
+            )
+        workspace_change = None if not workspace_changes else workspace_changes[0]
+        if workspace_change is not None and (
+            workspace_change[0] is None or workspace_change[1] is None
+        ):
+            raise RunStatePublisherError(
+                "workspace-changing action lacks exact before and after frontiers"
+            )
+        self._require_candidate_workspace_evidence(
+            current.checkpoint,
+            candidate,
+            workspace_change,
+            None if not workspace_pairs else workspace_pairs[-1][1],
+        )
+
+    def _require_candidate_workspace_evidence(
+        self,
+        current_checkpoint: RunCheckpoint,
+        candidate: RunCheckpoint,
+        workspace_change: (
+            tuple[RunActionWorkspaceBinding, RunActionWorkspaceBinding] | None
+        ),
+        final_workspace: RunActionWorkspaceBinding | None,
+    ) -> None:
+        branch = self._settings.workspace_git_branch
+        current_evidence = current_checkpoint.safety_state.derivative_frontier.evidence
+        candidate_evidence = candidate.safety_state.derivative_frontier.evidence
+        current_commit = current_evidence.branch_heads.get(branch)
+        if current_commit is None:
+            raise RunStatePublisherError(
+                "current checkpoint omits its configured workspace branch"
+            )
+        expected_commit = (
+            current_commit if final_workspace is None else final_workspace.commit_sha
+        )
+        with ExitStack() as descriptors:
+            workspace_descriptor, _identity = self._authority._open_execution_workspace(
+                descriptors
+            )
+            observed = inspect_run_workspace_frontier(
+                workspace_descriptor,
+                settings=self._settings,
+                expected_commit_sha=expected_commit,
+            )
+        if final_workspace is not None and observed != final_workspace.to_identity():
+            raise RunStatePublisherError(
+                "durable terminal workspace changed before publication"
+            )
+        current_ids = {
+            advance.branch_advance_id for advance in current_evidence.branch_advances
+        }
+        new_branch_advances = tuple(
+            advance
+            for advance in candidate_evidence.branch_advances
+            if advance.branch_advance_id not in current_ids and advance.branch == branch
+        )
+        if workspace_change is None:
+            if (
+                candidate_evidence.branch_heads.get(branch) != current_commit
+                or new_branch_advances
+            ):
+                raise RunStatePublisherError(
+                    "checkpoint changes workspace evidence without a durable edit"
+                )
+            return
+        before, after = workspace_change
+        if (
+            before.branch != branch
+            or before.commit_sha != current_commit
+            or after.branch != branch
+        ):
+            raise RunStatePublisherError(
+                "durable workspace edit differs from the checkpoint frontier"
+            )
+        terminal = tuple(
+            advance
+            for advance in current_evidence.branch_advances
+            if advance.branch == branch and advance.commit_sha == before.commit_sha
+        )
+        predecessor_advance_id = (
+            None
+            if current_evidence.branch_origin_heads[branch] == before.commit_sha
+            else terminal[0].branch_advance_id if len(terminal) == 1 else ""
+        )
+        if (
+            candidate_evidence.branch_heads.get(branch) != after.commit_sha
+            or len(new_branch_advances) != 1
+            or new_branch_advances[0].predecessor_commit_sha != before.commit_sha
+            or new_branch_advances[0].commit_sha != after.commit_sha
+            or new_branch_advances[0].predecessor_branch_advance_id
+            != predecessor_advance_id
+            or new_branch_advances[0].authorization_safety_state_id
+            != current_checkpoint.safety_state.safety_state_id
+        ):
+            raise RunStatePublisherError(
+                "checkpoint does not exactly account for its durable workspace edit"
             )
 
-    def _commit_action_publication(
+    def _require_action_frontier_binding(
         self,
-        predecessor_checkpoint_id: str | None,
-        candidate: RunCheckpoint,
+        current: _ReconciledMaterial,
+        reservation: RunActionReservation,
     ) -> None:
-        guard = self._current_action_publication_guard()
-        if guard is not None:
-            guard._commit_publication(
-                predecessor_checkpoint_id,
-                candidate,
+        if type(reservation) is not RunActionReservation:
+            raise RunStatePublisherError(
+                "run action publication requires one exact reservation"
+            )
+        checkpoint = current.checkpoint
+        safety = checkpoint.safety_state
+        binding = reservation.frontier
+        expected_views = tuple(
+            RunActionViewBinding(
+                relative_path=identity.relative_path,
+                digest=identity.digest,
+                size_bytes=identity.size_bytes,
+            )
+            for identity in current.view_identities
+        )
+        if (
+            type(binding) is not RunActionFrontierBinding
+            or checkpoint.status is not RunCheckpointStatus.ACTIVE
+            or checkpoint.last_stop is not None
+            or safety.disposition is RunEligibilityDisposition.SECURITY_BLOCKED
+            or reservation.intent.boundary is not safety.boundary
+            or binding.bootstrap_pin_id != safety.bootstrap_pin.bootstrap_pin_id
+            or binding.run_checkpoint_id != checkpoint.run_checkpoint_id
+            or binding.safety_state_id != safety.safety_state_id
+            or binding.security_observation_id
+            != safety.security_observation.observation_id
+            or binding.generation_id
+            != checkpoint.derived_state_generation.generation_id
+            or binding.journal_head_id != current.inspection.head.run_checkpoint_head_id
+            or binding.journal_size_bytes != current.inspection.journal_size_bytes
+            or binding.bundle_digest != current.bundle.digest
+            or binding.bundle_size_bytes != current.bundle.byte_size
+            or binding.view_bindings != expected_views
+        ):
+            raise RunStatePublisherError(
+                "run action reservation differs from the current frontier"
+            )
+        workspace_before = binding.workspace_before
+        if workspace_before is None:
+            return
+        branch = self._settings.workspace_git_branch
+        with ExitStack() as descriptors:
+            _workspace_descriptor, workspace_identity = (
+                self._authority._open_execution_workspace(descriptors)
+            )
+        if (
+            workspace_before.branch != branch
+            or workspace_before.commit_sha
+            != safety.derivative_frontier.evidence.branch_heads.get(branch)
+            or (
+                workspace_before.workspace_device,
+                workspace_before.workspace_inode,
+            )
+            != workspace_identity
+        ):
+            raise RunStatePublisherError(
+                "run action workspace binding differs from the current frontier"
             )
 
     def _hold_current(

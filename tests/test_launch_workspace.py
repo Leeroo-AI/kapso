@@ -788,6 +788,28 @@ def test_published_envelope_rejects_unrecognized_derived_state_entries(
         )
 
 
+def test_published_envelope_rejects_legacy_run_action_lock(
+    resolver_case,
+    tmp_path,
+):
+    prepared = _build(resolver_case, (tmp_path / "run").absolute())
+    layout = prepared.bootstrap_pin.installation_receipt.layout
+    target = (
+        prepared.run_root
+        / layout.run_action_store_relative_path
+        / f"operation-{'a' * 64}.lock"
+    )
+    target.write_bytes(b"")
+    target.chmod(0o600)
+
+    with pytest.raises(LaunchWorkspaceError, match="action store entry"):
+        prepared._builder_verifier._verify_outer_run_root_closure(
+            prepared.run_root,
+            layout,
+            prepared._published_root_identity,
+        )
+
+
 def test_published_envelope_rejects_writable_projection(
     resolver_case,
     tmp_path,

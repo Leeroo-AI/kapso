@@ -10,10 +10,10 @@ contracts, the protected checkpoint CAS store, the immutable derived-generation
 contract/layout, and the dependency-pure reconciled archive/history/journal
 projection and retained bundle layer, single-lock checkpoint/generation
 publisher, mutable-view promotion, current-frontier action lease, receipt-pinned
-create-only action store, and mandatory action-ledger projection are implemented.
-Gate/publisher integration with that durable store, boundary-specific adapters,
-OS executor isolation, explicit E0/S-EMPTY provisioning orchestration, resume,
-and API/runner activation remain.
+create-only action store, mandatory action-ledger projection, and durable
+gate/publication composition are implemented. Boundary-specific adapters, OS
+executor isolation, explicit E0/S-EMPTY provisioning orchestration, resume, and
+API/runner activation remain.
 
 ## Objective
 
@@ -285,6 +285,10 @@ expert workspace before the new runtime becomes reachable.
       Git branch, commit tree, and index to checkpoint evidence, and authenticates
       the current denylist as the exact checkpointed observation; state
       publication retains the exclusive lock.
+- [x] Make the action store authoritative across processes: compare-and-swap each
+      reservation against the exact predecessor ledger, persist spawn/result/
+      acceptance events, hold the receipt-pinned workspace lock, require terminal
+      live state for publication, and derive branch accounting from durable events.
 - [ ] On resume, require the original `BootstrapPin`, workspace tree, read-only
       snapshot package, adapter, checkpoint, IdeaArchive, experiment store, journal,
       and branches to reconcile.
@@ -337,12 +341,12 @@ commit/parent/tree/blob closure. The returned identity includes the canonical
 digest of every admitted Git metadata file, so read-only actions must leave the
 full source and Git frontier unchanged.
 
-An edit is exclusive against all workspace readers and other edits, must finish
-as one clean direct-successor commit with canonical Git header grammar, and spends
-the predecessor frontier. No later action or publication may use that frontier
-until a checkpoint successor records exactly one authorized `RunBranchAdvance`
-to that commit; this guard is shared strongly by every publisher for the active
-workspace.
+An edit is exclusive across processes against all workspace readers and other
+edits, must finish as one clean direct-successor commit with canonical Git header
+grammar, and spends the predecessor frontier. No later action or publication may
+use that frontier until a checkpoint successor records exactly one authorized
+`RunBranchAdvance` to that commit. Reconstructed gates and publishers derive this
+state from the durable event prefixes rather than process-local memory.
 
 A live authenticated denylist descendant must equal the observation already
 checkpointed in the safety state; any advance requires a durable safety-state
@@ -356,16 +360,36 @@ untruncated request bytes, provider result bytes, accepted canonical result byte
 predecessor-linked operation events, and a metadata-only `ACTION_LEDGER` in every
 derived-state layout. The ledger is an explicit mandatory projection and
 derivative-evidence authority; terminal prefixes cannot be extended or rolled
-back. Operation, registry, workspace, and lifetime-runtime lock files are
-installed and inode-bound by the workspace receipt. Structurally valid orphan
-staging files are cleaned under the pinned registry lock before reuse.
+back. The registry, workspace, and lifetime-runtime locks are fixed and
+inode-bound by the workspace receipt. An operation's immutable first event is
+also its lock inode, so a losing or capacity-rejected reservation cannot strand
+an empty permanent lock. Structurally valid orphan staging files and final blobs
+without a referencing event are cleaned under the pinned registry lock before
+reuse.
 
-The current gate still uses its process-lifetime operation registry and
-pending-edit guard. The next integration step replaces those with the durable
-store, writes `SPAWN_COMMITTED` before provider authority is exposed, snapshots
-the store under checkpoint publication, and reconstructs uncertain operations
-on resume. Until that composition lands, cross-process at-most-once execution
-remains a deliverable rather than a property claimed by the dormant lease layer.
+The gate now persists `INTENT_RESERVED` before returning a permit,
+`SPAWN_COMMITTED` before exposing provider/workspace authority, complete raw
+results before interpretation, and complete accepted results with the exact
+post-action workspace. Normal context exit requires a terminal durable prefix;
+exceptional exit deliberately leaves ambiguous spawn or received-result state
+for resume. Admission is a ledger compare-and-swap, so reconstructed gates and
+concurrent processes cannot both reserve against the same live floor.
+Mutation entry points are internal and sealed to the gate. Provider execution
+IDs and invocation nonces are unique across the full store, not merely within
+one operation.
+
+Publication takes the locks in checkpoint → workspace → registry order and
+retains them through bundle/checkpoint/view commit. The candidate `ACTION_LEDGER`
+must equal the live store exactly, every new prefix must be terminal and bind the
+current frontier, and old terminal prefixes are immutable. Zero workspace edits
+requires unchanged branch evidence. One accepted or concretely interrupted edit
+requires the live workspace and exactly one authorized branch advance to match
+its durable before/after identities. Missing post-crash workspace identity stays
+blocked rather than being guessed. Read-only and otherwise unchanged terminals
+still form one exact full workspace-identity chain, including source and admitted
+Git closure digests, whose final identity must equal the live workspace. Resume
+still must classify and reconcile each nonterminal prefix without blindly
+reinvoking a committed provider.
 
 ## Failure and trust behavior
 
@@ -398,8 +422,8 @@ remains a deliverable rather than a property claimed by the dormant lease layer.
   request changes, invalid boundary/capability combinations, and workspace
   mutation between issuance and consumption.
 - Prove embeddings receive no workspace capability; prove edits exclude parallel
-  edits/readers, poison old permits/publication candidates, and become usable only
-  after an exact branch-advance checkpoint successor.
+  edits/readers across processes, poison old permits/publication candidates, and
+  become usable only after an exact branch-advance checkpoint successor.
 - Reject replace refs, alternates, shallow/graft state, packed or unreachable Git
   objects, missing reachable objects, index behavior flags, malformed commit
   headers, admitted-metadata changes, and workspace/Git entry-limit exhaustion.

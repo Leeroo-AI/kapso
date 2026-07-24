@@ -68,9 +68,8 @@ _RUN_DERIVED_STATE_STAGING_PATTERN = re.compile(
     r"^generation-[0-9a-f]{64}-[0-9a-f]{32}[.]tmp$"
 )
 _RUN_ACTION_EVENT_PATTERN = re.compile(
-    r"^operation-[0-9a-f]{64}-event-[0-9]{4}[.]json$"
+    r"^operation-(?P<operation>[0-9a-f]{64})-event-[0-9]{4}[.]json$"
 )
-_RUN_ACTION_LOCK_PATTERN = re.compile(r"^operation-[0-9a-f]{64}[.]lock$")
 _RUN_ACTION_RESULT_PATTERN = re.compile(r"^result-[0-9a-f]{64}[.]blob$")
 _RUN_ACTION_ACCEPTED_PATTERN = re.compile(r"^accepted-[0-9a-f]{64}[.]blob$")
 _RUN_ACTION_INPUT_PATTERN = re.compile(r"^input-[0-9a-f]{64}[.]blob$")
@@ -2317,7 +2316,7 @@ class StarterWorkspaceBuilder:
         observed_checkpoint_lock = False
         observed_runtime_lock = False
         action_store_entry_count = 0
-        action_store_operation_count = 0
+        action_store_operation_digests = set()
         action_store_size_bytes = 0
         for path in run_root.rglob("*"):
             relative_path = PurePosixPath(path.relative_to(run_root).as_posix())
@@ -2477,18 +2476,14 @@ class StarterWorkspaceBuilder:
                 continue
             if action_store in relative_path.parents:
                 action_store_entry_count += 1
-                is_operation_lock = (
-                    _RUN_ACTION_LOCK_PATTERN.fullmatch(relative_path.name)
-                    is not None
-                )
                 is_fixed_lock = relative_path.name in {
                     "registry.lock",
                     "workspace.lock",
                 }
-                is_event = (
-                    _RUN_ACTION_EVENT_PATTERN.fullmatch(relative_path.name)
-                    is not None
+                event_match = _RUN_ACTION_EVENT_PATTERN.fullmatch(
+                    relative_path.name
                 )
+                is_event = event_match is not None
                 is_input = (
                     _RUN_ACTION_INPUT_PATTERN.fullmatch(relative_path.name)
                     is not None
@@ -2505,14 +2500,15 @@ class StarterWorkspaceBuilder:
                     _RUN_ACTION_STAGING_PATTERN.fullmatch(relative_path.name)
                     is not None
                 )
-                if is_operation_lock:
-                    action_store_operation_count += 1
+                if event_match is not None:
+                    action_store_operation_digests.add(
+                        event_match.group("operation")
+                    )
                 action_store_size_bytes += metadata.st_size
                 if (
                     relative_path.parent != action_store
                     or not any(
                         (
-                            is_operation_lock,
                             is_fixed_lock,
                             is_event,
                             is_input,
@@ -2526,7 +2522,7 @@ class StarterWorkspaceBuilder:
                     or metadata.st_nlink != 1
                     or (
                         stat.S_IMODE(metadata.st_mode) != 0o600
-                        if is_operation_lock or is_fixed_lock
+                        if is_fixed_lock
                         else (
                             stat.S_IMODE(metadata.st_mode) not in {0o400, 0o600}
                             if is_staging
@@ -2534,7 +2530,7 @@ class StarterWorkspaceBuilder:
                         )
                     )
                     or (
-                        (is_operation_lock or is_fixed_lock)
+                        is_fixed_lock
                         and metadata.st_size != 0
                     )
                     or (
@@ -2598,7 +2594,7 @@ class StarterWorkspaceBuilder:
                 "published run action store exceeds its entry bound"
             )
         if (
-            action_store_operation_count
+            len(action_store_operation_digests)
             > self._settings.launch.run_action_operation_limit
             or action_store_size_bytes
             > self._settings.launch.run_action_store_size_bytes

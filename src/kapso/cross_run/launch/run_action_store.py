@@ -22,6 +22,7 @@ from kapso.cross_run.canonical import (
 )
 from kapso.cross_run.contracts import StrictContract
 from kapso.cross_run.launch.run_action_contracts import (
+    RunActionContractError,
     RunActionIntent,
     RunFrontierWorkspaceAccess,
 )
@@ -40,7 +41,6 @@ _NONCE_PATTERN = re.compile(r"^[0-9a-f]{32}$")
 _EVENT_NAME_PATTERN = re.compile(
     r"^operation-(?P<operation>[0-9a-f]{64})-event-(?P<number>[0-9]{4})[.]json$"
 )
-_LOCK_NAME_PATTERN = re.compile(r"^operation-(?P<operation>[0-9a-f]{64})[.]lock$")
 _RESULT_NAME_PATTERN = re.compile(r"^result-(?P<digest>[0-9a-f]{64})[.]blob$")
 _ACCEPTED_NAME_PATTERN = re.compile(r"^accepted-(?P<digest>[0-9a-f]{64})[.]blob$")
 _INPUT_NAME_PATTERN = re.compile(r"^input-(?P<digest>[0-9a-f]{64})[.]blob$")
@@ -48,9 +48,11 @@ _STAGING_NAME_PATTERN = re.compile(
     r"^[.](?P<kind>accepted|event|input|result)-[0-9a-f]{32}[.]tmp$"
 )
 _MAXIMUM_EVENT_COUNT = 4
+_RUN_ACTION_STORE_AUTHORITY = object()
+_RUN_ACTION_MUTATION_AUTHORITY = object()
 
 
-class RunActionStoreError(RuntimeError):
+class RunActionStoreError(RunActionContractError):
     """The durable run-action execution prefix is unsafe or conflicting."""
 
 
@@ -215,6 +217,7 @@ class RunActionFrontierBinding(StrictContract):
         ):
             raise RunActionStoreError("run action frontier binding is invalid")
 
+
 @dataclass(frozen=True)
 class RunActionReservation(StrictContract):
     """One operation identity durably reserved against one exact run frontier."""
@@ -223,6 +226,7 @@ class RunActionReservation(StrictContract):
     intent: RunActionIntent
     frontier: RunActionFrontierBinding
     request_blob: RunActionRequestBlob
+    predecessor_ledger_snapshot_id: str
     exact_dependency_ids: tuple[str, ...]
 
     CONTENT_NAMESPACE: ClassVar[str] = "run-action-reservation"
@@ -237,6 +241,11 @@ class RunActionReservation(StrictContract):
             raise RunActionStoreError(
                 "run action reservation requires intent and frontier"
             )
+        _require_namespaced_id(
+            self.predecessor_ledger_snapshot_id,
+            RunActionLedgerSnapshot.CONTENT_NAMESPACE,
+            "run action predecessor ledger",
+        )
         expected = {
             self.intent.action_intent_id,
             self.frontier.frontier_binding_id,
@@ -247,18 +256,18 @@ class RunActionReservation(StrictContract):
             self.frontier.generation_id,
             self.frontier.journal_head_id,
             self.request_blob.request_blob_id,
+            self.predecessor_ledger_snapshot_id,
         }
         if (
-            self.exact_dependency_ids
-            != tuple(sorted(set(self.exact_dependency_ids)))
+            self.exact_dependency_ids != tuple(sorted(set(self.exact_dependency_ids)))
             or set(self.exact_dependency_ids) != expected
         ):
             raise RunActionStoreError(
                 "run action reservation dependency closure is not exact"
             )
-        if (
-            self.intent.workspace_access is RunFrontierWorkspaceAccess.NONE
-        ) != (self.frontier.workspace_before is None):
+        if (self.intent.workspace_access is RunFrontierWorkspaceAccess.NONE) != (
+            self.frontier.workspace_before is None
+        ):
             raise RunActionStoreError(
                 "run action reservation workspace authority differs from its intent"
             )
@@ -276,10 +285,12 @@ class RunActionReservation(StrictContract):
         *,
         intent: RunActionIntent,
         frontier: RunActionFrontierBinding,
+        predecessor_ledger: RunActionLedgerSnapshot,
     ) -> "RunActionReservation":
         if (
             type(intent) is not RunActionIntent
             or type(frontier) is not RunActionFrontierBinding
+            or type(predecessor_ledger) is not RunActionLedgerSnapshot
         ):
             raise RunActionStoreError(
                 "run action reservation requires exact typed inputs"
@@ -292,6 +303,7 @@ class RunActionReservation(StrictContract):
             intent=intent,
             frontier=frontier,
             request_blob=request_blob,
+            predecessor_ledger_snapshot_id=(predecessor_ledger.ledger_snapshot_id),
             exact_dependency_ids=tuple(
                 sorted(
                     {
@@ -304,6 +316,7 @@ class RunActionReservation(StrictContract):
                         frontier.generation_id,
                         frontier.journal_head_id,
                         request_blob.request_blob_id,
+                        predecessor_ledger.ledger_snapshot_id,
                     }
                 )
             ),
@@ -557,7 +570,145 @@ class RunActionExecutionEvent(StrictContract):
             )
 
 
-class RunActionExecutionSession:
+@dataclass(frozen=True)
+class RunActionStoreInspection:
+    """One registry-locked view of the ledger and its complete event prefixes."""
+
+    ledger: RunActionLedgerSnapshot
+    operation_events: tuple[tuple[RunActionExecutionEvent, ...], ...]
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.ledger) is not RunActionLedgerSnapshot
+            or type(self.operation_events) is not tuple
+            or any(
+                not events
+                or any(type(event) is not RunActionExecutionEvent for event in events)
+                for events in self.operation_events
+            )
+            or tuple(
+                events[0].reservation.intent.operation_id
+                for events in self.operation_events
+            )
+            != tuple(
+                sorted(
+                    events[0].reservation.intent.operation_id
+                    for events in self.operation_events
+                )
+            )
+        ):
+            raise RunActionStoreError("run action store inspection is invalid")
+        observed_tails = tuple(
+            RunActionOperationTail(
+                operation_id=events[0].reservation.intent.operation_id,
+                reservation_id=events[0].reservation.reservation_id,
+                event_ids=tuple(event.event_id for event in events),
+                tail_kind=events[-1].event_kind,
+            )
+            for events in self.operation_events
+        )
+        if RunActionLedgerSnapshot.build(observed_tails) != self.ledger:
+            raise RunActionStoreError(
+                "run action store inspection differs from its ledger"
+            )
+
+    def events_for(
+        self,
+        operation_id: str,
+    ) -> tuple[RunActionExecutionEvent, ...]:
+        """Return one exact prefix from this immutable inspection."""
+        for events in self.operation_events:
+            if events[0].reservation.intent.operation_id == operation_id:
+                return events
+        raise RunActionStoreError(
+            "run action operation is absent from the store inspection"
+        )
+
+    def operations_since(
+        self,
+        predecessor: RunActionLedgerSnapshot,
+    ) -> tuple[tuple[RunActionExecutionEvent, ...], ...]:
+        """Order new terminal prefixes by their durable ledger CAS chain."""
+        self.ledger.require_predecessor(predecessor)
+        previous_operation_ids = {
+            tail.operation_id for tail in predecessor.operation_tails
+        }
+        remaining = [
+            events
+            for events in self.operation_events
+            if events[0].reservation.intent.operation_id not in previous_operation_ids
+        ]
+        ordered = []
+        current = predecessor
+        tails = {tail.operation_id: tail for tail in predecessor.operation_tails}
+        while remaining:
+            matching = tuple(
+                events
+                for events in remaining
+                if events[0].reservation.predecessor_ledger_snapshot_id
+                == current.ledger_snapshot_id
+            )
+            if len(matching) != 1:
+                raise RunActionStoreError(
+                    "run action reservations do not form one exact ledger chain"
+                )
+            events = matching[0]
+            operation_id = events[0].reservation.intent.operation_id
+            tails[operation_id] = RunActionOperationTail(
+                operation_id=operation_id,
+                reservation_id=events[0].reservation.reservation_id,
+                event_ids=tuple(event.event_id for event in events),
+                tail_kind=events[-1].event_kind,
+            )
+            current = RunActionLedgerSnapshot.build(tuple(tails.values()))
+            ordered.append(events)
+            remaining.remove(events)
+        if current != self.ledger:
+            raise RunActionStoreError(
+                "ordered run action reservations differ from the live ledger"
+            )
+        return tuple(ordered)
+
+    @staticmethod
+    def workspace_chain(
+        operations: tuple[tuple[RunActionExecutionEvent, ...], ...],
+    ) -> tuple[tuple[RunActionWorkspaceBinding, RunActionWorkspaceBinding], ...]:
+        """Return the exact workspace before/after chain of ordered terminals."""
+        pairs = []
+        previous_after = None
+        for events in operations:
+            before = events[0].reservation.frontier.workspace_before
+            terminal = events[-1]
+            if terminal.event_kind is RunActionExecutionEventKind.RESULT_ACCEPTED:
+                after = terminal.acceptance.workspace_after
+            elif terminal.event_kind is RunActionExecutionEventKind.INTERRUPTED:
+                after = terminal.workspace_after
+            elif terminal.event_kind is RunActionExecutionEventKind.CANCELLED:
+                after = before
+            else:
+                raise RunActionStoreError(
+                    "workspace chain contains a nonterminal run action"
+                )
+            if before is None:
+                if after is not None:
+                    raise RunActionStoreError(
+                        "workspace-free action carries terminal workspace state"
+                    )
+                continue
+            if after is None:
+                raise RunActionStoreError(
+                    "workspace action lacks concrete terminal workspace state"
+                )
+            if previous_after is not None and before != previous_after:
+                raise RunActionStoreError(
+                    "run action terminal workspaces do not form one exact chain"
+                )
+            pairs.append((before, after))
+            previous_after = after
+        return tuple(pairs)
+
+
+class _RunActionExecutionSession:
     """One process-owned, exclusively locked operation prefix."""
 
     def __init__(
@@ -639,10 +790,13 @@ class RunActionExecutionSession:
             raise RunActionStoreError(
                 "run action result differs from its durable spawn"
             )
-        result_blob = self._store._publish_result(
-            self._descriptors,
-            result_payload,
-            kind="result",
+        if type(result_payload) is not bytes or not result_payload:
+            raise RunActionStoreError(
+                "run action result must be complete non-empty bytes"
+            )
+        result_blob = RunActionResultBlob(
+            digest=tree_or_blob_digest(result_payload),
+            size_bytes=len(result_payload),
         )
         result_receipt = RunActionResultReceipt.mint(
             spawn_commit_id=spawn_commit.spawn_commit_id,
@@ -653,7 +807,15 @@ class RunActionExecutionSession:
             RunActionExecutionEventKind.RESULT_RECEIVED,
             result_receipt=result_receipt,
         )
-        self._append(event)
+        self._store._publish_result_event(
+            self._descriptors,
+            operation_id=self.reservation.intent.operation_id,
+            result_payload=result_payload,
+            result_blob=result_blob,
+            kind="result",
+            event=event,
+        )
+        self._events = (*self._events, event)
         return result_receipt
 
     def accept_result(
@@ -686,10 +848,9 @@ class RunActionExecutionSession:
             before,
             after,
         )
-        accepted_result_blob = self._store._publish_result(
-            self._descriptors,
-            accepted_result_payload,
-            kind="accepted",
+        accepted_result_blob = RunActionResultBlob(
+            digest=tree_or_blob_digest(accepted_result_payload),
+            size_bytes=len(accepted_result_payload),
         )
         acceptance = RunActionAcceptance.mint(
             result_receipt_id=result_receipt.result_receipt_id,
@@ -701,7 +862,15 @@ class RunActionExecutionSession:
             RunActionExecutionEventKind.RESULT_ACCEPTED,
             acceptance=acceptance,
         )
-        self._append(event)
+        self._store._publish_result_event(
+            self._descriptors,
+            operation_id=self.reservation.intent.operation_id,
+            result_payload=accepted_result_payload,
+            result_blob=accepted_result_blob,
+            kind="accepted",
+            event=event,
+        )
+        self._events = (*self._events, event)
         return acceptance
 
     def cancel(self, reason: RunActionTerminalReason) -> None:
@@ -821,9 +990,7 @@ class RunActionExecutionSession:
         if (
             not self._active
             or self._owner_process_id != os.getpid()
-            or self._store._active_sessions.get(
-                self.reservation.intent.operation_id
-            )
+            or self._store._active_sessions.get(self.reservation.intent.operation_id)
             is not self
         ):
             raise RunActionStoreError(
@@ -844,31 +1011,26 @@ class _RunActionSessionContext:
         self.reservation = reservation
         self.session = None
 
-    def __enter__(self) -> RunActionExecutionSession:
+    def __enter__(self) -> _RunActionExecutionSession:
         with ExitStack() as descriptors:
             store_descriptor, _identity = self.store._open_store(descriptors)
-            lock_descriptor = self.store._open_operation_lock(
+            events = self.store._open_operation(
                 store_descriptor,
                 self.reservation.intent.operation_id,
                 descriptors,
-            )
-            fcntl.flock(lock_descriptor, fcntl.LOCK_EX)
-            events = self.store._read_operation_events(
-                store_descriptor,
-                self.reservation.intent.operation_id,
             )
             if events and events[0].reservation != self.reservation:
                 raise RunActionStoreError(
                     "run action operation ID was reserved for another request"
                 )
-            retained_descriptors = descriptors.pop_all()
-        session = RunActionExecutionSession(
-            self.store,
-            self.reservation,
-            events,
-            retained_descriptors,
-        )
-        self.store._register_session(session)
+            session = _RunActionExecutionSession(
+                self.store,
+                self.reservation,
+                events,
+                descriptors,
+            )
+            self.store._register_session(session)
+            session._descriptors = descriptors.pop_all()
         self.session = session
         return session
 
@@ -889,10 +1051,12 @@ class RunActionExecutionStore:
         *,
         active_workspace: ActiveLaunchWorkspace,
         settings: LaunchSettings,
+        _authority: object,
     ) -> None:
         if (
             type(active_workspace) is not ActiveLaunchWorkspace
             or type(settings) is not LaunchSettings
+            or _authority is not _RUN_ACTION_STORE_AUTHORITY
             or content_id("launch-settings", settings.to_dict())
             != active_workspace.bootstrap_pin.installation_receipt.launch_settings_id
         ):
@@ -904,33 +1068,112 @@ class RunActionExecutionStore:
         self._settings = settings
         self._owner_process_id = os.getpid()
         self._registry_lock = Lock()
-        self._active_sessions: dict[str, RunActionExecutionSession] = {}
+        self._active_sessions: dict[str, _RunActionExecutionSession] = {}
         with ExitStack() as descriptors:
             store_descriptor, _identity = self._open_store(descriptors)
             self._lock_registry(store_descriptor, descriptors)
             self._clean_staging(store_descriptor)
+            self._clean_orphan_blobs(store_descriptor)
             self._validate_store(store_descriptor)
 
-    def session(
+    def _session(
         self,
         reservation: RunActionReservation,
+        *,
+        _authority: object,
     ) -> _RunActionSessionContext:
         self._require_owner_process()
-        if type(reservation) is not RunActionReservation:
+        if (
+            type(reservation) is not RunActionReservation
+            or _authority is not _RUN_ACTION_MUTATION_AUTHORITY
+        ):
             raise RunActionStoreError(
-                "run action session requires one exact reservation"
+                "run action session requires sealed mutation authority"
             )
         return _RunActionSessionContext(self, reservation)
 
     def snapshot(self) -> RunActionLedgerSnapshot:
         """Read and validate every durable operation prefix."""
+        return self.inspect().ledger
+
+    def inspect(self) -> RunActionStoreInspection:
+        """Read the ledger and every event prefix under one registry lock."""
         self._require_owner_process()
         with ExitStack() as descriptors:
-            store_descriptor, _identity = self._open_store(descriptors)
-            self._lock_registry(store_descriptor, descriptors)
-            self._clean_staging(store_descriptor)
-            event_names = self._validate_store(store_descriptor)
-            return self._snapshot_from_event_names(store_descriptor, event_names)
+            return self.inspect_locked(descriptors)
+
+    def inspect_locked(
+        self,
+        descriptors: ExitStack,
+    ) -> RunActionStoreInspection:
+        """Inspect while retaining the registry lock in the caller's stack."""
+        self._require_owner_process()
+        if type(descriptors) is not ExitStack:
+            raise RunActionStoreError(
+                "run action locked inspection requires one descriptor stack"
+            )
+        store_descriptor, _identity = self._open_store(descriptors)
+        self._lock_registry(store_descriptor, descriptors)
+        self._clean_staging(store_descriptor)
+        self._clean_orphan_blobs(store_descriptor)
+        event_names = self._validate_store(store_descriptor)
+        ledger = self._snapshot_from_event_names(store_descriptor, event_names)
+        return RunActionStoreInspection(
+            ledger=ledger,
+            operation_events=tuple(
+                self._read_operation_events(
+                    store_descriptor,
+                    tail.operation_id,
+                )
+                for tail in ledger.operation_tails
+            ),
+        )
+
+    def lock_workspace(
+        self,
+        access: RunFrontierWorkspaceAccess,
+        descriptors: ExitStack,
+    ) -> int:
+        """Hold the receipt-pinned cross-process workspace action lock."""
+        self._require_owner_process()
+        if (
+            type(access) is not RunFrontierWorkspaceAccess
+            or type(descriptors) is not ExitStack
+        ):
+            raise RunActionStoreError(
+                "run action workspace lock requires exact typed authority"
+            )
+        store_descriptor, _identity = self._open_store(descriptors)
+        descriptor = os.open(
+            "workspace.lock",
+            os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC,
+            dir_fd=store_descriptor,
+        )
+        descriptors.callback(os.close, descriptor)
+        metadata = _require_private_file(
+            descriptor,
+            mode=0o600,
+            maximum_size_bytes=0,
+            allow_empty=True,
+            name="run action workspace lock",
+        )
+        receipt = self._active_workspace.bootstrap_pin.installation_receipt
+        if (metadata.st_dev, metadata.st_ino) != (
+            receipt.run_action_workspace_lock_device,
+            receipt.run_action_workspace_lock_inode,
+        ):
+            raise RunActionStoreError(
+                "run action workspace lock differs from its receipt"
+            )
+        fcntl.flock(
+            descriptor,
+            (
+                fcntl.LOCK_EX
+                if access is RunFrontierWorkspaceAccess.EDIT_WORKSPACE
+                else fcntl.LOCK_SH
+            ),
+        )
+        return descriptor
 
     def _open_store(
         self,
@@ -947,7 +1190,6 @@ class RunActionExecutionStore:
         names = []
         total_size_bytes = 0
         staging_entry_count = 0
-        operation_digests = set()
         event_operation_digests = set()
         with os.scandir(store_descriptor) as entries:
             for entry in entries:
@@ -976,10 +1218,6 @@ class RunActionExecutionStore:
             elif _INPUT_NAME_PATTERN.fullmatch(name) is not None:
                 required_mode = 0o400
                 maximum_size = self._settings.run_action_request_size_bytes
-            elif _LOCK_NAME_PATTERN.fullmatch(name) is not None:
-                required_mode = 0o600
-                maximum_size = 0
-                operation_digests.add(_LOCK_NAME_PATTERN.fullmatch(name).group("operation"))
             elif name in {"registry.lock", "workspace.lock"}:
                 required_mode = 0o600
                 maximum_size = 0
@@ -1020,10 +1258,8 @@ class RunActionExecutionStore:
             ):
                 raise RunActionStoreError("run action store entry is unsafe")
         if (
-            len(operation_digests) > self._settings.run_action_operation_limit
-            or not event_operation_digests.issubset(operation_digests)
-            or staging_entry_count
-            > self._settings.run_action_staging_entry_limit
+            len(event_operation_digests) > self._settings.run_action_operation_limit
+            or staging_entry_count > self._settings.run_action_staging_entry_limit
             or total_size_bytes > self._settings.run_action_store_size_bytes
             or "registry.lock" not in names
             or "workspace.lock" not in names
@@ -1033,64 +1269,55 @@ class RunActionExecutionStore:
             )
         return tuple(event_names)
 
-    def _open_operation_lock(
+    def _open_operation(
         self,
         store_descriptor: int,
         operation_id: str,
         descriptors: ExitStack,
-    ) -> int:
-        lock_name = self._lock_name(operation_id)
+    ) -> tuple[RunActionExecutionEvent, ...]:
+        first_event_name = self._event_name(operation_id, 1)
         with ExitStack() as registry_descriptors:
             self._lock_registry(store_descriptor, registry_descriptors)
             self._clean_staging(store_descriptor)
+            self._clean_orphan_blobs(store_descriptor)
             self._validate_store(store_descriptor)
-            lock_exists = os.access(
-                lock_name,
+            if not os.access(
+                first_event_name,
                 os.F_OK,
                 dir_fd=store_descriptor,
                 follow_symlinks=False,
+            ):
+                return ()
+            descriptor = os.open(
+                first_event_name,
+                os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW | os.O_CLOEXEC,
+                dir_fd=store_descriptor,
             )
-            if not lock_exists:
-                operation_count = 0
-                with os.scandir(store_descriptor) as entries:
-                    for entry in entries:
-                        match = _LOCK_NAME_PATTERN.fullmatch(entry.name)
-                        if match is not None:
-                            operation_count += 1
-                if (
-                    operation_count + 1
-                    > self._settings.run_action_operation_limit
-                ):
-                    raise RunActionStoreError(
-                        "run action store reached its operation limit"
-                    )
-                self._require_store_capacity(store_descriptor, 0)
-                descriptor = os.open(
-                    lock_name,
-                    os.O_RDWR
-                    | os.O_CREAT
-                    | os.O_EXCL
-                    | os.O_NOFOLLOW
-                    | os.O_CLOEXEC,
-                    0o600,
-                    dir_fd=store_descriptor,
-                )
-                os.fsync(store_descriptor)
-            else:
-                descriptor = os.open(
-                    lock_name,
-                    os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC,
-                    dir_fd=store_descriptor,
-                )
             descriptors.callback(os.close, descriptor)
-            _require_private_file(
+            metadata = _require_private_file(
                 descriptor,
-                mode=0o600,
-                maximum_size_bytes=0,
-                allow_empty=True,
-                name="run action operation lock",
+                mode=0o400,
+                maximum_size_bytes=self._settings.run_action_event_size_bytes,
+                allow_empty=False,
+                name="run action first event lock",
             )
-            return descriptor
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        rebound = os.stat(
+            first_event_name,
+            dir_fd=store_descriptor,
+            follow_symlinks=False,
+        )
+        if (rebound.st_dev, rebound.st_ino) != (
+            metadata.st_dev,
+            metadata.st_ino,
+        ):
+            raise RunActionStoreError(
+                "run action first event lock changed before acquisition"
+            )
+        return self._read_operation_events(
+            store_descriptor,
+            operation_id,
+        )
 
     def _snapshot_from_event_names(
         self,
@@ -1108,6 +1335,8 @@ class RunActionExecutionStore:
                 (int(match.group("number")), name)
             )
         tails = []
+        provider_execution_ids = set()
+        invocation_nonces = set()
         for operation_digest, numbered_names in sorted(grouped.items()):
             events = self._read_named_events(
                 store_descriptor,
@@ -1115,12 +1344,23 @@ class RunActionExecutionStore:
                 tuple(sorted(numbered_names)),
             )
             reservation = events[0].reservation
-            if _operation_digest(reservation.intent.operation_id) != (
-                operation_digest
-            ):
+            if _operation_digest(reservation.intent.operation_id) != (operation_digest):
                 raise RunActionStoreError(
                     "run action operation filename differs from its reservation"
                 )
+            if len(events) >= 2 and events[1].event_kind is (
+                RunActionExecutionEventKind.SPAWN_COMMITTED
+            ):
+                spawn = events[1].spawn_commit
+                if (
+                    spawn.provider_execution_id in provider_execution_ids
+                    or spawn.invocation_nonce in invocation_nonces
+                ):
+                    raise RunActionStoreError(
+                        "run action provider execution identity was reused"
+                    )
+                provider_execution_ids.add(spawn.provider_execution_id)
+                invocation_nonces.add(spawn.invocation_nonce)
             request_payload = _read_file(
                 store_descriptor,
                 (
@@ -1164,8 +1404,7 @@ class RunActionExecutionStore:
                     )
                     if (
                         len(result_payload) != result_blob.size_bytes
-                        or tree_or_blob_digest(result_payload)
-                        != result_blob.digest
+                        or tree_or_blob_digest(result_payload) != result_blob.digest
                     ):
                         raise RunActionStoreError(
                             f"run action {kind} result differs from its receipt"
@@ -1191,11 +1430,26 @@ class RunActionExecutionStore:
         with ExitStack() as registry_descriptors:
             self._lock_registry(store_descriptor, registry_descriptors)
             self._clean_staging(store_descriptor)
+            self._clean_orphan_blobs(store_descriptor)
             event_names = self._validate_store(store_descriptor)
             snapshot = self._snapshot_from_event_names(
                 store_descriptor,
                 event_names,
             )
+            if (
+                snapshot.ledger_snapshot_id
+                != reservation.predecessor_ledger_snapshot_id
+            ):
+                raise RunActionStoreError(
+                    "run action reservation predecessor ledger moved"
+                )
+            if (
+                len(snapshot.operation_tails) + 1
+                > self._settings.run_action_operation_limit
+            ):
+                raise RunActionStoreError(
+                    "run action store reached its operation limit"
+                )
             existing_intent_ids = {
                 self._read_operation_events(
                     store_descriptor,
@@ -1213,6 +1467,36 @@ class RunActionExecutionStore:
                 raise RunActionStoreError(
                     "run action operation or intent was already reserved"
                 )
+            request_name = (
+                "input-"
+                f"{reservation.request_blob.digest.removeprefix('sha256:')}.blob"
+            )
+            request_exists = os.access(
+                request_name,
+                os.F_OK,
+                dir_fd=store_descriptor,
+                follow_symlinks=False,
+            )
+            if request_exists and (
+                self._read_blob(
+                    store_descriptor,
+                    request_name,
+                    maximum_size_bytes=(self._settings.run_action_request_size_bytes),
+                    name="run action request",
+                )
+                != request_payload
+            ):
+                raise RunActionStoreError(
+                    "existing run action input differs from its content name"
+                )
+            event_payload = event.to_json_bytes()
+            self._require_store_capacity(
+                store_descriptor,
+                additional_size_bytes=(
+                    len(event_payload) + (0 if request_exists else len(request_payload))
+                ),
+                additional_entry_count=1 + (0 if request_exists else 1),
+            )
             self._publish_request_locked(
                 store_descriptor,
                 reservation.request_blob,
@@ -1222,6 +1506,27 @@ class RunActionExecutionStore:
                 store_descriptor,
                 reservation.intent.operation_id,
                 event,
+            )
+            first_event_name = self._event_name(
+                reservation.intent.operation_id,
+                1,
+            )
+            operation_descriptor = os.open(
+                first_event_name,
+                os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW | os.O_CLOEXEC,
+                dir_fd=store_descriptor,
+            )
+            descriptors.callback(os.close, operation_descriptor)
+            _require_private_file(
+                operation_descriptor,
+                mode=0o400,
+                maximum_size_bytes=self._settings.run_action_event_size_bytes,
+                allow_empty=False,
+                name="run action first event lock",
+            )
+            fcntl.flock(
+                operation_descriptor,
+                fcntl.LOCK_EX | fcntl.LOCK_NB,
             )
 
     def _read_operation_events(
@@ -1235,9 +1540,7 @@ class RunActionExecutionStore:
             for entry in entries:
                 match = _EVENT_NAME_PATTERN.fullmatch(entry.name)
                 if match is not None and match.group("operation") == digest:
-                    numbered_names.append(
-                        (int(match.group("number")), entry.name)
-                    )
+                    numbered_names.append((int(match.group("number")), entry.name))
                     if len(numbered_names) > _MAXIMUM_EVENT_COUNT:
                         raise RunActionStoreError(
                             "run action operation has too many events"
@@ -1291,6 +1594,19 @@ class RunActionExecutionStore:
         store_descriptor, _identity = self._open_store(descriptors)
         with ExitStack() as registry_descriptors:
             self._lock_registry(store_descriptor, registry_descriptors)
+            self._clean_staging(store_descriptor)
+            self._clean_orphan_blobs(store_descriptor)
+            event_names = self._validate_store(store_descriptor)
+            self._require_unique_spawn_identity(
+                store_descriptor,
+                event_names,
+                event=event,
+            )
+            self._require_store_capacity(
+                store_descriptor,
+                additional_size_bytes=len(event.to_json_bytes()),
+                additional_entry_count=1,
+            )
             self._publish_event_locked(
                 store_descriptor,
                 operation_id,
@@ -1307,54 +1623,118 @@ class RunActionExecutionStore:
             type(event) is not RunActionExecutionEvent
             or event.reservation.intent.operation_id != operation_id
         ):
-            raise RunActionStoreError(
-                "run action event differs from its operation"
-            )
+            raise RunActionStoreError("run action event differs from its operation")
         payload = event.to_json_bytes()
-        self._require_store_capacity(store_descriptor, len(payload))
         _publish_create_only(
             store_descriptor,
             temporary_name=f".event-{secrets.token_hex(16)}.tmp",
-            destination_name=(
-                f"operation-{_operation_digest(operation_id)}"
-                f"-event-{event.event_number:04d}.json"
-            ),
+            destination_name=self._event_name(operation_id, event.event_number),
             payload=payload,
             maximum_size_bytes=self._settings.run_action_event_size_bytes,
             name="run action event",
         )
 
-    def _publish_result(
+    def _publish_result_event(
         self,
         descriptors: ExitStack,
-        payload: bytes,
         *,
+        operation_id: str,
+        result_payload: bytes,
+        result_blob: RunActionResultBlob,
         kind: str,
-    ) -> RunActionResultBlob:
-        if type(payload) is not bytes or not payload or kind not in {
-            "accepted",
-            "result",
-        }:
+        event: RunActionExecutionEvent,
+    ) -> None:
+        if (
+            type(result_payload) is not bytes
+            or not result_payload
+            or type(result_blob) is not RunActionResultBlob
+            or result_blob.digest != tree_or_blob_digest(result_payload)
+            or result_blob.size_bytes != len(result_payload)
+            or kind not in {"accepted", "result"}
+            or type(event) is not RunActionExecutionEvent
+            or event.reservation.intent.operation_id != operation_id
+        ):
             raise RunActionStoreError(
-                "run action result must be complete typed non-empty bytes"
+                "run action result event requires exact complete inputs"
             )
         store_descriptor, _identity = self._open_store(descriptors)
-        blob = RunActionResultBlob(
-            digest=tree_or_blob_digest(payload),
-            size_bytes=len(payload),
-        )
-        destination_name = (
-            f"{kind}-{blob.digest.removeprefix('sha256:')}.blob"
-        )
+        destination_name = f"{kind}-{result_blob.digest.removeprefix('sha256:')}.blob"
         with ExitStack() as registry_descriptors:
             self._lock_registry(store_descriptor, registry_descriptors)
-            return self._publish_result_locked(
-                store_descriptor,
-                blob,
+            self._clean_staging(store_descriptor)
+            self._clean_orphan_blobs(store_descriptor)
+            event_names = self._validate_store(store_descriptor)
+            result_exists = os.access(
                 destination_name,
-                payload,
+                os.F_OK,
+                dir_fd=store_descriptor,
+                follow_symlinks=False,
+            )
+            if result_exists and (
+                _read_file(
+                    store_descriptor,
+                    destination_name,
+                    mode=0o400,
+                    maximum_size_bytes=(self._settings.run_action_result_size_bytes),
+                    name_description=f"run action {kind} result",
+                )
+                != result_payload
+            ):
+                raise RunActionStoreError(
+                    f"existing run action {kind} result differs from its content name"
+                )
+            self._require_store_capacity(
+                store_descriptor,
+                additional_size_bytes=(
+                    len(event.to_json_bytes())
+                    + (0 if result_exists else len(result_payload))
+                ),
+                additional_entry_count=1 + (0 if result_exists else 1),
+            )
+            self._publish_result_locked(
+                store_descriptor,
+                result_blob,
+                destination_name,
+                result_payload,
                 kind,
             )
+            self._publish_event_locked(
+                store_descriptor,
+                operation_id,
+                event,
+            )
+
+    def _require_unique_spawn_identity(
+        self,
+        store_descriptor: int,
+        event_names: tuple[str, ...],
+        *,
+        event: RunActionExecutionEvent,
+    ) -> None:
+        if event.spawn_commit is None:
+            return
+        for tail in self._snapshot_from_event_names(
+            store_descriptor,
+            event_names,
+        ).operation_tails:
+            events = self._read_operation_events(
+                store_descriptor,
+                tail.operation_id,
+            )
+            if (
+                len(events) < 2
+                or events[1].event_kind
+                is not RunActionExecutionEventKind.SPAWN_COMMITTED
+            ):
+                continue
+            spawn = events[1].spawn_commit
+            if (
+                spawn.provider_execution_id == event.spawn_commit.provider_execution_id
+                or spawn.invocation_nonce == event.spawn_commit.invocation_nonce
+            ):
+                raise RunActionStoreError(
+                    "run action provider execution identity was reused"
+                )
 
     def _publish_result_locked(
         self,
@@ -1384,7 +1764,6 @@ class RunActionExecutionStore:
                     f"existing run action {kind} result differs from its content name"
                 )
             return blob
-        self._require_store_capacity(store_descriptor, len(payload))
         _publish_create_only(
             store_descriptor,
             temporary_name=f".{kind}-{secrets.token_hex(16)}.tmp",
@@ -1401,9 +1780,7 @@ class RunActionExecutionStore:
         request_blob: RunActionRequestBlob,
         payload: bytes,
     ) -> None:
-        destination_name = (
-            f"input-{request_blob.digest.removeprefix('sha256:')}.blob"
-        )
+        destination_name = f"input-{request_blob.digest.removeprefix('sha256:')}.blob"
         if os.access(
             destination_name,
             os.F_OK,
@@ -1423,7 +1800,6 @@ class RunActionExecutionStore:
                     "existing run action input differs from its content name"
                 )
             return
-        self._require_store_capacity(store_descriptor, len(payload))
         _publish_create_only(
             store_descriptor,
             temporary_name=f".input-{secrets.token_hex(16)}.tmp",
@@ -1465,9 +1841,17 @@ class RunActionExecutionStore:
     def _require_store_capacity(
         self,
         store_descriptor: int,
+        *,
         additional_size_bytes: int,
+        additional_entry_count: int,
     ) -> None:
-        self._clean_staging(store_descriptor)
+        if (
+            type(additional_size_bytes) is not int
+            or additional_size_bytes < 0
+            or type(additional_entry_count) is not int
+            or additional_entry_count <= 0
+        ):
+            raise RunActionStoreError("run action capacity reservation is invalid")
         entry_count = 0
         total_size_bytes = 0
         with os.scandir(store_descriptor) as entries:
@@ -1476,7 +1860,8 @@ class RunActionExecutionStore:
                 metadata = entry.stat(follow_symlinks=False)
                 total_size_bytes += metadata.st_size
         if (
-            entry_count + 1 > self._settings.run_action_store_entry_limit
+            entry_count + additional_entry_count
+            > self._settings.run_action_store_entry_limit
             or total_size_bytes + additional_size_bytes
             > self._settings.run_action_store_size_bytes
         ):
@@ -1484,16 +1869,86 @@ class RunActionExecutionStore:
                 "run action store lacks capacity for another durable object"
             )
 
+    def _clean_orphan_blobs(self, store_descriptor: int) -> None:
+        event_names = []
+        blob_names = []
+        with os.scandir(store_descriptor) as entries:
+            for entry in entries:
+                if _EVENT_NAME_PATTERN.fullmatch(entry.name) is not None:
+                    event_names.append(entry.name)
+                elif any(
+                    pattern.fullmatch(entry.name) is not None
+                    for pattern in (
+                        _INPUT_NAME_PATTERN,
+                        _RESULT_NAME_PATTERN,
+                        _ACCEPTED_NAME_PATTERN,
+                    )
+                ):
+                    blob_names.append(entry.name)
+        referenced = set()
+        for event_name in sorted(event_names):
+            payload = _read_file(
+                store_descriptor,
+                event_name,
+                mode=0o400,
+                maximum_size_bytes=self._settings.run_action_event_size_bytes,
+                name_description="run action event",
+            )
+            event = RunActionExecutionEvent.from_json_bytes(payload)
+            if event.to_json_bytes() != payload or _operation_digest(
+                event.reservation.intent.operation_id
+            ) != _EVENT_NAME_PATTERN.fullmatch(event_name).group("operation"):
+                raise RunActionStoreError(
+                    "run action event is invalid during orphan cleanup"
+                )
+            referenced.add(
+                "input-"
+                f"{event.reservation.request_blob.digest.removeprefix('sha256:')}.blob"
+            )
+            if event.result_receipt is not None:
+                referenced.add(
+                    "result-"
+                    f"{event.result_receipt.result_blob.digest.removeprefix('sha256:')}.blob"
+                )
+            if event.acceptance is not None:
+                referenced.add(
+                    "accepted-"
+                    f"{event.acceptance.accepted_result_blob.digest.removeprefix('sha256:')}.blob"
+                )
+        orphan_names = tuple(name for name in blob_names if name not in referenced)
+        for orphan_name in orphan_names:
+            pattern = (
+                _INPUT_NAME_PATTERN
+                if _INPUT_NAME_PATTERN.fullmatch(orphan_name) is not None
+                else (
+                    _RESULT_NAME_PATTERN
+                    if _RESULT_NAME_PATTERN.fullmatch(orphan_name) is not None
+                    else _ACCEPTED_NAME_PATTERN
+                )
+            )
+            maximum_size_bytes = (
+                self._settings.run_action_request_size_bytes
+                if pattern is _INPUT_NAME_PATTERN
+                else self._settings.run_action_result_size_bytes
+            )
+            _read_file(
+                store_descriptor,
+                orphan_name,
+                mode=0o400,
+                maximum_size_bytes=maximum_size_bytes,
+                name_description="orphaned run action blob",
+            )
+            os.unlink(orphan_name, dir_fd=store_descriptor)
+        if orphan_names:
+            os.fsync(store_descriptor)
+
     def _clean_staging(self, store_descriptor: int) -> None:
         staging_names = []
         observed_entry_count = 0
         with os.scandir(store_descriptor) as entries:
             for entry in entries:
                 observed_entry_count += 1
-                if (
-                    observed_entry_count
-                    > self._settings.run_action_store_entry_limit
-                ):
+                if observed_entry_count > self._settings.run_action_store_entry_limit:
                     raise RunActionStoreError(
                         "run action store exceeds its configured entry limit"
                     )
@@ -1503,10 +1958,7 @@ class RunActionExecutionStore:
             with ExitStack() as descriptors:
                 descriptor = os.open(
                     staging_name,
-                    os.O_RDONLY
-                    | os.O_NONBLOCK
-                    | os.O_NOFOLLOW
-                    | os.O_CLOEXEC,
+                    os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW | os.O_CLOEXEC,
                     dir_fd=store_descriptor,
                 )
                 descriptors.callback(os.close, descriptor)
@@ -1530,9 +1982,7 @@ class RunActionExecutionStore:
                     or (metadata.st_dev, metadata.st_ino)
                     != (rebound.st_dev, rebound.st_ino)
                 ):
-                    raise RunActionStoreError(
-                        "run action staging entry is unsafe"
-                    )
+                    raise RunActionStoreError("run action staging entry is unsafe")
             os.unlink(staging_name, dir_fd=store_descriptor)
         if staging_names:
             os.fsync(store_descriptor)
@@ -1543,9 +1993,7 @@ class RunActionExecutionStore:
         request_blob: RunActionRequestBlob,
     ) -> bytes:
         if type(request_blob) is not RunActionRequestBlob:
-            raise RunActionStoreError(
-                "run action request read requires one exact blob"
-            )
+            raise RunActionStoreError("run action request read requires one exact blob")
         store_descriptor, _identity = self._open_store(descriptors)
         payload = self._read_blob(
             store_descriptor,
@@ -1557,9 +2005,7 @@ class RunActionExecutionStore:
             len(payload) != request_blob.size_bytes
             or tree_or_blob_digest(payload) != request_blob.digest
         ):
-            raise RunActionStoreError(
-                "run action request differs from its descriptor"
-            )
+            raise RunActionStoreError("run action request differs from its descriptor")
         return payload
 
     @staticmethod
@@ -1609,25 +2055,20 @@ class RunActionExecutionStore:
             )
         return payload
 
-    def _register_session(self, session: RunActionExecutionSession) -> None:
+    def _register_session(self, session: _RunActionExecutionSession) -> None:
         operation_id = session.reservation.intent.operation_id
         with self._registry_lock:
-            if (
-                session._store is not self
-                or operation_id in self._active_sessions
-            ):
+            if session._store is not self or operation_id in self._active_sessions:
                 raise RunActionStoreError(
                     "run action operation already has a live session"
                 )
             self._active_sessions[operation_id] = session
 
-    def _unregister_session(self, session: RunActionExecutionSession) -> None:
+    def _unregister_session(self, session: _RunActionExecutionSession) -> None:
         operation_id = session.reservation.intent.operation_id
         with self._registry_lock:
             if self._active_sessions.get(operation_id) is not session:
-                raise RunActionStoreError(
-                    "run action session registration changed"
-                )
+                raise RunActionStoreError("run action session registration changed")
             del self._active_sessions[operation_id]
 
     def _require_owner_process(self) -> None:
@@ -1637,8 +2078,11 @@ class RunActionExecutionStore:
             )
 
     @staticmethod
-    def _lock_name(operation_id: str) -> str:
-        return f"operation-{_operation_digest(operation_id)}.lock"
+    def _event_name(operation_id: str, event_number: int) -> str:
+        return (
+            f"operation-{_operation_digest(operation_id)}"
+            f"-event-{event_number:04d}.json"
+        )
 
 
 def _validate_event_prefix(events: tuple[RunActionExecutionEvent, ...]) -> None:
@@ -1680,18 +2124,12 @@ def _validate_event_prefix(events: tuple[RunActionExecutionEvent, ...]) -> None:
         previous_event_id = event.event_id
     if len(events) >= 2:
         spawn = events[1].spawn_commit
-        if (
-            events[1].event_kind
-            is RunActionExecutionEventKind.SPAWN_COMMITTED
-            and (
-                spawn.reservation_id != reservation.reservation_id
-                or spawn.security_observation_id
-                != reservation.frontier.security_observation_id
-            )
+        if events[1].event_kind is RunActionExecutionEventKind.SPAWN_COMMITTED and (
+            spawn.reservation_id != reservation.reservation_id
+            or spawn.security_observation_id
+            != reservation.frontier.security_observation_id
         ):
-            raise RunActionStoreError(
-                "run action spawn differs from its reservation"
-            )
+            raise RunActionStoreError("run action spawn differs from its reservation")
     if len(events) >= 3 and events[2].event_kind is (
         RunActionExecutionEventKind.RESULT_RECEIVED
     ):
@@ -1701,16 +2139,12 @@ def _validate_event_prefix(events: tuple[RunActionExecutionEvent, ...]) -> None:
             result.spawn_commit_id != spawn.spawn_commit_id
             or result.provider_execution_id != spawn.provider_execution_id
         ):
-            raise RunActionStoreError(
-                "run action result differs from its spawn"
-            )
+            raise RunActionStoreError("run action result differs from its spawn")
     if len(events) == 4:
         result = events[2].result_receipt
         acceptance = events[3].acceptance
         if acceptance.result_receipt_id != result.result_receipt_id:
-            raise RunActionStoreError(
-                "run action acceptance differs from its result"
-            )
+            raise RunActionStoreError("run action acceptance differs from its result")
 
 
 def _require_workspace_acceptance(
@@ -1885,7 +2319,8 @@ def _read_file(
             metadata.st_size,
             stat.S_IMODE(metadata.st_mode),
         )
-        or (rebound.st_dev, rebound.st_ino) != (
+        or (rebound.st_dev, rebound.st_ino)
+        != (
             metadata.st_dev,
             metadata.st_ino,
         )
@@ -1908,11 +2343,7 @@ def _publish_create_only(
     with ExitStack() as descriptors:
         descriptor = os.open(
             temporary_name,
-            os.O_WRONLY
-            | os.O_CREAT
-            | os.O_EXCL
-            | os.O_NOFOLLOW
-            | os.O_CLOEXEC,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
             0o600,
             dir_fd=store_descriptor,
         )
@@ -1921,9 +2352,7 @@ def _publish_create_only(
         while written < len(payload):
             chunk_size = os.write(descriptor, payload[written:])
             if chunk_size <= 0:
-                raise RunActionStoreError(
-                    f"staging {name} made no write progress"
-                )
+                raise RunActionStoreError(f"staging {name} made no write progress")
             written += chunk_size
         os.fchmod(descriptor, 0o400)
         os.fsync(descriptor)
@@ -1989,7 +2418,6 @@ __all__ = [
     "RunActionAcceptance",
     "RunActionExecutionEvent",
     "RunActionExecutionEventKind",
-    "RunActionExecutionSession",
     "RunActionExecutionStore",
     "RunActionFrontierBinding",
     "RunActionLedgerSnapshot",
@@ -1999,6 +2427,7 @@ __all__ = [
     "RunActionResultDisposition",
     "RunActionResultReceipt",
     "RunActionSpawnCommit",
+    "RunActionStoreInspection",
     "RunActionStoreError",
     "RunActionTerminalReason",
     "RunActionViewBinding",

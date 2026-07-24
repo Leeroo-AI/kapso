@@ -8,11 +8,12 @@ from typing import ClassVar
 
 from kapso.cross_run.canonical import require_content_id, require_identifier
 from kapso.cross_run.contracts import StrictContract
+from kapso.cross_run.launch.run_action_contracts import RunActionContractError
 
 _MAXIMUM_EVENT_COUNT = 4
 
 
-class RunActionLedgerError(RuntimeError):
+class RunActionLedgerError(RunActionContractError):
     """A run-action ledger snapshot is invalid or rolled back."""
 
 
@@ -141,10 +142,7 @@ class RunActionLedgerSnapshot(StrictContract):
                 current is None
                 or current.reservation_id != previous.reservation_id
                 or current.event_ids[: previous.event_count] != previous.event_ids
-                or (
-                    previous.tail_kind in terminal_kinds
-                    and current != previous
-                )
+                or (previous.tail_kind in terminal_kinds and current != previous)
             ):
                 raise RunActionLedgerError(
                     "run action ledger changed or extended a terminal predecessor"

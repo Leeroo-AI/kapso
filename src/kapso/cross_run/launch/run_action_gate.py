@@ -1,24 +1,13 @@
-"""One-shot, current-frontier authority for run-scoped external actions."""
+"""One-shot, durable current-frontier authority for run-scoped actions."""
 
 from __future__ import annotations
 
 import os
 from contextlib import ExitStack
 from dataclasses import dataclass, field
-from threading import Condition, Lock
+from threading import Lock
 from typing import Protocol
 
-from kapso.cross_run.launch.run_action_contracts import (
-    RunActionContractError,
-    RunActionIntent,
-    RunFrontierActionKind,
-    RunFrontierWorkspaceAccess,
-)
-from kapso.cross_run.launch.run_action_store import (
-    RunActionFrontierBinding,
-    RunActionViewBinding,
-    RunActionWorkspaceBinding,
-)
 from kapso.cross_run.launch.checkpoint_contracts import (
     RunCheckpoint,
     RunCheckpointStatus,
@@ -26,6 +15,29 @@ from kapso.cross_run.launch.checkpoint_contracts import (
 from kapso.cross_run.launch.resume_contracts import (
     RunEligibilityDisposition,
     RunSafetyBoundary,
+)
+from kapso.cross_run.launch.run_action_contracts import (
+    RunActionContractError,
+    RunActionIntent,
+    RunFrontierActionKind,
+    RunFrontierWorkspaceAccess,
+)
+from kapso.cross_run.launch.run_action_ledger import (
+    RunActionExecutionEventKind,
+    RunActionLedgerSnapshot,
+)
+from kapso.cross_run.launch.run_action_store import (
+    _RUN_ACTION_MUTATION_AUTHORITY,
+    RunActionAcceptance,
+    _RunActionExecutionSession,
+    RunActionFrontierBinding,
+    RunActionReservation,
+    RunActionResultDisposition,
+    RunActionResultReceipt,
+    RunActionStoreInspection,
+    RunActionTerminalReason,
+    RunActionViewBinding,
+    RunActionWorkspaceBinding,
 )
 from kapso.cross_run.launch.run_state_publisher import (
     ReconciledRunFrontier,
@@ -53,22 +65,16 @@ def bind_run_action_frontier(
     workspace_before: RunWorkspaceFrontierIdentity | None,
 ) -> RunActionFrontierBinding:
     """Bind durable action authority to reconciled content and workspace state."""
-    if (
-        type(frontier) is not ReconciledRunFrontier
-        or (
-            workspace_before is not None
-            and type(workspace_before) is not RunWorkspaceFrontierIdentity
-        )
+    if type(frontier) is not ReconciledRunFrontier or (
+        workspace_before is not None
+        and type(workspace_before) is not RunWorkspaceFrontierIdentity
     ):
         raise RunFrontierActionError(
             "run action binding requires exact reconciled authorities"
         )
     if workspace_before is not None:
-        expected_commit = (
-            frontier.checkpoint.safety_state.derivative_frontier.evidence.branch_heads.get(
-                workspace_before.branch
-            )
-        )
+        evidence = frontier.checkpoint.safety_state.derivative_frontier.evidence
+        expected_commit = evidence.branch_heads.get(workspace_before.branch)
         if expected_commit != workspace_before.commit_sha:
             raise RunFrontierActionError(
                 "run action workspace differs from its checkpoint branch frontier"
@@ -118,9 +124,10 @@ class RunActionSecurityAuthority(Protocol):
 
 @dataclass(frozen=True)
 class RunFrontierUsePermit:
-    """Nonserializable one-shot authority for one exact external request."""
+    """Nonserializable one-shot capability for one durable reservation."""
 
     action_intent_id: str
+    reservation_id: str
     run_checkpoint_id: str
     safety_state_id: str
     generation_id: str
@@ -130,18 +137,28 @@ class RunFrontierUsePermit:
     bundle_size_bytes: int
     view_identities: tuple[RunStateViewIdentity, ...]
     workspace_frontier: RunWorkspaceFrontierIdentity | None
-    _intent: RunActionIntent = field(repr=False, compare=False)
+    _reservation: RunActionReservation = field(repr=False, compare=False)
+    _predecessor_ledger: RunActionLedgerSnapshot = field(
+        repr=False,
+        compare=False,
+    )
     _frontier: ReconciledRunFrontier = field(repr=False, compare=False)
     _gate_identity: object = field(repr=False, compare=False)
     _owner_process_id: int = field(repr=False, compare=False)
     _authority: object = field(repr=False, compare=False)
 
     def __post_init__(self) -> None:
+        reservation = self._reservation
         frontier = self._frontier
+        workspace_binding = reservation.frontier.workspace_before
         if (
-            type(self._intent) is not RunActionIntent
+            type(reservation) is not RunActionReservation
+            or type(self._predecessor_ledger) is not RunActionLedgerSnapshot
             or type(frontier) is not ReconciledRunFrontier
-            or self.action_intent_id != self._intent.action_intent_id
+            or self.action_intent_id != reservation.intent.action_intent_id
+            or self.reservation_id != reservation.reservation_id
+            or reservation.predecessor_ledger_snapshot_id
+            != self._predecessor_ledger.ledger_snapshot_id
             or self.run_checkpoint_id != frontier.run_checkpoint_id
             or self.safety_state_id != frontier.checkpoint.safety_state.safety_state_id
             or self.generation_id != frontier.generation_id
@@ -150,6 +167,10 @@ class RunFrontierUsePermit:
             or self.bundle_digest != frontier.bundle_digest
             or self.bundle_size_bytes != frontier.bundle_size_bytes
             or self.view_identities != frontier.view_identities
+            or reservation.frontier
+            != bind_run_action_frontier(frontier, self.workspace_frontier)
+            or (None if workspace_binding is None else workspace_binding.to_identity())
+            != self.workspace_frontier
             or type(self._gate_identity) is not object
             or type(self._owner_process_id) is not int
             or self._owner_process_id <= 0
@@ -158,19 +179,14 @@ class RunFrontierUsePermit:
             raise RunFrontierActionError(
                 "run frontier use permit lacks exact sealed authority"
             )
-        if self._intent.workspace_access is RunFrontierWorkspaceAccess.NONE:
-            if self.workspace_frontier is not None:
-                raise RunFrontierActionError(
-                    "workspace-free action permit carries workspace authority"
-                )
-        elif type(self.workspace_frontier) is not RunWorkspaceFrontierIdentity:
-            raise RunFrontierActionError(
-                "workspace action permit lacks an exact workspace frontier"
-            )
+
+    @property
+    def intent(self) -> RunActionIntent:
+        return self._reservation.intent
 
 
 class RunFrontierUseLease:
-    """Live shared-lock authority valid only inside one boundary invocation."""
+    """Live shared-checkpoint authority valid inside one provider invocation."""
 
     __slots__ = (
         "_active",
@@ -179,9 +195,12 @@ class RunFrontierUseLease:
         "_descriptors",
         "_frontier",
         "_gate",
-        "_intent",
         "_owner_process_id",
+        "_reservation",
+        "_result_receipt",
         "_security_observation",
+        "_session",
+        "_spawn_commit",
         "_workspace_descriptor",
         "_workspace_frontier",
         "__weakref__",
@@ -192,11 +211,12 @@ class RunFrontierUseLease:
         seal: object,
         *,
         gate: "RunFrontierActionGate",
-        intent: RunActionIntent,
+        reservation: RunActionReservation,
         frontier: ReconciledRunFrontier,
         security_observation: SecurityDenylistObservation,
         workspace_descriptor: int | None,
         workspace_frontier: RunWorkspaceFrontierIdentity | None,
+        session: _RunActionExecutionSession,
         descriptors: ExitStack,
     ) -> None:
         if seal is not _USE_LEASE_AUTHORITY:
@@ -209,13 +229,16 @@ class RunFrontierUseLease:
         object.__setattr__(self, "_descriptors", descriptors)
         object.__setattr__(self, "_frontier", frontier)
         object.__setattr__(self, "_gate", gate)
-        object.__setattr__(self, "_intent", intent)
         object.__setattr__(self, "_owner_process_id", os.getpid())
+        object.__setattr__(self, "_reservation", reservation)
+        object.__setattr__(self, "_result_receipt", None)
         object.__setattr__(
             self,
             "_security_observation",
             security_observation,
         )
+        object.__setattr__(self, "_session", session)
+        object.__setattr__(self, "_spawn_commit", None)
         object.__setattr__(
             self,
             "_workspace_descriptor",
@@ -228,7 +251,7 @@ class RunFrontierUseLease:
 
     @property
     def action_intent_id(self) -> str:
-        return self._intent.action_intent_id
+        return self._reservation.intent.action_intent_id
 
     @property
     def run_checkpoint_id(self) -> str:
@@ -240,7 +263,7 @@ class RunFrontierUseLease:
 
 
 class _RunFrontierUseContext:
-    """Single-entry context that keeps the publisher lock for the action."""
+    """Single-entry context retaining checkpoint and workspace locks."""
 
     __slots__ = ("_entered", "_gate", "_lease", "_permit", "_request_payload")
 
@@ -269,23 +292,13 @@ class _RunFrontierUseContext:
     def __exit__(self, exception_type, exception, traceback) -> bool:
         if self._lease is None:
             raise RunFrontierActionError("run frontier use context was not entered")
-        self._gate._exit(self._lease)
+        self._gate._exit(self._lease, exception_type)
         self._lease = None
         return False
 
 
-@dataclass(frozen=True)
-class _PendingWorkspaceAdvance:
-    """One completed edit that must be represented by the next checkpoint."""
-
-    action_intent_id: str
-    predecessor_checkpoint_id: str
-    before: RunWorkspaceFrontierIdentity
-    after: RunWorkspaceFrontierIdentity
-
-
 class RunFrontierActionGate:
-    """Issue and consume action authority from one current reconciled frontier."""
+    """Issue and consume durable action authority from a reconciled frontier."""
 
     def __init__(
         self,
@@ -306,23 +319,13 @@ class RunFrontierActionGate:
         active_workspace.require_control_authority()
         self._active_workspace = active_workspace
         self._publisher = publisher
+        self._action_store = publisher._action_store
         self._security_authority = security_authority
         self._gate_identity = object()
         self._owner_process_id = os.getpid()
         self._registry_lock = Lock()
-        self._action_condition = Condition(self._registry_lock)
         self._issued_permits: dict[int, RunFrontierUsePermit] = {}
         self._active_leases: dict[int, RunFrontierUseLease] = {}
-        self._reserved_action_intent_ids: set[str] = set()
-        self._reserved_operation_ids: set[str] = set()
-        self._blocked_checkpoint_ids: set[str] = set()
-        self._pending_workspace_advances: dict[
-            str,
-            _PendingWorkspaceAdvance,
-        ] = {}
-        self._active_workspace_readers = 0
-        self._workspace_edit_active = False
-        publisher._bind_action_publication_guard(self)
 
     def issue(
         self,
@@ -334,7 +337,7 @@ class RunFrontierActionGate:
         request_payload: bytes,
         workspace_access: RunFrontierWorkspaceAccess,
     ) -> RunFrontierUsePermit:
-        """Bind complete request bytes to the exact current run-state receipt."""
+        """Persist complete request bytes before returning an action capability."""
         self._require_owner_process()
         intent = RunActionIntent.from_request(
             kind=kind,
@@ -343,25 +346,50 @@ class RunFrontierActionGate:
             request_payload=request_payload,
             workspace_access=workspace_access,
         )
-        self._reserve_intent(intent)
         with ExitStack() as descriptors:
-            self._acquire_action_slot(
+            checkpoint = self._publisher._hold_current(frontier, descriptors)
+            self._action_store.lock_workspace(
                 RunFrontierWorkspaceAccess.READ_ONLY,
                 descriptors,
             )
-            checkpoint = self._publisher.require_current(frontier)
-            self._require_frontier_available(checkpoint.run_checkpoint_id)
             self._require_actionable(checkpoint, intent)
+            inspection = self._action_store.inspect()
+            expected_terminal_workspace = self._require_frontier_available(
+                frontier,
+                inspection,
+            )
+            observed_workspace = self._inspect_workspace(
+                checkpoint,
+                descriptors,
+            )
+            if (
+                expected_terminal_workspace is not None
+                and expected_terminal_workspace.to_identity() != observed_workspace
+            ):
+                raise RunFrontierActionError(
+                    "run action terminal workspace differs from the live workspace"
+                )
             workspace_frontier = (
                 None
                 if intent.workspace_access is RunFrontierWorkspaceAccess.NONE
-                else self._inspect_workspace(
-                    checkpoint,
-                    descriptors,
-                )
+                else observed_workspace
             )
+            reservation = RunActionReservation.build(
+                intent=intent,
+                frontier=bind_run_action_frontier(
+                    frontier,
+                    workspace_frontier,
+                ),
+                predecessor_ledger=inspection.ledger,
+            )
+            with self._action_store._session(
+                reservation,
+                _authority=_RUN_ACTION_MUTATION_AUTHORITY,
+            ) as session:
+                session.reserve(request_payload)
         permit = RunFrontierUsePermit(
             action_intent_id=intent.action_intent_id,
+            reservation_id=reservation.reservation_id,
             run_checkpoint_id=frontier.run_checkpoint_id,
             safety_state_id=checkpoint.safety_state.safety_state_id,
             generation_id=frontier.generation_id,
@@ -371,7 +399,8 @@ class RunFrontierActionGate:
             bundle_size_bytes=frontier.bundle_size_bytes,
             view_identities=frontier.view_identities,
             workspace_frontier=workspace_frontier,
-            _intent=intent,
+            _reservation=reservation,
+            _predecessor_ledger=inspection.ledger,
             _frontier=frontier,
             _gate_identity=self._gate_identity,
             _owner_process_id=self._owner_process_id,
@@ -386,7 +415,7 @@ class RunFrontierActionGate:
         permit: RunFrontierUsePermit,
         request_payload: bytes,
     ) -> _RunFrontierUseContext:
-        """Return a one-entry context that consumes and locks one permit."""
+        """Return a one-entry context that consumes one durable reservation."""
         if type(permit) is not RunFrontierUsePermit:
             raise RunFrontierActionError(
                 "run action requires one exact frontier use permit"
@@ -402,28 +431,99 @@ class RunFrontierActionGate:
         lease: RunFrontierUseLease,
         *,
         kind: RunFrontierActionKind,
+        provider_execution_id: str,
     ) -> int | None:
-        """Consume a live lease at its exact provider/process boundary."""
-        if type(lease) is not RunFrontierUseLease:
+        """Durably commit the exact provider invocation before it may spawn."""
+        self._require_live_lease(lease, kind=kind, require_claimed=False)
+        required_security = lease._security_observation
+        current_security = self._security_authority.observe_exact_descendant_of(
+            scope_id=required_security.scope_id,
+            scope_contract_id=required_security.scope_contract_id,
+            checked_subject_ids=required_security.checked_subject_ids,
+            required_ancestor=required_security,
+        )
+        if (
+            type(current_security) is not SecurityDenylistObservation
+            or current_security != required_security
+        ):
             raise RunFrontierActionError(
-                "run action boundary requires one exact live lease"
+                "run safety state must be refreshed before external action"
             )
-        with self._registry_lock:
-            issued = self._active_leases.get(id(lease))
-            if (
-                issued is not lease
-                or lease._gate is not self
-                or lease._authority is not _USE_LEASE_AUTHORITY
-                or not lease._active
-                or lease._claimed
-                or lease._owner_process_id != os.getpid()
-                or lease._intent.kind is not kind
-            ):
-                raise RunFrontierActionError(
-                    "run frontier use lease is foreign, expired, claimed, or mismatched"
-                )
-            object.__setattr__(lease, "_claimed", True)
+        spawn_commit = lease._session.commit_spawn(
+            provider_execution_id=provider_execution_id,
+            security_observation_id=(current_security.observation_id),
+        )
+        object.__setattr__(lease, "_claimed", True)
+        object.__setattr__(lease, "_spawn_commit", spawn_commit)
         return lease._workspace_descriptor
+
+    def record_result(
+        self,
+        lease: RunFrontierUseLease,
+        *,
+        result_payload: bytes,
+    ) -> RunActionResultReceipt:
+        """Persist complete provider output before adapter interpretation."""
+        self._require_live_lease(
+            lease,
+            kind=lease._reservation.intent.kind,
+            require_claimed=True,
+        )
+        if lease._result_receipt is not None:
+            raise RunFrontierActionError("run action result was already recorded")
+        receipt = lease._session.record_result(
+            spawn_commit=lease._spawn_commit,
+            result_payload=result_payload,
+        )
+        object.__setattr__(lease, "_result_receipt", receipt)
+        return receipt
+
+    def accept_result(
+        self,
+        lease: RunFrontierUseLease,
+        *,
+        result_receipt: RunActionResultReceipt,
+        disposition: RunActionResultDisposition,
+        accepted_result_payload: bytes,
+    ) -> RunActionAcceptance:
+        """Persist adapter acceptance and the exact post-action workspace."""
+        self._require_live_lease(
+            lease,
+            kind=lease._reservation.intent.kind,
+            require_claimed=True,
+        )
+        if result_receipt is not lease._result_receipt:
+            raise RunFrontierActionError(
+                "run action acceptance requires its live result receipt"
+            )
+        after = self._inspect_workspace_after(lease)
+        return lease._session.accept_result(
+            result_receipt=result_receipt,
+            disposition=disposition,
+            accepted_result_payload=accepted_result_payload,
+            workspace_after=after,
+        )
+
+    def interrupt(
+        self,
+        lease: RunFrontierUseLease,
+        *,
+        reason: RunActionTerminalReason,
+    ) -> None:
+        """Close a committed spawn whose complete result cannot be recovered."""
+        self._require_live_lease(
+            lease,
+            kind=lease._reservation.intent.kind,
+            require_claimed=True,
+        )
+        if lease._result_receipt is not None:
+            raise RunFrontierActionError(
+                "received run action result cannot be marked interrupted"
+            )
+        lease._session.interrupt(
+            reason=reason,
+            workspace_after=self._inspect_workspace_after(lease),
+        )
 
     def _enter(
         self,
@@ -442,7 +542,7 @@ class RunFrontierActionGate:
             raise RunFrontierActionError(
                 "run frontier use permit is cloned, foreign, consumed, or expired"
             )
-        intent = permit._intent
+        intent = permit.intent
         observed_intent = RunActionIntent.from_request(
             kind=intent.kind,
             boundary=intent.boundary,
@@ -455,16 +555,18 @@ class RunFrontierActionGate:
                 "run frontier use permit authorizes another request"
             )
         with ExitStack() as descriptors:
-            self._acquire_action_slot(intent.workspace_access, descriptors)
             checkpoint = self._publisher._hold_current(
                 permit._frontier,
+                descriptors,
+            )
+            self._action_store.lock_workspace(
+                intent.workspace_access,
                 descriptors,
             )
             if not self._permit_matches(permit):
                 raise RunFrontierActionError(
                     "run frontier use permit differs from its current receipt"
                 )
-            self._require_frontier_available(checkpoint.run_checkpoint_id)
             self._require_actionable(checkpoint, intent)
             workspace_descriptor = None
             workspace_frontier = None
@@ -482,35 +584,43 @@ class RunFrontierActionGate:
                     "run action workspace frontier changed after permit issuance"
                 )
             security = checkpoint.safety_state.security_observation
-            current_security = self._security_authority.observe_exact_descendant_of(
-                scope_id=security.scope_id,
-                scope_contract_id=security.scope_contract_id,
-                checked_subject_ids=security.checked_subject_ids,
-                required_ancestor=security,
+            session = descriptors.enter_context(
+                self._action_store._session(
+                    permit._reservation,
+                    _authority=_RUN_ACTION_MUTATION_AUTHORITY,
+                )
             )
             if (
-                type(current_security) is not SecurityDenylistObservation
-                or current_security != security
+                len(session.events) != 1
+                or session.events[0].event_kind
+                is not RunActionExecutionEventKind.INTENT_RESERVED
             ):
                 raise RunFrontierActionError(
-                    "run safety state must be refreshed before external action"
+                    "run action reservation is no longer spawnable"
                 )
+            inspection = self._action_store.inspect()
+            self._require_exact_reserved_prefix(permit, inspection)
             retained_descriptors = descriptors.pop_all()
         lease = RunFrontierUseLease(
             _USE_LEASE_AUTHORITY,
             gate=self,
-            intent=intent,
+            reservation=permit._reservation,
             frontier=permit._frontier,
-            security_observation=current_security,
+            security_observation=security,
             workspace_descriptor=workspace_descriptor,
             workspace_frontier=workspace_frontier,
+            session=session,
             descriptors=retained_descriptors,
         )
         with self._registry_lock:
             self._active_leases[id(lease)] = lease
         return lease
 
-    def _exit(self, lease: RunFrontierUseLease) -> None:
+    def _exit(
+        self,
+        lease: RunFrontierUseLease,
+        exception_type,
+    ) -> None:
         with self._registry_lock:
             issued = self._active_leases.pop(id(lease), None)
         if (
@@ -523,59 +633,90 @@ class RunFrontierActionGate:
             raise RunFrontierActionError("run frontier use lease is foreign or expired")
         object.__setattr__(lease, "_active", False)
         with lease._descriptors:
-            with ExitStack() as verification_descriptors:
-                self._publisher._hold_current(
-                    lease._frontier,
-                    verification_descriptors,
+            if lease._session.events and lease._session.events[-1].event_kind in {
+                RunActionExecutionEventKind.RESULT_ACCEPTED,
+                RunActionExecutionEventKind.INTERRUPTED,
+            }:
+                self._require_terminal_workspace_unchanged(lease)
+            if exception_type is None and (
+                not lease._session.events
+                or lease._session.events[-1].event_kind
+                not in {
+                    RunActionExecutionEventKind.RESULT_ACCEPTED,
+                    RunActionExecutionEventKind.INTERRUPTED,
+                }
+            ):
+                raise RunFrontierActionError(
+                    "normal run action exit requires one durable terminal result"
                 )
-            if lease._intent.workspace_access is not RunFrontierWorkspaceAccess.NONE:
-                self._block_checkpoint(lease.run_checkpoint_id)
-                self._active_workspace._require_execution_workspace(
-                    lease._workspace_descriptor,
-                    lease._workspace_frontier.workspace_identity,
-                )
-                after = inspect_run_workspace_frontier(
-                    lease._workspace_descriptor,
-                    settings=self._publisher._settings,
-                    expected_commit_sha=(
-                        None
-                        if lease._intent.workspace_access
-                        is RunFrontierWorkspaceAccess.EDIT_WORKSPACE
-                        else lease._workspace_frontier.commit_sha
-                    ),
-                )
-                if (
-                    lease._intent.workspace_access
-                    is RunFrontierWorkspaceAccess.READ_ONLY
-                ):
-                    if after != lease._workspace_frontier:
-                        raise RunFrontierActionError(
-                            "read-only action changed its workspace frontier"
-                        )
-                    self._unblock_checkpoint(lease.run_checkpoint_id)
-                else:
-                    if (
-                        after.commit_sha == lease._workspace_frontier.commit_sha
-                        or after.parent_commit_shas
-                        != (lease._workspace_frontier.commit_sha,)
-                    ):
-                        raise RunFrontierActionError(
-                            "workspace edit must produce one direct successor commit"
-                        )
-                    self._record_pending_workspace_advance(
-                        _PendingWorkspaceAdvance(
-                            action_intent_id=lease.action_intent_id,
-                            predecessor_checkpoint_id=lease.run_checkpoint_id,
-                            before=lease._workspace_frontier,
-                            after=after,
-                        )
-                    )
 
-    def _require_owner_process(self) -> None:
-        if self._owner_process_id != os.getpid():
+    def _require_terminal_workspace_unchanged(
+        self,
+        lease: RunFrontierUseLease,
+    ) -> None:
+        terminal = lease._session.events[-1]
+        expected = (
+            terminal.acceptance.workspace_after
+            if terminal.event_kind is RunActionExecutionEventKind.RESULT_ACCEPTED
+            else terminal.workspace_after
+        )
+        observed = self._inspect_workspace_after(lease)
+        if (
+            None
+            if observed is None
+            else RunActionWorkspaceBinding.from_identity(observed)
+        ) != expected:
             raise RunFrontierActionError(
-                "run frontier action gate cannot cross a process boundary"
+                "run action workspace changed after its durable terminal event"
             )
+
+    def _require_live_lease(
+        self,
+        lease: RunFrontierUseLease,
+        *,
+        kind: RunFrontierActionKind,
+        require_claimed: bool,
+    ) -> None:
+        if type(lease) is not RunFrontierUseLease:
+            raise RunFrontierActionError(
+                "run action boundary requires one exact live lease"
+            )
+        with self._registry_lock:
+            issued = self._active_leases.get(id(lease))
+        if (
+            issued is not lease
+            or lease._gate is not self
+            or lease._authority is not _USE_LEASE_AUTHORITY
+            or not lease._active
+            or lease._owner_process_id != os.getpid()
+            or lease._reservation.intent.kind is not kind
+            or lease._claimed is not require_claimed
+        ):
+            state = "claimed" if not require_claimed else "unclaimed"
+            raise RunFrontierActionError(
+                f"run frontier use lease is foreign, expired, {state}, or mismatched"
+            )
+
+    def _inspect_workspace_after(
+        self,
+        lease: RunFrontierUseLease,
+    ) -> RunWorkspaceFrontierIdentity | None:
+        access = lease._reservation.intent.workspace_access
+        if access is RunFrontierWorkspaceAccess.NONE:
+            return None
+        self._active_workspace._require_execution_workspace(
+            lease._workspace_descriptor,
+            lease._workspace_frontier.workspace_identity,
+        )
+        return inspect_run_workspace_frontier(
+            lease._workspace_descriptor,
+            settings=self._publisher._settings,
+            expected_commit_sha=(
+                None
+                if access is RunFrontierWorkspaceAccess.EDIT_WORKSPACE
+                else lease._workspace_frontier.commit_sha
+            ),
+        )
 
     @staticmethod
     def _require_actionable(
@@ -600,84 +741,62 @@ class RunFrontierActionGate:
                 "security-blocked run cannot execute an external action"
             )
 
-    def _reserve_intent(self, intent: RunActionIntent) -> None:
-        with self._action_condition:
-            if (
-                intent.action_intent_id in self._reserved_action_intent_ids
-                or intent.operation_id in self._reserved_operation_ids
-            ):
-                raise RunFrontierActionError(
-                    "run action intent or operation was already reserved"
-                )
-            self._reserved_action_intent_ids.add(intent.action_intent_id)
-            self._reserved_operation_ids.add(intent.operation_id)
-
-    def _acquire_action_slot(
+    def _require_frontier_available(
         self,
-        access: RunFrontierWorkspaceAccess,
-        descriptors: ExitStack,
-    ) -> None:
-        with self._action_condition:
-            if access is RunFrontierWorkspaceAccess.EDIT_WORKSPACE:
-                while self._workspace_edit_active or self._active_workspace_readers:
-                    self._action_condition.wait()
-                self._workspace_edit_active = True
-            else:
-                while self._workspace_edit_active:
-                    self._action_condition.wait()
-                self._active_workspace_readers += 1
-        descriptors.callback(self._release_action_slot, access)
-
-    def _release_action_slot(
-        self,
-        access: RunFrontierWorkspaceAccess,
-    ) -> None:
-        with self._action_condition:
-            if access is RunFrontierWorkspaceAccess.EDIT_WORKSPACE:
-                if not self._workspace_edit_active:
-                    raise RunFrontierActionError(
-                        "workspace edit slot was released twice"
-                    )
-                self._workspace_edit_active = False
-            else:
-                if self._active_workspace_readers <= 0:
-                    raise RunFrontierActionError(
-                        "workspace reader slot was released twice"
-                    )
-                self._active_workspace_readers -= 1
-            self._action_condition.notify_all()
-
-    def _require_frontier_available(self, checkpoint_id: str) -> None:
-        with self._action_condition:
-            if (
-                checkpoint_id in self._blocked_checkpoint_ids
-                or checkpoint_id in self._pending_workspace_advances
-            ):
-                raise RunFrontierActionError(
-                    "run checkpoint workspace frontier awaits reconciliation"
-                )
-
-    def _block_checkpoint(self, checkpoint_id: str) -> None:
-        with self._action_condition:
-            self._blocked_checkpoint_ids.add(checkpoint_id)
-
-    def _unblock_checkpoint(self, checkpoint_id: str) -> None:
-        with self._action_condition:
-            self._blocked_checkpoint_ids.discard(checkpoint_id)
-
-    def _record_pending_workspace_advance(
-        self,
-        pending: _PendingWorkspaceAdvance,
-    ) -> None:
-        with self._action_condition:
-            if pending.predecessor_checkpoint_id in self._pending_workspace_advances:
-                raise RunFrontierActionError(
-                    "run checkpoint already has a pending workspace advance"
-                )
-            self._pending_workspace_advances[pending.predecessor_checkpoint_id] = (
-                pending
+        frontier: ReconciledRunFrontier,
+        inspection: RunActionStoreInspection,
+    ) -> RunActionWorkspaceBinding | None:
+        inspection.ledger.require_predecessor(frontier.projection.action_ledger)
+        terminal_kinds = {
+            RunActionExecutionEventKind.RESULT_ACCEPTED,
+            RunActionExecutionEventKind.CANCELLED,
+            RunActionExecutionEventKind.INTERRUPTED,
+        }
+        if any(
+            tail.tail_kind not in terminal_kinds
+            for tail in inspection.ledger.operation_tails
+        ):
+            raise RunFrontierActionError(
+                "run frontier has an unresolved durable action"
             )
-            self._blocked_checkpoint_ids.discard(pending.predecessor_checkpoint_id)
+        ordered = inspection.operations_since(
+            frontier.projection.action_ledger,
+        )
+        if any(
+            events[0].reservation.frontier.run_checkpoint_id
+            != frontier.run_checkpoint_id
+            for events in ordered
+        ):
+            raise RunFrontierActionError(
+                "run frontier action ledger contains another checkpoint"
+            )
+        workspace_pairs = inspection.workspace_chain(ordered)
+        if any(before != after for before, after in workspace_pairs):
+            raise RunFrontierActionError(
+                "run checkpoint workspace frontier awaits reconciliation"
+            )
+        return None if not workspace_pairs else workspace_pairs[-1][1]
+
+    @staticmethod
+    def _require_exact_reserved_prefix(
+        permit: RunFrontierUsePermit,
+        inspection: RunActionStoreInspection,
+    ) -> None:
+        inspection.ledger.require_predecessor(permit._predecessor_ledger)
+        expected_event_count = permit._predecessor_ledger.event_count + 1
+        operation_events = inspection.events_for(
+            permit._reservation.intent.operation_id
+        )
+        if (
+            inspection.ledger.event_count != expected_event_count
+            or len(operation_events) != 1
+            or operation_events[0].reservation != permit._reservation
+            or operation_events[0].event_kind
+            is not RunActionExecutionEventKind.INTENT_RESERVED
+        ):
+            raise RunFrontierActionError(
+                "run action reservation is not the exact live ledger successor"
+            )
 
     def _inspect_workspace(
         self,
@@ -706,121 +825,11 @@ class RunFrontierActionGate:
             )
         return commit_sha
 
-    def _require_publication_candidate(
-        self,
-        current_checkpoint: RunCheckpoint | None,
-        candidate: RunCheckpoint,
-    ) -> None:
-        """Bind publication to the live workspace and any completed edit."""
-        if current_checkpoint is None:
-            return
-        checkpoint_id = current_checkpoint.run_checkpoint_id
-        with self._action_condition:
-            if checkpoint_id in self._blocked_checkpoint_ids:
-                raise RunFrontierActionError(
-                    "blocked workspace frontier cannot publish a checkpoint"
-                )
-            pending = self._pending_workspace_advances.get(checkpoint_id)
-        expected_workspace = (
-            self._checkpoint_workspace_commit(current_checkpoint)
-            if pending is None
-            else pending.after.commit_sha
-        )
-        with ExitStack() as descriptors:
-            workspace_descriptor, _identity = (
-                self._active_workspace._open_execution_workspace(descriptors)
-            )
-            observed = inspect_run_workspace_frontier(
-                workspace_descriptor,
-                settings=self._publisher._settings,
-                expected_commit_sha=expected_workspace,
-            )
-        if pending is not None and observed != pending.after:
+    def _require_owner_process(self) -> None:
+        if self._owner_process_id != os.getpid():
             raise RunFrontierActionError(
-                "pending workspace advance changed before publication"
+                "run frontier action gate cannot cross a process boundary"
             )
-        self._require_candidate_workspace_evidence(
-            current_checkpoint,
-            candidate,
-            pending,
-        )
-
-    def _require_candidate_workspace_evidence(
-        self,
-        current_checkpoint: RunCheckpoint,
-        candidate: RunCheckpoint,
-        pending: _PendingWorkspaceAdvance | None,
-    ) -> None:
-        branch = self._publisher._settings.workspace_git_branch
-        current_evidence = current_checkpoint.safety_state.derivative_frontier.evidence
-        candidate_evidence = candidate.safety_state.derivative_frontier.evidence
-        current_ids = {
-            advance.branch_advance_id for advance in current_evidence.branch_advances
-        }
-        new_branch_advances = tuple(
-            advance
-            for advance in candidate_evidence.branch_advances
-            if advance.branch_advance_id not in current_ids and advance.branch == branch
-        )
-        if pending is None:
-            if (
-                candidate_evidence.branch_heads.get(branch)
-                != current_evidence.branch_heads.get(branch)
-                or new_branch_advances
-            ):
-                raise RunFrontierActionError(
-                    "checkpoint changes workspace evidence without a completed edit"
-                )
-            return
-        terminal = tuple(
-            advance
-            for advance in current_evidence.branch_advances
-            if advance.branch == branch
-            and advance.commit_sha == pending.before.commit_sha
-        )
-        predecessor_advance_id = (
-            None
-            if current_evidence.branch_origin_heads[branch] == pending.before.commit_sha
-            else terminal[0].branch_advance_id if len(terminal) == 1 else ""
-        )
-        if (
-            candidate_evidence.branch_heads.get(branch) != pending.after.commit_sha
-            or len(new_branch_advances) != 1
-            or new_branch_advances[0].predecessor_commit_sha
-            != pending.before.commit_sha
-            or new_branch_advances[0].commit_sha != pending.after.commit_sha
-            or new_branch_advances[0].predecessor_branch_advance_id
-            != predecessor_advance_id
-            or new_branch_advances[0].authorization_safety_state_id
-            != current_checkpoint.safety_state.safety_state_id
-        ):
-            raise RunFrontierActionError(
-                "checkpoint does not exactly account for its workspace edit"
-            )
-
-    def _commit_publication(
-        self,
-        predecessor_checkpoint_id: str | None,
-        candidate: RunCheckpoint,
-    ) -> None:
-        if predecessor_checkpoint_id is None:
-            return
-        with self._action_condition:
-            pending = self._pending_workspace_advances.get(predecessor_checkpoint_id)
-            if pending is None:
-                return
-            branch = self._publisher._settings.workspace_git_branch
-            if (
-                candidate.predecessor_checkpoint_id != predecessor_checkpoint_id
-                or candidate.safety_state.derivative_frontier.evidence.branch_heads.get(
-                    branch
-                )
-                != pending.after.commit_sha
-            ):
-                raise RunFrontierActionError(
-                    "published checkpoint differs from its pending workspace edit"
-                )
-            del self._pending_workspace_advances[predecessor_checkpoint_id]
 
     @staticmethod
     def _permit_matches(permit: RunFrontierUsePermit) -> bool:
