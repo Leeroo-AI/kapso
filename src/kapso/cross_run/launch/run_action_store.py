@@ -24,7 +24,6 @@ from kapso.cross_run.contracts import StrictContract
 from kapso.cross_run.launch.run_action_contracts import (
     RunActionBoundaryIdentity,
     RunActionContractError,
-    RunActionIntent,
     RunFrontierWorkspaceAccess,
 )
 from kapso.cross_run.launch.run_action_ledger import (
@@ -32,13 +31,20 @@ from kapso.cross_run.launch.run_action_ledger import (
     RunActionLedgerSnapshot,
     RunActionOperationTail,
 )
+from kapso.cross_run.launch.run_action_reservation_contracts import (
+    RunActionRequestBlob as _RunActionRequestBlob,
+    RunActionReservation as _RunActionReservation,
+    RunActionWorkspaceBinding as _RunActionWorkspaceBinding,
+)
+from kapso.cross_run.launch.run_action_spawn_contracts import (
+    RunActionSpawnCommit as _RunActionSpawnCommit,
+)
 from kapso.cross_run.launch.workspace import ActiveLaunchWorkspace
 from kapso.cross_run.launch.workspace_frontier import RunWorkspaceFrontierIdentity
 from kapso.cross_run.settings import LaunchSettings
 
 _RENAME_NOREPLACE = 1
 _DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
-_NONCE_PATTERN = re.compile(r"^[0-9a-f]{32}$")
 _EVENT_NAME_PATTERN = re.compile(
     r"^operation-(?P<operation>[0-9a-f]{64})-event-(?P<number>[0-9]{4})[.]json$"
 )
@@ -74,334 +80,6 @@ class RunActionResultDisposition(str, Enum):
 
 
 @dataclass(frozen=True)
-class RunActionViewBinding(StrictContract):
-    """Serializable content identity of one checkpoint-owned mutable view."""
-
-    relative_path: str
-    digest: str
-    size_bytes: int
-
-    def _validate(self) -> None:
-        if (
-            not isinstance(self.relative_path, str)
-            or not self.relative_path
-            or "\x00" in self.relative_path
-            or _DIGEST_PATTERN.fullmatch(self.digest) is None
-            or type(self.size_bytes) is not int
-            or self.size_bytes < 0
-        ):
-            raise RunActionStoreError("run action view binding is invalid")
-
-
-@dataclass(frozen=True)
-class RunActionWorkspaceBinding(StrictContract):
-    """Serializable clean source/Git identity before or after one action."""
-
-    workspace_device: int
-    workspace_inode: int
-    branch: str
-    commit_sha: str
-    parent_commit_shas: tuple[str, ...]
-    git_tree_sha: str
-    source_tree_digest: str
-    git_closure_digest: str
-    source_entry_count: int
-    source_size_bytes: int
-
-    def _validate(self) -> None:
-        identity = RunWorkspaceFrontierIdentity(
-            workspace_identity=(self.workspace_device, self.workspace_inode),
-            branch=self.branch,
-            commit_sha=self.commit_sha,
-            parent_commit_shas=self.parent_commit_shas,
-            git_tree_sha=self.git_tree_sha,
-            source_tree_digest=self.source_tree_digest,
-            git_closure_digest=self.git_closure_digest,
-            source_entry_count=self.source_entry_count,
-            source_size_bytes=self.source_size_bytes,
-        )
-        if identity.workspace_identity != (
-            self.workspace_device,
-            self.workspace_inode,
-        ):
-            raise RunActionStoreError("run action workspace binding is invalid")
-
-    @classmethod
-    def from_identity(
-        cls,
-        identity: RunWorkspaceFrontierIdentity,
-    ) -> "RunActionWorkspaceBinding":
-        if type(identity) is not RunWorkspaceFrontierIdentity:
-            raise RunActionStoreError(
-                "run action workspace binding requires one exact frontier"
-            )
-        return cls(
-            workspace_device=identity.workspace_identity[0],
-            workspace_inode=identity.workspace_identity[1],
-            branch=identity.branch,
-            commit_sha=identity.commit_sha,
-            parent_commit_shas=identity.parent_commit_shas,
-            git_tree_sha=identity.git_tree_sha,
-            source_tree_digest=identity.source_tree_digest,
-            git_closure_digest=identity.git_closure_digest,
-            source_entry_count=identity.source_entry_count,
-            source_size_bytes=identity.source_size_bytes,
-        )
-
-    def to_identity(self) -> RunWorkspaceFrontierIdentity:
-        return RunWorkspaceFrontierIdentity(
-            workspace_identity=(self.workspace_device, self.workspace_inode),
-            branch=self.branch,
-            commit_sha=self.commit_sha,
-            parent_commit_shas=self.parent_commit_shas,
-            git_tree_sha=self.git_tree_sha,
-            source_tree_digest=self.source_tree_digest,
-            git_closure_digest=self.git_closure_digest,
-            source_entry_count=self.source_entry_count,
-            source_size_bytes=self.source_size_bytes,
-        )
-
-
-@dataclass(frozen=True)
-class RunActionFrontierBinding(StrictContract):
-    """Complete durable identity of the reconciled frontier authorizing an action."""
-
-    frontier_binding_id: str
-    bootstrap_pin_id: str
-    run_checkpoint_id: str
-    safety_state_id: str
-    security_observation_id: str
-    generation_id: str
-    journal_head_id: str
-    journal_size_bytes: int
-    bundle_digest: str
-    bundle_size_bytes: int
-    view_bindings: tuple[RunActionViewBinding, ...]
-    workspace_before: RunActionWorkspaceBinding | None
-
-    CONTENT_NAMESPACE: ClassVar[str] = "run-action-frontier-binding"
-    IDENTITY_FIELD: ClassVar[str] = "frontier_binding_id"
-
-    def _validate(self) -> None:
-        for value, namespace, name in (
-            (self.bootstrap_pin_id, "bootstrap-pin", "bootstrap pin"),
-            (self.run_checkpoint_id, "run-checkpoint", "checkpoint"),
-            (self.safety_state_id, "run-safety-state", "safety state"),
-            (
-                self.security_observation_id,
-                "security-denylist-observation",
-                "security observation",
-            ),
-            (
-                self.generation_id,
-                "run-derived-state-generation",
-                "derived generation",
-            ),
-            (self.journal_head_id, "run-checkpoint-head", "checkpoint head"),
-        ):
-            _require_namespaced_id(value, namespace, f"run action {name}")
-        if (
-            type(self.journal_size_bytes) is not int
-            or self.journal_size_bytes <= 0
-            or _DIGEST_PATTERN.fullmatch(self.bundle_digest) is None
-            or type(self.bundle_size_bytes) is not int
-            or self.bundle_size_bytes <= 0
-            or any(
-                type(binding) is not RunActionViewBinding
-                for binding in self.view_bindings
-            )
-            or tuple(binding.relative_path for binding in self.view_bindings)
-            != tuple(sorted({binding.relative_path for binding in self.view_bindings}))
-            or (
-                self.workspace_before is not None
-                and type(self.workspace_before) is not RunActionWorkspaceBinding
-            )
-        ):
-            raise RunActionStoreError("run action frontier binding is invalid")
-
-
-@dataclass(frozen=True)
-class RunActionReservation(StrictContract):
-    """One operation identity durably reserved against one exact run frontier."""
-
-    reservation_id: str
-    intent: RunActionIntent
-    frontier: RunActionFrontierBinding
-    request_blob: RunActionRequestBlob
-    predecessor_ledger_snapshot_id: str
-    exact_dependency_ids: tuple[str, ...]
-
-    CONTENT_NAMESPACE: ClassVar[str] = "run-action-reservation"
-    IDENTITY_FIELD: ClassVar[str] = "reservation_id"
-
-    def _validate(self) -> None:
-        if (
-            type(self.intent) is not RunActionIntent
-            or type(self.frontier) is not RunActionFrontierBinding
-            or type(self.request_blob) is not RunActionRequestBlob
-        ):
-            raise RunActionStoreError(
-                "run action reservation requires intent and frontier"
-            )
-        _require_namespaced_id(
-            self.predecessor_ledger_snapshot_id,
-            RunActionLedgerSnapshot.CONTENT_NAMESPACE,
-            "run action predecessor ledger",
-        )
-        expected = {
-            self.intent.action_intent_id,
-            self.frontier.frontier_binding_id,
-            self.frontier.bootstrap_pin_id,
-            self.frontier.run_checkpoint_id,
-            self.frontier.safety_state_id,
-            self.frontier.security_observation_id,
-            self.frontier.generation_id,
-            self.frontier.journal_head_id,
-            self.request_blob.request_blob_id,
-            self.predecessor_ledger_snapshot_id,
-        }
-        if (
-            self.exact_dependency_ids != tuple(sorted(set(self.exact_dependency_ids)))
-            or set(self.exact_dependency_ids) != expected
-        ):
-            raise RunActionStoreError(
-                "run action reservation dependency closure is not exact"
-            )
-        if (self.intent.workspace_access is RunFrontierWorkspaceAccess.NONE) != (
-            self.frontier.workspace_before is None
-        ):
-            raise RunActionStoreError(
-                "run action reservation workspace authority differs from its intent"
-            )
-        if (
-            self.request_blob.digest != self.intent.request_digest
-            or self.request_blob.size_bytes != self.intent.request_size_bytes
-        ):
-            raise RunActionStoreError(
-                "run action reservation request blob differs from its intent"
-            )
-
-    @classmethod
-    def build(
-        cls,
-        *,
-        intent: RunActionIntent,
-        frontier: RunActionFrontierBinding,
-        predecessor_ledger: RunActionLedgerSnapshot,
-    ) -> "RunActionReservation":
-        if (
-            type(intent) is not RunActionIntent
-            or type(frontier) is not RunActionFrontierBinding
-            or type(predecessor_ledger) is not RunActionLedgerSnapshot
-        ):
-            raise RunActionStoreError(
-                "run action reservation requires exact typed inputs"
-            )
-        request_blob = RunActionRequestBlob.mint(
-            digest=intent.request_digest,
-            size_bytes=intent.request_size_bytes,
-        )
-        return cls.mint(
-            intent=intent,
-            frontier=frontier,
-            request_blob=request_blob,
-            predecessor_ledger_snapshot_id=(predecessor_ledger.ledger_snapshot_id),
-            exact_dependency_ids=tuple(
-                sorted(
-                    {
-                        intent.action_intent_id,
-                        frontier.frontier_binding_id,
-                        frontier.bootstrap_pin_id,
-                        frontier.run_checkpoint_id,
-                        frontier.safety_state_id,
-                        frontier.security_observation_id,
-                        frontier.generation_id,
-                        frontier.journal_head_id,
-                        request_blob.request_blob_id,
-                        predecessor_ledger.ledger_snapshot_id,
-                    }
-                )
-            ),
-        )
-
-
-@dataclass(frozen=True)
-class RunActionRequestBlob(StrictContract):
-    """Content descriptor for the complete untruncated provider request."""
-
-    request_blob_id: str
-    digest: str
-    size_bytes: int
-
-    CONTENT_NAMESPACE: ClassVar[str] = "run-action-request-blob"
-    IDENTITY_FIELD: ClassVar[str] = "request_blob_id"
-
-    def _validate(self) -> None:
-        if (
-            _DIGEST_PATTERN.fullmatch(self.digest) is None
-            or type(self.size_bytes) is not int
-            or self.size_bytes <= 0
-        ):
-            raise RunActionStoreError("run action request blob is invalid")
-
-
-@dataclass(frozen=True)
-class RunActionSpawnCommit(StrictContract):
-    """Pre-spawn durable fence for one exact provider invocation."""
-
-    spawn_commit_id: str
-    reservation_id: str
-    provider_execution_id: str
-    invocation_nonce: str
-    security_observation_id: str
-    boundary_identity: RunActionBoundaryIdentity
-
-    CONTENT_NAMESPACE: ClassVar[str] = "run-action-spawn-commit"
-    IDENTITY_FIELD: ClassVar[str] = "spawn_commit_id"
-
-    def _validate(self) -> None:
-        _require_namespaced_id(
-            self.reservation_id,
-            RunActionReservation.CONTENT_NAMESPACE,
-            "run action spawn reservation",
-        )
-        require_identifier(
-            self.provider_execution_id,
-            "run action provider execution ID",
-        )
-        _require_namespaced_id(
-            self.security_observation_id,
-            "security-denylist-observation",
-            "run action spawn security observation",
-        )
-        if _NONCE_PATTERN.fullmatch(self.invocation_nonce) is None:
-            raise RunActionStoreError(
-                "run action spawn nonce must be 128-bit lowercase hex"
-            )
-        if type(self.boundary_identity) is not RunActionBoundaryIdentity:
-            raise RunActionStoreError(
-                "run action spawn requires one exact boundary identity"
-            )
-
-    @classmethod
-    def build(
-        cls,
-        *,
-        reservation_id: str,
-        provider_execution_id: str,
-        security_observation_id: str,
-        boundary_identity: RunActionBoundaryIdentity,
-    ) -> "RunActionSpawnCommit":
-        return cls.mint(
-            reservation_id=reservation_id,
-            provider_execution_id=provider_execution_id,
-            invocation_nonce=secrets.token_hex(16),
-            security_observation_id=security_observation_id,
-            boundary_identity=boundary_identity,
-        )
-
-
-@dataclass(frozen=True)
 class RunActionResultBlob(StrictContract):
     """Content descriptor for complete provider or accepted result bytes."""
 
@@ -432,7 +110,7 @@ class RunActionResultReceipt(StrictContract):
     def _validate(self) -> None:
         _require_namespaced_id(
             self.spawn_commit_id,
-            RunActionSpawnCommit.CONTENT_NAMESPACE,
+            _RunActionSpawnCommit.CONTENT_NAMESPACE,
             "run action result spawn commit",
         )
         require_identifier(
@@ -453,7 +131,7 @@ class RunActionAcceptance(StrictContract):
     result_receipt_id: str
     disposition: RunActionResultDisposition
     accepted_result_blob: RunActionResultBlob
-    workspace_after: RunActionWorkspaceBinding | None
+    workspace_after: _RunActionWorkspaceBinding | None
 
     CONTENT_NAMESPACE: ClassVar[str] = "run-action-acceptance"
     IDENTITY_FIELD: ClassVar[str] = "acceptance_id"
@@ -469,7 +147,7 @@ class RunActionAcceptance(StrictContract):
             or type(self.accepted_result_blob) is not RunActionResultBlob
             or (
                 self.workspace_after is not None
-                and type(self.workspace_after) is not RunActionWorkspaceBinding
+                and type(self.workspace_after) is not _RunActionWorkspaceBinding
             )
         ):
             raise RunActionStoreError("run action acceptance is invalid")
@@ -483,12 +161,12 @@ class RunActionExecutionEvent(StrictContract):
     event_number: int
     predecessor_event_id: str | None
     event_kind: RunActionExecutionEventKind
-    reservation: RunActionReservation
-    spawn_commit: RunActionSpawnCommit | None
+    reservation: _RunActionReservation
+    spawn_commit: _RunActionSpawnCommit | None
     result_receipt: RunActionResultReceipt | None
     acceptance: RunActionAcceptance | None
     terminal_reason: RunActionTerminalReason | None
-    workspace_after: RunActionWorkspaceBinding | None
+    workspace_after: _RunActionWorkspaceBinding | None
 
     CONTENT_NAMESPACE: ClassVar[str] = "run-action-execution-event"
     IDENTITY_FIELD: ClassVar[str] = "event_id"
@@ -499,7 +177,7 @@ class RunActionExecutionEvent(StrictContract):
             or not 1 <= self.event_number <= _MAXIMUM_EVENT_COUNT
             or (self.predecessor_event_id is None) != (self.event_number == 1)
             or type(self.event_kind) is not RunActionExecutionEventKind
-            or type(self.reservation) is not RunActionReservation
+            or type(self.reservation) is not _RunActionReservation
         ):
             raise RunActionStoreError("run action execution event prefix is invalid")
         if self.predecessor_event_id is not None:
@@ -681,7 +359,7 @@ class RunActionStoreInspection:
     @staticmethod
     def workspace_chain(
         operations: tuple[tuple[RunActionExecutionEvent, ...], ...],
-    ) -> tuple[tuple[RunActionWorkspaceBinding, RunActionWorkspaceBinding], ...]:
+    ) -> tuple[tuple[_RunActionWorkspaceBinding, _RunActionWorkspaceBinding], ...]:
         """Return the exact workspace before/after chain of ordered terminals."""
         pairs = []
         previous_after = None
@@ -723,7 +401,7 @@ class _RunActionExecutionSession:
     def __init__(
         self,
         store: "RunActionExecutionStore",
-        reservation: RunActionReservation,
+        reservation: _RunActionReservation,
         events: tuple[RunActionExecutionEvent, ...],
         descriptors: ExitStack,
     ) -> None:
@@ -771,7 +449,7 @@ class _RunActionExecutionSession:
         provider_execution_id: str,
         security_observation_id: str,
         boundary_identity: RunActionBoundaryIdentity,
-    ) -> RunActionSpawnCommit:
+    ) -> _RunActionSpawnCommit:
         self._require_tail(RunActionExecutionEventKind.INTENT_RESERVED)
         if (
             type(boundary_identity) is not RunActionBoundaryIdentity
@@ -780,7 +458,7 @@ class _RunActionExecutionSession:
             raise RunActionStoreError(
                 "run action spawn boundary differs from its reservation"
             )
-        spawn_commit = RunActionSpawnCommit.build(
+        spawn_commit = _RunActionSpawnCommit.build(
             reservation_id=self.reservation.reservation_id,
             provider_execution_id=provider_execution_id,
             security_observation_id=security_observation_id,
@@ -796,13 +474,13 @@ class _RunActionExecutionSession:
     def record_result(
         self,
         *,
-        spawn_commit: RunActionSpawnCommit,
+        spawn_commit: _RunActionSpawnCommit,
         result_payload: bytes,
     ) -> RunActionResultReceipt:
         self._require_tail(RunActionExecutionEventKind.SPAWN_COMMITTED)
         durable_spawn = self._events[-1].spawn_commit
         if (
-            type(spawn_commit) is not RunActionSpawnCommit
+            type(spawn_commit) is not _RunActionSpawnCommit
             or spawn_commit != durable_spawn
         ):
             raise RunActionStoreError(
@@ -859,7 +537,7 @@ class _RunActionExecutionSession:
         after = (
             None
             if workspace_after is None
-            else RunActionWorkspaceBinding.from_identity(workspace_after)
+            else _RunActionWorkspaceBinding.from_identity(workspace_after)
         )
         _require_workspace_acceptance(
             self.reservation.intent.workspace_access,
@@ -920,7 +598,7 @@ class _RunActionExecutionSession:
         after = (
             None
             if workspace_after is None
-            else RunActionWorkspaceBinding.from_identity(workspace_after)
+            else _RunActionWorkspaceBinding.from_identity(workspace_after)
         )
         _require_interrupted_workspace(
             self.reservation.intent.workspace_access,
@@ -970,11 +648,11 @@ class _RunActionExecutionSession:
         self,
         event_kind: RunActionExecutionEventKind,
         *,
-        spawn_commit: RunActionSpawnCommit | None = None,
+        spawn_commit: _RunActionSpawnCommit | None = None,
         result_receipt: RunActionResultReceipt | None = None,
         acceptance: RunActionAcceptance | None = None,
         terminal_reason: RunActionTerminalReason | None = None,
-        workspace_after: RunActionWorkspaceBinding | None = None,
+        workspace_after: _RunActionWorkspaceBinding | None = None,
     ) -> RunActionExecutionEvent:
         return RunActionExecutionEvent.mint(
             event_number=len(self._events) + 1,
@@ -1024,7 +702,7 @@ class _RunActionSessionContext:
     def __init__(
         self,
         store: "RunActionExecutionStore",
-        reservation: RunActionReservation,
+        reservation: _RunActionReservation,
     ) -> None:
         self.store = store
         self.reservation = reservation
@@ -1095,13 +773,13 @@ class RunActionExecutionStore:
 
     def _session(
         self,
-        reservation: RunActionReservation,
+        reservation: _RunActionReservation,
         *,
         _authority: object,
     ) -> _RunActionSessionContext:
         self._require_owner_process()
         if (
-            type(reservation) is not RunActionReservation
+            type(reservation) is not _RunActionReservation
             or _authority is not _RUN_ACTION_MUTATION_AUTHORITY
         ):
             raise RunActionStoreError(
@@ -1111,13 +789,13 @@ class RunActionExecutionStore:
 
     def _recovery_session(
         self,
-        reservation: RunActionReservation,
+        reservation: _RunActionReservation,
         *,
         _authority: object,
     ) -> _RunActionSessionContext:
         self._require_owner_process()
         if (
-            type(reservation) is not RunActionReservation
+            type(reservation) is not _RunActionReservation
             or _authority is not _RUN_ACTION_RECOVERY_AUTHORITY
         ):
             raise RunActionStoreError(
@@ -1458,7 +1136,7 @@ class RunActionExecutionStore:
     def _reserve(
         self,
         descriptors: ExitStack,
-        reservation: RunActionReservation,
+        reservation: _RunActionReservation,
         request_payload: bytes,
         event: RunActionExecutionEvent,
     ) -> None:
@@ -1803,7 +1481,7 @@ class RunActionExecutionStore:
     def _publish_request_locked(
         self,
         store_descriptor: int,
-        request_blob: RunActionRequestBlob,
+        request_blob: _RunActionRequestBlob,
         payload: bytes,
     ) -> None:
         destination_name = f"input-{request_blob.digest.removeprefix('sha256:')}.blob"
@@ -2040,9 +1718,9 @@ class RunActionExecutionStore:
     def _read_request(
         self,
         descriptors: ExitStack,
-        request_blob: RunActionRequestBlob,
+        request_blob: _RunActionRequestBlob,
     ) -> bytes:
-        if type(request_blob) is not RunActionRequestBlob:
+        if type(request_blob) is not _RunActionRequestBlob:
             raise RunActionStoreError("run action request read requires one exact blob")
         store_descriptor, _identity = self._open_store(descriptors)
         payload = self._read_blob(
@@ -2213,8 +1891,8 @@ def _validate_event_prefix(events: tuple[RunActionExecutionEvent, ...]) -> None:
 def _require_workspace_acceptance(
     access: RunFrontierWorkspaceAccess,
     disposition: RunActionResultDisposition,
-    before: RunActionWorkspaceBinding | None,
-    after: RunActionWorkspaceBinding | None,
+    before: _RunActionWorkspaceBinding | None,
+    after: _RunActionWorkspaceBinding | None,
 ) -> None:
     if type(disposition) is not RunActionResultDisposition:
         raise RunActionStoreError(
@@ -2262,8 +1940,8 @@ def _require_workspace_acceptance(
 
 def _require_interrupted_workspace(
     access: RunFrontierWorkspaceAccess,
-    before: RunActionWorkspaceBinding | None,
-    after: RunActionWorkspaceBinding | None,
+    before: _RunActionWorkspaceBinding | None,
+    after: _RunActionWorkspaceBinding | None,
 ) -> None:
     if access is RunFrontierWorkspaceAccess.NONE:
         if after is not None:
@@ -2493,17 +2171,12 @@ __all__ = [
     "RunActionExecutionEvent",
     "RunActionExecutionEventKind",
     "RunActionExecutionStore",
-    "RunActionFrontierBinding",
     "RunActionLedgerSnapshot",
     "RunActionOperationTail",
-    "RunActionReservation",
     "RunActionResultBlob",
     "RunActionResultDisposition",
     "RunActionResultReceipt",
-    "RunActionSpawnCommit",
     "RunActionStoreInspection",
     "RunActionStoreError",
     "RunActionTerminalReason",
-    "RunActionViewBinding",
-    "RunActionWorkspaceBinding",
 ]

@@ -32,18 +32,20 @@ from kapso.cross_run.launch.run_action_recovery import (
     RunActionRecoveryCoordinator,
     RunActionRecoveryImplementationRegistry,
 )
+from kapso.cross_run.launch.run_action_reservation_contracts import (
+    RunActionFrontierBinding,
+    RunActionReservation,
+    RunActionViewBinding,
+    RunActionWorkspaceBinding,
+)
 from kapso.cross_run.launch.run_action_store import (
     _RUN_ACTION_MUTATION_AUTHORITY,
     RunActionAcceptance,
     _RunActionExecutionSession,
-    RunActionFrontierBinding,
-    RunActionReservation,
     RunActionResultDisposition,
     RunActionResultReceipt,
     RunActionStoreInspection,
     RunActionTerminalReason,
-    RunActionViewBinding,
-    RunActionWorkspaceBinding,
 )
 from kapso.cross_run.launch.run_state_publisher import (
     ReconciledRunFrontier,

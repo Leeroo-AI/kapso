@@ -13,7 +13,7 @@ from dataclasses import replace
 
 import pytest
 
-from kapso.cross_run.canonical import tree_or_blob_digest
+from kapso.cross_run.canonical import content_id, tree_or_blob_digest
 from kapso.cross_run.launch.checkpoint_contracts import (
     RunCheckpoint,
     RunCheckpointStatus,
@@ -40,14 +40,16 @@ from kapso.cross_run.launch.run_action_gate import (
     RunFrontierActionKind,
     RunFrontierWorkspaceAccess,
 )
+from kapso.cross_run.launch.run_action_reservation_contracts import (
+    RunActionReservation,
+)
+from kapso.cross_run.launch.run_action_spawn_contracts import RunActionSpawnCommit
 from kapso.cross_run.launch.run_action_store import (
     RunActionAcceptance,
     RunActionExecutionEvent,
     RunActionExecutionEventKind,
-    RunActionReservation,
     RunActionResultDisposition,
     RunActionResultReceipt,
-    RunActionSpawnCommit,
     RunActionStoreError,
 )
 from kapso.cross_run.launch.run_state_publisher import (
@@ -77,7 +79,10 @@ def _boundary_identity(
             implementation_id=f"test.{kind.value}.execution",
             implementation_version="test.execution.v1",
             recovery_protocol_version="test.recovery.v1",
-            sandbox_policy_id=f"test.{kind.value}.sandbox.v1",
+            execution_policy_id=content_id(
+                "test-run-action-execution-policy",
+                {"kind": kind.value},
+            ),
         ),
         result_interpreter_identity=RunActionResultInterpreterIdentity.mint(
             kind=kind,
@@ -490,7 +495,9 @@ def test_action_claim_rejects_adapter_substitution_before_security_use(
             implementation_id="test.coding_agent.execution",
             implementation_version="test.execution.v2",
             recovery_protocol_version="test.recovery.v1",
-            sandbox_policy_id="test.coding_agent.sandbox.v1",
+            execution_policy_id=(
+                permit.intent.boundary_identity.execution_lifecycle_identity.execution_policy_id
+            ),
         ),
         result_interpreter_identity=(
             permit.intent.boundary_identity.result_interpreter_identity

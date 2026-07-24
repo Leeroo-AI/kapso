@@ -10,6 +10,7 @@ from threading import Barrier, Event
 
 import pytest
 
+import kapso.cross_run.launch.run_action_store as run_action_store_module
 from kapso.cross_run.canonical import tree_or_blob_digest
 from kapso.cross_run.launch.run_action_contracts import RunActionIntent
 from kapso.cross_run.launch.run_action_gate import (
@@ -19,6 +20,9 @@ from kapso.cross_run.launch.run_action_gate import (
     RunFrontierWorkspaceAccess,
 )
 from kapso.cross_run.launch.run_action_ledger import RunActionLedgerError
+from kapso.cross_run.launch.run_action_reservation_contracts import (
+    RunActionReservation,
+)
 from kapso.cross_run.launch.run_action_store import (
     _RUN_ACTION_MUTATION_AUTHORITY,
     _RUN_ACTION_STORE_AUTHORITY,
@@ -26,7 +30,6 @@ from kapso.cross_run.launch.run_action_store import (
     RunActionExecutionStore,
     RunActionExecutionEvent,
     RunActionAcceptance,
-    RunActionReservation,
     RunActionResultDisposition,
     RunActionStoreError,
     RunActionTerminalReason,
@@ -53,6 +56,18 @@ def _open_store(active, settings):
         settings=settings,
         _authority=_RUN_ACTION_STORE_AUTHORITY,
     )
+
+
+def test_reservation_contracts_are_not_reexported_by_action_store():
+    for name in (
+        "RunActionFrontierBinding",
+        "RunActionRequestBlob",
+        "RunActionReservation",
+        "RunActionSpawnCommit",
+        "RunActionViewBinding",
+        "RunActionWorkspaceBinding",
+    ):
+        assert not hasattr(run_action_store_module, name)
 
 
 def _open_session(store, reservation):

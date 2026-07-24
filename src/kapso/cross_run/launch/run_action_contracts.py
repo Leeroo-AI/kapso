@@ -7,7 +7,11 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import ClassVar
 
-from kapso.cross_run.canonical import require_identifier, tree_or_blob_digest
+from kapso.cross_run.canonical import (
+    require_content_id,
+    require_identifier,
+    tree_or_blob_digest,
+)
 from kapso.cross_run.contracts import StrictContract
 from kapso.cross_run.launch.resume_contracts import RunSafetyBoundary
 
@@ -77,7 +81,7 @@ class RunActionExecutionLifecycleIdentity(StrictContract):
     implementation_id: str
     implementation_version: str
     recovery_protocol_version: str
-    sandbox_policy_id: str
+    execution_policy_id: str
 
     CONTENT_NAMESPACE: ClassVar[str] = "run-action-execution-lifecycle-identity"
     IDENTITY_FIELD: ClassVar[str] = "execution_lifecycle_identity_id"
@@ -91,9 +95,12 @@ class RunActionExecutionLifecycleIdentity(StrictContract):
             (self.implementation_id, "implementation ID"),
             (self.implementation_version, "implementation version"),
             (self.recovery_protocol_version, "recovery protocol version"),
-            (self.sandbox_policy_id, "sandbox policy ID"),
         ):
             require_identifier(value, f"run action execution lifecycle {name}")
+        require_content_id(
+            self.execution_policy_id,
+            "run action execution lifecycle policy",
+        )
 
 
 @dataclass(frozen=True)

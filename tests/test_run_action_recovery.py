@@ -36,12 +36,14 @@ from kapso.cross_run.launch.run_action_recovery import (
     RunActionRecoveryImplementation,
     RunActionRecoveryImplementationRegistry,
 )
-from kapso.cross_run.launch.run_action_store import (
+from kapso.cross_run.launch.run_action_reservation_contracts import (
     RunActionFrontierBinding,
     RunActionReservation,
+    RunActionViewBinding,
+)
+from kapso.cross_run.launch.run_action_store import (
     RunActionResultDisposition,
     RunActionStoreError,
-    RunActionViewBinding,
 )
 from kapso.cross_run.launch.run_state_publisher import RunStatePublisher
 from kapso.cross_run.launch.workspace import StarterWorkspaceBuilder
