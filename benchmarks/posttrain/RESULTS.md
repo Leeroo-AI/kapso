@@ -206,7 +206,7 @@ with `gcp/20_fetch_results.sh <run_id>`. Layout per run:
 | #19 | arenahard × SmolLM3 10h | **56.58** | `arenahardwriting-smollm3-3b-base-0718134` | `reviews/run19-review.md` — top proven row, above human; zh/ru/ja mix unfixed |
 | #20 | arenahard × Qwen3-1.7B 10h | ABORTED @t+2h | `arenahardwriting-qwen3-1-7b-base-0724124` | killed 2026-07-24 14:2xZ to re-point oauth token (wrong .env source); P1 review captured the new-stack debut (clean) + R20-P1-1 language-axis miss — `reviews/run20-review.md` |
 | #21 | arenahard × Qwen3-1.7B 10h | in flight | `arenahardwriting-qwen3-1-7b-base-0724142` | relaunch of #20 on corrected token (secret v6, worktree .env); new ideation stack; best-known trace 74.85 |
-| #22 | arenahard × gemma-3-4b 10h | in flight | `arenahardwriting-gemma-3-4b-pt-07241426` | launched 2026-07-24 14:26Z (parallel); new ideation stack; best-known proven 47.4 (opus-4.8-max), human 94.8 |
+| #22 | arenahard × gemma-3-4b 10h | in flight | `arenahardwriting-gemma-3-4b-pt-07241440` | launched 2026-07-24 14:40Z (parallel); first attempt 07241426 self-destructed at t+6min on a transient `host-python` preflight (apt hiccup, model-agnostic — #21 passed identical); new ideation stack; best-known proven 47.4 (opus-4.8-max), human 94.8 |
 | #15 | bfcl × gemma-3-4b 10h | **93.0** | `bfcl-gemma-3-4b-pt-07171548` | `reviews/run15-review.md` |
 | #14 | bfcl × Qwen3-4B 10h | **95.0** | `bfcl-qwen3-4b-base-07171548` | `reviews/run14-review.md` |
 | #10 | bfcl × SmolLM3-3B 10h | **93.0** | `bfcl-smollm3-3b-base-07161232` | `reviews/run10-review.md` |
