@@ -863,6 +863,7 @@ class _RunActionExecutionSession:
         )
         _require_workspace_acceptance(
             self.reservation.intent.workspace_access,
+            disposition,
             before,
             after,
         )
@@ -1090,9 +1091,7 @@ class RunActionExecutionStore:
         with ExitStack() as descriptors:
             store_descriptor, _identity = self._open_store(descriptors)
             self._lock_registry(store_descriptor, descriptors)
-            self._clean_staging(store_descriptor)
-            self._clean_orphan_blobs(store_descriptor)
-            self._validate_store(store_descriptor)
+            self._prepare_store_locked(store_descriptor)
 
     def _session(
         self,
@@ -1148,10 +1147,7 @@ class RunActionExecutionStore:
             )
         store_descriptor, _identity = self._open_store(descriptors)
         self._lock_registry(store_descriptor, descriptors)
-        self._clean_staging(store_descriptor)
-        self._clean_orphan_blobs(store_descriptor)
-        event_names = self._validate_store(store_descriptor)
-        ledger = self._snapshot_from_event_names(store_descriptor, event_names)
+        _event_names, ledger = self._prepare_store_locked(store_descriptor)
         return RunActionStoreInspection(
             ledger=ledger,
             operation_events=tuple(
@@ -1220,7 +1216,12 @@ class RunActionExecutionStore:
         self._require_owner_process()
         return self._active_workspace._open_run_action_store(descriptors)
 
-    def _validate_store(self, store_descriptor: int) -> tuple[str, ...]:
+    def _validate_store(
+        self,
+        store_descriptor: int,
+        *,
+        before_staging_cleanup: bool,
+    ) -> tuple[str, ...]:
         names = []
         total_size_bytes = 0
         staging_entry_count = 0
@@ -1293,7 +1294,10 @@ class RunActionExecutionStore:
                 raise RunActionStoreError("run action store entry is unsafe")
         if (
             len(event_operation_digests) > self._settings.run_action_operation_limit
-            or staging_entry_count > self._settings.run_action_staging_entry_limit
+            or (
+                not before_staging_cleanup
+                and staging_entry_count > self._settings.run_action_staging_entry_limit
+            )
             or total_size_bytes > self._settings.run_action_store_size_bytes
             or "registry.lock" not in names
             or "workspace.lock" not in names
@@ -1301,7 +1305,7 @@ class RunActionExecutionStore:
             raise RunActionStoreError(
                 "run action store exceeds bounds or lacks fixed locks"
             )
-        return tuple(event_names)
+        return tuple(sorted(event_names))
 
     def _open_operation(
         self,
@@ -1312,9 +1316,7 @@ class RunActionExecutionStore:
         first_event_name = self._event_name(operation_id, 1)
         with ExitStack() as registry_descriptors:
             self._lock_registry(store_descriptor, registry_descriptors)
-            self._clean_staging(store_descriptor)
-            self._clean_orphan_blobs(store_descriptor)
-            self._validate_store(store_descriptor)
+            self._prepare_store_locked(store_descriptor)
             if not os.access(
                 first_event_name,
                 os.F_OK,
@@ -1463,13 +1465,7 @@ class RunActionExecutionStore:
         store_descriptor, _identity = self._open_store(descriptors)
         with ExitStack() as registry_descriptors:
             self._lock_registry(store_descriptor, registry_descriptors)
-            self._clean_staging(store_descriptor)
-            self._clean_orphan_blobs(store_descriptor)
-            event_names = self._validate_store(store_descriptor)
-            snapshot = self._snapshot_from_event_names(
-                store_descriptor,
-                event_names,
-            )
+            _event_names, snapshot = self._prepare_store_locked(store_descriptor)
             if (
                 snapshot.ledger_snapshot_id
                 != reservation.predecessor_ledger_snapshot_id
@@ -1628,9 +1624,7 @@ class RunActionExecutionStore:
         store_descriptor, _identity = self._open_store(descriptors)
         with ExitStack() as registry_descriptors:
             self._lock_registry(store_descriptor, registry_descriptors)
-            self._clean_staging(store_descriptor)
-            self._clean_orphan_blobs(store_descriptor)
-            event_names = self._validate_store(store_descriptor)
+            event_names, _snapshot = self._prepare_store_locked(store_descriptor)
             self._require_unique_spawn_identity(
                 store_descriptor,
                 event_names,
@@ -1695,9 +1689,7 @@ class RunActionExecutionStore:
         destination_name = f"{kind}-{result_blob.digest.removeprefix('sha256:')}.blob"
         with ExitStack() as registry_descriptors:
             self._lock_registry(store_descriptor, registry_descriptors)
-            self._clean_staging(store_descriptor)
-            self._clean_orphan_blobs(store_descriptor)
-            event_names = self._validate_store(store_descriptor)
+            event_names, _snapshot = self._prepare_store_locked(store_descriptor)
             result_exists = os.access(
                 destination_name,
                 os.F_OK,
@@ -1976,6 +1968,30 @@ class RunActionExecutionStore:
         if orphan_names:
             os.fsync(store_descriptor)
 
+    def _prepare_store_locked(
+        self,
+        store_descriptor: int,
+    ) -> tuple[tuple[str, ...], RunActionLedgerSnapshot]:
+        event_names = self._validate_store(
+            store_descriptor,
+            before_staging_cleanup=True,
+        )
+        snapshot = self._snapshot_from_event_names(
+            store_descriptor,
+            event_names,
+        )
+        self._clean_staging(store_descriptor)
+        self._clean_orphan_blobs(store_descriptor)
+        cleaned_event_names = self._validate_store(
+            store_descriptor,
+            before_staging_cleanup=False,
+        )
+        if cleaned_event_names != event_names:
+            raise RunActionStoreError(
+                "run action cleanup changed the durable event set"
+            )
+        return cleaned_event_names, snapshot
+
     def _clean_staging(self, store_descriptor: int) -> None:
         staging_names = []
         observed_entry_count = 0
@@ -2180,13 +2196,30 @@ def _validate_event_prefix(events: tuple[RunActionExecutionEvent, ...]) -> None:
         acceptance = events[3].acceptance
         if acceptance.result_receipt_id != result.result_receipt_id:
             raise RunActionStoreError("run action acceptance differs from its result")
+        _require_workspace_acceptance(
+            reservation.intent.workspace_access,
+            acceptance.disposition,
+            reservation.frontier.workspace_before,
+            acceptance.workspace_after,
+        )
+    elif events[-1].event_kind is RunActionExecutionEventKind.INTERRUPTED:
+        _require_interrupted_workspace(
+            reservation.intent.workspace_access,
+            reservation.frontier.workspace_before,
+            events[-1].workspace_after,
+        )
 
 
 def _require_workspace_acceptance(
     access: RunFrontierWorkspaceAccess,
+    disposition: RunActionResultDisposition,
     before: RunActionWorkspaceBinding | None,
     after: RunActionWorkspaceBinding | None,
 ) -> None:
+    if type(disposition) is not RunActionResultDisposition:
+        raise RunActionStoreError(
+            "workspace acceptance lacks one exact result disposition"
+        )
     if access is RunFrontierWorkspaceAccess.NONE:
         if before is not None or after is not None:
             raise RunActionStoreError(
@@ -2201,6 +2234,12 @@ def _require_workspace_acceptance(
         if after != before:
             raise RunActionStoreError(
                 "read-only action acceptance changed its workspace"
+            )
+        return
+    if disposition is RunActionResultDisposition.FAILED:
+        if after != before:
+            raise RunActionStoreError(
+                "failed editing action acceptance changed its workspace"
             )
         return
     if (

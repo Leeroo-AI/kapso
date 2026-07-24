@@ -347,11 +347,13 @@ digest of every admitted Git metadata file, so read-only actions must leave the
 full source and Git frontier unchanged.
 
 An edit is exclusive across processes against all workspace readers and other
-edits, must finish as one clean direct-successor commit with canonical Git header
-grammar, and spends the predecessor frontier. No later action or publication may
-use that frontier until a checkpoint successor records exactly one authorized
-`RunBranchAdvance` to that commit. Reconstructed gates and publishers derive this
-state from the durable event prefixes rather than process-local memory.
+edits. A successful result must finish as one clean direct-successor commit with
+canonical Git header grammar; a failed result may terminate only with the exact
+unchanged predecessor workspace. A successful edit spends the predecessor
+frontier, so no later action or publication may use it until a checkpoint
+successor records exactly one authorized `RunBranchAdvance` to that commit.
+Reconstructed gates and publishers derive this state from durable event prefixes
+rather than process-local memory.
 
 A live authenticated denylist descendant must equal the observation already
 checkpointed in the safety state; any advance requires a durable safety-state
@@ -409,8 +411,9 @@ adapter.
 
 Recovery is an explicit state machine. An unspawned reservation may allocate
 locally, but it receives neither request bytes nor workspace authority; security
-and workspace are checked again immediately before the durable spawn commit.
-Only then does a one-shot, same-process/same-thread capability expose the complete
+and workspace are checked again immediately before the durable spawn commit, and
+the reservation boundary must still equal the checkpoint safety boundary. Only
+then does a one-shot, same-process/same-thread capability expose the complete
 request and a capability-owned duplicate workspace descriptor for exactly one
 adapter invocation. The capability burns on success or exception and closes that
 descriptor. A committed spawn receives only its durable execution identity:
@@ -431,15 +434,16 @@ Publication takes the locks in checkpoint → workspace → registry order and
 retains them through bundle/checkpoint/view commit. The candidate `ACTION_LEDGER`
 must equal the live store exactly, every new prefix must be terminal and bind the
 current frontier, and old terminal prefixes are immutable. Zero workspace edits
-requires unchanged branch evidence. One accepted or concretely interrupted edit
-requires the live workspace and exactly one authorized branch advance to match
-its durable before/after identities. Missing post-crash workspace identity stays
-blocked rather than being guessed. Read-only and otherwise unchanged terminals
-still form one exact full workspace-identity chain, including source and admitted
-Git closure digests, whose final identity must equal the live workspace. Resume
-can now classify and reconcile each nonterminal prefix without blindly
-reinvoking a committed provider. Production adapter/supervisor implementations
-and their OS isolation remain required before this path is activated.
+requires unchanged branch evidence. One successfully accepted or concretely
+interrupted workspace-changing edit requires the live workspace and exactly one
+authorized branch advance to match its durable before/after identities. Missing
+post-crash workspace identity stays blocked rather than being guessed. Read-only
+and otherwise unchanged terminals still form one exact full workspace-identity
+chain, including source and admitted Git closure digests, whose final identity
+must equal the live workspace. Resume can now classify and reconcile each
+nonterminal prefix without blindly reinvoking a committed provider. Production
+adapter/supervisor implementations and their OS isolation remain required before
+this path is activated.
 
 ## Failure and trust behavior
 

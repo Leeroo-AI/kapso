@@ -15,6 +15,8 @@ from kapso.cross_run.canonical import (
     require_identifier,
     tree_or_blob_digest,
 )
+from kapso.cross_run.launch.checkpoint_contracts import RunCheckpointStatus
+from kapso.cross_run.launch.resume_contracts import RunEligibilityDisposition
 from kapso.cross_run.launch.run_action_contracts import (
     RunActionBoundaryIdentity,
     RunFrontierWorkspaceAccess,
@@ -1018,14 +1020,19 @@ class RunActionRecoveryCoordinator:
         reservation: RunActionReservation,
     ) -> None:
         binding = reservation.frontier
+        checkpoint = frontier.checkpoint
         if (
-            binding.bootstrap_pin_id
-            != frontier.checkpoint.safety_state.bootstrap_pin.bootstrap_pin_id
+            checkpoint.status is not RunCheckpointStatus.ACTIVE
+            or checkpoint.last_stop is not None
+            or checkpoint.safety_state.disposition
+            is RunEligibilityDisposition.SECURITY_BLOCKED
+            or reservation.intent.boundary is not checkpoint.safety_state.boundary
+            or binding.bootstrap_pin_id
+            != checkpoint.safety_state.bootstrap_pin.bootstrap_pin_id
             or binding.run_checkpoint_id != frontier.run_checkpoint_id
-            or binding.safety_state_id
-            != frontier.checkpoint.safety_state.safety_state_id
+            or binding.safety_state_id != checkpoint.safety_state.safety_state_id
             or binding.security_observation_id
-            != frontier.checkpoint.safety_state.security_observation.observation_id
+            != checkpoint.safety_state.security_observation.observation_id
             or binding.generation_id != frontier.generation_id
             or binding.journal_head_id != frontier.journal_head_id
             or binding.journal_size_bytes != frontier.journal_size_bytes

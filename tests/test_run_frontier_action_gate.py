@@ -27,7 +27,10 @@ from kapso.cross_run.launch.resume_contracts import (
     RunSafetyBoundary,
     RunSafetyState,
 )
-from kapso.cross_run.launch.run_action_contracts import RunActionBoundaryIdentity
+from kapso.cross_run.launch.run_action_contracts import (
+    RunActionBoundaryIdentity,
+    RunActionIntent,
+)
 from kapso.cross_run.launch.run_action_gate import (
     RunFrontierActionError,
     RunFrontierActionGate,
@@ -35,8 +38,14 @@ from kapso.cross_run.launch.run_action_gate import (
     RunFrontierWorkspaceAccess,
 )
 from kapso.cross_run.launch.run_action_store import (
+    RunActionAcceptance,
+    RunActionExecutionEvent,
     RunActionExecutionEventKind,
+    RunActionReservation,
     RunActionResultDisposition,
+    RunActionResultReceipt,
+    RunActionSpawnCommit,
+    RunActionStoreError,
 )
 from kapso.cross_run.launch.run_state_publisher import (
     RunStatePublisher,
@@ -1137,6 +1146,185 @@ def test_workspace_cannot_change_after_durable_acceptance(
                 "changed after acceptance\n",
                 encoding="utf-8",
             )
+
+
+def test_failed_workspace_edit_accepts_only_the_unchanged_frontier(
+    publisher_case,
+) -> None:
+    _publisher, receipt, _security, gate = _action_case(
+        publisher_case,
+        RunSafetyBoundary.IMPLEMENTATION,
+    )
+    payload = b'{"implementation":"provider failed"}'
+    permit = _issue_implementation_agent(
+        gate,
+        receipt,
+        "failed_unchanged",
+        payload,
+    )
+
+    with gate.hold(permit, payload) as lease:
+        _claim_action(gate, lease)
+        result = gate.record_result(
+            lease,
+            result_payload=b'{"provider_result":"failed"}',
+        )
+        acceptance = gate.accept_result(
+            lease,
+            result_receipt=result,
+            disposition=RunActionResultDisposition.FAILED,
+            accepted_result_payload=b'{"accepted_result":"failed"}',
+        )
+
+    assert acceptance.workspace_after == lease._reservation.frontier.workspace_before
+
+
+def test_failed_workspace_edit_rejects_a_committed_successor(
+    publisher_case,
+) -> None:
+    _publisher, receipt, _security, gate = _action_case(
+        publisher_case,
+        RunSafetyBoundary.IMPLEMENTATION,
+    )
+    payload = b'{"implementation":"provider failed after edit"}'
+    permit = _issue_implementation_agent(
+        gate,
+        receipt,
+        "failed_changed",
+        payload,
+    )
+
+    with pytest.raises(
+        RunActionStoreError,
+        match="failed editing action",
+    ):
+        with gate.hold(permit, payload) as lease:
+            _claim_action(gate, lease)
+            _commit_workspace_edit(
+                publisher_case,
+                "failed-edit.txt",
+                "must not be accepted\n",
+            )
+            result = gate.record_result(
+                lease,
+                result_payload=b'{"provider_result":"failed"}',
+            )
+            gate.accept_result(
+                lease,
+                result_receipt=result,
+                disposition=RunActionResultDisposition.FAILED,
+                accepted_result_payload=b'{"accepted_result":"failed"}',
+            )
+
+
+def test_action_gate_rejects_a_reminted_terminal_from_another_safety_boundary(
+    publisher_case,
+) -> None:
+    _publisher, frontier, _security, gate = _action_case(publisher_case)
+    payload = b'{"prompt":"complete before frontier remint"}'
+    permit = _issue_ideation_agent(gate, frontier, payload)
+    with gate.hold(permit, payload) as lease:
+        _claim_action(gate, lease)
+        _accept_action(gate, lease)
+
+    original_events = gate._action_store.inspect().events_for(
+        permit.intent.operation_id
+    )
+    original_reservation = original_events[0].reservation
+    reminted_intent = RunActionIntent.from_request(
+        kind=original_reservation.intent.kind,
+        boundary=RunSafetyBoundary.EVALUATION,
+        operation_id=original_reservation.intent.operation_id,
+        request_payload=payload,
+        workspace_access=original_reservation.intent.workspace_access,
+        boundary_identity=original_reservation.intent.boundary_identity,
+    )
+    reminted_reservation = RunActionReservation.build(
+        intent=reminted_intent,
+        frontier=original_reservation.frontier,
+        predecessor_ledger=permit._predecessor_ledger,
+    )
+    original_spawn = original_events[1].spawn_commit
+    reminted_spawn = RunActionSpawnCommit.mint(
+        reservation_id=reminted_reservation.reservation_id,
+        provider_execution_id=original_spawn.provider_execution_id,
+        invocation_nonce=original_spawn.invocation_nonce,
+        security_observation_id=original_spawn.security_observation_id,
+        boundary_identity=original_spawn.boundary_identity,
+    )
+    original_result = original_events[2].result_receipt
+    reminted_result = RunActionResultReceipt.mint(
+        spawn_commit_id=reminted_spawn.spawn_commit_id,
+        provider_execution_id=original_result.provider_execution_id,
+        result_blob=original_result.result_blob,
+    )
+    original_acceptance = original_events[3].acceptance
+    reminted_acceptance = RunActionAcceptance.mint(
+        result_receipt_id=reminted_result.result_receipt_id,
+        disposition=original_acceptance.disposition,
+        accepted_result_blob=original_acceptance.accepted_result_blob,
+        workspace_after=original_acceptance.workspace_after,
+    )
+    event_payloads = (
+        (RunActionExecutionEventKind.INTENT_RESERVED, None, None, None),
+        (RunActionExecutionEventKind.SPAWN_COMMITTED, reminted_spawn, None, None),
+        (RunActionExecutionEventKind.RESULT_RECEIVED, None, reminted_result, None),
+        (
+            RunActionExecutionEventKind.RESULT_ACCEPTED,
+            None,
+            None,
+            reminted_acceptance,
+        ),
+    )
+    predecessor_event_id = None
+    reminted_events = []
+    for event_number, (
+        event_kind,
+        spawn_commit,
+        result_receipt,
+        acceptance,
+    ) in enumerate(event_payloads, start=1):
+        event = RunActionExecutionEvent.mint(
+            event_number=event_number,
+            predecessor_event_id=predecessor_event_id,
+            event_kind=event_kind,
+            reservation=reminted_reservation,
+            spawn_commit=spawn_commit,
+            result_receipt=result_receipt,
+            acceptance=acceptance,
+            terminal_reason=None,
+            workspace_after=None,
+        )
+        reminted_events.append(event)
+        predecessor_event_id = event.event_id
+    operation_digest = tree_or_blob_digest(
+        permit.intent.operation_id.encode("utf-8")
+    ).removeprefix("sha256:")
+    store_path = (
+        publisher_case["active"].run_root
+        / publisher_case["settings"].run_action_store_path
+    )
+    for event in reminted_events:
+        event_path = store_path / (
+            f"operation-{operation_digest}-event-{event.event_number:04d}.json"
+        )
+        event_path.chmod(0o600)
+        event_path.write_bytes(event.to_json_bytes())
+        event_path.chmod(0o400)
+
+    with pytest.raises(
+        RunFrontierActionError,
+        match="another frontier",
+    ):
+        gate.issue(
+            frontier,
+            kind=RunFrontierActionKind.CODING_AGENT,
+            boundary=RunSafetyBoundary.IDEATION,
+            operation_id="after_remint_0123456789abcdef0123456789abcdef",
+            request_payload=b'{"prompt":"must not run"}',
+            workspace_access=RunFrontierWorkspaceAccess.READ_ONLY,
+            boundary_identity=_boundary_identity(RunFrontierActionKind.CODING_AGENT),
+        )
 
 
 def test_durable_edit_evidence_survives_gate_and_publisher_collection(

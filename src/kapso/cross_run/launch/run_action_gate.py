@@ -798,14 +798,25 @@ class RunFrontierActionGate:
         ordered = inspection.operations_since(
             frontier.projection.action_ledger,
         )
-        if any(
-            events[0].reservation.frontier.run_checkpoint_id
-            != frontier.run_checkpoint_id
-            for events in ordered
-        ):
-            raise RunFrontierActionError(
-                "run frontier action ledger contains another checkpoint"
+        for events in ordered:
+            reservation = events[0].reservation
+            binding = reservation.frontier
+            expected_binding = bind_run_action_frontier(
+                frontier,
+                (
+                    None
+                    if binding.workspace_before is None
+                    else binding.workspace_before.to_identity()
+                ),
             )
+            if (
+                reservation.intent.boundary
+                is not frontier.checkpoint.safety_state.boundary
+                or binding != expected_binding
+            ):
+                raise RunFrontierActionError(
+                    "run frontier action ledger contains another frontier"
+                )
         workspace_pairs = inspection.workspace_chain(ordered)
         if any(before != after for before, after in workspace_pairs):
             raise RunFrontierActionError(

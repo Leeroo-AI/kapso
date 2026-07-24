@@ -7,8 +7,16 @@ from copy import copy
 
 import pytest
 
-from kapso.cross_run.launch.resume_contracts import RunSafetyBoundary
+from kapso.cross_run.launch.checkpoint_contracts import (
+    RunCheckpointStatus,
+    RunCheckpointStop,
+)
+from kapso.cross_run.launch.resume_contracts import (
+    RunEligibilityDisposition,
+    RunSafetyBoundary,
+)
 from kapso.cross_run.launch.run_action_contracts import (
+    RunActionIntent,
     RunFrontierActionKind,
     RunFrontierWorkspaceAccess,
 )
@@ -59,11 +67,13 @@ class _FakeRecoveryAdapter:
         observation_state=RunActionCommittedSpawnState.UNKNOWN,
         fail_fresh_start=False,
         reattach_result=True,
+        disposition=RunActionResultDisposition.SUCCEEDED,
     ) -> None:
         self.boundary_identity = boundary_identity
         self.observation_state = observation_state
         self.fail_fresh_start = fail_fresh_start
         self.reattach_result = reattach_result
+        self.disposition = disposition
         self.prepare_calls = []
         self.start_calls = []
         self.start_workspace_descriptors = []
@@ -135,7 +145,7 @@ class _FakeRecoveryAdapter:
             )
         )
         return RunActionAdapterAcceptance(
-            disposition=RunActionResultDisposition.SUCCEEDED,
+            disposition=self.disposition,
             accepted_result_payload=b'{"accepted":"deterministic"}',
         )
 
@@ -292,6 +302,36 @@ def test_fresh_spawn_capability_is_spent_and_clone_fork_invalid(
     waited_process_id, status = os.waitpid(child_process_id, 0)
     assert waited_process_id == child_process_id
     assert os.waitstatus_to_exitcode(status) == 0
+
+
+def test_failed_edit_recovery_terminates_with_unchanged_workspace(
+    publisher_case,
+) -> None:
+    _publisher, frontier, _security, gate = _action_case(
+        publisher_case,
+        boundary=RunSafetyBoundary.IMPLEMENTATION,
+    )
+    payload = b'{"implementation":"provider failure"}'
+    permit = _issue_implementation_agent(
+        gate,
+        frontier,
+        "failed_recovery",
+        payload,
+    )
+    adapter = _FakeRecoveryAdapter(
+        permit.intent.boundary_identity,
+        disposition=RunActionResultDisposition.FAILED,
+    )
+
+    report = _recovery_coordinator(gate, adapter).recover(frontier)
+
+    terminal = report.recovered_operations[-1].events[-1]
+    assert report.is_complete
+    assert terminal.acceptance.disposition is RunActionResultDisposition.FAILED
+    assert (
+        terminal.acceptance.workspace_after
+        == terminal.reservation.frontier.workspace_before
+    )
 
 
 @pytest.mark.parametrize(
@@ -699,6 +739,89 @@ def test_recovery_rejects_substituted_frontier_view_binding(
         _recovery_coordinator(gate, adapter)._require_reservation_frontier(
             frontier,
             substituted_reservation,
+        )
+
+
+def test_recovery_rejects_exact_frontier_at_another_safety_boundary(
+    publisher_case,
+) -> None:
+    frontier, gate, _permit, payload = _reserved_case(publisher_case)
+    original = (
+        gate._publisher._action_store.inspect()
+        .operations_since(frontier.projection.action_ledger)[0][0]
+        .reservation
+    )
+    substituted_intent = RunActionIntent.from_request(
+        kind=original.intent.kind,
+        boundary=RunSafetyBoundary.EVALUATION,
+        operation_id=original.intent.operation_id,
+        request_payload=payload,
+        workspace_access=original.intent.workspace_access,
+        boundary_identity=original.intent.boundary_identity,
+    )
+    substituted_reservation = RunActionReservation.build(
+        intent=substituted_intent,
+        frontier=original.frontier,
+        predecessor_ledger=frontier.projection.action_ledger,
+    )
+    adapter = _FakeRecoveryAdapter(original.intent.boundary_identity)
+
+    with pytest.raises(RunActionRecoveryError, match="current frontier"):
+        _recovery_coordinator(gate, adapter)._require_reservation_frontier(
+            frontier,
+            substituted_reservation,
+        )
+
+
+@pytest.mark.parametrize(
+    "ineligible_state",
+    ("stopped", "completed", "security_blocked"),
+)
+def test_recovery_rejects_a_nonactionable_current_frontier(
+    publisher_case,
+    ineligible_state,
+) -> None:
+    frontier, gate, _permit, _payload = _reserved_case(publisher_case)
+    reservation = (
+        gate._publisher._action_store.inspect()
+        .operations_since(frontier.projection.action_ledger)[0][0]
+        .reservation
+    )
+    checkpoint = object.__new__(type(frontier.checkpoint))
+    for field_name, value in vars(frontier.checkpoint).items():
+        object.__setattr__(checkpoint, field_name, value)
+    if ineligible_state == "stopped":
+        object.__setattr__(
+            checkpoint,
+            "last_stop",
+            RunCheckpointStop.COST_BUDGET,
+        )
+    elif ineligible_state == "completed":
+        object.__setattr__(
+            checkpoint,
+            "status",
+            RunCheckpointStatus.COMPLETED,
+        )
+    else:
+        safety_state = object.__new__(type(checkpoint.safety_state))
+        for field_name, value in vars(checkpoint.safety_state).items():
+            object.__setattr__(safety_state, field_name, value)
+        object.__setattr__(
+            safety_state,
+            "disposition",
+            RunEligibilityDisposition.SECURITY_BLOCKED,
+        )
+        object.__setattr__(checkpoint, "safety_state", safety_state)
+    ineligible_frontier = object.__new__(type(frontier))
+    for field_name, value in vars(frontier).items():
+        object.__setattr__(ineligible_frontier, field_name, value)
+    object.__setattr__(ineligible_frontier, "checkpoint", checkpoint)
+    adapter = _FakeRecoveryAdapter(reservation.intent.boundary_identity)
+
+    with pytest.raises(RunActionRecoveryError, match="current frontier"):
+        _recovery_coordinator(gate, adapter)._require_reservation_frontier(
+            ineligible_frontier,
+            reservation,
         )
 
 

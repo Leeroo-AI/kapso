@@ -24,6 +24,8 @@ from kapso.cross_run.launch.run_action_store import (
     _RUN_ACTION_STORE_AUTHORITY,
     RunActionExecutionEventKind,
     RunActionExecutionStore,
+    RunActionExecutionEvent,
+    RunActionAcceptance,
     RunActionReservation,
     RunActionResultDisposition,
     RunActionStoreError,
@@ -33,7 +35,14 @@ from kapso.cross_run.launch.resume_contracts import RunSafetyBoundary
 from kapso.cross_run.launch.workspace_frontier import (
     inspect_run_workspace_frontier,
 )
-from test_run_frontier_action_gate import _action_case, _boundary_identity
+from test_run_frontier_action_gate import (
+    _accept_action,
+    _action_case,
+    _boundary_identity,
+    _claim_action,
+    _commit_workspace_edit,
+    _issue_implementation_agent,
+)
 from test_launch_resolver import resolver_case
 from test_run_state_publisher import publisher_case
 
@@ -173,6 +182,79 @@ def test_action_store_reopens_complete_request_result_and_terminal_prefix(
             session.read_accepted_result(session.events[3].acceptance)
             == accepted_result
         )
+
+
+def test_action_store_rejects_reminted_failed_edit_with_changed_workspace(
+    publisher_case,
+) -> None:
+    _publisher, frontier, _security, gate = _action_case(
+        publisher_case,
+        RunSafetyBoundary.IMPLEMENTATION,
+    )
+    payload = b'{"implementation":"complete before tamper"}'
+    permit = _issue_implementation_agent(
+        gate,
+        frontier,
+        "reminted_failed_edit",
+        payload,
+    )
+    with gate.hold(permit, payload) as lease:
+        _claim_action(gate, lease)
+        _commit_workspace_edit(
+            publisher_case,
+            "reminted-failed-edit.txt",
+            "complete\n",
+        )
+        _accept_action(gate, lease)
+
+    store = _open_store(
+        publisher_case["active"],
+        publisher_case["settings"],
+    )
+    events = store.inspect().events_for(permit.intent.operation_id)
+    original = events[-1]
+    acceptance = RunActionAcceptance.mint(
+        result_receipt_id=original.acceptance.result_receipt_id,
+        disposition=RunActionResultDisposition.FAILED,
+        accepted_result_blob=original.acceptance.accepted_result_blob,
+        workspace_after=original.acceptance.workspace_after,
+    )
+    tampered = RunActionExecutionEvent.mint(
+        event_number=original.event_number,
+        predecessor_event_id=original.predecessor_event_id,
+        event_kind=original.event_kind,
+        reservation=original.reservation,
+        spawn_commit=None,
+        result_receipt=None,
+        acceptance=acceptance,
+        terminal_reason=None,
+        workspace_after=None,
+    )
+    operation_digest = tree_or_blob_digest(
+        permit.intent.operation_id.encode("utf-8")
+    ).removeprefix("sha256:")
+    event_path = (
+        publisher_case["active"].run_root
+        / publisher_case["settings"].run_action_store_path
+        / f"operation-{operation_digest}-event-0004.json"
+    )
+    event_path.chmod(0o600)
+    event_path.write_bytes(tampered.to_json_bytes())
+    event_path.chmod(0o400)
+    orphan_payload = b'{"must_survive_rejected_reopen":true}'
+    orphan_path = event_path.parent / (
+        "accepted-"
+        f"{tree_or_blob_digest(orphan_payload).removeprefix('sha256:')}.blob"
+    )
+    orphan_path.write_bytes(orphan_payload)
+    orphan_path.chmod(0o400)
+
+    with pytest.raises(RunActionStoreError, match="failed editing action"):
+        _open_store(
+            publisher_case["active"],
+            publisher_case["settings"],
+        )
+    assert orphan_path.read_bytes() == orphan_payload
 
 
 def test_action_store_requires_sealed_construction_and_mutation(
