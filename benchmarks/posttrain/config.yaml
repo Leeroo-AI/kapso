@@ -45,9 +45,10 @@ modes:
         # knowledge gate backend (weaviate/neo4j/leeroopedia) is unreachable.
         gate_failure_policy: "skip"
         parent_policy: "best"
-        # xhigh for both agent sessions (ideation + implementation), matching
-        # the relbench production mode; plumbed via generic-strategy `effort`.
-        effort: "xhigh"
+        # max for all Claude reasoning sessions (ideation + implementation);
+        # the ensemble codex member and the luna litellm roles stay at xhigh
+        # (their model ceiling — max is Claude-only, per the ioai configs).
+        effort: "max"
         ideation_timeout: 1800
         # One experiment = write pipeline + train + evaluate. Multi-hour.
         implementation_timeout: 18000
@@ -74,15 +75,24 @@ modes:
           - cli: "codex"
             model: "gpt-5.6-sol"
             effort: "xhigh"
-            lens: "data & distillation strategy first"
           - cli: "claude_code"
             model: "claude-fable-5"
-            effort: "xhigh"
-            lens: "training recipe & eval-format exploitation first"
+            effort: "max"
+        # Task-aware lens planning: a web-enabled Claude session surveys how
+        # this benchmark×model's problem family is attacked and designs one
+        # lens per ensemble member (once per campaign → .kapso/lens_plan.json),
+        # replacing the fixed lens strings. Web tools work here (internet is
+        # unrestricted in the benchmark). Static member lens keys are FORBIDDEN
+        # while this is enabled (the planner owns every lens).
+        ideation_lens_planner:
+          cli: "claude_code"
+          model: "claude-opus-4-8"
+          effort: "max"
+          timeout: 600
         ideation_selector:
           cli: "claude_code"
           model: "claude-fable-5"
-          effort: "xhigh"
+          effort: "max"
 
     # Wall-clock shaping, read by benchmarks/posttrain/runner.py (not by
     # kapso core): per-session deadlines scale with the run size so a fixed
@@ -147,7 +157,7 @@ modes:
       debug_model: "claude-opus-4-8"
       agent_specific:
         auth_mode: "oauth"  # pinned: no Anthropic API key in this deployment — Claude Max OAuth only
-        effort: "xhigh"
+        effort: "max"
         streaming: true
         timeout: 18000
 
@@ -157,7 +167,7 @@ modes:
       debug_model: "claude-opus-4-8"
       agent_specific:
         auth_mode: "oauth"  # pinned: no Anthropic API key in this deployment — Claude Max OAuth only
-        effort: "xhigh"
+        effort: "max"
         streaming: true
         timeout: 900
 
