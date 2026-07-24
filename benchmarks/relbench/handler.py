@@ -138,6 +138,16 @@ class RelBenchHandler(ProblemHandler):
         # The generic-search provided grader (data/generic_eval/grader.py)
         # runs inside coding-agent sessions and reads its configuration from
         # the environment — export the full contract at startup.
+        #
+        # KAPSO_SHARED_CACHE_DIR is deliberately NOT exported here: the
+        # generic strategy owns that env var (it injects its own resolved
+        # shared_cache_dir into every session, set-if-absent). A process-wide
+        # export would take ambient precedence and silently override the
+        # strategy's registry dir, so the offer brief and the sessions'
+        # $KAPSO_SHARED_CACHE_DIR would point at different directories. The
+        # runner threads this handler's task-scoped path into the strategy's
+        # params so the two agree (see runner.solve_task). Following the
+        # ioai-2025 pattern where the handler leaves the var to the strategy.
         os.environ.update(
             {
                 "RELBENCH_DATASET": self.dataset_name,
@@ -146,7 +156,6 @@ class RelBenchHandler(ProblemHandler):
                 "RELBENCH_WORK_DIR": str(self.work_dir),
                 "RELBENCH_FULL_TIMEOUT": str(self.full_timeout),
                 "RELBENCH_DEBUG_TIMEOUT": str(self.debug_timeout),
-                "KAPSO_SHARED_CACHE_DIR": str(self.shared_cache_dir),
             }
         )
         # Coding-agent sessions run `python` from PATH; make sure that

@@ -31,6 +31,7 @@ import json
 import os
 import sys
 
+import yaml
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -52,6 +53,22 @@ def list_tasks() -> None:
         for name in names:
             print(f"    • {name}")
     print()
+
+
+def _write_runtime_config(mode: str, shared_cache_dir: str, work_dir) -> str:
+    """Write a per-run config injecting the task-scoped shared_cache_dir into
+    the mode's generic-search params, and return its path. The orchestrator
+    reloads config from disk, so a runtime value must live in a file."""
+    with open(CONFIG_PATH) as f:
+        config = yaml.safe_load(f)
+    params = config["modes"][mode]["search_strategy"]["params"]
+    params["shared_cache_dir"] = os.path.abspath(shared_cache_dir)
+    runtime_dir = os.path.join(str(work_dir), ".kapso_runtime")
+    os.makedirs(runtime_dir, exist_ok=True)
+    runtime_path = os.path.join(runtime_dir, "config.yaml")
+    with open(runtime_path, "w") as f:
+        yaml.safe_dump(config, f, sort_keys=False)
+    return runtime_path
 
 
 def solve_task(args) -> dict:
@@ -98,9 +115,20 @@ def solve_task(args) -> dict:
             os.path.join(DATA_DIR, "generic_baseline", "main.py"),
             os.path.join(initial_repo, "main.py"),
         )
+
+    # Generic search owns KAPSO_SHARED_CACHE_DIR (the handler no longer
+    # exports it). Thread the handler's task-scoped, campaign-persistent
+    # shared-cache path into the strategy's params so the registry's artifact
+    # offer and the sessions' $KAPSO_SHARED_CACHE_DIR agree and re-runs of
+    # this task reuse cached artifacts. Written to a per-run config because
+    # the orchestrator reloads config from disk (ioai-2025 runner pattern).
+    config_path = CONFIG_PATH
+    if generic:
+        config_path = _write_runtime_config(mode, str(handler.shared_cache_dir), handler.work_dir)
+
     orchestrator = OrchestratorAgent(
         handler,
-        config_path=CONFIG_PATH,
+        config_path=config_path,
         mode=mode,
         coding_agent=args.coding_agent,
         is_kg_active=not args.no_kg,

@@ -109,9 +109,14 @@ modes:
         idea_generation_model: "claude-opus-4-8"
         implementation_model: "claude-opus-4-8"
         auth_mode: "oauth"
-        effort: "xhigh"
+        # max on implementation sessions (the critical-path decision lives
+        # there); ensemble members / selector / lens planner pin their own
+        # efforts below. Mirrors the ioai-2025 IOAI deployment.
+        effort: "max"
         gate_failure_policy: "skip"
         parent_policy: "best"
+        # K-way node expansion: 1 = sequential champion chain (default).
+        node_expansion_value: 1
         ideation_timeout: 1800
         # One experiment = implement + run the registered full evaluation
         # (candidate training, up to the task's full timeout) inside the
@@ -131,22 +136,30 @@ modes:
         # outside the session workspace, so a completed eval's score is
         # recoverable even after session teardown.
         registered_evaluation_archive_glob: "tmp/relbench/*/runs"
-        # Ensemble ideation mirroring the posttrain deployment: parallel CLI
-        # members with complementary lenses + a selector-critic. The codex
+        # Ensemble ideation mirroring the ioai-2025 IOAI deployment: parallel
+        # CLI members (a GPT member via codex + a Claude member) whose lenses
+        # are designed per-task by the web-enabled lens planner below — so no
+        # static `lens:` keys here (the planner owns every lens). The codex
         # member authenticates via ~/.codex/auth.json (ChatGPT login), the
         # claude members via CLAUDE_CODE_OAUTH_TOKEN.
         ideation_ensemble:
           - cli: "codex"
             model: "gpt-5.6-sol"
             effort: "xhigh"
-            lens: "temporal feature engineering & leakage-safe relational aggregation first"
           - cli: "claude_code"
             model: "claude-fable-5"
             effort: "xhigh"
-            lens: "model class, learning objective & val->test distribution shift first"
-        ideation_selector:
+        # Task-aware lens planning: a web-enabled Fable session surveys how
+        # this task's problem family is attacked and designs one lens per
+        # member (once per campaign, persisted to .kapso/lens_plan.json).
+        ideation_lens_planner:
           cli: "claude_code"
           model: "claude-fable-5"
+          effort: "max"
+          timeout: 600
+        ideation_selector:
+          cli: "claude_code"
+          model: "claude-opus-4-8"
           effort: "xhigh"
 
     evaluation_maintainer:
