@@ -364,6 +364,10 @@ cross_run:
     cache_path: ".kapso/cross_run/launch_cache"
     bootstrap_pin_path: ".kapso/bootstrap_pin.json"
     compatibility_policy_version: "kapso.launch_compatibility.v1"
+    starting_artifact_materializer_id: "launch_starting_artifact_materializer"
+    starting_artifact_materializer_version: "kapso.launch_starting_artifact_materializer.v1"
+    starting_artifact_entry_limit: 10000
+    starting_artifact_byte_limit: 10737418240
     security_denylist_state_path: ".kapso/cross_run/security_denylist"
     security_denylist_checkpoint_size_bytes: 1048576
     security_denylist_checked_subject_limit: 100000

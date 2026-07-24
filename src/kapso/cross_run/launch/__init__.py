@@ -1,23 +1,51 @@
 """Transactional cross-run launch resolution and workspace bootstrap."""
 
 from kapso.cross_run.launch.contracts import (
+    LaunchCompatibilityAdmissionMode,
+    LaunchCompatibilityPolicy,
     LaunchCompatibilityReceipt,
     LaunchContractError,
     LaunchExpertSourcePin,
     LaunchGitHubArtifactPin,
     LaunchManifest,
     LaunchRequest,
+    LaunchStartingArtifact,
+    LaunchStartingArtifactMaterializationReceipt,
     LaunchTaskAdapterPin,
     LaunchTaskContextRequest,
+    expected_launch_source_composition_hash,
+    launch_security_subject_ids,
+)
+from kapso.cross_run.launch.resolver import (
+    ExpertLaunchEvidence,
+    LaunchResolutionError,
+    LaunchResolver,
+    ResolvedLaunch,
+    SystemLaunchClock,
+    VerifiedLaunchStartingArtifact,
+    VerifiedLaunchStartingArtifacts,
 )
 
 __all__ = [
+    "ExpertLaunchEvidence",
+    "expected_launch_source_composition_hash",
+    "launch_security_subject_ids",
+    "LaunchCompatibilityAdmissionMode",
+    "LaunchCompatibilityPolicy",
     "LaunchCompatibilityReceipt",
     "LaunchContractError",
     "LaunchExpertSourcePin",
     "LaunchGitHubArtifactPin",
     "LaunchManifest",
     "LaunchRequest",
+    "LaunchResolutionError",
+    "LaunchResolver",
+    "LaunchStartingArtifact",
+    "LaunchStartingArtifactMaterializationReceipt",
     "LaunchTaskAdapterPin",
     "LaunchTaskContextRequest",
+    "ResolvedLaunch",
+    "SystemLaunchClock",
+    "VerifiedLaunchStartingArtifact",
+    "VerifiedLaunchStartingArtifacts",
 ]

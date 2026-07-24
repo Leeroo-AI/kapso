@@ -553,6 +553,47 @@ def test_materializer_accepts_split_expert_source_and_release_assets(
         maximum_entries=10,
         maximum_bytes=len(source_payload),
     )
+    verified_records = materializer.read_verified_content_files(
+        materialized,
+        ("release-evidence/manifest.json",),
+    )
+    assert dict(verified_records) == {
+        "release-evidence/manifest.json": evidence_payload
+    }
+    copied_root = tmp_path / "copied-expert-cache"
+    shutil.copytree(materialized.root, copied_root)
+    copied_artifact = replace(
+        materialized,
+        root=copied_root,
+        content=copied_root / "content",
+        assets=copied_root / "assets",
+    )
+    with pytest.raises(CacheCorruptionError, match="outside the authorized cache"):
+        materializer.read_verified_content_files(
+            copied_artifact,
+            ("release-evidence/manifest.json",),
+        )
+    original_reader = materializer._read_relative_control_file
+    monkeypatch.setattr(
+        materializer,
+        "_read_relative_control_file",
+        lambda *_arguments: b'{"evidence":"swapped"}',
+    )
+    with pytest.raises(CacheCorruptionError, match="manifest checksum"):
+        materializer.read_verified_content_files(
+            materialized,
+            ("release-evidence/manifest.json",),
+        )
+    monkeypatch.setattr(
+        materializer,
+        "_read_relative_control_file",
+        original_reader,
+    )
+    with pytest.raises(MaterializationError, match="path is invalid"):
+        materializer.read_verified_content_files(
+            materialized,
+            ("../release-evidence/manifest.json",),
+        )
     assert expert_source_snapshot.release_manifest == manifest
     assert expert_source_snapshot.source_extraction_receipt == source_receipt
     assert dict(expert_source_snapshot.source_contents) == {"main.py": source_payload}

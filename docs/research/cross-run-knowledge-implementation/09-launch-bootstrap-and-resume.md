@@ -4,6 +4,10 @@ Parent plan: [`00-orchestrator-plan.md`](00-orchestrator-plan.md)
 
 Depends on: M2, M5, and M8.
 
+Status: **in progress**. The transactional launch resolver and exact authority
+contracts are implemented; explicit E0/S-EMPTY provisioning orchestration,
+workspace/bootstrap-pin installation, resume, and API/runner activation remain.
+
 ## Objective
 
 Resolve one compatible expert/snapshot/adapter/runtime tuple before spend,
@@ -78,29 +82,51 @@ budget/fidelity envelope
 
 `LaunchResolver`:
 
-- [ ] Resolves `scope_id` through M1's canonical `ScopeRegistry`; reject any
+- [x] Resolves `scope_id` through M1's canonical `ScopeRegistry`; reject any
       caller-supplied or benchmark-level repository override.
-- [ ] Passes the resolved `ScopeRepositorySettings` to M2, resolves the two
+- [x] Passes the resolved `ScopeRepositorySettings` to M2, resolves the two
       scientific discovery pointers once at exact default-branch commits, and
       freshly authenticates the security pointer through M8's denylist authority.
-- [ ] Verifies repository publication records, expert release, knowledge snapshot,
+- [x] Verifies repository publication records, expert release, knowledge snapshot,
       and task adapter all name the requested scope lineage.
-- [ ] Validates `task_family_id` and `task_adapter_id` against the pinned current
+- [x] Validates `task_family_id` and `task_adapter_id` against the pinned current
       `ExpertScopeContract` before materialization.
-- [ ] Resolves and verifies the exact task adapter.
-- [ ] Checks release/module preconditions, task-family bindings, context dimensions,
-      dependency/runtime/hardware compatibility, expiration/revalidation, and
-      denylist snapshot/generation floor.
-- [ ] Verifies the chosen expert release and knowledge snapshot were tested as an
+- [x] Resolves and verifies the exact task adapter.
+- [x] Checks the accepted expert release-matrix adapter authority, task-family
+      capability, input/target and artifact interfaces, exact capability tags,
+      method, toolchain, transfer dimensions, hardware envelope, artifact mount
+      layout, OCI/dependency runtime, artifact TTL, release-use state, and complete
+      security-denylist closure.
+- [x] Verifies the chosen expert release and knowledge snapshot were tested as an
       eligible combination or under an explicit compatibility policy.
-- [ ] Creates one immutable `LaunchManifest` binding all identities, digests,
+- [x] Creates one immutable `LaunchManifest` binding all identities, digests,
       publications, the security snapshot/generation, the scope
       repository-binding hash, expected source composition hash, and request hash.
-- [ ] Never exposes independently mutable current pointers to the run.
+- [x] Never exposes independently mutable current pointers to the run.
 
-If no release/snapshot exists, the resolver invokes the explicit bootstrap
-workflows: M7/M8 must publish validated E0 and M5 must publish validated EMPTY.
-Absence, auth failure, or corrupt state cannot activate bootstrap implicitly.
+The implemented v1 compatibility policy deliberately permits only new
+starting-artifact content within an otherwise exact verified release-matrix
+interface. A launch-specific materialization receipt binds each declared artifact
+ID to its verified file bytes, tree, reference, and mount before compatibility is
+issued. The receipt records the compatible adapter cases, accepted matrix adapter
+authority, and exact typed context. Free-text module preconditions and resource
+notes remain evidence for agents, not executable admission predicates; any
+constraint that must gate launch must first become a typed task-context or adapter
+contract field and be covered by the release matrix. Expert and knowledge
+`CURRENT`, their immutable intent and activation refs, and the active adapter are
+all re-read after policy checks; any movement aborts launch.
+
+`LaunchManifest` is immutable evidence, not a standalone in-process capability.
+Only a resolver-sealed `ResolvedLaunch` may cross into workspace bootstrap; M9's
+`BootstrapPin` will bind the complete manifest digest so immutable evidence identity
+is never confused with live one-shot issuance authority.
+
+If no release/snapshot exists, the resolver fails before spend. The launch
+coordinator must invoke explicit administrative bootstrap workflows—M7/M8 publish
+validated E0 and M5 publishes validated S-EMPTY—and then restart ordinary
+resolution from GitHub `CURRENT`. Absence, auth failure, or corrupt state cannot
+activate bootstrap implicitly, and bootstrap authority never substitutes for a
+missing scientific `CURRENT`.
 
 ## Transactional workspace builder
 

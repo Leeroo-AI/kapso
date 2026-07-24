@@ -4,21 +4,29 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from enum import Enum
+from pathlib import PurePosixPath
 from typing import Any, ClassVar, Mapping
 
 from kapso.cross_run.canonical import (
+    canonical_json_bytes,
+    normalize_utc_timestamp,
     require_content_id,
     require_identifier,
+    source_tree_digest,
     tree_or_blob_digest,
 )
 from kapso.cross_run.contracts import (
     ContractValidationError,
     CrossRunTaskBindingSettings,
     ExpertBaseReleaseManifest,
+    ExpertModuleContract,
+    ExpertRepositoryMap,
     ExpertScopeContract,
-    GitHubPublicationRecord,
     KnowledgeSnapshotManifest,
     PublicationArtifactKind,
+    ScopeRepositorySettings,
+    SourceFileDescriptor,
     StrictContract,
     TaskAdapterManifest,
     TaskContextBinding,
@@ -30,7 +38,11 @@ from kapso.cross_run.github.materializer import (
     CacheVerificationReceipt,
     SourceArchiveExtractionReceipt,
 )
-from kapso.cross_run.github.resolver import GitHubArtifactActivationWitness
+from kapso.cross_run.github.resolver import (
+    ArtifactPublicationIntent,
+    CurrentArtifactPointer,
+    GitHubArtifactActivationWitness,
+)
 from kapso.cross_run.security_authority_contracts import (
     SecurityDenylistObservation,
 )
@@ -76,6 +88,63 @@ def _reject_repository_routing(value: Any, path: str) -> None:
     elif isinstance(value, (list, tuple)):
         for position, child in enumerate(value):
             _reject_repository_routing(child, f"{path}[{position}]")
+
+
+def expected_launch_source_composition_hash(
+    *,
+    expert_source_tree_hash: str,
+    expert_repository_map: ExpertRepositoryMap,
+    task_adapter: "LaunchTaskAdapterPin",
+    starting_artifacts: "LaunchStartingArtifactMaterializationReceipt",
+) -> str:
+    """Hash the exact source identities and their workspace composition boundary."""
+
+    _require_digest(expert_source_tree_hash, "expert source tree hash")
+    if type(expert_repository_map) is not ExpertRepositoryMap:
+        raise LaunchContractError("source composition requires one repository map")
+    if type(task_adapter) is not LaunchTaskAdapterPin:
+        raise LaunchContractError("source composition requires one task adapter pin")
+    if type(starting_artifacts) is not LaunchStartingArtifactMaterializationReceipt:
+        raise LaunchContractError(
+            "source composition requires one starting-artifact receipt"
+        )
+    runtime_files = tuple(
+        descriptor
+        for descriptor in task_adapter.source_extraction_receipt.source_tree_files
+        if PurePosixPath(descriptor.relative_path).parts[0] != "release_matrix_assets"
+    )
+    runtime_tree_hash = source_tree_digest(
+        {
+            descriptor.relative_path: (
+                descriptor.digest,
+                descriptor.mode,
+                descriptor.size,
+            )
+            for descriptor in runtime_files
+        }
+    )
+    return tree_or_blob_digest(
+        canonical_json_bytes(
+            {
+                "expert_source_tree_hash": expert_source_tree_hash,
+                "task_adapter_mount_path": (
+                    expert_repository_map.task_adapter_boundary.adapter_mount_path
+                ),
+                "task_adapter_runtime_tree_hash": runtime_tree_hash,
+                "starting_artifacts": tuple(
+                    {
+                        "starting_artifact_content_id": (
+                            artifact.starting_artifact_content_id
+                        ),
+                        "starting_artifact_ref": artifact.starting_artifact_ref,
+                        "mount_path": artifact.mount_path,
+                        "materialized_tree_hash": artifact.materialized_tree_hash,
+                    }
+                    for artifact in starting_artifacts.starting_artifacts
+                ),
+            }
+        )
+    )
 
 
 @dataclass(frozen=True)
@@ -240,19 +309,158 @@ class LaunchRequest(StrictContract):
 
 
 @dataclass(frozen=True)
+class LaunchStartingArtifact(StrictContract):
+    """One content-addressed task input staged into the launch workspace."""
+
+    starting_artifact_content_id: str
+    starting_artifact_ref: str
+    mount_path: str
+    materialized_tree_hash: str
+    source_files: tuple[SourceFileDescriptor, ...]
+
+    CONTENT_NAMESPACE: ClassVar[str] = "launch-starting-artifact"
+    IDENTITY_FIELD: ClassVar[str] = "starting_artifact_content_id"
+
+    def _validate(self) -> None:
+        if not isinstance(self.starting_artifact_ref, str) or not (
+            self.starting_artifact_ref.strip()
+        ):
+            raise LaunchContractError(
+                "launch starting-artifact reference must be non-empty text"
+            )
+        mount_path = PurePosixPath(self.mount_path)
+        if (
+            not self.mount_path
+            or mount_path.is_absolute()
+            or ".." in mount_path.parts
+            or mount_path == PurePosixPath(".")
+            or mount_path.as_posix() != self.mount_path
+        ):
+            raise LaunchContractError(
+                "launch starting-artifact mount must be normalized and relative"
+            )
+        _require_digest(
+            self.materialized_tree_hash,
+            "launch starting-artifact tree hash",
+        )
+        paths = tuple(descriptor.relative_path for descriptor in self.source_files)
+        if not paths or paths != tuple(sorted(set(paths))):
+            raise LaunchContractError(
+                "launch starting-artifact files must be non-empty, sorted, and unique"
+            )
+        source_paths = tuple(PurePosixPath(path) for path in paths)
+        if any(
+            source_path in other_path.parents
+            for position, source_path in enumerate(source_paths)
+            for other_path in source_paths[position + 1 :]
+        ):
+            raise LaunchContractError(
+                "launch starting-artifact files contain a path collision"
+            )
+        expected_tree_hash = source_tree_digest(
+            {
+                descriptor.relative_path: (
+                    descriptor.digest,
+                    descriptor.mode,
+                    descriptor.size,
+                )
+                for descriptor in self.source_files
+            }
+        )
+        if self.materialized_tree_hash != expected_tree_hash:
+            raise LaunchContractError(
+                "launch starting-artifact tree differs from its file closure"
+            )
+
+
+@dataclass(frozen=True)
+class LaunchStartingArtifactMaterializationReceipt(StrictContract):
+    """Exact provider receipt for the task-input bytes admitted into launch."""
+
+    materialization_receipt_id: str
+    task_context_binding_id: str
+    starting_artifacts: tuple[LaunchStartingArtifact, ...]
+    materializer_id: str
+    materializer_version: str
+    exact_dependency_ids: tuple[str, ...]
+
+    CONTENT_NAMESPACE: ClassVar[str] = "launch-starting-artifact-materialization"
+    IDENTITY_FIELD: ClassVar[str] = "materialization_receipt_id"
+
+    def _validate(self) -> None:
+        require_content_id(
+            self.task_context_binding_id,
+            "launch starting-artifact task_context_binding_id",
+        )
+        if self.task_context_binding_id.split(":sha256:", 1)[0] != (
+            "task-context-binding"
+        ):
+            raise LaunchContractError(
+                "launch starting-artifact receipt must name a TaskContextBinding"
+            )
+        artifact_ids = tuple(
+            artifact.starting_artifact_content_id
+            for artifact in self.starting_artifacts
+        )
+        if artifact_ids != tuple(sorted(set(artifact_ids))):
+            raise LaunchContractError(
+                "launch starting artifacts must be ID-sorted and unique"
+            )
+        artifact_refs = tuple(
+            artifact.starting_artifact_ref for artifact in self.starting_artifacts
+        )
+        if len(artifact_refs) != len(set(artifact_refs)):
+            raise LaunchContractError(
+                "launch starting-artifact references must be unique"
+            )
+        mount_paths = tuple(
+            PurePosixPath(artifact.mount_path) for artifact in self.starting_artifacts
+        )
+        if len(mount_paths) != len(set(mount_paths)) or any(
+            left in right.parents or right in left.parents
+            for position, left in enumerate(mount_paths)
+            for right in mount_paths[position + 1 :]
+        ):
+            raise LaunchContractError("launch starting-artifact mount paths overlap")
+        require_identifier(
+            self.materializer_id,
+            "launch starting-artifact materializer_id",
+        )
+        require_identifier(
+            self.materializer_version,
+            "launch starting-artifact materializer_version",
+        )
+        _require_sorted_unique(
+            self.exact_dependency_ids,
+            "launch starting-artifact exact_dependency_ids",
+        )
+        if set(self.exact_dependency_ids) != {
+            self.task_context_binding_id,
+            *artifact_ids,
+        }:
+            raise LaunchContractError(
+                "launch starting-artifact dependency closure is not exact"
+            )
+
+
+class LaunchCompatibilityAdmissionMode(str, Enum):
+    """Structural admission algorithms selected by the configured policy version."""
+
+    VERIFIED_CASE_NEW_ARTIFACT_CONTENT = "verified_case_new_artifact_content"
+
+
+@dataclass(frozen=True)
 class LaunchGitHubArtifactPin(StrictContract):
     """Exact immutable publication and verified local cache authority."""
 
     component_pin_id: str
     scope_id: str
     scope_repository_binding_hash: str
-    publication: GitHubPublicationRecord
-    publication_intent_digest: str
-    current_pointer_digest: str
+    pointer: CurrentArtifactPointer
+    publication_intent: ArtifactPublicationIntent
     authority_commit_sha: str
     activation_witness: GitHubArtifactActivationWitness
     cache_receipt: CacheVerificationReceipt
-    manifest_digest: str
 
     CONTENT_NAMESPACE: ClassVar[str] = "launch-github-artifact-pin"
     IDENTITY_FIELD: ClassVar[str] = "component_pin_id"
@@ -264,33 +472,38 @@ class LaunchGitHubArtifactPin(StrictContract):
                 self.scope_repository_binding_hash,
                 "scope_repository_binding_hash",
             ),
-            (self.publication_intent_digest, "publication_intent_digest"),
-            (self.current_pointer_digest, "current_pointer_digest"),
-            (self.manifest_digest, "manifest_digest"),
         ):
             _require_digest(value, f"launch component {name}")
         if _COMMIT_PATTERN.fullmatch(self.authority_commit_sha) is None:
             raise LaunchContractError(
                 "launch component authority_commit_sha is invalid"
             )
-        publication = self.publication
+        pointer = self.pointer
+        intent = self.publication_intent
+        publication = pointer.publication_record
         witness = self.activation_witness
         receipt = self.cache_receipt
         if (
-            type(publication) is not GitHubPublicationRecord
+            type(pointer) is not CurrentArtifactPointer
+            or type(intent) is not ArtifactPublicationIntent
             or type(witness) is not GitHubArtifactActivationWitness
             or type(receipt) is not CacheVerificationReceipt
+            or pointer.scope_id != self.scope_id
+            or intent.scope_id != self.scope_id
+            or not intent.binds(pointer)
             or witness.scope_id != self.scope_id
             or witness.scope_repository_binding_hash
             != self.scope_repository_binding_hash
             or witness.artifact_kind is not publication.artifact_kind
             or witness.artifact_id != publication.artifact_id
             or witness.repository_full_name != publication.repository_full_name
-            or witness.publication_intent_digest != self.publication_intent_digest
+            or witness.publication_intent_digest != intent.digest
             or witness.current_pointer_digest != self.current_pointer_digest
             or receipt.artifact_kind is not publication.artifact_kind
             or receipt.artifact_id != publication.artifact_id
-            or receipt.manifest_digest != self.manifest_digest
+            or receipt.materialized_tree_digest != pointer.materialized_tree_digest
+            or receipt.manifest_relative_path != pointer.manifest_relative_path
+            or receipt.manifest_digest != pointer.manifest_digest
             or dict(receipt.asset_digests)
             != {asset.name: asset.sha256 for asset in publication.assets}
         ):
@@ -305,6 +518,22 @@ class LaunchGitHubArtifactPin(StrictContract):
     @property
     def artifact_id(self) -> str:
         return self.publication.artifact_id
+
+    @property
+    def publication(self):
+        return self.pointer.publication_record
+
+    @property
+    def publication_intent_digest(self) -> str:
+        return self.publication_intent.digest
+
+    @property
+    def current_pointer_digest(self) -> str:
+        return tree_or_blob_digest(self.pointer.to_json_bytes())
+
+    @property
+    def manifest_digest(self) -> str:
+        return self.pointer.manifest_digest
 
 
 @dataclass(frozen=True)
@@ -356,21 +585,61 @@ class LaunchTaskAdapterPin(StrictContract):
             or receipt.task_adapter_manifest_id != manifest.task_adapter_manifest_id
             or receipt.full_manifest_digest
             != tree_or_blob_digest(manifest.to_json_bytes())
+            or receipt.publisher_attestation_digest
+            != tree_or_blob_digest(canonical_json_bytes(manifest.publisher_attestation))
             or receipt.source_extraction_receipt_id != extraction.extraction_receipt_id
+            or receipt.source_archive_ref != manifest.source_tree_ref
+            or receipt.source_archive_ref != extraction.source_archive_ref
+            or receipt.source_archive_digest != extraction.source_archive_digest
             or extraction.artifact_id != manifest.task_adapter_manifest_id
             or extraction.source_archive_ref != manifest.source_tree_ref
             or extraction.source_tree_hash != manifest.tree_hash
             or receipt.source_tree_hash != manifest.tree_hash
+            or set(receipt.proof_object_digests)
+            != {manifest.sanitation_report_id, *manifest.validation_refs}
         ):
             raise LaunchContractError(
                 "launch task adapter authorities do not join exactly"
+            )
+
+    @property
+    def dependency_ids(self) -> tuple[str, ...]:
+        return tuple(
+            sorted(
+                {
+                    self.verification_receipt.verification_receipt_id,
+                    self.verification_receipt.source_extraction_receipt_id,
+                    self.manifest.sanitation_report_id,
+                    *self.verification_receipt.proof_object_ids,
+                }
+            )
+        )
+
+
+@dataclass(frozen=True)
+class LaunchCompatibilityPolicy(StrictContract):
+    """Content-addressed policy whose code version admits one launch tuple."""
+
+    compatibility_policy_id: str
+    policy_version: str
+    admission_mode: LaunchCompatibilityAdmissionMode
+    artifact_ttl_seconds: int
+
+    CONTENT_NAMESPACE: ClassVar[str] = "launch-compatibility-policy"
+    IDENTITY_FIELD: ClassVar[str] = "compatibility_policy_id"
+
+    def _validate(self) -> None:
+        require_identifier(self.policy_version, "launch compatibility policy version")
+        if type(self.artifact_ttl_seconds) is not int or self.artifact_ttl_seconds < 1:
+            raise LaunchContractError(
+                "launch compatibility artifact TTL must be positive"
             )
 
 
 @dataclass(frozen=True)
 class LaunchCompatibilityReceipt(StrictContract):
     compatibility_receipt_id: str
-    policy_version: str
+    policy: LaunchCompatibilityPolicy
     launch_request_id: str
     task_context_binding_id: str
     scope_contract_id: str
@@ -384,6 +653,18 @@ class LaunchCompatibilityReceipt(StrictContract):
     task_adapter_activation_id: str
     embedding_space_id: str
     release_use_observation_id: str
+    expert_validation_context_id: str
+    expert_repository_map_id: str
+    expert_module_contract_ids: tuple[str, ...]
+    expert_release_matrix_stage_result_id: str
+    expert_release_matrix_report_id: str
+    expert_release_matrix_adapter_authority_id: str
+    task_adapter_compatibility_case_ids: tuple[str, ...]
+    starting_artifact_materialization_receipt_id: str
+    starting_artifact_content_ids: tuple[str, ...]
+    runtime_contract_digest: str
+    source_composition_hash: str
+    resolved_at: str
     compatible: bool
     reason_code: str
     exact_dependency_ids: tuple[str, ...]
@@ -392,9 +673,13 @@ class LaunchCompatibilityReceipt(StrictContract):
     IDENTITY_FIELD: ClassVar[str] = "compatibility_receipt_id"
 
     def _validate(self) -> None:
-        require_identifier(self.policy_version, "launch compatibility policy")
+        if type(self.policy) is not LaunchCompatibilityPolicy:
+            raise LaunchContractError(
+                "launch compatibility receipt uses another policy contract"
+            )
         require_identifier(self.reason_code, "launch compatibility reason_code")
         for value, name in (
+            (self.policy.compatibility_policy_id, "compatibility_policy_id"),
             (self.launch_request_id, "launch_request_id"),
             (self.task_context_binding_id, "task_context_binding_id"),
             (self.scope_contract_id, "scope_contract_id"),
@@ -411,8 +696,53 @@ class LaunchCompatibilityReceipt(StrictContract):
             (self.task_adapter_activation_id, "task_adapter_activation_id"),
             (self.embedding_space_id, "embedding_space_id"),
             (self.release_use_observation_id, "release_use_observation_id"),
+            (self.expert_validation_context_id, "expert_validation_context_id"),
+            (self.expert_repository_map_id, "expert_repository_map_id"),
+            (
+                self.expert_release_matrix_stage_result_id,
+                "expert_release_matrix_stage_result_id",
+            ),
+            (
+                self.expert_release_matrix_report_id,
+                "expert_release_matrix_report_id",
+            ),
+            (
+                self.expert_release_matrix_adapter_authority_id,
+                "expert_release_matrix_adapter_authority_id",
+            ),
+            (
+                self.starting_artifact_materialization_receipt_id,
+                "starting_artifact_materialization_receipt_id",
+            ),
         ):
             require_content_id(value, f"launch compatibility {name}")
+        _require_sorted_unique(
+            self.expert_module_contract_ids,
+            "launch compatibility expert_module_contract_ids",
+        )
+        _require_sorted_unique(
+            self.task_adapter_compatibility_case_ids,
+            "launch compatibility task_adapter_compatibility_case_ids",
+        )
+        _require_sorted_unique(
+            self.starting_artifact_content_ids,
+            "launch compatibility starting_artifact_content_ids",
+        )
+        for value in (
+            *self.expert_module_contract_ids,
+            *self.task_adapter_compatibility_case_ids,
+            *self.starting_artifact_content_ids,
+        ):
+            require_content_id(value, "launch compatibility dependency")
+        _require_digest(
+            self.runtime_contract_digest,
+            "launch compatibility runtime_contract_digest",
+        )
+        _require_digest(
+            self.source_composition_hash,
+            "launch compatibility source_composition_hash",
+        )
+        normalize_utc_timestamp(self.resolved_at, "launch compatibility resolved_at")
         if type(self.compatible) is not bool or not self.compatible:
             raise LaunchContractError(
                 "only an admitted compatible tuple can produce a launch receipt"
@@ -422,6 +752,7 @@ class LaunchCompatibilityReceipt(StrictContract):
             "launch compatibility exact_dependency_ids",
         )
         required_dependencies = {
+            self.policy.compatibility_policy_id,
             self.launch_request_id,
             self.task_context_binding_id,
             self.scope_contract_id,
@@ -435,11 +766,80 @@ class LaunchCompatibilityReceipt(StrictContract):
             self.task_adapter_activation_id,
             self.embedding_space_id,
             self.release_use_observation_id,
+            self.expert_validation_context_id,
+            self.expert_repository_map_id,
+            *self.expert_module_contract_ids,
+            self.expert_release_matrix_stage_result_id,
+            self.expert_release_matrix_report_id,
+            self.expert_release_matrix_adapter_authority_id,
+            *self.task_adapter_compatibility_case_ids,
+            self.starting_artifact_materialization_receipt_id,
+            *self.starting_artifact_content_ids,
         }
         if set(self.exact_dependency_ids) != required_dependencies:
             raise LaunchContractError(
                 "launch compatibility dependency closure is not exact"
             )
+
+
+def launch_security_subject_ids(
+    *,
+    launch_request: LaunchRequest,
+    scope_contract: ExpertScopeContract,
+    task_context_binding: TaskContextBinding,
+    expert_component: LaunchGitHubArtifactPin,
+    expert_manifest: ExpertBaseReleaseManifest,
+    expert_source: LaunchExpertSourcePin,
+    expert_repository_map: ExpertRepositoryMap,
+    expert_module_contracts: tuple[ExpertModuleContract, ...],
+    knowledge_component: LaunchGitHubArtifactPin,
+    knowledge_manifest: KnowledgeSnapshotManifest,
+    task_adapter: LaunchTaskAdapterPin,
+    starting_artifacts: LaunchStartingArtifactMaterializationReceipt,
+    embedding_space_id: str,
+    release_use_observation: ExpertReleaseUsePolicyObservation,
+    compatibility_receipt: LaunchCompatibilityReceipt,
+) -> tuple[str, ...]:
+    """Return the exact content-addressed closure checked before execution."""
+
+    return tuple(
+        sorted(
+            {
+                launch_request.launch_request_id,
+                scope_contract.scope_contract_id,
+                task_context_binding.task_context_binding_id,
+                expert_component.component_pin_id,
+                expert_component.publication.publication_id,
+                expert_component.activation_witness.witness_id,
+                expert_manifest.release_id,
+                expert_source.source_pin_id,
+                expert_source.extraction_receipt.extraction_receipt_id,
+                expert_repository_map.repository_map_id,
+                *(
+                    module_contract.module_contract_id
+                    for module_contract in expert_module_contracts
+                ),
+                *expert_manifest.consumed_dependency_ids,
+                knowledge_component.component_pin_id,
+                knowledge_component.publication.publication_id,
+                knowledge_component.activation_witness.witness_id,
+                knowledge_manifest.snapshot_id,
+                *knowledge_manifest.proof_dependency_closure_ids,
+                task_adapter.adapter_pin_id,
+                task_adapter.activation.activation_id,
+                task_adapter.manifest.task_adapter_manifest_id,
+                task_adapter.verification_receipt.verification_receipt_id,
+                task_adapter.source_extraction_receipt.extraction_receipt_id,
+                *task_adapter.dependency_ids,
+                starting_artifacts.materialization_receipt_id,
+                *starting_artifacts.exact_dependency_ids,
+                embedding_space_id,
+                release_use_observation.observation_id,
+                compatibility_receipt.compatibility_receipt_id,
+                *compatibility_receipt.exact_dependency_ids,
+            }
+        )
+    )
 
 
 @dataclass(frozen=True)
@@ -451,45 +851,63 @@ class LaunchManifest(StrictContract):
     launch_request_hash: str
     scope_contract: ExpertScopeContract
     task_context_binding: TaskContextBinding
+    scope_repositories: ScopeRepositorySettings
     scope_repository_binding_hash: str
     configuration_fingerprint: str
     expert_component: LaunchGitHubArtifactPin
     expert_manifest: ExpertBaseReleaseManifest
     expert_source: LaunchExpertSourcePin
+    expert_repository_map: ExpertRepositoryMap
+    expert_module_contracts: tuple[ExpertModuleContract, ...]
     knowledge_component: LaunchGitHubArtifactPin
     knowledge_manifest: KnowledgeSnapshotManifest
     task_adapter: LaunchTaskAdapterPin
+    starting_artifacts: LaunchStartingArtifactMaterializationReceipt
     embedding_space_id: str
     dependency_runtime_contract: Mapping[str, Any]
-    sanitation_policy_generation: int
+    sanitation_policy_version: str
     security_observation: SecurityDenylistObservation
     release_use_observation: ExpertReleaseUsePolicyObservation
     compatibility_receipt: LaunchCompatibilityReceipt
     expected_source_composition_hash: str
-    publisher_attestation: Mapping[str, Any]
     exact_dependency_ids: tuple[str, ...]
 
     CONTENT_NAMESPACE: ClassVar[str] = "launch-manifest"
     IDENTITY_FIELD: ClassVar[str] = "launch_manifest_id"
-    CONTENT_EXCLUDED_FIELDS: ClassVar[tuple[str, ...]] = ("publisher_attestation",)
 
     def _validate(self) -> None:
         if (
             type(self.launch_request) is not LaunchRequest
             or type(self.scope_contract) is not ExpertScopeContract
             or type(self.task_context_binding) is not TaskContextBinding
+            or type(self.scope_repositories) is not ScopeRepositorySettings
             or type(self.expert_component) is not LaunchGitHubArtifactPin
             or type(self.expert_manifest) is not ExpertBaseReleaseManifest
             or type(self.expert_source) is not LaunchExpertSourcePin
+            or type(self.expert_repository_map) is not ExpertRepositoryMap
+            or any(
+                type(module_contract) is not ExpertModuleContract
+                for module_contract in self.expert_module_contracts
+            )
             or type(self.knowledge_component) is not LaunchGitHubArtifactPin
             or type(self.knowledge_manifest) is not KnowledgeSnapshotManifest
             or type(self.task_adapter) is not LaunchTaskAdapterPin
+            or type(self.starting_artifacts)
+            is not LaunchStartingArtifactMaterializationReceipt
             or type(self.security_observation) is not SecurityDenylistObservation
             or type(self.release_use_observation)
             is not ExpertReleaseUsePolicyObservation
             or type(self.compatibility_receipt) is not LaunchCompatibilityReceipt
         ):
             raise LaunchContractError("launch manifest uses an unrecognized authority")
+        module_contract_ids = tuple(
+            module_contract.module_contract_id
+            for module_contract in self.expert_module_contracts
+        )
+        if module_contract_ids != tuple(sorted(set(module_contract_ids))):
+            raise LaunchContractError(
+                "launch expert module contracts must be sorted and unique"
+            )
         for value, name in (
             (self.launch_request_hash, "launch_request_hash"),
             (
@@ -504,24 +922,23 @@ class LaunchManifest(StrictContract):
         ):
             _require_digest(value, f"launch manifest {name}")
         require_content_id(self.embedding_space_id, "launch embedding_space_id")
-        if (
-            type(self.sanitation_policy_generation) is not int
-            or self.sanitation_policy_generation < 0
-        ):
-            raise LaunchContractError(
-                "launch sanitation policy generation must be non-negative"
-            )
+        require_identifier(
+            self.sanitation_policy_version,
+            "launch sanitation policy version",
+        )
         if (
             not self.dependency_runtime_contract
-            or not self.publisher_attestation
             or self.launch_request_hash != self.launch_request.request_hash
             or self.configuration_fingerprint
             != self.launch_request.configuration_fingerprint
             or self.dependency_runtime_contract
             != self.launch_request.dependency_runtime_contract
+            or self.scope_repositories.scope_id != self.launch_request.binding.scope_id
+            or self.scope_repositories.binding_fingerprint
+            != self.scope_repository_binding_hash
         ):
             raise LaunchContractError(
-                "launch request, runtime, configuration, or attestation is inconsistent"
+                "launch request, runtime, or configuration is inconsistent"
             )
         binding = self.launch_request.binding
         self.scope_contract.validate_binding(binding)
@@ -534,6 +951,10 @@ class LaunchManifest(StrictContract):
                 "launch task context differs from the bound request"
             )
         adapter_manifest = self.task_adapter.manifest
+        materialized_artifact_ids = {
+            artifact.starting_artifact_ref: (artifact.starting_artifact_content_id)
+            for artifact in self.starting_artifacts.starting_artifacts
+        }
         sidecar_spaces = {
             sidecar.embedding_space_id
             for sidecar in self.knowledge_manifest.embedding_sidecars
@@ -551,6 +972,16 @@ class LaunchManifest(StrictContract):
             != self.expert_manifest.checksums[self.expert_manifest.source_archive_ref]
             or self.expert_source.extraction_receipt.source_tree_hash
             != self.expert_manifest.candidate_tree_hash
+            or self.expert_repository_map.repository_map_id
+            != self.expert_manifest.repository_map_ref
+            or self.expert_repository_map.scope_contract_id
+            != self.scope_contract.scope_contract_id
+            or module_contract_ids != self.expert_manifest.module_contract_refs
+            or dict(self.expert_manifest.module_versions)
+            != {
+                module_contract.module_id: module_contract.version
+                for module_contract in self.expert_module_contracts
+            }
             or self.knowledge_component.artifact_kind
             is not PublicationArtifactKind.KNOWLEDGE_SNAPSHOT
             or self.knowledge_component.artifact_id
@@ -567,7 +998,24 @@ class LaunchManifest(StrictContract):
             != self.scope_contract.scope_contract_id
             or adapter_manifest.task_family_id != binding.task_family_id
             or adapter_manifest.task_adapter_id != binding.task_adapter_id
-            or self.embedding_space_id not in sidecar_spaces
+            or self.starting_artifacts.task_context_binding_id
+            != self.task_context_binding.task_context_binding_id
+            or materialized_artifact_ids
+            != dict(self.launch_request.starting_artifact_content_ids)
+            or (sidecar_spaces and self.embedding_space_id not in sidecar_spaces)
+            or (not sidecar_spaces and self.knowledge_manifest.entry_state_refs)
+            or self.sanitation_policy_version
+            != self.knowledge_manifest.sanitation_policy_version
+            or self.expert_component.scope_id != binding.scope_id
+            or self.knowledge_component.scope_id != binding.scope_id
+            or self.expert_component.scope_repository_binding_hash
+            != self.scope_repository_binding_hash
+            or self.knowledge_component.scope_repository_binding_hash
+            != self.scope_repository_binding_hash
+            or self.expert_component.publication.repository_full_name
+            != self.scope_repositories.expert_repository
+            or self.knowledge_component.publication.repository_full_name
+            != self.scope_repositories.knowledge_repository
         ):
             raise LaunchContractError(
                 "launch scientific components do not share one compatible scope"
@@ -579,6 +1027,8 @@ class LaunchManifest(StrictContract):
             or release_use.scope_contract_id != self.scope_contract.scope_contract_id
             or release_use.scope_repository_binding_hash
             != self.scope_repository_binding_hash
+            or release_use.repository_full_name
+            != self.scope_repositories.knowledge_repository
             or release_use.knowledge_snapshot_id != self.knowledge_manifest.snapshot_id
             or release_use.knowledge_publication_id
             != self.knowledge_component.publication.publication_id
@@ -588,6 +1038,8 @@ class LaunchManifest(StrictContract):
             or security.scope_contract_id != self.scope_contract.scope_contract_id
             or security.scope_repository_binding_hash
             != self.scope_repository_binding_hash
+            or security.repository_full_name
+            != self.scope_repositories.security_repository
             or security.matched_revocations
         ):
             raise LaunchContractError(
@@ -615,6 +1067,32 @@ class LaunchManifest(StrictContract):
             != self.task_adapter.activation.activation_id
             or compatibility.embedding_space_id != self.embedding_space_id
             or compatibility.release_use_observation_id != release_use.observation_id
+            or compatibility.expert_validation_context_id
+            != self.expert_manifest.candidate_validation_context_ref
+            or compatibility.expert_repository_map_id
+            != self.expert_repository_map.repository_map_id
+            or compatibility.expert_module_contract_ids != module_contract_ids
+            or compatibility.expert_release_matrix_stage_result_id
+            != self.expert_manifest.release_matrix_stage_result_id
+            or compatibility.expert_release_matrix_report_id
+            != self.expert_manifest.release_matrix_report_id
+            or compatibility.starting_artifact_materialization_receipt_id
+            != self.starting_artifacts.materialization_receipt_id
+            or compatibility.starting_artifact_content_ids
+            != tuple(sorted(self.launch_request.starting_artifact_content_ids.values()))
+            or compatibility.runtime_contract_digest
+            != tree_or_blob_digest(
+                canonical_json_bytes(self.dependency_runtime_contract)
+            )
+            or compatibility.source_composition_hash
+            != self.expected_source_composition_hash
+            or self.expected_source_composition_hash
+            != expected_launch_source_composition_hash(
+                expert_source_tree_hash=self.expert_manifest.candidate_tree_hash,
+                expert_repository_map=self.expert_repository_map,
+                task_adapter=self.task_adapter,
+                starting_artifacts=self.starting_artifacts,
+            )
         ):
             raise LaunchContractError(
                 "launch compatibility receipt names another tuple"
@@ -623,44 +1101,29 @@ class LaunchManifest(StrictContract):
             self.exact_dependency_ids,
             "launch manifest exact_dependency_ids",
         )
-        required_dependencies = {
-            self.launch_request.launch_request_id,
-            self.scope_contract.scope_contract_id,
-            self.task_context_binding.task_context_binding_id,
-            self.expert_component.component_pin_id,
-            self.expert_component.publication.publication_id,
-            self.expert_component.activation_witness.witness_id,
-            self.expert_manifest.release_id,
-            self.expert_source.source_pin_id,
-            self.expert_source.extraction_receipt.extraction_receipt_id,
-            self.knowledge_component.component_pin_id,
-            self.knowledge_component.publication.publication_id,
-            self.knowledge_component.activation_witness.witness_id,
-            self.knowledge_manifest.snapshot_id,
-            self.task_adapter.adapter_pin_id,
-            self.task_adapter.activation.activation_id,
-            adapter_manifest.task_adapter_manifest_id,
-            self.task_adapter.verification_receipt.verification_receipt_id,
-            self.task_adapter.source_extraction_receipt.extraction_receipt_id,
-            self.embedding_space_id,
-            security.observation_id,
-            release_use.observation_id,
-            compatibility.compatibility_receipt_id,
-        }
+        security_subjects = launch_security_subject_ids(
+            launch_request=self.launch_request,
+            scope_contract=self.scope_contract,
+            task_context_binding=self.task_context_binding,
+            expert_component=self.expert_component,
+            expert_manifest=self.expert_manifest,
+            expert_source=self.expert_source,
+            expert_repository_map=self.expert_repository_map,
+            expert_module_contracts=self.expert_module_contracts,
+            knowledge_component=self.knowledge_component,
+            knowledge_manifest=self.knowledge_manifest,
+            task_adapter=self.task_adapter,
+            starting_artifacts=self.starting_artifacts,
+            embedding_space_id=self.embedding_space_id,
+            release_use_observation=release_use,
+            compatibility_receipt=compatibility,
+        )
+        required_dependencies = {*security_subjects, security.observation_id}
         if set(self.exact_dependency_ids) != required_dependencies:
             raise LaunchContractError("launch manifest dependency closure is not exact")
-        security_required_subjects = {
-            self.scope_contract.scope_contract_id,
-            self.expert_manifest.release_id,
-            self.knowledge_manifest.snapshot_id,
-            adapter_manifest.task_adapter_manifest_id,
-            self.task_adapter.verification_receipt.verification_receipt_id,
-            self.task_adapter.activation.activation_id,
-            compatibility.compatibility_receipt_id,
-        }
-        if not security_required_subjects.issubset(security.checked_subject_ids):
+        if security.checked_subject_ids != security_subjects:
             raise LaunchContractError(
-                "launch denylist observation omits executable scientific subjects"
+                "launch denylist observation differs from the exact dependency closure"
             )
         _reject_repository_routing(
             self.dependency_runtime_contract,
@@ -673,12 +1136,18 @@ class LaunchManifest(StrictContract):
 
 
 __all__ = [
+    "expected_launch_source_composition_hash",
+    "launch_security_subject_ids",
+    "LaunchCompatibilityAdmissionMode",
+    "LaunchCompatibilityPolicy",
     "LaunchCompatibilityReceipt",
     "LaunchContractError",
     "LaunchExpertSourcePin",
     "LaunchGitHubArtifactPin",
     "LaunchManifest",
     "LaunchRequest",
+    "LaunchStartingArtifact",
+    "LaunchStartingArtifactMaterializationReceipt",
     "LaunchTaskAdapterPin",
     "LaunchTaskContextRequest",
 ]

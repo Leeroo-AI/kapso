@@ -471,6 +471,150 @@ class GitHubArtifactMaterializer:
             )
             return manifest
 
+    def read_verified_content_files(
+        self,
+        materialized: MaterializedArtifact,
+        relative_paths: tuple[str, ...],
+    ) -> Mapping[str, bytes]:
+        """Read bounded control records while the complete cache entry stays valid."""
+
+        if type(materialized) is not MaterializedArtifact:
+            raise MaterializationError(
+                "verified content reads require one materialized artifact"
+            )
+        if (
+            not relative_paths
+            or relative_paths != tuple(sorted(set(relative_paths)))
+            or len(relative_paths) > self.settings.archive_entry_limit
+        ):
+            raise MaterializationError(
+                "verified content paths must be non-empty, sorted, and bounded"
+            )
+        normalized_paths = tuple(PurePosixPath(path) for path in relative_paths)
+        if any(
+            path.is_absolute()
+            or ".." in path.parts
+            or path.as_posix() == "."
+            or path.as_posix() != relative_path
+            for path, relative_path in zip(normalized_paths, relative_paths)
+        ):
+            raise MaterializationError("verified content path is invalid")
+        with self._cache_lease():
+            expected_root = (
+                self.cache_root
+                / materialized.receipt.artifact_kind.value
+                / materialized.receipt.artifact_id.rsplit(":", 1)[1]
+            )
+            if materialized.root != expected_root:
+                raise CacheCorruptionError(
+                    "materialized artifact is outside the authorized cache"
+                )
+            before = self._read_and_verify_receipt(
+                materialized.root,
+                materialized.receipt.artifact_kind,
+            )
+            if (
+                before != materialized.receipt
+                or materialized.content != materialized.root / "content"
+                or materialized.assets != materialized.root / "assets"
+            ):
+                raise CacheCorruptionError(
+                    "materialized artifact differs from its verified cache entry"
+                )
+            if before.artifact_kind is not PublicationArtifactKind.EXPERT_BASE_RELEASE:
+                raise MaterializationError(
+                    "verified control-record reads require an expert base release"
+                )
+            manifest_payload = self._read_control_file(
+                materialized.content / before.manifest_relative_path,
+                "expert release manifest",
+                error_type=CacheCorruptionError,
+            )
+            manifest = ExpertBaseReleaseManifest.from_json_bytes(manifest_payload)
+            if (
+                manifest_payload != manifest.to_json_bytes()
+                or tree_or_blob_digest(manifest_payload) != before.manifest_digest
+                or manifest.release_id != before.artifact_id
+            ):
+                raise CacheCorruptionError(
+                    "expert release manifest differs from its cache receipt"
+                )
+            missing_checksums = set(relative_paths) - set(manifest.checksums)
+            if missing_checksums:
+                raise CacheCorruptionError(
+                    "verified content record lacks an authenticated manifest checksum"
+                )
+            with ExitStack() as descriptors:
+                content_descriptor = os.open(
+                    materialized.content,
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                )
+                descriptors.callback(os.close, content_descriptor)
+                payloads = {
+                    relative_path: self._read_relative_control_file(
+                        content_descriptor,
+                        PurePosixPath(relative_path),
+                        f"verified content record {relative_path}",
+                    )
+                    for relative_path in relative_paths
+                }
+            if any(
+                tree_or_blob_digest(payloads[relative_path])
+                != manifest.checksums[relative_path]
+                for relative_path in relative_paths
+            ):
+                raise CacheCorruptionError(
+                    "verified content record differs from its manifest checksum"
+                )
+            after = self._read_and_verify_receipt(
+                materialized.root,
+                materialized.receipt.artifact_kind,
+            )
+            if after != before:
+                raise CacheCorruptionError(
+                    "materialized artifact changed during verified content read"
+                )
+            return MappingProxyType(payloads)
+
+    def _read_relative_control_file(
+        self,
+        root_descriptor: int,
+        relative_path: PurePosixPath,
+        description: str,
+    ) -> bytes:
+        with ExitStack() as descriptors:
+            directory_descriptor = os.dup(root_descriptor)
+            descriptors.callback(os.close, directory_descriptor)
+            for part in relative_path.parts[:-1]:
+                child_descriptor = os.open(
+                    part,
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                    dir_fd=directory_descriptor,
+                )
+                descriptors.callback(os.close, child_descriptor)
+                directory_descriptor = child_descriptor
+            file_descriptor = os.open(
+                relative_path.parts[-1],
+                os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                dir_fd=directory_descriptor,
+            )
+            metadata = os.fstat(file_descriptor)
+            if not stat.S_ISREG(metadata.st_mode):
+                os.close(file_descriptor)
+                raise CacheCorruptionError(f"{description} must be a regular file")
+            if metadata.st_size > self.settings.control_blob_size_bytes:
+                os.close(file_descriptor)
+                raise CacheCorruptionError(
+                    f"{description} exceeds configured control bound"
+                )
+            with os.fdopen(file_descriptor, "rb") as file_handle:
+                payload = file_handle.read(self.settings.control_blob_size_bytes + 1)
+            if len(payload) != metadata.st_size:
+                raise CacheCorruptionError(
+                    f"{description} changed during its verified read"
+                )
+            return payload
+
     def _inspect_expert_release_manifest_under_lease(
         self,
         materialized: MaterializedArtifact,

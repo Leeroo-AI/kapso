@@ -1537,6 +1537,10 @@ class LaunchSettings(StrictContract):
     cache_path: str
     bootstrap_pin_path: str
     compatibility_policy_version: str
+    starting_artifact_materializer_id: str
+    starting_artifact_materializer_version: str
+    starting_artifact_entry_limit: int
+    starting_artifact_byte_limit: int
     security_denylist_state_path: str
     security_denylist_checkpoint_size_bytes: int
     security_denylist_checked_subject_limit: int
@@ -1549,9 +1553,32 @@ class LaunchSettings(StrictContract):
     def _validate(self) -> None:
         _require_path(self.cache_path, "launch.cache_path")
         _require_path(self.bootstrap_pin_path, "launch.bootstrap_pin_path")
+        if (
+            not isinstance(self.compatibility_policy_version, str)
+            or re.fullmatch(
+                r"[A-Za-z0-9][A-Za-z0-9._:/-]*",
+                self.compatibility_policy_version,
+            )
+            is None
+        ):
+            raise CrossRunConfigurationError(
+                "launch.compatibility_policy_version must be a qualified identifier"
+            )
         require_identifier(
-            self.compatibility_policy_version,
-            "launch.compatibility_policy_version",
+            self.starting_artifact_materializer_id,
+            "launch.starting_artifact_materializer_id",
+        )
+        require_identifier(
+            self.starting_artifact_materializer_version,
+            "launch.starting_artifact_materializer_version",
+        )
+        _require_positive(
+            self.starting_artifact_entry_limit,
+            "launch.starting_artifact_entry_limit",
+        )
+        _require_positive(
+            self.starting_artifact_byte_limit,
+            "launch.starting_artifact_byte_limit",
         )
         _require_path(
             self.security_denylist_state_path,
