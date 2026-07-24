@@ -40,6 +40,7 @@ from kapso.cross_run.task_adapter_store import (
     TaskAdapterStoreError,
 )
 from kapso.cross_run.task_adapters import (
+    ActiveTaskAdapterBinding,
     TaskAdapterPackage,
     task_adapter_materialization_usage,
 )
@@ -765,6 +766,14 @@ def test_attestation_rotation_moves_active_but_preserves_exact_replay(tmp_path):
         )
         == second
     )
+    active_binding = store.resolve_active_binding(
+        scope_contract_id=second_manifest.scope_contract_id,
+        task_family_id=second_manifest.task_family_id,
+        task_adapter_id=second_manifest.task_adapter_id,
+    )
+    assert type(active_binding) is ActiveTaskAdapterBinding
+    assert active_binding.activation == second_activation
+    assert active_binding.verified_adapter == second
     assert (
         store.resolve_exact(
             task_adapter_manifest_id=first_manifest.task_adapter_manifest_id,

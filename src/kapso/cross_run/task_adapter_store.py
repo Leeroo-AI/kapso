@@ -27,6 +27,7 @@ from kapso.cross_run.contracts import TaskAdapterManifest
 from kapso.cross_run.settings import TaskAdapterStoreSettings
 from kapso.cross_run.source_archives import SourceArchiveExtractor
 from kapso.cross_run.task_adapters import (
+    ActiveTaskAdapterBinding,
     TaskAdapterActivationRecord,
     TaskAdapterAuthority,
     TaskAdapterPackage,
@@ -300,6 +301,19 @@ class TaskAdapterPackageStore:
         task_family_id: str,
         task_adapter_id: str,
     ) -> VerifiedTaskAdapter:
+        return self.resolve_active_binding(
+            scope_contract_id=scope_contract_id,
+            task_family_id=task_family_id,
+            task_adapter_id=task_adapter_id,
+        ).verified_adapter
+
+    def resolve_active_binding(
+        self,
+        *,
+        scope_contract_id: str,
+        task_family_id: str,
+        task_adapter_id: str,
+    ) -> ActiveTaskAdapterBinding:
         require_content_id(scope_contract_id, "scope_contract_id")
         with self._lease():
             self._prepare_locked()
@@ -346,7 +360,10 @@ class TaskAdapterPackageStore:
                 raise TaskAdapterStoreError(
                     "active task adapter package differs from its activation"
                 )
-            return package
+            return ActiveTaskAdapterBinding(
+                activation=activation,
+                verified_adapter=package,
+            )
 
     def _stage_package(
         self,

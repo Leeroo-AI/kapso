@@ -398,6 +398,37 @@ class VerifiedTaskAdapter:
         )
 
 
+@dataclass(frozen=True)
+class ActiveTaskAdapterBinding:
+    """One verified package joined to the exact activation that selected it."""
+
+    activation: TaskAdapterActivationRecord
+    verified_adapter: VerifiedTaskAdapter
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.activation) is not TaskAdapterActivationRecord
+            or type(self.verified_adapter) is not VerifiedTaskAdapter
+        ):
+            raise ContractValidationError(
+                "active task adapter binding requires exact typed authorities"
+            )
+        manifest = self.verified_adapter.manifest
+        receipt = self.verified_adapter.verification_receipt
+        if (
+            self.activation.scope_contract_id != manifest.scope_contract_id
+            or self.activation.task_family_id != manifest.task_family_id
+            or self.activation.task_adapter_id != manifest.task_adapter_id
+            or self.activation.task_adapter_manifest_id
+            != manifest.task_adapter_manifest_id
+            or self.activation.verification_receipt_id
+            != receipt.verification_receipt_id
+        ):
+            raise ContractValidationError(
+                "active task adapter activation differs from its verified package"
+            )
+
+
 class VerifiedTaskAdapterProvider(Protocol):
     """Resolve trusted active packages separately from exact replay pins."""
 
@@ -415,6 +446,18 @@ class VerifiedTaskAdapterProvider(Protocol):
         task_adapter_manifest_id: str,
         verification_receipt_id: str,
     ) -> VerifiedTaskAdapter: ...
+
+
+class ActiveTaskAdapterBindingProvider(Protocol):
+    """Resolve the exact activation authority together with its package."""
+
+    def resolve_active_binding(
+        self,
+        *,
+        scope_contract_id: str,
+        task_family_id: str,
+        task_adapter_id: str,
+    ) -> ActiveTaskAdapterBinding: ...
 
 
 class TaskAdapterAuthority(Protocol):
