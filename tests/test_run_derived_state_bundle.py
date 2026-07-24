@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from io import BytesIO
+
 import pytest
 
 from kapso.cross_run.canonical import content_id, tree_or_blob_digest
@@ -107,6 +109,34 @@ def test_bundle_round_trips_exact_raw_payloads() -> None:
     assert restored.to_bytes() == bundle.to_bytes()
     assert b"".join(restored.iter_bytes()) == bundle.to_bytes()
     assert b"\xe2\x88\x86" in restored.to_bytes()
+
+
+def test_bundle_stream_reader_preserves_exact_payloads_without_full_copy() -> None:
+    bundle = _bundle()
+
+    restored = RunDerivedStateBundle.read_from(
+        BytesIO(bundle.to_bytes()),
+        maximum_bytes=bundle.byte_size,
+    )
+
+    assert restored == bundle
+    assert restored.byte_size == len(bundle.to_bytes())
+    assert restored.digest == tree_or_blob_digest(bundle.to_bytes())
+
+
+def test_bundle_stream_reader_enforces_bound_and_complete_eof() -> None:
+    payload = _bundle().to_bytes()
+
+    with pytest.raises(RunDerivedStateBundleError, match="bound"):
+        RunDerivedStateBundle.read_from(
+            BytesIO(payload),
+            maximum_bytes=len(payload) - 1,
+        )
+    with pytest.raises(RunDerivedStateBundleError, match="trailing"):
+        RunDerivedStateBundle.read_from(
+            BytesIO(payload + b"x"),
+            maximum_bytes=len(payload) + 1,
+        )
 
 
 def test_bundle_object_name_is_generation_identity() -> None:

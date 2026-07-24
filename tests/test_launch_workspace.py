@@ -827,6 +827,31 @@ def test_published_envelope_rejects_oversized_projection(
         )
 
 
+def test_published_envelope_rejects_oversized_checkpoint_staging(
+    resolver_case,
+    tmp_path,
+):
+    prepared = _build(resolver_case, (tmp_path / "run").absolute())
+    layout = prepared.bootstrap_pin.installation_receipt.layout
+    settings = resolver_case["resolver"]._settings
+    launch = replace(settings.launch, run_checkpoint_size_bytes=1)
+    builder = StarterWorkspaceBuilder(replace(settings, launch=launch))
+    staging = (
+        prepared.run_root
+        / layout.run_checkpoint_staging_relative_path
+        / f"checkpoint-{'a' * 64}-{'b' * 32}.tmp"
+    )
+    staging.write_bytes(b"{}")
+    staging.chmod(0o600)
+
+    with pytest.raises(LaunchWorkspaceError, match="checkpoint staging"):
+        builder._verify_outer_run_root_closure(
+            prepared.run_root,
+            layout,
+            prepared._published_root_identity,
+        )
+
+
 def test_published_envelope_rejects_empty_permanent_generation(
     resolver_case,
     tmp_path,

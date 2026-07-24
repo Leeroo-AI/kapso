@@ -233,24 +233,30 @@ lock inode, and exact launch-settings identity are sealed into
 `WorkspaceInstallationReceipt` and therefore `BootstrapPin`. Every hash-chained
 journal record retains the full canonical checkpoint, so recovery can rerun the
 complete strategy/archive/safety predecessor relation rather than trusting an ID.
-CAS runs under the pinned lock and:
+`RunStatePublisher` runs the complete transition under that pinned lock and:
 
-1. reopens and validates the complete canonical journal lineage and current
-   checkpoint through descriptor-relative no-follow paths;
-2. binds a one-shot permit to the exact checkpoint ID, journal-head ID, journal
-   byte position, and candidate ID;
-3. computes the successor record and rejects journal-capacity exhaustion before
-   changing the checkpoint;
-4. stages/fsyncs/replaces/reopens the checkpoint, then appends/fsyncs/reopens the
-   journal; and
-5. returns a non-clonable durable receipt only after both authorities agree.
+1. reopens the canonical journal/checkpoint lineage, referenced generation, and
+   every strategy-owned view through descriptor-relative no-follow paths;
+2. binds a one-shot permit to the observed checkpoint, journal head and byte
+   position, candidate, generation, and exact bundle digest/size;
+3. validates the candidate's complete predecessor closure and rejects journal,
+   generation, view, store-entry, or staging exhaustion before authoritative
+   mutation;
+4. publishes and reopens the immutable bundle with no-replace semantics, replaces
+   and reopens the checkpoint, and appends/fsyncs/reopens its monotonic journal
+   head;
+5. promotes every repairable view solely from that retained bundle; and
+6. returns a live non-clonable `ReconciledRunFrontier` only after reopening and
+   jointly verifying checkpoint, journal, bundle, projection, and views.
 
-On reopen, only one crash seam is repairable: the checkpoint is exactly one fully
-validated successor ahead of the journal. A partial final journal record is
+On explicit reconciled reopen, only one authoritative crash seam is repairable:
+the checkpoint is exactly one fully validated successor ahead of the journal and
+its exact retained bundle is already durable. A partial final journal record is
 repairable only when it is an exact prefix of that deterministic successor record;
-all unrelated tails, missing/stale checkpoints, skipped revisions, canonical
-rollback substitutions, journal/lock inode changes, and malformed records fail
-loudly.
+safe missing or byte-stale views are rebuilt afterward. All unrelated tails,
+missing/corrupt referenced bundles, missing/stale checkpoints, skipped revisions,
+canonical rollback substitutions, unsafe views, journal/lock inode changes, and
+malformed records fail loudly.
 
 The process UID remains inside the local filesystem trust boundary: an unrestricted
 same-UID process can rewrite an append-only-by-protocol regular file in place.
@@ -266,7 +272,7 @@ expert workspace before the new runtime becomes reachable.
       journal projections; require one mutually reconciled frontier, typed
       embedding-space/input proof, exact strategy/idea/outcome/artifact lineage,
       and retain its complete immutable generation bundle.
-- [ ] Make one shared-lock publisher stage/fsync the complete generation, CAS the
+- [x] Make one shared-lock publisher stage/fsync the complete generation, CAS the
       checkpoint, idempotently promote every mutable view, verify all bytes/refs,
       and return a non-clonable reconciled-frontier receipt. A durable checkpoint
       alone must never authorize capture or another paid/dangerous action.
@@ -286,6 +292,22 @@ expert workspace before the new runtime becomes reachable.
       bootstrap pin and durable local floor; checkpoint its exact identity,
       generation, publication, pointer, and every derivative taint.
 - [ ] Old checkpoint/bootstrap shapes fail explicitly; no migration.
+
+`RunStatePublisher` is now the only publication API for the new run-state
+authority. The checkpoint-only permit and durable receipt were deleted. Its
+one-shot permit binds the observed checkpoint, journal head and byte position,
+candidate, generation, and exact bundle digest/size. Under the pinned lock it
+publishes the immutable bundle with no-replace semantics, commits the checkpoint
+and monotonic journal, promotes all strategy-owned views, reopens the full closure,
+and issues a live non-clonable `ReconciledRunFrontier`.
+
+Construction and ordinary inspection never repair checkpoint state. Explicit
+`load_reconciled()` may repair only an exactly adjacent checkpoint after the
+referenced bundle has decoded and reconciled, and may rebuild safe missing or
+byte-stale views solely from that bundle. Missing/corrupt referenced objects,
+unrelated journal tails, unsafe views, stale permits, and inode substitutions fail
+loudly. A bundle published before a failed checkpoint CAS remains an inert orphan
+and can be reused only by a later authorized candidate naming it exactly.
 
 ## Failure and trust behavior
 

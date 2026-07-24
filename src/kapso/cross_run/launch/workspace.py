@@ -2144,6 +2144,8 @@ class StarterWorkspaceBuilder:
                     or metadata.st_uid != os.geteuid()
                     or metadata.st_nlink != 1
                     or stat.S_IMODE(metadata.st_mode) not in {0o400, 0o600}
+                    or metadata.st_size
+                    > self._settings.launch.run_checkpoint_size_bytes
                 ):
                     raise LaunchWorkspaceError(
                         "published run checkpoint staging entry is unsafe"

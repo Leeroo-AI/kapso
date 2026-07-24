@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from collections.abc import Iterator
-from typing import Mapping
+from typing import BinaryIO, Mapping
 
 from kapso.cross_run.canonical import (
     canonical_json_bytes,
@@ -81,6 +82,19 @@ class RunDerivedStateBundle:
             )
         }
 
+    @property
+    def byte_size(self) -> int:
+        """Return the exact framed size without materializing another full copy."""
+        return sum(len(chunk) for chunk in self.iter_bytes())
+
+    @property
+    def digest(self) -> str:
+        """Hash the exact framed bytes without materializing another full copy."""
+        hasher = hashlib.sha256()
+        for chunk in self.iter_bytes():
+            hasher.update(chunk)
+        return f"sha256:{hasher.hexdigest()}"
+
     def to_bytes(self) -> bytes:
         """Materialize the exact bundle bytes for bounded in-memory consumers."""
         return b"".join(self.iter_bytes())
@@ -139,6 +153,75 @@ class RunDerivedStateBundle:
             payloads=tuple(decoded_payloads),
         )
         if bundle.to_bytes() != payload:
+            raise RunDerivedStateBundleError(
+                "run derived-state bundle bytes are not canonical"
+            )
+        return bundle
+
+    @classmethod
+    def read_from(
+        cls,
+        handle: BinaryIO,
+        *,
+        maximum_bytes: int,
+    ) -> "RunDerivedStateBundle":
+        """Decode one bounded regular-file stream without duplicating its payload."""
+        if (
+            not hasattr(handle, "read")
+            or type(maximum_bytes) is not int
+            or maximum_bytes <= 0
+        ):
+            raise RunDerivedStateBundleError(
+                "run derived-state bundle reader is invalid"
+            )
+        prefix = handle.read(len(_BUNDLE_MAGIC) + _MANIFEST_LENGTH_BYTES)
+        if len(prefix) != len(
+            _BUNDLE_MAGIC
+        ) + _MANIFEST_LENGTH_BYTES or not prefix.startswith(_BUNDLE_MAGIC):
+            raise RunDerivedStateBundleError(
+                "run derived-state bundle header is invalid"
+            )
+        manifest_size = int.from_bytes(
+            prefix[len(_BUNDLE_MAGIC) :],
+            "big",
+        )
+        if manifest_size == 0 or len(prefix) + manifest_size > maximum_bytes:
+            raise RunDerivedStateBundleError(
+                "run derived-state bundle manifest length is invalid"
+            )
+        manifest_payload = handle.read(manifest_size)
+        if len(manifest_payload) != manifest_size:
+            raise RunDerivedStateBundleError(
+                "run derived-state bundle manifest is truncated"
+            )
+        generation = RunDerivedStateGeneration.from_json_bytes(manifest_payload)
+        if generation.to_json_bytes() != manifest_payload:
+            raise RunDerivedStateBundleError(
+                "run derived-state bundle manifest is not canonical"
+            )
+        total_size = len(prefix) + manifest_size
+        decoded_payloads = []
+        for transition in generation.payload_transitions:
+            total_size += transition.target_size_bytes
+            if total_size > maximum_bytes:
+                raise RunDerivedStateBundleError(
+                    "run derived-state bundle exceeds its configured bound"
+                )
+            payload = handle.read(transition.target_size_bytes)
+            if len(payload) != transition.target_size_bytes:
+                raise RunDerivedStateBundleError(
+                    "run derived-state bundle contains a truncated authority payload"
+                )
+            decoded_payloads.append(payload)
+        if handle.read(1):
+            raise RunDerivedStateBundleError(
+                "run derived-state bundle contains trailing bytes"
+            )
+        bundle = cls(
+            generation=generation,
+            payloads=tuple(decoded_payloads),
+        )
+        if bundle.byte_size != total_size:
             raise RunDerivedStateBundleError(
                 "run derived-state bundle bytes are not canonical"
             )
