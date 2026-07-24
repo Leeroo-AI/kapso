@@ -366,6 +366,16 @@ def _data_access_rules(spec: TaskSpec) -> str:
         )
     return f"""
 Data access (read carefully — violations invalidate the run):
+- INTEGRITY — do NOT look up this problem's published solution. RelBench tasks
+  may derive from public datasets or past competitions (this one, for example,
+  may originate from a public challenge). You MUST NOT search the web for,
+  retrieve, read, or port a published SOLUTION to THIS specific task/dataset —
+  winning competition write-ups, leaderboard-winning code, an answer key, or a
+  feature recipe tuned to this exact dataset. If you find such material, stop
+  and do not use it. Searching for GENERAL methods, domain background, and
+  library usage is fine; obtaining the specific answer to this benchmark
+  problem from the web is forbidden and voids the run. Solve it yourself from
+  the provided data.
 - Load data ONLY through the relbench API with download=False:
     from relbench.datasets import get_dataset
     from relbench.tasks import get_task
