@@ -10,8 +10,8 @@ import pytest
 from kapso.execution.budget import BudgetSnapshot
 from kapso.execution.fidelity import FidelityDecision
 from kapso.execution.fidelity import FULL_PASSTHROUGH
-from kapso.execution.search_strategies.base import SearchNode
-from kapso.execution.search_strategies.generic.ideation import (
+from kapso.execution.search_strategies.node import SearchNode
+from kapso.execution.search_strategies.generic.ideation.types import (
     CampaignAction,
     IdeaStatus,
     ParentPlan,
@@ -19,6 +19,10 @@ from kapso.execution.search_strategies.generic.ideation import (
 )
 from kapso.execution.search_strategies.generic.strategy import GenericSearch
 from test_ideation_domain import BATCH_ID, generated_idea, resolved_parent
+
+FROZEN_PARENT_COMMIT = "f" * 40
+FAILED_PARENT_COMMIT = "e" * 40
+ORIGINAL_BASE_COMMIT = "d" * 40
 
 
 def commit(repo, root: Path, branch: str, content: str):
@@ -175,10 +179,10 @@ def test_selected_idea_is_linked_before_implementation_and_uses_frozen_bases():
     strategy.active_batch_id = None
     parent = replace(
         resolved_parent(),
-        git_ref="frozen-sha",
-        materialized_ref="frozen-sha",
-        diff_base_ref="frozen-sha",
-        feedback_base_ref="frozen-sha",
+        git_ref=FROZEN_PARENT_COMMIT,
+        materialized_ref=FROZEN_PARENT_COMMIT,
+        diff_base_ref=FROZEN_PARENT_COMMIT,
+        feedback_base_ref=FROZEN_PARENT_COMMIT,
     )
     idea = replace(
         generated_idea(),
@@ -236,17 +240,17 @@ def test_selected_idea_is_linked_before_implementation_and_uses_frozen_bases():
 
     assert archive.links == [(idea.idea_id, 0, BATCH_ID, 7)]
     assert events == [
-        ("parent_checked", "frozen-sha"),
-        ("implemented", parent.branch_name),
-        ("diff", "frozen-sha"),
+        ("parent_checked", FROZEN_PARENT_COMMIT),
+        ("implemented", parent.git_ref),
+        ("diff", FROZEN_PARENT_COMMIT),
     ]
     assert node.idea_id == idea.idea_id
     assert node.selection_batch_id == BATCH_ID
     assert node.parent_node_id is None
     assert node.parent_branch_name == parent.branch_name
-    assert node.implementation_base_ref == "frozen-sha"
-    assert node.diff_base_ref == "frozen-sha"
-    assert node.feedback_base_ref == "frozen-sha"
+    assert node.implementation_base_ref == FROZEN_PARENT_COMMIT
+    assert node.diff_base_ref == FROZEN_PARENT_COMMIT
+    assert node.feedback_base_ref == FROZEN_PARENT_COMMIT
     assert node.phase_telemetry["ideation"]["cost_usd"] == 0.25
     assert strategy.node_history == [node]
 
@@ -259,10 +263,10 @@ def test_recovery_reexecutes_same_node_and_preserves_all_attempt_telemetry(
         resolved_parent(),
         node_id=0,
         branch_name="generic_exp_0",
-        git_ref="failed-sha",
-        materialized_ref="failed-sha",
-        diff_base_ref="failed-sha",
-        feedback_base_ref="failed-sha",
+        git_ref=FAILED_PARENT_COMMIT,
+        materialized_ref=FAILED_PARENT_COMMIT,
+        diff_base_ref=FAILED_PARENT_COMMIT,
+        feedback_base_ref=FAILED_PARENT_COMMIT,
     )
     idea = replace(
         generated_idea(),
@@ -284,9 +288,9 @@ def test_recovery_reexecutes_same_node_and_preserves_all_attempt_telemetry(
         recoverable_error=True,
     )
     existing.duration_seconds = 7.0
-    existing.implementation_base_ref = "failed-sha"
-    existing.diff_base_ref = "original-baseline-sha"
-    existing.feedback_base_ref = "original-baseline-sha"
+    existing.implementation_base_ref = FAILED_PARENT_COMMIT
+    existing.diff_base_ref = ORIGINAL_BASE_COMMIT
+    existing.feedback_base_ref = ORIGINAL_BASE_COMMIT
     existing.phase_telemetry = {
         "ideation": {
             "cost_usd": 0.2,
@@ -325,9 +329,12 @@ def test_recovery_reexecutes_same_node_and_preserves_all_attempt_telemetry(
     strategy._materialize_ideation_parent = lambda snapshot: None
     strategy._assert_parent_snapshot_current = lambda snapshot: None
 
+    implementation_bases = []
+
     def implement(**kwargs):
         strategy._last_implementation_success = True
         strategy._last_implementation_error = ""
+        implementation_bases.append(kwargs["parent_branch_name"])
         return "recovered", {"cost_usd": 0.1, "duration_seconds": 1.0}
 
     strategy._implement = implement
@@ -354,10 +361,11 @@ def test_recovery_reexecutes_same_node_and_preserves_all_attempt_telemetry(
     assert returned.had_error is False
     assert returned.recoverable_error is False
     assert returned.parent_branch_name == "main"
-    assert returned.implementation_base_ref == "failed-sha"
-    assert returned.diff_base_ref == "original-baseline-sha"
-    assert returned.feedback_base_ref == "original-baseline-sha"
-    assert diff_bases == [("generic_exp_0", "original-baseline-sha")]
+    assert returned.implementation_base_ref == FAILED_PARENT_COMMIT
+    assert returned.diff_base_ref == ORIGINAL_BASE_COMMIT
+    assert returned.feedback_base_ref == ORIGINAL_BASE_COMMIT
+    assert implementation_bases == [FAILED_PARENT_COMMIT]
+    assert diff_bases == [("generic_exp_0", ORIGINAL_BASE_COMMIT)]
     assert returned.phase_telemetry["ideation"] == {
         "cost_usd": pytest.approx(0.5),
         "duration_seconds": pytest.approx(3.0),

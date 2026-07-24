@@ -21,20 +21,22 @@ from kapso.knowledge_base.search import (
     KnowledgeSearch,
     KnowledgeSearchFactory,
 )
-from kapso.execution.search_strategies import (
-    SearchStrategy,
-    SearchStrategyFactory,
-)
+from kapso.execution.search_strategies.base import SearchStrategy
+from kapso.execution.search_strategies.factory import SearchStrategyFactory
 from kapso.execution.coding_agents.factory import CodingAgentFactory
-from kapso.execution.search_strategies.generic import FeedbackGenerator, FeedbackResult
+from kapso.execution.search_strategies.generic.feedback_generator.feedback_generator import (
+    FeedbackGenerator,
+    FeedbackResult,
+)
 from kapso.execution.search_strategies.generic.ideation.evidence_author import (
     EVIDENCE_AUTHOR_METADATA_KEY,
 )
 from kapso.environment.handlers.base import ProblemHandler
 from kapso.core.llm import LLMBackend
 from kapso.core.config import load_config, load_effective_config
-from kapso.execution.search_strategies.base import ExperimentResult, SearchNode
-from kapso.execution.memories.experiment_memory import ExperimentHistoryStore
+from kapso.execution.search_strategies.base import ExperimentResult
+from kapso.execution.search_strategies.node import SearchNode
+from kapso.execution.memories.experiment_memory.store import ExperimentHistoryStore
 from kapso.execution.search_strategies.generic.ideation.types import new_identifier
 from kapso.execution.iteration_evaluator import (
     IterationEvaluationContext,
@@ -74,6 +76,7 @@ from kapso.execution.fidelity import (
     FidelitySpec,
 )
 from kapso.cross_run.capture.pipeline import RunCapturePipeline
+from kapso.cross_run.canonical import normalize_utc_timestamp
 from kapso.cross_run.contracts import CompletionState
 
 CHANGE_REQUEST_PATTERN = re.compile(
@@ -1374,6 +1377,11 @@ class OrchestratorAgent:
                     self.search_strategy.get_experiment_history(),
                     node,
                 )
+                for candidate in finalized_candidates:
+                    normalize_utc_timestamp(
+                        candidate.started_at,
+                        "finalized candidate started_at",
+                    )
                 enforce_integrity = getattr(
                     self.search_strategy,
                     "enforce_evaluation_integrity",
@@ -1408,8 +1416,6 @@ class OrchestratorAgent:
 
                 # Store feedback result for return value
                 if node.feedback:
-                    from kapso.execution.search_strategies.generic import FeedbackResult
-
                     self.last_feedback_result = FeedbackResult(
                         stop=node.should_stop,
                         evaluation_valid=node.evaluation_valid,

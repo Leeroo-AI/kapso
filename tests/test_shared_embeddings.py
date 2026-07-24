@@ -5,14 +5,14 @@ from types import SimpleNamespace
 
 import pytest
 
-from kapso.core.embeddings import (
+from kapso.core.embedding_contracts import (
     EmbeddingRecord,
     EmbeddingSettings,
-    OpenAIEmbeddingProvider,
     complete_input_hash,
     cosine_similarity,
     embedding_can_be_reused,
 )
+from kapso.core.embedding_provider import OpenAIEmbeddingProvider
 from kapso.cross_run.canonical import content_id
 from kapso.cross_run.contracts import EmbeddingSidecar
 

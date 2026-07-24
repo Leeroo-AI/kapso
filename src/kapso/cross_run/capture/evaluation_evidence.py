@@ -6,7 +6,7 @@ import re
 from typing import Any
 
 from kapso.cross_run.contracts import EvaluationFingerprint
-from kapso.execution.memories.experiment_memory.store import ExperimentRecord
+from kapso.execution.memories.experiment_memory.record import ExperimentRecord
 
 
 def evaluation_scores_match(

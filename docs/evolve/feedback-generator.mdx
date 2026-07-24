@@ -107,7 +107,10 @@ else:
 ### Direct Usage
 
 ```python
-from kapso.execution.search_strategies.generic import FeedbackGenerator, FeedbackResult
+from kapso.execution.search_strategies.generic.feedback_generator.feedback_generator import (
+    FeedbackGenerator,
+    FeedbackResult,
+)
 
 # Create feedback generator (uses claude_code by default)
 feedback_gen = FeedbackGenerator()

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence, Tuple
 
-from kapso.core.embeddings import (
+from kapso.core.embedding_contracts import (
     EmbeddingProvider,
     EmbeddingRecord,
     EmbeddingTelemetry,

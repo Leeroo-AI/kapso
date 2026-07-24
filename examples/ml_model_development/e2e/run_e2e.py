@@ -45,6 +45,12 @@ CONFIG_PATH = E2E_DIR / "config.e2e.yaml"
 sys.path.insert(0, str(REPO_ROOT))
 
 from examples.ml_model_development.e2e.generate_data import generate
+from kapso.execution.fidelity import (
+    TIER_FULL,
+    evidence_tier,
+    select_committed_candidate,
+)
+from kapso.execution.search_strategies.node import SearchNode
 
 GOAL_HEADER = """
 Optimize the ML model in `train.py` to improve accuracy on a synthetic
@@ -385,13 +391,6 @@ def check_fractions(
 
 
 def check_best_is_full(run_dir: Path, checkpoint: dict, evidence: list) -> bool:
-    from kapso.execution.fidelity import (
-        TIER_FULL,
-        evidence_tier,
-        select_committed_candidate,
-    )
-    from kapso.execution.search_strategies.base import SearchNode
-
     path = run_dir / "workspace" / ".kapso" / "evaluation_registry.json"
     head_id = json.loads(path.read_text())[-1]["evaluator_id"]
     nodes = [

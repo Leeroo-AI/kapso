@@ -6,19 +6,23 @@ from types import SimpleNamespace
 import pytest
 
 from kapso.execution.fidelity import EvaluationAttempt
-from kapso.execution.search_strategies.base import SearchNode
-from kapso.execution.search_strategies.generic.ideation import (
+from kapso.execution.search_strategies.node import SearchNode
+from kapso.execution.search_strategies.generic.ideation.evidence import (
     CampaignEvidenceBuilder,
     EvaluationAttemptInput,
+    ExperimentInput,
+)
+from kapso.execution.search_strategies.generic.ideation.outcomes import (
+    build_idea_outcome,
+)
+from kapso.execution.search_strategies.generic.ideation.types import (
     EvaluationStatus,
     EvidenceSignal,
-    ExperimentInput,
     GapState,
     IdeaStatus,
     IdeationMode,
     ImplementationStatus,
     ObjectiveDirection,
-    build_idea_outcome,
 )
 from kapso.execution.search_strategies.generic.ideation.policy import choose_policy
 from kapso.execution.search_strategies.generic.strategy import GenericSearch
@@ -76,23 +80,38 @@ def linked(node_id=0, *, parent=None):
     return idea, node
 
 
-def test_valid_bootstrap_outcome_uses_objective_normalized_zero_basis():
+@pytest.mark.parametrize(
+    "objective_direction",
+    [ObjectiveDirection.MAXIMIZE, ObjectiveDirection.MINIMIZE],
+)
+def test_measured_baseline_outcome_has_no_relative_effect(objective_direction):
     idea, node = linked()
 
     outcome = build_idea_outcome(
         node=node,
         idea=idea,
         nodes_by_id={0: node},
-        objective_direction=ObjectiveDirection.MAXIMIZE,
+        objective_direction=objective_direction,
     )
 
-    assert outcome.evaluation_status == EvaluationStatus.VALID
+    assert outcome.evaluation_status == EvaluationStatus.INCONCLUSIVE
     assert outcome.implementation_status == ImplementationStatus.COMPLETED
-    assert outcome.normalized_delta == 0.7
+    assert outcome.normalized_delta is None
     assert outcome.validation_tier == "full"
 
 
-def test_valid_child_delta_uses_frozen_parent_and_minimize_direction():
+@pytest.mark.parametrize(
+    ("objective_direction", "child_score", "expected_delta"),
+    [
+        (ObjectiveDirection.MAXIMIZE, 0.8, 0.2),
+        (ObjectiveDirection.MINIMIZE, 0.4, 0.2),
+    ],
+)
+def test_valid_child_delta_uses_frozen_comparable_parent(
+    objective_direction,
+    child_score,
+    expected_delta,
+):
     parent = SearchNode(
         node_id=0,
         score=0.6,
@@ -101,17 +120,18 @@ def test_valid_child_delta_uses_frozen_parent_and_minimize_direction():
     idea, child = linked(node_id=1)
     frozen_parent = replace(idea.resolved_parent, node_id=0)
     idea = replace(idea, resolved_parent=frozen_parent)
-    child.score = 0.4
-    child.evaluation_attempts = [evaluation_attempt(0.4)]
+    child.score = child_score
+    child.evaluation_attempts = [evaluation_attempt(child_score)]
 
     outcome = build_idea_outcome(
         node=child,
         idea=idea,
         nodes_by_id={0: parent, 1: child},
-        objective_direction=ObjectiveDirection.MINIMIZE,
+        objective_direction=objective_direction,
     )
 
-    assert outcome.normalized_delta == pytest.approx(0.2)
+    assert outcome.evaluation_status == EvaluationStatus.VALID
+    assert outcome.normalized_delta == pytest.approx(expected_delta)
 
 
 @pytest.mark.parametrize(
@@ -240,7 +260,8 @@ def test_generic_strategy_writes_final_outcome_to_the_linked_archive(tmp_path):
         if idea.idea_id == selected.selected_idea.idea_id
     )
     assert persisted.status == IdeaStatus.EVALUATED
-    assert persisted.outcome.normalized_delta == 0.8
+    assert persisted.outcome.evaluation_status == EvaluationStatus.INCONCLUSIVE
+    assert persisted.outcome.normalized_delta is None
 
 
 def test_generic_strategy_writes_explicit_evaluator_evidence_for_next_policy(
@@ -263,7 +284,7 @@ def test_generic_strategy_writes_explicit_evaluator_evidence_for_next_policy(
         evaluation_attempts=[evaluation_attempt(0.8)],
         duration_seconds=4.0,
         cost_usd=0.2,
-        started_at="2026-07-19T00:01:00+00:00",
+        started_at="2026-07-19T00:01:00Z",
         external_evaluation_metadata={
             "ideation_evidence": {
                 "claims": [
@@ -304,7 +325,7 @@ def test_generic_strategy_writes_explicit_evaluator_evidence_for_next_policy(
             replace(
                 claim,
                 source_refs=(*claim.source_refs, "metric:replicated_stability"),
-                updated_at="2026-07-19T00:02:00+00:00",
+                updated_at="2026-07-19T00:02:00Z",
             ),
         ),
         expected_revision=archive.revision,
@@ -312,13 +333,13 @@ def test_generic_strategy_writes_explicit_evaluator_evidence_for_next_policy(
     gap = archive.list_gaps()[0]
     archive.defer_gap(
         gap.gap_id,
-        "2026-07-19T00:03:00+00:00",
+        "2026-07-19T00:03:00Z",
         expected_deferral_count=0,
         expected_revision=archive.revision,
     )
     archive.defer_gap(
         gap.gap_id,
-        "2026-07-19T00:04:00+00:00",
+        "2026-07-19T00:04:00Z",
         expected_deferral_count=1,
         expected_revision=archive.revision,
     )
@@ -367,7 +388,7 @@ def test_generic_strategy_writes_explicit_evaluator_evidence_for_next_policy(
         ),
         archive_state=archive.state,
         capacity=capacity(),
-        generated_at="2026-07-19T00:05:00+00:00",
+        generated_at="2026-07-19T00:05:00Z",
     )
 
     assert archive.state.claims[0].affected_experiment_node_ids == (0,)

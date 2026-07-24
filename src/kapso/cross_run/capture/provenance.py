@@ -8,8 +8,8 @@ from typing import Sequence
 
 from kapso.cross_run.canonical import to_json_value
 from kapso.cross_run.record_contracts import ExecutionRevisionEvent
-from kapso.execution.memories.experiment_memory.store import ExperimentRecord
-from kapso.execution.search_strategies.base import SearchNode
+from kapso.execution.memories.experiment_memory.record import ExperimentRecord
+from kapso.execution.search_strategies.node import SearchNode
 from kapso.execution.search_strategies.generic.ideation.archive import IdeaArchiveState
 
 _GIT_COMMIT_PATTERN = re.compile(r"[0-9a-f]{40}")

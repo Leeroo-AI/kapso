@@ -6,13 +6,13 @@ from dataclasses import replace
 import pytest
 
 from kapso.cross_run.canonical import tree_or_blob_digest
-from kapso.core.embeddings import EmbeddingRecord, EmbeddingTelemetry
+from kapso.core.embedding_contracts import EmbeddingRecord, EmbeddingTelemetry
 from kapso.execution.coding_agents.structured_call import (
     CodingAgentCallRequest,
     CodingAgentCallResult,
     CodingAgentWorkspacePolicy,
 )
-from kapso.execution.search_strategies.generic.ideation import (
+from kapso.execution.search_strategies.generic.ideation.types import (
     AnalyzedCandidate,
     BatchStatus,
     CampaignAction,
@@ -55,7 +55,7 @@ from kapso.execution.search_strategies.generic.ideation import (
     require_idea_transition,
 )
 
-NOW = "2026-07-19T00:00:00+00:00"
+NOW = "2026-07-19T00:00:00Z"
 IDEA_ID = "idea_" + "a" * 32
 OTHER_IDEA_ID = "idea_" + "b" * 32
 BATCH_ID = "batch_" + "c" * 32
@@ -92,14 +92,27 @@ def parent_plan() -> ParentPlan:
 
 
 def resolved_parent() -> ResolvedParentSnapshot:
+    commit_sha = "a" * 40
     return ResolvedParentSnapshot(
         node_id=None,
         branch_name="baseline",
-        git_ref="abc123",
-        materialized_ref="abc123",
-        diff_base_ref="abc123",
-        feedback_base_ref="abc123",
+        git_ref=commit_sha,
+        materialized_ref=commit_sha,
+        diff_base_ref=commit_sha,
+        feedback_base_ref=commit_sha,
     )
+
+
+def test_resolved_parent_requires_one_immutable_git_commit():
+    with pytest.raises(ValueError, match="Git commit"):
+        ResolvedParentSnapshot(
+            node_id=None,
+            branch_name="main",
+            git_ref="main",
+            materialized_ref="main",
+            diff_base_ref="main",
+            feedback_base_ref="main",
+        )
 
 
 def policy() -> PolicyDecision:

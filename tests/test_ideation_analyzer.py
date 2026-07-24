@@ -3,7 +3,7 @@
 import hashlib
 from dataclasses import replace
 
-from kapso.core.embeddings import (
+from kapso.core.embedding_contracts import (
     EmbeddingBatch,
     EmbeddingRecord,
     EmbeddingSettings,

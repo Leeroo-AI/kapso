@@ -17,7 +17,7 @@ from kapso.cross_run.contracts import (
 )
 from kapso.cross_run.settings import CrossRunSettings
 from kapso.execution.fidelity import EvaluationAttempt
-from kapso.execution.memories.experiment_memory import ExperimentHistoryStore
+from kapso.execution.memories.experiment_memory.store import ExperimentHistoryStore
 from kapso.execution.run_checkpoint import RunCheckpoint, RunCheckpointStore
 from test_cross_run_contracts import build_records, digest
 from test_ideation_resume import finalized_node, linked_strategy

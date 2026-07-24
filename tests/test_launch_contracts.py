@@ -22,6 +22,7 @@ from kapso.cross_run.contracts import (
     SourceFileDescriptor,
     TaskAdapterManifest,
 )
+from kapso.cross_run.embedding_space import EmbeddingSpace
 from kapso.cross_run.expert.release_use_policy_contracts import (
     ExpertReleaseUsePolicyObservation,
 )
@@ -227,7 +228,23 @@ def _launch_fixture(*, omit_compatibility_security_subject=False):
         source_expert.source_archive_ref: source_archive_digest,
     }
     expert_manifest = ExpertBaseReleaseManifest.mint(**expert_values)
-    knowledge_manifest = _record(KnowledgeSnapshotManifest)
+    knowledge_embedding_space = EmbeddingSpace.mint(
+        provider="openai",
+        model="text-embedding-3-small",
+        dimensions=1536,
+        canonicalizer_version="kapso.knowledge_embedding.v1",
+    )
+    source_knowledge_manifest = _record(KnowledgeSnapshotManifest)
+    knowledge_values = source_knowledge_manifest.to_dict()
+    knowledge_values.pop("snapshot_id")
+    knowledge_values["embedding_sidecars"] = tuple(
+        replace(
+            sidecar,
+            embedding_space_id=knowledge_embedding_space.embedding_space_id,
+        )
+        for sidecar in source_knowledge_manifest.embedding_sidecars
+    )
+    knowledge_manifest = KnowledgeSnapshotManifest.mint(**knowledge_values)
     expert_component = _component_pin(
         artifact_kind=PublicationArtifactKind.EXPERT_BASE_RELEASE,
         artifact_id=expert_manifest.release_id,
@@ -338,7 +355,15 @@ def _launch_fixture(*, omit_compatibility_security_subject=False):
             )
         ),
     )
-    embedding_space_id = knowledge_manifest.embedding_sidecars[0].embedding_space_id
+    knowledge_embedding_space_id = knowledge_manifest.embedding_sidecars[
+        0
+    ].embedding_space_id
+    experiment_embedding_space = EmbeddingSpace.mint(
+        provider="openai",
+        model="text-embedding-3-small",
+        dimensions=1536,
+        canonicalizer_version="kapso.idea_embedding.v1",
+    )
     release_use = ExpertReleaseUsePolicyObservation.mint(
         scope_id=scope.scope_id,
         scope_contract_id=scope.scope_contract_id,
@@ -367,9 +392,7 @@ def _launch_fixture(*, omit_compatibility_security_subject=False):
         "expert-release-matrix-adapter-authority",
         {"fixture": "launch"},
     )
-    compatibility_case_ids = (
-        adapter_case.release_matrix_case_id,
-    )
+    compatibility_case_ids = (adapter_case.release_matrix_case_id,)
     starting_artifact_ids = tuple(
         sorted(request.starting_artifact_content_ids.values())
     )
@@ -397,7 +420,7 @@ def _launch_fixture(*, omit_compatibility_security_subject=False):
                 adapter_manifest.task_adapter_manifest_id,
                 verified_adapter.verification_receipt.verification_receipt_id,
                 activation.activation_id,
-                embedding_space_id,
+                knowledge_embedding_space_id,
                 release_use.observation_id,
                 expert_manifest.candidate_validation_context_ref,
                 expert_repository_map.repository_map_id,
@@ -426,7 +449,7 @@ def _launch_fixture(*, omit_compatibility_security_subject=False):
             verified_adapter.verification_receipt.verification_receipt_id
         ),
         task_adapter_activation_id=activation.activation_id,
-        embedding_space_id=embedding_space_id,
+        knowledge_embedding_space_id=knowledge_embedding_space_id,
         release_use_observation_id=release_use.observation_id,
         expert_validation_context_id=(expert_manifest.candidate_validation_context_ref),
         expert_repository_map_id=expert_repository_map.repository_map_id,
@@ -464,7 +487,8 @@ def _launch_fixture(*, omit_compatibility_security_subject=False):
             knowledge_manifest=knowledge_manifest,
             task_adapter=task_adapter,
             starting_artifacts=starting_artifact_receipt,
-            embedding_space_id=embedding_space_id,
+            knowledge_embedding_space=knowledge_embedding_space,
+            experiment_embedding_space=experiment_embedding_space,
             release_use_observation=release_use,
             compatibility_receipt=compatibility,
         )
@@ -505,7 +529,8 @@ def _launch_fixture(*, omit_compatibility_security_subject=False):
         "knowledge_manifest": knowledge_manifest,
         "task_adapter": task_adapter,
         "starting_artifacts": starting_artifact_receipt,
-        "embedding_space_id": embedding_space_id,
+        "knowledge_embedding_space": knowledge_embedding_space,
+        "experiment_embedding_space": experiment_embedding_space,
         "dependency_runtime_contract": request.dependency_runtime_contract,
         "sanitation_policy_version": knowledge_manifest.sanitation_policy_version,
         "security_observation": security,
@@ -546,6 +571,28 @@ def test_launch_manifest_requires_security_check_of_compatibility_authority():
         match="differs from the exact dependency closure",
     ):
         LaunchManifest.mint(**_launch_fixture(omit_compatibility_security_subject=True))
+
+
+def test_launch_manifest_rejects_embedding_space_splices():
+    values = _launch_fixture()
+    values["knowledge_embedding_space"] = EmbeddingSpace.mint(
+        provider="openai",
+        model="text-embedding-3-small",
+        dimensions=1536,
+        canonicalizer_version="kapso.other_knowledge_embedding.v1",
+    )
+    with pytest.raises(LaunchContractError, match="compatible scope"):
+        LaunchManifest.mint(**values)
+
+    values = _launch_fixture()
+    values["experiment_embedding_space"] = EmbeddingSpace.mint(
+        provider="openai",
+        model="text-embedding-3-small",
+        dimensions=1536,
+        canonicalizer_version="kapso.other_idea_embedding.v1",
+    )
+    with pytest.raises(LaunchContractError, match="dependency closure is not exact"):
+        LaunchManifest.mint(**values)
 
 
 def test_launch_compatibility_closure_is_exact():

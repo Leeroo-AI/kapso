@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any, Mapping
 
-from kapso.core.embeddings import EmbeddingRecord, complete_input_hash
+from kapso.core.embedding_contracts import EmbeddingRecord, complete_input_hash
 from kapso.cross_run.canonical import (
     canonical_json_bytes,
     require_content_id,

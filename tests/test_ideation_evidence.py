@@ -6,7 +6,8 @@ from dataclasses import replace
 import pytest
 
 from kapso.core.config import load_config
-from kapso.execution.search_strategies.generic.ideation import (
+from kapso.execution.search_strategies.generic.ideation.archive import IdeaArchive
+from kapso.execution.search_strategies.generic.ideation.types import (
     CandidateAnalysis,
     CandidateDisposition,
     CandidateDispositionKind,
@@ -17,7 +18,6 @@ from kapso.execution.search_strategies.generic.ideation import (
     EvidenceSignal,
     EvidenceStatus,
     GapState,
-    IdeaArchive,
     IdeaDescriptor,
     IdeaOutcome,
     IdeationCapacityView,
@@ -222,7 +222,7 @@ def test_cold_start_is_content_addressed_and_explicitly_insufficient(tmp_path):
         experiments=(),
         archive_state=archive.state,
         capacity=capacity(),
-        generated_at="2026-07-19T00:01:00+00:00",
+        generated_at="2026-07-19T00:01:00Z",
     )
 
     assert first.snapshot_id == second.snapshot_id
@@ -266,7 +266,7 @@ def test_maximize_and_minimize_histories_produce_same_normalized_trace(tmp_path)
                 idea_id=second_idea_id,
                 batch_id=second_batch_id,
                 score=0.6,
-                created_at="2026-07-19T00:01:00+00:00",
+                created_at="2026-07-19T00:01:00Z",
             ),
         ),
         archive_state=archive.state,
@@ -288,7 +288,7 @@ def test_maximize_and_minimize_histories_produce_same_normalized_trace(tmp_path)
                 idea_id=second_idea_id,
                 batch_id=second_batch_id,
                 score=-0.6,
-                created_at="2026-07-19T00:01:00+00:00",
+                created_at="2026-07-19T00:01:00Z",
             ),
         ),
         archive_state=archive.state,
@@ -450,7 +450,7 @@ def test_gap_priority_uses_impact_before_age_and_records_defaults():
         uncertainty=0.5,
         estimated_cost=None,
         deferral_count=5,
-        opened_at="2026-07-01T00:00:00+00:00",
+        opened_at="2026-07-01T00:00:00Z",
         last_considered_at=NOW,
     )
     new_high_impact = EvaluationGap(
@@ -463,7 +463,7 @@ def test_gap_priority_uses_impact_before_age_and_records_defaults():
         uncertainty=0.8,
         estimated_cost=1.0,
         deferral_count=0,
-        opened_at="2026-07-18T00:00:00+00:00",
+        opened_at="2026-07-18T00:00:00Z",
     )
     ranked = rank_evaluation_gaps(
         (old_low_impact, new_high_impact),
@@ -504,13 +504,13 @@ def test_gap_deferral_increases_debt_without_changing_gap_state(tmp_path):
     archive.add_gaps((gap,), expected_revision=0)
     archive.defer_gap(
         gap.gap_id,
-        "2026-07-19T00:01:00+00:00",
+        "2026-07-19T00:01:00Z",
         expected_deferral_count=0,
         expected_revision=1,
     )
     archive.defer_gap(
         gap.gap_id,
-        "2026-07-19T00:02:00+00:00",
+        "2026-07-19T00:02:00Z",
         expected_deferral_count=1,
         expected_revision=2,
     )

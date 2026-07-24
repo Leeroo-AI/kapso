@@ -12,13 +12,13 @@ from typing import Callable, Mapping, Protocol
 
 import zstandard
 
-from kapso.core.embeddings import (
+from kapso.core.embedding_contracts import (
     EmbeddingProvider,
     EmbeddingSettings as ProviderEmbeddingSettings,
     EmbeddingTelemetry,
-    OpenAIEmbeddingProvider,
     complete_input_hash,
 )
+from kapso.core.embedding_provider import OpenAIEmbeddingProvider
 from kapso.cross_run.canonical import (
     canonical_json_bytes,
     require_content_id,
@@ -29,13 +29,13 @@ from kapso.cross_run.contracts import (
     ExpertScopeContract,
     PublicationArtifactKind,
 )
+from kapso.cross_run.embedding_space import EmbeddingSpace
 from kapso.cross_run.github.publisher import (
     PublicationEnvelope,
     PublicationTelemetry,
     ReleaseAssetInput,
 )
 from kapso.cross_run.knowledge.index import (
-    EmbeddingSpace,
     EmbeddingVector,
     EmbeddingVectorSet,
     SnapshotSearchIndex,

@@ -116,7 +116,7 @@ empty typed result.
 ## Standalone use
 
 ```python
-from kapso.core import LLMBackend, RetryPolicy
+from kapso.core.llm import LLMBackend, RetryPolicy
 
 llm = LLMBackend(
     models={"utility": "vendor/fast", "reasoning": "vendor/deep"},

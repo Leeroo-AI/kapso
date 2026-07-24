@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pytest
 
-import kapso.cross_run.expert as expert_package
 import kapso.cross_run.catalog.release_use_authority as release_use_authority_module
 from kapso.cross_run.canonical import content_id
 from kapso.cross_run.catalog.release_use_authority import (
@@ -283,7 +282,6 @@ def test_foreign_process_author_fails_before_historical_resolution(
     assert resolver.resolve_calls == []
     assert catalog.store.read_current() == projected
 
-
 def test_authenticated_path_rejects_event_that_does_not_join_activation(
     tmp_path: Path,
 ) -> None:
@@ -317,14 +315,3 @@ def test_authenticated_path_rejects_event_that_does_not_join_activation(
         )
 
     assert catalog.store.read_current() == projected
-
-
-def test_release_use_author_is_exported_from_expert_facade() -> None:
-    names = {
-        "ExpertReleaseUseRevocationAuthor",
-        "ExpertReleaseUseRevocationAuthorError",
-        "PendingExpertReleaseUseRevocation",
-    }
-
-    assert names.issubset(expert_package.__all__)
-    assert all(hasattr(expert_package, name) for name in names)

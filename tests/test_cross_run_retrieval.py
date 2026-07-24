@@ -5,7 +5,7 @@ from dataclasses import replace
 import pytest
 
 from kapso.core.config import load_config
-from kapso.core.embeddings import EmbeddingRecord, complete_input_hash
+from kapso.core.embedding_contracts import EmbeddingRecord, complete_input_hash
 from kapso.cross_run.canonical import (
     canonical_json_bytes,
     content_id,

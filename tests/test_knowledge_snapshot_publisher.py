@@ -7,7 +7,7 @@ import zstandard
 
 import kapso.cross_run.knowledge.publisher as knowledge_publisher_module
 from kapso.core.config import load_config
-from kapso.core.embeddings import (
+from kapso.core.embedding_contracts import (
     EmbeddingBatch,
     EmbeddingRecord,
     EmbeddingSettings,

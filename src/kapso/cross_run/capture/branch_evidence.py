@@ -18,7 +18,7 @@ from kapso.cross_run.capture.git_evidence import (
 )
 from kapso.cross_run.git_refs import git_object_sha
 from kapso.cross_run.record_contracts import ExecutionRevisionEvent
-from kapso.execution.memories.experiment_memory.store import ExperimentRecord
+from kapso.execution.memories.experiment_memory.record import ExperimentRecord
 
 
 def validate_branch_evidence(

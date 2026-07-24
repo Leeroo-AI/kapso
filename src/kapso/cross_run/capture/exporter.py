@@ -45,13 +45,13 @@ from kapso.cross_run.git_refs import git_object_sha, require_git_ref_name
 from kapso.cross_run.git_command import BoundedGitCommand
 from kapso.cross_run.github.command import CommandOutputKind, CommandRunner
 from kapso.cross_run.settings import CaptureSettings, SanitationSettings
-from kapso.execution.memories.experiment_memory.store import (
+from kapso.execution.memories.experiment_memory.record import (
     EXPERIMENT_HISTORY_SCHEMA,
-    ExperimentHistoryStore,
     ExperimentRecord,
 )
+from kapso.execution.memories.experiment_memory.store import ExperimentHistoryStore
 from kapso.execution.run_checkpoint import RunCheckpoint
-from kapso.execution.search_strategies.base import SearchNode
+from kapso.execution.search_strategies.node import SearchNode
 from kapso.execution.search_strategies.generic.ideation.archive import (
     IdeaArchiveState,
 )

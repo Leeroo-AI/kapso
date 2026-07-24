@@ -99,6 +99,11 @@ def normalize_utc_timestamp(value: Any, name: str) -> str:
     return value
 
 
+def canonical_utc_now() -> str:
+    """Capture the current instant in the canonical UTC representation."""
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
 def _reject_duplicate_object_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for key, value in pairs:

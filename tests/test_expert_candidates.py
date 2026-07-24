@@ -38,15 +38,19 @@ from kapso.cross_run.contracts import (
     ExpertTaskAdapterBoundary,
     SourceFileDescriptor,
 )
-from kapso.cross_run.expert import (
+from kapso.cross_run.expert.book import (
+    compile_expert_semantic_book,
+    expert_semantic_book_digest,
+)
+from kapso.cross_run.expert.candidates import (
     ExpertCandidateClosure,
     ExpertCandidateValidationError,
     ExpertCandidateValidator,
-    ExpertCandidateSanitizer,
+)
+from kapso.cross_run.expert.sanitation import ExpertCandidateSanitizer
+from kapso.cross_run.expert.triggers import (
     ExpertTriggerEvaluator,
     ExpertEvolutionTriggerDecision,
-    compile_expert_semantic_book,
-    expert_semantic_book_digest,
 )
 from kapso.cross_run.expert.book import (
     EXPERT_BOOK_PATH,

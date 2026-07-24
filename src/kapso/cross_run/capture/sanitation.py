@@ -34,7 +34,7 @@ from kapso.cross_run.sanitation_rules import (
     scan_text_artifact,
 )
 from kapso.cross_run.settings import CaptureSettings, SanitationSettings
-from kapso.execution.memories.experiment_memory.store import EXPERIMENT_HISTORY_SCHEMA
+from kapso.execution.memories.experiment_memory.record import EXPERIMENT_HISTORY_SCHEMA
 
 SANITATION_REPORT_REF = "sanitation_report.json"
 CAPTURE_CURRENT_FILENAME = "current.json"

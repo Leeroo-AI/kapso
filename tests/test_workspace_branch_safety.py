@@ -8,7 +8,7 @@ from kapso.execution.experiment_workspace.experiment_workspace import (
     ExperimentWorkspace,
     WorkspaceCheckoutError,
 )
-from kapso.execution.search_strategies.base import SearchNode
+from kapso.execution.search_strategies.node import SearchNode
 from kapso.execution.search_strategies.generic.strategy import GenericSearch
 
 

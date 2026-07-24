@@ -32,7 +32,7 @@ from kapso.execution.evaluation_integrity import (
     VALID_PROVENANCE,
     manifest_fingerprint,
 )
-from kapso.execution.search_strategies.base import SearchNode
+from kapso.execution.search_strategies.node import SearchNode
 from kapso.execution.search_strategies.generic.ideation.archive import (
     IdeaArchiveState,
     archive_is_compatible_descendant,
@@ -549,6 +549,8 @@ def _validate_tree_state(
 def _node_is_compatible_descendant(
     original: SearchNode,
     current: SearchNode,
+    *,
+    mutable_populated_identity_fields: frozenset[str] = frozenset(),
 ) -> bool:
     immutable_fields = (
         "node_id",
@@ -571,6 +573,7 @@ def _node_is_compatible_descendant(
     if any(
         getattr(original, name) and getattr(current, name) != getattr(original, name)
         for name in populated_identity_fields
+        if name not in mutable_populated_identity_fields
     ):
         return False
     return current.evaluation_attempts[: len(original.evaluation_attempts)] == (
@@ -584,14 +587,26 @@ def _generic_node_is_revision_descendant(
 ) -> bool:
     if (
         current.execution_revision != original.execution_revision + 1
-        or not _node_is_compatible_descendant(original, current)
+        or not _node_is_compatible_descendant(
+            original,
+            current,
+            mutable_populated_identity_fields=(
+                frozenset({"implementation_base_ref"})
+                if original.recoverable_error
+                else frozenset()
+            ),
+        )
     ):
         return False
     appended_attempt_count = len(current.evaluation_attempts) - len(
         original.evaluation_attempts
     )
     if original.recoverable_error:
-        if appended_attempt_count not in {0, 1}:
+        if (
+            not current.implementation_base_ref
+            or appended_attempt_count not in {0, 1}
+            or not _node_cumulative_resources_are_descendant(original, current)
+        ):
             return False
         if current.score is not None and (
             appended_attempt_count != 1
@@ -623,6 +638,26 @@ def _generic_node_is_revision_descendant(
         and current.score is None
         and current.evaluation_valid == original.evaluation_valid
     )
+
+
+def _node_cumulative_resources_are_descendant(
+    original: SearchNode,
+    current: SearchNode,
+) -> bool:
+    for name in ("duration_seconds", "cost_usd"):
+        previous = getattr(original, name)
+        candidate = getattr(current, name)
+        if previous is not None and (candidate is None or candidate < previous):
+            return False
+    for phase, previous_measurements in original.phase_telemetry.items():
+        candidate_measurements = current.phase_telemetry.get(phase)
+        if candidate_measurements is None or any(
+            measurement not in candidate_measurements
+            or candidate_measurements[measurement] < previous_value
+            for measurement, previous_value in previous_measurements.items()
+        ):
+            return False
+    return True
 
 
 def _tree_node_is_phase_descendant(
@@ -886,7 +921,8 @@ class RunStrategyState(StrictContract):
             or identity.scope_contract_id != manifest.scope_contract.scope_contract_id
             or identity.knowledge_snapshot_id != manifest.knowledge_manifest.snapshot_id
             or identity.expert_base_release_id != manifest.expert_manifest.release_id
-            or identity.embedding_space_id != manifest.embedding_space_id
+            or identity.embedding_space_id
+            != manifest.knowledge_embedding_space.embedding_space_id
             or identity.task_context_binding != manifest.task_context_binding
         ):
             raise RunCheckpointContractError(
@@ -1149,8 +1185,7 @@ class RunCheckpoint(StrictContract):
         evidence = self.safety_state.derivative_frontier.evidence
         if (
             generation.bootstrap_pin_id != bootstrap_pin.bootstrap_pin_id
-            or generation.predecessor_checkpoint_id
-            != self.predecessor_checkpoint_id
+            or generation.predecessor_checkpoint_id != self.predecessor_checkpoint_id
             or generation.target_evidence_id != evidence.evidence_id
         ):
             raise RunCheckpointContractError(
@@ -1181,12 +1216,11 @@ class RunCheckpoint(StrictContract):
             transition.authority_binding_id: transition
             for transition in generation.payload_transitions
         }
-        if (
-            set(evidence.state_authority_digests)
-            != {authority.value for authority in authority_paths}
-            or set(evidence.state_authority_revisions)
-            != {authority.value for authority in authority_paths}
-        ):
+        if set(evidence.state_authority_digests) != {
+            authority.value for authority in authority_paths
+        } or set(evidence.state_authority_revisions) != {
+            authority.value for authority in authority_paths
+        }:
             raise RunCheckpointContractError(
                 "run checkpoint state-authority set differs from its strategy"
             )

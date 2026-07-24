@@ -28,7 +28,7 @@ from kapso.cross_run.contracts import (
     ScopeRepositorySettings,
     SourceFileDescriptor,
 )
-from kapso.cross_run.expert import ExpertSourceBaseTreeReceipt
+from kapso.cross_run.expert.triggers import ExpertSourceBaseTreeReceipt
 from kapso.cross_run.github.materializer import (
     CacheCorruptionError,
     GitHubArtifactMaterializer,

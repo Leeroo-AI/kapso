@@ -3,6 +3,7 @@ import json
 import pytest
 
 from kapso.cross_run.canonical import (
+    canonical_utc_now,
     CANONICALIZER_VERSION,
     CanonicalizationError,
     canonical_json_bytes,
@@ -103,6 +104,13 @@ def test_timestamp_requires_normalized_utc_not_naive_or_offset_time():
     ):
         with pytest.raises(CanonicalizationError):
             normalize_utc_timestamp(invalid, "timestamp")
+
+
+def test_current_timestamp_is_emitted_in_canonical_utc_form():
+    captured = canonical_utc_now()
+
+    assert captured.endswith("Z")
+    assert normalize_utc_timestamp(captured, "captured") == captured
 
 
 def test_python_json_default_duplicate_behavior_would_have_hidden_corruption():

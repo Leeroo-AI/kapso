@@ -11,11 +11,11 @@ import shutil
 import signal
 import time
 from dataclasses import fields
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
-from kapso.core.embeddings import EmbeddingSettings, OpenAIEmbeddingProvider
+from kapso.core.embedding_contracts import EmbeddingSettings
+from kapso.core.embedding_provider import OpenAIEmbeddingProvider
 from kapso.execution.coding_agents.structured_call import (
     CodingAgentRunnerSettings,
     SubprocessCodingAgentCallRunner,
@@ -23,8 +23,8 @@ from kapso.execution.coding_agents.structured_call import (
 from kapso.execution.search_strategies.base import (
     SearchStrategy,
     SearchStrategyConfig,
-    SearchNode,
 )
+from kapso.execution.search_strategies.node import SearchNode
 from kapso.cross_run.canonical import require_identifier
 from kapso.execution.search_strategies.factory import register_strategy
 from kapso.execution.fidelity import (
@@ -44,10 +44,8 @@ from kapso.execution.evaluation_maintainer.maintainer import (
 import shlex
 import subprocess
 from kapso.execution.memories.repo_memory import RepoMemoryManager
-from kapso.execution.memories.experiment_memory import (
-    ExperimentHistoryStore,
-    ExperimentRecord,
-)
+from kapso.execution.memories.experiment_memory.record import ExperimentRecord
+from kapso.execution.memories.experiment_memory.store import ExperimentHistoryStore
 from kapso.core.prompt_loader import load_prompt, render_prompt
 from kapso.execution.search_strategies.generic.difficulties_generator import (
     generate_technical_difficulties,
@@ -55,40 +53,63 @@ from kapso.execution.search_strategies.generic.difficulties_generator import (
 from kapso.execution.search_strategies.generic.ideation.evaluator_evidence import (
     build_evaluator_evidence_writeback,
 )
-from kapso.execution.search_strategies.generic.ideation import (
+from kapso.execution.search_strategies.generic.ideation.analyzer import (
     AnalyzerSettings,
-    BatchStatus,
-    CampaignAction,
-    CampaignEvidenceBuilder,
     CandidateAnalyzer,
-    CandidateGenerator,
-    CandidateGeneratorSettings,
-    CandidateSelector,
-    EvidenceAuthor,
-    EvaluationAttemptInput,
-    ExperimentInput,
-    EvidenceSettings,
-    GapPrioritySettings,
-    GenerationMemberSettings,
+)
+from kapso.execution.search_strategies.generic.ideation.archive import (
+    IDEA_ARCHIVE_SCHEMA,
     IdeaArchive,
     IdeaArchiveState,
-    IDEA_ARCHIVE_SCHEMA,
-    IdeationCapacityView,
+)
+from kapso.execution.search_strategies.generic.ideation.engine import (
     IdeationEngine,
     IdeationEngineTelemetry,
-    IdeationCrossRunRuntime,
-    ObjectiveDirection,
+)
+from kapso.execution.search_strategies.generic.ideation.evidence import (
+    CampaignEvidenceBuilder,
+    EvaluationAttemptInput,
+    EvidenceSettings,
+    ExperimentInput,
+    GapPrioritySettings,
+)
+from kapso.execution.search_strategies.generic.ideation.evidence_author import (
+    EvidenceAuthor,
+)
+from kapso.execution.search_strategies.generic.ideation.generator import (
+    CandidateGenerator,
+    CandidateGeneratorSettings,
+    GenerationMemberSettings,
+)
+from kapso.execution.search_strategies.generic.ideation.operators import (
     OperatorSettings,
+)
+from kapso.execution.search_strategies.generic.ideation.outcomes import (
+    build_idea_outcome,
+)
+from kapso.execution.search_strategies.generic.ideation.prior_knowledge import (
+    IdeationCrossRunRuntime,
+)
+from kapso.execution.search_strategies.generic.ideation.selector import (
+    CandidateSelector,
+)
+from kapso.execution.search_strategies.generic.ideation.types import (
+    BatchStatus,
+    CampaignAction,
+    IdeationCapacityView,
+    ObjectiveDirection,
     ParentPlan,
     ParentPlanKind,
     ResolvedParentSnapshot,
-    build_idea_outcome,
     content_identifier,
     new_identifier,
+    utc_now,
 )
 
 if TYPE_CHECKING:
-    from kapso.execution.search_strategies.generic import FeedbackGenerator
+    from kapso.execution.search_strategies.generic.feedback_generator.feedback_generator import (
+        FeedbackGenerator,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -655,7 +676,7 @@ class GenericSearch(SearchStrategy):
         problem = context
 
         iteration_started_monotonic = time.monotonic()
-        iteration_started_at = datetime.now(timezone.utc).isoformat()
+        iteration_started_at = utc_now()
 
         resume_batch_id = None
         if self.active_batch_id is not None:
@@ -766,7 +787,7 @@ class GenericSearch(SearchStrategy):
             solution=solution,
             problem=problem,
             branch_name=branch_name,
-            parent_branch_name=parent.branch_name,
+            parent_branch_name=parent.git_ref,
         )
         if not isinstance(self._last_implementation_success, bool):
             raise ValueError("implementation did not report its completion status")

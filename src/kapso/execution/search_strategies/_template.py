@@ -8,20 +8,21 @@ Steps:
 2. Rename the class and update the @register_strategy decorator
 3. Implement the abstract methods
 4. Add presets to strategies.yaml (optional but recommended)
-5. Test: python -c "from kapso.execution.search_strategies import SearchStrategyFactory; print(SearchStrategyFactory.list_available())"
+5. Test: python -c "from kapso.execution.search_strategies.factory import SearchStrategyFactory; print(SearchStrategyFactory.list_available())"
 
 Your strategy will be auto-discovered when the module loads!
 """
 
 from typing import Any, Dict, List, Optional
 
+from kapso.cross_run.canonical import canonical_utc_now
 from kapso.execution.types import ContextData
 from kapso.execution.search_strategies.base import (
     SearchStrategy,
     SearchStrategyConfig,
-    ExperimentResult,
 )
 from kapso.execution.search_strategies.factory import register_strategy
+from kapso.execution.search_strategies.node import SearchNode
 
 
 # =============================================================================
@@ -68,7 +69,7 @@ class MyStrategy(SearchStrategy):
         self.code_debug_tries = self.params.get("code_debug_tries", 3)
         
         # Initialize your strategy-specific state
-        self.experiment_history: List[ExperimentResult] = []
+        self.experiment_history: List[SearchNode] = []
         self.iteration_count = 0
         
         # Optional: Print initialization info
@@ -93,7 +94,7 @@ class MyStrategy(SearchStrategy):
     # STEP 3: Implement the main search loop
     # =========================================================================
     
-    def run(self, context: ContextData, budget_progress: float = 0.0) -> None:
+    def run(self, context: ContextData, budget_progress: float = 0.0) -> SearchNode:
         """
         Execute one iteration of your search strategy.
         
@@ -122,28 +123,37 @@ class MyStrategy(SearchStrategy):
         
         # ----- EXAMPLE: Implement and run the solution -----
         branch_name = f"experiment_{len(self.experiment_history)}"
+        parent_branch_name = "main"
+        parent_commit = self.workspace.repo.commit(parent_branch_name).hexsha
+        started_at = canonical_utc_now()
         
         result = self._implement_n_debug(
             solution=solution,
             context=context,
             code_debug_tries=self.code_debug_tries,
             branch_name=branch_name,
-            parent_branch_name="main",  # Or use parent from your tree structure
+            parent_branch_name=parent_commit,
         )
         
         # ----- EXAMPLE: Store the result -----
-        experiment_result = ExperimentResult(
+        experiment_result = SearchNode(
             node_id=len(self.experiment_history),
             solution=solution,
             score=result.score,
             branch_name=branch_name,
+            parent_branch_name=parent_branch_name,
+            implementation_base_ref=parent_commit,
+            diff_base_ref=parent_commit,
+            feedback_base_ref=parent_commit,
             had_error=result.run_had_error,
             error_message=result.error_message,
-            output=result.output,
+            agent_output=result.output,
+            started_at=started_at,
         )
         self.experiment_history.append(experiment_result)
         
         print(f"[MyStrategy] Experiment completed: score={result.score}, error={result.run_had_error}")
+        return experiment_result
     
     def _generate_solution(self, context: ContextData) -> str:
         """
@@ -173,7 +183,7 @@ class MyStrategy(SearchStrategy):
     # STEP 4: Implement history and best experiment retrieval
     # =========================================================================
     
-    def get_experiment_history(self, best_last: bool = False) -> List[ExperimentResult]:
+    def get_experiment_history(self, best_last: bool = False) -> List[SearchNode]:
         """
         Return all experiment results.
         
@@ -194,7 +204,7 @@ class MyStrategy(SearchStrategy):
             )
         return self.experiment_history
     
-    def get_best_experiment(self) -> Optional[ExperimentResult]:
+    def get_best_experiment(self) -> Optional[SearchNode]:
         """
         Return the best experiment result so far.
         
@@ -255,9 +265,7 @@ Add this to strategies.yaml:
 # =============================================================================
 if __name__ == "__main__":
     # Quick test that the strategy is registered
-    from kapso.execution.search_strategies import (
-        SearchStrategyFactory
-    )
+    from kapso.execution.search_strategies.factory import SearchStrategyFactory
     
     print("Available strategies:", SearchStrategyFactory.list_available())
     

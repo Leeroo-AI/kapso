@@ -4,8 +4,11 @@ from dataclasses import replace
 
 import pytest
 
-from kapso.execution.search_strategies.generic.ideation import (
+from kapso.execution.search_strategies.generic.ideation.archive import IdeaArchive
+from kapso.execution.search_strategies.generic.ideation.evidence import (
     CampaignEvidenceBuilder,
+)
+from kapso.execution.search_strategies.generic.ideation.types import (
     CandidateAnalysis,
     CandidateDisposition,
     CandidateDispositionKind,
@@ -13,7 +16,6 @@ from kapso.execution.search_strategies.generic.ideation import (
     EvaluationStatus,
     EvidenceSignal,
     GapState,
-    IdeaArchive,
     IdeaOutcome,
     IdeaStatus,
     IdeationMode,
@@ -216,13 +218,13 @@ def test_supported_evaluator_claim_makes_next_policy_exploit(tmp_path):
         evidence_metadata(claims=(supported_claim(),)),
         idea=current_idea,
         archive_state=archive.state,
-        observed_at="2026-07-19T00:02:00+00:00",
+        observed_at="2026-07-19T00:02:00Z",
     )
     repeated = build_evaluator_evidence_writeback(
         evidence_metadata(claims=(supported_claim(),)),
         idea=current_idea,
         archive_state=archive.state,
-        observed_at="2026-07-19T00:02:00+00:00",
+        observed_at="2026-07-19T00:02:00Z",
     )
     classified_outcome = writeback.apply_to_outcome(
         IdeaOutcome(
@@ -258,12 +260,12 @@ def test_supported_evaluator_claim_makes_next_policy_exploit(tmp_path):
                 idea_id=current_idea_id,
                 batch_id=current_batch_id,
                 score=0.52,
-                created_at="2026-07-19T00:01:00+00:00",
+                created_at="2026-07-19T00:01:00Z",
             ),
         ),
         archive_state=state_with_evidence,
         capacity=capacity(),
-        generated_at="2026-07-19T00:03:00+00:00",
+        generated_at="2026-07-19T00:03:00Z",
     )
 
     assert EvidenceSignal.CREDIBLE_IMPROVEMENT in snapshot.signals
@@ -290,7 +292,7 @@ def test_evaluator_open_gap_becomes_gap_debt_after_explicit_deferrals(tmp_path):
     deferred_gap = replace(
         writeback.gap_updates[0],
         deferral_count=evidence_settings().gap_debt_threshold,
-        last_considered_at="2026-07-19T00:01:00+00:00",
+        last_considered_at="2026-07-19T00:01:00Z",
     )
     state_with_gap_debt = replace(archive.state, gaps=(deferred_gap,))
 
@@ -307,7 +309,7 @@ def test_evaluator_open_gap_becomes_gap_debt_after_explicit_deferrals(tmp_path):
         ),
         archive_state=state_with_gap_debt,
         capacity=capacity(),
-        generated_at="2026-07-19T00:02:00+00:00",
+        generated_at="2026-07-19T00:02:00Z",
     )
 
     assert EvidenceSignal.GAP_DEBT in snapshot.signals
@@ -349,7 +351,7 @@ def test_targeted_gap_update_is_mechanical_and_provenanced(tmp_path):
         ),
         idea=idea,
         archive_state=archive.state,
-        observed_at="2026-07-19T00:02:00+00:00",
+        observed_at="2026-07-19T00:02:00Z",
     )
 
     update = writeback.gap_updates[0]
@@ -382,7 +384,7 @@ def test_targeted_gap_update_is_mechanical_and_provenanced(tmp_path):
         ),
         idea=archive.get_idea(idea.idea_id),
         archive_state=archive.state,
-        observed_at="2026-07-19T00:02:00+00:00",
+        observed_at="2026-07-19T00:02:00Z",
     )
     assert update.state == GapState.CLOSED
     assert update.resolution_idea_id == idea.idea_id
@@ -443,7 +445,7 @@ def test_open_gap_outcome_replay_accepts_a_later_legal_resolution(tmp_path):
         ),
         idea=resolving_idea,
         archive_state=archive.state,
-        observed_at="2026-07-19T00:02:00+00:00",
+        observed_at="2026-07-19T00:02:00Z",
     )
     resolution_outcome = resolution_writeback.apply_to_outcome(
         IdeaOutcome(

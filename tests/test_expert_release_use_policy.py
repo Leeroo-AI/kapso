@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pytest
 
-import kapso.cross_run.expert as expert_package
 from kapso.cross_run.canonical import content_id, tree_or_blob_digest
 from kapso.cross_run.catalog.store import (
     CatalogGenerationManifest,
@@ -189,18 +188,6 @@ def test_policy_authority_requires_sealed_historical_provider() -> None:
         match="requires the GitHub activation provider",
     ):
         GitHubExpertReleaseUsePolicyAuthority(object(), object(), object())
-
-
-def test_release_use_policy_reader_is_exported_from_expert_facade() -> None:
-    names = {
-        "ExpertReleaseUsePolicyContractError",
-        "ExpertReleaseUsePolicyError",
-        "ExpertReleaseUsePolicyObservation",
-        "GitHubExpertReleaseUsePolicyAuthority",
-    }
-
-    assert names.issubset(expert_package.__all__)
-    assert all(hasattr(expert_package, name) for name in names)
 
 
 def _current_policy_authority(

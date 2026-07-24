@@ -13,16 +13,16 @@ from kapso.cross_run.contracts import (
     ExpertValidationStage,
     TaskAdapterManifest,
 )
-from kapso.cross_run.expert import (
-    ExpertCandidateProposalEngine,
-    ExpertCandidateStore,
-    ExpertCandidateValidator,
-    ExpertCandidateWorkspaceManager,
-    ExpertCapabilityGeneralizer,
+from kapso.cross_run.expert.candidates import ExpertCandidateValidator
+from kapso.cross_run.expert.generalizer import ExpertCapabilityGeneralizer
+from kapso.cross_run.expert.proposal import ExpertCandidateProposalEngine
+from kapso.cross_run.expert.store import ExpertCandidateStore
+from kapso.cross_run.expert.triggers import (
     ExpertTriggerEvidencePacket,
     ExpertTriggerEvaluator,
     ExpertTriggerObservationKind,
 )
+from kapso.cross_run.expert.workspace import ExpertCandidateWorkspaceManager
 from kapso.cross_run.expert.promotion_plan import (
     ExpertReleaseMatrixPlanError,
     PreparedExpertReleaseMatrixPlan,

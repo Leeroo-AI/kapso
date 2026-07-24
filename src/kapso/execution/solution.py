@@ -12,7 +12,9 @@
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
-from kapso.execution.search_strategies.generic import FeedbackResult
+from kapso.execution.search_strategies.generic.feedback_generator.feedback_generator import (
+    FeedbackResult,
+)
 
 
 @dataclass

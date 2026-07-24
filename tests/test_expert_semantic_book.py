@@ -4,7 +4,7 @@ from kapso.cross_run.contracts import (
     ExpertModuleContract,
     ExpertRepositoryMap,
 )
-from kapso.cross_run.expert import compile_expert_semantic_book
+from kapso.cross_run.expert.book import compile_expert_semantic_book
 from test_expert_candidates import bootstrap_candidate_closure
 
 

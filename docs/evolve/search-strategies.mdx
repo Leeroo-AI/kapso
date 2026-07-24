@@ -64,7 +64,7 @@ for implementation gates.
 ### Usage
 
 ```python
-from kapso.execution.search_strategies import SearchStrategyFactory
+from kapso.execution.search_strategies.factory import SearchStrategyFactory
 
 strategy = SearchStrategyFactory.create(
     strategy_type="generic",
@@ -93,6 +93,10 @@ best = strategy.get_best_experiment()
 The write order is selection, idea-to-node link, implementation/evaluation,
 ExperimentRecord, IdeaOutcome, then checkpoint. Resume validates or reconciles
 that ordering before admitting another iteration.
+
+Every strategy result supplies its own canonical `started_at` timestamp and
+executes from immutable implementation, diff, and feedback commit refs. The
+orchestrator validates this contract before external evaluation or persistence.
 
 ## Benchmark Tree Search
 

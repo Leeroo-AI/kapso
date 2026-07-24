@@ -8,7 +8,6 @@ from pathlib import Path
 
 import pytest
 
-import kapso.cross_run.expert as expert_package
 from kapso.cross_run.canonical import (
     source_tree_digest,
     tree_or_blob_digest,
@@ -283,17 +282,6 @@ def test_historical_activation_materializes_an_exact_composition_base() -> None:
     assert closure.release_manifest == activation.manifest
     assert closure.source_contents == case.source_contents
     assert closure.reference.release_id == case.release.release_id
-
-
-def test_historical_activation_provider_is_exported_from_expert_facade() -> None:
-    names = {
-        "AuthenticatedExpertReleaseActivation",
-        "ExpertReleaseActivationAuthorityError",
-        "GitHubExpertReleaseActivationProvider",
-    }
-
-    assert names.issubset(expert_package.__all__)
-    assert all(hasattr(expert_package, name) for name in names)
 
 
 def test_published_but_never_activated_release_fails() -> None:

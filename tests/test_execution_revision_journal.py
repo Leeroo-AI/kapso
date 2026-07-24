@@ -6,7 +6,7 @@ import pytest
 from kapso.cross_run.capture.journal import JournalConflictError
 from kapso.cross_run.contracts import EpisodeEvaluationStatus
 from kapso.cross_run.github.command import GitHubCommandError
-from kapso.execution.memories.experiment_memory import ExperimentHistoryStore
+from kapso.execution.memories.experiment_memory.store import ExperimentHistoryStore
 from test_experiment_idea_linkage import node
 
 

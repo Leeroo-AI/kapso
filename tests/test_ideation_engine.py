@@ -9,30 +9,40 @@ from pathlib import Path
 import pytest
 
 from kapso.cross_run.canonical import tree_or_blob_digest
-from kapso.core.embeddings import (
+from kapso.core.embedding_contracts import (
     EmbeddingBatch,
     EmbeddingRecord,
     EmbeddingSettings,
     EmbeddingTelemetry,
 )
 from kapso.execution.coding_agents.structured_call import CodingAgentCallResult
-from kapso.execution.search_strategies.generic.ideation import (
+from kapso.execution.search_strategies.generic.ideation.analyzer import (
     AnalyzerSettings,
-    CampaignAction,
-    CampaignEvidenceBuilder,
     CandidateAnalyzer,
-    CandidateGenerator,
-    CandidateGeneratorSettings,
-    CandidateSelector,
+)
+from kapso.execution.search_strategies.generic.ideation.archive import IdeaArchive
+from kapso.execution.search_strategies.generic.ideation.engine import IdeationEngine
+from kapso.execution.search_strategies.generic.ideation.evidence import (
+    CampaignEvidenceBuilder,
     ExperimentInput,
     GapPrioritySettings,
+)
+from kapso.execution.search_strategies.generic.ideation.generator import (
+    CandidateGenerator,
+    CandidateGeneratorSettings,
     GenerationMemberSettings,
-    IdeaArchive,
+)
+from kapso.execution.search_strategies.generic.ideation.operators import (
+    OperatorSettings,
+)
+from kapso.execution.search_strategies.generic.ideation.selector import (
+    CandidateSelector,
+)
+from kapso.execution.search_strategies.generic.ideation.types import (
+    CampaignAction,
     IdeaDescriptor,
     IdeaStatus,
-    IdeationEngine,
     ObjectiveDirection,
-    OperatorSettings,
     ParentPlanKind,
     ResolvedParentSnapshot,
 )
@@ -183,7 +193,7 @@ class CountingParents:
         node_id = plan.experiment_node_id
         if plan.kind == ParentPlanKind.BASELINE:
             node_id = None
-        ref = "baseline-sha" if node_id is None else f"experiment-{node_id}-sha"
+        ref = "b" * 40 if node_id is None else f"{node_id + 1:040x}"
         return ResolvedParentSnapshot(
             node_id=node_id,
             branch_name="main" if node_id is None else f"experiment-{node_id}",
@@ -321,7 +331,7 @@ def test_engine_persists_selection_and_materializes_each_parent_ref_once(tmp_pat
     assert result.selected_idea.status == IdeaStatus.SELECTED
     assert result.selection.selected_idea_id == result.selected_idea.idea_id
     assert result.archive_revision == archive.revision
-    assert parents.materialized_refs == ["baseline-sha"]
+    assert parents.materialized_refs == ["b" * 40]
     assert result.telemetry.coding_agent_call_count == 3
     persisted_batch = archive.state.batches[0]
     assert persisted_batch.selection == result.selection

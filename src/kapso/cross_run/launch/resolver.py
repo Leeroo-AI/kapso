@@ -9,7 +9,6 @@ from types import MappingProxyType
 from typing import Mapping, Protocol
 from weakref import WeakValueDictionary
 
-from kapso.core.embeddings import EmbeddingSpaceId
 from kapso.cross_run.canonical import (
     canonical_json_bytes,
     parse_utc_timestamp,
@@ -21,6 +20,7 @@ from kapso.cross_run.contracts import (
     PublicationArtifactKind,
     TaskContextBinding,
 )
+from kapso.cross_run.embedding_space import EmbeddingSpace
 from kapso.cross_run.expert.candidate_context import (
     ExpertCandidateValidationContext,
 )
@@ -351,6 +351,7 @@ class LaunchResolver:
         self,
         *,
         settings: CrossRunSettings,
+        experiment_embedding_space: EmbeddingSpace,
         github_resolver: LaunchGitHubResolver,
         materializer: LaunchArtifactMaterializer,
         task_adapters: ActiveTaskAdapterBindingProvider,
@@ -361,7 +362,12 @@ class LaunchResolver:
     ) -> None:
         if type(settings) is not CrossRunSettings:
             raise LaunchResolutionError("launch resolver requires exact settings")
+        if type(experiment_embedding_space) is not EmbeddingSpace:
+            raise LaunchResolutionError(
+                "launch resolver requires one exact experiment embedding space"
+            )
         self._settings = settings
+        self._experiment_embedding_space = experiment_embedding_space
         self._github_resolver = github_resolver
         self._materializer = materializer
         self._task_adapters = task_adapters
@@ -454,14 +460,16 @@ class LaunchResolver:
             expert_release_id=expert_source.release_manifest.release_id,
             extraction_receipt=expert_source.source_extraction_receipt,
         )
-        embedding_space_id = self._embedding_space_id()
+        knowledge_embedding_space = self._knowledge_embedding_space()
+        experiment_embedding_space = self._experiment_embedding_space
         snapshot_embedding_spaces = {
             sidecar.embedding_space_id
             for sidecar in knowledge_package.manifest.embedding_sidecars
         }
         if (
             snapshot_embedding_spaces
-            and embedding_space_id not in snapshot_embedding_spaces
+            and knowledge_embedding_space.embedding_space_id
+            not in snapshot_embedding_spaces
         ) or (not snapshot_embedding_spaces and knowledge_package.retrieval_root_ids):
             raise LaunchResolutionError(
                 "current knowledge snapshot lacks the configured embedding space"
@@ -508,7 +516,7 @@ class LaunchResolver:
             matrix_adapter_authority_id=matrix_adapter_authority_id,
             compatibility_case_ids=compatibility_case_ids,
             starting_artifacts=starting_artifacts.receipt,
-            embedding_space_id=embedding_space_id,
+            knowledge_embedding_space_id=(knowledge_embedding_space.embedding_space_id),
             runtime_contract_digest=runtime_contract_digest,
             source_composition_hash=source_composition_hash,
             resolved_at=resolved_at,
@@ -526,7 +534,8 @@ class LaunchResolver:
             knowledge_manifest=knowledge_package.manifest,
             task_adapter=task_adapter,
             starting_artifacts=starting_artifacts.receipt,
-            embedding_space_id=embedding_space_id,
+            knowledge_embedding_space=knowledge_embedding_space,
+            experiment_embedding_space=experiment_embedding_space,
             release_use_observation=release_use,
             compatibility_receipt=compatibility,
         )
@@ -570,7 +579,8 @@ class LaunchResolver:
             knowledge_manifest=knowledge_package.manifest,
             task_adapter=task_adapter,
             starting_artifacts=starting_artifacts.receipt,
-            embedding_space_id=embedding_space_id,
+            knowledge_embedding_space=knowledge_embedding_space,
+            experiment_embedding_space=experiment_embedding_space,
             dependency_runtime_contract=request.dependency_runtime_contract,
             sanitation_policy_version=(
                 knowledge_package.manifest.sanitation_policy_version
@@ -931,18 +941,18 @@ class LaunchResolver:
             cache_receipt=materialized.receipt,
         )
 
-    def _embedding_space_id(self) -> str:
+    def _knowledge_embedding_space(self) -> EmbeddingSpace:
         embeddings = self._settings.knowledge.embeddings
         if not embeddings.enabled:
             raise LaunchResolutionError(
                 "cross-run launch requires configured knowledge embeddings"
             )
-        return EmbeddingSpaceId(
+        return EmbeddingSpace.mint(
             provider=embeddings.provider,
             model=embeddings.model,
             dimensions=embeddings.dimensions,
             canonicalizer_version=embeddings.canonicalizer_version,
-        ).value
+        )
 
     @staticmethod
     def _require_release_use_pin(
@@ -982,7 +992,7 @@ class LaunchResolver:
         matrix_adapter_authority_id: str,
         compatibility_case_ids: tuple[str, ...],
         starting_artifacts: LaunchStartingArtifactMaterializationReceipt,
-        embedding_space_id: str,
+        knowledge_embedding_space_id: str,
         runtime_contract_digest: str,
         source_composition_hash: str,
         resolved_at: str,
@@ -1009,7 +1019,7 @@ class LaunchResolver:
                     task_adapter.manifest.task_adapter_manifest_id,
                     task_adapter.verification_receipt.verification_receipt_id,
                     task_adapter.activation.activation_id,
-                    embedding_space_id,
+                    knowledge_embedding_space_id,
                     release_use.observation_id,
                     expert_evidence.validation_context.validation_context_id,
                     expert_evidence.repository_map.repository_map_id,
@@ -1038,7 +1048,7 @@ class LaunchResolver:
                 task_adapter.verification_receipt.verification_receipt_id
             ),
             task_adapter_activation_id=task_adapter.activation.activation_id,
-            embedding_space_id=embedding_space_id,
+            knowledge_embedding_space_id=knowledge_embedding_space_id,
             release_use_observation_id=release_use.observation_id,
             expert_validation_context_id=(
                 expert_evidence.validation_context.validation_context_id

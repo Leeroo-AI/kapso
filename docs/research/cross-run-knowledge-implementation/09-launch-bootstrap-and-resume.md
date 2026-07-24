@@ -6,8 +6,9 @@ Depends on: M2, M5, and M8.
 
 Status: **in progress**. The transactional launch resolver and exact authority
 contracts, atomic workspace/bootstrap-pin installation, exact run-checkpoint
-contracts, the protected checkpoint CAS store, and the immutable
-derived-generation contract/layout foundation are implemented. The single-lock
+contracts, the protected checkpoint CAS store, the immutable derived-generation
+contract/layout, and the dependency-pure reconciled archive/history/journal
+projection and retained bundle layer are implemented. The single-lock
 checkpoint/generation publisher, mutable-view promotion, executor isolation,
 explicit E0/S-EMPTY provisioning orchestration, resume, and API/runner activation
 remain.
@@ -261,6 +262,10 @@ expert workspace before the new runtime becomes reachable.
 - [x] Replace `RunCheckpoint` and Generic state with exact new schemas carrying the
       launch ID, bootstrap pin, strategy-specific state layout, and immutable
       derived-generation dependency.
+- [x] Build canonical dependency-pure archive, experiment-history, and execution
+      journal projections; require one mutually reconciled frontier, typed
+      embedding-space/input proof, exact strategy/idea/outcome/artifact lineage,
+      and retain its complete immutable generation bundle.
 - [ ] Make one shared-lock publisher stage/fsync the complete generation, CAS the
       checkpoint, idempotently promote every mutable view, verify all bytes/refs,
       and return a non-clonable reconciled-frontier receipt. A durable checkpoint

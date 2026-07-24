@@ -8,6 +8,7 @@ from weakref import ref
 import pytest
 
 from kapso.core.config import load_config
+from kapso.core.embedding_contracts import EmbeddingSettings
 from kapso.cross_run.canonical import (
     canonical_json_bytes,
     content_id,
@@ -24,6 +25,7 @@ from kapso.cross_run.contracts import (
     TaskAdapterReleaseMatrixStartingArtifact,
     TaskContextBinding,
 )
+from kapso.cross_run.embedding_space import EmbeddingSpace
 from kapso.cross_run.expert.release import (
     EXPERT_RELEASE_MANIFEST_PATH,
     ExpertReleaseAssembler,
@@ -299,6 +301,21 @@ class RecordingSecurityAuthority:
 
 def _settings():
     return CrossRunSettings.from_dict(load_config(CANONICAL_CONFIG_PATH)["cross_run"])
+
+
+def _experiment_embedding_space():
+    config = load_config(CANONICAL_CONFIG_PATH)
+    profile_name = config["modes"]["GENERIC"]["ideation_profile"]
+    settings = EmbeddingSettings.from_dict(
+        config["ideation_profiles"][profile_name]["embeddings"]
+    )
+    assert settings.enabled
+    return EmbeddingSpace.mint(
+        provider=settings.provider,
+        model=settings.model,
+        dimensions=settings.dimensions,
+        canonicalizer_version=settings.canonicalizer_version,
+    )
 
 
 def _resolved_artifact(
@@ -714,6 +731,7 @@ def resolver_case(tmp_path, monkeypatch):
     security = RecordingSecurityAuthority(settings)
     resolver = LaunchResolver(
         settings=settings,
+        experiment_embedding_space=_experiment_embedding_space(),
         github_resolver=github,
         materializer=materializer,
         task_adapters=task_adapters,
@@ -757,6 +775,31 @@ def test_resolver_admits_exact_verified_release_matrix_interface(
         resolved.manifest.knowledge_manifest
         == resolver_case["knowledge_package"].manifest
     )
+    assert (
+        resolved.manifest.knowledge_embedding_space.embedding_space_id
+        != resolved.manifest.experiment_embedding_space.embedding_space_id
+    )
+    assert (
+        resolved.manifest.knowledge_embedding_space.canonicalizer_version
+        == "kapso.knowledge_embedding.v1"
+    )
+    assert (
+        resolved.manifest.experiment_embedding_space.canonicalizer_version
+        == "kapso.idea_embedding.v1"
+    )
+    assert (
+        resolved.manifest.knowledge_embedding_space.provider,
+        resolved.manifest.knowledge_embedding_space.model,
+        resolved.manifest.knowledge_embedding_space.dimensions,
+    ) == (
+        resolved.manifest.experiment_embedding_space.provider,
+        resolved.manifest.experiment_embedding_space.model,
+        resolved.manifest.experiment_embedding_space.dimensions,
+    )
+    assert {
+        resolved.manifest.knowledge_embedding_space.embedding_space_id,
+        resolved.manifest.experiment_embedding_space.embedding_space_id,
+    }.issubset(resolver_case["security"].checked_subject_ids)
     assert resolved.expert_evidence == resolver_case["evidence"]
     assert resolved.manifest.compatibility_receipt.task_adapter_compatibility_case_ids
     assert set(

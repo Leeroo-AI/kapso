@@ -11,7 +11,7 @@ from types import SimpleNamespace
 
 import git
 
-from kapso.core.embeddings import (
+from kapso.core.embedding_contracts import (
     EmbeddingBatch,
     EmbeddingRecord,
     EmbeddingSettings,
@@ -22,24 +22,37 @@ from kapso.core.config import load_config
 from kapso.cross_run.settings import CrossRunSettings
 from kapso.execution.evaluation_integrity import AGENT_GENERATED
 from kapso.execution.fidelity import FULL_PASSTHROUGH
-from kapso.execution.memories.experiment_memory import ExperimentHistoryStore
+from kapso.execution.memories.experiment_memory.store import ExperimentHistoryStore
 from kapso.execution.orchestrator import OrchestratorAgent
-from kapso.execution.search_strategies.generic.ideation import (
+from kapso.execution.search_strategies.generic.ideation.analyzer import (
     AnalyzerSettings,
-    BatchStatus,
-    CampaignEvidenceBuilder,
     CandidateAnalyzer,
-    CandidateGenerator,
-    CandidateGeneratorSettings,
-    CandidateSelector,
-    EvidenceAuthor,
+)
+from kapso.execution.search_strategies.generic.ideation.archive import IdeaArchive
+from kapso.execution.search_strategies.generic.ideation.engine import IdeationEngine
+from kapso.execution.search_strategies.generic.ideation.evidence import (
+    CampaignEvidenceBuilder,
     EvidenceSettings,
     GapPrioritySettings,
+)
+from kapso.execution.search_strategies.generic.ideation.evidence_author import (
+    EvidenceAuthor,
+)
+from kapso.execution.search_strategies.generic.ideation.generator import (
+    CandidateGenerator,
+    CandidateGeneratorSettings,
     GenerationMemberSettings,
-    IdeaArchive,
-    IdeaStatus,
-    IdeationEngine,
+)
+from kapso.execution.search_strategies.generic.ideation.operators import (
     OperatorSettings,
+)
+from kapso.execution.search_strategies.generic.ideation.selector import (
+    CandidateSelector,
+)
+from kapso.execution.search_strategies.generic.ideation.types import (
+    BatchStatus,
+    EvaluationStatus,
+    IdeaStatus,
     new_identifier,
 )
 from kapso.execution.search_strategies.generic.strategy import GenericSearch
@@ -301,7 +314,8 @@ def test_generic_ideation_archive_memory_checkpoint_and_resume_are_one_lifecycle
     completed_idea = persisted.get_idea(node.idea_id)
     assert completed_batch.status == BatchStatus.COMPLETED
     assert completed_idea.status == IdeaStatus.EVALUATED
-    assert completed_idea.outcome.normalized_delta == 0.75
+    assert completed_idea.outcome.evaluation_status == EvaluationStatus.INCONCLUSIVE
+    assert completed_idea.outcome.normalized_delta is None
     assert completed_idea.outcome.supported_claim_ids == (
         persisted.state.claims[0].claim_id,
     )

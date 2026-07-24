@@ -5,12 +5,16 @@ from dataclasses import replace
 
 import pytest
 
-from kapso.execution.search_strategies.generic.ideation import (
+import kapso.execution.search_strategies.generic.ideation.archive as archive_module
+from kapso.execution.search_strategies.generic.ideation.archive import (
     ArchiveCorruptionError,
     ArchiveIdentityConflictError,
     ArchiveLifecycleError,
     ArchiveLinkConflictError,
     ArchiveRevisionConflictError,
+    IdeaArchive,
+)
+from kapso.execution.search_strategies.generic.ideation.types import (
     BatchStatus,
     CandidateAnalysis,
     CandidateDisposition,
@@ -21,7 +25,6 @@ from kapso.execution.search_strategies.generic.ideation import (
     EvidenceClaim,
     EvidenceStatus,
     GapState,
-    IdeaArchive,
     IdeaBatch,
     IdeaOutcome,
     IdeaStatus,
@@ -30,7 +33,6 @@ from kapso.execution.search_strategies.generic.ideation import (
     SelectionDecision,
     new_identifier,
 )
-from kapso.execution.search_strategies.generic.ideation import archive as archive_module
 from test_ideation_domain import (
     BATCH_ID,
     CLAIM_ID,
@@ -483,13 +485,13 @@ def test_outcome_atomically_updates_claims_and_targeted_gaps(tmp_path):
         source_refs=("experiment:1",),
         affected_idea_ids=(IDEA_ID,),
         affected_experiment_node_ids=(1,),
-        updated_at="2026-07-19T00:01:00+00:00",
+        updated_at="2026-07-19T00:01:00Z",
     )
     gap_update = replace(
         gap,
         state=GapState.CLOSED,
         evidence_refs=(EVIDENCE_ID, "experiment:1"),
-        last_considered_at="2026-07-19T00:01:00+00:00",
+        last_considered_at="2026-07-19T00:01:00Z",
         closure_reason="Canonical evaluation resolved the uncertainty.",
         resolution_idea_id=IDEA_ID,
         resolution_experiment_node_id=1,
@@ -505,7 +507,7 @@ def test_outcome_atomically_updates_claims_and_targeted_gaps(tmp_path):
     for invalid_gap_update in (
         replace(gap_update, evidence_refs=("experiment:1",)),
         replace(gap_update, impact=0.7),
-        replace(gap_update, opened_at="2026-07-18T00:00:00+00:00"),
+        replace(gap_update, opened_at="2026-07-18T00:00:00Z"),
     ):
         with pytest.raises(
             ArchiveIdentityConflictError,
@@ -572,7 +574,7 @@ def test_existing_claim_updates_cannot_lose_provenance_or_reuse_timestamp(tmp_pa
                 replace(
                     claim,
                     source_refs=(),
-                    updated_at="2026-07-19T00:01:00+00:00",
+                    updated_at="2026-07-19T00:01:00Z",
                 ),
             ),
             expected_revision=6,
@@ -590,7 +592,7 @@ def test_existing_claim_updates_cannot_lose_provenance_or_reuse_timestamp(tmp_pa
         claim,
         status=EvidenceStatus.SUPPORTED,
         source_refs=(EVIDENCE_ID, "experiment_node:1"),
-        updated_at="2026-07-19T00:01:00+00:00",
+        updated_at="2026-07-19T00:01:00Z",
     )
     invalid_updates = (
         replace(valid_update, source_refs=("experiment_node:1",)),
@@ -626,7 +628,7 @@ def test_existing_claim_updates_cannot_lose_provenance_or_reuse_timestamp(tmp_pa
                 replace(
                     persisted_claim,
                     status=EvidenceStatus.CONTRADICTED,
-                    updated_at="2026-07-19T00:02:00+00:00",
+                    updated_at="2026-07-19T00:02:00Z",
                 ),
             ),
             expected_revision=7,

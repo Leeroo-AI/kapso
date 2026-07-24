@@ -20,12 +20,12 @@ from kapso.execution.evaluation_integrity import (
     manifest_fingerprint,
     verify_evaluation_tree,
 )
-from kapso.execution.memories.experiment_memory import ExperimentHistoryStore
+from kapso.execution.memories.experiment_memory.store import ExperimentHistoryStore
 from kapso.execution.search_strategies.base import (
-    SearchNode,
     SearchStrategy,
     SearchStrategyConfig,
 )
+from kapso.execution.search_strategies.node import SearchNode
 from kapso.execution.search_strategies.benchmark_tree_search import (
     BenchmarkTreeSearch,
 )
@@ -261,12 +261,14 @@ def test_invalid_evaluations_cannot_win_strategy_or_history_selection(
         score=100.0,
         evaluation_valid=False,
         evaluation_provenance=PROVIDED,
+        started_at="2026-07-20T00:00:00Z",
     )
     valid = SearchNode(
         node_id=1,
         solution="valid",
         branch_name="candidate_1",
         score=0.2,
+        started_at="2026-07-20T00:00:00Z",
     )
 
     generic = GenericSearch.__new__(GenericSearch)

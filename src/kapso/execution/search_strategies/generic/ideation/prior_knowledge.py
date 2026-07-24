@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from kapso.core.embeddings import EmbeddingProvider, EmbeddingTelemetry
+from kapso.core.embedding_contracts import EmbeddingProvider, EmbeddingTelemetry
 from kapso.cross_run.canonical import canonical_json_bytes
 from kapso.cross_run.knowledge.retrieval import (
     CrossRunRetrievalResult,

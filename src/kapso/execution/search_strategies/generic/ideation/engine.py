@@ -6,7 +6,7 @@ from contextlib import ExitStack
 from dataclasses import dataclass
 from typing import Callable, ContextManager, Mapping, Optional, Sequence, Tuple
 
-from kapso.core.embeddings import EmbeddingTelemetry
+from kapso.core.embedding_contracts import EmbeddingTelemetry
 from kapso.cross_run.knowledge.access import PriorKnowledgeAccessMaterialization
 from kapso.execution.coding_agents.structured_call import CodingAgentCallResult
 from kapso.execution.search_strategies.generic.ideation.analyzer import (

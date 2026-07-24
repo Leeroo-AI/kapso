@@ -1,16 +1,13 @@
 """Behavioral tests for strict embedding-backed experiment retrieval."""
 
-from datetime import datetime, timezone
-
 import pytest
 
+from kapso.cross_run.canonical import canonical_utc_now
 from kapso.execution.fidelity import EvaluationAttempt
-from kapso.execution.memories.experiment_memory.store import (
-    ExperimentHistoryStore,
-    cosine_similarity,
-)
-from kapso.execution.search_strategies.base import SearchNode
-from kapso.execution.search_strategies.generic.ideation import new_identifier
+from kapso.execution.memories.experiment_memory.record import cosine_similarity
+from kapso.execution.memories.experiment_memory.store import ExperimentHistoryStore
+from kapso.execution.search_strategies.node import SearchNode
+from kapso.execution.search_strategies.generic.ideation.types import new_identifier
 
 
 class StubEmbedder:
@@ -53,7 +50,7 @@ def node(node_id, solution, score=1.0, evaluation_valid=True):
         score=score if evaluation_valid else None,
         feedback="measured feedback",
         branch_name=f"candidate-{node_id}",
-        started_at=datetime.now(timezone.utc).isoformat(),
+        started_at=canonical_utc_now(),
         evaluation_valid=evaluation_valid,
         evaluation_attempts=attempts,
     )

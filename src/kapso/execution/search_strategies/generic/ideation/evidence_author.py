@@ -13,7 +13,7 @@ from kapso.execution.coding_agents.structured_call import (
     CodingAgentCallRunner,
     CodingAgentWorkspacePolicy,
 )
-from kapso.execution.search_strategies.base import SearchNode
+from kapso.execution.search_strategies.node import SearchNode
 from kapso.execution.search_strategies.generic.ideation.archive import (
     IdeaArchiveState,
 )

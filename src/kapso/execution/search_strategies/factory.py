@@ -13,7 +13,9 @@ from kapso.environment.handlers.base import ProblemHandler
 from kapso.core.llm import LLMBackend
 
 if TYPE_CHECKING:
-    from kapso.execution.search_strategies.generic import FeedbackGenerator
+    from kapso.execution.search_strategies.generic.feedback_generator.feedback_generator import (
+        FeedbackGenerator,
+    )
 
 
 class SearchStrategyFactory:

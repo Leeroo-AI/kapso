@@ -25,7 +25,7 @@ from kapso.cross_run.contracts import (
     TaskContextBinding,
 )
 from kapso.cross_run.record_contracts import BundleProjectionError, SanitationReport
-from kapso.execution.search_strategies.generic.ideation import new_identifier
+from kapso.execution.search_strategies.generic.ideation.types import new_identifier
 from test_cross_run_contracts import build_records, digest
 from cross_run_capture_fixtures import make_capture_fixture
 from test_ideation_domain import (
@@ -196,7 +196,7 @@ def _add_measured_child_experiment(
         diff_base_ref=parent_commit,
         feedback_base_ref=parent_commit,
         score=score,
-        started_at="2026-07-20T12:30:00+00:00",
+        started_at="2026-07-20T12:30:00Z",
     )
     child.evaluation_attempts = [
         replace(

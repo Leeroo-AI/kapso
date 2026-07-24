@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Mapping, Optional, Tuple, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from kapso.execution.search_strategies.base import SearchNode
+    from kapso.execution.search_strategies.node import SearchNode
 
 
 class IterationEvaluationError(RuntimeError):

@@ -12,10 +12,12 @@ from kapso.cross_run.canonical import content_id
 from kapso.cross_run.contracts import TaskContextBinding
 from kapso.execution.coding_agents.base import CodingAgentConfig
 from kapso.execution.fidelity import EvaluationAttempt
-from kapso.execution.memories.experiment_memory import ExperimentHistoryStore
-from kapso.execution.search_strategies.base import SearchNode, SearchStrategyConfig
-from kapso.execution.search_strategies.generic.ideation import (
-    IdeaArchive,
+from kapso.execution.memories.experiment_memory.store import ExperimentHistoryStore
+from kapso.execution.search_strategies.base import SearchStrategyConfig
+from kapso.execution.search_strategies.node import SearchNode
+from kapso.execution.search_strategies.generic.ideation.archive import IdeaArchive
+from kapso.execution.search_strategies.generic.ideation.types import (
+    EvaluationStatus,
     IdeationCrossRunIdentity,
     ResolvedParentSnapshot,
 )
@@ -320,7 +322,9 @@ def test_newer_recovery_record_replaces_stale_recoverable_checkpoint_node(tmp_pa
 
     assert strategy.node_history[0].execution_revision == 1
     assert strategy.node_history[0].score == 0.6
-    assert archive.get_idea(IDEA_ID).outcome.normalized_delta == 0.6
+    outcome = archive.get_idea(IDEA_ID).outcome
+    assert outcome.evaluation_status == EvaluationStatus.INCONCLUSIVE
+    assert outcome.normalized_delta is None
     assert strategy.active_batch_id is None
 
 

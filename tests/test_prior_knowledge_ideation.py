@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from kapso.core.embeddings import EmbeddingSettings
+from kapso.core.embedding_contracts import EmbeddingSettings
 from kapso.cross_run.canonical import (
     canonical_json_bytes,
     content_id,
@@ -19,13 +19,17 @@ from kapso.cross_run.contracts import (
 )
 from kapso.cross_run.knowledge.access import PriorKnowledgeAccessMaterialization
 from kapso.cross_run.knowledge.retrieval import CrossRunRetriever
-from kapso.execution.memories.experiment_memory import ExperimentHistoryStore
-from kapso.execution.search_strategies.generic.ideation import (
-    IdeaDescriptor,
+from kapso.execution.memories.experiment_memory.store import ExperimentHistoryStore
+from kapso.execution.search_strategies.generic.ideation.archive import (
     IdeaArchive,
+)
+from kapso.execution.search_strategies.generic.ideation.prior_knowledge import (
+    IdeationCrossRunRuntime,
+)
+from kapso.execution.search_strategies.generic.ideation.types import (
+    IdeaDescriptor,
     IdeaOutcome,
     IdeationCrossRunIdentity,
-    IdeationCrossRunRuntime,
     AnalyzedCandidate,
     CandidateAnalysis,
     CandidateDisposition,

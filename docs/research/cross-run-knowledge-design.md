@@ -1521,7 +1521,8 @@ index-manifest.json            # canonicalizer, provider, model, dimensions, has
 ```
 
 The trusted snapshot publisher computes embeddings through the shared
-`kapso.core.embeddings` OpenAI boundary. Every vector sidecar owns the complete
+`kapso.core.embedding_contracts` records plus the isolated
+`kapso.core.embedding_provider` OpenAI boundary. Every vector sidecar owns the complete
 canonical record-input digest and one exact `EmbeddingSpaceId`; the snapshot
 manifest binds the sidecar checksums. The index manifest pins the exact catalog
 generation and record closure rather than the snapshot ID, avoiding a cyclic

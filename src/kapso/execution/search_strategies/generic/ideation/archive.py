@@ -9,7 +9,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional, Tuple
 
-from kapso.core.embeddings import EmbeddingTelemetry
+from kapso.core.embedding_contracts import EmbeddingTelemetry
+from kapso.cross_run.canonical import parse_utc_timestamp
 from kapso.cross_run.knowledge.access import PriorKnowledgeAccess
 from kapso.execution.coding_agents.structured_call import CodingAgentCallResult
 from kapso.execution.search_strategies.generic.ideation.types import (
@@ -339,10 +340,8 @@ class IdeaArchiveState:
             or self.revision < 0
         ):
             raise ArchiveCorruptionError("archive revision must be non-negative")
-        created = datetime.fromisoformat(self.created_at)
-        updated = datetime.fromisoformat(self.updated_at)
-        if created.utcoffset() is None or updated.utcoffset() is None:
-            raise ArchiveCorruptionError("archive timestamps must include UTC offsets")
+        created = parse_utc_timestamp(self.created_at, "archive created_at")
+        updated = parse_utc_timestamp(self.updated_at, "archive updated_at")
         if updated < created:
             raise ArchiveCorruptionError("archive update cannot precede creation")
         for records, record_type, name in (

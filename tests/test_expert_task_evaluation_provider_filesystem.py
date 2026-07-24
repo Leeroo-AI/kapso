@@ -7,7 +7,7 @@ from dataclasses import replace
 
 import pytest
 
-from kapso.cross_run.expert import task_evaluation_provider_filesystem
+import kapso.cross_run.expert.task_evaluation_provider_filesystem as task_evaluation_provider_filesystem
 from kapso.cross_run.canonical import (
     content_id,
     source_tree_digest,

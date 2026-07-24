@@ -11,18 +11,18 @@ This is important because prompt tuning is a first-class requirement for RepoMem
 
 from __future__ import annotations
 
-from kapso.core import prompt_loader
+import kapso.core.prompt_loader as prompt_loader
 
 
 PROMPT_PATHS = [
     # RepoMemory builders
-    "repo_memory/prompts/plan_files_to_read.md",
-    "repo_memory/prompts/infer_repo_model_initial.md",
-    "repo_memory/prompts/infer_repo_model_retry.md",
-    "repo_memory/prompts/infer_repo_model_update.md",
+    "execution/memories/repo_memory/prompts/plan_files_to_read.md",
+    "execution/memories/repo_memory/prompts/infer_repo_model_initial.md",
+    "execution/memories/repo_memory/prompts/infer_repo_model_retry.md",
+    "execution/memories/repo_memory/prompts/infer_repo_model_update.md",
     # Execution prompts (coding)
-    "execution/prompts/coding_agent_implement.md",
-    "execution/prompts/coding_agent_debug.md",
+    "execution/search_strategies/generic/prompts/coding_agent_implement.md",
+    "execution/search_strategies/generic/prompts/coding_agent_debug.md",
 ]
 
 
@@ -34,4 +34,3 @@ def test_prompt_files_exist_and_load():
         text = prompt_loader.load_prompt(path)
         assert isinstance(text, str)
         assert len(text.strip()) > 20, f"Prompt seems empty: {path}"
-

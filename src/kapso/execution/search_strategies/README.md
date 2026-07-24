@@ -13,7 +13,7 @@ cp _template.py my_awesome_strategy.py
 #    - Implement the abstract methods
 
 # 3. Test it works
-python -c "from kapso.execution.search_strategies import SearchStrategyFactory; print(SearchStrategyFactory.list_available())"
+python -c "from kapso.execution.search_strategies.factory import SearchStrategyFactory; print(SearchStrategyFactory.list_available())"
 
 # 4. Use in config.yaml
 #    search_strategy:
@@ -24,8 +24,9 @@ python -c "from kapso.execution.search_strategies import SearchStrategyFactory; 
 
 ```
 search_strategies/
-├── __init__.py              # Public exports
-├── base.py                  # SearchStrategy ABC + SearchNode
+├── __init__.py              # Dependency-pure package marker
+├── base.py                  # SearchStrategy ABC and configuration
+├── node.py                  # Dependency-pure SearchNode state
 ├── factory.py               # Registry + factory (auto-discovers strategies)
 ├── strategies.yaml          # Default presets for all strategies
 ├── _template.py             # 👈 COPY THIS to create your strategy
@@ -52,12 +53,12 @@ cp _template.py my_strategy.py
 ### Step 2: Implement Required Methods
 
 ```python
-from kapso.execution.search_strategies import (
+from kapso.execution.search_strategies.base import (
     SearchStrategy,
     SearchStrategyConfig,
-    SearchNode,
-    register_strategy,
 )
+from kapso.execution.search_strategies.factory import register_strategy
+from kapso.execution.search_strategies.node import SearchNode
 
 @register_strategy("my_strategy")  # 👈 Unique name
 class MyStrategy(SearchStrategy):
@@ -91,6 +92,11 @@ class MyStrategy(SearchStrategy):
             return best.branch_name
         return None
 ```
+
+Every returned `SearchNode` must carry a caller-captured canonical `started_at`
+timestamp (`...Z`) and immutable commit refs for implementation, diff, and
+feedback bases. Resolve the human-readable parent branch once, then execute the
+session from that commit; see `_template.py` for the complete contract.
 
 ### Step 3: Add Presets (Optional)
 
@@ -199,7 +205,7 @@ class RandomSearch(SearchStrategy):
 ## Factory API Reference
 
 ```python
-from kapso.execution.search_strategies import SearchStrategyFactory
+from kapso.execution.search_strategies.factory import SearchStrategyFactory
 
 # List all registered strategies
 SearchStrategyFactory.list_available()

@@ -59,7 +59,9 @@ tests/
 ## Shared embedding boundary
 
 - [x] Move the current isolated OpenAI embedding implementation to one shared
-      `kapso.core.embeddings` module and update existing ideation callers directly.
+      dependency-pure `kapso.core.embedding_contracts` module, isolate the provider
+      SDK in `kapso.core.embedding_provider`, and update existing ideation callers
+      directly.
 - [x] Delete the superseded provider implementation; retain no alias/import shim.
 - [x] Keep the OpenAI import at module top in the feature module and preserve
       provider-SDK default credential discovery.

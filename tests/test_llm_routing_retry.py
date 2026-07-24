@@ -19,7 +19,7 @@ from kapso.core.llm import (
 from kapso.execution.coding_agents.commit_message_generator import (
     COMMIT_MESSAGE_MODEL,
 )
-from kapso.execution.memories.experiment_memory import ExperimentHistoryStore
+from kapso.execution.memories.experiment_memory.store import ExperimentHistoryStore
 from kapso.execution.memories.repo_memory import RepoMemoryManager
 from kapso.knowledge_base.types import Source
 from kapso.researcher import Researcher

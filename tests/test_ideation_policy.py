@@ -1,6 +1,6 @@
 """Scenario tests for deterministic policy precedence."""
 
-from kapso.execution.search_strategies.generic.ideation import (
+from kapso.execution.search_strategies.generic.ideation.types import (
     CampaignAction,
     CampaignEvidenceSnapshot,
     EvidenceSignal,

@@ -35,7 +35,7 @@ from kapso.cross_run.launch.resume_contracts import (
 )
 from kapso.execution.evaluation_integrity import AGENT_GENERATED
 from kapso.execution.fidelity import EvaluationAttempt
-from kapso.execution.search_strategies.base import SearchNode
+from kapso.execution.search_strategies.node import SearchNode
 from kapso.execution.search_strategies.generic.ideation.archive import (
     IDEA_ARCHIVE_SCHEMA,
     IdeaArchiveState,
@@ -159,9 +159,7 @@ def _initial_safety(pin, strategy_state):
         empty_frontier.evidence,
         state_authority_digests={
             **empty_frontier.evidence.state_authority_digests,
-            RunStateAuthority.IDEA_ARCHIVE.value: tree_or_blob_digest(
-                archive_payload
-            ),
+            RunStateAuthority.IDEA_ARCHIVE.value: tree_or_blob_digest(archive_payload),
         },
     )
     frontier = RunDerivativeFrontier.build(
@@ -257,9 +255,7 @@ def _derived_state_generation(pin, strategy_state, safety_state, predecessor):
                 predecessor_size_bytes=(
                     None if previous is None else previous.target_size_bytes
                 ),
-                target_digest=evidence.state_authority_digests[
-                    binding.authority.value
-                ],
+                target_digest=evidence.state_authority_digests[binding.authority.value],
                 target_revision=evidence.state_authority_revisions[
                     binding.authority.value
                 ],
@@ -276,9 +272,7 @@ def _derived_state_generation(pin, strategy_state, safety_state, predecessor):
         RunCheckpointHead.initial(pin).run_checkpoint_head_id
         if predecessor is None
         else (
-            RunCheckpointHead.initial(pin)
-            .advance(predecessor)
-            .run_checkpoint_head_id
+            RunCheckpointHead.initial(pin).advance(predecessor).run_checkpoint_head_id
             if predecessor.checkpoint_sequence == 0
             else content_id(
                 "run-checkpoint-head",
@@ -307,9 +301,7 @@ def _remint_generation(generation, **changes):
     values = {
         "bootstrap_pin_id": generation.bootstrap_pin_id,
         "run_state_layout": generation.run_state_layout,
-        "predecessor_checkpoint_head_id": (
-            generation.predecessor_checkpoint_head_id
-        ),
+        "predecessor_checkpoint_head_id": (generation.predecessor_checkpoint_head_id),
         "predecessor_checkpoint_id": generation.predecessor_checkpoint_id,
         "predecessor_evidence_id": generation.predecessor_evidence_id,
         "target_evidence_id": generation.target_evidence_id,

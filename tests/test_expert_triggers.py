@@ -35,8 +35,8 @@ from kapso.cross_run.contracts import (
     TransferEpisode,
 )
 from kapso.cross_run.record_contracts import SanitationReport
-from kapso.cross_run.expert import (
-    EMPTY_EXPERT_TREE_DIGEST,
+from kapso.cross_run.contracts import EMPTY_EXPERT_TREE_DIGEST
+from kapso.cross_run.expert.triggers import (
     ExpertEvolutionTriggerDecision,
     ExpertSourceBaseTreeReceipt,
     ExpertTriggerDecisionStore,

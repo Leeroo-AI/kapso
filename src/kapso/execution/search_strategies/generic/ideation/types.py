@@ -5,23 +5,28 @@ import re
 import uuid
 from collections.abc import Mapping as MappingABC
 from dataclasses import dataclass, field, fields
-from datetime import datetime, timezone
+from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, Iterable, Optional, Tuple, Type, TypeVar
 
-from kapso.core.embeddings import EmbeddingRecord, EmbeddingTelemetry
-from kapso.cross_run.canonical import require_content_id
+from kapso.core.embedding_contracts import EmbeddingRecord, EmbeddingTelemetry
+from kapso.cross_run.canonical import (
+    canonical_utc_now,
+    parse_utc_timestamp,
+    require_content_id,
+)
 from kapso.cross_run.contracts import TaskContextBinding, TransferCompatibility
 from kapso.cross_run.knowledge.access import PriorKnowledgeAccessMaterialization
-from kapso.execution.coding_agents import structured_call
+from kapso.execution.coding_agents.structured_call import CodingAgentCallResult
 
 _IDENTIFIER_PATTERN = re.compile(r"^[a-z][a-z0-9_]*_[0-9a-f]{32}$")
+_GIT_COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 _EnumType = TypeVar("_EnumType", bound=Enum)
 
 
 def utc_now() -> str:
     """Return a stable UTC timestamp representation."""
-    return datetime.now(timezone.utc).isoformat()
+    return canonical_utc_now()
 
 
 def new_identifier(prefix: str) -> str:
@@ -172,9 +177,7 @@ def _require_typed_identifiers(
 
 def _require_timestamp(value: Any, name: str) -> str:
     timestamp = _require_nonempty_string(value, name)
-    parsed = datetime.fromisoformat(timestamp)
-    if parsed.utcoffset() != timezone.utc.utcoffset(parsed):
-        raise ValueError(f"{name} must include a UTC offset")
+    parse_utc_timestamp(timestamp, name)
     return timestamp
 
 
@@ -523,6 +526,8 @@ class ResolvedParentSnapshot(JsonRecord):
         }
         if len(references) != 1:
             raise ValueError("resolved parent refs must identify one immutable base")
+        if _GIT_COMMIT_PATTERN.fullmatch(self.git_ref) is None:
+            raise ValueError("resolved parent refs must identify one Git commit")
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "ResolvedParentSnapshot":
@@ -1860,13 +1865,13 @@ class IdeaBatch(JsonRecord):
     prior_retrieval_embedding_telemetry: Optional[EmbeddingTelemetry] = None
     status: BatchStatus = BatchStatus.PLANNED
     generated_idea_ids: Tuple[str, ...] = ()
-    generation_calls: Tuple[structured_call.CodingAgentCallResult, ...] = ()
+    generation_calls: Tuple[CodingAgentCallResult, ...] = ()
     resurfaced_ideas: Tuple[ResurfacedIdea, ...] = ()
     considered_idea_ids: Tuple[str, ...] = ()
     analyses: Tuple[CandidateAnalysis, ...] = ()
     embedding_telemetry: Optional[EmbeddingTelemetry] = None
     selection: Optional[SelectionDecision] = None
-    selection_call: Optional[structured_call.CodingAgentCallResult] = None
+    selection_call: Optional[CodingAgentCallResult] = None
     abandoned_reason: Optional[str] = None
 
     def __post_init__(self) -> None:
@@ -1951,7 +1956,7 @@ class IdeaBatch(JsonRecord):
             ),
         )
         if not isinstance(self.generation_calls, (list, tuple)) or not all(
-            isinstance(call, structured_call.CodingAgentCallResult)
+            isinstance(call, CodingAgentCallResult)
             for call in self.generation_calls
         ):
             raise ValueError("batch generation calls are invalid")
@@ -2009,7 +2014,7 @@ class IdeaBatch(JsonRecord):
         ):
             raise ValueError("batch selection is invalid")
         if self.selection_call is not None and not isinstance(
-            self.selection_call, structured_call.CodingAgentCallResult
+            self.selection_call, CodingAgentCallResult
         ):
             raise ValueError("batch selection call is invalid")
         if (self.selection is None) != (self.selection_call is None):
@@ -2187,7 +2192,7 @@ class IdeaBatch(JsonRecord):
             status=_parse_enum(BatchStatus, data["status"], "batch status"),
             generated_idea_ids=data["generated_idea_ids"],
             generation_calls=tuple(
-                structured_call.CodingAgentCallResult.from_dict(call)
+                CodingAgentCallResult.from_dict(call)
                 for call in data["generation_calls"]
             ),
             resurfaced_ideas=tuple(
@@ -2211,7 +2216,7 @@ class IdeaBatch(JsonRecord):
             selection_call=(
                 None
                 if data["selection_call"] is None
-                else structured_call.CodingAgentCallResult.from_dict(
+                else CodingAgentCallResult.from_dict(
                     data["selection_call"]
                 )
             ),

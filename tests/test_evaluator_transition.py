@@ -17,7 +17,7 @@ import kapso.execution.evaluation_maintainer.maintainer as maintainer_module
 import kapso.execution.orchestrator as orchestrator_module
 import kapso.execution.search_strategies.generic.strategy as strategy_module
 from kapso.execution.run_checkpoint import RunCheckpoint, RunCheckpointStore
-from kapso.execution.search_strategies.base import SearchNode
+from kapso.execution.search_strategies.node import SearchNode
 from kapso.execution.search_strategies.generic.strategy import GenericSearch
 
 from tests.test_evaluation_maintainer_wiring import (
@@ -53,6 +53,7 @@ def test_transition_state_round_trips_and_validates(tmp_path):
     restored.workspace_dir = str(tmp_path)
     restored.ideation_config = {"archive_path": "ideas.json"}
     restored.idea_archive = None
+    restored.ideation_cross_run_runtime = None
     restored.load_state(state)
     assert restored.scores_evaluator_id == "ev-2"
     assert restored.evaluator_transition["status"] == "anchored"
@@ -64,6 +65,7 @@ def test_transition_state_round_trips_and_validates(tmp_path):
         fresh.workspace_dir = str(tmp_path)
         fresh.ideation_config = {"archive_path": "ideas.json"}
         fresh.idea_archive = None
+        fresh.ideation_cross_run_runtime = None
         fresh.load_state(broken)
 
 

@@ -21,7 +21,7 @@ from kapso.execution.run_checkpoint import (
     config_fingerprint,
 )
 from kapso.execution.fidelity import EvaluationAttempt
-from kapso.execution.search_strategies.base import SearchNode
+from kapso.execution.search_strategies.node import SearchNode
 from kapso.execution.search_strategies.benchmark_tree_search import (
     BenchmarkTreeSearch,
     TreeSearchNode,
@@ -39,7 +39,7 @@ from test_ideation_domain import (
     planned_batch,
     selection,
 )
-from kapso.execution.search_strategies.generic.ideation import IdeaArchive
+from kapso.execution.search_strategies.generic.ideation.archive import IdeaArchive
 
 CROSS_RUN_SETTINGS = CrossRunSettings.from_dict(
     load_config("src/kapso/config.yaml")["cross_run"]
@@ -145,6 +145,7 @@ class FakeStrategy:
             score=(self.score_queue.pop(0) if self.score_queue else 0.1),
             feedback=f"feedback-{node_id}",
             should_stop=self.stop_next,
+            started_at=NOW,
             agent_output=(
                 self.agent_output_queue.pop(0)
                 if self.agent_output_queue

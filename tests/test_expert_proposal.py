@@ -22,19 +22,25 @@ from kapso.cross_run.contracts import (
     ExpertModuleContract,
     PriorKnowledgeSnapshot,
 )
-from kapso.cross_run.expert import (
-    ExpertCapabilityGeneralizer,
-    ExpertCandidateProposalEngine,
-    ExpertCandidateStore,
-    ExpertCandidateStoreError,
+from kapso.cross_run.expert.architect import ExpertRepositoryArchitect
+from kapso.cross_run.expert.candidates import (
     ExpertCandidateValidationError,
     ExpertCandidateValidator,
-    ExpertCandidateWorkspaceError,
-    ExpertRepositoryArchitect,
+)
+from kapso.cross_run.expert.generalizer import ExpertCapabilityGeneralizer
+from kapso.cross_run.expert.proposal import ExpertCandidateProposalEngine
+from kapso.cross_run.expert.store import (
+    ExpertCandidateStore,
+    ExpertCandidateStoreError,
+)
+from kapso.cross_run.expert.triggers import (
     ExpertTriggerEvidencePacket,
     ExpertTriggerEvaluator,
     ExpertTriggerObservation,
     ExpertTriggerObservationKind,
+)
+from kapso.cross_run.expert.workspace import (
+    ExpertCandidateWorkspaceError,
 )
 from kapso.cross_run.expert.book import (
     EXPERT_BOOK_PATH,

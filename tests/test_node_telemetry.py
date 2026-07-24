@@ -10,7 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from kapso.execution.search_strategies.base import SearchNode
+from kapso.execution.search_strategies.node import SearchNode
 from kapso.execution.search_strategies.generic.strategy import GenericSearch
 import kapso.execution.search_strategies.generic.feedback_generator.feedback_generator as feedback_module
 from kapso.execution.search_strategies.generic.feedback_generator.feedback_generator import (

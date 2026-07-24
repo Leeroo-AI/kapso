@@ -8,14 +8,15 @@ import pytest
 import kapso.cross_run.expert.workspace as expert_workspace_module
 from kapso.core.config import load_config
 from kapso.cross_run.canonical import source_tree_digest, tree_or_blob_digest
-from kapso.cross_run.contracts import SourceFileDescriptor
-from kapso.cross_run.expert import (
-    EMPTY_EXPERT_TREE_DIGEST,
-    ExpertCandidateWorkspaceError,
-    ExpertCandidateWorkspaceManager,
+from kapso.cross_run.contracts import EMPTY_EXPERT_TREE_DIGEST, SourceFileDescriptor
+from kapso.cross_run.expert.book import compile_expert_semantic_book
+from kapso.cross_run.expert.triggers import (
     ExpertSourceBaseTreeReceipt,
     ExpertTriggerEvidencePacket,
-    compile_expert_semantic_book,
+)
+from kapso.cross_run.expert.workspace import (
+    ExpertCandidateWorkspaceError,
+    ExpertCandidateWorkspaceManager,
 )
 from kapso.cross_run.expert.book import (
     EXPERT_BOOK_PATH,

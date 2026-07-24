@@ -18,10 +18,10 @@ from kapso.execution.memories.repo_memory.builders import (
     infer_repo_model_with_retry,
 )
 from kapso.execution.search_strategies.base import (
-    SearchNode,
     SearchStrategy,
     SearchStrategyConfig,
 )
+from kapso.execution.search_strategies.node import SearchNode
 
 
 VALID_MODEL = '{"summary": "Useful memory", "sections": {}}'

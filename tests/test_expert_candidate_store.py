@@ -6,10 +6,10 @@ from pathlib import Path
 
 import pytest
 
-from kapso.cross_run.expert import (
+from kapso.cross_run.expert.candidates import ExpertCandidateValidator
+from kapso.cross_run.expert.store import (
     ExpertCandidateStore,
     ExpertCandidateStoreError,
-    ExpertCandidateValidator,
 )
 from test_expert_candidates import (
     bootstrap_candidate_closure,
@@ -166,7 +166,7 @@ def test_candidate_store_rejects_composition_admission_on_agent_candidate(tmp_pa
 
     with pytest.raises(
         ExpertCandidateStoreError,
-        match="agent candidate cannot contain composition admission authority",
+        match="non-composition candidate contains composition admission authority",
     ):
         store.read(closure.manifest.candidate_id)
 

@@ -17,14 +17,14 @@ from kapso.execution.iteration_evaluator import (
     IterationEvaluationValidationError,
     normalize_result,
 )
-from kapso.execution.memories.experiment_memory import ExperimentRecord
+from kapso.execution.memories.experiment_memory.record import ExperimentRecord
 from kapso.execution.memories.experiment_memory.store import format_experiments
 from kapso.execution.orchestrator import OrchestratorAgent, SolveResult
 from kapso.execution.run_checkpoint import (
     RunCheckpointIncompatibleError,
     RunCheckpointStore,
 )
-from kapso.execution.search_strategies.base import SearchNode
+from kapso.execution.search_strategies.node import SearchNode
 from kapso.gated_mcp.gates.experiment_history_gate import (
     ExperimentHistoryGate,
 )
@@ -109,6 +109,7 @@ class TwoCandidateStrategy:
                     solution=f"candidate {node_id}",
                     feedback=f"feedback {node_id}",
                     score=score,
+                    started_at="2026-07-20T00:00:00Z",
                     workspace_dir=self.workspace_dir,
                 )
             )
@@ -267,6 +268,7 @@ def test_agent_facing_history_does_not_expose_external_metrics() -> None:
         branch_name="candidate_0",
         had_error=False,
         error_message="",
+        started_at="2026-07-20T00:00:00Z",
         metrics={"holdout_accuracy": 0.99},
         primary_metric="holdout_accuracy",
         external_evaluation_error="secret harness failure",

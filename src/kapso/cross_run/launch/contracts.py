@@ -31,6 +31,7 @@ from kapso.cross_run.contracts import (
     TaskAdapterManifest,
     TaskContextBinding,
 )
+from kapso.cross_run.embedding_space import EmbeddingSpace
 from kapso.cross_run.expert.release_use_policy_contracts import (
     ExpertReleaseUsePolicyObservation,
 )
@@ -666,7 +667,7 @@ class LaunchCompatibilityReceipt(StrictContract):
     task_adapter_manifest_id: str
     task_adapter_verification_receipt_id: str
     task_adapter_activation_id: str
-    embedding_space_id: str
+    knowledge_embedding_space_id: str
     release_use_observation_id: str
     expert_validation_context_id: str
     expert_repository_map_id: str
@@ -709,7 +710,10 @@ class LaunchCompatibilityReceipt(StrictContract):
                 "task_adapter_verification_receipt_id",
             ),
             (self.task_adapter_activation_id, "task_adapter_activation_id"),
-            (self.embedding_space_id, "embedding_space_id"),
+            (
+                self.knowledge_embedding_space_id,
+                "knowledge_embedding_space_id",
+            ),
             (self.release_use_observation_id, "release_use_observation_id"),
             (self.expert_validation_context_id, "expert_validation_context_id"),
             (self.expert_repository_map_id, "expert_repository_map_id"),
@@ -779,7 +783,7 @@ class LaunchCompatibilityReceipt(StrictContract):
             self.task_adapter_manifest_id,
             self.task_adapter_verification_receipt_id,
             self.task_adapter_activation_id,
-            self.embedding_space_id,
+            self.knowledge_embedding_space_id,
             self.release_use_observation_id,
             self.expert_validation_context_id,
             self.expert_repository_map_id,
@@ -811,7 +815,8 @@ def launch_security_subject_ids(
     knowledge_manifest: KnowledgeSnapshotManifest,
     task_adapter: LaunchTaskAdapterPin,
     starting_artifacts: LaunchStartingArtifactMaterializationReceipt,
-    embedding_space_id: str,
+    knowledge_embedding_space: EmbeddingSpace,
+    experiment_embedding_space: EmbeddingSpace,
     release_use_observation: ExpertReleaseUsePolicyObservation,
     compatibility_receipt: LaunchCompatibilityReceipt,
 ) -> tuple[str, ...]:
@@ -848,7 +853,8 @@ def launch_security_subject_ids(
                 *task_adapter.dependency_ids,
                 starting_artifacts.materialization_receipt_id,
                 *starting_artifacts.exact_dependency_ids,
-                embedding_space_id,
+                knowledge_embedding_space.embedding_space_id,
+                experiment_embedding_space.embedding_space_id,
                 release_use_observation.observation_id,
                 compatibility_receipt.compatibility_receipt_id,
                 *compatibility_receipt.exact_dependency_ids,
@@ -878,7 +884,8 @@ class LaunchManifest(StrictContract):
     knowledge_manifest: KnowledgeSnapshotManifest
     task_adapter: LaunchTaskAdapterPin
     starting_artifacts: LaunchStartingArtifactMaterializationReceipt
-    embedding_space_id: str
+    knowledge_embedding_space: EmbeddingSpace
+    experiment_embedding_space: EmbeddingSpace
     dependency_runtime_contract: Mapping[str, Any]
     sanitation_policy_version: str
     security_observation: SecurityDenylistObservation
@@ -909,6 +916,8 @@ class LaunchManifest(StrictContract):
             or type(self.task_adapter) is not LaunchTaskAdapterPin
             or type(self.starting_artifacts)
             is not LaunchStartingArtifactMaterializationReceipt
+            or type(self.knowledge_embedding_space) is not EmbeddingSpace
+            or type(self.experiment_embedding_space) is not EmbeddingSpace
             or type(self.security_observation) is not SecurityDenylistObservation
             or type(self.release_use_observation)
             is not ExpertReleaseUsePolicyObservation
@@ -936,7 +945,6 @@ class LaunchManifest(StrictContract):
             ),
         ):
             _require_digest(value, f"launch manifest {name}")
-        require_content_id(self.embedding_space_id, "launch embedding_space_id")
         require_identifier(
             self.sanitation_policy_version,
             "launch sanitation policy version",
@@ -1017,7 +1025,11 @@ class LaunchManifest(StrictContract):
             != self.task_context_binding.task_context_binding_id
             or materialized_artifact_ids
             != dict(self.launch_request.starting_artifact_content_ids)
-            or (sidecar_spaces and self.embedding_space_id not in sidecar_spaces)
+            or (
+                sidecar_spaces
+                and self.knowledge_embedding_space.embedding_space_id
+                not in sidecar_spaces
+            )
             or (not sidecar_spaces and self.knowledge_manifest.entry_state_refs)
             or self.sanitation_policy_version
             != self.knowledge_manifest.sanitation_policy_version
@@ -1080,7 +1092,8 @@ class LaunchManifest(StrictContract):
             != self.task_adapter.verification_receipt.verification_receipt_id
             or compatibility.task_adapter_activation_id
             != self.task_adapter.activation.activation_id
-            or compatibility.embedding_space_id != self.embedding_space_id
+            or compatibility.knowledge_embedding_space_id
+            != self.knowledge_embedding_space.embedding_space_id
             or compatibility.release_use_observation_id != release_use.observation_id
             or compatibility.expert_validation_context_id
             != self.expert_manifest.candidate_validation_context_ref
@@ -1129,7 +1142,8 @@ class LaunchManifest(StrictContract):
             knowledge_manifest=self.knowledge_manifest,
             task_adapter=self.task_adapter,
             starting_artifacts=self.starting_artifacts,
-            embedding_space_id=self.embedding_space_id,
+            knowledge_embedding_space=self.knowledge_embedding_space,
+            experiment_embedding_space=self.experiment_embedding_space,
             release_use_observation=release_use,
             compatibility_receipt=compatibility,
         )

@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pytest
 
-import kapso.cross_run.expert as expert_package
 from kapso.core.config import load_config
 from kapso.cross_run.canonical import content_id, tree_or_blob_digest
 from kapso.cross_run.contracts import (
@@ -199,18 +198,6 @@ def test_current_base_is_sealed_after_materialization_between_two_observations()
             PublicationArtifactKind.EXPERT_BASE_RELEASE,
         ),
     ]
-
-
-def test_current_base_provider_is_exported_from_the_expert_facade():
-    exported = {
-        "EXPERT_COMPOSITION_BASE_PROVIDER_VERSION",
-        "CurrentExpertCompositionBase",
-        "ExpertCompositionBaseProviderError",
-        "GitHubExpertCompositionBaseProvider",
-    }
-
-    assert exported.issubset(expert_package.__all__)
-    assert all(hasattr(expert_package, name) for name in exported)
 
 
 def test_current_base_freshness_allows_same_pointer_on_newer_head():

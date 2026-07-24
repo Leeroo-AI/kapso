@@ -6,15 +6,17 @@ from types import SimpleNamespace
 import pytest
 
 from kapso.execution.fidelity import EvaluationAttempt
-from kapso.execution.memories.experiment_memory.store import (
+from kapso.execution.memories.experiment_memory.record import (
     EXPERIMENT_HISTORY_SCHEMA,
-    ExperimentHistoryStore,
     ExperimentRecord,
+)
+from kapso.execution.memories.experiment_memory.store import (
+    ExperimentHistoryStore,
     format_experiments,
 )
 from kapso.execution.orchestrator import OrchestratorAgent
-from kapso.execution.search_strategies.base import SearchNode
-from kapso.execution.search_strategies.generic.ideation import new_identifier
+from kapso.execution.search_strategies.node import SearchNode
+from kapso.execution.search_strategies.generic.ideation.types import new_identifier
 from test_ideation_domain import NOW
 
 

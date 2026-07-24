@@ -47,12 +47,12 @@ from kapso.cross_run.record_contracts import (
     ExecutionRevisionEvent,
     SanitationReport,
 )
-from kapso.execution.memories.experiment_memory.store import (
+from kapso.execution.memories.experiment_memory.record import (
     EXPERIMENT_HISTORY_SCHEMA,
     ExperimentRecord,
 )
 from kapso.execution.run_checkpoint import RunCheckpoint
-from kapso.execution.search_strategies.base import SearchNode
+from kapso.execution.search_strategies.node import SearchNode
 from kapso.execution.search_strategies.generic.strategy import (
     GENERIC_SEARCH_STATE_FIELDS,
     GENERIC_SEARCH_STATE_SCHEMA,

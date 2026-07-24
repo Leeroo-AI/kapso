@@ -16,7 +16,7 @@ import kapso.execution.orchestrator as orchestrator_module
 from kapso.execution.evaluation_integrity import AGENT_GENERATED
 from kapso.execution.evaluation_maintainer import EvaluationMaintainerError
 from kapso.execution.run_checkpoint import RunCheckpointStore
-from kapso.execution.search_strategies.base import SearchNode
+from kapso.execution.search_strategies.node import SearchNode
 from kapso.execution.search_strategies.generic.strategy import GenericSearch
 
 from tests.test_run_checkpoint import (

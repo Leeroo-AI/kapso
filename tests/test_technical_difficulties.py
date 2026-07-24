@@ -9,12 +9,12 @@ the node into the experiment store and its tool renderings.
 import pytest
 
 from kapso.execution.search_strategies.generic.strategy import GenericSearch
-from kapso.execution.search_strategies.generic import difficulties_generator
+import kapso.execution.search_strategies.generic.difficulties_generator as difficulties_generator
 from kapso.gated_mcp.gates.experiment_history_gate import (
     ExperimentHistoryGate,
 )
-from kapso.execution.memories.experiment_memory.store import ExperimentRecord
-from kapso.execution.search_strategies.base import SearchNode
+from kapso.execution.memories.experiment_memory.record import ExperimentRecord
+from kapso.execution.search_strategies.node import SearchNode
 
 
 def make_strategy_stub():
@@ -151,6 +151,7 @@ def test_gate_renders_difficulties_block():
         branch_name="b",
         had_error=False,
         error_message="",
+        started_at="2026-07-20T00:00:00Z",
         technical_difficulties="hit the special-token trap; re-init fixed it",
     )
     record = ExperimentRecord.from_node(node, "maximize", False)

@@ -2,7 +2,8 @@
 
 from dataclasses import replace
 
-from kapso.execution.search_strategies.generic.ideation import (
+from kapso.execution.search_strategies.generic.ideation.archive import IdeaArchive
+from kapso.execution.search_strategies.generic.ideation.types import (
     CandidateAnalysis,
     CandidateDisposition,
     CandidateDispositionKind,
@@ -11,7 +12,6 @@ from kapso.execution.search_strategies.generic.ideation import (
     EvidenceClaim,
     EvidenceStatus,
     GapState,
-    IdeaArchive,
     IdeaDescriptor,
     IdeaStatus,
     IdeationMode,
@@ -135,7 +135,7 @@ def test_same_family_plateau_allocates_a_mechanism_shift(tmp_path):
                 idea_id=idea_id,
                 batch_id=batch_id,
                 score=0.5,
-                created_at=f"2026-07-19T00:0{node_id}:00+00:00",
+                created_at=f"2026-07-19T00:0{node_id}:00Z",
             )
         )
     snapshot = build_snapshot(archive, tuple(experiments))
@@ -225,7 +225,7 @@ def test_crossover_has_one_implementation_parent_and_explicit_sources(tmp_path):
                 idea_id=second_idea_id,
                 batch_id=second_batch_id,
                 score=0.52,
-                created_at="2026-07-19T00:01:00+00:00",
+                created_at="2026-07-19T00:01:00Z",
             ),
         ),
     )

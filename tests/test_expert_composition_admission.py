@@ -6,7 +6,6 @@ from types import SimpleNamespace
 
 import pytest
 
-import kapso.cross_run.expert as expert_facade
 from kapso.cross_run.canonical import content_id, tree_or_blob_digest
 from kapso.cross_run.contracts import (
     CrossRunTaskBindingSettings,
@@ -113,25 +112,6 @@ class _CurrentReleaseProvider:
     def current_release_id(self, scope_id):
         assert scope_id == self.scope_id
         return self.release_id
-
-
-def test_composition_admission_facade_exports_are_explicit():
-    expected = {
-        "ExpertCompositionAdmissionContractError",
-        "ExpertCompositionAdmissionCoordinator",
-        "ExpertCompositionAdmissionDenylistAuthority",
-        "ExpertCompositionAdmissionError",
-        "ExpertCompositionAdmissionFence",
-        "ExpertCompositionSourceAdmissionAuthority",
-        "build_expert_composition_plan",
-        "compose_expert_active_task_bindings",
-        "composition_admission_security_subject_ids",
-        "stored_candidate_admission_dependency_ids",
-        "validate_expert_composition_admission_fence",
-    }
-
-    assert expected.issubset(expert_facade.__all__)
-    assert all(hasattr(expert_facade, name) for name in expected)
 
 
 def test_active_task_binding_union_preserves_every_source():

@@ -24,7 +24,7 @@ from kapso.execution.fidelity import (
     PROFILE_PROBE,
     PROFILE_VALIDATE,
 )
-from kapso.execution.search_strategies.base import SearchNode
+from kapso.execution.search_strategies.node import SearchNode
 from kapso.execution.search_strategies.generic.strategy import GenericSearch
 
 from tests.test_evaluation_maintainer_wiring import (

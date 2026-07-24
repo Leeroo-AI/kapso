@@ -1,15 +1,17 @@
+import subprocess
+import sys
 from dataclasses import replace
 
 import pytest
 
-from kapso.core.embeddings import EmbeddingSpaceId
+from kapso.core.embedding_contracts import EmbeddingSpaceId
 from kapso.cross_run.canonical import (
     CANONICALIZER_VERSION,
     canonical_json_bytes,
     tree_or_blob_digest,
 )
+from kapso.cross_run.embedding_space import EmbeddingSpace
 from kapso.cross_run.knowledge.index import (
-    EmbeddingSpace,
     EmbeddingVector,
     EmbeddingVectorSet,
     SnapshotIndexError,
@@ -37,6 +39,28 @@ def vector_set(prepared):
         for record_id in prepared.retrieval_root_ids
     )
     return EmbeddingVectorSet(space=space, vectors=vectors)
+
+
+def test_embedding_space_contract_import_has_no_provider_runtime_dependency():
+    script = "\n".join(
+        (
+            "import sys",
+            "sys.modules['openai'] = None",
+            "sys.modules['kapso.core.embedding_provider'] = None",
+            "from kapso.cross_run.embedding_space import EmbeddingSpace",
+            "assert EmbeddingSpace.__module__ == 'kapso.cross_run.embedding_space'",
+        )
+    )
+
+    completed = subprocess.run(
+        (sys.executable, "-c", script),
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.stdout == ""
+    assert completed.stderr == ""
 
 
 def prepared_snapshot():
@@ -105,6 +129,11 @@ def test_index_embedding_space_identity_matches_shared_provider_boundary():
             canonicalizer_version=vectors.space.canonicalizer_version,
         ).value
     )
+    with pytest.raises(ValueError, match="embedding_space_id mismatch"):
+        replace(
+            vectors.space,
+            canonicalizer_version="kapso.other_canonicalizer.v1",
+        )
 
 
 def test_index_rejects_stale_inputs_and_corrupt_float_data():

@@ -12,7 +12,6 @@ from pathlib import PurePosixPath
 from types import MappingProxyType
 from typing import Any, ClassVar, Mapping, Protocol
 
-from kapso.core.embeddings import EmbeddingSpaceId
 from kapso.cross_run.canonical import (
     CANONICALIZER_VERSION,
     canonical_json_bytes,
@@ -30,6 +29,7 @@ from kapso.cross_run.contracts import (
     MissingReferenceError,
     StrictContract,
 )
+from kapso.cross_run.embedding_space import EmbeddingSpace
 
 _INDEX_MANIFEST_PATH = "index/index-manifest.json"
 _METADATA_PATH = "index/metadata.json"
@@ -73,38 +73,6 @@ def _require_path(value: str, name: str) -> None:
         or path.as_posix() != value
     ):
         raise ContractValidationError(f"{name} must be an index/ path")
-
-
-@dataclass(frozen=True)
-class EmbeddingSpace(StrictContract):
-    """Identity of one vector space; input identity is pinned per vector."""
-
-    embedding_space_id: str
-    provider: str
-    model: str
-    dimensions: int
-    canonicalizer_version: str
-
-    CONTENT_NAMESPACE: ClassVar[str] = "embedding-space"
-    IDENTITY_FIELD: ClassVar[str] = "embedding_space_id"
-
-    def _validate(self) -> None:
-        require_identifier(self.provider, "embedding provider")
-        if not self.model.strip():
-            raise ContractValidationError("embedding model must not be empty")
-        if self.dimensions <= 0:
-            raise ContractValidationError("embedding dimensions must be positive")
-        require_identifier(self.canonicalizer_version, "canonicalizer_version")
-        shared_space = EmbeddingSpaceId(
-            provider=self.provider,
-            model=self.model,
-            dimensions=self.dimensions,
-            canonicalizer_version=self.canonicalizer_version,
-        )
-        if shared_space.value != self.embedding_space_id:
-            raise ContractValidationError(
-                "index and embedding provider space identities diverge"
-            )
 
 
 @dataclass(frozen=True)

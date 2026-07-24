@@ -15,12 +15,13 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
+from kapso.cross_run.canonical import canonical_utc_now
 from kapso.execution.types import ContextData
 from kapso.execution.search_strategies.base import (
     SearchStrategy,
     SearchStrategyConfig,
-    SearchNode,
 )
+from kapso.execution.search_strategies.node import SearchNode
 from kapso.execution.search_strategies.factory import register_strategy
 from kapso.execution.memories.repo_memory import RepoMemoryManager
 from kapso.execution.memories.repo_memory.observation import extract_repo_memory_sections_consulted
@@ -531,26 +532,32 @@ class BenchmarkTreeSearch(SearchStrategy):
         )
 
         node.node_event_history.append([self.experimentation_count, "experiment"])
+        node.started_at = canonical_utc_now()
         node.branch_name = branch_name
         node.workspace_dir = self.workspace_dir
         parent_branch_name = (
             self._get_closest_experimented_parent(node).branch_name
+            or self.workspace.get_current_branch()
         )
+        parent_commit = self.workspace.repo.commit(parent_branch_name).hexsha
         node.parent_branch_name = parent_branch_name
+        node.implementation_base_ref = parent_commit
+        node.diff_base_ref = parent_commit
+        node.feedback_base_ref = parent_commit
         
         # Step 1: Implement (using base class method)
         agent_output = self._implement(
             node.solution,
             context,
             branch_name=branch_name,
-            parent_branch_name=parent_branch_name,
+            parent_branch_name=node.implementation_base_ref,
             ideation_repo_memory_sections_consulted=node.ideation_repo_memory_sections_consulted,
         )
         
         node.agent_output = agent_output
         node.code_diff = self._get_code_diff(
             branch_name, 
-            parent_branch_name
+            node.diff_base_ref
         )
         
         # Step 2: Reject changes to caller-provided evaluator files before the
