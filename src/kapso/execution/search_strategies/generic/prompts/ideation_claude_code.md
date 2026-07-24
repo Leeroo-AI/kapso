@@ -130,11 +130,14 @@ After your research, output your solution in this EXACT format:
 ...
 
 # Coverage
-[The observable axes along which the evaluation inputs vary (per the
-dimension families in Your Process step 3) and, for each: how this
-solution's data/method covers it. Mark every axis MEASURED (cite the
-profile or experiment that measured it) or ASSUMED (recon must verify it
-before building).]
+[For each dimension family in Your Process step 3: the sub-axes you
+measured or assumed (each marked MEASURED with its citation, or ASSUMED —
+recon verifies ASSUMED before building), AND one closing line per family:
+"Not measured: <sub-axes considered but not measured> — <why>". Write
+"Not measured: none identified" only after enumerating candidates against
+the step-3 example taxonomy. A family may be called MEASURED only if both
+lists are present — an axis nobody names is a coverage hole no audit can
+see.]
 
 # Rationale
 [Why this approach should work, citing any sources you found]

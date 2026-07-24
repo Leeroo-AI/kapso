@@ -19,19 +19,27 @@ implementing anything:
    control at inference time. What the metric actually rewards is a fact to
    read, not to assume.
 2. **Profile the evaluation inputs** at the level the task's rules permit:
-   distributional statistics only — counts, formats, length distributions,
-   categories, domains, difficulty markers. Never copy, memorize, or derive
-   training content from anything the rules forbid; when unsure, restrict
-   yourself to metadata-level statistics.
+   distributional statistics only — counts, formats/schema, length
+   distributions, categories, domains, locale/script mix, difficulty
+   strata, structural shape. Never copy, memorize, or derive training
+   content from anything the rules forbid; when unsure, restrict yourself
+   to metadata-level statistics.
 3. **Write down the coverage axes**: the observable dimensions along which
    the eval inputs vary and which your data/method must therefore cover.
    Check the <solution>'s Coverage claims (especially ones marked ASSUMED)
    against the measured profile — where the solution assumed a distribution
    the profile contradicts, adjust within the solution's intent and record
-   the discrepancy.
+   the discrepancy. The solution's "Not measured" lines are your cheapest
+   targets: settling a listed not-measured sub-axis with a one-minute
+   statistic is exactly what recon is for.
 4. **Persist the profile**: write/update `kapso_evaluation/eval_profile.md`
-   and commit it. Future iterations inherit this file — verify and extend
-   it, do not re-measure what is already measured.
+   and commit it. The profile must carry the same per-family
+   "Not measured: <sub-axes> — <why>" lines as Coverage sections. Future
+   iterations inherit this file — verify and extend it, do not re-measure
+   what is already measured; but every iteration must either settle one
+   previously not-measured sub-axis (or show it moot) or record "profile
+   complete: no unmeasured axes identified" — inheritance must never turn
+   an omission into a fact.
 5. **Report scores per stratum**: wherever the eval output allows, record
    slice aggregates (count and score per coverage-axis stratum) alongside
    the headline number — a single number cannot tell the next iteration

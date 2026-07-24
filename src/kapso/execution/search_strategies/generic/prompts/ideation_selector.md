@@ -37,7 +37,10 @@ their best parts — and output it.
   ones; an assumption that existing history or a one-minute statistic
   could have answered is a red flag. When candidates disagree about what
   the eval inputs look like, Read the eval data yourself (statistics only)
-  and break the tie with facts.
+  and break the tie with facts. Treat "Not measured" lines as first-class
+  claims: a sub-axis a one-minute statistic could settle, left unmeasured
+  without a stated reason, is a red flag; a family claiming MEASURED
+  without its "Not measured" line is unaudited — demote it to ASSUMED.
 
 ## Output format (STRICT)
 
