@@ -219,7 +219,11 @@ class _RunCheckpointControl:
         self,
         parent_descriptor: int,
         descriptors: ExitStack,
+        *,
+        shared: bool = False,
     ) -> int:
+        if type(shared) is not bool:
+            raise RunCheckpointControlError("run checkpoint lock mode must be explicit")
         descriptor = os.open(
             self._lock_relative.name,
             os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC,
@@ -239,7 +243,10 @@ class _RunCheckpointControl:
                 "run checkpoint lock must be one owner-private file"
             )
         identity = (metadata.st_dev, metadata.st_ino)
-        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        fcntl.flock(
+            descriptor,
+            fcntl.LOCK_SH if shared else fcntl.LOCK_EX,
+        )
         descriptors.callback(fcntl.flock, descriptor, fcntl.LOCK_UN)
         rebound = os.stat(
             self._lock_relative.name,

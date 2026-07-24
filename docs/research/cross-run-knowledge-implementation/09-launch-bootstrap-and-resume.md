@@ -8,10 +8,10 @@ Status: **in progress**. The transactional launch resolver and exact authority
 contracts, atomic workspace/bootstrap-pin installation, exact run-checkpoint
 contracts, the protected checkpoint CAS store, the immutable derived-generation
 contract/layout, and the dependency-pure reconciled archive/history/journal
-projection and retained bundle layer are implemented. The single-lock
-checkpoint/generation publisher, mutable-view promotion, executor isolation,
-explicit E0/S-EMPTY provisioning orchestration, resume, and API/runner activation
-remain.
+projection and retained bundle layer, single-lock checkpoint/generation
+publisher, mutable-view promotion, and current-frontier action lease are
+implemented. Boundary-specific adapters, OS executor isolation, explicit
+E0/S-EMPTY provisioning orchestration, resume, and API/runner activation remain.
 
 ## Objective
 
@@ -276,6 +276,13 @@ expert workspace before the new runtime becomes reachable.
       checkpoint, idempotently promote every mutable view, verify all bytes/refs,
       and return a non-clonable reconciled-frontier receipt. A durable checkpoint
       alone must never authorize capture or another paid/dangerous action.
+- [x] Require a live reconciled receipt for every non-genesis state publication,
+      and issue one-shot action permits from complete request bytes. Permit
+      consumption holds a shared checkpoint lock for the entire external action,
+      reopens the pinned workspace by descriptor, reconciles the source tree,
+      Git branch, commit tree, and index to checkpoint evidence, and authenticates
+      the current denylist as the exact checkpointed observation; state
+      publication retains the exclusive lock.
 - [ ] On resume, require the original `BootstrapPin`, workspace tree, read-only
       snapshot package, adapter, checkpoint, IdeaArchive, experiment store, journal,
       and branches to reconcile.
@@ -309,6 +316,47 @@ unrelated journal tails, unsafe views, stale permits, and inode substitutions fa
 loudly. A bundle published before a failed checkpoint CAS remains an inert orphan
 and can be reused only by a later authorized candidate naming it exactly.
 
+`RunFrontierActionGate` is the only new-run authority for coding-agent, embedding,
+and evaluator calls. It derives an immutable intent from the complete canonical
+request bytes, binds it to the exact checkpoint/safety/generation/journal/bundle/
+view closure, and burns the permit before revalidation. The same operation or
+content-derived intent cannot be issued twice. Only active, non-yielded
+checkpoints act, and the capability matrix is exact: ideation/evaluation coding
+agents and evaluators read the workspace, implementation coding agents edit it,
+and embeddings receive no workspace descriptor.
+
+Consumption holds a shared descriptor-safe frontier lock through boundary
+completion, while checkpoint publication requires the exclusive lock. Before
+use, the gate proves that the owner-private workspace has the checkpointed branch
+head, a clean source tree equal to the commit tree, an exact flag-free Git index,
+one exact configured ref, no replace/alternate/shallow/graft state, and a bounded
+self-contained loose object store equal to the complete reachable
+commit/parent/tree/blob closure. The returned identity includes the canonical
+digest of every admitted Git metadata file, so read-only actions must leave the
+full source and Git frontier unchanged.
+
+An edit is exclusive against all workspace readers and other edits, must finish
+as one clean direct-successor commit with canonical Git header grammar, and spends
+the predecessor frontier. No later action or publication may use that frontier
+until a checkpoint successor records exactly one authorized `RunBranchAdvance`
+to that commit; this guard is shared strongly by every publisher for the active
+workspace.
+
+A live authenticated denylist descendant must equal the observation already
+checkpointed in the safety state; any advance requires a durable safety-state
+successor before work can begin. Security-blocked state cannot act.
+Reproducibility-only state may continue scientific work but remains ineligible
+for promotion. The generic provider APIs and OS sandbox are not yet wrapped by
+this gate, so the new runtime remains dormant.
+
+The present one-shot operation registry and pending-edit guard are process-lifetime
+authorities. M9 resume/runtime activation must persist a pre-spawn operation
+record and edit outcome before exposing these adapters; after process death it
+must recover or mark an uncertain action interrupted, never recreate authority
+from the in-memory gate. Cross-process at-most-once execution is therefore a
+remaining resume/runtime deliverable, not a property claimed by this dormant
+lease layer.
+
 ## Failure and trust behavior
 
 - Missing/corrupt/unauthorized/incompatible/expired artifacts fail before spend.
@@ -336,6 +384,15 @@ and can be reused only by a later authorized candidate naming it exactly.
 - Bootstrap explicit E0/EMPTY; prove missing remote does not trigger it.
 - Inject death after every download/stage/rename/pin/checkpoint boundary.
 - Prove no coding-agent/embedding/evaluator call occurs before `BootstrapPin`.
+- Reject stopped/completed action frontiers, duplicate operations, cloned permits,
+  request changes, invalid boundary/capability combinations, and workspace
+  mutation between issuance and consumption.
+- Prove embeddings receive no workspace capability; prove edits exclude parallel
+  edits/readers, poison old permits/publication candidates, and become usable only
+  after an exact branch-advance checkpoint successor.
+- Reject replace refs, alternates, shallow/graft state, packed or unreachable Git
+  objects, missing reachable objects, index behavior flags, malformed commit
+  headers, admitted-metadata changes, and workspace/Git entry-limit exhaustion.
 - Resume after remote pointers advance and require original local pin.
 - Corrupt each local component/receipt/tree and require fail-loud resume.
 - Exercise performance and security revocation differences.

@@ -1567,6 +1567,10 @@ class LaunchSettings(StrictContract):
     run_derived_generation_size_bytes: int
     run_derived_state_store_entry_limit: int
     run_derived_state_staging_entry_limit: int
+    run_workspace_entry_limit: int
+    run_workspace_size_bytes: int
+    run_workspace_git_entry_limit: int
+    run_workspace_git_metadata_size_bytes: int
     knowledge_snapshot_file_size_bytes: int
     workspace_git_branch: str
     compatibility_policy_version: str
@@ -1729,6 +1733,19 @@ class LaunchSettings(StrictContract):
             self.run_derived_state_staging_entry_limit,
             "launch.run_derived_state_staging_entry_limit",
         )
+        for value, name in (
+            (self.run_workspace_entry_limit, "run_workspace_entry_limit"),
+            (self.run_workspace_size_bytes, "run_workspace_size_bytes"),
+            (
+                self.run_workspace_git_entry_limit,
+                "run_workspace_git_entry_limit",
+            ),
+            (
+                self.run_workspace_git_metadata_size_bytes,
+                "run_workspace_git_metadata_size_bytes",
+            ),
+        ):
+            _require_positive(value, f"launch.{name}")
         require_git_ref_name(
             f"refs/heads/{self.workspace_git_branch}",
             "launch.workspace_git_branch",

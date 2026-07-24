@@ -505,6 +505,77 @@ class ActiveLaunchWorkspace:
             self.published_root_identity,
         )
 
+    def _open_execution_workspace(
+        self,
+        descriptors: ExitStack,
+    ) -> tuple[int, tuple[int, int]]:
+        """Open the pinned writable workspace without following public paths."""
+        self.require_control_authority()
+        root_descriptor = _open_real_root(self.run_root, descriptors)
+        if (
+            StarterWorkspaceBuilder._directory_identity(root_descriptor)
+            != self.published_root_identity
+        ):
+            raise LaunchWorkspaceError(
+                "active run root changed before execution workspace access"
+            )
+        current_descriptor = root_descriptor
+        current_path = PurePosixPath(".")
+        layout = self.bootstrap_pin.installation_receipt.layout
+        for component in PurePosixPath(layout.workspace_relative_path).parts:
+            child_descriptor = os.open(
+                component,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                dir_fd=current_descriptor,
+            )
+            descriptors.callback(os.close, child_descriptor)
+            current_path = (
+                PurePosixPath(component)
+                if current_path == PurePosixPath(".")
+                else current_path / component
+            )
+            metadata = os.fstat(child_descriptor)
+            expected_identity = self._prepared._pinned_directory_identities.get(
+                current_path.as_posix()
+            )
+            if (
+                not stat.S_ISDIR(metadata.st_mode)
+                or metadata.st_uid != os.geteuid()
+                or expected_identity is None
+                or (metadata.st_dev, metadata.st_ino) != expected_identity
+            ):
+                raise LaunchWorkspaceError(
+                    "execution workspace path changed after launch"
+                )
+            current_descriptor = child_descriptor
+        identity = StarterWorkspaceBuilder._directory_identity(
+            current_descriptor,
+        )
+        self.require_control_authority()
+        return current_descriptor, identity
+
+    def _require_execution_workspace(
+        self,
+        descriptor: int,
+        identity: tuple[int, int],
+    ) -> None:
+        """Reprove the pinned workspace while an execution lease still holds it."""
+        _require_inode_identity(identity, "active execution workspace")
+        metadata = os.fstat(descriptor)
+        if (
+            not stat.S_ISDIR(metadata.st_mode)
+            or (metadata.st_dev, metadata.st_ino) != identity
+        ):
+            raise LaunchWorkspaceError("active execution workspace changed during use")
+        expected = self._prepared._pinned_directory_identities[
+            self.bootstrap_pin.installation_receipt.layout.workspace_relative_path
+        ]
+        if identity != expected:
+            raise LaunchWorkspaceError(
+                "active execution workspace differs from its launch"
+            )
+        self.require_control_authority()
+
 
 def _issue_active_workspace(active: ActiveLaunchWorkspace) -> None:
     if (
@@ -1070,7 +1141,11 @@ class StarterWorkspaceBuilder:
             raise LaunchWorkspaceError(f"{name} byte closure is not exact")
         if destination.exists() or destination.is_symlink():
             raise LaunchWorkspaceError(f"{name} destination already exists")
-        destination.mkdir(parents=True, mode=0o755)
+        destination.mkdir(
+            parents=True,
+            mode=0o755 if read_only else 0o700,
+        )
+        destination.chmod(0o755 if read_only else 0o700)
         for relative_path in sorted(descriptor_by_path):
             descriptor = descriptor_by_path[relative_path]
             path = StarterWorkspaceBuilder._safe_source_path(
@@ -1574,6 +1649,12 @@ class StarterWorkspaceBuilder:
             b"\tlogallrefupdates = false\n"
             b"\tautocrlf = false\n"
             b"\thooksPath = /dev/null\n"
+            b"[commit]\n"
+            b"\tgpgsign = false\n"
+            b"[gc]\n"
+            b"\tauto = 0\n"
+            b"[i18n]\n"
+            b"\tcommitEncoding = UTF-8\n"
         )
 
     @staticmethod

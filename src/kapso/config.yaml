@@ -389,6 +389,10 @@ cross_run:
     run_derived_generation_size_bytes: 1342177280
     run_derived_state_store_entry_limit: 10000
     run_derived_state_staging_entry_limit: 64
+    run_workspace_entry_limit: 10000
+    run_workspace_size_bytes: 1073741824
+    run_workspace_git_entry_limit: 50000
+    run_workspace_git_metadata_size_bytes: 67108864
     knowledge_snapshot_file_size_bytes: 268435456
     workspace_git_branch: "main"
     compatibility_policy_version: "kapso.launch_compatibility.v1"

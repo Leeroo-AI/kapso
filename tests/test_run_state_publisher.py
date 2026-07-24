@@ -354,7 +354,7 @@ def test_fresh_idempotent_retry_reuses_one_generation_object(
     )
 
     permit = publisher.issue_publication_permit(
-        None,
+        first,
         publisher_case["checkpoint"],
         publisher_case["bundle"],
     )
@@ -663,7 +663,7 @@ def test_reconciled_receipt_is_nonclonable_and_stales_after_successor(
         publisher_case["checkpoint"],
     )
     permit = publisher.issue_publication_permit(
-        publisher_case["checkpoint"].run_checkpoint_id,
+        receipt,
         successor_checkpoint,
         successor_bundle,
     )
@@ -679,6 +679,37 @@ def test_reconciled_receipt_is_nonclonable_and_stales_after_successor(
         match="no longer current|stale",
     ):
         receipt.require_current(publisher)
+
+
+@pytest.mark.parametrize("frontier_kind", ("checkpoint_id", "clone"))
+def test_successor_publication_requires_live_reconciled_frontier(
+    publisher_case,
+    frontier_kind,
+) -> None:
+    publisher, receipt = _publish_genesis(publisher_case)
+    successor_bundle, successor_checkpoint = _successor(
+        publisher_case["active"],
+        publisher_case["projection"],
+        publisher_case["bundle"],
+        publisher_case["checkpoint"],
+    )
+    observed_frontier = (
+        receipt.run_checkpoint_id
+        if frontier_kind == "checkpoint_id"
+        else replace(receipt)
+    )
+
+    with pytest.raises(
+        RunStatePublisherError,
+        match="exact receipt|cloned|foreign",
+    ):
+        publisher.issue_publication_permit(
+            observed_frontier,
+            successor_checkpoint,
+            successor_bundle,
+        )
+
+    assert publisher.require_current(receipt) == publisher_case["checkpoint"]
 
 
 def test_load_reconciled_recovers_checkpoint_ahead_when_bundle_is_durable(

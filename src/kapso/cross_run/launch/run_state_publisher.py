@@ -39,6 +39,8 @@ _DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 _RENAME_NOREPLACE = 1
 _PUBLICATION_PERMIT_AUTHORITY = object()
 _RECONCILED_FRONTIER_AUTHORITY = object()
+_ACTION_PUBLICATION_GUARD_LOCK = Lock()
+_ACTION_PUBLICATION_GUARDS: dict[int, object] = {}
 
 
 class RunStatePublisherError(RuntimeError):
@@ -233,6 +235,7 @@ class RunStatePublisher:
         self._settings = settings
         self._checkpoint = _RunCheckpointControl(authority, settings)
         self._publisher_identity = object()
+        self._action_publication_guard = None
         self._permit_lock = Lock()
         self._issued_permits: dict[int, RunStatePublicationPermit] = {}
         self._receipt_lock = Lock()
@@ -304,17 +307,13 @@ class RunStatePublisher:
 
     def issue_publication_permit(
         self,
-        expected_checkpoint_id: str | None,
+        observed_frontier: ReconciledRunFrontier | None,
         candidate: RunCheckpoint,
         bundle: RunDerivedStateBundle,
     ) -> RunStatePublicationPermit:
         """Seal one reconciled frontier and exact candidate for later publication."""
-        if expected_checkpoint_id is not None:
-            _require_namespaced_id(
-                expected_checkpoint_id,
-                RunCheckpoint.CONTENT_NAMESPACE,
-                "expected run checkpoint",
-            )
+        if observed_frontier is not None:
+            self._require_issued_receipt(observed_frontier)
         projection = self._validate_candidate_bundle(candidate, bundle)
         with ExitStack() as descriptors:
             parent_descriptor = self._open_transaction(descriptors)
@@ -329,9 +328,20 @@ class RunStatePublisher:
                 if observed_checkpoint is None
                 else observed_checkpoint.run_checkpoint_id
             )
+            if current is None:
+                if observed_frontier is not None:
+                    raise RunStatePublisherError(
+                        "fresh publication received a non-fresh frontier"
+                    )
+            elif observed_frontier is None or not self._receipt_matches(
+                observed_frontier, current
+            ):
+                raise RunStatePublisherError(
+                    "run-state publication lacks the current reconciled frontier"
+                )
             if observed_checkpoint == candidate:
                 if (
-                    expected_checkpoint_id != candidate.predecessor_checkpoint_id
+                    current is None
                     or current.bundle != bundle
                     or bundle.generation.predecessor_checkpoint_head_id
                     != current.inspection.head.predecessor_head_id
@@ -340,10 +350,6 @@ class RunStatePublisher:
                         "idempotent publication names another predecessor or bundle"
                     )
             else:
-                if observed_id != expected_checkpoint_id:
-                    raise RunStatePublisherError(
-                        "run-state publication expected a stale frontier"
-                    )
                 candidate.require_predecessor(observed_checkpoint)
                 if bundle.generation.predecessor_checkpoint_head_id != (
                     RunCheckpointHead.initial(
@@ -357,13 +363,19 @@ class RunStatePublisher:
                     )
                 if current is not None:
                     projection.require_predecessor(current.projection)
+            self._require_action_publication_candidate(
+                observed_checkpoint,
+                candidate,
+            )
             inspection = (
                 self._fresh_inspection(parent_descriptor, descriptors)
                 if current is None
                 else current.inspection
             )
             permit = RunStatePublicationPermit(
-                requested_predecessor_checkpoint_id=expected_checkpoint_id,
+                requested_predecessor_checkpoint_id=(
+                    candidate.predecessor_checkpoint_id
+                ),
                 observed_checkpoint_id=observed_id,
                 expected_journal_head_id=(inspection.head.run_checkpoint_head_id),
                 expected_journal_size_bytes=inspection.journal_size_bytes,
@@ -429,7 +441,12 @@ class RunStatePublisher:
                     raise RunStatePublisherError(
                         "idempotent publication differs from its durable candidate"
                     )
-                return self._mint_receipt(current)
+                receipt = self._mint_receipt(current)
+                self._commit_action_publication(
+                    candidate.predecessor_checkpoint_id,
+                    candidate,
+                )
+                return receipt
             if current_id != permit.requested_predecessor_checkpoint_id:
                 raise RunStatePublisherError(
                     "run-state publication predecessor changed"
@@ -439,6 +456,10 @@ class RunStatePublisher:
             )
             if current is not None:
                 projection.require_predecessor(current.projection)
+            self._require_action_publication_candidate(
+                None if current is None else current.checkpoint,
+                candidate,
+            )
             successor_head = inspection.head.advance(candidate)
             self._checkpoint._require_journal_append_capacity(
                 parent_descriptor,
@@ -481,7 +502,12 @@ class RunStatePublisher:
                 raise RunStatePublisherError(
                     "published run-state frontier failed final reconciliation"
                 )
-            return self._mint_receipt(reconciled)
+            receipt = self._mint_receipt(reconciled)
+            self._commit_action_publication(
+                candidate.predecessor_checkpoint_id,
+                candidate,
+            )
+            return receipt
 
     def load_reconciled(self) -> ReconciledRunFrontier | None:
         """Recover safe crash seams, repair views, and return the current frontier."""
@@ -499,36 +525,102 @@ class RunStatePublisher:
         receipt: ReconciledRunFrontier,
     ) -> RunCheckpoint:
         """Verify one live receipt without repairing any persistent state."""
-        if type(receipt) is not ReconciledRunFrontier:
-            raise RunStatePublisherError(
-                "current-frontier check requires one exact receipt"
-            )
-        with self._receipt_lock:
-            issued = self._issued_receipts.get(id(receipt))
+        self._require_issued_receipt(receipt)
+        with ExitStack() as descriptors:
+            return self._hold_current(receipt, descriptors)
+
+    def _bind_action_publication_guard(self, guard) -> None:
+        """Install the sole live-action workspace publication authority."""
         if (
-            issued is not receipt
-            or receipt._authority is not _RECONCILED_FRONTIER_AUTHORITY
-            or receipt._publisher_identity is not self._publisher_identity
+            not hasattr(guard, "_require_publication_candidate")
+            or not hasattr(guard, "_commit_publication")
         ):
             raise RunStatePublisherError(
-                "reconciled run frontier is cloned, foreign, or expired"
+                "run-state publisher action guard is missing or already bound"
             )
-        with ExitStack() as descriptors:
-            parent_descriptor = self._open_transaction(
-                descriptors,
-                clean_staging=False,
-            )
-            material = self._load_locked(
-                parent_descriptor,
-                descriptors,
-                repair=False,
-                clean_staging=False,
-            )
-            if material is None or not self._receipt_matches(receipt, material):
+        with _ACTION_PUBLICATION_GUARD_LOCK:
+            existing = _ACTION_PUBLICATION_GUARDS.get(id(self._authority))
+            if (
+                existing is not None
+                and existing is not guard
+            ) or (
+                self._action_publication_guard is not None
+                and self._action_publication_guard is not guard
+            ):
                 raise RunStatePublisherError(
-                    "reconciled run frontier is no longer current"
+                    "run-state publisher action guard is already bound"
                 )
-            return material.checkpoint
+            _ACTION_PUBLICATION_GUARDS[id(self._authority)] = guard
+            self._action_publication_guard = guard
+
+    def _current_action_publication_guard(self):
+        with _ACTION_PUBLICATION_GUARD_LOCK:
+            registered = _ACTION_PUBLICATION_GUARDS.get(id(self._authority))
+        if (
+            self._action_publication_guard is not None
+            and registered is not self._action_publication_guard
+        ):
+            raise RunStatePublisherError(
+                "run-state publisher action guard registry changed"
+            )
+        return registered
+
+    def _require_action_publication_candidate(
+        self,
+        current_checkpoint: RunCheckpoint | None,
+        candidate: RunCheckpoint,
+    ) -> None:
+        guard = self._current_action_publication_guard()
+        if guard is not None:
+            guard._require_publication_candidate(
+                current_checkpoint,
+                candidate,
+            )
+
+    def _commit_action_publication(
+        self,
+        predecessor_checkpoint_id: str | None,
+        candidate: RunCheckpoint,
+    ) -> None:
+        guard = self._current_action_publication_guard()
+        if guard is not None:
+            guard._commit_publication(
+                predecessor_checkpoint_id,
+                candidate,
+            )
+
+    def _hold_current(
+        self,
+        receipt: ReconciledRunFrontier,
+        descriptors: ExitStack,
+    ) -> RunCheckpoint:
+        """Hold a shared lock while proving one exact live frontier."""
+        if type(descriptors) is not ExitStack:
+            raise RunStatePublisherError(
+                "shared frontier authority requires one descriptor stack"
+            )
+        self._require_issued_receipt(receipt)
+        self._authority.require_control_authority()
+        parent_descriptor = self._checkpoint._open_control_parent(descriptors)
+        self._checkpoint._open_locked(
+            parent_descriptor,
+            descriptors,
+            shared=True,
+        )
+        self._checkpoint._open_staging(parent_descriptor, descriptors)
+        store_descriptor = self._open_store(parent_descriptor, descriptors)
+        self._open_staging(parent_descriptor, descriptors)
+        self._validate_store(store_descriptor)
+        material = self._load_locked(
+            parent_descriptor,
+            descriptors,
+            repair=False,
+            clean_staging=False,
+        )
+        if material is None or not self._receipt_matches(receipt, material):
+            raise RunStatePublisherError("reconciled run frontier is no longer current")
+        self._authority.require_control_authority()
+        return material.checkpoint
 
     def _open_transaction(
         self,
@@ -1223,6 +1315,25 @@ class RunStatePublisher:
         ):
             raise RunStatePublisherError(
                 "run-state publication permit is cloned, foreign, or consumed"
+            )
+
+    def _require_issued_receipt(
+        self,
+        receipt: ReconciledRunFrontier,
+    ) -> None:
+        if type(receipt) is not ReconciledRunFrontier:
+            raise RunStatePublisherError(
+                "current-frontier check requires one exact receipt"
+            )
+        with self._receipt_lock:
+            issued = self._issued_receipts.get(id(receipt))
+        if (
+            issued is not receipt
+            or receipt._authority is not _RECONCILED_FRONTIER_AUTHORITY
+            or receipt._publisher_identity is not self._publisher_identity
+        ):
+            raise RunStatePublisherError(
+                "reconciled run frontier is cloned, foreign, or expired"
             )
 
     @staticmethod

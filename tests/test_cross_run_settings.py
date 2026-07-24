@@ -816,6 +816,10 @@ def test_launch_derived_generation_bound_covers_all_projection_authorities():
         "run_derived_generation_size_bytes",
         "run_derived_state_store_entry_limit",
         "run_derived_state_staging_entry_limit",
+        "run_workspace_entry_limit",
+        "run_workspace_size_bytes",
+        "run_workspace_git_entry_limit",
+        "run_workspace_git_metadata_size_bytes",
     ],
 )
 def test_launch_derived_state_bounds_are_positive(field):
