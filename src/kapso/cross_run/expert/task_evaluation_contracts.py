@@ -324,6 +324,10 @@ class TaskEvaluationRequest(StrictContract):
     scope_id: str
     source_base_release_id: str | None
     source_base_tree_hash: str | None
+    expected_current_release_id: str | None
+    recovery_plan_id: str | None
+    control_dependency_ids: tuple[str, ...]
+    allowed_control_security_subject_ids: tuple[str, ...]
     validation_policy_id: str
     configuration_fingerprint: str
     release_matrix_evaluator_id: str
@@ -408,23 +412,99 @@ class TaskEvaluationRequest(StrictContract):
             "task evaluation configuration fingerprint",
         )
         if self.mode is ExpertReleaseMatrixMode.BOOTSTRAP:
-            if self.source_base_release_id is not None or self.source_base_tree_hash is not None:
+            if (
+                self.source_base_release_id is not None
+                or self.source_base_tree_hash is not None
+                or self.expected_current_release_id is not None
+                or self.recovery_plan_id is not None
+                or self.control_dependency_ids
+                or self.allowed_control_security_subject_ids
+            ):
                 raise TaskEvaluationContractError(
-                    "bootstrap task evaluation cannot name a source base"
+                    "bootstrap task evaluation cannot name a source base or recovery authority"
                 )
             expected_leg_kinds = {TaskEvaluationLegKind.CANDIDATE}
-        else:
-            if self.source_base_release_id is None or self.source_base_tree_hash is None:
+        elif self.mode is ExpertReleaseMatrixMode.CONTROL_COMPARISON:
+            if (
+                self.source_base_release_id is None
+                or self.source_base_tree_hash is None
+                or self.expected_current_release_id != self.source_base_release_id
+                or self.recovery_plan_id is not None
+                or self.control_dependency_ids
+                or self.allowed_control_security_subject_ids
+            ):
                 raise TaskEvaluationContractError(
-                    "source-base task evaluation requires a source base"
+                    "control task evaluation requires a source base bound to CURRENT"
                 )
+            expected_leg_kinds = set(TaskEvaluationLegKind)
+        else:
+            if (
+                self.expected_current_release_id is None
+                or self.recovery_plan_id is None
+                or not self.control_dependency_ids
+                or (self.source_base_release_id is None)
+                != (self.source_base_tree_hash is None)
+                or self.expected_current_release_id == self.source_base_release_id
+                or self.recovery_plan_id not in self.control_dependency_ids
+                or self.expected_current_release_id not in self.control_dependency_ids
+                or self.source_base_release_id in self.control_dependency_ids
+            ):
+                raise TaskEvaluationContractError(
+                    "recovery task evaluation authority partition is invalid"
+                )
+            _require_namespaced_id(
+                self.recovery_plan_id,
+                "expert-clean-forward-recovery-plan",
+                "task evaluation recovery plan",
+            )
+            expected_leg_kinds = (
+                {TaskEvaluationLegKind.CANDIDATE}
+                if self.source_base_release_id is None
+                else set(TaskEvaluationLegKind)
+            )
+        if self.expected_current_release_id is not None:
+            _require_namespaced_id(
+                self.expected_current_release_id,
+                "expert-base-release",
+                "task evaluation expected current release",
+            )
+        if self.source_base_release_id is not None:
             _require_namespaced_id(
                 self.source_base_release_id,
                 "expert-base-release",
                 "task evaluation source-base release",
             )
-            _require_digest(self.source_base_tree_hash, "task evaluation source-base tree")
-            expected_leg_kinds = set(TaskEvaluationLegKind)
+            _require_digest(
+                self.source_base_tree_hash, "task evaluation source-base tree"
+            )
+        if self.control_dependency_ids != tuple(
+            sorted(set(self.control_dependency_ids))
+        ):
+            raise TaskEvaluationContractError(
+                "task evaluation control dependencies must be sorted and unique"
+            )
+        for dependency_id in self.control_dependency_ids:
+            require_content_id(
+                dependency_id,
+                "task evaluation control dependency",
+            )
+        if self.allowed_control_security_subject_ids != tuple(
+            sorted(set(self.allowed_control_security_subject_ids))
+        ):
+            raise TaskEvaluationContractError(
+                "task evaluation allowed control security subjects must be sorted and unique"
+            )
+        for subject_id in self.allowed_control_security_subject_ids:
+            require_content_id(
+                subject_id,
+                "task evaluation allowed control security subject",
+            )
+        if not set(self.allowed_control_security_subject_ids).issubset(
+            self.control_dependency_ids
+        ):
+            raise TaskEvaluationContractError(
+                "task evaluation security waiver exceeds recovery control authority"
+            )
         case_keys = tuple(case.canonical_key for case in self.cases)
         case_ids = tuple(case.evaluation_case_id for case in self.cases)
         provenance_ids = tuple(case.provenance_binding_id for case in self.cases)
@@ -499,6 +579,11 @@ class TaskEvaluationRequest(StrictContract):
         }
         if self.source_base_release_id is not None:
             expected_dependencies.add(self.source_base_release_id)
+        if self.expected_current_release_id is not None:
+            expected_dependencies.add(self.expected_current_release_id)
+        if self.recovery_plan_id is not None:
+            expected_dependencies.add(self.recovery_plan_id)
+        expected_dependencies.update(self.control_dependency_ids)
         if self.exact_dependency_ids != tuple(sorted(expected_dependencies)):
             raise TaskEvaluationContractError(
                 "task evaluation request dependency closure is not exact"

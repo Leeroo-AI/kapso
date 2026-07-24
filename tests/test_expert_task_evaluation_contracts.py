@@ -104,10 +104,12 @@ def _compute(
 
 def _case(
     mode: ExpertReleaseMatrixMode,
+    *,
+    standalone_recovery: bool = False,
 ) -> TaskEvaluationCase:
     leg_kinds = (
         (TaskEvaluationLegKind.CANDIDATE,)
-        if mode is ExpertReleaseMatrixMode.BOOTSTRAP
+        if mode is ExpertReleaseMatrixMode.BOOTSTRAP or standalone_recovery
         else (
             TaskEvaluationLegKind.SOURCE_BASE_CONTROL,
             TaskEvaluationLegKind.CANDIDATE,
@@ -174,8 +176,12 @@ def _case(
     )
 
 
-def _request(mode: ExpertReleaseMatrixMode) -> TaskEvaluationRequest:
-    case = _case(mode)
+def _request(
+    mode: ExpertReleaseMatrixMode,
+    *,
+    standalone_recovery: bool = False,
+) -> TaskEvaluationRequest:
+    case = _case(mode, standalone_recovery=standalone_recovery)
     plan_operation_id = _id("expert-validation-operation", "plan-reservation")
     plan_id = _id("expert-release-matrix-evaluation-plan", "plan")
     transition_id = _id("expert-validation-transition", "transition")
@@ -187,15 +193,40 @@ def _request(mode: ExpertReleaseMatrixMode) -> TaskEvaluationRequest:
     policy_id = _id("expert-validation-policy", "policy")
     parent_id = (
         None
-        if mode is ExpertReleaseMatrixMode.BOOTSTRAP
+        if mode is ExpertReleaseMatrixMode.BOOTSTRAP or standalone_recovery
         else _id("expert-base-release", "source_base")
     )
+    expected_current_release_id = parent_id
+    recovery_plan_id = None
+    control_dependency_ids = ()
+    if mode is ExpertReleaseMatrixMode.CLEAN_FORWARD_RECOVERY:
+        expected_current_release_id = _id(
+            "expert-base-release",
+            "blocked-current",
+        )
+        recovery_plan_id = _id(
+            "expert-clean-forward-recovery-plan",
+            "recovery-plan",
+        )
+        control_dependency_ids = tuple(
+            sorted(
+                (
+                    expected_current_release_id,
+                    recovery_plan_id,
+                    _id(
+                        "expert-recovery-candidate-admission",
+                        "recovery-admission",
+                    ),
+                )
+            )
+        )
     plan_dependencies = tuple(
         sorted(
             (
                 _id("expert-release-matrix-adapter-authority", "adapter"),
                 _id("expert-release-matrix-provenance-binding", "provenance"),
                 *case.evaluation_cell_ids,
+                *control_dependency_ids,
             )
         )
     )
@@ -215,6 +246,11 @@ def _request(mode: ExpertReleaseMatrixMode) -> TaskEvaluationRequest:
     }
     if parent_id is not None:
         dependencies.add(parent_id)
+    if expected_current_release_id is not None:
+        dependencies.add(expected_current_release_id)
+    if recovery_plan_id is not None:
+        dependencies.add(recovery_plan_id)
+    dependencies.update(control_dependency_ids)
     return TaskEvaluationRequest.mint(
         request_contract_version=TASK_EVALUATION_REQUEST_CONTRACT_VERSION,
         plan_reservation_operation_id=plan_operation_id,
@@ -229,7 +265,13 @@ def _request(mode: ExpertReleaseMatrixMode) -> TaskEvaluationRequest:
         scope_contract_id=scope_contract_id,
         scope_id="ml_ai",
         source_base_release_id=parent_id,
-        source_base_tree_hash=(None if parent_id is None else _digest("source_base-tree")),
+        source_base_tree_hash=(
+            None if parent_id is None else _digest("source_base-tree")
+        ),
+        expected_current_release_id=expected_current_release_id,
+        recovery_plan_id=recovery_plan_id,
+        control_dependency_ids=control_dependency_ids,
+        allowed_control_security_subject_ids=(),
         validation_policy_id=policy_id,
         configuration_fingerprint=_digest("configuration"),
         release_matrix_evaluator_id="expert_release_matrix_evaluator",
@@ -257,8 +299,8 @@ def _reservation(request: TaskEvaluationRequest) -> TaskEvaluationReservation:
         request.scope_contract_id,
         observation_id,
     }
-    if request.source_base_release_id is not None:
-        dependencies.add(request.source_base_release_id)
+    if request.expected_current_release_id is not None:
+        dependencies.add(request.expected_current_release_id)
     return TaskEvaluationReservation.mint(
         request_id=request.request_id,
         plan_reservation_operation_id=request.plan_reservation_operation_id,
@@ -272,7 +314,7 @@ def _reservation(request: TaskEvaluationRequest) -> TaskEvaluationReservation:
         scope_contract_id=request.scope_contract_id,
         scope_id=request.scope_id,
         current_release_observation_id=observation_id,
-        observed_current_release_id=request.source_base_release_id,
+        observed_current_release_id=request.expected_current_release_id,
         exact_dependency_ids=tuple(sorted(dependencies)),
     )
 
@@ -293,7 +335,9 @@ def _request_for_reserved_plan(
     if packet.source_base_release is None or packet.source_base_tree_receipt is None:
         source_base = None
     else:
-        _released_packet, _materialized, source_base_contents = released_workspace_fixture()
+        _released_packet, _materialized, source_base_contents = (
+            released_workspace_fixture()
+        )
         source_base = VerifiedTaskEvaluationSourceBase(
             release_manifest=packet.source_base_release,
             source_base_tree_receipt=packet.source_base_tree_receipt,
@@ -433,7 +477,46 @@ def test_parent_mode_requires_both_semantic_legs():
     with pytest.raises(TaskEvaluationContractError, match="mode-specific legs"):
         _remint(source_base, cases=(candidate_case,))
     with pytest.raises(TaskEvaluationContractError, match="expert authority"):
-        _remint(source_base, source_base_tree_hash=_digest("substituted-source-base-tree"))
+        _remint(
+            source_base, source_base_tree_hash=_digest("substituted-source-base-tree")
+        )
+
+
+def test_recovery_request_separates_scientific_source_from_current_barrier():
+    historical = _request(ExpertReleaseMatrixMode.CLEAN_FORWARD_RECOVERY)
+    standalone = _request(
+        ExpertReleaseMatrixMode.CLEAN_FORWARD_RECOVERY,
+        standalone_recovery=True,
+    )
+
+    assert historical.source_base_release_id is not None
+    assert historical.expected_current_release_id != historical.source_base_release_id
+    assert historical.recovery_plan_id in historical.control_dependency_ids
+    assert {leg.kind for leg in historical.cases[0].legs} == set(TaskEvaluationLegKind)
+    assert standalone.source_base_release_id is None
+    assert standalone.expected_current_release_id is not None
+    assert {leg.kind for leg in standalone.cases[0].legs} == {
+        TaskEvaluationLegKind.CANDIDATE
+    }
+    waived = _remint(
+        historical,
+        allowed_control_security_subject_ids=(historical.expected_current_release_id,),
+    )
+    assert waived.allowed_control_security_subject_ids == (
+        historical.expected_current_release_id,
+    )
+    with pytest.raises(TaskEvaluationContractError, match="partition"):
+        _remint(
+            historical,
+            expected_current_release_id=historical.source_base_release_id,
+        )
+    with pytest.raises(TaskEvaluationContractError, match="exceeds"):
+        _remint(
+            historical,
+            allowed_control_security_subject_ids=(
+                _id("expert-base-release", "scientific-source"),
+            ),
+        )
 
 
 def test_request_legs_cannot_substitute_the_candidate_tree():
@@ -528,6 +611,7 @@ def test_plan_join_requires_exact_adapter_case_projection_and_evaluator_role(
     expected_compute = derive_release_matrix_compute_bindings(
         settings=validation_store.settings,
         mode=request.mode,
+        source_base_release_id=request.source_base_release_id,
         provenance_binding_ids=tuple(reversed(provenance_ids)),
     )
     assert {
@@ -553,6 +637,7 @@ def test_plan_join_requires_exact_adapter_case_projection_and_evaluator_role(
     bootstrap_compute = derive_release_matrix_compute_bindings(
         settings=validation_store.settings,
         mode=ExpertReleaseMatrixMode.BOOTSTRAP,
+        source_base_release_id=None,
         provenance_binding_ids=provenance_ids,
     )
     assert {binding.leg_order for binding in bootstrap_compute.values()} == {
@@ -562,6 +647,7 @@ def test_plan_join_requires_exact_adapter_case_projection_and_evaluator_role(
         derive_release_matrix_compute_bindings(
             settings=validation_store.settings,
             mode="control_comparison",
+            source_base_release_id=request.source_base_release_id,
             provenance_binding_ids=provenance_ids,
         )
 

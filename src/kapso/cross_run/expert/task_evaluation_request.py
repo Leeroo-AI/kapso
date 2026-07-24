@@ -90,6 +90,13 @@ class PlanJoinedTaskEvaluationRequest:
             }
             or request.source_base_release_id != plan.source_base_release_id
             or request.source_base_tree_hash != plan.source_base_tree_hash
+            or request.expected_current_release_id != plan.expected_current_release_id
+            or request.recovery_plan_id != plan.recovery_plan_id
+            or request.control_dependency_ids != plan.control_dependency_ids
+            or request.expected_current_release_id
+            != attempt.expected_current_release_id
+            or request.recovery_plan_id != attempt.recovery_plan_id
+            or request.control_dependency_ids != attempt.control_dependency_ids
             or request.validation_policy_id != plan.validation_policy_id
             or request.configuration_fingerprint != plan.configuration_fingerprint
             or request.configuration_fingerprint
@@ -141,6 +148,7 @@ class PlanJoinedTaskEvaluationRequest:
         compute_bindings = derive_release_matrix_compute_bindings(
             settings=self.settings,
             mode=plan.mode,
+            source_base_release_id=plan.source_base_release_id,
             provenance_binding_ids=tuple(
                 provenance.provenance_binding_id for provenance in expected_provenances
             ),
@@ -216,13 +224,15 @@ def prepare_task_evaluation_request(
         or source_base.source_base_tree_receipt != context.source_base_tree_receipt
         or source_base.release_manifest.release_id != plan.source_base_release_id
         or source_base.release_manifest.scope_contract_id != plan.scope_contract_id
-        or source_base.source_base_tree_receipt.source_base_tree_hash != plan.source_base_tree_hash
+        or source_base.source_base_tree_receipt.source_base_tree_hash
+        != plan.source_base_tree_hash
     ):
         raise TaskEvaluationRequestPreparationError(
             "task evaluation source-base differs from reserved plan authority"
         )
     if source_base is None and (
-        context.source_base_release is not None or context.source_base_tree_receipt is not None
+        context.source_base_release is not None
+        or context.source_base_tree_receipt is not None
     ):
         raise TaskEvaluationRequestPreparationError(
             "task evaluation bootstrap candidate contains source-base authority"
@@ -249,6 +259,7 @@ def prepare_task_evaluation_request(
     compute_bindings = derive_release_matrix_compute_bindings(
         settings=settings,
         mode=plan.mode,
+        source_base_release_id=plan.source_base_release_id,
         provenance_binding_ids=tuple(
             provenance.provenance_binding_id for provenance in provenances
         ),
@@ -288,6 +299,17 @@ def prepare_task_evaluation_request(
     }
     if plan.source_base_release_id is not None:
         dependencies.add(plan.source_base_release_id)
+    if plan.expected_current_release_id is not None:
+        dependencies.add(plan.expected_current_release_id)
+    if plan.recovery_plan_id is not None:
+        dependencies.add(plan.recovery_plan_id)
+    dependencies.update(plan.control_dependency_ids)
+    recovery_admission = stored_candidate.recovery_admission
+    allowed_control_security_subject_ids = (
+        ()
+        if recovery_admission is None
+        else recovery_admission.allowed_control_security_subject_ids
+    )
     request = TaskEvaluationRequest.mint(
         request_contract_version=TASK_EVALUATION_REQUEST_CONTRACT_VERSION,
         plan_reservation_operation_id=plan_reservation.operation.operation_id,
@@ -303,6 +325,10 @@ def prepare_task_evaluation_request(
         scope_id=context.scope_id,
         source_base_release_id=plan.source_base_release_id,
         source_base_tree_hash=plan.source_base_tree_hash,
+        expected_current_release_id=plan.expected_current_release_id,
+        recovery_plan_id=plan.recovery_plan_id,
+        control_dependency_ids=plan.control_dependency_ids,
+        allowed_control_security_subject_ids=(allowed_control_security_subject_ids),
         validation_policy_id=plan.validation_policy_id,
         configuration_fingerprint=plan.configuration_fingerprint,
         release_matrix_evaluator_id=evaluator.evaluator_id,
@@ -360,6 +386,17 @@ def validate_task_evaluation_candidate_authority(
         or candidate.source_tree.tree_hash != plan.candidate_tree_hash
         or candidate.manifest.scope_contract_id != plan.scope_contract_id
         or candidate.manifest.source_base_release_id != plan.source_base_release_id
+        or (stored_candidate.recovery_admission is not None)
+        != (plan.recovery_plan_id is not None)
+        or (
+            stored_candidate.recovery_admission is not None
+            and (
+                stored_candidate.recovery_admission.recovery_plan.recovery_plan_id
+                != plan.recovery_plan_id
+                or stored_candidate.recovery_admission.control_dependency_ids
+                != plan.control_dependency_ids
+            )
+        )
         or plan.configuration_fingerprint != settings.configuration_fingerprint
         or (
             plan.source_base_tree_hash is not None

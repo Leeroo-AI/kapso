@@ -21,6 +21,7 @@ from kapso.cross_run.expert.promotion import (
     _underpowered_dimensions,
     decide_expert_release_matrix_promotion,
 )
+from kapso.cross_run.expert.promotion_contracts import ExpertReleaseMatrixMode
 from kapso.cross_run.expert.promotion_decision_contracts import (
     ExpertReleaseMatrixDecisionOutcome,
     ExpertReleaseMatrixDecisionReason,
@@ -363,6 +364,173 @@ def _rebind_validation_track(stage_result, attempt, validation_track):
     return reminted_stage, reminted_attempt
 
 
+def _rebind_clean_forward_recovery(stage_result, attempt):
+    barrier_release_id = content_id(
+        "expert-base-release",
+        {"recovery": "blocked-current"},
+    )
+    recovery_plan_id = content_id(
+        "expert-clean-forward-recovery-plan",
+        {"recovery": "plan"},
+    )
+    recovery_admission_id = content_id(
+        "expert-recovery-candidate-admission",
+        {"recovery": "admission"},
+    )
+    control_dependency_ids = tuple(
+        sorted(
+            (
+                barrier_release_id,
+                recovery_plan_id,
+                recovery_admission_id,
+            )
+        )
+    )
+    reminted_attempt = _remint(
+        attempt,
+        expected_current_release_id=barrier_release_id,
+        recovery_plan_id=recovery_plan_id,
+        control_dependency_ids=control_dependency_ids,
+        eligibility_dependency_ids=tuple(
+            sorted(
+                {
+                    *attempt.eligibility_dependency_ids,
+                    *control_dependency_ids,
+                }
+            )
+        ),
+    )
+    report = stage_result.release_matrix_report
+    plan = report.evaluation_plan
+    cells = tuple(
+        _remint(
+            cell,
+            mode=ExpertReleaseMatrixMode.CLEAN_FORWARD_RECOVERY,
+            validation_attempt_id=reminted_attempt.validation_attempt_id,
+            exact_dependency_ids=tuple(
+                sorted(
+                    {
+                        *(
+                            dependency_id
+                            for dependency_id in cell.exact_dependency_ids
+                            if dependency_id != attempt.validation_attempt_id
+                        ),
+                        reminted_attempt.validation_attempt_id,
+                    }
+                )
+            ),
+        )
+        for cell in plan.evaluation_cells
+    )
+    reminted_plan = _remint(
+        plan,
+        mode=ExpertReleaseMatrixMode.CLEAN_FORWARD_RECOVERY,
+        validation_attempt_id=reminted_attempt.validation_attempt_id,
+        expected_current_release_id=barrier_release_id,
+        recovery_plan_id=recovery_plan_id,
+        control_dependency_ids=control_dependency_ids,
+        evaluation_cells=cells,
+        external_dependency_ids=tuple(
+            sorted(
+                {
+                    *(
+                        (
+                            reminted_attempt.validation_attempt_id
+                            if dependency_id == attempt.validation_attempt_id
+                            else dependency_id
+                        )
+                        for dependency_id in plan.external_dependency_ids
+                    ),
+                    *control_dependency_ids,
+                }
+            )
+        ),
+    )
+    rows = tuple(
+        _remint(row, evaluation_cell_id=cell.evaluation_cell_id)
+        for row, cell in zip(report.evidence_rows, cells, strict=True)
+    )
+    task_evidence = report.task_execution_evidence
+    assert task_evidence is not None
+    reservation_dependencies = tuple(
+        sorted(
+            {
+                *(
+                    (
+                        reminted_plan.evaluation_plan_id
+                        if dependency == plan.evaluation_plan_id
+                        else (
+                            reminted_attempt.validation_attempt_id
+                            if dependency == attempt.validation_attempt_id
+                            else dependency
+                        )
+                    )
+                    for dependency in task_evidence.reservation_dependency_ids
+                ),
+                *control_dependency_ids,
+            }
+        )
+    )
+    request_dependencies = tuple(
+        sorted(
+            {
+                *(
+                    (
+                        reminted_plan.evaluation_plan_id
+                        if dependency == plan.evaluation_plan_id
+                        else (
+                            reminted_attempt.validation_attempt_id
+                            if dependency == attempt.validation_attempt_id
+                            else dependency
+                        )
+                    )
+                    for dependency in task_evidence.request_dependency_ids
+                ),
+                *control_dependency_ids,
+            }
+        )
+    )
+    reminted_task_evidence = _remint(
+        task_evidence,
+        mode=ExpertReleaseMatrixMode.CLEAN_FORWARD_RECOVERY,
+        reservation_dependency_ids=reservation_dependencies,
+        request_dependency_ids=request_dependencies,
+        exact_dependency_ids=tuple(
+            sorted(
+                {
+                    task_evidence.reservation_id,
+                    task_evidence.request_id,
+                    *reservation_dependencies,
+                    *request_dependencies,
+                    *task_evidence.execution_journal_event_ids,
+                }
+            )
+        ),
+    )
+    reminted_report = _remint(
+        report,
+        mode=ExpertReleaseMatrixMode.CLEAN_FORWARD_RECOVERY,
+        validation_attempt_id=reminted_attempt.validation_attempt_id,
+        evaluation_plan=reminted_plan,
+        task_execution_evidence=reminted_task_evidence,
+        evidence_rows=rows,
+        exact_dependency_ids=_report_dependencies(
+            report,
+            reminted_plan,
+            rows,
+            reminted_task_evidence,
+            validation_attempt_id=reminted_attempt.validation_attempt_id,
+        ),
+    )
+    reminted_stage = _remint(
+        stage_result,
+        validation_attempt_id=reminted_attempt.validation_attempt_id,
+        release_matrix_report=reminted_report,
+        exact_dependency_ids=_stage_dependencies(reminted_report, stage_result),
+    )
+    return reminted_stage, reminted_attempt
+
+
 def _replicate_count(stage_result):
     return sum(
         len(cell.evaluation_fingerprint.seed_or_replicate_ids)
@@ -615,6 +783,35 @@ def test_all_ties_only_receive_the_trusted_mechanical_exception(
     assert decision.reason is reason
 
 
+def test_powered_historical_recovery_approves_non_regression(
+    accepted_release_matrices,
+):
+    stage_result, attempt, settings = accepted_release_matrices.parent
+    recovery_stage, recovery_attempt = _rebind_clean_forward_recovery(
+        stage_result,
+        attempt,
+    )
+    tied_stage = _stage_with_normalized_effects(
+        recovery_stage,
+        [0.0] * _replicate_count(recovery_stage),
+    )
+
+    decision = decide_expert_release_matrix_promotion(
+        stage_result=tied_stage,
+        attempt=recovery_attempt,
+        settings=settings,
+    )
+
+    assert decision.outcome is ExpertReleaseMatrixDecisionOutcome.APPROVED
+    assert decision.reason is ExpertReleaseMatrixDecisionReason.RECOVERY_NON_REGRESSION
+    with pytest.raises(ValueError, match="contradicts"):
+        _remint(
+            decision,
+            outcome=ExpertReleaseMatrixDecisionOutcome.FAILED,
+            reason=ExpertReleaseMatrixDecisionReason.NO_BENEFIT,
+        )
+
+
 def test_replicate_and_context_lineage_power_are_independent(
     accepted_release_matrices,
 ):
@@ -704,6 +901,29 @@ def test_bootstrap_approves_powered_coverage_and_retains_missing_power(
     assert retained.outcome is ExpertReleaseMatrixDecisionOutcome.PARETO_RETAINED
     assert retained.reason is ExpertReleaseMatrixDecisionReason.UNDERPOWERED_EVIDENCE
     assert retained.underpowered_dimension_ids == ("quality",)
+
+
+def test_canonical_empty_recovery_uses_standalone_recovery_reason(
+    accepted_release_matrices,
+):
+    stage_result, attempt, settings = accepted_release_matrices.bootstrap
+    recovery_stage, recovery_attempt = _rebind_clean_forward_recovery(
+        stage_result,
+        attempt,
+    )
+
+    decision = decide_expert_release_matrix_promotion(
+        stage_result=recovery_stage,
+        attempt=recovery_attempt,
+        settings=settings,
+    )
+
+    assert decision.outcome is ExpertReleaseMatrixDecisionOutcome.APPROVED
+    assert (
+        decision.reason
+        is ExpertReleaseMatrixDecisionReason.RECOVERY_STANDALONE_COVERAGE
+    )
+    assert decision.replicate_assessments == ()
 
 
 def test_public_reducer_rejects_attempt_or_configuration_substitution(

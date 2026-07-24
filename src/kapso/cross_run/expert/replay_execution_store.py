@@ -280,7 +280,8 @@ def _validate_reservation_request(
         or reservation.authorization_state_id != request.authorization_state_id
         or reservation.candidate_id != request.candidate_id
         or reservation.candidate_tree_hash != request.candidate_tree_hash
-        or reservation.expected_current_release_id != request.source_base_release_id
+        or reservation.expected_current_release_id
+        != request.expected_current_release_id
     ):
         raise ExecutionJournalStoreError(
             "execution journal reservation differs from its request"
@@ -1181,6 +1182,7 @@ class ExpertSourceReplayExecutionStore:
             candidate=prepared_request.candidate,
             source_base=prepared_request.source_base,
             authorization_state=prepared_request.authorization_state,
+            recovery_admission=prepared_request.recovery_admission,
             cases=prepared_request.cases,
         )
         if (
@@ -1447,7 +1449,10 @@ class ExpertSourceReplayExecutionStore:
                     or fence.candidate_id != reservation.candidate_id
                     or fence.scope_id
                     != prepared_request.source_base.release_manifest.scope_id
-                    or fence.expected_current_release_id != request.source_base_release_id
+                    or fence.expected_current_release_id
+                    != request.expected_current_release_id
+                    or fence.allowed_control_security_subject_ids
+                    != request.allowed_control_security_subject_ids
                     or fence.scope_contract_id != request.scope_contract_id
                     or fence.task_adapter_trust_observations
                     != source_replay_task_adapter_trust_observations(prepared_request)

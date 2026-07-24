@@ -45,8 +45,13 @@ def _require_namespaced_id(value: str, namespace: str, name: str) -> None:
         raise ExpertSourceReplayPublicationError(f"{name} uses the wrong namespace")
 
 
-def _require_sorted_content_ids(values: tuple[str, ...], name: str) -> None:
-    if not values or values != tuple(sorted(set(values))):
+def _require_sorted_content_ids(
+    values: tuple[str, ...],
+    name: str,
+    *,
+    allow_empty: bool = False,
+) -> None:
+    if (not values and not allow_empty) or values != tuple(sorted(set(values))):
         raise ExpertSourceReplayPublicationError(
             f"{name} must be non-empty, sorted, and unique"
         )
@@ -69,6 +74,7 @@ class SourceReplayDecisionPublicationFence(StrictContract):
     scope_id: str
     scope_contract_id: str
     expected_current_release_id: str
+    allowed_control_security_subject_ids: tuple[str, ...]
     validation_policy_id: str
     configuration_fingerprint: str
     paired_comparison_receipt_id: str
@@ -175,14 +181,27 @@ class SourceReplayDecisionPublicationFence(StrictContract):
             raise ExpertSourceReplayPublicationError(
                 "source replay publication adapter observations must be sorted and unique"
             )
+        _require_sorted_content_ids(
+            self.allowed_control_security_subject_ids,
+            "source replay publication allowed control security subjects",
+            allow_empty=True,
+        )
         denylist = self.security_denylist_observation
         if (
             denylist.scope_id != self.scope_id
             or denylist.scope_contract_id != self.scope_contract_id
-            or denylist.matched_revocations
+            or not set(denylist.matched_subject_ids).issubset(
+                self.allowed_control_security_subject_ids
+            )
         ):
             raise ExpertSourceReplayPublicationError(
                 "source replay publication denylist authority rejected the fence"
+            )
+        if not set(self.allowed_control_security_subject_ids).issubset(
+            denylist.checked_subject_ids
+        ):
+            raise ExpertSourceReplayPublicationError(
+                "source replay publication omits allowed control security subjects"
             )
         required_subjects = {
             self.reservation_id,
@@ -412,7 +431,8 @@ def _build_expert_source_replay_stage_result_record(
         or reservation.authorization_state_id != request.authorization_state_id
         or reservation.candidate_id != request.candidate_id
         or reservation.candidate_tree_hash != request.candidate_tree_hash
-        or reservation.expected_current_release_id != request.source_base_release_id
+        or reservation.expected_current_release_id
+        != request.expected_current_release_id
         or reservation.authorization_transition_id
         != publication_authority_fence.authorization_transition_id
         or publication_authority_fence.authorization_state_id
@@ -422,7 +442,9 @@ def _build_expert_source_replay_stage_result_record(
         or publication_authority_fence.scope_id != source_base_release.scope_id
         or publication_authority_fence.scope_contract_id != request.scope_contract_id
         or publication_authority_fence.expected_current_release_id
-        != request.source_base_release_id
+        != request.expected_current_release_id
+        or publication_authority_fence.allowed_control_security_subject_ids
+        != request.allowed_control_security_subject_ids
         or publication_authority_fence.task_adapter_trust_observations
         != expected_adapter_observations
         or stage_decision

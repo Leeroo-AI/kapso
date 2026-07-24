@@ -102,6 +102,7 @@ class SourceReplaySpawnAuthorityFence(StrictContract):
     scope_id: str
     scope_contract_id: str
     expected_current_release_id: str
+    allowed_control_security_subject_ids: tuple[str, ...]
     invocation_allocation: ExpertSourceReplayInvocationAllocation
     current_release_observation: SourceReplayCurrentReleaseObservation
     task_adapter_trust_observations: tuple[TaskAdapterTrustObservation, ...]
@@ -172,17 +173,27 @@ class SourceReplaySpawnAuthorityFence(StrictContract):
             raise ExpertSourceReplayFreshAuthorityError(
                 "source replay spawn adapter observations must be sorted and unique"
             )
-        if self.security_denylist_observation.matched_revocations:
-            raise ExpertSourceReplayFreshAuthorityError(
-                "source replay spawn authority contains denied subjects"
-            )
+        require_sorted_content_ids(
+            self.allowed_control_security_subject_ids,
+            "source replay spawn allowed control security subjects",
+            allow_empty=True,
+        )
         denylist = self.security_denylist_observation
         if (
             denylist.scope_id != self.scope_id
             or denylist.scope_contract_id != self.scope_contract_id
+            or not set(denylist.matched_subject_ids).issubset(
+                self.allowed_control_security_subject_ids
+            )
         ):
             raise ExpertSourceReplayFreshAuthorityError(
                 "source replay spawn denylist uses another scope authority"
+            )
+        if not set(self.allowed_control_security_subject_ids).issubset(
+            denylist.checked_subject_ids
+        ):
+            raise ExpertSourceReplayFreshAuthorityError(
+                "source replay spawn omits allowed control security subjects"
             )
         required_security_subjects = {
             self.reservation_id,

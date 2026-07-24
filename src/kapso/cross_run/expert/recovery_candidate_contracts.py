@@ -102,6 +102,9 @@ class ExpertRecoveryCandidateAdmission(StrictContract):
         if (
             control_dependency_ids & scientific_dependency_ids
             or control_dependency_ids | scientific_dependency_ids != dependency_ids
+            or not set(self.allowed_control_security_subject_ids).issubset(
+                control_dependency_ids
+            )
         ):
             raise ExpertRecoveryCandidateContractError(
                 "recovery admission dependency partition is not exact"
@@ -181,6 +184,25 @@ class ExpertRecoveryCandidateAdmission(StrictContract):
             for dependency_id in self.dependency_ids
             if dependency_id not in control_dependency_ids
         )
+
+    @property
+    def allowed_control_security_subject_ids(self) -> tuple[str, ...]:
+        """Return only barrier revocation subjects authenticated by the plan."""
+
+        matched_subject_ids = {
+            subject_id
+            for assessment in self.recovery_plan.assessments
+            for subject_id in assessment.security_observation.matched_subject_ids
+        }
+        scientific_dependency_ids = set(self.scientific_dependency_ids)
+        control_dependency_ids = set(self.control_dependency_ids)
+        if matched_subject_ids & scientific_dependency_ids or not (
+            matched_subject_ids.issubset(control_dependency_ids)
+        ):
+            raise ExpertRecoveryCandidateContractError(
+                "recovery barrier revocation is not exact control authority"
+            )
+        return tuple(sorted(matched_subject_ids))
 
 
 def validate_recovery_candidate_admission(

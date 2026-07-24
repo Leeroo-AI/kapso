@@ -58,6 +58,16 @@ ExpertReleaseMatrixAcceptedResult = (
 )
 
 
+def _attempt_release_matrix_mode(
+    attempt: ExpertValidationAttempt,
+) -> ExpertReleaseMatrixMode:
+    if attempt.recovery_plan_id is not None:
+        return ExpertReleaseMatrixMode.CLEAN_FORWARD_RECOVERY
+    if attempt.source_base_release_id is None:
+        return ExpertReleaseMatrixMode.BOOTSTRAP
+    return ExpertReleaseMatrixMode.CONTROL_COMPARISON
+
+
 def _verified_adapter_key(adapter: VerifiedTaskAdapter) -> tuple[str, str]:
     return (
         adapter.manifest.task_adapter_manifest_id,
@@ -149,6 +159,9 @@ def _validate_active_prefix(
             plan.candidate_commit_record_id,
             plan.scope_contract_id,
             plan.source_base_release_id,
+            plan.expected_current_release_id,
+            plan.recovery_plan_id,
+            plan.control_dependency_ids,
             plan.validation_policy_id,
             plan.configuration_fingerprint,
         )
@@ -159,6 +172,9 @@ def _validate_active_prefix(
             attempt.candidate_commit_record_id,
             attempt.scope_contract_id,
             attempt.source_base_release_id,
+            attempt.expected_current_release_id,
+            attempt.recovery_plan_id,
+            attempt.control_dependency_ids,
             attempt.validation_policy_id,
             attempt.configuration_fingerprint,
         )
@@ -188,7 +204,11 @@ def validate_expert_release_matrix_source_joins(
         provenance.source_execution_case_id for provenance in provenances
     )
     if (
-        plan.mode is not ExpertReleaseMatrixMode.CONTROL_COMPARISON
+        plan.mode
+        not in {
+            ExpertReleaseMatrixMode.CONTROL_COMPARISON,
+            ExpertReleaseMatrixMode.CLEAN_FORWARD_RECOVERY,
+        }
         or set(provenance_case_ids) != set(request_cases)
         or len(provenance_case_ids) != len(set(provenance_case_ids))
         or set(comparison_cases) != set(request_cases)
@@ -410,18 +430,12 @@ def validate_expert_release_matrix_plan_store_shape(
         )
     _validate_active_prefix(plan, state, attempt, accepted_stage_results)
     result = _source_result(accepted_stage_results)
-    expected_mode = (
-        ExpertReleaseMatrixMode.BOOTSTRAP
-        if attempt.source_base_release_id is None
-        else ExpertReleaseMatrixMode.CONTROL_COMPARISON
-    )
+    expected_mode = _attempt_release_matrix_mode(attempt)
+    source_replay_required = attempt.source_base_release_id is not None
     if (
         plan.mode is not expected_mode
         or ((result is None) != (source_replay_request is None))
-        or (
-            expected_mode is ExpertReleaseMatrixMode.CONTROL_COMPARISON
-            and source_replay_request is None
-        )
+        or source_replay_required != (source_replay_request is not None)
     ):
         raise ExpertReleaseMatrixPlanError(
             "release matrix source authority differs from its active attempt"
@@ -429,7 +443,11 @@ def validate_expert_release_matrix_plan_store_shape(
     if result is not None and source_replay_request is not None:
         receipt = result.paired_comparison_receipt
         if (
-            plan.mode is not ExpertReleaseMatrixMode.CONTROL_COMPARISON
+            plan.mode
+            not in {
+                ExpertReleaseMatrixMode.CONTROL_COMPARISON,
+                ExpertReleaseMatrixMode.CLEAN_FORWARD_RECOVERY,
+            }
             or result.outcome is not ExpertEvaluatorOutcome.PASSED
             or result.validation_attempt_id != attempt.validation_attempt_id
             or result.candidate_id != attempt.candidate_id
@@ -446,7 +464,13 @@ def validate_expert_release_matrix_plan_store_shape(
             or source_replay_request.candidate_commit_record_id
             != attempt.candidate_commit_record_id
             or source_replay_request.scope_contract_id != attempt.scope_contract_id
-            or source_replay_request.source_base_release_id != attempt.source_base_release_id
+            or source_replay_request.source_base_release_id
+            != attempt.source_base_release_id
+            or source_replay_request.expected_current_release_id
+            != attempt.expected_current_release_id
+            or source_replay_request.recovery_plan_id != attempt.recovery_plan_id
+            or source_replay_request.control_dependency_ids
+            != attempt.control_dependency_ids
             or source_replay_request.source_base_tree_hash != plan.source_base_tree_hash
             or source_replay_request.validation_policy_id
             != attempt.validation_policy_id
@@ -506,7 +530,11 @@ def validate_expert_release_matrix_plan_durable_shape(
         or manifest.scope_contract_id != attempt.scope_contract_id
         or manifest.source_base_release_id != attempt.source_base_release_id
         or plan.source_base_tree_hash
-        != (None if attempt.source_base_release_id is None else manifest.source_base_tree_hash)
+        != (
+            None
+            if attempt.source_base_release_id is None
+            else manifest.source_base_tree_hash
+        )
         or (
             attempt.source_base_release_id is not None
             and context.source_base_tree_hash != manifest.source_base_tree_hash
@@ -709,7 +737,10 @@ def prepare_expert_release_matrix_plan_for_admission(
     observed_current_before_adapter_resolution = (
         current_release_provider.current_release_id(scope_id)
     )
-    if observed_current_before_adapter_resolution != attempt.source_base_release_id:
+    if (
+        observed_current_before_adapter_resolution
+        != attempt.expected_current_release_id
+    ):
         raise ExpertReleaseMatrixPlanError(
             "release matrix source-base authority changed before reservation"
         )
@@ -727,7 +758,7 @@ def prepare_expert_release_matrix_plan_for_admission(
     observed_current_after_adapter_resolution = (
         current_release_provider.current_release_id(scope_id)
     )
-    if observed_current_after_adapter_resolution != attempt.source_base_release_id:
+    if observed_current_after_adapter_resolution != attempt.expected_current_release_id:
         raise ExpertReleaseMatrixPlanError(
             "release matrix source-base authority changed during adapter resolution"
         )
@@ -779,25 +810,18 @@ def derive_expert_release_matrix_plan(
         raise ExpertReleaseMatrixPlanError(
             "release matrix source result and execution request must appear together"
         )
-    mode = (
-        ExpertReleaseMatrixMode.BOOTSTRAP
-        if attempt.source_base_release_id is None
-        else ExpertReleaseMatrixMode.CONTROL_COMPARISON
-    )
+    mode = _attempt_release_matrix_mode(attempt)
     if mode is ExpertReleaseMatrixMode.BOOTSTRAP and source_replay_request is not None:
         raise ExpertReleaseMatrixPlanError(
             "bootstrap release matrix cannot reuse control comparison evidence"
         )
-    if (
-        mode is ExpertReleaseMatrixMode.CONTROL_COMPARISON
-        and source_replay_request is None
-    ):
+    if attempt.source_base_release_id is not None and source_replay_request is None:
         raise ExpertReleaseMatrixPlanError(
             "source-base release matrix requires accepted source replay authority"
         )
     source_base_tree_hash = (
         None
-        if mode is ExpertReleaseMatrixMode.BOOTSTRAP
+        if attempt.source_base_release_id is None
         else stored_candidate.closure.manifest.source_base_tree_hash
     )
     if (
@@ -1047,6 +1071,11 @@ def derive_expert_release_matrix_plan(
     )
     if attempt.source_base_release_id is not None:
         external.add(attempt.source_base_release_id)
+    if attempt.expected_current_release_id is not None:
+        external.add(attempt.expected_current_release_id)
+    if attempt.recovery_plan_id is not None:
+        external.add(attempt.recovery_plan_id)
+    external.update(attempt.control_dependency_ids)
     plan = ExpertReleaseMatrixEvaluationPlan.mint(
         mode=mode,
         validation_attempt_id=attempt.validation_attempt_id,
@@ -1056,6 +1085,9 @@ def derive_expert_release_matrix_plan(
         scope_contract_id=attempt.scope_contract_id,
         source_base_release_id=attempt.source_base_release_id,
         source_base_tree_hash=source_base_tree_hash,
+        expected_current_release_id=attempt.expected_current_release_id,
+        recovery_plan_id=attempt.recovery_plan_id,
+        control_dependency_ids=attempt.control_dependency_ids,
         validation_policy_id=attempt.validation_policy_id,
         configuration_fingerprint=attempt.configuration_fingerprint,
         adapter_authorities=ordered_authorities,

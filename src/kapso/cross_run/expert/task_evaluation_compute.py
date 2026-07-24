@@ -27,6 +27,7 @@ def derive_release_matrix_compute_bindings(
     *,
     settings: ExpertValidationSettings,
     mode: ExpertReleaseMatrixMode,
+    source_base_release_id: str | None,
     provenance_binding_ids: tuple[str, ...],
 ) -> Mapping[str, TaskEvaluationComputeBinding]:
     """Derive one exact configured compute envelope per adapter provenance."""
@@ -69,6 +70,21 @@ def derive_release_matrix_compute_bindings(
         settings.task_evaluation_provider.to_json_bytes()
     )
     if mode is ExpertReleaseMatrixMode.BOOTSTRAP:
+        if source_base_release_id is not None:
+            raise TaskEvaluationComputeError(
+                "bootstrap release matrix compute cannot name a source base"
+            )
+    elif mode is ExpertReleaseMatrixMode.CONTROL_COMPARISON:
+        if source_base_release_id is None:
+            raise TaskEvaluationComputeError(
+                "control-comparison compute requires a source base"
+            )
+    elif source_base_release_id is not None:
+        require_content_id(
+            source_base_release_id,
+            "recovery release matrix compute source base",
+        )
+    if source_base_release_id is None:
         schedules = {
             provenance_id: (TaskEvaluationLegKind.CANDIDATE,)
             for provenance_id in ordered_provenance_ids

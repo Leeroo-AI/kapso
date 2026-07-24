@@ -112,7 +112,9 @@ def task_evaluation_spawn_security_subject_ids(
     if current.publication_id is not None:
         subject_ids.add(current.publication_id)
     if prepared.source_base is not None:
-        subject_ids.update(prepared.source_base.release_manifest.consumed_dependency_ids)
+        subject_ids.update(
+            prepared.source_base.release_manifest.consumed_dependency_ids
+        )
     for observation in task_adapter_trust_observations:
         subject_ids.update(
             {
@@ -156,7 +158,9 @@ def build_task_evaluation_spawn_authority_fence(
         or denylist.scope_id != request.scope_id
         or denylist.scope_contract_id != request.scope_contract_id
         or denylist.checked_subject_ids != expected_subjects
-        or denylist.matched_revocations
+        or not set(denylist.matched_subject_ids).issubset(
+            request.allowed_control_security_subject_ids
+        )
     ):
         raise TaskEvaluationAuthorityError(
             "task evaluation spawn denylist differs from exact security authority"
@@ -167,6 +171,9 @@ def build_task_evaluation_spawn_authority_fence(
         invocation_allocation=invocation_allocation,
         stable_current_release_observation=stable_current_release_observation,
         task_adapter_trust_observations=task_adapter_trust_observations,
+        allowed_control_security_subject_ids=(
+            request.allowed_control_security_subject_ids
+        ),
         security_denylist_observation=denylist,
     )
 

@@ -383,7 +383,7 @@ def _derive_expert_release_matrix_task_rows(
         legs_by_kind = {leg.kind: leg for leg in case.legs}
         expected_leg_kinds = (
             {TaskEvaluationLegKind.CANDIDATE}
-            if plan.mode is ExpertReleaseMatrixMode.BOOTSTRAP
+            if plan.source_base_release_id is None
             else set(TaskEvaluationLegKind)
         )
         if len(legs_by_kind) != len(case.legs) or set(legs_by_kind) != (
@@ -399,7 +399,7 @@ def _derive_expert_release_matrix_task_rows(
             )
         ]
         control_event = None
-        if plan.mode is ExpertReleaseMatrixMode.CONTROL_COMPARISON:
+        if plan.source_base_release_id is not None:
             control_event = accepted_events[
                 (
                     case.evaluation_case_id,
@@ -427,7 +427,9 @@ def _derive_expert_release_matrix_task_rows(
             fingerprint_id = cell.evaluation_fingerprint.evaluation_fingerprint_id
             candidate_result = candidate_results[fingerprint_id]
             source_base_result = (
-                None if source_base_results is None else source_base_results[fingerprint_id]
+                None
+                if source_base_results is None
+                else source_base_results[fingerprint_id]
             )
             rows.append(
                 ExpertReleaseMatrixComparisonRow.mint(

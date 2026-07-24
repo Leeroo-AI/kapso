@@ -1317,7 +1317,7 @@ def _validate_prepared_review_stage_results(
                 or result.publication_authority_fence.scope_contract_id
                 != attempt.scope_contract_id
                 or result.publication_authority_fence.expected_current_release_id
-                != attempt.source_base_release_id
+                != attempt.expected_current_release_id
             ):
                 raise ExpertAutomatedReviewError(
                     "prepared source replay evidence differs from its reference"

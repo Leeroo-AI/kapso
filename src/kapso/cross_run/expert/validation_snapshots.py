@@ -277,7 +277,11 @@ class ExpertReleaseMatrixSourceEvidenceSnapshot:
         )
         if (
             attempt is None
-            or plan.mode is not ExpertReleaseMatrixMode.CONTROL_COMPARISON
+            or plan.mode
+            not in {
+                ExpertReleaseMatrixMode.CONTROL_COMPARISON,
+                ExpertReleaseMatrixMode.CLEAN_FORWARD_RECOVERY,
+            }
             or accepted_source_results != (self.stage_result,)
             or self.stage_result.outcome is not ExpertEvaluatorOutcome.PASSED
             or not source_provenances
@@ -313,7 +317,7 @@ class ExpertReleaseMatrixSourceEvidenceSnapshot:
             or self.reservation.candidate_id != self.request.candidate_id
             or self.reservation.candidate_tree_hash != self.request.candidate_tree_hash
             or self.reservation.expected_current_release_id
-            != self.request.source_base_release_id
+            != self.request.expected_current_release_id
             or self.request.validation_attempt_id != plan.validation_attempt_id
             or self.request.candidate_id != plan.candidate_id
             or self.request.candidate_tree_hash != plan.candidate_tree_hash

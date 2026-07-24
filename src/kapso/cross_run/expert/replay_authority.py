@@ -113,6 +113,7 @@ class ExpertSourceReplayFreshAuthorityCoordinator:
             candidate=prepared_request.candidate,
             source_base=prepared_request.source_base,
             authorization_state=prepared_request.authorization_state,
+            recovery_admission=prepared_request.recovery_admission,
             cases=prepared_request.cases,
         )
         if not isinstance(
@@ -172,7 +173,7 @@ class ExpertSourceReplayFreshAuthorityCoordinator:
                 SourceReplayCurrentReleaseObservation,
             )
             or current_observation.scope_id != scope_id
-            or current_observation.release_id != request.source_base_release_id
+            or current_observation.release_id != request.expected_current_release_id
         ):
             raise ExpertSourceReplayFreshAuthorityError(
                 "fresh spawn current release differs from reserved authority"
@@ -205,7 +206,9 @@ class ExpertSourceReplayFreshAuthorityCoordinator:
                 SecurityDenylistObservation,
             )
             or denylist_observation.checked_subject_ids != checked_subject_ids
-            or denylist_observation.matched_revocations
+            or not set(denylist_observation.matched_subject_ids).issubset(
+                request.allowed_control_security_subject_ids
+            )
         ):
             raise ExpertSourceReplayFreshAuthorityError(
                 "fresh spawn denylist authority rejected the exact dependency closure"
@@ -229,7 +232,10 @@ class ExpertSourceReplayFreshAuthorityCoordinator:
             candidate_id=reservation.candidate_id,
             scope_id=scope_id,
             scope_contract_id=request.scope_contract_id,
-            expected_current_release_id=request.source_base_release_id,
+            expected_current_release_id=request.expected_current_release_id,
+            allowed_control_security_subject_ids=(
+                request.allowed_control_security_subject_ids
+            ),
             invocation_allocation=invocation_allocation,
             current_release_observation=current_observation,
             task_adapter_trust_observations=adapter_observations,

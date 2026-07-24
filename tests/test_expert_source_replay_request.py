@@ -536,6 +536,67 @@ def test_request_materializes_exact_candidate_bundle_episode_adapter_and_context
         )
 
 
+def test_source_replay_request_separates_recovery_source_from_current(tmp_path):
+    request = _prepared(_request_fixture(tmp_path)).request
+    assert request.expected_current_release_id == request.source_base_release_id
+    assert request.recovery_plan_id is None
+    assert request.control_dependency_ids == ()
+    assert request.allowed_control_security_subject_ids == ()
+
+    values = request.to_dict()
+    values.pop("execution_request_id")
+    values["expected_current_release_id"] = content_id(
+        "expert-base-release",
+        {"label": "recovery-barrier"},
+    )
+    with pytest.raises(
+        ContractValidationError,
+        match="ordinary source replay must bind CURRENT",
+    ):
+        type(request).mint(**values)
+
+    recovery_plan_id = content_id(
+        "expert-clean-forward-recovery-plan",
+        {"label": "recovery-plan"},
+    )
+    recovery_admission_id = content_id(
+        "expert-recovery-candidate-admission",
+        {"label": "recovery-admission"},
+    )
+    barrier_release_id = values["expected_current_release_id"]
+    control_dependency_ids = tuple(
+        sorted(
+            {
+                recovery_plan_id,
+                recovery_admission_id,
+                barrier_release_id,
+            }
+        )
+    )
+    attempt_dependency_ids = tuple(
+        sorted({*request.attempt_dependency_ids, *control_dependency_ids})
+    )
+    exact_dependency_ids = tuple(
+        sorted({*request.exact_dependency_ids, *control_dependency_ids})
+    )
+    recovery_request = type(request).mint(
+        **{
+            **values,
+            "recovery_plan_id": recovery_plan_id,
+            "attempt_dependency_ids": attempt_dependency_ids,
+            "control_dependency_ids": control_dependency_ids,
+            "allowed_control_security_subject_ids": (barrier_release_id,),
+            "exact_dependency_ids": exact_dependency_ids,
+        }
+    )
+
+    assert recovery_request.source_base_release_id == request.source_base_release_id
+    assert recovery_request.expected_current_release_id == barrier_release_id
+    assert recovery_request.allowed_control_security_subject_ids == (
+        barrier_release_id,
+    )
+
+
 @pytest.mark.parametrize(
     ("binding_update", "message"),
     (

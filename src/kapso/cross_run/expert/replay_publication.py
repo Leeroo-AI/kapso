@@ -102,6 +102,7 @@ class ExpertSourceReplayDecisionPublicationCoordinator:
             candidate=prepared_request.candidate,
             source_base=prepared_request.source_base,
             authorization_state=prepared_request.authorization_state,
+            recovery_admission=prepared_request.recovery_admission,
             cases=prepared_request.cases,
         )
         replayed, first = (
@@ -138,7 +139,7 @@ class ExpertSourceReplayDecisionPublicationCoordinator:
         if (
             not isinstance(current, SourceReplayCurrentReleaseObservation)
             or current.scope_id != source_base_release.scope_id
-            or current.release_id != request.source_base_release_id
+            or current.release_id != request.expected_current_release_id
         ):
             raise ExpertSourceReplayPublicationError(
                 "source replay publication release differs from expected CURRENT"
@@ -166,7 +167,9 @@ class ExpertSourceReplayDecisionPublicationCoordinator:
         if (
             not isinstance(denylist, SecurityDenylistObservation)
             or denylist.checked_subject_ids != security_subject_ids
-            or denylist.matched_revocations
+            or not set(denylist.matched_subject_ids).issubset(
+                request.allowed_control_security_subject_ids
+            )
         ):
             raise ExpertSourceReplayPublicationError(
                 "source replay publication denylist rejected the exact closure"
@@ -197,7 +200,10 @@ class ExpertSourceReplayDecisionPublicationCoordinator:
             candidate_tree_hash=reservation.candidate_tree_hash,
             scope_id=source_base_release.scope_id,
             scope_contract_id=request.scope_contract_id,
-            expected_current_release_id=request.source_base_release_id,
+            expected_current_release_id=request.expected_current_release_id,
+            allowed_control_security_subject_ids=(
+                request.allowed_control_security_subject_ids
+            ),
             validation_policy_id=request.validation_policy_id,
             configuration_fingerprint=request.configuration_fingerprint,
             paired_comparison_receipt_id=receipt.paired_comparison_receipt_id,

@@ -119,7 +119,7 @@ class TaskEvaluationFreshAuthorityCoordinator:
         request = first_reservation.request
         current_before = self._observe_current(
             request.scope_id,
-            request.source_base_release_id,
+            request.expected_current_release_id,
         )
         self._reverify_adapters(prepared)
         adapter_observations = task_evaluation_adapter_trust_observations(prepared)
@@ -140,7 +140,9 @@ class TaskEvaluationFreshAuthorityCoordinator:
             or denylist_observation.scope_id != request.scope_id
             or denylist_observation.scope_contract_id != request.scope_contract_id
             or denylist_observation.checked_subject_ids != checked_subject_ids
-            or denylist_observation.matched_revocations
+            or not set(denylist_observation.matched_subject_ids).issubset(
+                request.allowed_control_security_subject_ids
+            )
         ):
             raise TaskEvaluationAuthorityError(
                 "fresh task-evaluation denylist differs from exact security authority"
@@ -148,7 +150,7 @@ class TaskEvaluationFreshAuthorityCoordinator:
 
         current_after = self._observe_current(
             request.scope_id,
-            request.source_base_release_id,
+            request.expected_current_release_id,
         )
         if current_after != current_before:
             raise TaskEvaluationAuthorityError(

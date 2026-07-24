@@ -577,14 +577,19 @@ def _historical_candidate_system(
     episodes=(),
     sanitation_mismatch=False,
     taint_episodes_with_barrier=False,
+    chain_length=2,
 ):
     tmp_path.mkdir(mode=0o700, parents=True, exist_ok=True)
     fixture = _fixture(
-        length=2,
+        length=chain_length,
         current_move_after=current_move_after,
     )
     settings = _settings()
-    barrier, selected = fixture.releases
+    barrier = fixture.releases[0]
+    selected = fixture.releases[-1]
+    fixture.security.blocked_release_ids.update(
+        release.release_id for release in fixture.releases[1:-1]
+    )
     if taint_episodes_with_barrier:
         episodes = tuple(
             _remint(
@@ -804,6 +809,7 @@ def test_recovery_selection_cannot_be_reconstructed_from_its_durable_plan():
 
 def test_historical_recovery_candidate_is_exact_admitted_restore(tmp_path):
     system = _historical_candidate_system(tmp_path)
+    system.fixture.security.blocked_release_ids.add(system.barrier.release_id)
 
     stored = system.coordinator.restore_historical(
         scope_contract=system.fixture.case.scope,
@@ -844,6 +850,9 @@ def test_historical_recovery_candidate_is_exact_admitted_restore(tmp_path):
         == (system.barrier.release_id)
     )
     assert set(admission.control_dependency_ids) == expected_control_dependencies
+    assert admission.allowed_control_security_subject_ids == (
+        system.barrier.release_id,
+    )
     assert selected_scientific_dependencies.issubset(
         admission.scientific_dependency_ids
     )
@@ -900,6 +909,26 @@ def test_historical_recovery_candidate_is_exact_admitted_restore(tmp_path):
         match="admission is not canonical",
     ):
         system.candidate_store.read(stored.closure.manifest.candidate_id)
+
+
+def test_recovery_admission_authorizes_every_blocked_control_ancestor(tmp_path):
+    system = _historical_candidate_system(tmp_path, chain_length=3)
+    intermediate = system.fixture.releases[1]
+    system.fixture.security.blocked_release_ids.add(system.barrier.release_id)
+
+    stored = system.coordinator.restore_historical(
+        scope_contract=system.fixture.case.scope,
+        replay_basis_packet=system.replay_basis,
+    )
+
+    assert stored.recovery_admission.allowed_control_security_subject_ids == tuple(
+        sorted(
+            {
+                system.barrier.release_id,
+                intermediate.release_id,
+            }
+        )
+    )
 
 
 def test_empty_recovery_is_agent_authored_admitted_and_reopenable(tmp_path):

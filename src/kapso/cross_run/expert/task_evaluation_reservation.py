@@ -87,7 +87,8 @@ class ExpertTaskEvaluationReservationSnapshot:
             or reservation.scope_contract_id != request.scope_contract_id
             or reservation.scope_id != request.scope_id
             or reservation.current_release_observation_id != observation.observation_id
-            or reservation.observed_current_release_id != request.source_base_release_id
+            or reservation.observed_current_release_id
+            != request.expected_current_release_id
             or reservation.observed_current_release_id != observation.release_id
             or observation.scope_id != request.scope_id
         ):

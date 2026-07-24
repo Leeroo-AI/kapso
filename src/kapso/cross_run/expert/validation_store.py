@@ -75,6 +75,9 @@ from kapso.cross_run.expert.replay_publication import (
     ExpertSourceReplayDecisionPublicationCoordinator,
 )
 from kapso.cross_run.expert.replay_request import PreparedExpertSourceReplayRequest
+from kapso.cross_run.expert.recovery_candidate_contracts import (
+    ExpertRecoveryCandidateAdmission,
+)
 from kapso.cross_run.expert.proposal_contract import ExpertCandidateAncestorInput
 from kapso.cross_run.expert.store import StoredExpertCandidate
 from kapso.cross_run.expert.promotion_contracts import (
@@ -293,7 +296,19 @@ class ExpertSourceReplayReservationSnapshot:
             or self.reservation.candidate_tree_hash != self.request.candidate_tree_hash
             or self.reservation.candidate_tree_hash != state.candidate_tree_hash
             or self.reservation.expected_current_release_id
-            != self.request.source_base_release_id
+            != self.request.expected_current_release_id
+            or self.request.validation_attempt_id != attempt.validation_attempt_id
+            or self.request.candidate_id != attempt.candidate_id
+            or self.request.candidate_tree_hash != attempt.candidate_tree_hash
+            or self.request.candidate_commit_record_id
+            != attempt.candidate_commit_record_id
+            or self.request.scope_contract_id != attempt.scope_contract_id
+            or self.request.source_base_release_id != attempt.source_base_release_id
+            or self.request.expected_current_release_id
+            != attempt.expected_current_release_id
+            or self.request.recovery_plan_id != attempt.recovery_plan_id
+            or self.request.control_dependency_ids != attempt.control_dependency_ids
+            or self.request.attempt_dependency_ids != attempt.eligibility_dependency_ids
         ):
             raise ExpertValidationStoreError(
                 "source replay reservation snapshot authority is inconsistent"
@@ -2675,7 +2690,8 @@ class ExpertValidationStore:
             or result.candidate_id != reservation.candidate_id
             or result.candidate_tree_hash != reservation.candidate_tree_hash
             or result.scope_contract_id != reservation.scope_contract_id
-            or result.source_base_release_id != reservation.observed_current_release_id
+            or result.source_base_release_id
+            != reservation_snapshot.request.source_base_release_id
             or result.plan_reservation_operation_id
             != reservation.plan_reservation_operation_id
             or result.validation_policy_id
@@ -3173,9 +3189,11 @@ class ExpertValidationStore:
             candidate=prepared_request.candidate,
             source_base=prepared_request.source_base,
             authorization_state=prepared_request.authorization_state,
+            recovery_admission=prepared_request.recovery_admission,
             cases=prepared_request.cases,
         )
         request = prepared.request
+        recovery_admission = prepared.recovery_admission
         with self._lock(exclusive=False):
             journal = self._read_journal_unlocked(request.candidate_id)
             existing = self._source_replay_reservation_unlocked(
@@ -3255,7 +3273,7 @@ class ExpertValidationStore:
                 authorization_state_id=current.state.validation_state_id,
                 candidate_id=current.state.candidate_id,
                 candidate_tree_hash=current.state.candidate_tree_hash,
-                expected_current_release_id=request.source_base_release_id,
+                expected_current_release_id=request.expected_current_release_id,
                 exact_dependency_ids=tuple(
                     sorted(
                         {
@@ -3264,7 +3282,7 @@ class ExpertValidationStore:
                             current.latest_attempt.validation_attempt_id,
                             current.state.validation_state_id,
                             current.state.candidate_id,
-                            request.source_base_release_id,
+                            request.expected_current_release_id,
                         }
                     )
                 ),
@@ -3278,6 +3296,8 @@ class ExpertValidationStore:
                 request_record_id=reservation.reservation_id,
             )
             self._write_contract_unlocked(request)
+            if recovery_admission is not None:
+                self._write_contract_unlocked(recovery_admission)
             self._write_contract_unlocked(reservation)
             self._write_contract_unlocked(operation)
             updated = self._bind_operation(journal, operation, current.transition)
@@ -3517,6 +3537,7 @@ class ExpertValidationStore:
             cases=prepared_request.cases,
         )
         request = prepared.plan_join.request
+        recovery_admission = prepared.stored_candidate.recovery_admission
         supplied_plan_reservation = prepared.plan_join.plan_reservation
         with self._lock(exclusive=True):
             journal = self._read_journal_unlocked(request.candidate_id)
@@ -3577,8 +3598,8 @@ class ExpertValidationStore:
                 request.scope_contract_id,
                 observation.observation_id,
             }
-            if request.source_base_release_id is not None:
-                dependencies.add(request.source_base_release_id)
+            if request.expected_current_release_id is not None:
+                dependencies.add(request.expected_current_release_id)
             reservation = TaskEvaluationReservation.mint(
                 request_id=request.request_id,
                 plan_reservation_operation_id=(request.plan_reservation_operation_id),
@@ -3604,6 +3625,8 @@ class ExpertValidationStore:
                 request_record_id=reservation.reservation_id,
             )
             self._write_contract_unlocked(request)
+            if recovery_admission is not None:
+                self._write_contract_unlocked(recovery_admission)
             self._write_contract_unlocked(observation)
             self._write_contract_unlocked(reservation)
             self._write_contract_unlocked(operation)
@@ -3797,6 +3820,7 @@ class ExpertValidationStore:
             candidate=prepared_request.candidate,
             source_base=prepared_request.source_base,
             authorization_state=prepared_request.authorization_state,
+            recovery_admission=prepared_request.recovery_admission,
             cases=prepared_request.cases,
         )
         with self._lock(exclusive=False):
@@ -3882,6 +3906,7 @@ class ExpertValidationStore:
             candidate=prepared_request.candidate,
             source_base=prepared_request.source_base,
             authorization_state=prepared_request.authorization_state,
+            recovery_admission=prepared_request.recovery_admission,
             cases=prepared_request.cases,
         )
         request = prepared.request
@@ -4088,6 +4113,7 @@ class ExpertValidationStore:
             candidate=prepared_request.candidate,
             source_base=prepared_request.source_base,
             authorization_state=prepared_request.authorization_state,
+            recovery_admission=prepared_request.recovery_admission,
             cases=prepared_request.cases,
         )
         request = prepared.request
@@ -4097,7 +4123,8 @@ class ExpertValidationStore:
             or reservation.authorization_state_id != request.authorization_state_id
             or reservation.candidate_id != request.candidate_id
             or reservation.candidate_tree_hash != request.candidate_tree_hash
-            or reservation.expected_current_release_id != request.source_base_release_id
+            or reservation.expected_current_release_id
+            != request.expected_current_release_id
         ):
             raise ExpertValidationStoreError(
                 "source replay reservation differs from prepared request"
@@ -5108,6 +5135,17 @@ class ExpertValidationStore:
             plan_reservation=plan_reservation,
             settings=persisted_settings,
         )
+        self._validate_recovery_security_authority_unlocked(
+            candidate_id=request.candidate_id,
+            candidate_commit_record_id=request.candidate_commit_record_id,
+            source_base_release_id=request.source_base_release_id,
+            expected_current_release_id=request.expected_current_release_id,
+            recovery_plan_id=request.recovery_plan_id,
+            control_dependency_ids=request.control_dependency_ids,
+            allowed_control_security_subject_ids=(
+                request.allowed_control_security_subject_ids
+            ),
+        )
         ExpertTaskEvaluationReservationSnapshot(
             operation=operation,
             reservation=reservation,
@@ -5225,6 +5263,17 @@ class ExpertValidationStore:
             settings=persisted_settings,
             error_type=ExpertValidationStoreError,
         )
+        self._validate_recovery_security_authority_unlocked(
+            candidate_id=request.candidate_id,
+            candidate_commit_record_id=request.candidate_commit_record_id,
+            source_base_release_id=request.source_base_release_id,
+            expected_current_release_id=request.expected_current_release_id,
+            recovery_plan_id=request.recovery_plan_id,
+            control_dependency_ids=request.control_dependency_ids,
+            allowed_control_security_subject_ids=(
+                request.allowed_control_security_subject_ids
+            ),
+        )
         if (
             operation.expected_transition_id != transition.transition_id
             or operation.candidate_id != transition.candidate_id
@@ -5233,10 +5282,59 @@ class ExpertValidationStore:
             or reservation.authorization_state_id != state.validation_state_id
             or reservation.candidate_id != transition.candidate_id
             or reservation.candidate_tree_hash != transition.candidate_tree_hash
-            or reservation.expected_current_release_id != request.source_base_release_id
+            or reservation.expected_current_release_id
+            != request.expected_current_release_id
         ):
             raise ExpertValidationStoreError(
                 "source replay reservation alias closure is inconsistent"
+            )
+
+    def _validate_recovery_security_authority_unlocked(
+        self,
+        *,
+        candidate_id: str,
+        candidate_commit_record_id: str,
+        source_base_release_id: str | None,
+        expected_current_release_id: str | None,
+        recovery_plan_id: str | None,
+        control_dependency_ids: tuple[str, ...],
+        allowed_control_security_subject_ids: tuple[str, ...],
+    ) -> None:
+        recovery_admission_ids = tuple(
+            dependency_id
+            for dependency_id in control_dependency_ids
+            if dependency_id.split(":sha256:", 1)[0]
+            == "expert-recovery-candidate-admission"
+        )
+        if recovery_plan_id is None:
+            if recovery_admission_ids or allowed_control_security_subject_ids:
+                raise ExpertValidationStoreError(
+                    "ordinary validation carries recovery security authority"
+                )
+            return
+        if len(recovery_admission_ids) != 1:
+            raise ExpertValidationStoreError(
+                "recovery validation requires one durable candidate admission"
+            )
+        recovery_admission = self._read_contract_unlocked(
+            recovery_admission_ids[0],
+            ExpertRecoveryCandidateAdmission,
+        )
+        if (
+            recovery_admission.candidate_id != candidate_id
+            or recovery_admission.candidate_commit_record_id
+            != candidate_commit_record_id
+            or recovery_admission.recovery_plan.recovery_plan_id != recovery_plan_id
+            or recovery_admission.recovery_plan.source_base_release_id
+            != source_base_release_id
+            or recovery_admission.recovery_plan.activation_predecessor_release_id
+            != expected_current_release_id
+            or recovery_admission.control_dependency_ids != control_dependency_ids
+            or recovery_admission.allowed_control_security_subject_ids
+            != allowed_control_security_subject_ids
+        ):
+            raise ExpertValidationStoreError(
+                "recovery security authority differs from durable candidate admission"
             )
 
     def _source_replay_reservation_unlocked(
@@ -5367,6 +5465,9 @@ class ExpertValidationStore:
             or receipt != result_record.paired_comparison_receipt
             or decision != result_record.stage_decision
             or fence != result_record.publication_authority_fence
+            or fence.expected_current_release_id != request.expected_current_release_id
+            or fence.allowed_control_security_subject_ids
+            != request.allowed_control_security_subject_ids
             or state.transition_evidence_id != result_record.stage_result_record_id
         )
         if common_invalid:
@@ -5909,7 +6010,7 @@ class ExpertValidationStore:
             != latest_attempt.candidate_commit_record_id
             or result_record.scope_contract_id != latest_attempt.scope_contract_id
             or result_record.expected_current_release_id
-            != latest_attempt.source_base_release_id
+            != latest_attempt.expected_current_release_id
             or result_record.validation_policy_id != latest_attempt.validation_policy_id
             or result_record.configuration_fingerprint
             != latest_attempt.configuration_fingerprint

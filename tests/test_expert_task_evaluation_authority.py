@@ -179,11 +179,13 @@ def _bootstrap_authority(tmp_path, monkeypatch):
         prepared_plan=prepared_plan,
     ).reservation
     current = _current_observation(prepared_plan)
-    coordinator, _candidate_reader, source_base_provider, _adapter_provider = _coordinator(
-        validation_store=validation_store,
-        prepared_plan=prepared_plan,
-        source_base=None,
-        current_authority=_CurrentAuthority((current, current)),
+    coordinator, _candidate_reader, source_base_provider, _adapter_provider = (
+        _coordinator(
+            validation_store=validation_store,
+            prepared_plan=prepared_plan,
+            source_base=None,
+            current_authority=_CurrentAuthority((current, current)),
+        )
     )
     prepared = coordinator.build(plan_reservation)
     reservation_snapshot = _reserve(validation_store, snapshot, prepared)
@@ -262,6 +264,7 @@ def test_parent_spawn_fence_binds_complete_exact_fresh_authority(
         "invocation_allocation",
         "stable_current_release_observation",
         "task_adapter_trust_observations",
+        "allowed_control_security_subject_ids",
         "security_denylist_observation",
     }
 

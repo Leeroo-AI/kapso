@@ -100,6 +100,7 @@ class TaskEvaluationSpawnAuthorityFence(StrictContract):
     invocation_allocation: TaskEvaluationInvocationAllocation
     stable_current_release_observation: TaskEvaluationCurrentReleaseObservation
     task_adapter_trust_observations: tuple[TaskAdapterTrustObservation, ...]
+    allowed_control_security_subject_ids: tuple[str, ...]
     security_denylist_observation: SecurityDenylistObservation
 
     CONTENT_NAMESPACE: ClassVar[str] = "task-evaluation-spawn-authority-fence"
@@ -137,9 +138,24 @@ class TaskEvaluationSpawnAuthorityFence(StrictContract):
                 "task evaluation spawn adapter observations are noncanonical"
             )
         denylist = self.security_denylist_observation
-        if denylist.matched_revocations:
+        if self.allowed_control_security_subject_ids != tuple(
+            sorted(set(self.allowed_control_security_subject_ids))
+        ):
             raise TaskEvaluationAuthorityError(
-                "task evaluation spawn authority contains denied subjects"
+                "task evaluation allowed control security subjects are noncanonical"
+            )
+        for subject_id in self.allowed_control_security_subject_ids:
+            require_content_id(
+                subject_id,
+                "task evaluation allowed control security subject",
+            )
+        if not set(self.allowed_control_security_subject_ids).issubset(
+            denylist.checked_subject_ids
+        ) or not set(denylist.matched_subject_ids).issubset(
+            self.allowed_control_security_subject_ids
+        ):
+            raise TaskEvaluationAuthorityError(
+                "task evaluation spawn security waiver exceeds exact control authority"
             )
         if denylist.scope_id != current.scope_id:
             raise TaskEvaluationAuthorityError(

@@ -477,6 +477,7 @@ class ExpertSourceReplayExecutionProviderRegistry:
             candidate=prepared_request.candidate,
             source_base=prepared_request.source_base,
             authorization_state=prepared_request.authorization_state,
+            recovery_admission=prepared_request.recovery_admission,
             cases=prepared_request.cases,
         )
         case_keys = tuple(

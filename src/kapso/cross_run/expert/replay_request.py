@@ -34,6 +34,9 @@ from kapso.cross_run.expert.replay_context import (
     SourceReplayContextProvider,
     VerifiedSourceReplayContext,
 )
+from kapso.cross_run.expert.recovery_candidate_contracts import (
+    ExpertRecoveryCandidateAdmission,
+)
 from kapso.cross_run.expert.store import (
     StoredExpertCandidate,
 )
@@ -395,6 +398,7 @@ class PreparedExpertSourceReplayRequest:
     candidate: VerifiedTaskEvaluationCandidate
     source_base: VerifiedTaskEvaluationSourceBase
     authorization_state: ExpertCandidateValidationState
+    recovery_admission: ExpertRecoveryCandidateAdmission | None
     cases: tuple[MaterializedExpertSourceReplayCase, ...]
 
     def __post_init__(self) -> None:
@@ -409,6 +413,11 @@ class PreparedExpertSourceReplayRequest:
                 self.authorization_state,
                 ExpertCandidateValidationState,
             )
+            or (
+                self.recovery_admission is not None
+                and type(self.recovery_admission)
+                is not ExpertRecoveryCandidateAdmission
+            )
             or any(
                 not isinstance(item, MaterializedExpertSourceReplayCase)
                 for item in self.cases
@@ -418,6 +427,30 @@ class PreparedExpertSourceReplayRequest:
                 "prepared source replay request contains an unverified authority"
             )
         evaluator = _source_replay_evaluator(self.settings)
+        recovery_admission = self.recovery_admission
+        if (recovery_admission is None) != (self.request.recovery_plan_id is None):
+            raise ExpertSourceReplayRequestError(
+                "prepared source replay recovery admission is inconsistent"
+            )
+        if recovery_admission is not None:
+            recovery_plan = recovery_admission.recovery_plan
+            if (
+                recovery_admission.candidate_id != self.request.candidate_id
+                or recovery_admission.candidate_commit_record_id
+                != self.request.candidate_commit_record_id
+                or recovery_plan.recovery_plan_id != self.request.recovery_plan_id
+                or recovery_plan.source_base_release_id
+                != self.request.source_base_release_id
+                or recovery_plan.activation_predecessor_release_id
+                != self.request.expected_current_release_id
+                or recovery_admission.control_dependency_ids
+                != self.request.control_dependency_ids
+                or recovery_admission.allowed_control_security_subject_ids
+                != self.request.allowed_control_security_subject_ids
+            ):
+                raise ExpertSourceReplayRequestError(
+                    "prepared source replay differs from its recovery admission"
+                )
         policy = self.settings.policy.validation_policy()
         pareto_dimensions = {
             dimension.dimension_id: dimension
@@ -463,6 +496,9 @@ class PreparedExpertSourceReplayRequest:
             contexts=contexts,
         )
         source_base_receipt = self.source_base.source_base_tree_receipt
+        allowed_control_security_subject_ids = (
+            self.request.allowed_control_security_subject_ids
+        )
         expected_dependencies = {
             self.attempt.validation_attempt_id,
             self.authorization_state.validation_state_id,
@@ -472,10 +508,13 @@ class PreparedExpertSourceReplayRequest:
             self.candidate.source_tree.source_tree_manifest_id,
             self.attempt.scope_contract_id,
             self.source_base.release_manifest.release_id,
+            self.attempt.expected_current_release_id,
             source_base_receipt.source_base_tree_receipt_id,
             source_base_receipt.source_extraction_receipt.extraction_receipt_id,
             self.attempt.validation_policy_id,
             *self.attempt.eligibility_dependency_ids,
+            *self.attempt.control_dependency_ids,
+            *allowed_control_security_subject_ids,
             *(
                 dependency_id
                 for case in request_cases
@@ -510,7 +549,8 @@ class PreparedExpertSourceReplayRequest:
             != self.candidate.manifest.candidate_tree_hash
             or self.attempt.candidate_commit_record_id
             != self.candidate.commit_record.commit_record_id
-            or self.attempt.source_base_release_id != self.source_base.release_manifest.release_id
+            or self.attempt.source_base_release_id
+            != self.source_base.release_manifest.release_id
             or self.authorization_state.validation_attempt_id
             != self.attempt.validation_attempt_id
             or self.authorization_state.candidate_id != self.attempt.candidate_id
@@ -552,12 +592,21 @@ class PreparedExpertSourceReplayRequest:
             or self.request.candidate_source_tree_manifest_id
             != self.candidate.source_tree.source_tree_manifest_id
             or self.request.scope_contract_id != self.attempt.scope_contract_id
-            or self.request.source_base_release_id != self.source_base.release_manifest.release_id
+            or self.request.source_base_release_id
+            != self.source_base.release_manifest.release_id
+            or self.request.expected_current_release_id
+            != self.attempt.expected_current_release_id
+            or self.request.recovery_plan_id != self.attempt.recovery_plan_id
+            or self.request.control_dependency_ids
+            != self.attempt.control_dependency_ids
+            or self.request.allowed_control_security_subject_ids
+            != allowed_control_security_subject_ids
             or self.request.source_base_tree_receipt_id
             != source_base_receipt.source_base_tree_receipt_id
             or self.request.source_base_extraction_receipt_id
             != source_base_receipt.source_extraction_receipt.extraction_receipt_id
-            or self.request.source_base_tree_hash != source_base_receipt.source_base_tree_hash
+            or self.request.source_base_tree_hash
+            != source_base_receipt.source_base_tree_hash
             or self.request.validation_policy_id != self.attempt.validation_policy_id
             or self.request.configuration_fingerprint
             != self.attempt.configuration_fingerprint
@@ -803,6 +852,12 @@ class ExpertSourceReplayPreflightCoordinator:
         evaluator = _source_replay_evaluator(self.settings)
         request_cases = tuple(item.request_case for item in ordered_cases)
         source_base_receipt = source_base.source_base_tree_receipt
+        recovery_admission = stored_candidate.recovery_admission
+        allowed_control_security_subject_ids = (
+            ()
+            if recovery_admission is None
+            else recovery_admission.allowed_control_security_subject_ids
+        )
         dependencies = {
             attempt.validation_attempt_id,
             state.validation_state_id,
@@ -812,10 +867,13 @@ class ExpertSourceReplayPreflightCoordinator:
             candidate.source_tree.source_tree_manifest_id,
             attempt.scope_contract_id,
             attempt.source_base_release_id,
+            attempt.expected_current_release_id,
             source_base_receipt.source_base_tree_receipt_id,
             source_base_receipt.source_extraction_receipt.extraction_receipt_id,
             attempt.validation_policy_id,
             *attempt.eligibility_dependency_ids,
+            *attempt.control_dependency_ids,
+            *allowed_control_security_subject_ids,
             *(
                 dependency_id
                 for request_case in request_cases
@@ -825,6 +883,8 @@ class ExpertSourceReplayPreflightCoordinator:
                 )
             ),
         }
+        if attempt.recovery_plan_id is not None:
+            dependencies.add(attempt.recovery_plan_id)
         request = ExpertSourceReplayExecutionRequest.mint(
             validation_attempt_id=attempt.validation_attempt_id,
             authorization_state_id=state.validation_state_id,
@@ -837,6 +897,8 @@ class ExpertSourceReplayPreflightCoordinator:
             ),
             scope_contract_id=attempt.scope_contract_id,
             source_base_release_id=attempt.source_base_release_id,
+            expected_current_release_id=attempt.expected_current_release_id,
+            recovery_plan_id=attempt.recovery_plan_id,
             source_base_tree_receipt_id=source_base_receipt.source_base_tree_receipt_id,
             source_base_extraction_receipt_id=(
                 source_base_receipt.source_extraction_receipt.extraction_receipt_id
@@ -851,6 +913,8 @@ class ExpertSourceReplayPreflightCoordinator:
             evaluator_role=evaluator.evaluator_role,
             evaluator_version=evaluator.evaluator_version,
             attempt_dependency_ids=attempt.eligibility_dependency_ids,
+            control_dependency_ids=attempt.control_dependency_ids,
+            allowed_control_security_subject_ids=(allowed_control_security_subject_ids),
             cases=request_cases,
             exact_dependency_ids=tuple(sorted(dependencies)),
         )
@@ -862,6 +926,7 @@ class ExpertSourceReplayPreflightCoordinator:
             candidate=candidate,
             source_base=source_base,
             authorization_state=state,
+            recovery_admission=recovery_admission,
             cases=ordered_cases,
         )
         self._require_deadline(deadline)
@@ -929,7 +994,7 @@ class ExpertSourceReplayPreflightCoordinator:
         scope_id = candidate.closure.validation_context.scope_id
         return (
             self.current_release_provider.current_release_id(scope_id)
-            == attempt.source_base_release_id
+            == attempt.expected_current_release_id
         )
 
     def _invalidate_current_release_authority(
@@ -966,7 +1031,10 @@ class ExpertSourceReplayPreflightCoordinator:
         limits: TaskEvaluationMaterializationLimits,
     ) -> VerifiedTaskEvaluationSourceBase:
         context = candidate.closure.validation_context
-        if context.source_base_release is None or context.source_base_tree_receipt is None:
+        if (
+            context.source_base_release is None
+            or context.source_base_tree_receipt is None
+        ):
             raise ExpertSourceReplayRequestError(
                 "source replay requires an exact materialized source-base release"
             )

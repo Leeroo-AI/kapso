@@ -415,6 +415,32 @@ def _plan(
             _id("expert-validation-policy", "policy"),
         }
     )
+    source_base_release_id = ordered_cells[0].source_base_release_id
+    expected_current_release_id = source_base_release_id
+    recovery_plan_id = None
+    control_dependency_ids = ()
+    if mode is ExpertReleaseMatrixMode.CLEAN_FORWARD_RECOVERY:
+        expected_current_release_id = _id(
+            "expert-base-release",
+            "blocked-current",
+        )
+        recovery_plan_id = _id(
+            "expert-clean-forward-recovery-plan",
+            "recovery-plan",
+        )
+        control_dependency_ids = tuple(
+            sorted(
+                (
+                    expected_current_release_id,
+                    recovery_plan_id,
+                    _id(
+                        "expert-recovery-candidate-admission",
+                        "recovery-admission",
+                    ),
+                )
+            )
+        )
+        external_dependencies.update(control_dependency_ids)
     return ExpertReleaseMatrixEvaluationPlan.mint(
         mode=mode,
         validation_attempt_id=ordered_cells[0].validation_attempt_id,
@@ -422,8 +448,11 @@ def _plan(
         candidate_commit_record_id=_id("expert-candidate-commit", "candidate"),
         candidate_tree_hash=ordered_cells[0].candidate_tree_hash,
         scope_contract_id=_id("expert-scope-contract", "scope"),
-        source_base_release_id=ordered_cells[0].source_base_release_id,
+        source_base_release_id=source_base_release_id,
         source_base_tree_hash=ordered_cells[0].source_base_tree_hash,
+        expected_current_release_id=expected_current_release_id,
+        recovery_plan_id=recovery_plan_id,
+        control_dependency_ids=control_dependency_ids,
         validation_policy_id=_id("expert-validation-policy", "policy"),
         configuration_fingerprint=_digest("configuration"),
         adapter_authorities=ordered_authorities,
@@ -447,10 +476,7 @@ def _row(
         )
     }
     selected_parent_values = source_base_values
-    if (
-        selected_parent_values is None
-        and cell.mode is ExpertReleaseMatrixMode.CONTROL_COMPARISON
-    ):
+    if selected_parent_values is None and cell.source_base_release_id is not None:
         selected_parent_values = {
             replicate_id: 0.4 + position / 100.0
             for position, replicate_id in enumerate(
@@ -691,8 +717,26 @@ def test_bootstrap_plan_and_rows_forbid_parent_authority():
         for row in report.evidence_rows
     )
     assert all(row.control_replicate_values is None for row in report.evidence_rows)
-    with pytest.raises(ExpertReleaseMatrixContractError, match="cannot name a source base"):
+    with pytest.raises(
+        ExpertReleaseMatrixContractError, match="cannot name a source base"
+    ):
         replace(plan.evaluation_cells[0], source_base_tree_hash=_digest("substituted"))
+
+
+def test_recovery_plan_separates_scientific_source_from_current_barrier():
+    _, _, plan, report = _matrix(ExpertReleaseMatrixMode.CLEAN_FORWARD_RECOVERY)
+
+    assert plan.source_base_release_id is not None
+    assert plan.expected_current_release_id != plan.source_base_release_id
+    assert plan.recovery_plan_id in plan.control_dependency_ids
+    assert plan.expected_current_release_id in plan.control_dependency_ids
+    assert plan.source_base_release_id not in plan.control_dependency_ids
+    assert report.source_base_release_id == plan.source_base_release_id
+    with pytest.raises(ExpertReleaseMatrixContractError, match="partition"):
+        replace(
+            plan,
+            expected_current_release_id=plan.source_base_release_id,
+        )
 
 
 def test_parent_plan_mixes_source_replay_and_adapter_owned_cases():

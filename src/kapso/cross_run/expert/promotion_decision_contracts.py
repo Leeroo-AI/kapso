@@ -38,6 +38,8 @@ class ExpertReleaseMatrixDecisionReason(str, Enum):
     HARD_REGRESSION = "hard_regression"
     UNDERPOWERED_EVIDENCE = "underpowered_evidence"
     BOOTSTRAP_STANDALONE_COVERAGE = "bootstrap_standalone_coverage"
+    RECOVERY_STANDALONE_COVERAGE = "recovery_standalone_coverage"
+    RECOVERY_NON_REGRESSION = "recovery_non_regression"
     CONFIRMED_BENEFIT = "confirmed_benefit"
     MECHANICAL_NON_REGRESSION = "mechanical_non_regression"
     GAIN_REGRESSION_TRADEOFF = "gain_regression_tradeoff"
@@ -281,6 +283,12 @@ class ExpertReleaseMatrixPromotionDecision(StrictContract):
         if self.mode is ExpertReleaseMatrixMode.BOOTSTRAP:
             self._validate_bootstrap_decision()
             return
+        if (
+            self.mode is ExpertReleaseMatrixMode.CLEAN_FORWARD_RECOVERY
+            and not self.replicate_assessments
+        ):
+            self._validate_recovery_standalone_decision()
+            return
         self._validate_control_comparison_decision(
             has_hard_regression=has_hard_regression,
             gain_dimension_ids=gain_dimension_ids,
@@ -321,6 +329,39 @@ class ExpertReleaseMatrixPromotionDecision(StrictContract):
             "bootstrap decision uses an unsupported reason"
         )
 
+    def _validate_recovery_standalone_decision(self) -> None:
+        if (
+            self.validation_track is not ExpertValidationTrack.REPOSITORY_ARCHITECTURE
+            or self.confirmed_benefit_dimension_ids
+        ):
+            raise ExpertReleaseMatrixDecisionError(
+                "standalone recovery requires repository-architecture evidence"
+            )
+        if (
+            self.reason
+            is ExpertReleaseMatrixDecisionReason.RECOVERY_STANDALONE_COVERAGE
+        ):
+            if (
+                self.outcome is not ExpertReleaseMatrixDecisionOutcome.APPROVED
+                or self.underpowered_dimension_ids
+            ):
+                raise ExpertReleaseMatrixDecisionError(
+                    "standalone recovery coverage requires a powered approval"
+                )
+            return
+        if self.reason is ExpertReleaseMatrixDecisionReason.UNDERPOWERED_EVIDENCE:
+            if (
+                self.outcome is not ExpertReleaseMatrixDecisionOutcome.PARETO_RETAINED
+                or not self.underpowered_dimension_ids
+            ):
+                raise ExpertReleaseMatrixDecisionError(
+                    "standalone recovery underpower requires retained evidence"
+                )
+            return
+        raise ExpertReleaseMatrixDecisionError(
+            "standalone recovery decision uses an unsupported reason"
+        )
+
     def _validate_control_comparison_decision(
         self,
         *,
@@ -332,10 +373,10 @@ class ExpertReleaseMatrixPromotionDecision(StrictContract):
             raise ExpertReleaseMatrixDecisionError(
                 "control comparison decisions require replicate assessments"
             )
-        if (
-            self.reason
-            is ExpertReleaseMatrixDecisionReason.BOOTSTRAP_STANDALONE_COVERAGE
-        ):
+        if self.reason in {
+            ExpertReleaseMatrixDecisionReason.BOOTSTRAP_STANDALONE_COVERAGE,
+            ExpertReleaseMatrixDecisionReason.RECOVERY_STANDALONE_COVERAGE,
+        }:
             raise ExpertReleaseMatrixDecisionError(
                 "control comparison decision uses an unsupported reason"
             )
@@ -375,9 +416,17 @@ class ExpertReleaseMatrixPromotionDecision(StrictContract):
             )
         elif self.reason is ExpertReleaseMatrixDecisionReason.MECHANICAL_NON_REGRESSION:
             valid = (
-                self.outcome is ExpertReleaseMatrixDecisionOutcome.APPROVED
+                self.mode is ExpertReleaseMatrixMode.CONTROL_COMPARISON
+                and self.outcome is ExpertReleaseMatrixDecisionOutcome.APPROVED
                 and self.validation_track
                 is ExpertValidationTrack.MECHANICAL_GENERAL_FIX
+                and not material_regression_dimension_ids
+                and not self.confirmed_benefit_dimension_ids
+            )
+        elif self.reason is ExpertReleaseMatrixDecisionReason.RECOVERY_NON_REGRESSION:
+            valid = (
+                self.mode is ExpertReleaseMatrixMode.CLEAN_FORWARD_RECOVERY
+                and self.outcome is ExpertReleaseMatrixDecisionOutcome.APPROVED
                 and not material_regression_dimension_ids
                 and not self.confirmed_benefit_dimension_ids
             )
@@ -403,7 +452,8 @@ class ExpertReleaseMatrixPromotionDecision(StrictContract):
             )
         elif self.reason is ExpertReleaseMatrixDecisionReason.NO_BENEFIT:
             valid = (
-                self.outcome is ExpertReleaseMatrixDecisionOutcome.FAILED
+                self.mode is ExpertReleaseMatrixMode.CONTROL_COMPARISON
+                and self.outcome is ExpertReleaseMatrixDecisionOutcome.FAILED
                 and not gain_dimension_ids
                 and not material_regression_dimension_ids
                 and not self.confirmed_benefit_dimension_ids

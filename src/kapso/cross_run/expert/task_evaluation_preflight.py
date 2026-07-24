@@ -155,7 +155,7 @@ class PreparedTaskEvaluationRequest:
         if (
             self.current_release_observation.scope_id != context.scope_id
             or self.current_release_observation.release_id
-            != self.plan_join.request.source_base_release_id
+            != self.plan_join.request.expected_current_release_id
         ):
             raise TaskEvaluationPreflightError(
                 "prepared task-evaluation current authority differs from its request"
@@ -289,7 +289,10 @@ class TaskEvaluationPreflightCoordinator:
         )
         self._require_deadline(deadline)
         scope_id = stored_candidate.closure.validation_context.scope_id
-        current_before = self._observe_current(scope_id, plan.source_base_release_id)
+        current_before = self._observe_current(
+            scope_id,
+            plan.expected_current_release_id,
+        )
         self._require_deadline(deadline)
         source_base = self._materialize_source_base(
             stored_candidate=stored_candidate,
@@ -309,7 +312,10 @@ class TaskEvaluationPreflightCoordinator:
             source_base=source_base,
             deadline=deadline,
         )
-        current_after = self._observe_current(scope_id, plan.source_base_release_id)
+        current_after = self._observe_current(
+            scope_id,
+            plan.expected_current_release_id,
+        )
         if current_after != current_before:
             raise TaskEvaluationPreflightError(
                 "task-evaluation current authority changed during materialization"
@@ -395,7 +401,10 @@ class TaskEvaluationPreflightCoordinator:
         deadline: float,
     ) -> VerifiedTaskEvaluationSourceBase | None:
         context = stored_candidate.closure.validation_context
-        if context.source_base_release is None or context.source_base_tree_receipt is None:
+        if (
+            context.source_base_release is None
+            or context.source_base_tree_receipt is None
+        ):
             if (
                 context.source_base_release is not None
                 or context.source_base_tree_receipt is not None
@@ -551,7 +560,10 @@ def task_evaluation_materialization_usage(
 
     if (
         type(candidate) is not VerifiedTaskEvaluationCandidate
-        or (source_base is not None and type(source_base) is not VerifiedTaskEvaluationSourceBase)
+        or (
+            source_base is not None
+            and type(source_base) is not VerifiedTaskEvaluationSourceBase
+        )
         or type(adapters) is not tuple
         or any(type(adapter) is not VerifiedTaskAdapter for adapter in adapters)
     ):

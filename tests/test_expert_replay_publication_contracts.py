@@ -51,6 +51,7 @@ from kapso.cross_run.expert.validation_store import (
 )
 from test_expert_replay_execution_store import _remint
 from test_expert_source_replay_comparison import _complete_execution
+from security_denylist_fixtures import matched_security_revocations
 
 
 class _PublicationCurrentAuthority:
@@ -181,7 +182,8 @@ def _publication_evidence(tmp_path, aggregate_by_leg_kind=None):
         candidate_tree_hash=reservation.candidate_tree_hash,
         scope_id=source_base.scope_id,
         scope_contract_id=request.scope_contract_id,
-        expected_current_release_id=request.source_base_release_id,
+        expected_current_release_id=request.expected_current_release_id,
+        allowed_control_security_subject_ids=(),
         validation_policy_id=request.validation_policy_id,
         configuration_fingerprint=request.configuration_fingerprint,
         paired_comparison_receipt_id=receipt.paired_comparison_receipt_id,
@@ -222,6 +224,39 @@ def test_source_stage_result_is_self_contained_without_evaluator_evidence(tmp_pa
     assert b"invocation_allocation" not in fence.to_json_bytes()
     assert b"evaluator_run" not in result.to_json_bytes()
     assert b"attestation_envelope" not in result.to_json_bytes()
+
+
+def test_source_replay_fence_allows_only_predeclared_control_revocations(tmp_path):
+    _, _, _, _, _, fence, _ = _publication_evidence(tmp_path)
+    barrier_release_id = fence.expected_current_release_id
+    barrier_denylist = _remint(
+        fence.security_denylist_observation,
+        matched_revocations=matched_security_revocations((barrier_release_id,)),
+    )
+
+    recovered = _remint(
+        fence,
+        allowed_control_security_subject_ids=(barrier_release_id,),
+        security_denylist_observation=barrier_denylist,
+    )
+
+    assert recovered.security_denylist_observation.matched_subject_ids == (
+        barrier_release_id,
+    )
+    scientific_subject_id = fence.candidate_id
+    scientific_denylist = _remint(
+        fence.security_denylist_observation,
+        matched_revocations=matched_security_revocations((scientific_subject_id,)),
+    )
+    with pytest.raises(
+        ExpertSourceReplayPublicationError,
+        match="rejected the fence",
+    ):
+        _remint(
+            fence,
+            allowed_control_security_subject_ids=(barrier_release_id,),
+            security_denylist_observation=scientific_denylist,
+        )
 
 
 def test_final_security_closure_expands_every_spawn_fence_and_provider_handle(

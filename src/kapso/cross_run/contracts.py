@@ -3654,6 +3654,8 @@ class ExpertSourceReplayExecutionRequest(StrictContract):
     candidate_source_tree_manifest_id: str
     scope_contract_id: str
     source_base_release_id: str
+    expected_current_release_id: str
+    recovery_plan_id: str | None
     source_base_tree_receipt_id: str
     source_base_extraction_receipt_id: str
     source_base_tree_hash: str
@@ -3664,6 +3666,8 @@ class ExpertSourceReplayExecutionRequest(StrictContract):
     evaluator_role: str
     evaluator_version: str
     attempt_dependency_ids: tuple[str, ...]
+    control_dependency_ids: tuple[str, ...]
+    allowed_control_security_subject_ids: tuple[str, ...]
     cases: tuple[ExpertSourceReplayExecutionCase, ...]
     exact_dependency_ids: tuple[str, ...]
 
@@ -3709,6 +3713,11 @@ class ExpertSourceReplayExecutionRequest(StrictContract):
                 "source replay source_base_release_id",
             ),
             (
+                self.expected_current_release_id,
+                "expert-base-release",
+                "source replay expected_current_release_id",
+            ),
+            (
                 self.source_base_tree_receipt_id,
                 "expert-source-base-tree-receipt",
                 "source replay source_base_tree_receipt_id",
@@ -3727,6 +3736,18 @@ class ExpertSourceReplayExecutionRequest(StrictContract):
             require_content_id(value, name)
             if value.split(":sha256:", 1)[0] != namespace:
                 raise ContractValidationError(f"{name} must name a {namespace} record")
+        if self.recovery_plan_id is not None:
+            require_content_id(
+                self.recovery_plan_id,
+                "source replay recovery_plan_id",
+            )
+            if (
+                self.recovery_plan_id.split(":sha256:", 1)[0]
+                != "expert-clean-forward-recovery-plan"
+            ):
+                raise ContractValidationError(
+                    "source replay recovery_plan_id uses the wrong namespace"
+                )
         _require_digest(self.candidate_tree_hash, "source replay candidate_tree_hash")
         _require_digest(
             self.source_base_tree_hash, "source replay source_base_tree_hash"
@@ -3775,6 +3796,55 @@ class ExpertSourceReplayExecutionRequest(StrictContract):
                 dependency_id,
                 "source replay request attempt_dependency_ids",
             )
+        for values, name in (
+            (
+                self.control_dependency_ids,
+                "source replay request control_dependency_ids",
+            ),
+            (
+                self.allowed_control_security_subject_ids,
+                "source replay request allowed control security subjects",
+            ),
+        ):
+            if values != tuple(sorted(set(values))):
+                raise ContractValidationError(f"{name} must be sorted and unique")
+            for dependency_id in values:
+                require_content_id(dependency_id, name)
+        if not set(self.control_dependency_ids).issubset(
+            self.attempt_dependency_ids
+        ) or not set(self.allowed_control_security_subject_ids).issubset(
+            self.control_dependency_ids
+        ):
+            raise MissingReferenceError(
+                "source replay control authority is absent from the attempt"
+            )
+        if self.recovery_plan_id is None:
+            if (
+                self.expected_current_release_id != self.source_base_release_id
+                or self.control_dependency_ids
+                or self.allowed_control_security_subject_ids
+            ):
+                raise ContractValidationError(
+                    "ordinary source replay must bind CURRENT to its source "
+                    "without recovery controls"
+                )
+        else:
+            recovery_admission_ids = tuple(
+                dependency_id
+                for dependency_id in self.control_dependency_ids
+                if dependency_id.split(":sha256:", 1)[0]
+                == "expert-recovery-candidate-admission"
+            )
+            if (
+                self.expected_current_release_id == self.source_base_release_id
+                or self.recovery_plan_id not in self.control_dependency_ids
+                or self.expected_current_release_id not in self.control_dependency_ids
+                or self.source_base_release_id in self.control_dependency_ids
+                or len(recovery_admission_ids) != 1
+            ):
+                raise ContractValidationError(
+                    "recovery source replay authority partition is invalid"
+                )
         _require_sorted_unique(
             self.exact_dependency_ids,
             "source replay request exact_dependency_ids",
@@ -3788,10 +3858,13 @@ class ExpertSourceReplayExecutionRequest(StrictContract):
             self.candidate_source_tree_manifest_id,
             self.scope_contract_id,
             self.source_base_release_id,
+            self.expected_current_release_id,
             self.source_base_tree_receipt_id,
             self.source_base_extraction_receipt_id,
             self.validation_policy_id,
             *self.attempt_dependency_ids,
+            *self.control_dependency_ids,
+            *self.allowed_control_security_subject_ids,
             *(
                 dependency_id
                 for case in self.cases
@@ -3801,6 +3874,8 @@ class ExpertSourceReplayExecutionRequest(StrictContract):
                 )
             ),
         }
+        if self.recovery_plan_id is not None:
+            expected_dependencies.add(self.recovery_plan_id)
         if set(self.exact_dependency_ids) != expected_dependencies:
             raise MissingReferenceError(
                 "source replay execution request dependency closure is not exact"

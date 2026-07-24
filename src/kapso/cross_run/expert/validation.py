@@ -169,6 +169,9 @@ def validate_source_replay_request_authority_shape(
         or request.candidate_commit_record_id != attempt.candidate_commit_record_id
         or request.scope_contract_id != attempt.scope_contract_id
         or request.source_base_release_id != attempt.source_base_release_id
+        or request.expected_current_release_id != attempt.expected_current_release_id
+        or request.recovery_plan_id != attempt.recovery_plan_id
+        or request.control_dependency_ids != attempt.control_dependency_ids
         or request.validation_policy_id != attempt.validation_policy_id
         or request.configuration_fingerprint != attempt.configuration_fingerprint
         or request.request_policy_version
@@ -988,6 +991,12 @@ class ExpertValidationReducer:
         manifest = stored.closure.manifest
         validation_context = stored.closure.validation_context
         source_base_receipt = validation_context.source_base_tree_receipt
+        recovery_admission = stored.recovery_admission
+        allowed_control_security_subject_ids = (
+            ()
+            if recovery_admission is None
+            else recovery_admission.allowed_control_security_subject_ids
+        )
         observed_current_release_id = self.current_release_provider.current_release_id(
             validation_context.scope_id
         )
@@ -1011,7 +1020,9 @@ class ExpertValidationReducer:
             != source_base_receipt.source_extraction_receipt.extraction_receipt_id
             or request.source_base_tree_hash
             != source_base_receipt.source_base_tree_hash
-            or observed_current_release_id != attempt.source_base_release_id
+            or observed_current_release_id != attempt.expected_current_release_id
+            or request.allowed_control_security_subject_ids
+            != allowed_control_security_subject_ids
             or not set(stored_candidate_admission_dependency_ids(stored)).issubset(
                 attempt.eligibility_dependency_ids
             )
@@ -1262,7 +1273,7 @@ class ExpertValidationReducer:
             or result.validation_policy_id != attempt.validation_policy_id
             or result.configuration_fingerprint != attempt.configuration_fingerprint
             or fence.scope_contract_id != attempt.scope_contract_id
-            or fence.expected_current_release_id != attempt.source_base_release_id
+            or fence.expected_current_release_id != attempt.expected_current_release_id
         ):
             raise ExpertValidationError(
                 "source replay result differs from the active configured stage"
@@ -1956,7 +1967,7 @@ class ExpertValidationReducer:
                     or accepted_result.publication_authority_fence.scope_contract_id
                     != attempt.scope_contract_id
                     or accepted_result.publication_authority_fence.expected_current_release_id
-                    != attempt.source_base_release_id
+                    != attempt.expected_current_release_id
                 ):
                     raise ExpertValidationError(
                         "accepted source replay differs from the stage prefix"

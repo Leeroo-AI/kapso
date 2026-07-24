@@ -161,6 +161,7 @@ class ExpertSourceReplayStageOrchestrator:
             candidate=prepared.candidate,
             source_base=prepared.source_base,
             authorization_state=prepared.authorization_state,
+            recovery_admission=prepared.recovery_admission,
             cases=prepared.cases,
         )
         if prepared.attempt != attempt:

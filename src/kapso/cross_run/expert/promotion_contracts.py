@@ -38,6 +38,7 @@ class ExpertReleaseMatrixMode(str, Enum):
 
     CONTROL_COMPARISON = "control_comparison"
     BOOTSTRAP = "bootstrap"
+    CLEAN_FORWARD_RECOVERY = "clean_forward_recovery"
 
 
 class ExpertReleaseMatrixProvenanceKind(str, Enum):
@@ -458,21 +459,36 @@ class ExpertReleaseMatrixEvaluationCell(StrictContract):
             )
         _require_digest(self.candidate_tree_hash, "release matrix candidate tree")
         if self.mode is ExpertReleaseMatrixMode.BOOTSTRAP:
-            if self.source_base_release_id is not None or self.source_base_tree_hash is not None:
+            if (
+                self.source_base_release_id is not None
+                or self.source_base_tree_hash is not None
+            ):
                 raise ExpertReleaseMatrixContractError(
                     "bootstrap release matrix cell cannot name a source base"
                 )
-        else:
-            if self.source_base_release_id is None or self.source_base_tree_hash is None:
+        elif self.mode is ExpertReleaseMatrixMode.CONTROL_COMPARISON:
+            if (
+                self.source_base_release_id is None
+                or self.source_base_tree_hash is None
+            ):
                 raise ExpertReleaseMatrixContractError(
                     "control-comparison release matrix cell requires a source-base tree"
                 )
+        elif (self.source_base_release_id is None) != (
+            self.source_base_tree_hash is None
+        ):
+            raise ExpertReleaseMatrixContractError(
+                "recovery release matrix cell source-base authority is partial"
+            )
+        if self.source_base_release_id is not None:
             _require_namespaced_id(
                 self.source_base_release_id,
                 "expert-base-release",
                 "release matrix cell source-base release",
             )
-            _require_digest(self.source_base_tree_hash, "release matrix source-base tree")
+            _require_digest(
+                self.source_base_tree_hash, "release matrix source-base tree"
+            )
         fingerprint = self.evaluation_fingerprint
         binding = self.metric_comparison_binding
         if (
@@ -532,6 +548,9 @@ class ExpertReleaseMatrixEvaluationPlan(StrictContract):
     scope_contract_id: str
     source_base_release_id: str | None
     source_base_tree_hash: str | None
+    expected_current_release_id: str | None
+    recovery_plan_id: str | None
+    control_dependency_ids: tuple[str, ...]
     validation_policy_id: str
     configuration_fingerprint: str
     adapter_authorities: tuple[ExpertReleaseMatrixAdapterAuthority, ...]
@@ -577,21 +596,73 @@ class ExpertReleaseMatrixEvaluationPlan(StrictContract):
             "release matrix plan configuration fingerprint",
         )
         if self.mode is ExpertReleaseMatrixMode.BOOTSTRAP:
-            if self.source_base_release_id is not None or self.source_base_tree_hash is not None:
+            if (
+                self.source_base_release_id is not None
+                or self.source_base_tree_hash is not None
+                or self.expected_current_release_id is not None
+                or self.recovery_plan_id is not None
+                or self.control_dependency_ids
+            ):
                 raise ExpertReleaseMatrixContractError(
-                    "bootstrap release matrix plan cannot name a source base"
+                    "bootstrap release matrix plan cannot name release authority"
+                )
+        elif self.mode is ExpertReleaseMatrixMode.CONTROL_COMPARISON:
+            if (
+                self.source_base_release_id is None
+                or self.source_base_tree_hash is None
+                or self.expected_current_release_id != self.source_base_release_id
+                or self.recovery_plan_id is not None
+                or self.control_dependency_ids
+            ):
+                raise ExpertReleaseMatrixContractError(
+                    "control-comparison release matrix plan requires its current source"
                 )
         else:
-            if self.source_base_release_id is None or self.source_base_tree_hash is None:
+            if (
+                self.expected_current_release_id is None
+                or self.recovery_plan_id is None
+                or not self.control_dependency_ids
+                or (self.source_base_release_id is None)
+                != (self.source_base_tree_hash is None)
+                or self.expected_current_release_id == self.source_base_release_id
+                or self.recovery_plan_id not in self.control_dependency_ids
+                or self.expected_current_release_id not in self.control_dependency_ids
+                or self.source_base_release_id in self.control_dependency_ids
+            ):
                 raise ExpertReleaseMatrixContractError(
-                    "control-comparison release matrix plan requires a source-base tree"
+                    "recovery release matrix plan authority partition is invalid"
                 )
+            _require_namespaced_id(
+                self.recovery_plan_id,
+                "expert-clean-forward-recovery-plan",
+                "release matrix recovery plan",
+            )
+        if self.expected_current_release_id is not None:
+            _require_namespaced_id(
+                self.expected_current_release_id,
+                "expert-base-release",
+                "release matrix expected current release",
+            )
+        if self.source_base_release_id is not None:
             _require_namespaced_id(
                 self.source_base_release_id,
                 "expert-base-release",
                 "release matrix plan source-base release",
             )
-            _require_digest(self.source_base_tree_hash, "release matrix plan source-base tree")
+            _require_digest(
+                self.source_base_tree_hash, "release matrix plan source-base tree"
+            )
+        if self.control_dependency_ids != tuple(
+            sorted(set(self.control_dependency_ids))
+        ):
+            raise ExpertReleaseMatrixContractError(
+                "release matrix control dependencies must be sorted and unique"
+            )
+        for dependency_id in self.control_dependency_ids:
+            require_content_id(
+                dependency_id,
+                "release matrix control dependency",
+            )
         authority_keys = tuple(
             authority.canonical_key for authority in self.adapter_authorities
         )
@@ -799,6 +870,11 @@ class ExpertReleaseMatrixEvaluationPlan(StrictContract):
         )
         if self.source_base_release_id is not None:
             expected_external_dependencies.add(self.source_base_release_id)
+        if self.expected_current_release_id is not None:
+            expected_external_dependencies.add(self.expected_current_release_id)
+        if self.recovery_plan_id is not None:
+            expected_external_dependencies.add(self.recovery_plan_id)
+        expected_external_dependencies.update(self.control_dependency_ids)
         if set(self.external_dependency_ids) != expected_external_dependencies:
             raise ExpertReleaseMatrixContractError(
                 "release matrix plan external dependency closure is not exact"
@@ -1035,12 +1111,33 @@ class ExpertReleaseMatrixTaskExecutionEvidence(StrictContract):
                 raise ExpertReleaseMatrixContractError(
                     "bootstrap task evidence requires one complete candidate leg per case"
                 )
-        elif any(
-            case.control_result_accepted_event_id is None for case in self.case_evidence
-        ) or len(self.execution_journal_event_ids) != 8 * len(self.case_evidence):
-            raise ExpertReleaseMatrixContractError(
-                "control task evidence requires two complete semantic legs per case"
-            )
+        else:
+            control_presence = {
+                case.control_result_accepted_event_id is not None
+                for case in self.case_evidence
+            }
+            if len(control_presence) != 1 or (
+                (True in control_presence)
+                != (
+                    len(self.execution_journal_event_ids) == 8 * len(self.case_evidence)
+                )
+            ):
+                raise ExpertReleaseMatrixContractError(
+                    "comparison task evidence requires one consistent semantic-leg shape"
+                )
+            if False in control_presence and len(self.execution_journal_event_ids) != (
+                4 * len(self.case_evidence)
+            ):
+                raise ExpertReleaseMatrixContractError(
+                    "standalone recovery task evidence requires complete candidate legs"
+                )
+            if (
+                self.mode is ExpertReleaseMatrixMode.CONTROL_COMPARISON
+                and False in control_presence
+            ):
+                raise ExpertReleaseMatrixContractError(
+                    "control task evidence requires two semantic legs per case"
+                )
         for dependency_ids, name in (
             (
                 self.reservation_dependency_ids,
@@ -1143,21 +1240,36 @@ class ExpertReleaseMatrixReport(StrictContract):
             "release matrix plan reservation operation",
         )
         if self.mode is ExpertReleaseMatrixMode.BOOTSTRAP:
-            if self.source_base_release_id is not None or self.source_base_tree_hash is not None:
+            if (
+                self.source_base_release_id is not None
+                or self.source_base_tree_hash is not None
+            ):
                 raise ExpertReleaseMatrixContractError(
                     "bootstrap release matrix cannot name a source base"
                 )
-        else:
-            if self.source_base_release_id is None or self.source_base_tree_hash is None:
+        elif self.mode is ExpertReleaseMatrixMode.CONTROL_COMPARISON:
+            if (
+                self.source_base_release_id is None
+                or self.source_base_tree_hash is None
+            ):
                 raise ExpertReleaseMatrixContractError(
                     "control-comparison release matrix requires a source-base tree"
                 )
+        elif (self.source_base_release_id is None) != (
+            self.source_base_tree_hash is None
+        ):
+            raise ExpertReleaseMatrixContractError(
+                "recovery release matrix source-base authority is partial"
+            )
+        if self.source_base_release_id is not None:
             _require_namespaced_id(
                 self.source_base_release_id,
                 "expert-base-release",
                 "release matrix source-base release",
             )
-            _require_digest(self.source_base_tree_hash, "release matrix source-base tree")
+            _require_digest(
+                self.source_base_tree_hash, "release matrix source-base tree"
+            )
         plan = self.evaluation_plan
         if (
             plan.mode,
@@ -1245,6 +1357,7 @@ class ExpertReleaseMatrixReport(StrictContract):
             case_evidence_by_provenance = {
                 case.provenance_binding_id: case for case in task_evidence.case_evidence
             }
+            expects_control_results = self.source_base_release_id is not None
             if (
                 task_evidence.mode is not self.mode
                 or len(case_evidence_by_provenance) != len(task_evidence.case_evidence)
@@ -1260,6 +1373,11 @@ class ExpertReleaseMatrixReport(StrictContract):
                 or plan.evaluation_plan_id
                 not in task_evidence.reservation_dependency_ids
                 or plan.evaluation_plan_id not in task_evidence.request_dependency_ids
+                or any(
+                    (case.control_result_accepted_event_id is not None)
+                    != expects_control_results
+                    for case in task_evidence.case_evidence
+                )
             ):
                 raise ExpertReleaseMatrixContractError(
                     "release matrix task evidence differs from plan authority"
@@ -1341,7 +1459,10 @@ class ExpertReleaseMatrixReport(StrictContract):
             raise ExpertReleaseMatrixContractError(
                 "release matrix candidate replicate coverage differs from its plan cell"
             )
-        if cell.mode is ExpertReleaseMatrixMode.BOOTSTRAP:
+        if cell.mode is ExpertReleaseMatrixMode.BOOTSTRAP or (
+            cell.mode is ExpertReleaseMatrixMode.CLEAN_FORWARD_RECOVERY
+            and cell.source_base_release_id is None
+        ):
             if (
                 row.control_replicate_values is not None
                 or row.control_observation_event_id is not None

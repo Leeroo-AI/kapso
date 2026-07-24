@@ -918,6 +918,15 @@ complete canonical evaluator request and handle internally, carries only the sel
 expert leg, and has no provider-execution surface until the journal owns its one-shot
 spawn capability.
 
+Clean-forward recovery is a third matrix mode, not bootstrap or an ordinary
+control comparison with a renamed source. Historical recovery keeps the selected
+clean historical release as its scientific source and runs paired source/candidate
+legs, while freshness observes the blocked activation predecessor as expected
+`CURRENT`. Canonical-empty recovery has no scientific source and runs powered
+candidate-only legs against the same blocked predecessor authority. The recovery
+plan, exact control partition, and durable recovery admission remain explicit in
+the plan and task request.
+
 Fresh task-evaluation authority also has one shared observation vocabulary. The
 adapter-verifier and authenticated denylist observations are now neutral contracts
 used by both source replay and adapter-owned matrix execution; the old source-named
@@ -926,12 +935,15 @@ allocation, one stable fresh current-or-absent observation, the exact sorted set
 all prepared adapter trust observations, and the exact denylist observation. Its pure
 projection derives the complete checked-subject set from the reservation/request
 closures, allocated case/leg pair, candidate and optional source-base dependencies,
-current publication/validation closure, and every adapter/verifier dependency. Missing
-or extra checked subjects, denied subjects, foreign scope/release/absence, substituted
-adapters, or a cross-case allocation fail closed. A harmless branch-head advance after
-admission may produce a new observation; the later coordinator must require its two
-fresh observations to equal each other while preserving the reservation's exact
-source-base release or bootstrap absence.
+current publication/validation closure, and every adapter/verifier dependency.
+Missing or extra checked subjects, foreign scope/release/absence, substituted
+adapters, or a cross-case allocation fail closed. Ordinary execution permits no
+denylist match. Recovery permits only the exact matched control subjects derived
+from the persisted recovery admission; a match on the candidate, scientific
+source, adapter, or any other dependency still fails closed. A harmless branch-head
+advance after admission may produce a new observation; the later coordinator must
+require its two fresh observations to equal each other while preserving the
+reservation's expected temporal `CURRENT`, independently of its scientific source.
 
 `TaskEvaluationPreflightCoordinator` is the sole producer that turns a reserved plan
 into that byte-closed request. Its order is fixed:
@@ -939,10 +951,10 @@ into that byte-closed request. Its order is fixed:
 1. reopen the exact plan alias at the unchanged local validation head;
 2. reopen the exact candidate and join its manifest, trigger packet, decision, commit,
    tree, plan subjects, and configured validation fingerprint before any external read;
-3. authenticate `C0`, which is either the expected source-base `CURRENT` or repository-head-
-   bound bootstrap absence;
-4. materialize the exact source base only in control-comparison mode, then derive the
-   request immediately so a substituted source base fails before adapter acquisition;
+3. authenticate `C0`, which is either ordinary source-base `CURRENT`, bootstrap
+   absence, or a recovery activation predecessor distinct from the scientific source;
+4. materialize the exact source base for ordinary and historical-recovery comparisons;
+   canonical-empty recovery and bootstrap never invent one;
 5. resolve each distinct adapter-case package by its pinned manifest and receipt under
    the one configured entry, byte, and monotonic deadline budget; source-only historical
    packages are evidence and are not reacquired as executable packages;
@@ -958,7 +970,9 @@ after intermediate movement. No network call occurs under the validation-store l
 authorization transition/state/attempt, candidate tree, scope contract and logical
 scope, and the required content-addressed current-or-absent observation. The store
 persists request, observation, reservation, and operation as one alias on the existing
-release-matrix transition; it creates no new validation state. The exact prepared
+release-matrix transition; it creates no new validation state. Recovery also persists
+the exact admission so offline replay can rederive the allowed control-security
+subjects without calling the candidate store. The exact prepared
 closure is reconstructed before the exclusive local commit, and the journal reopens
 the complete request/plan/configuration/observation join without GitHub, candidate,
 adapter, or evaluator calls. Concurrent identical commits produce one winner. A later
@@ -974,7 +988,10 @@ do not contribute adapter-owned cases unless they are also active pins. Bootstra
 derives only active adapter cases, names no source base or control, needs no source
 request, and reserves/reopens through the same unchanged-head journal alias.
 Control-comparison mode requires accepted source authority and directly binds the
-plan source-base tree to the candidate's verified source-base closure.
+plan source-base tree to the candidate's verified source-base closure. Historical
+recovery additionally binds the distinct blocked expected `CURRENT`, recovery plan,
+and exact control partition; canonical-empty recovery requires no source replay and
+derives candidate-only cells.
 
 Plan reservation performs no evaluator spend. Admission reopens the candidate and
 every exact package, checks current release authority before and after adapter
@@ -1035,7 +1052,7 @@ Decision order is fixed:
 5. call a cell gain-supporting only when every one of its precommitted replicates is
    a strict gain. A dimension is confirmed only when its gain-supporting cells admit
    the same configured context-lineage matching; and
-6. approve source-base-backed evidence only with no material regression and at least one
+6. approve ordinary source-base-backed evidence only with no material regression and at least one
    confirmed dimension. A trusted `MECHANICAL_GENERAL_FIX` attempt is the sole
    exception: once fully powered, complete non-regression is sufficient.
 
@@ -1052,6 +1069,14 @@ and every dimension meets the same independent context-lineage matching, yieldin
 `APPROVED` with an explicit standalone-coverage reason; insufficient bootstrap
 coverage is `PARETO_RETAINED`. Absolute-quality floors remain upstream evaluator
 and reviewer authority until an adapter contract explicitly defines them.
+
+Recovery has explicit decision semantics. A fully powered historical recovery is
+approved on complete non-regression with `RECOVERY_NON_REGRESSION`, because its
+purpose is to restore a previously authenticated clean scientific checkpoint rather
+than claim a new gain over it. Hard or material regressions still fail and
+underpowered evidence remains retained. A powered canonical-empty recovery is
+approved only after complete candidate-only coverage with
+`RECOVERY_STANDALONE_COVERAGE`; insufficient independent coverage is retained.
 
 With the current `hard_regression_ratio = 0` and positive noise floor, every
 negative effect is a hard failure, including a negative value inside the noise

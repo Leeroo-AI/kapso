@@ -61,6 +61,11 @@ def decide_expert_release_matrix_promotion(
         or stage_result.validation_policy_id != attempt.validation_policy_id
         or stage_result.configuration_fingerprint != attempt.configuration_fingerprint
         or report.candidate_commit_record_id != attempt.candidate_commit_record_id
+        or report.evaluation_plan.expected_current_release_id
+        != attempt.expected_current_release_id
+        or report.evaluation_plan.recovery_plan_id != attempt.recovery_plan_id
+        or report.evaluation_plan.control_dependency_ids
+        != attempt.control_dependency_ids
         or attempt.validation_policy_id != policy.validation_policy_id
         or attempt.configuration_fingerprint != settings.configuration_fingerprint
         or ExpertValidationStage.RELEASE_MATRIX not in attempt.required_stages
@@ -94,6 +99,16 @@ def decide_expert_release_matrix_promotion(
         )
     if report.mode is ExpertReleaseMatrixMode.BOOTSTRAP:
         return _decide_bootstrap_promotion(
+            stage_result=stage_result,
+            attempt=attempt,
+            settings=settings,
+            dimensions=dimensions,
+        )
+    if (
+        report.mode is ExpertReleaseMatrixMode.CLEAN_FORWARD_RECOVERY
+        and attempt.source_base_release_id is None
+    ):
+        return _decide_recovery_standalone_promotion(
             stage_result=stage_result,
             attempt=attempt,
             settings=settings,
@@ -158,6 +173,12 @@ def decide_expert_release_matrix_promotion(
         outcome = ExpertReleaseMatrixDecisionOutcome.APPROVED
         reason = ExpertReleaseMatrixDecisionReason.CONFIRMED_BENEFIT
     elif (
+        report.mode is ExpertReleaseMatrixMode.CLEAN_FORWARD_RECOVERY
+        and not has_material_regression
+    ):
+        outcome = ExpertReleaseMatrixDecisionOutcome.APPROVED
+        reason = ExpertReleaseMatrixDecisionReason.RECOVERY_NON_REGRESSION
+    elif (
         attempt.validation_track is ExpertValidationTrack.MECHANICAL_GENERAL_FIX
         and not has_material_regression
     ):
@@ -217,6 +238,50 @@ def _decide_bootstrap_promotion(
     else:
         outcome = ExpertReleaseMatrixDecisionOutcome.APPROVED
         reason = ExpertReleaseMatrixDecisionReason.BOOTSTRAP_STANDALONE_COVERAGE
+    return _mint_promotion_decision(
+        stage_result=stage_result,
+        attempt=attempt,
+        settings=settings,
+        outcome=outcome,
+        reason=reason,
+        assessments=(),
+        underpowered_dimension_ids=underpowered,
+        confirmed_benefit_dimension_ids=(),
+    )
+
+
+def _decide_recovery_standalone_promotion(
+    *,
+    stage_result: ExpertReleaseMatrixStageResultRecord,
+    attempt: ExpertValidationAttempt,
+    settings: ExpertValidationSettings,
+    dimensions: dict[str, ExpertParetoDimensionSettings],
+) -> ExpertReleaseMatrixPromotionDecision:
+    if (
+        attempt.validation_track is not ExpertValidationTrack.REPOSITORY_ARCHITECTURE
+        or attempt.source_base_release_id is not None
+        or attempt.recovery_plan_id is None
+        or attempt.expected_current_release_id is None
+    ):
+        raise ExpertReleaseMatrixPromotionError(
+            "standalone recovery promotion requires canonical-empty recovery authority"
+        )
+    underpowered = _underpowered_dimensions(
+        stage_result.release_matrix_report.evaluation_plan.evaluation_cells,
+        dimensions,
+        minimum_replicates_per_cell=(
+            settings.policy.promotion.minimum_replicates_per_cell
+        ),
+        minimum_distinct_pairs=(
+            settings.policy.promotion.minimum_distinct_context_lineage_pairs
+        ),
+    )
+    if underpowered:
+        outcome = ExpertReleaseMatrixDecisionOutcome.PARETO_RETAINED
+        reason = ExpertReleaseMatrixDecisionReason.UNDERPOWERED_EVIDENCE
+    else:
+        outcome = ExpertReleaseMatrixDecisionOutcome.APPROVED
+        reason = ExpertReleaseMatrixDecisionReason.RECOVERY_STANDALONE_COVERAGE
     return _mint_promotion_decision(
         stage_result=stage_result,
         attempt=attempt,
