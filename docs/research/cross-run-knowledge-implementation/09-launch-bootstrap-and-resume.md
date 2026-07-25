@@ -605,9 +605,14 @@ The lifecycle-owned policy, claim, bounded-volume/sentinel/workspace, closed
 projection, mount, inert-evidence, prepared-execution, activation-revalidation contracts,
 durable claim/prepared index, six-event store embedding, and process-bound
 preparation/activation capabilities and bounded runtime-volume contracts are
-implemented. The mechanically constrained Docker/OS projection parser and
-resource manager, concrete activation/result receipts, positive cleanup
-authority, and production adapters remain the next slices.
+implemented. The shared Docker host authority now also pins its daemon root,
+systemd cgroup driver, and single-sourced static BusyBox helper. The structural
+raw-schema identity, strict action-image admission, exact bounded tmpfs-volume
+request, and exact keeper/main create requests are implemented and exercised
+against Docker 29.1.3 with a digest-pulled loopback OCI image. The closed
+observed-inspect parser and name/label resource manager, concrete
+activation/result receipts, positive cleanup authority, and production adapters
+remain the next slices.
 
 The coordinator owns one process-bound, non-clonable implementation catalog fixed
 at composition; `recover()` accepts no caller-selected implementation. Each

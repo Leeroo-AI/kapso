@@ -82,8 +82,8 @@ _KEEPER_CONTAINER_NAME_PREFIX = "kapso-run-action-keeper-"
 _RUNTIME_VOLUME_NAME_PREFIX = "kapso-run-action-volume-"
 _PREPARATION_LABEL_PREFIX = "com.kapso.run-action."
 _RUNTIME_VOLUME_SENTINEL_PATH = ".kapso-generation"
-_RUNTIME_VOLUME_KEEPER_DESTINATION = "/kapso/runtime-volume"
-_RUNTIME_VOLUME_KEEPER_BUSYBOX_DESTINATION = "/kapso-supervisor/busybox"
+RUN_ACTION_RUNTIME_VOLUME_KEEPER_DESTINATION = "/kapso/runtime-volume"
+RUN_ACTION_RUNTIME_VOLUME_KEEPER_HELPER_DESTINATION = "/kapso-supervisor/busybox"
 _RUNTIME_VOLUME_SUBPATHS = {
     "workspace": "workspace",
     "input": "input",
@@ -1242,7 +1242,7 @@ class RunActionKeeperHelperEvidence(StrictContract):
                 self.source_path,
                 self.executable_digest,
             )
-            or self.destination != _RUNTIME_VOLUME_KEEPER_BUSYBOX_DESTINATION
+            or self.destination != RUN_ACTION_RUNTIME_VOLUME_KEEPER_HELPER_DESTINATION
             or self.mount_type != "bind"
             or self.mount_access is not RunActionPreparedMountAccess.READ_ONLY
             or self.recursive_bind is not False
@@ -1307,7 +1307,8 @@ class DockerRunActionKeeperCreateInspectProjection(StrictContract):
             != self.execution_policy.projection_protocol_version
             or self.raw_field_schema_id != self.execution_policy.raw_field_schema_id
             or self.volume_authority.preparation_claim_id != self.preparation_claim_id
-            or self.command_executable != _RUNTIME_VOLUME_KEEPER_BUSYBOX_DESTINATION
+            or self.command_executable
+            != RUN_ACTION_RUNTIME_VOLUME_KEEPER_HELPER_DESTINATION
             or self.command_arguments != ("tail", "-f", "/dev/null")
             or self.helper_evidence.helper_authority_id
             != self.execution_policy.keeper_helper_executable_authority_id
@@ -1316,7 +1317,8 @@ class DockerRunActionKeeperCreateInspectProjection(StrictContract):
             or self.helper_evidence.executable_digest
             != self.execution_policy.keeper_helper_executable_digest
             or self.volume_mount_type != "volume"
-            or self.volume_mount_destination != _RUNTIME_VOLUME_KEEPER_DESTINATION
+            or self.volume_mount_destination
+            != RUN_ACTION_RUNTIME_VOLUME_KEEPER_DESTINATION
             or self.volume_mount_access is not RunActionPreparedMountAccess.READ_WRITE
             or self.network_mode != "none"
             or self.exact_mount_count != 2
@@ -2192,6 +2194,23 @@ def preparation_keeper_container_labels(
     return _preparation_resource_labels(claim, "volume-keeper")
 
 
+def preparation_main_mounts(
+    claim: RunActionPreparationClaim,
+    authority: RunActionRuntimeVolumeAuthority,
+) -> tuple[RunActionPreparedMount, ...]:
+    """Derive the sole main-container mount set from durable preparation authority."""
+
+    if (
+        type(claim) is not RunActionPreparationClaim
+        or type(authority) is not RunActionRuntimeVolumeAuthority
+        or authority.preparation_claim_id != claim.preparation_claim_id
+    ):
+        raise RunActionSupervisorContractError(
+            "run action main mounts require one exact claim and runtime volume"
+        )
+    return _expected_prepared_mounts(claim, authority.volume_name)
+
+
 def runtime_volume_sentinel_identity(generation_nonce: str) -> str:
     """Bind one unguessable volume generation to its in-volume sentinel."""
 
@@ -2228,7 +2247,7 @@ def runtime_volume_keeper_helper_authority_id(
     return content_id(
         "run-action-helper-executable-authority",
         {
-            "destination": _RUNTIME_VOLUME_KEEPER_BUSYBOX_DESTINATION,
+            "destination": RUN_ACTION_RUNTIME_VOLUME_KEEPER_HELPER_DESTINATION,
             "digest": executable_digest,
             "mount_access": RunActionPreparedMountAccess.READ_ONLY.value,
             "source_path": source_path,
@@ -2347,7 +2366,11 @@ def _allocated_size(size_bytes: int, block_size_bytes: int) -> int:
 
 
 def _require_absolute_container_path(value: str) -> None:
-    if not isinstance(value, str) or not value or "\x00" in value:
+    if (
+        not isinstance(value, str)
+        or not value
+        or any(character in value for character in ("\x00", ",", "\r", "\n", '"'))
+    ):
         raise RunActionSupervisorContractError(
             "run action container path must be normalized and absolute"
         )
@@ -2364,7 +2387,11 @@ def _require_absolute_container_path(value: str) -> None:
 
 
 def _require_absolute_host_path(value: str, name: str) -> None:
-    if not isinstance(value, str) or not value or "\x00" in value:
+    if (
+        not isinstance(value, str)
+        or not value
+        or any(character in value for character in ("\x00", ",", "\r", "\n", '"'))
+    ):
         raise RunActionSupervisorContractError(
             f"{name} must be normalized and absolute"
         )
@@ -2397,6 +2424,8 @@ __all__ = [
     "DockerRunActionResourceLimits",
     "DockerRunActionSafeCreateDefaults",
     "DockerRunActionSandboxSpec",
+    "RUN_ACTION_RUNTIME_VOLUME_KEEPER_DESTINATION",
+    "RUN_ACTION_RUNTIME_VOLUME_KEEPER_HELPER_DESTINATION",
     "RunActionActivatedFileObservation",
     "RunActionActivatedSentinelObservation",
     "RunActionActivatedWorkspaceObservation",
@@ -2429,6 +2458,7 @@ __all__ = [
     "preparation_container_name",
     "preparation_keeper_container_labels",
     "preparation_keeper_container_name",
+    "preparation_main_mounts",
     "preparation_volume_labels",
     "preparation_volume_name",
     "runtime_volume_driver_options",

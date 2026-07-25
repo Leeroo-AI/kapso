@@ -1,0 +1,423 @@
+"""Explicit real-Docker validation for issued run-action create projections.
+
+Run directly:
+
+    pytest -q tests/live_run_action_docker_projection.py -s
+"""
+
+from __future__ import annotations
+
+import json
+import re
+from contextlib import ExitStack
+from pathlib import Path
+
+from expert_live_docker_support import (
+    remove_exact_image,
+    require_setup_docker_success,
+    run_setup_docker,
+)
+from kapso.core.config import load_config
+from kapso.cross_run.canonical import tree_or_blob_digest
+from kapso.cross_run.docker.runtime import (
+    DockerImageAuthority,
+    PinnedDockerRuntime,
+    read_verified_root_executable,
+)
+from kapso.cross_run.launch.run_action_docker_projection import (
+    DockerRunActionCommand,
+    keeper_create_arguments,
+    main_create_arguments,
+    require_run_action_image,
+    volume_create_arguments,
+)
+from kapso.cross_run.launch.run_action_supervisor_contracts import (
+    RunActionStaticEnvironmentVariable,
+    preparation_container_labels,
+    preparation_container_name,
+    preparation_keeper_container_labels,
+    preparation_keeper_container_name,
+    preparation_volume_labels,
+    preparation_volume_name,
+)
+from kapso.cross_run.settings import CrossRunSettings
+from live_expert_replay_docker import _start_local_oci_registry
+from test_run_action_docker_projection import (
+    _GENERATION_NONCE,
+    _policy,
+)
+from test_run_action_supervisor_contracts import (
+    _claim,
+    _remint_policy,
+    _volume_authority,
+)
+
+_CANONICAL_CONFIG_PATH = "src/kapso/config.yaml"
+_CONTAINER_ID_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+
+
+def _remove_owned_container(
+    settings,
+    docker_config_root: Path,
+    container_name: str,
+    labels,
+) -> None:
+    arguments = [
+        "container",
+        "ls",
+        "--all",
+        "--no-trunc",
+        "--quiet",
+        "--filter",
+        f"name=^/{container_name}$",
+    ]
+    for label in labels:
+        arguments.extend(("--filter", f"label={label.key}={label.value}"))
+    observation = run_setup_docker(
+        settings,
+        docker_config_root,
+        tuple(arguments),
+    )
+    require_setup_docker_success(observation, "run-action container cleanup lookup")
+    if observation.stdout == b"":
+        return
+    container_ids = observation.stdout.decode("ascii").splitlines()
+    if (
+        len(container_ids) != 1
+        or _CONTAINER_ID_PATTERN.fullmatch(container_ids[0]) is None
+    ):
+        raise AssertionError("run-action cleanup container lookup was ambiguous")
+    container_id = container_ids[0]
+    label_observation = run_setup_docker(
+        settings,
+        docker_config_root,
+        (
+            "container",
+            "inspect",
+            "--format",
+            "{{json .Config.Labels}}",
+            container_id,
+        ),
+    )
+    require_setup_docker_success(
+        label_observation,
+        "run-action container cleanup label inspection",
+    )
+    if json.loads(label_observation.stdout) != {
+        label.key: label.value for label in labels
+    }:
+        raise AssertionError("run-action cleanup container labels differ")
+    removal = run_setup_docker(
+        settings,
+        docker_config_root,
+        ("container", "rm", "--force", "--volumes", container_id),
+    )
+    require_setup_docker_success(removal, "run-action container cleanup")
+
+
+def _remove_owned_volume(
+    settings,
+    docker_config_root: Path,
+    volume_name: str,
+    labels,
+) -> None:
+    arguments = [
+        "volume",
+        "ls",
+        "--quiet",
+        "--filter",
+        f"name=^{volume_name}$",
+    ]
+    for label in labels:
+        arguments.extend(("--filter", f"label={label.key}={label.value}"))
+    result = run_setup_docker(settings, docker_config_root, tuple(arguments))
+    require_setup_docker_success(result, "run-action volume cleanup lookup")
+    if result.stdout == b"":
+        return
+    if result.stdout != f"{volume_name}\n".encode("ascii"):
+        raise AssertionError("run-action cleanup volume lookup was ambiguous")
+    label_observation = run_setup_docker(
+        settings,
+        docker_config_root,
+        (
+            "volume",
+            "inspect",
+            "--format",
+            "{{json .Labels}}",
+            volume_name,
+        ),
+    )
+    require_setup_docker_success(
+        label_observation,
+        "run-action volume cleanup label inspection",
+    )
+    if json.loads(label_observation.stdout) != {
+        label.key: label.value for label in labels
+    }:
+        raise AssertionError("run-action cleanup volume labels differ")
+    removal = run_setup_docker(
+        settings,
+        docker_config_root,
+        ("volume", "rm", "--force", volume_name),
+    )
+    require_setup_docker_success(removal, "run-action volume cleanup")
+
+
+def _listed_exact(
+    settings,
+    docker_config_root: Path,
+    arguments: tuple[str, ...],
+) -> tuple[str, ...]:
+    result = run_setup_docker(settings, docker_config_root, arguments)
+    require_setup_docker_success(result, "run-action projection inventory")
+    return tuple(line.decode("ascii") for line in result.stdout.splitlines())
+
+
+def test_real_docker_accepts_only_the_issued_run_action_projection(
+    tmp_path: Path,
+) -> None:
+    tmp_path.chmod(0o700)
+    settings = CrossRunSettings.from_dict(
+        load_config(_CANONICAL_CONFIG_PATH)["cross_run"]
+    ).docker
+    busybox_bytes = read_verified_root_executable(
+        Path(settings.helper_executable_path),
+        settings.helper_executable_digest,
+    )
+
+    with ExitStack() as cleanup:
+        local_registry = _start_local_oci_registry(cleanup, busybox_bytes)
+        docker_config_root = tmp_path / "setup-docker-config"
+        docker_config_root.mkdir(mode=0o700)
+        docker_config_path = docker_config_root / "config.json"
+        docker_config_path.write_bytes(b'{"auths":{}}\n')
+        docker_config_path.chmod(0o400)
+        cleanup.callback(
+            remove_exact_image,
+            settings,
+            docker_config_root,
+            local_registry.image_reference,
+        )
+        pull_result = run_setup_docker(
+            settings,
+            docker_config_root,
+            (
+                "image",
+                "pull",
+                "--platform",
+                "linux/amd64",
+                local_registry.image_reference,
+            ),
+        )
+        require_setup_docker_success(pull_result, "run-action projection image")
+        assert local_registry.server.observed_violations == ()
+
+        runtime_root = tmp_path / "runtime"
+        runtime_root.mkdir(mode=0o700)
+        runtime = PinnedDockerRuntime.create(
+            trusted_root=runtime_root.resolve(),
+            settings=settings,
+        )
+        image_authority = DockerImageAuthority.mint(
+            image_reference=local_registry.image_reference,
+            image_config_digest=local_registry.config_digest,
+            operating_system="linux",
+            architecture="amd64",
+            architecture_variant=None,
+        )
+        command = DockerRunActionCommand.build(
+            entrypoint="/bin/busybox",
+            arguments=("true",),
+        )
+        policy = _remint_policy(
+            _policy(settings),
+            image_authority=image_authority,
+            command_template_id=command.command_template_id,
+            static_environment=(
+                RunActionStaticEnvironmentVariable(key="LANG", value="C"),
+                RunActionStaticEnvironmentVariable(key="PATH", value="/bin"),
+            ),
+        )
+        claim = _claim(policy=policy)
+        authority = _volume_authority(claim, nonce=_GENERATION_NONCE)
+        main_name = preparation_container_name(claim)
+        main_labels = preparation_container_labels(claim)
+        keeper_name = preparation_keeper_container_name(claim)
+        keeper_labels = preparation_keeper_container_labels(claim)
+        volume_name = preparation_volume_name(claim)
+        volume_labels = preparation_volume_labels(claim)
+        for name in (main_name, keeper_name):
+            assert (
+                _listed_exact(
+                    settings,
+                    docker_config_root,
+                    (
+                        "container",
+                        "ls",
+                        "--all",
+                        "--quiet",
+                        "--filter",
+                        f"name=^/{name}$",
+                    ),
+                )
+                == ()
+            )
+        assert (
+            _listed_exact(
+                settings,
+                docker_config_root,
+                (
+                    "volume",
+                    "ls",
+                    "--quiet",
+                    "--filter",
+                    f"name=^{volume_name}$",
+                ),
+            )
+            == ()
+        )
+
+        image = runtime.inspect_exact_image(image_authority)
+        require_run_action_image(image, policy, settings)
+
+        cleanup.callback(
+            _remove_owned_volume,
+            settings,
+            docker_config_root,
+            volume_name,
+            volume_labels,
+        )
+        volume_result = runtime.run_control(
+            volume_create_arguments(claim, authority, settings)
+        )
+        assert volume_result.stdout == f"{volume_name}\n".encode("ascii")
+        cleanup.callback(
+            _remove_owned_container,
+            settings,
+            docker_config_root,
+            keeper_name,
+            keeper_labels,
+        )
+        keeper_result = runtime.run_control(
+            keeper_create_arguments(
+                claim,
+                authority,
+                image,
+                settings,
+            )
+        )
+        keeper_id = keeper_result.stdout.decode("ascii").strip()
+        assert _CONTAINER_ID_PATTERN.fullmatch(keeper_id) is not None
+        started_keeper = runtime.run_control(("container", "start", keeper_id))
+        assert started_keeper.stdout == f"{keeper_id}\n".encode("ascii")
+        runtime.run_control(
+            (
+                "container",
+                "exec",
+                keeper_id,
+                "/kapso-supervisor/busybox",
+                "mkdir",
+                "-p",
+                "/kapso/runtime-volume/credential",
+                "/kapso/runtime-volume/input",
+                "/kapso/runtime-volume/result",
+                "/kapso/runtime-volume/temporary",
+                "/kapso/runtime-volume/workspace",
+            )
+        )
+
+        cleanup.callback(
+            _remove_owned_container,
+            settings,
+            docker_config_root,
+            main_name,
+            main_labels,
+        )
+        main_result = runtime.run_control(
+            main_create_arguments(
+                claim,
+                authority,
+                command,
+                image,
+                settings,
+            )
+        )
+        main_id = main_result.stdout.decode("ascii").strip()
+        assert _CONTAINER_ID_PATTERN.fullmatch(main_id) is not None
+
+        keeper = runtime.run_json_control(
+            ("container", "inspect", "--format", "{{json .}}", keeper_id)
+        )
+        main = runtime.run_json_control(
+            ("container", "inspect", "--format", "{{json .}}", main_id)
+        )
+        assert keeper["State"]["Status"] == "running"
+        assert keeper["State"]["Pid"] > 0
+        assert keeper["HostConfig"]["NetworkMode"] == "none"
+        assert len(keeper["Mounts"]) == 2
+        assert main["State"]["Status"] == "created"
+        assert main["State"]["Pid"] == 0
+        assert main["RestartCount"] == 0
+        assert main["Path"] == "/bin/busybox"
+        assert main["Args"] == ["true"]
+        host_mounts = main["HostConfig"]["Mounts"]
+        assert len(host_mounts) == 5
+        assert {mount["VolumeOptions"]["Subpath"] for mount in host_mounts} == {
+            "credential",
+            "input",
+            "result",
+            "temporary",
+            "workspace",
+        }
+        assert all("Subpath" not in mount for mount in main["Mounts"])
+        assert len(main["Mounts"]) == 5
+
+        runtime.run_control(("container", "rm", "--force", "--volumes", main_id))
+        runtime.run_control(("container", "rm", "--force", "--volumes", keeper_id))
+        runtime.run_control(("volume", "rm", volume_name))
+
+        assert (
+            _listed_exact(
+                settings,
+                docker_config_root,
+                (
+                    "container",
+                    "ls",
+                    "--all",
+                    "--quiet",
+                    "--filter",
+                    f"name=^/{main_name}$",
+                ),
+            )
+            == ()
+        )
+        assert (
+            _listed_exact(
+                settings,
+                docker_config_root,
+                (
+                    "container",
+                    "ls",
+                    "--all",
+                    "--quiet",
+                    "--filter",
+                    f"name=^/{keeper_name}$",
+                ),
+            )
+            == ()
+        )
+        assert (
+            _listed_exact(
+                settings,
+                docker_config_root,
+                (
+                    "volume",
+                    "ls",
+                    "--quiet",
+                    "--filter",
+                    f"name=^{volume_name}$",
+                ),
+            )
+            == ()
+        )
+        assert tree_or_blob_digest(busybox_bytes) == settings.helper_executable_digest

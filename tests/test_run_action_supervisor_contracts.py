@@ -340,11 +340,19 @@ def _claim(
         raise AssertionError("test request digest lacks matching fixture bytes")
     intent = RunActionIntent.from_request(
         kind=policy.kind,
-        boundary={
-            RunFrontierActionKind.CODING_AGENT: RunSafetyBoundary.IDEATION,
-            RunFrontierActionKind.EMBEDDING: RunSafetyBoundary.IDEATION,
-            RunFrontierActionKind.EVALUATOR: RunSafetyBoundary.EVALUATION,
-        }[policy.kind],
+        boundary=(
+            RunSafetyBoundary.IMPLEMENTATION
+            if (
+                policy.kind is RunFrontierActionKind.CODING_AGENT
+                and policy.filesystem_policy.workspace_access
+                is RunFrontierWorkspaceAccess.EDIT_WORKSPACE
+            )
+            else {
+                RunFrontierActionKind.CODING_AGENT: RunSafetyBoundary.IDEATION,
+                RunFrontierActionKind.EMBEDDING: RunSafetyBoundary.IDEATION,
+                RunFrontierActionKind.EVALUATOR: RunSafetyBoundary.EVALUATION,
+            }[policy.kind]
+        ),
         operation_id=f"test.{policy.kind.value}.operation",
         request_payload=request_payload,
         workspace_access=policy.filesystem_policy.workspace_access,
@@ -1329,6 +1337,35 @@ def _remint_resource_limits(resource_limits, **changes):
     }
     values.update(changes)
     return DockerRunActionResourceLimits.mint(**values)
+
+
+@pytest.mark.parametrize("delimiter", (",", "\r", "\n", '"'))
+def test_filesystem_policy_rejects_docker_mount_delimiters(delimiter):
+    filesystem = _execution_policy().filesystem_policy
+    values = {
+        key: value
+        for key, value in filesystem.to_dict().items()
+        if key != "filesystem_policy_id"
+    }
+    values["input_destination"] = f"/kapso/input{delimiter}readonly"
+
+    with pytest.raises(
+        RunActionSupervisorContractError,
+        match="normalized and absolute",
+    ):
+        RunActionFilesystemPolicy.mint(**values)
+
+
+@pytest.mark.parametrize("delimiter", (",", "\r", "\n", '"'))
+def test_keeper_helper_authority_rejects_docker_mount_delimiters(delimiter):
+    with pytest.raises(
+        RunActionSupervisorContractError,
+        match="normalized and absolute",
+    ):
+        runtime_volume_keeper_helper_authority_id(
+            f"/usr/bin/busybox{delimiter}readonly",
+            tree_or_blob_digest(b"helper"),
+        )
 
 
 def test_lifecycle_policy_binding_rejects_alternate_valid_sandbox():
