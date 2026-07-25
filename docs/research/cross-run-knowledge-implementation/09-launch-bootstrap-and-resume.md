@@ -59,6 +59,9 @@ src/kapso/cross_run/launch/
   run_action_supervisor_contracts.py
   run_action_activation_delivery.py
   run_action_runtime_volume.py
+  run_action_docker_barrier.py
+  run_action_result_capture.py
+  run_action_docker_adapter.py
 
 src/kapso/
   kapso.py
@@ -673,10 +676,10 @@ the fresh observation must retain positive result-plus-temporary headroom. Works
 and sentinel observations are distinct activation-time contracts bound to the
 exact spawn commit and their preparation evidence IDs; replaying a preparation
 object is not revalidation. Event 5 durably selects one full receipt with
-create-only publication. Revalidation itself grants no start authority. After
+create-only publication. Revalidation itself grants no workload authority. After
 publication, a new process-bound single-use capability must reobserve the same
-inert occurrence, reproduce the selected receipt exactly, retain the live
-resource authority and workspace lock, and synchronously start once.
+inert occurrence, reproduce the selected receipt exactly, and retain the live
+resource authority and workspace lock.
 It embeds the exact typed spawn commit and delivery predecessors. Request delivery
 proves the fixed regular-file name, digest, size, owner/group, read-only mode, and
 single link; credential delivery proves the same structural facts plus its opaque
@@ -685,9 +688,77 @@ Every delivery/proof record binds the exact spawn-commit content ID, including i
 invocation nonce; a semantically similar second fence cannot reuse prior delivery.
 A crash before event 5 may stage a new candidate. A crash after event 5 may only
 revalidate the selected receipt; it can neither overwrite nor append a second
-selection. Zero or multiple matching resources,
-missing positive state evidence, substituted mounts/labels/runtime/image, or an
-unexplained exit classify as `UNKNOWN`; they never authorize recreation.
+selection.
+
+### Resolved-mount workload barrier
+
+Docker resolves each named-volume `VolumeSubpath` during container start, after
+event-5 descriptors were observed. Directly starting the provider command would
+therefore leave an uncloseable substitution interval. The sole path instead adds
+an empty prepared `control` subpath mounted read-only into the main container and
+uses the pinned static supervisor BusyBox as a fixed barrier entrypoint. The
+intended command remains policy-bound and is passed as positional arguments;
+the fixed shell program never interpolates it. With Docker `--init`, the daemon's
+state PID names init, so the supervisor proves the exact direct BusyBox child
+rather than misidentifying init as the wrapper.
+
+One continuation capability performs at most one physical transition and always
+returns for fresh inspection:
+
+```text
+created + release absent
+        ↓ start wrapper
+barrier running + release absent
+        ↓ prove /proc/<init-pid>/root and mountinfo
+        ↓ link exact release record
+workload released + release present
+        ↓ wait / stop / kill under one absolute deadline
+terminal + release present
+        ↓ terminal observation and descriptor result capture
+```
+
+Before the irrevocable release link, the supervisor sandwiches the init and
+wrapper process generations/cgroups, validates the pinned helper bind, and joins
+every actual in-container mount root to event 5 by mount/device/inode and access
+mode. It separately reproves the input digest/inode, credential inode/size and
+opaque lease authority, original empty result inode and parent, empty temporary
+root, optional workspace frontier, and empty control root. The content-addressed
+workload-release receipt binds that complete resolved-mount observation, the
+durable event-5 event ID, prepared/spawn/provider identities, barrier protocol,
+credential validity, host boot identity, and fixed execution/grace deadlines.
+
+The complete canonical receipt is fsynced in an anonymous file before
+`linkat(AT_EMPTY_PATH)` publishes `control/release` without replacement. The
+link itself is workload authorization: the wrapper may observe it before the
+directory fsync or caller return, so every scientific and security check occurs
+before the link. Exact presence always wins on recovery and is adopted; no path
+releases or starts again. The release file remains the crash-surviving authority
+until event 6 embeds the complete receipt, after which exact cleanup may destroy
+the runtime volume.
+
+Security and credential freshness gate only transitions that could newly publish
+release. Once release exists, stale security must not abandon a running process:
+wait, deadline enforcement, containment, terminal capture, and positive
+quiescence remain authorized. A recovered wait uses the receipt's same-boot
+absolute deadline; it never receives a fresh timeout. Zero or multiple matching
+resources, substituted mounts/labels/runtime/image, an invalid release file, PID
+reuse, an unproved wrapper, or an unexplained disappearance classify as
+`UNKNOWN`; they never authorize recreation. A typed terminal-failure or
+resource-loss receipt, not a proof-free enum, is required before interruption.
+
+Provider completion has three evidence-bearing outcomes. `RESULT_CAPTURED`
+requires exit zero, no OOM, the original bounded result inode, and the exact
+prepared result-parent authority. `PROVIDER_TERMINATED` carries a
+content-addressed receipt whose disposition is `FAILED` for provider failures
+or `INTERRUPTED` for supervisor containment and whose reason names timeout, OOM,
+empty result, barrier exit, security/credential containment, or positive
+pre-release loss. It embeds either exact terminal-plus-empty-result evidence or
+a narrowly pre-release resource-loss observation and includes the full workload
+release receipt when release occurred. Any wrong/unstable/oversized result inode,
+released resource disappearance, or mixed Docker inventory remains `UNKNOWN`;
+it is never mislabeled as a provider failure. Event 6 stores the complete result
+or termination evidence before cleanup.
+
 Pre-commit cleanup is allowed only for the unique exact never-started occurrence
 when no spawn commit exists. Terminal observation precedes result capture: the
 observation never refers forward to a capture, while the capture may bind that
@@ -872,6 +943,14 @@ this path is activated.
   publication, unsupported anonymous-file/link syscalls, parent/inode
   substitution, exact delivery `statfs` deltas, and retained result/temporary
   headroom.
+- Inject death before wrapper start, after an ambiguous start response, while
+  barrier-blocked, after resolved-mount proof, immediately after the release
+  link, while running, during deadline stop/kill, after terminal inspection, and
+  during result capture. Every mutation requires a fresh inspection.
+- Substitute every Docker `VolumeSubpath` after event 5 but before start and
+  require the post-start namespace proof to leave release absent. Prove stale
+  security/credentials block release but never block containment of an already
+  released workload.
 - In real Docker, create the inert container before delivery, activate a complete
   request plus credential and copied Git workspace, then start only after the
   all-subpath observation closes and require every mounted input to be visible.

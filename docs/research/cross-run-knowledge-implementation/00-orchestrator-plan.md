@@ -592,6 +592,7 @@ The implementation is complete only when:
 | D18 | Treat immutable publication and `CURRENT` activation as distinct outcomes | A final CAS loser remains auditable and reproducible but must not be reported as the active artifact |
 | D19 | Keep one dependency-pure typed record registry across catalog and knowledge boundaries | Content hashes prove identity, while owning strict parsers additionally prove exact schema and keep MCP startup free of service-side effects |
 | D20 | Publish local snapshot directories with atomic no-replace semantics | A concurrent writer must retain ownership of a destination created during the staging window |
+| D21 | Release Docker workloads only after proving their resolved mount namespace | Docker resolves `VolumeSubpath` during start, so a pinned blocked wrapper, post-start `/proc` mount proof, and crash-atomic release receipt are required to join actual execution inputs to event 5 |
 
 ## Progress ledger
 
