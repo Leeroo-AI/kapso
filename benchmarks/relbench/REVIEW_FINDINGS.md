@@ -196,6 +196,34 @@ Runs reviewed:
    judge tag-retry nudge ran with empty context and correctly failed safe
    (evaluation_valid=False) — the retry wiring deserves its own look.
 
+## R8 — driver-position under ioai config, 4h cap (2026-07-25, STOPPED BY USER at iter-10 wrap-up; all traces kept for later study)
+
+Generic, 10 iters, 4h full cap, anti-cheat live. Two infra incidents, both
+recovered: (1) lens-planner startup failure (transient zero-token CLI
+session) → relaunch; (2) OpenAI embeddings outage killed the run at
+iteration-7 bookkeeping (LLMRetryError after 5 retries on the
+experiment-memory write) → auto-resume gate + runner --resume fix
+(4e4411c7: never auto-seed on resume). Zero scoreless iterations.
+
+Search: cold-start val 2.70945 → 2.62296 → 2.62075 (champion), then an
+EIGHT-tie plateau (runs 0003-0016) — challengers (incl. GNN + fusion-GNN)
+kept failing their own arbitration and shipping champion output. The
+FINAL iteration broke it: **val 2.57709** (runs 0017-0019, graph-
+materialized/rank-fused variant) — best val ever on this cell, and the
+private test peek shows **test 3.6360, drift +1.059** — best-ever test
+(prior 3.7429) WITH reduced drift: genuine generalization gain, no
+inversion. Still far from KumoRFM-ft (2.731; NMAE 0.5176 vs 0.3887).
+
+Stopped before final_evaluate at the user's request — NO official
+final_report.json exists (RESULTS row stays pending). Preserved for
+study: 19 archives (runs/), full workspace + git branches
+(tmp/search_strategy_workspace/e31d670f-c854-4409-98cc-5d89d5c9b46f),
+shared-cache artifacts, and the complete run log copied durably to
+tmp/relbench/rel-f1--driver-position/dp_run2_full.log (11M). Lens plan:
+latent-skill state-space (literature transfer) + eval-fidelity feature
+factory. Val trajectory across drift: early candidates +1.21/+1.33,
+final +1.06 — the state-space direction arrived late but delivered.
+
 ## R7 — clean re-run under anti-cheat + ioai config: user-attendance (2026-07-24/25, COMPLETED)
 
 10 iterations, ioai-2025 config (effort max, opus selector, web-on lens
