@@ -71,3 +71,53 @@ defused pre-training, measured-not-assumed plan, healthy SFT. Blemishes:
 the 4-min hf_transfer crash and the unsanity-checked (but expected) 0.0
 baseline. P2 watches: SFT1 gate result (~01:30Z), stage-2 branch taken,
 n=4 gate discipline held, decoding A/B outcome.
+
+## P2 (00:15Z → 03:26Z; session 1 ended 03:23:36Z, $57.24, 349 tools)
+
+Headline: **3.33 official banked (first nonzero AIME)** after an honest,
+self-diagnosed recovery chain — but the gate discipline the plan was built
+on collapsed under truncation economics, and the branch rule fired on
+noise.
+
+- **R25-P2-1 — P3 (recipe), 01:04→01:31.** The 88-problem n=4 gate was
+  killed as infeasible: SFT1 LOOPS — "mean_acc 0.0, trunc_rate 0.9583,
+  len_p50 16000" (each truncated gen costs 16k tokens; full gate = hours).
+  All later gates were 20–36-problem n=1–2 — exactly the noise the design
+  existed to defeat, and it bit: "acc=4/20" read as 20% held-out → RFT
+  branch fired → official 0.000; agent's own post-mortem: "the gate's 20%
+  was a noisy small sample… real rate ~5-6% (2/36)".
+- **R25-P2-2 — P3 (recipe), 01:33/02:33/03:13.** Official 30-test run 3×
+  mid-session (0.0 / 3.33 / 0.0); worst: SFT3 evaluated directly on the
+  test with NO held-out gate ("to use time efficiently") — model selection
+  on the test set. Mitigated: 3 candidates total, atomic promotion, SFT2
+  stayed banked; SFT1's eval was score-banking insurance and usefully
+  falsified the noisy gate.
+- **R25-P2-3 — OBS (framework).** Wake-loop churn quantified: 83 "Wasted
+  call — file unchanged" reprimands in the delta; 36 thinking turns in one
+  02:29–02:31 wait window (each tracked poll-task completion re-wakes,
+  seeding the next poll). $11.95@t+80min → $57.24 at end. Token burn only;
+  loops always eventually yielded to real waits. Third sighting of the
+  churn class (=R17-P2-6 family) — fix batch candidate.
+- **R25-P2-4 — OBS (framework, positive).** NO R23-P3-1 dud-alarm idiom:
+  alarms were real tracked tasks that demonstrably re-invoked (5 fires
+  logged); max silence 25 min, all ended by real waiters/alarms.
+  ScheduleWakeup 0; zero freezes; us-east4 throughput parity (SFT1
+  finished 3 min ahead of ETA); result.json overwrite caught and restored;
+  PLAN/eval_profile/memory updated 5×.
+- **R25-P2-5 — OBS (recipe, positive).** Recovery chain: rep_penalty 1.05
+  discovered and shipped (t0.6/p0.95/k20/eos[151645,151643]); RFT killed
+  on measured throughput (692 tok/s → 64-min ETA); replaced by short-trace
+  OpenR1 continuation (7k traces, p50=1991) → SFT2 official 3.33; SFT3
+  (2× short) regressed to 0.0 "over-terse", correctly not promoted.
+
+LADDER: SFT1 0.0 (96% truncation looping) → SFT2 short-trace **3.33
+banked** → SFT3 0.0 rejected → session end with ~4.9h left for iteration 2.
+
+ENDGAME OUTLOOK: truncation (64%) is the dominant recoverable loss and the
+rep-penalty/short-trace lessons are in cross-session memory; iteration 2
+has a real shot at 6.67 (= tie best proven), upside 10.0. Human 26.7 out
+of reach. Calibrated band: 3.3–6.7.
+
+Verdict: **continue** — score banked, hygiene held, deviations reasoned
+and self-diagnosed; watch iteration 2 for restored gate discipline (larger
+n before official-test peeks) and the churn cost.
