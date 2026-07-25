@@ -626,6 +626,11 @@ stat records relative to that lease. Before the first volume mutation it require
 the exact issued tmpfs mount/device/options/owner/mode, stable block and inode
 capacity accounting, a live non-zombie keeper generation, and zero root entries;
 the real Docker lifecycle proves this boundary before creating any layout path.
+Workspace staging now has a descriptor-only copy prerequisite that inventories
+the complete source and `.git` topology before mutation, includes physical Git
+bytes and entries in capacity planning, sandwiches every copied inode against
+source metadata, normalizes copied directories to private mode, and independently
+reconciles both source and destination frontiers after the copy.
 Allocation/reopen reconciliation, concrete activation/result receipts, positive
 cleanup authority, and production adapters remain the next slices.
 

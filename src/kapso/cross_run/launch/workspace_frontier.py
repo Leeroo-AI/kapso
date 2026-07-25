@@ -9,7 +9,7 @@ import stat
 import struct
 import zlib
 from contextlib import ExitStack
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import PurePosixPath
 
 from kapso.cross_run.canonical import (
@@ -74,6 +74,161 @@ class RunWorkspaceFrontierIdentity:
             raise RunWorkspaceFrontierError(
                 "run workspace frontier identity is invalid"
             )
+
+
+@dataclass(frozen=True)
+class _RunWorkspaceCopyEntry:
+    name: str
+    relative_path: str
+    file_type: str
+    mode: int
+    size_bytes: int
+    source_metadata: tuple[int, ...]
+    children: tuple["_RunWorkspaceCopyEntry", ...]
+
+
+@dataclass(frozen=True)
+class RunWorkspaceCopyPlan:
+    """Bounded physical source and Git topology prepared before destination writes."""
+
+    source_frontier: RunWorkspaceFrontierIdentity
+    source_root_metadata: tuple[int, ...]
+    entries: tuple[_RunWorkspaceCopyEntry, ...]
+    directory_count: int
+    regular_file_count: int
+    physical_entry_count: int
+    regular_file_size_bytes: int
+    regular_file_sizes: tuple[int, ...]
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.source_frontier) is not RunWorkspaceFrontierIdentity
+            or len(self.source_root_metadata) != 9
+            or any(type(value) is not int for value in self.source_root_metadata)
+            or self.source_root_metadata[:2] != self.source_frontier.workspace_identity
+            or not self.entries
+            or any(type(entry) is not _RunWorkspaceCopyEntry for entry in self.entries)
+        ):
+            raise RunWorkspaceFrontierError(
+                "run workspace copy plan is incomplete or unbounded"
+            )
+        (
+            observed_directory_count,
+            observed_regular_file_count,
+            observed_regular_file_sizes,
+        ) = _workspace_copy_entry_summary(
+            self.entries,
+            PurePosixPath("."),
+            self.source_root_metadata[0],
+        )
+        if (
+            type(self.directory_count) is not int
+            or self.directory_count != observed_directory_count + 1
+            or type(self.regular_file_count) is not int
+            or self.regular_file_count != observed_regular_file_count
+            or type(self.physical_entry_count) is not int
+            or self.physical_entry_count
+            != self.directory_count + self.regular_file_count
+            or self.regular_file_count != len(self.regular_file_sizes)
+            or type(self.regular_file_size_bytes) is not int
+            or self.regular_file_size_bytes != sum(self.regular_file_sizes)
+            or self.regular_file_sizes != observed_regular_file_sizes
+            or any(
+                type(size_bytes) is not int or size_bytes < 0
+                for size_bytes in self.regular_file_sizes
+            )
+        ):
+            raise RunWorkspaceFrontierError(
+                "run workspace copy plan is incomplete or unbounded"
+            )
+
+    def allocated_size_bytes(self, block_size_bytes: int) -> int:
+        """Conservatively reserve one block per directory and rounded file bytes."""
+
+        if (
+            type(block_size_bytes) is not int
+            or block_size_bytes <= 0
+            or block_size_bytes & (block_size_bytes - 1) != 0
+        ):
+            raise RunWorkspaceFrontierError(
+                "run workspace copy allocation block size is invalid"
+            )
+        return self.directory_count * block_size_bytes + sum(
+            ((size_bytes + block_size_bytes - 1) // block_size_bytes) * block_size_bytes
+            for size_bytes in self.regular_file_sizes
+        )
+
+
+def _workspace_copy_entry_summary(
+    entries: tuple[_RunWorkspaceCopyEntry, ...],
+    parent_path: PurePosixPath,
+    source_device: int,
+) -> tuple[int, int, tuple[int, ...]]:
+    if (
+        type(entries) is not tuple
+        or any(type(entry) is not _RunWorkspaceCopyEntry for entry in entries)
+        or tuple(entry.name for entry in entries)
+        != tuple(sorted({entry.name for entry in entries}))
+    ):
+        raise RunWorkspaceFrontierError(
+            "run workspace copy plan tree is incomplete or noncanonical"
+        )
+    directory_count = 0
+    regular_file_count = 0
+    regular_file_sizes = []
+    for entry in entries:
+        _require_copy_component(entry.name)
+        expected_path = (
+            PurePosixPath(entry.name)
+            if parent_path == PurePosixPath(".")
+            else parent_path / entry.name
+        )
+        if (
+            type(entry.relative_path) is not str
+            or entry.relative_path != expected_path.as_posix()
+            or len(entry.source_metadata) != 9
+            or any(type(value) is not int for value in entry.source_metadata)
+            or entry.source_metadata[0] != source_device
+            or type(entry.mode) is not int
+            or type(entry.size_bytes) is not int
+            or entry.size_bytes < 0
+        ):
+            raise RunWorkspaceFrontierError("run workspace copy plan entry is invalid")
+        if entry.file_type == "directory":
+            if (
+                entry.mode != 0o700
+                or entry.size_bytes != 0
+                or not stat.S_ISDIR(entry.source_metadata[2])
+            ):
+                raise RunWorkspaceFrontierError(
+                    "run workspace copy plan directory is invalid"
+                )
+            child_directories, child_files, child_sizes = _workspace_copy_entry_summary(
+                entry.children,
+                expected_path,
+                source_device,
+            )
+            directory_count += child_directories + 1
+            regular_file_count += child_files
+            regular_file_sizes.extend(child_sizes)
+        elif (
+            entry.file_type == "regular"
+            and stat.S_ISREG(entry.source_metadata[2])
+            and entry.source_metadata[3] == 1
+            and entry.source_metadata[6] == entry.size_bytes
+            and stat.S_IMODE(entry.source_metadata[2]) == entry.mode
+            and entry.mode in {0o400, 0o444, 0o600, 0o644, 0o700, 0o755}
+            and not entry.children
+        ):
+            regular_file_count += 1
+            regular_file_sizes.append(entry.size_bytes)
+        else:
+            raise RunWorkspaceFrontierError("run workspace copy plan file is invalid")
+    return (
+        directory_count,
+        regular_file_count,
+        tuple(regular_file_sizes),
+    )
 
 
 @dataclass
@@ -148,6 +303,47 @@ class _GitClosureState:
         if self.decoded_size_bytes > self.size_limit:
             raise RunWorkspaceFrontierError(
                 "run workspace decoded Git objects exceed their configured byte limit"
+            )
+
+
+@dataclass
+class _WorkspaceCopyScanState:
+    entry_limit: int
+    size_limit_bytes: int
+    directory_count: int = 0
+    regular_file_count: int = 0
+    regular_file_size_bytes: int = 0
+    regular_file_sizes: list[int] = field(default_factory=list)
+    inode_identities: set[tuple[int, int]] = field(default_factory=set)
+
+    def reserve_directory(self, metadata: os.stat_result) -> None:
+        self._reserve_identity(metadata)
+        self.directory_count += 1
+        self._require_entry_limit()
+
+    def reserve_regular_file(self, metadata: os.stat_result) -> None:
+        self._reserve_identity(metadata)
+        self.regular_file_count += 1
+        self._require_entry_limit()
+        self.regular_file_size_bytes += metadata.st_size
+        if self.regular_file_size_bytes > self.size_limit_bytes:
+            raise RunWorkspaceFrontierError(
+                "run workspace physical copy exceeds its configured byte limits"
+            )
+        self.regular_file_sizes.append(metadata.st_size)
+
+    def _reserve_identity(self, metadata: os.stat_result) -> None:
+        identity = _metadata_identity(metadata)
+        if identity in self.inode_identities:
+            raise RunWorkspaceFrontierError(
+                "run workspace physical copy contains a repeated inode"
+            )
+        self.inode_identities.add(identity)
+
+    def _require_entry_limit(self) -> None:
+        if self.directory_count + self.regular_file_count > self.entry_limit:
+            raise RunWorkspaceFrontierError(
+                "run workspace physical copy exceeds its configured entry limits"
             )
 
 
@@ -311,6 +507,541 @@ def inspect_run_workspace_frontier(
         source_entry_count=state.entry_count,
         source_size_bytes=state.size_bytes,
     )
+
+
+def plan_run_workspace_frontier_copy(
+    workspace_descriptor: int,
+    *,
+    settings: LaunchSettings,
+    expected: RunWorkspaceFrontierIdentity,
+) -> RunWorkspaceCopyPlan:
+    """Prove and inventory the complete source and Git tree before any copy."""
+
+    if (
+        type(settings) is not LaunchSettings
+        or type(expected) is not RunWorkspaceFrontierIdentity
+    ):
+        raise RunWorkspaceFrontierError(
+            "run workspace copy plan requires exact settings and frontier"
+        )
+    observed_before = inspect_run_workspace_frontier(
+        workspace_descriptor,
+        settings=settings,
+        expected_commit_sha=expected.commit_sha,
+    )
+    if observed_before != expected:
+        raise RunWorkspaceFrontierError(
+            "run workspace copy source differs from its durable frontier"
+        )
+    root_metadata = os.fstat(workspace_descriptor)
+    state = _WorkspaceCopyScanState(
+        entry_limit=(
+            settings.run_workspace_entry_limit
+            + settings.run_workspace_git_entry_limit
+            + 2
+        ),
+        size_limit_bytes=(
+            settings.run_workspace_size_bytes
+            + settings.run_workspace_git_metadata_size_bytes
+        ),
+    )
+    state.reserve_directory(root_metadata)
+    entries = _plan_workspace_copy_directory(
+        workspace_descriptor,
+        PurePosixPath("."),
+        root_metadata.st_dev,
+        state,
+    )
+    observed_after = inspect_run_workspace_frontier(
+        workspace_descriptor,
+        settings=settings,
+        expected_commit_sha=expected.commit_sha,
+    )
+    if observed_after != expected or _copy_metadata_observation(
+        os.fstat(workspace_descriptor)
+    ) != _copy_metadata_observation(root_metadata):
+        raise RunWorkspaceFrontierError(
+            "run workspace copy source changed during planning"
+        )
+    return RunWorkspaceCopyPlan(
+        source_frontier=expected,
+        source_root_metadata=_copy_metadata_observation(root_metadata),
+        entries=entries,
+        directory_count=state.directory_count,
+        regular_file_count=state.regular_file_count,
+        physical_entry_count=state.directory_count + state.regular_file_count,
+        regular_file_size_bytes=state.regular_file_size_bytes,
+        regular_file_sizes=tuple(state.regular_file_sizes),
+    )
+
+
+def copy_run_workspace_frontier(
+    workspace_descriptor: int,
+    destination_descriptor: int,
+    *,
+    settings: LaunchSettings,
+    plan: RunWorkspaceCopyPlan,
+) -> RunWorkspaceFrontierIdentity:
+    """Copy one planned frontier and prove the destination equals its source."""
+
+    if type(settings) is not LaunchSettings or type(plan) is not RunWorkspaceCopyPlan:
+        raise RunWorkspaceFrontierError(
+            "run workspace copy requires an exact physical plan"
+        )
+    observed_before = inspect_run_workspace_frontier(
+        workspace_descriptor,
+        settings=settings,
+        expected_commit_sha=plan.source_frontier.commit_sha,
+    )
+    source_metadata = os.fstat(workspace_descriptor)
+    destination_metadata = os.fstat(destination_descriptor)
+    if (
+        observed_before != plan.source_frontier
+        or _copy_metadata_observation(source_metadata) != plan.source_root_metadata
+        or not stat.S_ISDIR(destination_metadata.st_mode)
+        or destination_metadata.st_uid != os.geteuid()
+        or destination_metadata.st_gid != os.getegid()
+        or stat.S_IMODE(destination_metadata.st_mode) != 0o700
+        or tuple(os.listdir(destination_descriptor))
+    ):
+        raise RunWorkspaceFrontierError(
+            "run workspace copy endpoints differ from the admitted plan"
+        )
+    _copy_workspace_directory_entries(
+        workspace_descriptor,
+        destination_descriptor,
+        plan.entries,
+    )
+    os.fsync(destination_descriptor)
+    source_physical_before = _require_workspace_copy_tree(
+        workspace_descriptor,
+        plan,
+        source=True,
+    )
+    destination_physical_before = _require_workspace_copy_tree(
+        destination_descriptor,
+        plan,
+        source=False,
+    )
+    observed_after = inspect_run_workspace_frontier(
+        workspace_descriptor,
+        settings=settings,
+        expected_commit_sha=plan.source_frontier.commit_sha,
+    )
+    destination_frontier = inspect_run_workspace_frontier(
+        destination_descriptor,
+        settings=settings,
+        expected_commit_sha=plan.source_frontier.commit_sha,
+    )
+    expected_destination = replace(
+        plan.source_frontier,
+        workspace_identity=destination_frontier.workspace_identity,
+    )
+    source_physical_after = _require_workspace_copy_tree(
+        workspace_descriptor,
+        plan,
+        source=True,
+    )
+    destination_physical_after = _require_workspace_copy_tree(
+        destination_descriptor,
+        plan,
+        source=False,
+    )
+    if (
+        observed_after != plan.source_frontier
+        or destination_frontier != expected_destination
+        or source_physical_after != source_physical_before
+        or destination_physical_after != destination_physical_before
+        or _copy_metadata_observation(os.fstat(workspace_descriptor))
+        != plan.source_root_metadata
+        or tuple(sorted(os.listdir(destination_descriptor)))
+        != tuple(entry.name for entry in plan.entries)
+    ):
+        raise RunWorkspaceFrontierError(
+            "run workspace copy differs from its stable source frontier"
+        )
+    return destination_frontier
+
+
+def _plan_workspace_copy_directory(
+    directory_descriptor: int,
+    relative_root: PurePosixPath,
+    source_device: int,
+    state: _WorkspaceCopyScanState,
+) -> tuple[_RunWorkspaceCopyEntry, ...]:
+    observed_entries = []
+    with os.scandir(directory_descriptor) as iterator:
+        for entry in iterator:
+            _require_copy_component(entry.name)
+            observed_entries.append(
+                (
+                    entry.name,
+                    entry.stat(follow_symlinks=False),
+                )
+            )
+    entries = []
+    for name, expected in sorted(observed_entries, key=lambda item: item[0]):
+        relative_path = (
+            PurePosixPath(name)
+            if relative_root == PurePosixPath(".")
+            else relative_root / name
+        )
+        current = os.stat(
+            name,
+            dir_fd=directory_descriptor,
+            follow_symlinks=False,
+        )
+        if (
+            _copy_metadata_observation(current) != _copy_metadata_observation(expected)
+            or expected.st_dev != source_device
+            or expected.st_uid != os.geteuid()
+            or expected.st_mode & (stat.S_ISUID | stat.S_ISGID)
+        ):
+            raise RunWorkspaceFrontierError(
+                "run workspace copy entry changed or crossed a filesystem"
+            )
+        mode = stat.S_IMODE(expected.st_mode)
+        if stat.S_ISDIR(expected.st_mode):
+            if expected.st_mode & 0o022:
+                raise RunWorkspaceFrontierError(
+                    "run workspace copy directory is unsafe"
+                )
+            descriptor = os.open(
+                name,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                dir_fd=directory_descriptor,
+            )
+            with ExitStack() as descriptors:
+                descriptors.callback(os.close, descriptor)
+                if _copy_metadata_observation(os.fstat(descriptor)) != (
+                    _copy_metadata_observation(expected)
+                ):
+                    raise RunWorkspaceFrontierError(
+                        "run workspace copy directory changed while opening"
+                    )
+                state.reserve_directory(expected)
+                children = _plan_workspace_copy_directory(
+                    descriptor,
+                    relative_path,
+                    source_device,
+                    state,
+                )
+                if _copy_metadata_observation(os.fstat(descriptor)) != (
+                    _copy_metadata_observation(expected)
+                ):
+                    raise RunWorkspaceFrontierError(
+                        "run workspace copy directory changed while scanning"
+                    )
+            entries.append(
+                _RunWorkspaceCopyEntry(
+                    name=name,
+                    relative_path=relative_path.as_posix(),
+                    file_type="directory",
+                    mode=0o700,
+                    size_bytes=0,
+                    source_metadata=_copy_metadata_observation(expected),
+                    children=children,
+                )
+            )
+            continue
+        if (
+            not stat.S_ISREG(expected.st_mode)
+            or expected.st_nlink != 1
+            or mode not in {0o400, 0o444, 0o600, 0o644, 0o700, 0o755}
+        ):
+            raise RunWorkspaceFrontierError("run workspace copy file is unsafe")
+        state.reserve_regular_file(expected)
+        entries.append(
+            _RunWorkspaceCopyEntry(
+                name=name,
+                relative_path=relative_path.as_posix(),
+                file_type="regular",
+                mode=mode,
+                size_bytes=expected.st_size,
+                source_metadata=_copy_metadata_observation(expected),
+                children=(),
+            )
+        )
+    rebound_names = tuple(sorted(os.listdir(directory_descriptor)))
+    if rebound_names != tuple(entry.name for entry in entries):
+        raise RunWorkspaceFrontierError(
+            "run workspace copy directory changed while listing"
+        )
+    return tuple(entries)
+
+
+def _copy_workspace_directory_entries(
+    source_descriptor: int,
+    destination_descriptor: int,
+    entries: tuple[_RunWorkspaceCopyEntry, ...],
+) -> None:
+    if tuple(sorted(os.listdir(source_descriptor))) != tuple(
+        entry.name for entry in entries
+    ):
+        raise RunWorkspaceFrontierError(
+            "run workspace copy source topology changed before copying"
+        )
+    for entry in entries:
+        expected = os.stat(
+            entry.name,
+            dir_fd=source_descriptor,
+            follow_symlinks=False,
+        )
+        if _copy_metadata_observation(expected) != entry.source_metadata:
+            raise RunWorkspaceFrontierError(
+                "run workspace copy source entry changed before copying"
+            )
+        if entry.file_type == "directory":
+            os.mkdir(entry.name, mode=0o700, dir_fd=destination_descriptor)
+            source_child = os.open(
+                entry.name,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                dir_fd=source_descriptor,
+            )
+            destination_child = os.open(
+                entry.name,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                dir_fd=destination_descriptor,
+            )
+            with ExitStack() as descriptors:
+                descriptors.callback(os.close, source_child)
+                descriptors.callback(os.close, destination_child)
+                if _copy_metadata_observation(os.fstat(source_child)) != (
+                    entry.source_metadata
+                ):
+                    raise RunWorkspaceFrontierError(
+                        "run workspace copy source directory changed while opening"
+                    )
+                _copy_workspace_directory_entries(
+                    source_child,
+                    destination_child,
+                    entry.children,
+                )
+                os.fchmod(destination_child, entry.mode)
+                os.fsync(destination_child)
+                _require_copied_directory(destination_child, entry.mode)
+                if _copy_metadata_observation(os.fstat(source_child)) != (
+                    entry.source_metadata
+                ):
+                    raise RunWorkspaceFrontierError(
+                        "run workspace copy source directory changed while copying"
+                    )
+        elif entry.file_type == "regular":
+            _copy_workspace_regular_file(
+                source_descriptor,
+                destination_descriptor,
+                entry,
+            )
+        else:
+            raise RunWorkspaceFrontierError(
+                "run workspace copy plan contains an unknown entry type"
+            )
+        rebound = os.stat(
+            entry.name,
+            dir_fd=source_descriptor,
+            follow_symlinks=False,
+        )
+        if _copy_metadata_observation(rebound) != entry.source_metadata:
+            raise RunWorkspaceFrontierError(
+                "run workspace copy source entry changed during copying"
+            )
+    if tuple(sorted(os.listdir(source_descriptor))) != tuple(
+        entry.name for entry in entries
+    ):
+        raise RunWorkspaceFrontierError(
+            "run workspace copy source topology changed during copying"
+        )
+
+
+def _copy_workspace_regular_file(
+    source_parent_descriptor: int,
+    destination_parent_descriptor: int,
+    entry: _RunWorkspaceCopyEntry,
+) -> None:
+    source_descriptor = os.open(
+        entry.name,
+        os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW | os.O_CLOEXEC,
+        dir_fd=source_parent_descriptor,
+    )
+    destination_descriptor = os.open(
+        entry.name,
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+        0o600,
+        dir_fd=destination_parent_descriptor,
+    )
+    with ExitStack() as descriptors:
+        descriptors.callback(os.close, source_descriptor)
+        descriptors.callback(os.close, destination_descriptor)
+        if _copy_metadata_observation(os.fstat(source_descriptor)) != (
+            entry.source_metadata
+        ):
+            raise RunWorkspaceFrontierError(
+                "run workspace copy source file changed while opening"
+            )
+        remaining_bytes = entry.size_bytes
+        while remaining_bytes:
+            written_bytes = os.sendfile(
+                destination_descriptor,
+                source_descriptor,
+                None,
+                remaining_bytes,
+            )
+            if written_bytes <= 0:
+                raise RunWorkspaceFrontierError(
+                    "run workspace copy ended before the planned file size"
+                )
+            remaining_bytes -= written_bytes
+        os.fchmod(destination_descriptor, entry.mode)
+        os.fsync(destination_descriptor)
+        _require_copied_regular_file(
+            destination_descriptor,
+            entry.mode,
+            entry.size_bytes,
+        )
+        if _copy_metadata_observation(os.fstat(source_descriptor)) != (
+            entry.source_metadata
+        ):
+            raise RunWorkspaceFrontierError(
+                "run workspace copy source file changed while reading"
+            )
+
+
+def _require_copied_directory(descriptor: int, mode: int) -> None:
+    metadata = os.fstat(descriptor)
+    if (
+        not stat.S_ISDIR(metadata.st_mode)
+        or metadata.st_uid != os.geteuid()
+        or metadata.st_gid != os.getegid()
+        or stat.S_IMODE(metadata.st_mode) != mode
+    ):
+        raise RunWorkspaceFrontierError(
+            "run workspace copied directory has unsafe metadata"
+        )
+
+
+def _require_copied_regular_file(
+    descriptor: int,
+    mode: int,
+    size_bytes: int,
+) -> None:
+    metadata = os.fstat(descriptor)
+    if (
+        not stat.S_ISREG(metadata.st_mode)
+        or metadata.st_uid != os.geteuid()
+        or metadata.st_gid != os.getegid()
+        or metadata.st_nlink != 1
+        or stat.S_IMODE(metadata.st_mode) != mode
+        or metadata.st_size != size_bytes
+    ):
+        raise RunWorkspaceFrontierError("run workspace copied file has unsafe metadata")
+
+
+def _require_workspace_copy_tree(
+    root_descriptor: int,
+    plan: RunWorkspaceCopyPlan,
+    *,
+    source: bool,
+) -> tuple[tuple[str, tuple[int, ...]], ...]:
+    root_metadata = os.fstat(root_descriptor)
+    if source:
+        if _copy_metadata_observation(root_metadata) != plan.source_root_metadata:
+            raise RunWorkspaceFrontierError(
+                "run workspace copy source root changed after copying"
+            )
+    elif (
+        not stat.S_ISDIR(root_metadata.st_mode)
+        or root_metadata.st_uid != os.geteuid()
+        or root_metadata.st_gid != os.getegid()
+        or stat.S_IMODE(root_metadata.st_mode) != 0o700
+    ):
+        raise RunWorkspaceFrontierError(
+            "run workspace copy destination root changed after copying"
+        )
+    identities = {_metadata_identity(root_metadata)}
+    observations = [(".", _copy_metadata_observation(root_metadata))]
+    observed_entry_count = _require_workspace_copy_entries(
+        root_descriptor,
+        plan.entries,
+        source=source,
+        root_device=root_metadata.st_dev,
+        identities=identities,
+        observations=observations,
+    )
+    if observed_entry_count + 1 != plan.physical_entry_count:
+        raise RunWorkspaceFrontierError(
+            "run workspace copy final physical entry count changed"
+        )
+    return tuple(observations)
+
+
+def _require_workspace_copy_entries(
+    directory_descriptor: int,
+    entries: tuple[_RunWorkspaceCopyEntry, ...],
+    *,
+    source: bool,
+    root_device: int,
+    identities: set[tuple[int, int]],
+    observations: list[tuple[str, tuple[int, ...]]],
+) -> int:
+    if tuple(sorted(os.listdir(directory_descriptor))) != tuple(
+        entry.name for entry in entries
+    ):
+        raise RunWorkspaceFrontierError("run workspace copy final topology changed")
+    observed_entry_count = 0
+    for entry in entries:
+        descriptor_flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC
+        if entry.file_type == "directory":
+            descriptor_flags |= os.O_DIRECTORY
+        else:
+            descriptor_flags |= os.O_NONBLOCK
+        descriptor = os.open(
+            entry.name,
+            descriptor_flags,
+            dir_fd=directory_descriptor,
+        )
+        with ExitStack() as descriptors:
+            descriptors.callback(os.close, descriptor)
+            metadata = os.fstat(descriptor)
+            identity = _metadata_identity(metadata)
+            if identity in identities or metadata.st_dev != root_device:
+                raise RunWorkspaceFrontierError(
+                    "run workspace copy final tree repeats or crosses an inode"
+                )
+            identities.add(identity)
+            observations.append(
+                (
+                    entry.relative_path,
+                    _copy_metadata_observation(metadata),
+                )
+            )
+            if source:
+                if _copy_metadata_observation(metadata) != entry.source_metadata:
+                    raise RunWorkspaceFrontierError(
+                        "run workspace copy source metadata changed after copying"
+                    )
+            elif entry.file_type == "directory":
+                _require_copied_directory(descriptor, entry.mode)
+            else:
+                _require_copied_regular_file(
+                    descriptor,
+                    entry.mode,
+                    entry.size_bytes,
+                )
+            observed_entry_count += 1
+            if entry.file_type == "directory":
+                observed_entry_count += _require_workspace_copy_entries(
+                    descriptor,
+                    entry.children,
+                    source=source,
+                    root_device=root_device,
+                    identities=identities,
+                    observations=observations,
+                )
+            elif entry.file_type != "regular" or entry.children:
+                raise RunWorkspaceFrontierError(
+                    "run workspace copy final plan contains an invalid entry"
+                )
+    return observed_entry_count
 
 
 def _scan_source_directory(
@@ -1027,6 +1758,19 @@ def _require_source_component(name: str) -> None:
         raise RunWorkspaceFrontierError("run workspace contains a denied source path")
 
 
+def _require_copy_component(name: str) -> None:
+    if (
+        type(name) is not str
+        or name in {"", ".", ".."}
+        or "/" in name
+        or "\x00" in name
+        or any(ord(character) < 32 or ord(character) == 127 for character in name)
+    ):
+        raise RunWorkspaceFrontierError(
+            "run workspace physical copy contains an unsafe path"
+        )
+
+
 def _require_source_path(value: str) -> None:
     path = PurePosixPath(value)
     if (
@@ -1060,8 +1804,27 @@ def _metadata_observation(
     )
 
 
+def _copy_metadata_observation(
+    metadata: os.stat_result,
+) -> tuple[int, ...]:
+    return (
+        metadata.st_dev,
+        metadata.st_ino,
+        metadata.st_mode,
+        metadata.st_nlink,
+        metadata.st_uid,
+        metadata.st_gid,
+        metadata.st_size,
+        metadata.st_mtime_ns,
+        metadata.st_ctime_ns,
+    )
+
+
 __all__ = [
+    "copy_run_workspace_frontier",
     "inspect_run_workspace_frontier",
+    "plan_run_workspace_frontier_copy",
+    "RunWorkspaceCopyPlan",
     "RunWorkspaceFrontierError",
     "RunWorkspaceFrontierIdentity",
 ]
