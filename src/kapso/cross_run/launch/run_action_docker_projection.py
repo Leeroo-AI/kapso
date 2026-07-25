@@ -31,7 +31,7 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
 from kapso.cross_run.settings import DockerRuntimeSettings
 
 DOCKER_RUN_ACTION_PROJECTION_PROTOCOL_VERSION = (
-    "kapso.docker_run_action_create_inspect.v2"
+    "kapso.docker_run_action_create_inspect.v3"
 )
 
 _CONTAINER_ROOT_FIELDS = (
@@ -672,6 +672,8 @@ def _require_projection_policy(
         or policy.supervisor_helper_source_path != settings.helper_executable_path
         or policy.supervisor_helper_executable_digest
         != settings.helper_executable_digest
+        or policy.docker_init_source_path != settings.init_executable_path
+        or policy.docker_init_executable_digest != settings.init_executable_digest
     ):
         raise DockerRunActionProjectionError(
             "run action execution policy differs from closed Docker authority"

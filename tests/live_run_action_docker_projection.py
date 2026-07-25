@@ -49,6 +49,7 @@ from kapso.cross_run.launch.run_action_docker_inspect import (
 )
 from kapso.cross_run.launch.run_action_supervisor_helper import (
     RunActionSupervisorHelperError,
+    observe_docker_init_source,
     observe_supervisor_helper,
 )
 from kapso.cross_run.launch.run_action_runtime_volume import (
@@ -293,6 +294,7 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             ),
         )
         helper_evidence = observe_supervisor_helper(policy)
+        init_source_evidence = observe_docker_init_source(policy)
         claim = _claim(policy=policy)
         authority = _volume_authority(claim, nonce=_GENERATION_NONCE)
         allocation = RunActionPreparationAllocation.mint(
@@ -393,6 +395,7 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             authority,
             volume_observation,
             helper_evidence,
+            init_source_evidence,
             settings,
         )
         assert inert_keeper.container_id == keeper_id
@@ -408,6 +411,7 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             authority,
             volume_observation,
             helper_evidence,
+            init_source_evidence,
             settings,
         )
         empty_volume = observe_empty_runtime_volume(
@@ -485,6 +489,7 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             volume_observation,
             command,
             helper_evidence,
+            init_source_evidence,
             settings,
         )
         assert main_evidence.container_id == main_id
@@ -498,6 +503,7 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             authority,
             volume_observation,
             helper_evidence,
+            init_source_evidence,
             settings,
         )
         assert keeper_evidence.container_id == keeper_id
@@ -521,6 +527,7 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
                 authority,
                 volume_observation,
                 substituted_helper_evidence,
+                init_source_evidence,
                 settings,
             )
         assert keeper["State"]["Status"] == "running"
@@ -736,6 +743,7 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             layout_authority,
             layout_volume_observation,
             helper_evidence,
+            init_source_evidence,
             settings,
         )
         layout_empty_volume = observe_empty_runtime_volume(
@@ -775,6 +783,7 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             layout_volume_observation,
             command,
             helper_evidence,
+            init_source_evidence,
             settings,
         )
         prepared_execution = RunActionPreparedExecution.mint(

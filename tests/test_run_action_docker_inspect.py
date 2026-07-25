@@ -20,6 +20,7 @@ from kapso.cross_run.launch.run_action_docker_projection import (
     main_barrier_command,
 )
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
+    RunActionDockerInitSourceEvidence,
     RunActionSupervisorHelperEvidence,
     RunActionMountedKeeperHelperEvidence,
     RunActionPreparedMountAccess,
@@ -118,7 +119,23 @@ def _context(docker_settings):
         device=200,
         inode=300,
     )
-    return claim, authority, volume_raw, volume, command, helper
+    init = RunActionDockerInitSourceEvidence.mint(
+        init_authority_id=policy.docker_init_executable_authority_id,
+        source_path=policy.docker_init_source_path,
+        file_type="regular",
+        owner_user_id=0,
+        owner_group_id=0,
+        mode=0o755,
+        link_count=1,
+        file_format="elf",
+        dynamic_dependency_count=0,
+        elf_interpreter_present=False,
+        executable_digest=policy.docker_init_executable_digest,
+        mount_id=100,
+        device=200,
+        inode=301,
+    )
+    return claim, authority, volume_raw, volume, command, helper, init
 
 
 def _volume_raw(authority, docker_settings):
@@ -314,7 +331,9 @@ def _inert_keeper_raw(
 
 
 def test_volume_inspection_is_closed_and_normalized(docker_settings):
-    claim, authority, volume_raw, volume, _command, _helper = _context(docker_settings)
+    claim, authority, volume_raw, volume, _command, _helper, _init = _context(
+        docker_settings
+    )
 
     assert volume.volume_authority_id == authority.runtime_volume_authority_id
     assert volume.volume_name == authority.volume_name
@@ -333,7 +352,9 @@ def test_volume_inspection_is_closed_and_normalized(docker_settings):
 
 
 def test_main_inspection_equals_issued_projection(docker_settings):
-    claim, authority, _volume_raw, volume, command, helper = _context(docker_settings)
+    claim, authority, _volume_raw, volume, command, helper, init = _context(
+        docker_settings
+    )
     raw = _container_raw(
         claim,
         authority,
@@ -350,6 +371,7 @@ def test_main_inspection_equals_issued_projection(docker_settings):
         volume,
         command,
         helper,
+        init,
         docker_settings,
     )
 
@@ -359,6 +381,7 @@ def test_main_inspection_equals_issued_projection(docker_settings):
         authority,
         command,
         helper,
+        init,
         docker_settings,
     )
     assert evidence.observed_inspect_projection == evidence.issued_create_projection
@@ -366,7 +389,9 @@ def test_main_inspection_equals_issued_projection(docker_settings):
 
 
 def test_keeper_inspection_equals_issued_projection(docker_settings):
-    claim, authority, _volume_raw, volume, command, helper = _context(docker_settings)
+    claim, authority, _volume_raw, volume, command, helper, init = _context(
+        docker_settings
+    )
     raw = _container_raw(
         claim,
         authority,
@@ -382,6 +407,7 @@ def test_keeper_inspection_equals_issued_projection(docker_settings):
         authority,
         volume,
         helper,
+        init,
         docker_settings,
     )
 
@@ -397,13 +423,16 @@ def test_keeper_inspection_equals_issued_projection(docker_settings):
         claim,
         authority,
         helper,
+        init,
         docker_settings,
     )
     assert evidence.observed_inspect_projection == evidence.issued_create_projection
 
 
 def test_inert_keeper_inspection_equals_issued_projection(docker_settings):
-    claim, authority, _volume_raw, volume, command, helper = _context(docker_settings)
+    claim, authority, _volume_raw, volume, command, helper, init = _context(
+        docker_settings
+    )
     raw = _inert_keeper_raw(
         claim,
         authority,
@@ -418,6 +447,7 @@ def test_inert_keeper_inspection_equals_issued_projection(docker_settings):
         authority,
         volume,
         helper,
+        init,
         docker_settings,
     )
 
@@ -426,6 +456,7 @@ def test_inert_keeper_inspection_equals_issued_projection(docker_settings):
         claim,
         authority,
         helper,
+        init,
         docker_settings,
     )
     assert observation.observed_inspect_projection == (
@@ -467,7 +498,9 @@ def test_container_inspection_rejects_unknown_or_missing_field(
     target,
     mutate,
 ):
-    claim, authority, _volume_raw, volume, command, helper = _context(docker_settings)
+    claim, authority, _volume_raw, volume, command, helper, init = _context(
+        docker_settings
+    )
     raw = _container_raw(
         claim,
         authority,
@@ -487,6 +520,7 @@ def test_container_inspection_rejects_unknown_or_missing_field(
             volume,
             command,
             helper,
+            init,
             docker_settings,
         )
 
@@ -505,7 +539,9 @@ def test_volume_inspection_rejects_unknown_or_missing_field(
     target,
     mutate,
 ):
-    claim, authority, volume_raw, _volume, _command, _helper = _context(docker_settings)
+    claim, authority, volume_raw, _volume, _command, _helper, _init = _context(
+        docker_settings
+    )
     raw = copy.deepcopy(volume_raw)
     selected = raw if target == "root" else raw[target]
     mutate(selected)
@@ -560,7 +596,9 @@ def test_main_inspection_rejects_every_authority_expansion(
     path,
     value,
 ):
-    claim, authority, _volume_raw, volume, command, helper = _context(docker_settings)
+    claim, authority, _volume_raw, volume, command, helper, init = _context(
+        docker_settings
+    )
     raw = _container_raw(
         claim,
         authority,
@@ -579,6 +617,7 @@ def test_main_inspection_rejects_every_authority_expansion(
             volume,
             command,
             helper,
+            init,
             docker_settings,
         )
 
@@ -602,7 +641,9 @@ def test_keeper_inspection_rejects_every_running_or_helper_expansion(
     path,
     value,
 ):
-    claim, authority, _volume_raw, volume, command, helper = _context(docker_settings)
+    claim, authority, _volume_raw, volume, command, helper, init = _context(
+        docker_settings
+    )
     raw = _container_raw(
         claim,
         authority,
@@ -620,6 +661,7 @@ def test_keeper_inspection_rejects_every_running_or_helper_expansion(
             authority,
             volume,
             helper,
+            init,
             docker_settings,
         )
 
@@ -641,7 +683,9 @@ def test_volume_inspection_rejects_authority_substitution(
     path,
     value,
 ):
-    claim, authority, volume_raw, _volume, _command, _helper = _context(docker_settings)
+    claim, authority, volume_raw, _volume, _command, _helper, _init = _context(
+        docker_settings
+    )
     raw = copy.deepcopy(volume_raw)
     _assign(raw, path, value)
 
@@ -652,7 +696,9 @@ def test_volume_inspection_rejects_authority_substitution(
 def test_allowed_container_volatility_normalizes_to_one_projection(
     docker_settings,
 ):
-    claim, authority, _volume_raw, volume, command, helper = _context(docker_settings)
+    claim, authority, _volume_raw, volume, command, helper, init = _context(
+        docker_settings
+    )
     first = _container_raw(
         claim,
         authority,
@@ -682,6 +728,7 @@ def test_allowed_container_volatility_normalizes_to_one_projection(
         volume,
         command,
         helper,
+        init,
         docker_settings,
     )
     second_evidence = observe_inert_main_container(
@@ -691,6 +738,7 @@ def test_allowed_container_volatility_normalizes_to_one_projection(
         volume,
         command,
         helper,
+        init,
         docker_settings,
     )
 
@@ -702,7 +750,9 @@ def test_allowed_container_volatility_normalizes_to_one_projection(
 
 
 def test_command_or_volume_observation_cannot_be_spliced(docker_settings):
-    claim, authority, _volume_raw, volume, command, helper = _context(docker_settings)
+    claim, authority, _volume_raw, volume, command, helper, init = _context(
+        docker_settings
+    )
     raw = _container_raw(
         claim,
         authority,
@@ -733,6 +783,7 @@ def test_command_or_volume_observation_cannot_be_spliced(docker_settings):
             volume,
             alternate_command,
             helper,
+            init,
             docker_settings,
         )
     with pytest.raises(DockerRunActionInspectionError, match="volume"):
@@ -743,6 +794,7 @@ def test_command_or_volume_observation_cannot_be_spliced(docker_settings):
             substituted_volume,
             command,
             helper,
+            init,
             docker_settings,
         )
 
@@ -752,7 +804,9 @@ def test_every_container_leaf_is_classified_and_validated(
     docker_settings,
     keeper,
 ):
-    claim, authority, _volume_raw, volume, command, helper = _context(docker_settings)
+    claim, authority, _volume_raw, volume, command, helper, init = _context(
+        docker_settings
+    )
     raw = _container_raw(
         claim,
         authority,
@@ -777,6 +831,7 @@ def test_every_container_leaf_is_classified_and_validated(
                     authority,
                     volume,
                     helper,
+                    init,
                     docker_settings,
                 )
             else:
@@ -787,12 +842,15 @@ def test_every_container_leaf_is_classified_and_validated(
                     volume,
                     command,
                     helper,
+                    init,
                     docker_settings,
                 )
 
 
 def test_every_volume_leaf_is_classified_and_validated(docker_settings):
-    claim, authority, volume_raw, _volume, _command, _helper = _context(docker_settings)
+    claim, authority, volume_raw, _volume, _command, _helper, _init = _context(
+        docker_settings
+    )
     for path in _leaf_paths(volume_raw):
         mutated = copy.deepcopy(volume_raw)
         original = _path_value(mutated, path)
@@ -811,7 +869,9 @@ def test_every_volume_leaf_is_classified_and_validated(docker_settings):
 
 
 def test_every_inert_keeper_leaf_is_classified_and_validated(docker_settings):
-    claim, authority, _volume_raw, volume, command, helper = _context(docker_settings)
+    claim, authority, _volume_raw, volume, command, helper, init = _context(
+        docker_settings
+    )
     raw = _inert_keeper_raw(
         claim,
         authority,
@@ -834,6 +894,7 @@ def test_every_inert_keeper_leaf_is_classified_and_validated(docker_settings):
                 authority,
                 volume,
                 helper,
+                init,
                 docker_settings,
             )
 

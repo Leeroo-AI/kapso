@@ -700,7 +700,13 @@ uses the pinned static supervisor BusyBox as a fixed barrier entrypoint. The
 intended command remains policy-bound and is passed as positional arguments;
 the fixed shell program never interpolates it. With Docker `--init`, the daemon's
 state PID names init, so the supervisor proves the exact direct BusyBox child
-rather than misidentifying init as the wrapper.
+rather than misidentifying init as the wrapper. The host authority pins the
+configured static `docker-init` source path and digest; both main and keeper
+projections carry that descriptor-proven source evidence, and filesystem policy
+reserves `/sbin/docker-init` from every workload mount. This is launch-source
+authority only. The post-start process proof must separately establish that
+Docker's state PID executes those exact bytes with the expected init argv before
+release.
 
 One continuation capability performs at most one physical transition and always
 returns for fresh inspection:
@@ -769,12 +775,16 @@ projection, mount, inert-evidence, prepared-execution, activation-revalidation c
 durable allocation/prepared index, eight-event store embedding, and process-bound
 preparation/activation capabilities and bounded runtime-volume contracts are
 implemented. The shared Docker host authority now also pins its daemon root,
-systemd cgroup driver, and single-sourced static BusyBox helper. The structural
+systemd cgroup driver, single-sourced static BusyBox helper, and configured
+static `docker-init` source executable. Both host sources are descriptor-proven
+as root-owned, singly linked, content-pinned ELF code with no dynamic loader or
+dependency table, and their source evidence is bound into both main and keeper
+projections. Runtime injection remains a post-start process-proof obligation.
+The structural
 raw-schema identity, strict action-image admission, exact bounded tmpfs-volume
 request, and exact keeper/main create requests are implemented. The shared static
-supervisor helper is descriptor-proven as root-owned, singly linked,
-content-pinned ELF code with no dynamic loader or dependency table. Its running
-keeper bind target is then re-read through the inspected keeper PID, bound to
+supervisor helper's running keeper bind target is then re-read through the
+inspected keeper PID, bound to
 that container's cgroup, and required to retain the issued source device, inode,
 and digest. Volume,
 never-started keeper, running keeper, and never-started main inspections now
@@ -832,7 +842,7 @@ atomically published with `RENAME_NOREPLACE` only after every final directory is
 in place and staging is gone; that rename is the final namespace mutation.
 Preparation also creates a distinct empty `control` directory, reserves the
 future release inode, and binds that directory into the prepared layout and
-global subpath-identity graph. Projection protocol v2 mounts the exact control
+global subpath-identity graph. Projection protocol v3 mounts the exact control
 subpath read-only at `/kapso-supervisor/control`, mounts the same pinned static
 helper read-only and non-recursively into the main container, and replaces direct
 target execution with the fixed positional-argument barrier. Main inspection

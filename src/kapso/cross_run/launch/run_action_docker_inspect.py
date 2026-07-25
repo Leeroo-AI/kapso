@@ -26,6 +26,7 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RUN_ACTION_RUNTIME_VOLUME_KEEPER_DESTINATION,
     RUN_ACTION_SUPERVISOR_HELPER_DESTINATION,
     RunActionContainerLabel,
+    RunActionDockerInitSourceEvidence,
     RunActionInertContainerEvidence,
     RunActionSupervisorHelperEvidence,
     RunActionPreparationClaim,
@@ -194,6 +195,7 @@ def issued_main_projection(
     authority: RunActionRuntimeVolumeAuthority,
     command: DockerRunActionCommand,
     helper_evidence: RunActionSupervisorHelperEvidence,
+    init_source_evidence: RunActionDockerInitSourceEvidence,
     settings: DockerRuntimeSettings,
 ) -> DockerRunActionCreateInspectProjection:
     """Build the normalized main-container projection before allocation."""
@@ -201,6 +203,7 @@ def issued_main_projection(
     volume_create_arguments(claim, authority, settings)
     _require_command_policy(command, claim)
     _require_helper_evidence(helper_evidence, claim)
+    _require_init_source_evidence(init_source_evidence, claim)
     barrier_executable, barrier_arguments = main_barrier_command(command, settings)
     mounts = preparation_main_mounts(claim, authority)
     return DockerRunActionCreateInspectProjection.mint(
@@ -208,6 +211,7 @@ def issued_main_projection(
         raw_field_schema_id=DOCKER_RUN_ACTION_RAW_FIELD_SCHEMA_ID,
         execution_policy=claim.execution_policy,
         supervisor_helper_evidence=helper_evidence,
+        docker_init_source_evidence=init_source_evidence,
         barrier_protocol_version=RUN_ACTION_BARRIER_PROTOCOL_VERSION,
         barrier_poll_interval_seconds=(
             settings.run_action_barrier_poll_interval_seconds
@@ -228,6 +232,7 @@ def observe_inert_main_container(
     volume: DockerRunActionVolumeObservation,
     command: DockerRunActionCommand,
     helper_evidence: RunActionSupervisorHelperEvidence,
+    init_source_evidence: RunActionDockerInitSourceEvidence,
     settings: DockerRuntimeSettings,
 ) -> RunActionInertContainerEvidence:
     """Parse one never-started main container and bind it to issuance."""
@@ -237,6 +242,7 @@ def observe_inert_main_container(
         authority,
         command,
         helper_evidence,
+        init_source_evidence,
         settings,
     )
     _require_volume_observation(volume, authority, settings)
@@ -286,12 +292,14 @@ def issued_keeper_projection(
     claim: RunActionPreparationClaim,
     authority: RunActionRuntimeVolumeAuthority,
     helper_evidence: RunActionSupervisorHelperEvidence,
+    init_source_evidence: RunActionDockerInitSourceEvidence,
     settings: DockerRuntimeSettings,
 ) -> DockerRunActionKeeperCreateInspectProjection:
     """Build the normalized keeper projection before allocation."""
 
     volume_create_arguments(claim, authority, settings)
     _require_helper_evidence(helper_evidence, claim)
+    _require_init_source_evidence(init_source_evidence, claim)
     return DockerRunActionKeeperCreateInspectProjection.mint(
         projection_protocol_version=DOCKER_RUN_ACTION_PROJECTION_PROTOCOL_VERSION,
         raw_field_schema_id=DOCKER_RUN_ACTION_RAW_FIELD_SCHEMA_ID,
@@ -301,6 +309,7 @@ def issued_keeper_projection(
         command_executable=RUN_ACTION_SUPERVISOR_HELPER_DESTINATION,
         command_arguments=("tail", "-f", "/dev/null"),
         helper_evidence=helper_evidence,
+        docker_init_source_evidence=init_source_evidence,
         volume_mount_type="volume",
         volume_mount_destination=RUN_ACTION_RUNTIME_VOLUME_KEEPER_DESTINATION,
         volume_mount_access=RunActionPreparedMountAccess.READ_WRITE,
@@ -319,6 +328,7 @@ def observe_running_keeper(
     authority: RunActionRuntimeVolumeAuthority,
     volume: DockerRunActionVolumeObservation,
     helper_evidence: RunActionSupervisorHelperEvidence,
+    init_source_evidence: RunActionDockerInitSourceEvidence,
     settings: DockerRuntimeSettings,
 ) -> RunActionVolumeKeeperEvidence:
     """Parse one running, network-free runtime-volume keeper."""
@@ -327,6 +337,7 @@ def observe_running_keeper(
         claim,
         authority,
         helper_evidence,
+        init_source_evidence,
         settings,
     )
     _require_volume_observation(volume, authority, settings)
@@ -378,6 +389,7 @@ def observe_inert_keeper(
     authority: RunActionRuntimeVolumeAuthority,
     volume: DockerRunActionVolumeObservation,
     helper_evidence: RunActionSupervisorHelperEvidence,
+    init_source_evidence: RunActionDockerInitSourceEvidence,
     settings: DockerRuntimeSettings,
 ) -> DockerRunActionInertKeeperObservation:
     """Parse one never-started keeper before issuing its sole start mutation."""
@@ -386,6 +398,7 @@ def observe_inert_keeper(
         claim,
         authority,
         helper_evidence,
+        init_source_evidence,
         settings,
     )
     _require_volume_observation(volume, authority, settings)
@@ -1095,6 +1108,24 @@ def _require_helper_evidence(
     ):
         raise DockerRunActionInspectionError(
             "Docker supervisor helper differs from execution policy"
+        )
+
+
+def _require_init_source_evidence(
+    init_source_evidence: RunActionDockerInitSourceEvidence,
+    claim: RunActionPreparationClaim,
+) -> None:
+    policy = claim.execution_policy
+    if (
+        type(init_source_evidence) is not RunActionDockerInitSourceEvidence
+        or init_source_evidence.init_authority_id
+        != policy.docker_init_executable_authority_id
+        or init_source_evidence.source_path != policy.docker_init_source_path
+        or init_source_evidence.executable_digest
+        != policy.docker_init_executable_digest
+    ):
+        raise DockerRunActionInspectionError(
+            "Docker init executable differs from execution policy"
         )
 
 

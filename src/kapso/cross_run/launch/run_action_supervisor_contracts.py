@@ -85,6 +85,7 @@ _PREPARATION_LABEL_PREFIX = "com.kapso.run-action."
 _RUNTIME_VOLUME_SENTINEL_PATH = ".kapso-generation"
 RUN_ACTION_RUNTIME_VOLUME_KEEPER_DESTINATION = "/kapso/runtime-volume"
 RUN_ACTION_SUPERVISOR_HELPER_DESTINATION = "/kapso-supervisor/busybox"
+RUN_ACTION_DOCKER_INIT_DESTINATION = "/sbin/docker-init"
 RUN_ACTION_BARRIER_CONTROL_DESTINATION = "/kapso-supervisor/control"
 RUN_ACTION_BARRIER_RELEASE_DESTINATION = "/kapso-supervisor/control/release"
 RUN_ACTION_BARRIER_PROTOCOL_VERSION = "kapso.run_action_barrier.v1"
@@ -468,6 +469,7 @@ class RunActionFilesystemPolicy(StrictContract):
             self.working_directory,
             self.temporary_filesystem_destination,
             RUN_ACTION_SUPERVISOR_HELPER_DESTINATION,
+            RUN_ACTION_DOCKER_INIT_DESTINATION,
             RUN_ACTION_BARRIER_CONTROL_DESTINATION,
             *(
                 ()
@@ -496,6 +498,7 @@ class RunActionFilesystemPolicy(StrictContract):
         mount_destinations = (
             *workload_mount_destinations,
             RUN_ACTION_SUPERVISOR_HELPER_DESTINATION,
+            RUN_ACTION_DOCKER_INIT_DESTINATION,
             RUN_ACTION_BARRIER_CONTROL_DESTINATION,
         )
         if any(
@@ -592,6 +595,9 @@ class DockerRunActionExecutionPolicy(StrictContract):
     supervisor_helper_source_path: str
     supervisor_helper_executable_authority_id: str
     supervisor_helper_executable_digest: str
+    docker_init_source_path: str
+    docker_init_executable_authority_id: str
+    docker_init_executable_digest: str
     command_template_id: str
     static_environment: tuple[RunActionStaticEnvironmentVariable, ...]
     user_id: int
@@ -670,6 +676,24 @@ class DockerRunActionExecutionPolicy(StrictContract):
         ):
             raise RunActionSupervisorContractError(
                 "runtime supervisor helper differs from execution policy"
+            )
+        _require_namespaced_content_id(
+            self.docker_init_executable_authority_id,
+            "run-action-docker-init-executable-authority",
+            "Docker init executable",
+        )
+        _require_absolute_host_path(
+            self.docker_init_source_path,
+            "Docker init executable source",
+        )
+        if _SHA256_DIGEST_PATTERN.fullmatch(
+            self.docker_init_executable_digest
+        ) is None or self.docker_init_executable_authority_id != run_action_docker_init_authority_id(
+            self.docker_init_source_path,
+            self.docker_init_executable_digest,
+        ):
+            raise RunActionSupervisorContractError(
+                "Docker init executable differs from execution policy"
             )
         has_credential_destination = (
             self.filesystem_policy.credential_destination is not None
@@ -1473,6 +1497,7 @@ class DockerRunActionCreateInspectProjection(StrictContract):
     raw_field_schema_id: str
     execution_policy: DockerRunActionExecutionPolicy
     supervisor_helper_evidence: RunActionSupervisorHelperEvidence
+    docker_init_source_evidence: RunActionDockerInitSourceEvidence
     barrier_protocol_version: str
     barrier_poll_interval_seconds: int
     command_executable: str
@@ -1496,6 +1521,14 @@ class DockerRunActionCreateInspectProjection(StrictContract):
             != self.execution_policy.supervisor_helper_source_path
             or self.supervisor_helper_evidence.executable_digest
             != self.execution_policy.supervisor_helper_executable_digest
+            or type(self.docker_init_source_evidence)
+            is not RunActionDockerInitSourceEvidence
+            or self.docker_init_source_evidence.init_authority_id
+            != self.execution_policy.docker_init_executable_authority_id
+            or self.docker_init_source_evidence.source_path
+            != self.execution_policy.docker_init_source_path
+            or self.docker_init_source_evidence.executable_digest
+            != self.execution_policy.docker_init_executable_digest
             or self.barrier_protocol_version != RUN_ACTION_BARRIER_PROTOCOL_VERSION
             or type(self.barrier_poll_interval_seconds) is not int
             or self.barrier_poll_interval_seconds <= 0
@@ -1600,6 +1633,64 @@ class RunActionSupervisorHelperEvidence(StrictContract):
 
 
 @dataclass(frozen=True)
+class RunActionDockerInitSourceEvidence(StrictContract):
+    """Physical proof of the configured host Docker-init source executable."""
+
+    docker_init_source_evidence_id: str
+    init_authority_id: str
+    source_path: str
+    file_type: str
+    owner_user_id: int
+    owner_group_id: int
+    mode: int
+    link_count: int
+    file_format: str
+    dynamic_dependency_count: int
+    elf_interpreter_present: bool
+    executable_digest: str
+    mount_id: int
+    device: int
+    inode: int
+
+    CONTENT_NAMESPACE: ClassVar[str] = "run-action-docker-init-source-evidence"
+    IDENTITY_FIELD: ClassVar[str] = "docker_init_source_evidence_id"
+
+    def _validate(self) -> None:
+        _require_namespaced_content_id(
+            self.init_authority_id,
+            "run-action-docker-init-executable-authority",
+            "Docker init executable authority",
+        )
+        _require_absolute_host_path(
+            self.source_path,
+            "Docker init executable source",
+        )
+        if (
+            self.init_authority_id
+            != run_action_docker_init_authority_id(
+                self.source_path,
+                self.executable_digest,
+            )
+            or self.file_type != "regular"
+            or self.owner_user_id != 0
+            or self.owner_group_id != 0
+            or self.mode != 0o755
+            or self.link_count != 1
+            or self.file_format != "elf"
+            or self.dynamic_dependency_count != 0
+            or self.elf_interpreter_present is not False
+            or _SHA256_DIGEST_PATTERN.fullmatch(self.executable_digest) is None
+            or any(
+                type(value) is not int or value <= 0
+                for value in (self.mount_id, self.device, self.inode)
+            )
+        ):
+            raise RunActionSupervisorContractError(
+                "Docker init source evidence is unsafe or substituted"
+            )
+
+
+@dataclass(frozen=True)
 class RunActionMountedKeeperHelperEvidence(StrictContract):
     """Spawn-bound proof that the keeper executes the issued helper inode."""
 
@@ -1664,6 +1755,7 @@ class DockerRunActionKeeperCreateInspectProjection(StrictContract):
     command_executable: str
     command_arguments: tuple[str, ...]
     helper_evidence: RunActionSupervisorHelperEvidence
+    docker_init_source_evidence: RunActionDockerInitSourceEvidence
     volume_mount_type: str
     volume_mount_destination: str
     volume_mount_access: RunActionPreparedMountAccess
@@ -1689,6 +1781,8 @@ class DockerRunActionKeeperCreateInspectProjection(StrictContract):
             type(self.execution_policy) is not DockerRunActionExecutionPolicy
             or type(self.volume_authority) is not RunActionRuntimeVolumeAuthority
             or type(self.helper_evidence) is not RunActionSupervisorHelperEvidence
+            or type(self.docker_init_source_evidence)
+            is not RunActionDockerInitSourceEvidence
             or self.projection_protocol_version
             != self.execution_policy.projection_protocol_version
             or self.raw_field_schema_id != self.execution_policy.raw_field_schema_id
@@ -1701,6 +1795,12 @@ class DockerRunActionKeeperCreateInspectProjection(StrictContract):
             != self.execution_policy.supervisor_helper_source_path
             or self.helper_evidence.executable_digest
             != self.execution_policy.supervisor_helper_executable_digest
+            or self.docker_init_source_evidence.init_authority_id
+            != self.execution_policy.docker_init_executable_authority_id
+            or self.docker_init_source_evidence.source_path
+            != self.execution_policy.docker_init_source_path
+            or self.docker_init_source_evidence.executable_digest
+            != self.execution_policy.docker_init_executable_digest
             or self.volume_mount_type != "volume"
             or self.volume_mount_destination
             != RUN_ACTION_RUNTIME_VOLUME_KEEPER_DESTINATION
@@ -2202,6 +2302,8 @@ class RunActionPreparedExecution(StrictContract):
             or issued_projection.execution_policy != policy
             or issued_projection.supervisor_helper_evidence
             != keeper_projection.helper_evidence
+            or issued_projection.docker_init_source_evidence
+            != keeper_projection.docker_init_source_evidence
             or issued_projection.mounts
             != _expected_prepared_mounts(claim, authority.volume_name)
         ):
@@ -3539,6 +3641,34 @@ def run_action_supervisor_helper_authority_id(
     )
 
 
+def run_action_docker_init_authority_id(
+    source_path: str,
+    executable_digest: str,
+) -> str:
+    """Bind intended Docker-init source bytes to the fixed destination."""
+
+    _require_absolute_host_path(
+        source_path,
+        "Docker init executable source",
+    )
+    if (
+        not isinstance(executable_digest, str)
+        or _SHA256_DIGEST_PATTERN.fullmatch(executable_digest) is None
+    ):
+        raise RunActionSupervisorContractError(
+            "Docker init executable digest is invalid"
+        )
+    return content_id(
+        "run-action-docker-init-executable-authority",
+        {
+            "destination": RUN_ACTION_DOCKER_INIT_DESTINATION,
+            "digest": executable_digest,
+            "mount_access": RunActionPreparedMountAccess.READ_ONLY.value,
+            "source_path": source_path,
+        },
+    )
+
+
 def runtime_volume_driver_options(
     authority: RunActionRuntimeVolumeAuthority,
 ) -> tuple[str, ...]:
@@ -3735,6 +3865,7 @@ __all__ = [
     "RUN_ACTION_BARRIER_PROTOCOL_VERSION",
     "RUN_ACTION_BARRIER_RELEASE_DESTINATION",
     "RUN_ACTION_BARRIER_SCRIPT",
+    "RUN_ACTION_DOCKER_INIT_DESTINATION",
     "RUN_ACTION_RUNTIME_VOLUME_KEEPER_DESTINATION",
     "RUN_ACTION_SUPERVISOR_HELPER_DESTINATION",
     "RunActionActivatedFileObservation",
@@ -3746,6 +3877,7 @@ __all__ = [
     "RunActionContainerLabel",
     "RunActionCredentialMode",
     "RunActionCredentialPolicy",
+    "RunActionDockerInitSourceEvidence",
     "RunActionFilesystemPolicy",
     "RunActionInertContainerEvidence",
     "RunActionSupervisorHelperEvidence",
@@ -3786,6 +3918,7 @@ __all__ = [
     "runtime_volume_sentinel_identity",
     "run_action_keeper_process_cgroup_path",
     "run_action_activated_volume_evidence_matches",
+    "run_action_docker_init_authority_id",
     "run_action_runtime_volume_occurrence_matches",
     "run_action_terminal_result_evidence_matches",
 ]

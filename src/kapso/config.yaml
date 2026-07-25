@@ -72,6 +72,8 @@ cross_run:
     runtime_default_runtime: "runc"
     helper_executable_path: "/usr/bin/busybox"
     helper_executable_digest: "sha256:dbac288c29ba568459550a2da9e7ae0ded6b1fc728ee9fad3044c44e62d6ac14"
+    init_executable_path: "/usr/bin/docker-init"
+    init_executable_digest: "sha256:849512e15597bf8ae95d5067fe2c146580f0e9290a2b8262f8ad3a69b9492bf6"
     required_security_options:
       - "name=apparmor"
       - "name=cgroupns"

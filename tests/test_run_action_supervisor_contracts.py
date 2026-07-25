@@ -39,6 +39,7 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RUN_ACTION_BARRIER_PROTOCOL_VERSION,
     RUN_ACTION_BARRIER_RELEASE_DESTINATION,
     RUN_ACTION_BARRIER_SCRIPT,
+    RUN_ACTION_DOCKER_INIT_DESTINATION,
     RUN_ACTION_SUPERVISOR_HELPER_DESTINATION,
     RunActionActivatedFileObservation,
     RunActionActivatedSentinelObservation,
@@ -48,6 +49,7 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RunActionActivationRevalidationReceipt,
     RunActionCredentialMode,
     RunActionCredentialPolicy,
+    RunActionDockerInitSourceEvidence,
     RunActionFilesystemPolicy,
     RunActionInertContainerEvidence,
     RunActionSupervisorHelperEvidence,
@@ -83,6 +85,7 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
     preparation_volume_labels,
     preparation_volume_name,
     runtime_volume_driver_options,
+    run_action_docker_init_authority_id,
     run_action_supervisor_helper_authority_id,
     runtime_volume_sentinel_identity,
     run_action_activated_volume_evidence_matches,
@@ -165,6 +168,8 @@ def _execution_policy(
     credential_policy = _credential_policy(credential_mode)
     helper_digest = tree_or_blob_digest(b"volume keeper helper")
     helper_source_path = "/usr/bin/busybox"
+    init_digest = tree_or_blob_digest(b"Docker init executable")
+    init_source_path = "/usr/bin/docker-init"
     return DockerRunActionExecutionPolicy.mint(
         kind=kind,
         supervisor_protocol_version="kapso.run_action_supervisor.v1",
@@ -192,6 +197,14 @@ def _execution_policy(
             )
         ),
         supervisor_helper_executable_digest=helper_digest,
+        docker_init_source_path=init_source_path,
+        docker_init_executable_authority_id=(
+            run_action_docker_init_authority_id(
+                init_source_path,
+                init_digest,
+            )
+        ),
+        docker_init_executable_digest=init_digest,
         command_template_id=content_id(
             "docker-run-action-command-template",
             {
@@ -765,6 +778,22 @@ def _prepared_execution(
         device=700,
         inode=800,
     )
+    init_source_evidence = RunActionDockerInitSourceEvidence.mint(
+        init_authority_id=policy.docker_init_executable_authority_id,
+        source_path=policy.docker_init_source_path,
+        file_type="regular",
+        owner_user_id=0,
+        owner_group_id=0,
+        mode=0o755,
+        link_count=1,
+        file_format="elf",
+        dynamic_dependency_count=0,
+        elf_interpreter_present=False,
+        executable_digest=policy.docker_init_executable_digest,
+        mount_id=3000 + inode_offset,
+        device=700,
+        inode=801,
+    )
     keeper_projection = DockerRunActionKeeperCreateInspectProjection.mint(
         projection_protocol_version=policy.projection_protocol_version,
         raw_field_schema_id=policy.raw_field_schema_id,
@@ -774,6 +803,7 @@ def _prepared_execution(
         command_executable="/kapso-supervisor/busybox",
         command_arguments=("tail", "-f", "/dev/null"),
         helper_evidence=helper_evidence,
+        docker_init_source_evidence=init_source_evidence,
         volume_mount_type="volume",
         volume_mount_destination="/kapso/runtime-volume",
         volume_mount_access=RunActionPreparedMountAccess.READ_WRITE,
@@ -890,6 +920,7 @@ def _prepared_execution(
         raw_field_schema_id=policy.raw_field_schema_id,
         execution_policy=policy,
         supervisor_helper_evidence=helper_evidence,
+        docker_init_source_evidence=init_source_evidence,
         barrier_protocol_version=RUN_ACTION_BARRIER_PROTOCOL_VERSION,
         barrier_poll_interval_seconds=_BARRIER_POLL_INTERVAL_SECONDS,
         command_executable=RUN_ACTION_SUPERVISOR_HELPER_DESTINATION,
@@ -956,6 +987,7 @@ def _projection_with_mounts(projection, mounts):
         raw_field_schema_id=projection.raw_field_schema_id,
         execution_policy=projection.execution_policy,
         supervisor_helper_evidence=projection.supervisor_helper_evidence,
+        docker_init_source_evidence=projection.docker_init_source_evidence,
         barrier_protocol_version=projection.barrier_protocol_version,
         barrier_poll_interval_seconds=projection.barrier_poll_interval_seconds,
         command_executable=projection.command_executable,
@@ -1061,11 +1093,14 @@ def test_prepared_execution_round_trips_with_complete_content_identity():
     assert {
         "RUN_ACTION_BARRIER_CONTROL_DESTINATION",
         "RUN_ACTION_BARRIER_PROTOCOL_VERSION",
+        "RUN_ACTION_DOCKER_INIT_DESTINATION",
         "RunActionActivatedRuntimeDirectoryObservation",
+        "RunActionDockerInitSourceEvidence",
         "RunActionPreparedRuntimeDirectory",
         "RunActionPreparedRuntimeDirectoryKind",
         "RunActionSupervisorHelperEvidence",
         "run_action_activated_volume_evidence_matches",
+        "run_action_docker_init_authority_id",
         "run_action_supervisor_helper_authority_id",
     }.issubset(supervisor_contracts.__all__)
 
@@ -2136,6 +2171,43 @@ def test_filesystem_policy_rejects_docker_mount_delimiters(delimiter):
         RunActionFilesystemPolicy.mint(**values)
 
 
+@pytest.mark.parametrize(
+    ("field_name", "destination"),
+    tuple(
+        (field_name, destination)
+        for field_name in (
+            "workspace_destination",
+            "input_destination",
+            "result_destination",
+            "credential_destination",
+            "temporary_filesystem_destination",
+        )
+        for destination in (
+            "/sbin",
+            RUN_ACTION_DOCKER_INIT_DESTINATION,
+            f"{RUN_ACTION_DOCKER_INIT_DESTINATION}/nested",
+        )
+    ),
+)
+def test_filesystem_policy_rejects_docker_init_mount_collisions(
+    field_name,
+    destination,
+):
+    filesystem = _execution_policy().filesystem_policy
+    values = {
+        key: value
+        for key, value in filesystem.to_dict().items()
+        if key != "filesystem_policy_id"
+    }
+    values[field_name] = destination
+
+    with pytest.raises(
+        RunActionSupervisorContractError,
+        match="mount destinations overlap",
+    ):
+        RunActionFilesystemPolicy.mint(**values)
+
+
 @pytest.mark.parametrize("delimiter", (",", "\r", "\n", '"'))
 def test_supervisor_helper_authority_rejects_docker_mount_delimiters(delimiter):
     with pytest.raises(
@@ -2145,6 +2217,14 @@ def test_supervisor_helper_authority_rejects_docker_mount_delimiters(delimiter):
         run_action_supervisor_helper_authority_id(
             f"/usr/bin/busybox{delimiter}readonly",
             tree_or_blob_digest(b"helper"),
+        )
+    with pytest.raises(
+        RunActionSupervisorContractError,
+        match="normalized and absolute",
+    ):
+        run_action_docker_init_authority_id(
+            f"/usr/bin/docker-init{delimiter}readonly",
+            tree_or_blob_digest(b"init"),
         )
 
 
@@ -2193,6 +2273,34 @@ def test_lifecycle_policy_binding_pins_the_supervisor_helper_bytes():
         _remint_policy(
             claim.execution_policy,
             supervisor_helper_executable_digest=alternate_digest,
+        )
+
+
+def test_lifecycle_policy_binding_pins_the_docker_init_bytes():
+    claim = _claim()
+    alternate_digest = tree_or_blob_digest(b"alternate Docker init")
+    substituted_policy = _remint_policy(
+        claim.execution_policy,
+        docker_init_executable_authority_id=run_action_docker_init_authority_id(
+            claim.execution_policy.docker_init_source_path,
+            alternate_digest,
+        ),
+        docker_init_executable_digest=alternate_digest,
+    )
+
+    assert (
+        substituted_policy.docker_execution_policy_id
+        != claim.execution_policy.docker_execution_policy_id
+    )
+    with pytest.raises(RunActionSupervisorContractError, match="durable reservation"):
+        RunActionPreparationClaim.mint(
+            reservation=claim.reservation,
+            execution_policy=substituted_policy,
+        )
+    with pytest.raises(RunActionSupervisorContractError, match="Docker init"):
+        _remint_policy(
+            claim.execution_policy,
+            docker_init_executable_digest=alternate_digest,
         )
 
 
@@ -2698,6 +2806,11 @@ def test_runtime_volume_keeper_binds_helper_and_exact_live_generation():
     )
     assert helper.dynamic_dependency_count == 0
     assert helper.elf_interpreter_present is False
+    docker_init = projection.docker_init_source_evidence
+    assert docker_init.init_authority_id == (policy.docker_init_executable_authority_id)
+    assert docker_init.source_path == "/usr/bin/docker-init"
+    assert docker_init.dynamic_dependency_count == 0
+    assert docker_init.elf_interpreter_present is False
     mounted_helper = keeper.mounted_helper_evidence
     with pytest.raises(ContractValidationError, match="device must be an integer"):
         replace(mounted_helper, device=float(mounted_helper.device))
@@ -2743,6 +2856,24 @@ def test_runtime_volume_keeper_binds_helper_and_exact_live_generation():
     )
     with pytest.raises(RunActionSupervisorContractError, match="incomplete or unsafe"):
         replace(projection, helper_evidence=substituted_helper)
+    substituted_init = _remint_contract(
+        docker_init,
+        inode=docker_init.inode + 1,
+    )
+    substituted_projection = _remint_contract(
+        projection,
+        docker_init_source_evidence=substituted_init,
+    )
+    substituted_keeper = _remint_contract(
+        keeper,
+        issued_create_projection=substituted_projection,
+        observed_inspect_projection=substituted_projection,
+    )
+    with pytest.raises(
+        RunActionSupervisorContractError,
+        match="keeper differs from prepared authority",
+    ):
+        replace(prepared, volume_keeper_evidence=substituted_keeper)
     changed_observation = _remint_contract(
         projection,
         nonauthoritative_raw_field_count=5,
@@ -2937,6 +3068,7 @@ def test_inert_evidence_rejects_observed_projection_substitution():
         raw_field_schema_id=substituted_policy.raw_field_schema_id,
         execution_policy=substituted_policy,
         supervisor_helper_evidence=observed.supervisor_helper_evidence,
+        docker_init_source_evidence=observed.docker_init_source_evidence,
         barrier_protocol_version=observed.barrier_protocol_version,
         barrier_poll_interval_seconds=observed.barrier_poll_interval_seconds,
         command_executable=observed.command_executable,

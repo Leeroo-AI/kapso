@@ -29,6 +29,7 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
     preparation_keeper_container_name,
     preparation_volume_labels,
     preparation_volume_name,
+    run_action_docker_init_authority_id,
     run_action_supervisor_helper_authority_id,
 )
 from kapso.cross_run.settings import CrossRunSettings
@@ -82,6 +83,14 @@ def _policy(
             )
         ),
         supervisor_helper_executable_digest=docker_settings.helper_executable_digest,
+        docker_init_source_path=docker_settings.init_executable_path,
+        docker_init_executable_authority_id=(
+            run_action_docker_init_authority_id(
+                docker_settings.init_executable_path,
+                docker_settings.init_executable_digest,
+            )
+        ),
+        docker_init_executable_digest=docker_settings.init_executable_digest,
         **(
             {}
             if command_template_id is None
@@ -248,11 +257,11 @@ def _common_arguments(policy, working_directory):
 def test_projection_schema_identity_is_structural_and_content_addressed():
     assert (
         DOCKER_RUN_ACTION_PROJECTION_PROTOCOL_VERSION
-        == "kapso.docker_run_action_create_inspect.v2"
+        == "kapso.docker_run_action_create_inspect.v3"
     )
     assert DOCKER_RUN_ACTION_RAW_FIELD_SCHEMA_ID == (
         "docker-raw-field-schema:"
-        "sha256:bf01bab02459890b4deb7fd952b06124f0cc49fb393b360b6e5f1ec32c0b711f"
+        "sha256:fe5859ba0fc8eaec16c51e4c8d38bf91abe6b2794e566a3e4a1219a07fdbb813"
     )
 
 

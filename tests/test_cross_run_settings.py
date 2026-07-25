@@ -103,6 +103,10 @@ def test_expert_proposers_and_trigger_policy_are_fully_typed():
     assert docker_runtime.helper_executable_digest == (
         "sha256:dbac288c29ba568459550a2da9e7ae0ded6b1fc728ee9fad3044c44e62d6ac14"
     )
+    assert docker_runtime.init_executable_path == "/usr/bin/docker-init"
+    assert docker_runtime.init_executable_digest == (
+        "sha256:849512e15597bf8ae95d5067fe2c146580f0e9290a2b8262f8ad3a69b9492bf6"
+    )
     assert docker_runtime.runtime_server_version == "29.1.3"
     assert docker_runtime.runtime_root_directory == "/var/lib/docker"
     assert docker_runtime.runtime_cgroup_driver == "systemd"
@@ -141,10 +145,19 @@ def test_expert_state_paths_must_be_disjoint(mutate):
     (
         (("docker", "runtime_executable_path"), "usr/bin/docker", "must be absolute"),
         (("docker", "helper_executable_path"), "usr/bin/busybox", "must be absolute"),
+        (("docker", "init_executable_path"), "usr/bin/docker-init", "must be absolute"),
         (
             (
                 "docker",
                 "helper_executable_digest",
+            ),
+            "sha256:wrong",
+            "sha256 digest",
+        ),
+        (
+            (
+                "docker",
+                "init_executable_digest",
             ),
             "sha256:wrong",
             "sha256 digest",

@@ -13,6 +13,7 @@ from kapso.cross_run.canonical import tree_or_blob_digest
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
     DockerRunActionExecutionPolicy,
     RUN_ACTION_SUPERVISOR_HELPER_DESTINATION,
+    RunActionDockerInitSourceEvidence,
     RunActionSupervisorHelperEvidence,
     RunActionMountedKeeperHelperEvidence,
     RunActionPreparedMountAccess,
@@ -58,9 +59,10 @@ def observe_supervisor_helper(
         raise RunActionSupervisorHelperError(
             "supervisor helper path must be canonical and absolute"
         )
-    metadata, mount_id = _observe_helper_path(
+    metadata, mount_id = _observe_static_executable_path(
         path,
         policy.supervisor_helper_executable_digest,
+        "supervisor helper",
     )
     return RunActionSupervisorHelperEvidence.mint(
         helper_authority_id=policy.supervisor_helper_executable_authority_id,
@@ -78,6 +80,47 @@ def observe_supervisor_helper(
         dynamic_dependency_count=0,
         elf_interpreter_present=False,
         executable_digest=policy.supervisor_helper_executable_digest,
+        mount_id=mount_id,
+        device=metadata.st_dev,
+        inode=metadata.st_ino,
+    )
+
+
+def observe_docker_init_source(
+    policy: DockerRunActionExecutionPolicy,
+) -> RunActionDockerInitSourceEvidence:
+    """Read and prove the configured host Docker-init source executable."""
+
+    if type(policy) is not DockerRunActionExecutionPolicy:
+        raise RunActionSupervisorHelperError(
+            "Docker init observation requires an exact execution policy"
+        )
+    path = Path(policy.docker_init_source_path)
+    if (
+        not path.is_absolute()
+        or path != Path(os.path.abspath(path))
+        or path.resolve() != path
+    ):
+        raise RunActionSupervisorHelperError(
+            "Docker init path must be canonical and absolute"
+        )
+    metadata, mount_id = _observe_static_executable_path(
+        path,
+        policy.docker_init_executable_digest,
+        "Docker init executable",
+    )
+    return RunActionDockerInitSourceEvidence.mint(
+        init_authority_id=policy.docker_init_executable_authority_id,
+        source_path=policy.docker_init_source_path,
+        file_type="regular",
+        owner_user_id=metadata.st_uid,
+        owner_group_id=metadata.st_gid,
+        mode=stat.S_IMODE(metadata.st_mode),
+        link_count=metadata.st_nlink,
+        file_format="elf",
+        dynamic_dependency_count=0,
+        elf_interpreter_present=False,
+        executable_digest=policy.docker_init_executable_digest,
         mount_id=mount_id,
         device=metadata.st_dev,
         inode=metadata.st_ino,
@@ -129,9 +172,10 @@ def observe_mounted_keeper_helper(
             os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
             dir_fd=process_root_descriptor,
         )
-        metadata, mount_id = _observe_helper_descriptor(
+        metadata, mount_id = _observe_static_executable_descriptor(
             mounted_descriptor,
             source_evidence.executable_digest,
+            "mounted supervisor helper",
         )
         process_cgroup_path_after = read_run_action_process_cgroup_path_from_descriptor(
             process_descriptor,
@@ -165,25 +209,31 @@ def observe_mounted_keeper_helper(
     )
 
 
-def _observe_helper_path(
+def _observe_static_executable_path(
     path: Path,
     expected_executable_digest: str,
+    description: str,
 ) -> tuple[os.stat_result, int]:
     descriptor = os.open(
         path,
         os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
     )
-    return _observe_helper_descriptor(descriptor, expected_executable_digest)
+    return _observe_static_executable_descriptor(
+        descriptor,
+        expected_executable_digest,
+        description,
+    )
 
 
-def _observe_helper_descriptor(
+def _observe_static_executable_descriptor(
     descriptor: int,
     expected_executable_digest: str,
+    description: str,
 ) -> tuple[os.stat_result, int]:
     with os.fdopen(descriptor, "rb") as handle:
         metadata_before = os.fstat(handle.fileno())
         mount_id_before = read_run_action_descriptor_mount_id(handle.fileno())
-        _require_helper_metadata(metadata_before)
+        _require_static_executable_metadata(metadata_before, description)
         payload = handle.read()
         metadata_after = os.fstat(handle.fileno())
         mount_id_after = read_run_action_descriptor_mount_id(handle.fileno())
@@ -194,9 +244,9 @@ def _observe_helper_descriptor(
         or tree_or_blob_digest(payload) != expected_executable_digest
     ):
         raise RunActionSupervisorHelperError(
-            "supervisor helper changed while proving its content"
+            f"{description} changed while proving its content"
         )
-    _require_static_elf(payload)
+    _require_static_elf(payload, description)
     return metadata_before, mount_id_before
 
 
@@ -310,7 +360,10 @@ def _parse_run_action_process_cgroup_path(
     return process_cgroup_path
 
 
-def _require_helper_metadata(metadata: os.stat_result) -> None:
+def _require_static_executable_metadata(
+    metadata: os.stat_result,
+    description: str,
+) -> None:
     if (
         not stat.S_ISREG(metadata.st_mode)
         or metadata.st_uid != 0
@@ -320,7 +373,7 @@ def _require_helper_metadata(metadata: os.stat_result) -> None:
         or metadata.st_size <= 0
     ):
         raise RunActionSupervisorHelperError(
-            "supervisor helper is not immutable root-owned executable code"
+            f"{description} is not immutable root-owned executable code"
         )
 
 
@@ -351,7 +404,7 @@ def read_run_action_descriptor_mount_id(descriptor: int) -> int:
     return int(values[0])
 
 
-def _require_static_elf(payload: bytes) -> None:
+def _require_static_elf(payload: bytes, description: str) -> None:
     if (
         not isinstance(payload, bytes)
         or len(payload) < _ELF_IDENT_SIZE
@@ -359,7 +412,7 @@ def _require_static_elf(payload: bytes) -> None:
         or payload[6] != _ELF_CURRENT_VERSION
     ):
         raise RunActionSupervisorHelperError(
-            "supervisor helper is not a supported ELF executable"
+            f"{description} is not a supported ELF executable"
         )
     byte_order = {
         _ELF_ENDIAN_LITTLE: "<",
@@ -377,15 +430,13 @@ def _require_static_elf(payload: bytes) -> None:
     }.get(payload[4])
     if byte_order is None or layout is None:
         raise RunActionSupervisorHelperError(
-            "supervisor helper uses an unsupported ELF encoding"
+            f"{description} uses an unsupported ELF encoding"
         )
     header_format, program_header_size = layout
     encoded_header_size = struct.calcsize(byte_order + header_format)
     header_size = _ELF_IDENT_SIZE + encoded_header_size
     if len(payload) < header_size:
-        raise RunActionSupervisorHelperError(
-            "supervisor helper ELF header is truncated"
-        )
+        raise RunActionSupervisorHelperError(f"{description} ELF header is truncated")
     header = struct.unpack(
         byte_order + header_format,
         payload[_ELF_IDENT_SIZE:header_size],
@@ -405,7 +456,7 @@ def _require_static_elf(payload: bytes) -> None:
         or program_table_end > len(payload)
     ):
         raise RunActionSupervisorHelperError(
-            "supervisor helper ELF program table is malformed"
+            f"{description} ELF program table is malformed"
         )
     program_types = tuple(
         struct.unpack(
@@ -424,7 +475,7 @@ def _require_static_elf(payload: bytes) -> None:
         or _ELF_PROGRAM_INTERPRETER in program_types
     ):
         raise RunActionSupervisorHelperError(
-            "supervisor helper carries a dynamic loader or dependency table"
+            f"{description} carries a dynamic loader or dependency table"
         )
 
 
@@ -442,6 +493,7 @@ def _stable_metadata(metadata: os.stat_result) -> tuple[int, ...]:
 
 __all__ = [
     "RunActionSupervisorHelperError",
+    "observe_docker_init_source",
     "observe_supervisor_helper",
     "observe_mounted_keeper_helper",
     "read_run_action_descriptor_mount_id",

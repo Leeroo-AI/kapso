@@ -1204,6 +1204,8 @@ class DockerRuntimeSettings(StrictContract):
     runtime_default_runtime: str
     helper_executable_path: str
     helper_executable_digest: str
+    init_executable_path: str
+    init_executable_digest: str
     required_security_options: tuple[str, ...]
     run_action_barrier_poll_interval_seconds: int
     command_timeout_seconds: int
@@ -1216,6 +1218,7 @@ class DockerRuntimeSettings(StrictContract):
             (self.runtime_socket_path, "runtime_socket_path"),
             (self.runtime_root_directory, "runtime_root_directory"),
             (self.helper_executable_path, "helper_executable_path"),
+            (self.init_executable_path, "init_executable_path"),
         ):
             _require_path(
                 value,
@@ -1226,6 +1229,7 @@ class DockerRuntimeSettings(StrictContract):
         for value, name in (
             (self.runtime_executable_digest, "runtime_executable_digest"),
             (self.helper_executable_digest, "helper_executable_digest"),
+            (self.init_executable_digest, "init_executable_digest"),
         ):
             if re.fullmatch(r"sha256:[0-9a-f]{64}", value) is None:
                 raise CrossRunConfigurationError(
