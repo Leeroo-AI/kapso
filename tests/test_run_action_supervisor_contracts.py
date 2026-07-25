@@ -31,7 +31,6 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
     DockerRunActionResourceLimits,
     DockerRunActionSafeCreateDefaults,
     DockerRunActionSandboxSpec,
-    DockerRunActionUlimit,
     RunActionActivatedSlotObservation,
     RunActionActivationNetworkMode,
     RunActionActivationRevalidationReceipt,
@@ -190,19 +189,38 @@ def _execution_policy(
             ipc_namespace_mode="private",
             uts_namespace_mode="private",
             cgroup_namespace_mode="private",
-            user_namespace_mode="private",
-            cgroup_parent_id="test.kapso.run_action",
+            user_namespace_mode="daemon_default_unmapped",
+            cgroup_parent_id="test.kapso.run_action.slice",
             sysctl_ids=(),
             no_new_privileges=True,
-            seccomp_profile_id="test.seccomp.v1",
-            apparmor_profile_id="test.apparmor.v1",
+            seccomp_profile_id="builtin",
+            apparmor_profile_id="docker-default",
             security_option_ids=(
-                "apparmor:test.apparmor.v1",
+                "apparmor:docker-default",
                 "no-new-privileges",
-                "seccomp:test.seccomp.v1",
+                "seccomp:builtin",
             ),
-            masked_system_paths=("/proc/kcore",),
-            read_only_system_paths=("/proc/acpi",),
+            masked_system_paths=(
+                "/proc/acpi",
+                "/proc/asound",
+                "/proc/interrupts",
+                "/proc/kcore",
+                "/proc/keys",
+                "/proc/latency_stats",
+                "/proc/sched_debug",
+                "/proc/scsi",
+                "/proc/timer_list",
+                "/proc/timer_stats",
+                "/sys/devices/virtual/powercap",
+                "/sys/firmware",
+            ),
+            read_only_system_paths=(
+                "/proc/bus",
+                "/proc/fs",
+                "/proc/irq",
+                "/proc/sys",
+                "/proc/sysrq-trigger",
+            ),
             runtime_id="runc",
             log_driver="none",
             log_option_ids=(),
@@ -236,46 +254,22 @@ def _execution_policy(
             temporary_filesystem_noexec=True,
         ),
         network_policy=RunActionNetworkPolicy.mint(
-            activation_mode=(
-                RunActionActivationNetworkMode.NONE
-                if credential_mode is RunActionCredentialMode.NONE
-                else RunActionActivationNetworkMode.BROKER_ONLY
-            ),
-            broker_endpoint_ids=(
-                ()
-                if credential_mode is RunActionCredentialMode.NONE
-                else ("test.provider.broker.endpoint",)
-            ),
+            activation_mode=RunActionActivationNetworkMode.NONE,
+            broker_endpoint_ids=(),
         ),
         credential_policy=credential_policy,
         docker_resource_limits=DockerRunActionResourceLimits.mint(
             cpu_period_microseconds=100000,
             cpu_quota_microseconds=200000,
             cpu_shares=1024,
-            nano_cpus=2000000000,
-            cpu_realtime_period_microseconds=0,
-            cpu_realtime_runtime_microseconds=0,
             cpuset_cpu_ids=(),
             cpuset_memory_node_ids=(),
             memory_size_bytes=1073741824,
             memory_reservation_size_bytes=536870912,
             memory_swap_size_bytes=1073741824,
-            memory_swappiness_percentage=0,
-            oom_kill_disabled=False,
             oom_score_adjustment=0,
             process_limit=128,
             block_io_weight=500,
-            block_io_read_bandwidth_rule_ids=(),
-            block_io_write_bandwidth_rule_ids=(),
-            block_io_read_iops_rule_ids=(),
-            block_io_write_iops_rule_ids=(),
-            ulimits=(
-                DockerRunActionUlimit(
-                    name="nofile",
-                    soft_limit=1024,
-                    hard_limit=1024,
-                ),
-            ),
             shared_memory_size_bytes=67108864,
             temporary_filesystem_size_bytes=134217728,
         ),
@@ -991,14 +985,23 @@ def test_inert_evidence_rejects_any_started_or_expandable_resource_fact(
         ("privileged", True),
         ("capability_additions", ("SYS_ADMIN",)),
         ("capability_drops", ()),
-        ("device_authority_ids", ("test.gpu", "test.gpu")),
+        ("device_authority_ids", ("test.gpu",)),
+        ("device_request_authority_ids", ("test.gpu.request",)),
+        ("device_cgroup_rule_ids", ("test.gpu.rule",)),
         ("supplementary_group_ids", (7,)),
         ("pid_namespace_mode", "host"),
         ("sysctl_ids", ("net.ipv4.ip_forward=1",)),
         ("no_new_privileges", False),
         ("security_option_ids", ()),
+        ("masked_system_paths", ("/proc/kcore",)),
+        ("read_only_system_paths", ("/proc/sys",)),
         ("log_driver", "json-file"),
         ("init_process", False),
+        ("cgroup_parent_id", "test.kapso.run_action"),
+        ("user_namespace_mode", "private"),
+        ("seccomp_profile_id", "unconfined"),
+        ("apparmor_profile_id", "unconfined"),
+        ("runtime_id", "crun"),
     ),
 )
 def test_sandbox_spec_rejects_every_privilege_expansion(field_name, value):
@@ -1031,32 +1034,22 @@ def _remint_policy(policy, **changes):
     return DockerRunActionExecutionPolicy.mint(**values)
 
 
-@pytest.mark.parametrize(
-    "sandbox",
-    (
-        _remint_sandbox(
-            _execution_policy().sandbox_spec,
-            seccomp_profile_id="unconfined",
-            security_option_ids=(
-                "apparmor:test.apparmor.v1",
-                "no-new-privileges",
-                "seccomp:unconfined",
-            ),
-        ),
-        _remint_sandbox(
-            _execution_policy().sandbox_spec,
-            masked_system_paths=("/kapso/noop-mask",),
-            read_only_system_paths=("/kapso/noop-read-only",),
-        ),
-        _remint_sandbox(
-            _execution_policy().sandbox_spec,
-            device_authority_ids=("test.unauthorized.device",),
-            device_cgroup_rule_ids=("test.unauthorized.device.rule",),
-        ),
-    ),
-)
-def test_lifecycle_policy_binding_rejects_alternate_valid_sandbox(sandbox):
+def _remint_resource_limits(resource_limits, **changes):
+    values = {
+        key: value
+        for key, value in resource_limits.to_dict().items()
+        if key != "docker_resource_limits_id"
+    }
+    values.update(changes)
+    return DockerRunActionResourceLimits.mint(**values)
+
+
+def test_lifecycle_policy_binding_rejects_alternate_valid_sandbox():
     claim = _claim()
+    sandbox = _remint_sandbox(
+        claim.execution_policy.sandbox_spec,
+        cgroup_parent_id="test.kapso.alternate.slice",
+    )
     substituted_policy = _remint_policy(
         claim.execution_policy,
         sandbox_spec=sandbox,
@@ -1067,6 +1060,107 @@ def test_lifecycle_policy_binding_rejects_alternate_valid_sandbox(sandbox):
             reservation=claim.reservation,
             execution_policy=substituted_policy,
         )
+
+
+def test_execution_policy_exposes_only_renderable_resource_degrees_of_freedom():
+    assert {
+        "nano_cpus",
+        "cpu_realtime_period_microseconds",
+        "cpu_realtime_runtime_microseconds",
+        "memory_swappiness_percentage",
+        "oom_kill_disabled",
+        "block_io_read_bandwidth_rule_ids",
+        "block_io_write_bandwidth_rule_ids",
+        "block_io_read_iops_rule_ids",
+        "block_io_write_iops_rule_ids",
+        "ulimits",
+        "open_file_limit",
+    }.isdisjoint({field.name for field in fields(DockerRunActionResourceLimits)})
+    assert "safe_create_defaults" in {
+        field.name for field in fields(DockerRunActionExecutionPolicy)
+    }
+    assert tuple(RunActionActivationNetworkMode) == (
+        RunActionActivationNetworkMode.NONE,
+    )
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    (
+        ("cpu_quota_microseconds", 999),
+        ("memory_size_bytes", 6 * 1024 * 1024 - 1),
+        ("memory_reservation_size_bytes", 6 * 1024 * 1024 - 1),
+    ),
+)
+def test_resource_limits_reject_values_below_docker_boundaries(field_name, value):
+    policy = _execution_policy()
+
+    with pytest.raises(
+        RunActionSupervisorContractError,
+        match="resource limits",
+    ):
+        _remint_resource_limits(
+            policy.docker_resource_limits,
+            **{field_name: value},
+        )
+
+
+def test_resource_limits_accept_exact_docker_boundaries():
+    limits = _remint_resource_limits(
+        _execution_policy().docker_resource_limits,
+        cpu_quota_microseconds=1_000,
+        memory_size_bytes=6 * 1024 * 1024,
+        memory_reservation_size_bytes=6 * 1024 * 1024,
+        memory_swap_size_bytes=6 * 1024 * 1024,
+    )
+
+    assert limits.cpu_quota_microseconds == 1_000
+    assert limits.memory_size_bytes == 6 * 1024 * 1024
+
+
+@pytest.mark.parametrize(
+    "cgroup_parent_id",
+    (
+        "test/kapso.slice",
+        "-test.slice",
+        "test-.slice",
+        "test.slice/child",
+        "foo--bar.slice",
+        f"{'a' * 250}.slice",
+    ),
+)
+def test_sandbox_rejects_noncanonical_systemd_slice(cgroup_parent_id):
+    with pytest.raises(RunActionSupervisorContractError, match="expanded privilege"):
+        _remint_sandbox(
+            _execution_policy().sandbox_spec,
+            cgroup_parent_id=cgroup_parent_id,
+        )
+
+
+def test_sandbox_accepts_maximum_length_systemd_slice():
+    cgroup_parent_id = f"{'a' * 249}.slice"
+
+    sandbox = _remint_sandbox(
+        _execution_policy().sandbox_spec,
+        cgroup_parent_id=cgroup_parent_id,
+    )
+
+    assert len(cgroup_parent_id.encode("ascii")) == 255
+    assert sandbox.cgroup_parent_id == cgroup_parent_id
+
+
+@pytest.mark.parametrize("field_name", ("user_id", "group_id"))
+def test_execution_policy_rejects_identity_above_docker_boundary(field_name):
+    policy = _execution_policy()
+
+    assert getattr(
+        _remint_policy(policy, **{field_name: 2_147_483_647}), field_name
+    ) == (2_147_483_647)
+    with pytest.raises(
+        RunActionSupervisorContractError,
+        match="execution policy is invalid",
+    ):
+        _remint_policy(policy, **{field_name: 2_147_483_648})
 
 
 def test_durable_policy_has_no_argv_or_request_secret_channel():

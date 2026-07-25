@@ -46,6 +46,33 @@ _STATIC_ENVIRONMENT_EXACT_VALUES = {
     "TERM": {"dumb", "xterm", "xterm-256color"},
 }
 _LABEL_KEY_PATTERN = re.compile(r"^[a-z0-9]+(?:[._/-][a-z0-9-]+)*$")
+_SYSTEMD_CGROUP_SLICE_PATTERN = re.compile(
+    r"^[A-Za-z0-9](?:[A-Za-z0-9_.]*[A-Za-z0-9])?"
+    r"(?:-[A-Za-z0-9](?:[A-Za-z0-9_.]*[A-Za-z0-9])?)*\.slice$"
+)
+_DOCKER_29_1_3_MASKED_SYSTEM_PATHS = (
+    "/proc/acpi",
+    "/proc/asound",
+    "/proc/interrupts",
+    "/proc/kcore",
+    "/proc/keys",
+    "/proc/latency_stats",
+    "/proc/sched_debug",
+    "/proc/scsi",
+    "/proc/timer_list",
+    "/proc/timer_stats",
+    "/sys/devices/virtual/powercap",
+    "/sys/firmware",
+)
+_DOCKER_29_1_3_READ_ONLY_SYSTEM_PATHS = (
+    "/proc/bus",
+    "/proc/fs",
+    "/proc/irq",
+    "/proc/sys",
+    "/proc/sysrq-trigger",
+)
+_DOCKER_MINIMUM_MEMORY_BYTES = 6 * 1024 * 1024
+_DOCKER_MAXIMUM_USER_OR_GROUP_ID = 2_147_483_647
 _ZERO_DOCKER_TIMESTAMP = "0001-01-01T00:00:00Z"
 _CONTAINER_NAME_PREFIX = "kapso-run-action-"
 _PREPARATION_LABEL_PREFIX = "com.kapso.run-action."
@@ -66,7 +93,6 @@ class RunActionActivationNetworkMode(str, Enum):
     """Network authority that may be attached only after spawn commit."""
 
     NONE = "none"
-    BROKER_ONLY = "broker_only"
 
 
 class RunActionPreparedSlotKind(str, Enum):
@@ -195,44 +221,12 @@ class RunActionNetworkPolicy(StrictContract):
     IDENTITY_FIELD: ClassVar[str] = "network_policy_id"
 
     def _validate(self) -> None:
-        if type(self.activation_mode) is not RunActionActivationNetworkMode:
-            raise RunActionSupervisorContractError(
-                "run action network policy uses an unknown mode"
-            )
-        if self.activation_mode is RunActionActivationNetworkMode.NONE:
-            if self.broker_endpoint_ids:
-                raise RunActionSupervisorContractError(
-                    "network-free run action policy carries broker endpoints"
-                )
-            return
-        if not self.broker_endpoint_ids or self.broker_endpoint_ids != tuple(
-            sorted(set(self.broker_endpoint_ids))
-        ):
-            raise RunActionSupervisorContractError(
-                "brokered run action network policy must be sorted and non-empty"
-            )
-        for endpoint_id in self.broker_endpoint_ids:
-            require_identifier(endpoint_id, "run action network broker endpoint")
-
-
-@dataclass(frozen=True)
-class DockerRunActionUlimit(StrictContract):
-    """One exact Docker process limit."""
-
-    name: str
-    soft_limit: int
-    hard_limit: int
-
-    def _validate(self) -> None:
-        require_identifier(self.name, "Docker run action ulimit")
         if (
-            type(self.soft_limit) is not int
-            or self.soft_limit <= 0
-            or type(self.hard_limit) is not int
-            or self.hard_limit < self.soft_limit
+            self.activation_mode is not RunActionActivationNetworkMode.NONE
+            or self.broker_endpoint_ids
         ):
             raise RunActionSupervisorContractError(
-                "Docker run action ulimit is invalid"
+                "run action network policy must deny all network authority"
             )
 
 
@@ -244,24 +238,14 @@ class DockerRunActionResourceLimits(StrictContract):
     cpu_period_microseconds: int
     cpu_quota_microseconds: int
     cpu_shares: int
-    nano_cpus: int
-    cpu_realtime_period_microseconds: int
-    cpu_realtime_runtime_microseconds: int
     cpuset_cpu_ids: tuple[int, ...]
     cpuset_memory_node_ids: tuple[int, ...]
     memory_size_bytes: int
     memory_reservation_size_bytes: int
     memory_swap_size_bytes: int
-    memory_swappiness_percentage: int
-    oom_kill_disabled: bool
     oom_score_adjustment: int
     process_limit: int
     block_io_weight: int
-    block_io_read_bandwidth_rule_ids: tuple[str, ...]
-    block_io_write_bandwidth_rule_ids: tuple[str, ...]
-    block_io_read_iops_rule_ids: tuple[str, ...]
-    block_io_write_iops_rule_ids: tuple[str, ...]
-    ulimits: tuple[DockerRunActionUlimit, ...]
     shared_memory_size_bytes: int
     temporary_filesystem_size_bytes: int
 
@@ -273,7 +257,6 @@ class DockerRunActionResourceLimits(StrictContract):
             self.cpu_period_microseconds,
             self.cpu_quota_microseconds,
             self.cpu_shares,
-            self.nano_cpus,
             self.memory_size_bytes,
             self.memory_reservation_size_bytes,
             self.memory_swap_size_bytes,
@@ -285,24 +268,12 @@ class DockerRunActionResourceLimits(StrictContract):
         if (
             any(type(value) is not int or value <= 0 for value in values)
             or not 1_000 <= self.cpu_period_microseconds <= 1_000_000
+            or self.cpu_quota_microseconds < 1_000
             or not 2 <= self.cpu_shares <= 262_144
+            or self.memory_size_bytes < _DOCKER_MINIMUM_MEMORY_BYTES
+            or self.memory_reservation_size_bytes < _DOCKER_MINIMUM_MEMORY_BYTES
             or self.memory_swap_size_bytes < self.memory_size_bytes
             or self.memory_reservation_size_bytes > self.memory_size_bytes
-            or type(self.cpu_realtime_period_microseconds) is not int
-            or self.cpu_realtime_period_microseconds < 0
-            or type(self.cpu_realtime_runtime_microseconds) is not int
-            or self.cpu_realtime_runtime_microseconds < 0
-            or (
-                bool(self.cpu_realtime_period_microseconds)
-                != bool(self.cpu_realtime_runtime_microseconds)
-            )
-            or (
-                self.cpu_realtime_runtime_microseconds
-                > self.cpu_realtime_period_microseconds
-            )
-            or type(self.memory_swappiness_percentage) is not int
-            or not 0 <= self.memory_swappiness_percentage <= 100
-            or self.oom_kill_disabled is not False
             or type(self.oom_score_adjustment) is not int
             or not -1000 <= self.oom_score_adjustment <= 1000
             or self.cpuset_cpu_ids != tuple(sorted(set(self.cpuset_cpu_ids)))
@@ -313,26 +284,11 @@ class DockerRunActionResourceLimits(StrictContract):
                 type(value) is not int or value < 0
                 for value in self.cpuset_memory_node_ids
             )
-            or any(type(limit) is not DockerRunActionUlimit for limit in self.ulimits)
-            or tuple(limit.name for limit in self.ulimits)
-            != tuple(sorted({limit.name for limit in self.ulimits}))
             or not 10 <= self.block_io_weight <= 1_000
         ):
             raise RunActionSupervisorContractError(
                 "Docker run action resource limits are invalid"
             )
-        for rule_ids in (
-            self.block_io_read_bandwidth_rule_ids,
-            self.block_io_write_bandwidth_rule_ids,
-            self.block_io_read_iops_rule_ids,
-            self.block_io_write_iops_rule_ids,
-        ):
-            if rule_ids != tuple(sorted(set(rule_ids))):
-                raise RunActionSupervisorContractError(
-                    "Docker block-I/O rules are not canonical"
-                )
-            for rule_id in rule_ids:
-                require_identifier(rule_id, "Docker block-I/O rule")
 
 
 @dataclass(frozen=True)
@@ -402,47 +358,36 @@ class DockerRunActionSandboxSpec(StrictContract):
     IDENTITY_FIELD: ClassVar[str] = "docker_sandbox_spec_id"
 
     def _validate(self) -> None:
-        for value, name in (
-            (self.seccomp_profile_id, "seccomp profile"),
-            (self.apparmor_profile_id, "AppArmor profile"),
-            (self.runtime_id, "runtime"),
-        ):
-            require_identifier(value, f"Docker run action sandbox {name}")
         if (
             self.read_only_root_filesystem is not True
             or self.privileged is not False
             or self.capability_additions
             or self.capability_drops != ("ALL",)
             or self.device_authority_ids
-            != tuple(sorted(set(self.device_authority_ids)))
             or self.device_request_authority_ids
-            != tuple(sorted(set(self.device_request_authority_ids)))
             or self.device_cgroup_rule_ids
-            != tuple(sorted(set(self.device_cgroup_rule_ids)))
-            or bool(self.device_authority_ids) != bool(self.device_cgroup_rule_ids)
             or self.supplementary_group_ids
             or self.pid_namespace_mode != "private"
             or self.ipc_namespace_mode != "private"
             or self.uts_namespace_mode != "private"
             or self.cgroup_namespace_mode != "private"
-            or self.user_namespace_mode not in {"private", "daemon_remapped"}
+            or self.user_namespace_mode != "daemon_default_unmapped"
+            or not self.cgroup_parent_id.isascii()
+            or len(self.cgroup_parent_id.encode("ascii")) > 255
+            or _SYSTEMD_CGROUP_SLICE_PATTERN.fullmatch(self.cgroup_parent_id) is None
             or self.sysctl_ids
             or self.no_new_privileges is not True
+            or self.seccomp_profile_id != "builtin"
+            or self.apparmor_profile_id != "docker-default"
             or self.security_option_ids
-            != tuple(
-                sorted(
-                    {
-                        f"apparmor:{self.apparmor_profile_id}",
-                        "no-new-privileges",
-                        f"seccomp:{self.seccomp_profile_id}",
-                    }
-                )
+            != (
+                "apparmor:docker-default",
+                "no-new-privileges",
+                "seccomp:builtin",
             )
-            or not self.masked_system_paths
-            or self.masked_system_paths != tuple(sorted(set(self.masked_system_paths)))
-            or not self.read_only_system_paths
-            or self.read_only_system_paths
-            != tuple(sorted(set(self.read_only_system_paths)))
+            or self.masked_system_paths != _DOCKER_29_1_3_MASKED_SYSTEM_PATHS
+            or self.read_only_system_paths != _DOCKER_29_1_3_READ_ONLY_SYSTEM_PATHS
+            or self.runtime_id != "runc"
             or self.log_driver != "none"
             or self.log_option_ids
             or self.init_process is not True
@@ -451,23 +396,6 @@ class DockerRunActionSandboxSpec(StrictContract):
             raise RunActionSupervisorContractError(
                 "Docker run action sandbox permits expanded privilege"
             )
-        require_identifier(
-            self.cgroup_parent_id,
-            "Docker run action cgroup parent",
-        )
-        for values, name in (
-            (self.device_authority_ids, "device authority"),
-            (self.device_request_authority_ids, "device request authority"),
-            (self.device_cgroup_rule_ids, "device cgroup rule"),
-        ):
-            for value in values:
-                require_identifier(value, f"Docker run action {name}")
-        for paths, name in (
-            (self.masked_system_paths, "masked system"),
-            (self.read_only_system_paths, "read-only system"),
-        ):
-            for path in paths:
-                _require_absolute_container_path(path)
 
 
 @dataclass(frozen=True)
@@ -669,8 +597,10 @@ class DockerRunActionExecutionPolicy(StrictContract):
             != tuple(sorted({variable.key for variable in self.static_environment}))
             or type(self.user_id) is not int
             or self.user_id <= 0
+            or self.user_id > _DOCKER_MAXIMUM_USER_OR_GROUP_ID
             or type(self.group_id) is not int
             or self.group_id <= 0
+            or self.group_id > _DOCKER_MAXIMUM_USER_OR_GROUP_ID
         ):
             raise RunActionSupervisorContractError(
                 "Docker run action execution policy is invalid"
@@ -1798,7 +1728,6 @@ __all__ = [
     "DockerRunActionResourceLimits",
     "DockerRunActionSafeCreateDefaults",
     "DockerRunActionSandboxSpec",
-    "DockerRunActionUlimit",
     "RunActionActivatedSlotObservation",
     "RunActionActivationRevalidationReceipt",
     "RunActionActivationNetworkMode",
