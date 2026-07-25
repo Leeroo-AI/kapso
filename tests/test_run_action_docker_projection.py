@@ -252,7 +252,7 @@ def test_projection_schema_identity_is_structural_and_content_addressed():
     )
     assert DOCKER_RUN_ACTION_RAW_FIELD_SCHEMA_ID == (
         "docker-raw-field-schema:"
-        "sha256:32a5f498bd02e5d2e042f4ee20dd8858b4a7cb2d53853eba9f6cd9d95d7d9268"
+        "sha256:c5ab4c585e8124992ec64d6a1018da6783c5bebdb604add6f4809923d6d12c94"
     )
 
 

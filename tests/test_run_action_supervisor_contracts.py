@@ -43,6 +43,7 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RunActionFilesystemPolicy,
     RunActionInertContainerEvidence,
     RunActionKeeperHelperEvidence,
+    RunActionMountedKeeperHelperEvidence,
     RunActionNetworkPolicy,
     RunActionPreparationClaim,
     RunActionPreparedExecution,
@@ -714,15 +715,31 @@ def _prepared_execution(
         unclassified_raw_field_count=0,
         nonauthoritative_raw_field_count=4,
     )
+    keeper_container_id = f"{inode_offset + 2:064x}"
+    keeper_process_id = 1000 + inode_offset
+    mounted_helper_evidence = RunActionMountedKeeperHelperEvidence.mint(
+        source_helper_evidence=helper_evidence,
+        container_id=keeper_container_id,
+        process_id=keeper_process_id,
+        process_cgroup_path=(
+            "/test.kapso.run_action.slice/" f"docker-{keeper_container_id}.scope"
+        ),
+        destination="/kapso-supervisor/busybox",
+        mount_id=helper_evidence.mount_id + 1,
+        device=helper_evidence.device,
+        inode=helper_evidence.inode,
+        executable_digest=helper_evidence.executable_digest,
+    )
     keeper_evidence = RunActionVolumeKeeperEvidence.mint(
         preparation_claim_id=claim.preparation_claim_id,
-        container_id=f"{inode_offset + 2:064x}",
+        container_id=keeper_container_id,
         container_name=preparation_keeper_container_name(claim),
         labels=preparation_keeper_container_labels(claim),
         issued_create_projection=keeper_projection,
         observed_inspect_projection=keeper_projection,
+        mounted_helper_evidence=mounted_helper_evidence,
         container_status="running",
-        process_id=1000 + inode_offset,
+        process_id=keeper_process_id,
         restart_count=0,
         restart_policy_name="no",
         auto_remove=False,
@@ -1679,6 +1696,30 @@ def test_runtime_volume_keeper_binds_helper_and_exact_live_generation():
     )
     assert helper.dynamic_dependency_count == 0
     assert helper.elf_interpreter_present is False
+    mounted_helper = keeper.mounted_helper_evidence
+    with pytest.raises(ContractValidationError, match="device must be an integer"):
+        replace(mounted_helper, device=float(mounted_helper.device))
+    with pytest.raises(ContractValidationError, match="inode must be an integer"):
+        replace(mounted_helper, inode=float(mounted_helper.inode))
+    with pytest.raises(
+        RunActionSupervisorContractError,
+        match="differs from its source inode or process",
+    ):
+        replace(
+            mounted_helper,
+            process_cgroup_path=mounted_helper.process_cgroup_path + "\x00",
+        )
+    with pytest.raises(
+        RunActionSupervisorContractError,
+        match="differs from its source inode or process",
+    ):
+        replace(
+            mounted_helper,
+            process_cgroup_path=mounted_helper.process_cgroup_path.replace(
+                "/test.",
+                "/tést.",
+            ),
+        )
     assert projection.volume_authority == prepared.runtime_volume_authority
     assert (
         prepared.runtime_volume_evidence.sentinel_evidence.runtime_volume_authority_id
@@ -1709,9 +1750,18 @@ def test_runtime_volume_keeper_binds_helper_and_exact_live_generation():
             keeper,
             observed_inspect_projection=changed_observation,
         )
+    aliased_container_id = prepared.inert_container_evidence.container_id
+    aliased_mounted_helper = _remint_contract(
+        keeper.mounted_helper_evidence,
+        container_id=aliased_container_id,
+        process_cgroup_path=(
+            "/test.kapso.run_action.slice/" f"docker-{aliased_container_id}.scope"
+        ),
+    )
     aliased_keeper = _remint_contract(
         keeper,
-        container_id=prepared.inert_container_evidence.container_id,
+        container_id=aliased_container_id,
+        mounted_helper_evidence=aliased_mounted_helper,
     )
     with pytest.raises(RunActionSupervisorContractError, match="evidence differs"):
         replace(prepared, volume_keeper_evidence=aliased_keeper)

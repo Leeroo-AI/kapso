@@ -1266,6 +1266,55 @@ class RunActionKeeperHelperEvidence(StrictContract):
 
 
 @dataclass(frozen=True)
+class RunActionMountedKeeperHelperEvidence(StrictContract):
+    """Spawn-bound proof that the keeper executes the issued helper inode."""
+
+    mounted_keeper_helper_evidence_id: str
+    source_helper_evidence: RunActionKeeperHelperEvidence
+    container_id: str
+    process_id: int
+    process_cgroup_path: str
+    destination: str
+    mount_id: int
+    device: int
+    inode: int
+    executable_digest: str
+
+    CONTENT_NAMESPACE: ClassVar[str] = "run-action-mounted-keeper-helper-evidence"
+    IDENTITY_FIELD: ClassVar[str] = "mounted_keeper_helper_evidence_id"
+
+    def _validate(self) -> None:
+        if (
+            type(self.source_helper_evidence) is not RunActionKeeperHelperEvidence
+            or _DOCKER_CONTAINER_ID_PATTERN.fullmatch(self.container_id) is None
+            or type(self.process_id) is not int
+            or self.process_id <= 0
+            or not isinstance(self.process_cgroup_path, str)
+            or not self.process_cgroup_path.isascii()
+            or "\x00" in self.process_cgroup_path
+            or not self.process_cgroup_path.startswith("/")
+            or PurePosixPath(self.process_cgroup_path).as_posix()
+            != self.process_cgroup_path
+            or ".." in PurePosixPath(self.process_cgroup_path).parts
+            or not self.process_cgroup_path.endswith(
+                f"/docker-{self.container_id}.scope"
+            )
+            or self.destination != RUN_ACTION_RUNTIME_VOLUME_KEEPER_HELPER_DESTINATION
+            or type(self.mount_id) is not int
+            or self.mount_id <= 0
+            or self.mount_id == self.source_helper_evidence.mount_id
+            or type(self.device) is not int
+            or type(self.inode) is not int
+            or self.device != self.source_helper_evidence.device
+            or self.inode != self.source_helper_evidence.inode
+            or self.executable_digest != self.source_helper_evidence.executable_digest
+        ):
+            raise RunActionSupervisorContractError(
+                "mounted keeper helper differs from its source inode or process"
+            )
+
+
+@dataclass(frozen=True)
 class DockerRunActionKeeperCreateInspectProjection(StrictContract):
     """Closed normalized projection for the sole runtime-volume keeper."""
 
@@ -1344,6 +1393,7 @@ class RunActionVolumeKeeperEvidence(StrictContract):
     labels: tuple[RunActionContainerLabel, ...]
     issued_create_projection: DockerRunActionKeeperCreateInspectProjection
     observed_inspect_projection: DockerRunActionKeeperCreateInspectProjection
+    mounted_helper_evidence: RunActionMountedKeeperHelperEvidence
     container_status: str
     process_id: int
     restart_count: int
@@ -1374,6 +1424,12 @@ class RunActionVolumeKeeperEvidence(StrictContract):
             or self.observed_inspect_projection != self.issued_create_projection
             or self.issued_create_projection.preparation_claim_id
             != self.preparation_claim_id
+            or type(self.mounted_helper_evidence)
+            is not RunActionMountedKeeperHelperEvidence
+            or self.mounted_helper_evidence.source_helper_evidence
+            != self.issued_create_projection.helper_evidence
+            or self.mounted_helper_evidence.container_id != self.container_id
+            or self.mounted_helper_evidence.process_id != self.process_id
             or self.container_status != "running"
             or type(self.process_id) is not int
             or self.process_id <= 0
@@ -2437,6 +2493,7 @@ __all__ = [
     "RunActionFilesystemPolicy",
     "RunActionInertContainerEvidence",
     "RunActionKeeperHelperEvidence",
+    "RunActionMountedKeeperHelperEvidence",
     "RunActionNetworkPolicy",
     "RunActionPreparationClaim",
     "RunActionPreparedExecution",

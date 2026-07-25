@@ -12,6 +12,8 @@ import re
 from contextlib import ExitStack
 from pathlib import Path
 
+import pytest
+
 from expert_live_docker_support import (
     remove_exact_image,
     require_setup_docker_success,
@@ -31,6 +33,15 @@ from kapso.cross_run.launch.run_action_docker_projection import (
     require_run_action_image,
     volume_create_arguments,
 )
+from kapso.cross_run.launch.run_action_docker_inspect import (
+    observe_inert_main_container,
+    observe_running_keeper,
+    observe_runtime_volume,
+)
+from kapso.cross_run.launch.run_action_keeper_helper import (
+    RunActionKeeperHelperError,
+    observe_keeper_helper,
+)
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RunActionStaticEnvironmentVariable,
     preparation_container_labels,
@@ -48,6 +59,7 @@ from test_run_action_docker_projection import (
 )
 from test_run_action_supervisor_contracts import (
     _claim,
+    _remint_contract,
     _remint_policy,
     _volume_authority,
 )
@@ -238,6 +250,7 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
                 RunActionStaticEnvironmentVariable(key="PATH", value="/bin"),
             ),
         )
+        helper_evidence = observe_keeper_helper(policy)
         claim = _claim(policy=policy)
         authority = _volume_authority(claim, nonce=_GENERATION_NONCE)
         main_name = preparation_container_name(claim)
@@ -291,6 +304,14 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             volume_create_arguments(claim, authority, settings)
         )
         assert volume_result.stdout == f"{volume_name}\n".encode("ascii")
+        volume_observation = observe_runtime_volume(
+            runtime.run_json_control(
+                ("volume", "inspect", "--format", "{{json .}}", volume_name)
+            ),
+            claim,
+            authority,
+            settings,
+        )
         cleanup.callback(
             _remove_owned_container,
             settings,
@@ -351,6 +372,50 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
         main = runtime.run_json_control(
             ("container", "inspect", "--format", "{{json .}}", main_id)
         )
+        main_evidence = observe_inert_main_container(
+            main,
+            claim,
+            authority,
+            volume_observation,
+            command,
+            settings,
+        )
+        assert main_evidence.container_id == main_id
+        assert (
+            main_evidence.observed_inspect_projection
+            == main_evidence.issued_create_projection
+        )
+        keeper_evidence = observe_running_keeper(
+            keeper,
+            claim,
+            authority,
+            volume_observation,
+            helper_evidence,
+            settings,
+        )
+        assert keeper_evidence.container_id == keeper_id
+        assert (
+            keeper_evidence.observed_inspect_projection
+            == keeper_evidence.issued_create_projection
+        )
+        substituted_helper_evidence = _remint_contract(
+            helper_evidence,
+            mount_id=helper_evidence.mount_id + 1,
+            device=helper_evidence.device + 1,
+            inode=helper_evidence.inode + 1,
+        )
+        with pytest.raises(
+            RunActionKeeperHelperError,
+            match="differs from its issued source inode",
+        ):
+            observe_running_keeper(
+                keeper,
+                claim,
+                authority,
+                volume_observation,
+                substituted_helper_evidence,
+                settings,
+            )
         assert keeper["State"]["Status"] == "running"
         assert keeper["State"]["Pid"] > 0
         assert keeper["HostConfig"]["NetworkMode"] == "none"

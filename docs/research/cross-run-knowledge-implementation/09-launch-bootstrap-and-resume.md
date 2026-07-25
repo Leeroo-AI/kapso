@@ -608,9 +608,16 @@ preparation/activation capabilities and bounded runtime-volume contracts are
 implemented. The shared Docker host authority now also pins its daemon root,
 systemd cgroup driver, and single-sourced static BusyBox helper. The structural
 raw-schema identity, strict action-image admission, exact bounded tmpfs-volume
-request, and exact keeper/main create requests are implemented and exercised
-against Docker 29.1.3 with a digest-pulled loopback OCI image. The closed
-observed-inspect parser and name/label resource manager, concrete
+request, and exact keeper/main create requests are implemented. The static
+keeper helper is descriptor-proven as root-owned, singly linked, content-pinned
+ELF code with no dynamic loader or dependency table. Its running bind target is
+then re-read through the inspected keeper PID, bound to that container's cgroup,
+and required to retain the issued source device, inode, and digest. Volume,
+never-started main, and running keeper inspections now require complete nested
+raw schemas and normalize only enumerated daemon identities and ordering; issued
+and observed projections are equal in repeated Docker 29.1.3 runs with a
+digest-pulled loopback OCI image. The race-safe name/label resource manager,
+concrete
 activation/result receipts, positive cleanup authority, and production adapters
 remain the next slices.
 

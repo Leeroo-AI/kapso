@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from pathlib import PurePosixPath
+from types import MappingProxyType
 from typing import Any, Mapping
 
 from kapso.cross_run.canonical import content_id, tree_or_blob_digest
@@ -159,14 +160,25 @@ _GRAPH_DRIVER_FIELDS = ("Data", "Name")
 _GRAPH_DRIVER_DATA_FIELDS = ("ID", "LowerDir", "MergedDir", "UpperDir", "WorkDir")
 _HOST_CONFIG_LOG_CONFIG_FIELDS = ("Config", "Type")
 _HOST_CONFIG_RESTART_POLICY_FIELDS = ("MaximumRetryCount", "Name")
-_HOST_CONFIG_VOLUME_MOUNT_FIELDS = (
+_HOST_CONFIG_READ_ONLY_VOLUME_MOUNT_FIELDS = (
     "ReadOnly",
     "Source",
     "Target",
     "Type",
     "VolumeOptions",
 )
-_HOST_CONFIG_VOLUME_OPTIONS_FIELDS = ("DriverConfig", "NoCopy", "Subpath")
+_HOST_CONFIG_READ_WRITE_VOLUME_MOUNT_FIELDS = (
+    "Source",
+    "Target",
+    "Type",
+    "VolumeOptions",
+)
+_HOST_CONFIG_ROOT_VOLUME_OPTIONS_FIELDS = ("DriverConfig", "NoCopy")
+_HOST_CONFIG_SUBPATH_VOLUME_OPTIONS_FIELDS = (
+    "DriverConfig",
+    "NoCopy",
+    "Subpath",
+)
 _HOST_CONFIG_BIND_MOUNT_FIELDS = (
     "BindOptions",
     "ReadOnly",
@@ -273,8 +285,12 @@ _RAW_FIELD_SCHEMA = {
     "host_config_bind_options": _HOST_CONFIG_BIND_OPTIONS_FIELDS,
     "host_config_log_config": _HOST_CONFIG_LOG_CONFIG_FIELDS,
     "host_config_restart_policy": _HOST_CONFIG_RESTART_POLICY_FIELDS,
-    "host_config_volume_mount": _HOST_CONFIG_VOLUME_MOUNT_FIELDS,
-    "host_config_volume_options": _HOST_CONFIG_VOLUME_OPTIONS_FIELDS,
+    "host_config_read_only_volume_mount": (_HOST_CONFIG_READ_ONLY_VOLUME_MOUNT_FIELDS),
+    "host_config_read_write_volume_mount": (
+        _HOST_CONFIG_READ_WRITE_VOLUME_MOUNT_FIELDS
+    ),
+    "host_config_root_volume_options": (_HOST_CONFIG_ROOT_VOLUME_OPTIONS_FIELDS),
+    "host_config_subpath_volume_options": (_HOST_CONFIG_SUBPATH_VOLUME_OPTIONS_FIELDS),
     "image_config": _IMAGE_CONFIG_FIELDS,
     "image_metadata": _IMAGE_METADATA_FIELDS,
     "image_root_optional": _IMAGE_ROOT_OPTIONAL_FIELDS,
@@ -294,6 +310,7 @@ DOCKER_RUN_ACTION_RAW_FIELD_SCHEMA_ID = content_id(
         "projection_protocol_version": (DOCKER_RUN_ACTION_PROJECTION_PROTOCOL_VERSION),
     },
 )
+_READ_ONLY_RAW_FIELD_SCHEMA = MappingProxyType(_RAW_FIELD_SCHEMA)
 
 _SECRET_ENVIRONMENT_KEY_PATTERN = re.compile(
     r"(?:^|_)(?:ACCESS_KEY(?:_ID)?|ACCESS_TOKEN|API_KEY|AUTH_CONFIG|AUTH_TOKEN|"
@@ -370,6 +387,12 @@ def docker_run_action_command_template_id(
             "entrypoint": entrypoint,
         },
     )
+
+
+def docker_run_action_raw_field_schema() -> Mapping[str, tuple[str, ...]]:
+    """Return the immutable schema whose identity is embedded in every policy."""
+
+    return _READ_ONLY_RAW_FIELD_SCHEMA
 
 
 def require_run_action_image(
@@ -909,6 +932,7 @@ __all__ = [
     "DockerRunActionCommand",
     "DockerRunActionProjectionError",
     "docker_run_action_command_template_id",
+    "docker_run_action_raw_field_schema",
     "keeper_create_arguments",
     "main_create_arguments",
     "require_run_action_image",
