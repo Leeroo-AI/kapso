@@ -786,7 +786,11 @@ request, and exact keeper/main create requests are implemented. The shared stati
 supervisor helper's running keeper bind target is then re-read through the
 inspected keeper PID, bound to
 that container's cgroup, and required to retain the issued source device, inode,
-and digest. Volume,
+and digest. Shared descriptor-safe `/proc` primitives now parse the exact live
+PID/state/parent/start generation, full byte-exact NUL-separated argv, unified
+cgroup, process root, executable, and mount/PID namespace identities without
+pathname fallback; the resolved-barrier assembly must sandwich those observations
+around its mount proof. Volume,
 never-started keeper, running keeper, and never-started main inspections now
 require complete nested raw schemas and normalize only enumerated daemon
 identities and ordering; issued and observed projections are equal in repeated

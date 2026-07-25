@@ -13,7 +13,7 @@ from kapso.cross_run.launch.run_action_docker_inspect import (
 )
 from kapso.cross_run.launch.run_action_supervisor_helper import (
     RunActionSupervisorHelperError,
-    read_run_action_process_start_time_from_descriptor,
+    read_run_action_process_stat_from_descriptor,
 )
 from kapso.cross_run.launch.run_action_runtime_volume import (
     DockerRunActionEmptyVolumeObservation,
@@ -238,10 +238,10 @@ def test_runtime_volume_process_lease_parses_one_live_generation(tmp_path):
     with ExitStack() as descriptors:
         descriptors.callback(os.close, process_descriptor)
         assert (
-            read_run_action_process_start_time_from_descriptor(
+            read_run_action_process_stat_from_descriptor(
                 process_descriptor,
                 process_id,
-            )
+            ).start_time_ticks
             == 123456
         )
 
@@ -258,7 +258,7 @@ def test_runtime_volume_process_lease_parses_one_live_generation(tmp_path):
             RunActionSupervisorHelperError,
             match="not one live process generation",
         ):
-            read_run_action_process_start_time_from_descriptor(
+            read_run_action_process_stat_from_descriptor(
                 process_descriptor,
                 process_id,
             )

@@ -22,7 +22,7 @@ from kapso.cross_run.launch.run_action_docker_inspect import (
 from kapso.cross_run.launch.run_action_supervisor_helper import (
     read_run_action_descriptor_mount_id,
     read_run_action_process_cgroup_path_from_descriptor,
-    read_run_action_process_start_time_from_descriptor,
+    read_run_action_process_stat_from_descriptor,
 )
 from kapso.cross_run.launch.run_action_contracts import RunFrontierWorkspaceAccess
 from kapso.cross_run.launch.run_action_spawn_contracts import RunActionSpawnCommit
@@ -856,10 +856,10 @@ def _open_mounted_runtime_volume(
         os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
     )
     descriptors.callback(os.close, process_descriptor)
-    process_start_time_ticks = read_run_action_process_start_time_from_descriptor(
+    process_start_time_ticks = read_run_action_process_stat_from_descriptor(
         process_descriptor,
         keeper.process_id,
-    )
+    ).start_time_ticks
     process_cgroup_path = read_run_action_process_cgroup_path_from_descriptor(
         process_descriptor,
         keeper.container_id,
@@ -908,10 +908,10 @@ def _require_same_mounted_runtime_volume(
         keeper.container_id != lease.keeper_container_id
         or keeper.process_id != lease.keeper_process_id
         or keeper.process_start_time_ticks != lease.process_start_time_ticks
-        or read_run_action_process_start_time_from_descriptor(
+        or read_run_action_process_stat_from_descriptor(
             lease.process_descriptor,
             lease.keeper_process_id,
-        )
+        ).start_time_ticks
         != lease.process_start_time_ticks
         or read_run_action_process_cgroup_path_from_descriptor(
             lease.process_descriptor,
