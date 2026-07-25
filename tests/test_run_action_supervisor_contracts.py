@@ -840,18 +840,21 @@ def test_activation_revalidation_binds_fresh_exact_prepared_observations():
     request_blob = prepared.preparation_claim.reservation.request_blob
     input_observation = _activated_file_observation(
         prepared.input_file,
+        spawn,
         size_bytes=request_blob.size_bytes,
         content_digest=request_blob.digest,
         content_authority_id=request_blob.request_blob_id,
     )
     result_observation = _activated_file_observation(
         prepared.result_file,
+        spawn,
         size_bytes=0,
         content_digest=None,
         content_authority_id=None,
     )
     credential_observation = _activated_file_observation(
         prepared.credential_file,
+        spawn,
         size_bytes=32,
         content_digest=None,
         content_authority_id="test.credential.lease",
@@ -939,6 +942,15 @@ def test_activation_revalidation_binds_fresh_exact_prepared_observations():
             receipt,
             activated_sentinel_observation=wrong_spawn_sentinel,
         )
+    wrong_spawn_delivery = _remint_contract(
+        receipt.input_file_observation,
+        spawn_commit_id=wrong_spawn.spawn_commit_id,
+    )
+    with pytest.raises(
+        RunActionSupervisorContractError,
+        match="prepared authority",
+    ):
+        replace(receipt, input_file_observation=wrong_spawn_delivery)
     substituted_delivery = _remint_contract(
         receipt.input_file_observation,
         content_digest=tree_or_blob_digest(b"same-size-substitute"),
@@ -1014,18 +1026,21 @@ def test_activation_revalidation_requires_exact_live_volume_generation_and_keepe
         ),
         "input_file_observation": _activated_file_observation(
             prepared.input_file,
+            spawn,
             size_bytes=request_blob.size_bytes,
             content_digest=request_blob.digest,
             content_authority_id=request_blob.request_blob_id,
         ),
         "result_file_observation": _activated_file_observation(
             prepared.result_file,
+            spawn,
             size_bytes=0,
             content_digest=None,
             content_authority_id=None,
         ),
         "credential_file_observation": _activated_file_observation(
             prepared.credential_file,
+            spawn,
             size_bytes=32,
             content_digest=None,
             content_authority_id="test.credential.lease",
@@ -1085,12 +1100,14 @@ def test_activation_revalidation_uses_absence_for_credential_free_policy():
         ),
         input_file_observation=_activated_file_observation(
             prepared.input_file,
+            spawn,
             size_bytes=request_blob.size_bytes,
             content_digest=request_blob.digest,
             content_authority_id=request_blob.request_blob_id,
         ),
         result_file_observation=_activated_file_observation(
             prepared.result_file,
+            spawn,
             size_bytes=0,
             content_digest=None,
             content_authority_id=None,
@@ -1161,12 +1178,14 @@ def _activated_sentinel_observation(prepared, spawn):
 
 def _activated_file_observation(
     prepared_file,
+    spawn_commit,
     *,
     size_bytes,
     content_digest,
     content_authority_id,
 ):
     return RunActionActivatedFileObservation.mint(
+        spawn_commit_id=spawn_commit.spawn_commit_id,
         prepared_file_id=prepared_file.prepared_file_id,
         runtime_volume_authority_id=prepared_file.runtime_volume_authority_id,
         generation_nonce=prepared_file.generation_nonce,

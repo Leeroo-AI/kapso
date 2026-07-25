@@ -1815,6 +1815,7 @@ class RunActionActivatedFileObservation(StrictContract):
     """Fresh post-delivery shape and non-secret identity of one logical file."""
 
     activated_file_observation_id: str
+    spawn_commit_id: str
     prepared_file_id: str
     runtime_volume_authority_id: str
     generation_nonce: str
@@ -1832,6 +1833,11 @@ class RunActionActivatedFileObservation(StrictContract):
     IDENTITY_FIELD: ClassVar[str] = "activated_file_observation_id"
 
     def _validate(self) -> None:
+        _require_namespaced_content_id(
+            self.spawn_commit_id,
+            RunActionSpawnCommit.CONTENT_NAMESPACE,
+            "activated file spawn commit",
+        )
         _require_namespaced_content_id(
             self.prepared_file_id,
             RunActionPreparedFile.CONTENT_NAMESPACE,
@@ -2071,10 +2077,12 @@ class RunActionActivationRevalidationReceipt(StrictContract):
             or not _activated_file_matches_prepared(
                 self.input_file_observation,
                 prepared.input_file,
+                self.spawn_commit.spawn_commit_id,
             )
             or not _activated_file_matches_prepared(
                 self.result_file_observation,
                 prepared.result_file,
+                self.spawn_commit.spawn_commit_id,
             )
             or self.input_file_observation.size_bytes
             != prepared.preparation_claim.reservation.request_blob.size_bytes
@@ -2114,6 +2122,7 @@ class RunActionActivationRevalidationReceipt(StrictContract):
                 or not _activated_file_matches_prepared(
                     self.credential_file_observation,
                     prepared.credential_file,
+                    self.spawn_commit.spawn_commit_id,
                 )
                 or self.credential_file_observation.content_authority_id is None
             ):
@@ -2148,6 +2157,7 @@ class RunActionActivationRevalidationReceipt(StrictContract):
 def _activated_file_matches_prepared(
     observed: RunActionActivatedFileObservation,
     prepared: RunActionPreparedFile | None,
+    spawn_commit_id: str,
 ) -> bool:
     if (
         type(observed) is not RunActionActivatedFileObservation
@@ -2155,7 +2165,8 @@ def _activated_file_matches_prepared(
     ):
         return False
     return (
-        observed.prepared_file_id == prepared.prepared_file_id
+        observed.spawn_commit_id == spawn_commit_id
+        and observed.prepared_file_id == prepared.prepared_file_id
         and observed.runtime_volume_authority_id == prepared.runtime_volume_authority_id
         and observed.generation_nonce == prepared.generation_nonce
         and observed.kind is prepared.kind
