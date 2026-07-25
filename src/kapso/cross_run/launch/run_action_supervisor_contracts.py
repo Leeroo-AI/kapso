@@ -12,6 +12,7 @@ from kapso.cross_run.canonical import (
     content_id,
     require_content_id,
     require_identifier,
+    tree_or_blob_digest,
 )
 from kapso.cross_run.contracts import StrictContract
 from kapso.cross_run.docker.runtime import DockerImageAuthority
@@ -21,11 +22,13 @@ from kapso.cross_run.launch.run_action_contracts import (
 )
 from kapso.cross_run.launch.run_action_reservation_contracts import (
     RunActionReservation,
+    RunActionWorkspaceBinding,
 )
 from kapso.cross_run.launch.run_action_spawn_contracts import RunActionSpawnCommit
 
 _SHA256_DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 _DOCKER_CONTAINER_ID_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+_GENERATION_NONCE_PATTERN = re.compile(r"^[0-9a-f]{32}$")
 _ENVIRONMENT_KEY_PATTERN = re.compile(r"^[A-Z_][A-Z0-9_]*$")
 _SECRET_ENVIRONMENT_KEY_PATTERN = re.compile(
     r"(?:^|_)(?:ACCESS_KEY(?:_ID)?|ACCESS_TOKEN|API_KEY|AUTH_CONFIG|AUTH_TOKEN|"
@@ -75,7 +78,19 @@ _DOCKER_MINIMUM_MEMORY_BYTES = 6 * 1024 * 1024
 _DOCKER_MAXIMUM_USER_OR_GROUP_ID = 2_147_483_647
 _ZERO_DOCKER_TIMESTAMP = "0001-01-01T00:00:00Z"
 _CONTAINER_NAME_PREFIX = "kapso-run-action-"
+_KEEPER_CONTAINER_NAME_PREFIX = "kapso-run-action-keeper-"
+_RUNTIME_VOLUME_NAME_PREFIX = "kapso-run-action-volume-"
 _PREPARATION_LABEL_PREFIX = "com.kapso.run-action."
+_RUNTIME_VOLUME_SENTINEL_PATH = ".kapso-generation"
+_RUNTIME_VOLUME_KEEPER_DESTINATION = "/kapso/runtime-volume"
+_RUNTIME_VOLUME_KEEPER_BUSYBOX_DESTINATION = "/kapso-supervisor/busybox"
+_RUNTIME_VOLUME_SUBPATHS = {
+    "workspace": "workspace",
+    "input": "input",
+    "result": "result",
+    "credential": "credential",
+    "temporary": "temporary",
+}
 
 
 class RunActionSupervisorContractError(ValueError):
@@ -95,8 +110,8 @@ class RunActionActivationNetworkMode(str, Enum):
     NONE = "none"
 
 
-class RunActionPreparedSlotKind(str, Enum):
-    """Purpose of one empty supervisor-owned pre-commit directory."""
+class RunActionPreparedFileKind(str, Enum):
+    """Purpose of one empty logical file inside the private runtime volume."""
 
     INPUT = "input"
     RESULT = "result"
@@ -104,16 +119,17 @@ class RunActionPreparedSlotKind(str, Enum):
 
 
 class RunActionPreparedMountKind(str, Enum):
-    """Identity of one bind source admitted to an inert container."""
+    """Identity of one runtime-volume subpath admitted to the main container."""
 
     WORKSPACE = "workspace"
     INPUT = "input"
     RESULT = "result"
     CREDENTIAL = "credential"
+    TEMPORARY = "temporary"
 
 
 class RunActionPreparedMountAccess(str, Enum):
-    """Container-side access to one exact bind source."""
+    """Access granted to a volume source or its container mount."""
 
     READ_ONLY = "read_only"
     READ_WRITE = "read_write"
@@ -247,7 +263,10 @@ class DockerRunActionResourceLimits(StrictContract):
     process_limit: int
     block_io_weight: int
     shared_memory_size_bytes: int
-    temporary_filesystem_size_bytes: int
+    runtime_volume_size_bytes: int
+    runtime_volume_inode_limit: int
+    runtime_temporary_reservation_size_bytes: int
+    runtime_temporary_reservation_inode_count: int
 
     CONTENT_NAMESPACE: ClassVar[str] = "docker-run-action-resource-limits"
     IDENTITY_FIELD: ClassVar[str] = "docker_resource_limits_id"
@@ -263,7 +282,10 @@ class DockerRunActionResourceLimits(StrictContract):
             self.process_limit,
             self.block_io_weight,
             self.shared_memory_size_bytes,
-            self.temporary_filesystem_size_bytes,
+            self.runtime_volume_size_bytes,
+            self.runtime_volume_inode_limit,
+            self.runtime_temporary_reservation_size_bytes,
+            self.runtime_temporary_reservation_inode_count,
         )
         if (
             any(type(value) is not int or value <= 0 for value in values)
@@ -298,8 +320,6 @@ class RunActionSupervisorLimits(StrictContract):
     supervisor_limits_id: str
     execution_timeout_seconds: int
     termination_grace_seconds: int
-    stdout_size_bytes: int
-    stderr_size_bytes: int
     result_size_bytes: int
 
     CONTENT_NAMESPACE: ClassVar[str] = "run-action-supervisor-limits"
@@ -309,8 +329,6 @@ class RunActionSupervisorLimits(StrictContract):
         values = (
             self.execution_timeout_seconds,
             self.termination_grace_seconds,
-            self.stdout_size_bytes,
-            self.stderr_size_bytes,
             self.result_size_bytes,
         )
         if (
@@ -400,7 +418,7 @@ class DockerRunActionSandboxSpec(StrictContract):
 
 @dataclass(frozen=True)
 class RunActionFilesystemPolicy(StrictContract):
-    """Container destinations and workspace authority for one action kind."""
+    """Prefix-disjoint container destinations for runtime-volume subpaths."""
 
     filesystem_policy_id: str
     workspace_access: RunFrontierWorkspaceAccess
@@ -410,11 +428,6 @@ class RunActionFilesystemPolicy(StrictContract):
     credential_destination: str | None
     working_directory: str
     temporary_filesystem_destination: str
-    temporary_filesystem_mode: int
-    temporary_filesystem_read_only: bool
-    temporary_filesystem_nosuid: bool
-    temporary_filesystem_nodev: bool
-    temporary_filesystem_noexec: bool
 
     CONTENT_NAMESPACE: ClassVar[str] = "run-action-filesystem-policy"
     IDENTITY_FIELD: ClassVar[str] = "filesystem_policy_id"
@@ -429,16 +442,6 @@ class RunActionFilesystemPolicy(StrictContract):
         ):
             raise RunActionSupervisorContractError(
                 "run action workspace destination differs from its access"
-            )
-        if (
-            self.temporary_filesystem_mode != 0o700
-            or self.temporary_filesystem_read_only is not False
-            or self.temporary_filesystem_nosuid is not True
-            or self.temporary_filesystem_nodev is not True
-            or self.temporary_filesystem_noexec is not True
-        ):
-            raise RunActionSupervisorContractError(
-                "run action temporary filesystem policy is unsafe"
             )
         destinations = (
             self.input_destination,
@@ -560,6 +563,9 @@ class DockerRunActionExecutionPolicy(StrictContract):
     raw_field_schema_id: str
     docker_runtime_settings_digest: str
     image_authority: DockerImageAuthority
+    keeper_helper_source_path: str
+    keeper_helper_executable_authority_id: str
+    keeper_helper_executable_digest: str
     command_template_id: str
     static_environment: tuple[RunActionStaticEnvironmentVariable, ...]
     user_id: int
@@ -621,6 +627,24 @@ class DockerRunActionExecutionPolicy(StrictContract):
             "docker-raw-field-schema",
             "Docker raw-field schema",
         )
+        _require_namespaced_content_id(
+            self.keeper_helper_executable_authority_id,
+            "run-action-helper-executable-authority",
+            "runtime volume keeper helper",
+        )
+        _require_absolute_host_path(
+            self.keeper_helper_source_path,
+            "runtime volume keeper helper source",
+        )
+        if _SHA256_DIGEST_PATTERN.fullmatch(
+            self.keeper_helper_executable_digest
+        ) is None or self.keeper_helper_executable_authority_id != runtime_volume_keeper_helper_authority_id(
+            self.keeper_helper_source_path,
+            self.keeper_helper_executable_digest,
+        ):
+            raise RunActionSupervisorContractError(
+                "runtime volume keeper helper differs from execution policy"
+            )
         has_credential_destination = (
             self.filesystem_policy.credential_destination is not None
         )
@@ -659,220 +683,398 @@ class RunActionPreparationClaim(StrictContract):
 
 
 @dataclass(frozen=True)
-class RunActionFilesystemIdentity(StrictContract):
-    """One descriptor-observed filesystem object identity."""
+class RunActionRuntimeVolumeAuthority(StrictContract):
+    """Issued local-driver tmpfs authority for one private runtime volume."""
 
-    mount_id: int
-    device: int
-    inode: int
-    inode_generation: int
+    runtime_volume_authority_id: str
+    preparation_claim_id: str
+    volume_name: str
+    labels: tuple[RunActionContainerLabel, ...]
+    driver: str
+    driver_options: tuple[str, ...]
+    generation_nonce: str
+    sentinel_relative_path: str
+    sentinel_identity: str
+    owner_user_id: int
+    owner_group_id: int
+    root_mode: int
+    size_limit_bytes: int
+    inode_limit: int
+    nosuid: bool
+    nodev: bool
+    noswap: bool
+    execution_allowed: bool
+
+    CONTENT_NAMESPACE: ClassVar[str] = "run-action-runtime-volume-authority"
+    IDENTITY_FIELD: ClassVar[str] = "runtime_volume_authority_id"
 
     def _validate(self) -> None:
+        _require_namespaced_content_id(
+            self.preparation_claim_id,
+            RunActionPreparationClaim.CONTENT_NAMESPACE,
+            "runtime volume preparation claim",
+        )
+        _require_namespaced_content_id(
+            self.sentinel_identity,
+            "run-action-runtime-volume-sentinel",
+            "runtime volume sentinel",
+        )
         if (
-            type(self.mount_id) is not int
-            or self.mount_id <= 0
-            or type(self.device) is not int
-            or self.device <= 0
-            or type(self.inode) is not int
-            or self.inode <= 0
-            or type(self.inode_generation) is not int
-            or self.inode_generation <= 0
+            self.volume_name
+            != _RUNTIME_VOLUME_NAME_PREFIX
+            + self.preparation_claim_id.rsplit(":sha256:", 1)[1]
+            or any(type(label) is not RunActionContainerLabel for label in self.labels)
+            or tuple(label.key for label in self.labels)
+            != tuple(sorted({label.key for label in self.labels}))
+            or self.driver != "local"
+            or _GENERATION_NONCE_PATTERN.fullmatch(self.generation_nonce) is None
+            or self.sentinel_relative_path != _RUNTIME_VOLUME_SENTINEL_PATH
+            or self.sentinel_identity
+            != runtime_volume_sentinel_identity(self.generation_nonce)
+            or type(self.owner_user_id) is not int
+            or self.owner_user_id <= 0
+            or type(self.owner_group_id) is not int
+            or self.owner_group_id <= 0
+            or self.root_mode != 0o700
+            or type(self.size_limit_bytes) is not int
+            or self.size_limit_bytes <= 0
+            or type(self.inode_limit) is not int
+            or self.inode_limit <= 0
+            or self.nosuid is not True
+            or self.nodev is not True
+            or self.noswap is not True
+            or self.execution_allowed is not True
+            or self.driver_options != runtime_volume_driver_options(self)
         ):
             raise RunActionSupervisorContractError(
-                "run action filesystem identity is invalid"
+                "run action runtime volume authority is invalid"
             )
 
 
 @dataclass(frozen=True)
-class RunActionFilesystemNodeObservation(StrictContract):
-    """One no-follow node observed during a descriptor-relative walk."""
+class RunActionRuntimeVolumeSentinelEvidence(StrictContract):
+    """No-follow physical evidence for one in-volume generation sentinel."""
 
-    identity: RunActionFilesystemIdentity
+    runtime_volume_sentinel_evidence_id: str
+    runtime_volume_authority_id: str
+    generation_nonce: str
+    relative_path: str
     file_type: str
     owner_user_id: int
     owner_group_id: int
     mode: int
-    unexpected_acl_count: int
-    unexpected_link_count: int
+    link_count: int
+    size_bytes: int
+    content_digest: str
+    mount_id: int
+    device: int
+    inode: int
+
+    CONTENT_NAMESPACE: ClassVar[str] = "run-action-runtime-volume-sentinel-evidence"
+    IDENTITY_FIELD: ClassVar[str] = "runtime_volume_sentinel_evidence_id"
 
     def _validate(self) -> None:
+        _require_namespaced_content_id(
+            self.runtime_volume_authority_id,
+            RunActionRuntimeVolumeAuthority.CONTENT_NAMESPACE,
+            "runtime volume sentinel authority",
+        )
         if (
-            type(self.identity) is not RunActionFilesystemIdentity
-            or self.file_type != "directory"
+            _GENERATION_NONCE_PATTERN.fullmatch(self.generation_nonce) is None
+            or self.relative_path != _RUNTIME_VOLUME_SENTINEL_PATH
+            or self.file_type != "regular"
             or type(self.owner_user_id) is not int
-            or self.owner_user_id < 0
+            or self.owner_user_id <= 0
             or type(self.owner_group_id) is not int
-            or self.owner_group_id < 0
-            or type(self.mode) is not int
-            or not 0 <= self.mode <= 0o777
-            or self.unexpected_acl_count != 0
-            or self.unexpected_link_count != 0
-        ):
-            raise RunActionSupervisorContractError(
-                "run action filesystem node observation is unsafe"
-            )
-
-
-@dataclass(frozen=True)
-class RunActionDescriptorWalkObservation(StrictContract):
-    """Ordered root-to-leaf observation made beneath one trusted open root."""
-
-    descriptor_walk_observation_id: str
-    root_authority_id: str
-    resolution_protocol_version: str
-    nodes: tuple[RunActionFilesystemNodeObservation, ...]
-
-    CONTENT_NAMESPACE: ClassVar[str] = "run-action-descriptor-walk-observation"
-    IDENTITY_FIELD: ClassVar[str] = "descriptor_walk_observation_id"
-
-    def _validate(self) -> None:
-        _require_namespaced_content_id(
-            self.root_authority_id,
-            "run-action-storage-root-authority",
-            "run action storage root authority",
-        )
-        if (
-            self.resolution_protocol_version != "openat2-beneath-no-symlink.v1"
-            or len(self.nodes) < 2
+            or self.owner_group_id <= 0
+            or self.mode != 0o400
+            or self.link_count != 1
+            or self.size_bytes != len(self.generation_nonce)
+            or self.content_digest
+            != tree_or_blob_digest(self.generation_nonce.encode("ascii"))
             or any(
-                type(node) is not RunActionFilesystemNodeObservation
-                for node in self.nodes
+                type(value) is not int or value <= 0
+                for value in (
+                    self.mount_id,
+                    self.device,
+                    self.inode,
+                )
             )
-            or len({node.identity for node in self.nodes}) != len(self.nodes)
         ):
             raise RunActionSupervisorContractError(
-                "run action descriptor walk is incomplete or unsafe"
+                "runtime volume sentinel evidence is not one stable physical file"
             )
 
 
 @dataclass(frozen=True)
-class RunActionQuotaObservation(StrictContract):
-    """Enforced exclusive filesystem quota for one prepared delivery slot."""
+class RunActionRuntimeVolumeEvidence(StrictContract):
+    """Effective tmpfs identity and limits observed through the mounted keeper."""
 
-    quota_observation_id: str
-    preparation_claim_id: str
-    slot_kind: RunActionPreparedSlotKind
-    leaf_identity: RunActionFilesystemIdentity
-    quota_backend_authority_id: str
-    filesystem_instance_id: str
-    filesystem_mount_id: int
-    filesystem_device: int
-    exclusive_scope_id: str
-    enabled: bool
-    enforced: bool
-    hard_size_bytes: int
-    hard_entry_count: int
-    current_size_bytes: int
-    current_entry_count: int
+    runtime_volume_evidence_id: str
+    volume_authority: RunActionRuntimeVolumeAuthority
+    observed_volume_name: str
+    observed_labels: tuple[RunActionContainerLabel, ...]
+    observed_scope: str
+    observed_driver: str
+    observed_driver_options: tuple[str, ...]
+    observed_filesystem_type: str
+    observed_mount_flags: tuple[str, ...]
+    observed_owner_user_id: int
+    observed_owner_group_id: int
+    observed_root_mode: int
+    allocation_block_size_bytes: int
+    effective_block_count: int
+    effective_size_bytes: int
+    effective_inode_limit: int
+    used_block_count: int
+    used_size_bytes: int
+    used_inode_count: int
+    available_block_count: int
+    available_size_bytes: int
+    available_inode_count: int
+    sentinel_evidence: RunActionRuntimeVolumeSentinelEvidence
 
-    CONTENT_NAMESPACE: ClassVar[str] = "run-action-quota-observation"
-    IDENTITY_FIELD: ClassVar[str] = "quota_observation_id"
+    CONTENT_NAMESPACE: ClassVar[str] = "run-action-runtime-volume-evidence"
+    IDENTITY_FIELD: ClassVar[str] = "runtime_volume_evidence_id"
 
     def _validate(self) -> None:
-        _require_namespaced_content_id(
-            self.preparation_claim_id,
-            RunActionPreparationClaim.CONTENT_NAMESPACE,
-            "run action quota preparation claim",
-        )
-        _require_namespaced_content_id(
-            self.quota_backend_authority_id,
-            "run-action-quota-backend-authority",
-            "run action quota backend",
-        )
-        require_identifier(
-            self.filesystem_instance_id,
-            "run action filesystem instance",
-        )
-        _require_namespaced_content_id(
-            self.exclusive_scope_id,
-            "run-action-quota-scope",
-            "run action exclusive quota scope",
-        )
+        if type(self.volume_authority) is not RunActionRuntimeVolumeAuthority:
+            raise RunActionSupervisorContractError(
+                "runtime volume evidence lacks issued authority"
+            )
+        authority = self.volume_authority
         if (
-            type(self.slot_kind) is not RunActionPreparedSlotKind
-            or type(self.leaf_identity) is not RunActionFilesystemIdentity
-            or self.filesystem_mount_id != self.leaf_identity.mount_id
-            or self.filesystem_device != self.leaf_identity.device
-            or self.enabled is not True
-            or self.enforced is not True
-            or type(self.hard_size_bytes) is not int
-            or self.hard_size_bytes <= 0
-            or type(self.hard_entry_count) is not int
-            or self.hard_entry_count != 1
-            or self.current_size_bytes != 0
-            or self.current_entry_count != 0
+            self.observed_volume_name != authority.volume_name
+            or self.observed_labels != authority.labels
+            or self.observed_scope != "local"
+            or self.observed_driver != authority.driver
+            or self.observed_driver_options != authority.driver_options
+            or self.observed_filesystem_type != "tmpfs"
+            or self.observed_mount_flags != ("nodev", "nosuid", "noswap")
+            or self.observed_owner_user_id != authority.owner_user_id
+            or self.observed_owner_group_id != authority.owner_group_id
+            or self.observed_root_mode != authority.root_mode
+            or type(self.allocation_block_size_bytes) is not int
+            or self.allocation_block_size_bytes <= 0
+            or self.allocation_block_size_bytes & (self.allocation_block_size_bytes - 1)
+            != 0
+            or type(self.effective_block_count) is not int
+            or self.effective_block_count <= 0
+            or type(self.effective_size_bytes) is not int
+            or not 0 < self.effective_size_bytes <= authority.size_limit_bytes
+            or self.effective_size_bytes
+            != self.effective_block_count * self.allocation_block_size_bytes
+            or type(self.effective_inode_limit) is not int
+            or not 0 < self.effective_inode_limit <= authority.inode_limit
+            or type(self.used_block_count) is not int
+            or not 0 <= self.used_block_count < self.effective_block_count
+            or type(self.used_size_bytes) is not int
+            or not 0 <= self.used_size_bytes < self.effective_size_bytes
+            or self.used_size_bytes
+            != self.used_block_count * self.allocation_block_size_bytes
+            or type(self.used_inode_count) is not int
+            or not 0 <= self.used_inode_count < self.effective_inode_limit
+            or type(self.available_block_count) is not int
+            or self.available_block_count <= 0
+            or self.used_block_count + self.available_block_count
+            != self.effective_block_count
+            or type(self.available_size_bytes) is not int
+            or self.available_size_bytes
+            != self.available_block_count * self.allocation_block_size_bytes
+            or self.used_size_bytes + self.available_size_bytes
+            != self.effective_size_bytes
+            or type(self.available_inode_count) is not int
+            or self.available_inode_count <= 0
+            or self.used_inode_count + self.available_inode_count
+            != self.effective_inode_limit
+            or type(self.sentinel_evidence)
+            is not RunActionRuntimeVolumeSentinelEvidence
+            or self.sentinel_evidence.runtime_volume_authority_id
+            != authority.runtime_volume_authority_id
+            or self.sentinel_evidence.generation_nonce != authority.generation_nonce
+            or self.sentinel_evidence.owner_user_id != authority.owner_user_id
+            or self.sentinel_evidence.owner_group_id != authority.owner_group_id
         ):
             raise RunActionSupervisorContractError(
-                "run action quota is absent, shared, or nonempty"
+                "runtime volume evidence differs from effective bounded tmpfs"
             )
 
 
 @dataclass(frozen=True)
-class RunActionPreparedSlot(StrictContract):
-    """One empty, private, supervisor-owned directory prepared before commit."""
+class RunActionPreparedFile(StrictContract):
+    """One empty payload file prepared inside the exact runtime generation."""
 
-    prepared_slot_id: str
+    prepared_file_id: str
     preparation_claim_id: str
-    kind: RunActionPreparedSlotKind
-    descriptor_walk: RunActionDescriptorWalkObservation
-    quota_observation: RunActionQuotaObservation
-    expected_owner_user_id: int
-    expected_owner_group_id: int
-    expected_mode: int
-    container_destination: str
+    runtime_volume_authority_id: str
+    generation_nonce: str
+    kind: RunActionPreparedFileKind
+    relative_path: str
+    file_type: str
+    owner_user_id: int
+    owner_group_id: int
+    mode: int
+    link_count: int
+    size_bytes: int
     payload_size_limit_bytes: int
 
-    CONTENT_NAMESPACE: ClassVar[str] = "run-action-prepared-slot"
-    IDENTITY_FIELD: ClassVar[str] = "prepared_slot_id"
+    CONTENT_NAMESPACE: ClassVar[str] = "run-action-prepared-file"
+    IDENTITY_FIELD: ClassVar[str] = "prepared_file_id"
 
     def _validate(self) -> None:
         _require_namespaced_content_id(
             self.preparation_claim_id,
             RunActionPreparationClaim.CONTENT_NAMESPACE,
-            "run action prepared slot claim",
+            "prepared file claim",
         )
-        _require_absolute_container_path(self.container_destination)
+        _require_namespaced_content_id(
+            self.runtime_volume_authority_id,
+            RunActionRuntimeVolumeAuthority.CONTENT_NAMESPACE,
+            "prepared file runtime volume",
+        )
+        expected_paths = {
+            RunActionPreparedFileKind.INPUT: "input/request.blob",
+            RunActionPreparedFileKind.RESULT: "result/result.blob",
+            RunActionPreparedFileKind.CREDENTIAL: "credential/credentials",
+        }
         if (
-            type(self.kind) is not RunActionPreparedSlotKind
-            or type(self.descriptor_walk) is not RunActionDescriptorWalkObservation
-            or type(self.quota_observation) is not RunActionQuotaObservation
-            or type(self.expected_owner_user_id) is not int
-            or self.expected_owner_user_id < 0
-            or type(self.expected_owner_group_id) is not int
-            or self.expected_owner_group_id < 0
-            or self.expected_mode != 0o700
+            type(self.kind) is not RunActionPreparedFileKind
+            or _GENERATION_NONCE_PATTERN.fullmatch(self.generation_nonce) is None
+            or self.relative_path != expected_paths[self.kind]
+            or self.file_type != "regular"
+            or type(self.owner_user_id) is not int
+            or self.owner_user_id <= 0
+            or type(self.owner_group_id) is not int
+            or self.owner_group_id <= 0
+            or self.mode != 0o600
+            or self.link_count != 1
+            or self.size_bytes != 0
             or type(self.payload_size_limit_bytes) is not int
             or self.payload_size_limit_bytes <= 0
-            or self.quota_observation.hard_size_bytes < self.payload_size_limit_bytes
         ):
             raise RunActionSupervisorContractError(
-                "run action prepared slot is invalid or not empty"
+                "run action prepared logical file is invalid or nonempty"
             )
-        if any(
-            node.owner_user_id != self.expected_owner_user_id
-            or node.owner_group_id != self.expected_owner_group_id
-            or node.mode != self.expected_mode
-            for node in self.descriptor_walk.nodes[1:]
-        ):
-            raise RunActionSupervisorContractError(
-                "run action prepared slot is not private"
-            )
-        leaf_identity = self.descriptor_walk.nodes[-1].identity
-        quota = self.quota_observation
+
+
+@dataclass(frozen=True)
+class RunActionPreparedWorkspaceProof(StrictContract):
+    """Exact frontier workspace copied into one runtime-volume generation."""
+
+    prepared_workspace_proof_id: str
+    preparation_claim_id: str
+    runtime_volume_authority_id: str
+    generation_nonce: str
+    volume_subpath: str
+    workspace_binding: RunActionWorkspaceBinding
+    observed_source_tree_digest: str
+    observed_git_closure_digest: str
+    observed_source_entry_count: int
+    observed_source_size_bytes: int
+    owner_user_id: int
+    owner_group_id: int
+    root_mode: int
+    unexpected_entry_count: int
+
+    CONTENT_NAMESPACE: ClassVar[str] = "run-action-prepared-workspace-proof"
+    IDENTITY_FIELD: ClassVar[str] = "prepared_workspace_proof_id"
+
+    def _validate(self) -> None:
+        _require_namespaced_content_id(
+            self.preparation_claim_id,
+            RunActionPreparationClaim.CONTENT_NAMESPACE,
+            "prepared workspace claim",
+        )
+        _require_namespaced_content_id(
+            self.runtime_volume_authority_id,
+            RunActionRuntimeVolumeAuthority.CONTENT_NAMESPACE,
+            "prepared workspace runtime volume",
+        )
         if (
-            quota.preparation_claim_id != self.preparation_claim_id
-            or quota.slot_kind is not self.kind
-            or quota.leaf_identity != leaf_identity
-            or quota.exclusive_scope_id
-            != quota_scope_id(
-                self.preparation_claim_id,
-                self.kind,
-                leaf_identity,
-            )
-            or quota.hard_size_bytes != self.payload_size_limit_bytes
+            _GENERATION_NONCE_PATTERN.fullmatch(self.generation_nonce) is None
+            or self.volume_subpath != _RUNTIME_VOLUME_SUBPATHS["workspace"]
+            or type(self.workspace_binding) is not RunActionWorkspaceBinding
+            or self.observed_source_tree_digest
+            != self.workspace_binding.source_tree_digest
+            or self.observed_git_closure_digest
+            != self.workspace_binding.git_closure_digest
+            or self.observed_source_entry_count
+            != self.workspace_binding.source_entry_count
+            or self.observed_source_size_bytes
+            != self.workspace_binding.source_size_bytes
+            or type(self.owner_user_id) is not int
+            or self.owner_user_id <= 0
+            or type(self.owner_group_id) is not int
+            or self.owner_group_id <= 0
+            or self.root_mode != 0o700
+            or self.unexpected_entry_count != 0
         ):
             raise RunActionSupervisorContractError(
-                "run action prepared slot quota differs from its exact leaf"
+                "prepared workspace proof is incomplete"
+            )
+
+
+@dataclass(frozen=True)
+class RunActionRuntimeVolumeLayoutProof(StrictContract):
+    """Empty-before-use and exact prepared layout proof for one generation."""
+
+    runtime_volume_layout_proof_id: str
+    runtime_volume_authority_id: str
+    generation_nonce: str
+    empty_size_bytes: int
+    empty_entry_count: int
+    directory_relative_paths: tuple[str, ...]
+    prepared_file_ids: tuple[str, ...]
+    prepared_workspace_proof_id: str | None
+    logical_content_size_bytes: int
+    logical_entry_count: int
+    observed_used_size_bytes: int
+    observed_used_inode_count: int
+    unexpected_entry_count: int
+
+    CONTENT_NAMESPACE: ClassVar[str] = "run-action-runtime-volume-layout-proof"
+    IDENTITY_FIELD: ClassVar[str] = "runtime_volume_layout_proof_id"
+
+    def _validate(self) -> None:
+        _require_namespaced_content_id(
+            self.runtime_volume_authority_id,
+            RunActionRuntimeVolumeAuthority.CONTENT_NAMESPACE,
+            "runtime volume layout authority",
+        )
+        if self.prepared_workspace_proof_id is not None:
+            _require_namespaced_content_id(
+                self.prepared_workspace_proof_id,
+                RunActionPreparedWorkspaceProof.CONTENT_NAMESPACE,
+                "runtime volume layout workspace",
+            )
+        if (
+            _GENERATION_NONCE_PATTERN.fullmatch(self.generation_nonce) is None
+            or self.empty_size_bytes != 0
+            or self.empty_entry_count != 0
+            or not self.directory_relative_paths
+            or self.directory_relative_paths
+            != tuple(sorted(set(self.directory_relative_paths)))
+            or not self.prepared_file_ids
+            or self.prepared_file_ids != tuple(sorted(set(self.prepared_file_ids)))
+            or any(
+                require_content_id(file_id, "runtime volume layout prepared file")
+                != file_id
+                or file_id.split(":sha256:", 1)[0]
+                != RunActionPreparedFile.CONTENT_NAMESPACE
+                for file_id in self.prepared_file_ids
+            )
+            or type(self.logical_content_size_bytes) is not int
+            or self.logical_content_size_bytes < len(self.generation_nonce)
+            or type(self.logical_entry_count) is not int
+            or self.logical_entry_count <= 0
+            or type(self.observed_used_size_bytes) is not int
+            or self.observed_used_size_bytes <= 0
+            or type(self.observed_used_inode_count) is not int
+            or self.observed_used_inode_count < self.logical_entry_count
+            or self.unexpected_entry_count != 0
+        ):
+            raise RunActionSupervisorContractError(
+                "runtime volume layout proof is incomplete or noncanonical"
             )
 
 
@@ -897,43 +1099,58 @@ class RunActionContainerLabel(StrictContract):
 
 @dataclass(frozen=True)
 class RunActionPreparedMount(StrictContract):
-    """One exact bind mount observed on the inert container."""
+    """One exact named-volume subpath observed on the inert main container."""
 
     kind: RunActionPreparedMountKind
-    prepared_slot_id: str | None
-    source_walk: RunActionDescriptorWalkObservation
+    volume_name: str
+    volume_subpath: str
     container_destination: str
     mount_type: str
-    access: RunActionPreparedMountAccess
-    bind_propagation: str
-    recursive_read_only: bool
-    nested_mount_count: int
+    source_access: RunActionPreparedMountAccess
+    container_access: RunActionPreparedMountAccess
+    host_config_volume_subpath: str
 
     def _validate(self) -> None:
+        if type(self.kind) is not RunActionPreparedMountKind:
+            raise RunActionSupervisorContractError(
+                "run action prepared mount kind is invalid"
+            )
+        expected_subpath = _RUNTIME_VOLUME_SUBPATHS[self.kind.value]
         if (
-            type(self.kind) is not RunActionPreparedMountKind
-            or type(self.access) is not RunActionPreparedMountAccess
-            or type(self.source_walk) is not RunActionDescriptorWalkObservation
-            or self.mount_type != "bind"
-            or self.bind_propagation != "rprivate"
-            or self.recursive_read_only
-            is not (self.access is RunActionPreparedMountAccess.READ_ONLY)
-            or self.nested_mount_count != 0
+            type(self.source_access) is not RunActionPreparedMountAccess
+            or type(self.container_access) is not RunActionPreparedMountAccess
+            or not isinstance(self.volume_name, str)
+            or not self.volume_name.startswith(_RUNTIME_VOLUME_NAME_PREFIX)
+            or self.mount_type != "volume"
+            or self.source_access is not RunActionPreparedMountAccess.READ_WRITE
+            or self.volume_subpath != expected_subpath
+            or self.host_config_volume_subpath != self.volume_subpath
         ):
             raise RunActionSupervisorContractError(
                 "run action prepared mount is invalid"
             )
         _require_absolute_container_path(self.container_destination)
-        if self.kind is RunActionPreparedMountKind.WORKSPACE:
-            if self.prepared_slot_id is not None:
-                raise RunActionSupervisorContractError(
-                    "run action workspace mount cannot name a prepared slot"
-                )
-        else:
-            _require_namespaced_content_id(
-                self.prepared_slot_id,
-                RunActionPreparedSlot.CONTENT_NAMESPACE,
-                "run action prepared mount slot",
+        if (
+            self.kind
+            in (
+                RunActionPreparedMountKind.INPUT,
+                RunActionPreparedMountKind.CREDENTIAL,
+            )
+            and self.container_access is not RunActionPreparedMountAccess.READ_ONLY
+        ):
+            raise RunActionSupervisorContractError(
+                "run action delivery mount must be read-only"
+            )
+        if (
+            self.kind
+            in (
+                RunActionPreparedMountKind.RESULT,
+                RunActionPreparedMountKind.TEMPORARY,
+            )
+            and self.container_access is not RunActionPreparedMountAccess.READ_WRITE
+        ):
+            raise RunActionSupervisorContractError(
+                "run action output mount must be read-write"
             )
 
 
@@ -961,12 +1178,209 @@ class DockerRunActionCreateInspectProjection(StrictContract):
             or any(type(mount) is not RunActionPreparedMount for mount in self.mounts)
             or tuple(mount.container_destination for mount in self.mounts)
             != tuple(sorted({mount.container_destination for mount in self.mounts}))
+            or len({mount.kind for mount in self.mounts}) != len(self.mounts)
+            or len({mount.volume_name for mount in self.mounts}) != 1
+            or any(
+                left == right or left in right.parents or right in left.parents
+                for position, left in enumerate(
+                    PurePosixPath(mount.volume_subpath) for mount in self.mounts
+                )
+                for right in (
+                    PurePosixPath(mount.volume_subpath)
+                    for mount in self.mounts[position + 1 :]
+                )
+            )
             or self.unclassified_raw_field_count != 0
             or type(self.nonauthoritative_raw_field_count) is not int
             or self.nonauthoritative_raw_field_count < 0
         ):
             raise RunActionSupervisorContractError(
                 "Docker create/inspect projection is incomplete or noncanonical"
+            )
+
+
+@dataclass(frozen=True)
+class RunActionKeeperHelperEvidence(StrictContract):
+    """Physical proof of the root-owned static BusyBox keeper bind."""
+
+    keeper_helper_evidence_id: str
+    helper_authority_id: str
+    source_path: str
+    destination: str
+    mount_type: str
+    mount_access: RunActionPreparedMountAccess
+    recursive_bind: bool
+    file_type: str
+    owner_user_id: int
+    owner_group_id: int
+    mode: int
+    link_count: int
+    file_format: str
+    dynamic_dependency_count: int
+    elf_interpreter_present: bool
+    executable_digest: str
+    mount_id: int
+    device: int
+    inode: int
+
+    CONTENT_NAMESPACE: ClassVar[str] = "run-action-keeper-helper-evidence"
+    IDENTITY_FIELD: ClassVar[str] = "keeper_helper_evidence_id"
+
+    def _validate(self) -> None:
+        _require_namespaced_content_id(
+            self.helper_authority_id,
+            "run-action-helper-executable-authority",
+            "runtime volume keeper helper authority",
+        )
+        _require_absolute_host_path(
+            self.source_path,
+            "runtime volume keeper helper source",
+        )
+        if (
+            self.helper_authority_id
+            != runtime_volume_keeper_helper_authority_id(
+                self.source_path,
+                self.executable_digest,
+            )
+            or self.destination != _RUNTIME_VOLUME_KEEPER_BUSYBOX_DESTINATION
+            or self.mount_type != "bind"
+            or self.mount_access is not RunActionPreparedMountAccess.READ_ONLY
+            or self.recursive_bind is not False
+            or self.file_type != "regular"
+            or self.owner_user_id != 0
+            or self.owner_group_id != 0
+            or self.mode != 0o755
+            or self.link_count != 1
+            or self.file_format != "elf"
+            or self.dynamic_dependency_count != 0
+            or self.elf_interpreter_present is not False
+            or _SHA256_DIGEST_PATTERN.fullmatch(self.executable_digest) is None
+            or any(
+                type(value) is not int or value <= 0
+                for value in (self.mount_id, self.device, self.inode)
+            )
+        ):
+            raise RunActionSupervisorContractError(
+                "runtime volume keeper helper evidence is unsafe or substituted"
+            )
+
+
+@dataclass(frozen=True)
+class DockerRunActionKeeperCreateInspectProjection(StrictContract):
+    """Closed normalized projection for the sole runtime-volume keeper."""
+
+    keeper_create_inspect_projection_id: str
+    projection_protocol_version: str
+    raw_field_schema_id: str
+    preparation_claim_id: str
+    execution_policy: DockerRunActionExecutionPolicy
+    volume_authority: RunActionRuntimeVolumeAuthority
+    command_executable: str
+    command_arguments: tuple[str, ...]
+    helper_evidence: RunActionKeeperHelperEvidence
+    volume_mount_type: str
+    volume_mount_destination: str
+    volume_mount_access: RunActionPreparedMountAccess
+    network_mode: str
+    exact_mount_count: int
+    healthcheck_present: bool
+    docker_socket_mounted: bool
+    unclassified_raw_field_count: int
+    nonauthoritative_raw_field_count: int
+
+    CONTENT_NAMESPACE: ClassVar[str] = (
+        "docker-run-action-keeper-create-inspect-projection"
+    )
+    IDENTITY_FIELD: ClassVar[str] = "keeper_create_inspect_projection_id"
+
+    def _validate(self) -> None:
+        _require_namespaced_content_id(
+            self.preparation_claim_id,
+            RunActionPreparationClaim.CONTENT_NAMESPACE,
+            "runtime volume keeper projection claim",
+        )
+        if (
+            type(self.execution_policy) is not DockerRunActionExecutionPolicy
+            or type(self.volume_authority) is not RunActionRuntimeVolumeAuthority
+            or type(self.helper_evidence) is not RunActionKeeperHelperEvidence
+            or self.projection_protocol_version
+            != self.execution_policy.projection_protocol_version
+            or self.raw_field_schema_id != self.execution_policy.raw_field_schema_id
+            or self.volume_authority.preparation_claim_id != self.preparation_claim_id
+            or self.command_executable != _RUNTIME_VOLUME_KEEPER_BUSYBOX_DESTINATION
+            or self.command_arguments != ("tail", "-f", "/dev/null")
+            or self.helper_evidence.helper_authority_id
+            != self.execution_policy.keeper_helper_executable_authority_id
+            or self.helper_evidence.source_path
+            != self.execution_policy.keeper_helper_source_path
+            or self.helper_evidence.executable_digest
+            != self.execution_policy.keeper_helper_executable_digest
+            or self.volume_mount_type != "volume"
+            or self.volume_mount_destination != _RUNTIME_VOLUME_KEEPER_DESTINATION
+            or self.volume_mount_access is not RunActionPreparedMountAccess.READ_WRITE
+            or self.network_mode != "none"
+            or self.exact_mount_count != 2
+            or self.healthcheck_present is not False
+            or self.docker_socket_mounted is not False
+            or self.unclassified_raw_field_count != 0
+            or type(self.nonauthoritative_raw_field_count) is not int
+            or self.nonauthoritative_raw_field_count < 0
+        ):
+            raise RunActionSupervisorContractError(
+                "Docker keeper create/inspect projection is incomplete or unsafe"
+            )
+
+
+@dataclass(frozen=True)
+class RunActionVolumeKeeperEvidence(StrictContract):
+    """Issued-equals-observed proof of one running network-free keeper."""
+
+    volume_keeper_evidence_id: str
+    preparation_claim_id: str
+    container_id: str
+    container_name: str
+    labels: tuple[RunActionContainerLabel, ...]
+    issued_create_projection: DockerRunActionKeeperCreateInspectProjection
+    observed_inspect_projection: DockerRunActionKeeperCreateInspectProjection
+    container_status: str
+    process_id: int
+    restart_count: int
+    restart_policy_name: str
+    auto_remove: bool
+
+    CONTENT_NAMESPACE: ClassVar[str] = "run-action-volume-keeper-evidence"
+    IDENTITY_FIELD: ClassVar[str] = "volume_keeper_evidence_id"
+
+    def _validate(self) -> None:
+        _require_namespaced_content_id(
+            self.preparation_claim_id,
+            RunActionPreparationClaim.CONTENT_NAMESPACE,
+            "runtime volume keeper claim",
+        )
+        if (
+            _DOCKER_CONTAINER_ID_PATTERN.fullmatch(self.container_id) is None
+            or self.container_name
+            != _KEEPER_CONTAINER_NAME_PREFIX
+            + self.preparation_claim_id.rsplit(":sha256:", 1)[1]
+            or any(type(label) is not RunActionContainerLabel for label in self.labels)
+            or tuple(label.key for label in self.labels)
+            != tuple(sorted({label.key for label in self.labels}))
+            or type(self.issued_create_projection)
+            is not DockerRunActionKeeperCreateInspectProjection
+            or type(self.observed_inspect_projection)
+            is not DockerRunActionKeeperCreateInspectProjection
+            or self.observed_inspect_projection != self.issued_create_projection
+            or self.issued_create_projection.preparation_claim_id
+            != self.preparation_claim_id
+            or self.container_status != "running"
+            or type(self.process_id) is not int
+            or self.process_id <= 0
+            or self.restart_count != 0
+            or self.restart_policy_name != "no"
+            or self.auto_remove is not False
+        ):
+            raise RunActionSupervisorContractError(
+                "runtime volume keeper evidence is not exact and running"
             )
 
 
@@ -1047,9 +1461,14 @@ class RunActionPreparedExecution(StrictContract):
 
     prepared_execution_id: str
     preparation_claim: RunActionPreparationClaim
-    input_slot: RunActionPreparedSlot
-    result_slot: RunActionPreparedSlot
-    credential_slot: RunActionPreparedSlot | None
+    runtime_volume_authority: RunActionRuntimeVolumeAuthority
+    runtime_volume_evidence: RunActionRuntimeVolumeEvidence
+    volume_keeper_evidence: RunActionVolumeKeeperEvidence
+    input_file: RunActionPreparedFile
+    result_file: RunActionPreparedFile
+    credential_file: RunActionPreparedFile | None
+    workspace_proof: RunActionPreparedWorkspaceProof | None
+    layout_proof: RunActionRuntimeVolumeLayoutProof
     inert_container_evidence: RunActionInertContainerEvidence
 
     CONTENT_NAMESPACE: ClassVar[str] = "run-action-prepared-execution"
@@ -1058,12 +1477,21 @@ class RunActionPreparedExecution(StrictContract):
     def _validate(self) -> None:
         if (
             type(self.preparation_claim) is not RunActionPreparationClaim
-            or type(self.input_slot) is not RunActionPreparedSlot
-            or type(self.result_slot) is not RunActionPreparedSlot
+            or type(self.runtime_volume_authority)
+            is not RunActionRuntimeVolumeAuthority
+            or type(self.runtime_volume_evidence) is not RunActionRuntimeVolumeEvidence
+            or type(self.volume_keeper_evidence) is not RunActionVolumeKeeperEvidence
+            or type(self.input_file) is not RunActionPreparedFile
+            or type(self.result_file) is not RunActionPreparedFile
             or (
-                self.credential_slot is not None
-                and type(self.credential_slot) is not RunActionPreparedSlot
+                self.credential_file is not None
+                and type(self.credential_file) is not RunActionPreparedFile
             )
+            or (
+                self.workspace_proof is not None
+                and type(self.workspace_proof) is not RunActionPreparedWorkspaceProof
+            )
+            or type(self.layout_proof) is not RunActionRuntimeVolumeLayoutProof
             or type(self.inert_container_evidence)
             is not RunActionInertContainerEvidence
         ):
@@ -1071,126 +1499,179 @@ class RunActionPreparedExecution(StrictContract):
                 "prepared run action execution has invalid components"
             )
         claim = self.preparation_claim
-        slots = tuple(
-            slot
-            for slot in (self.input_slot, self.result_slot, self.credential_slot)
-            if slot is not None
+        authority = self.runtime_volume_authority
+        files = tuple(
+            prepared_file
+            for prepared_file in (
+                self.input_file,
+                self.result_file,
+                self.credential_file,
+            )
+            if prepared_file is not None
         )
         expected_kinds = (
-            RunActionPreparedSlotKind.INPUT,
-            RunActionPreparedSlotKind.RESULT,
+            RunActionPreparedFileKind.INPUT,
+            RunActionPreparedFileKind.RESULT,
             *(
                 ()
                 if claim.execution_policy.credential_policy.mode
                 is RunActionCredentialMode.NONE
-                else (RunActionPreparedSlotKind.CREDENTIAL,)
+                else (RunActionPreparedFileKind.CREDENTIAL,)
             ),
         )
         if (
-            tuple(slot.kind for slot in slots) != expected_kinds
+            tuple(prepared_file.kind for prepared_file in files) != expected_kinds
             or any(
-                slot.preparation_claim_id != claim.preparation_claim_id
-                for slot in slots
+                prepared_file.preparation_claim_id != claim.preparation_claim_id
+                or prepared_file.runtime_volume_authority_id
+                != authority.runtime_volume_authority_id
+                or prepared_file.generation_nonce != authority.generation_nonce
+                or prepared_file.owner_user_id != claim.execution_policy.user_id
+                or prepared_file.owner_group_id != claim.execution_policy.group_id
+                for prepared_file in files
             )
-            or self.input_slot.payload_size_limit_bytes
+            or self.input_file.payload_size_limit_bytes
             != claim.reservation.request_blob.size_bytes
-            or self.result_slot.payload_size_limit_bytes
+            or self.result_file.payload_size_limit_bytes
             != claim.execution_policy.supervisor_limits.result_size_bytes
             or (
-                self.credential_slot is not None
-                and self.credential_slot.payload_size_limit_bytes
+                self.credential_file is not None
+                and self.credential_file.payload_size_limit_bytes
                 != claim.execution_policy.credential_policy.maximum_delivery_size_bytes
             )
-            or tuple(slot.container_destination for slot in slots)
-            != (
-                claim.execution_policy.filesystem_policy.input_destination,
-                claim.execution_policy.filesystem_policy.result_destination,
-                *(
-                    ()
-                    if claim.execution_policy.filesystem_policy.credential_destination
-                    is None
-                    else (
-                        claim.execution_policy.filesystem_policy.credential_destination,
-                    )
-                ),
-            )
         ):
             raise RunActionSupervisorContractError(
-                "prepared run action slots differ from their preparation claim"
+                "prepared run action files differ from their preparation claim"
             )
-        quotas = tuple(slot.quota_observation for slot in slots)
-        if (
-            len({quota.exclusive_scope_id for quota in quotas}) != len(quotas)
-            or len({quota.quota_backend_authority_id for quota in quotas}) != 1
-            or len({quota.filesystem_instance_id for quota in quotas}) != 1
-            or len({quota.filesystem_mount_id for quota in quotas}) != 1
-            or len({quota.filesystem_device for quota in quotas}) != 1
-        ):
-            raise RunActionSupervisorContractError(
-                "prepared run action slot quotas are shared or span storage roots"
-            )
-        evidence = self.inert_container_evidence
-        issued_projection = evidence.issued_create_projection
-        workspace_mounts = tuple(
-            mount
-            for mount in issued_projection.mounts
-            if mount.kind is RunActionPreparedMountKind.WORKSPACE
-        )
-        workspace_access = claim.reservation.intent.workspace_access
-        expected_workspace_mount_count = (
-            0 if workspace_access is RunFrontierWorkspaceAccess.NONE else 1
-        )
-        if len(workspace_mounts) != expected_workspace_mount_count:
-            raise RunActionSupervisorContractError(
-                "prepared run action workspace mount differs from its claim"
-            )
-        slot_walk_prefixes = {
-            (
-                slot.descriptor_walk.root_authority_id,
-                slot.descriptor_walk.nodes[:-1],
-            )
-            for slot in slots
-        }
-        if len(slot_walk_prefixes) != 1:
-            raise RunActionSupervisorContractError(
-                "prepared run action slots do not share one private claim root"
-            )
-        source_walks = tuple(mount.source_walk for mount in issued_projection.mounts)
-        if any(
-            left.nodes[-1].identity in {node.identity for node in right.nodes}
-            or right.nodes[-1].identity in {node.identity for node in left.nodes}
-            for position, left in enumerate(source_walks)
-            for right in source_walks[position + 1 :]
-        ):
-            raise RunActionSupervisorContractError(
-                "prepared run action bind sources alias or contain one another"
-            )
-        workspace_walk = (
-            None if not workspace_mounts else workspace_mounts[0].source_walk
-        )
-        workspace_binding = claim.reservation.frontier.workspace_before
-        if workspace_walk is not None and (
-            workspace_walk.root_authority_id
-            == self.input_slot.descriptor_walk.root_authority_id
-            or workspace_walk.nodes[-1].identity.device
-            != workspace_binding.workspace_device
-            or workspace_walk.nodes[-1].identity.inode
-            != workspace_binding.workspace_inode
-        ):
-            raise RunActionSupervisorContractError(
-                "prepared workspace walk differs from its durable binding"
-            )
+        limits = claim.execution_policy.docker_resource_limits
         policy = claim.execution_policy
         if (
-            evidence.preparation_claim_id != claim.preparation_claim_id
-            or evidence.container_name != preparation_container_name(claim)
-            or evidence.labels != preparation_container_labels(claim)
-            or evidence.image_authority_id != policy.image_authority.image_authority_id
-            or evidence.docker_runtime_settings_digest
+            authority.preparation_claim_id != claim.preparation_claim_id
+            or authority.volume_name != preparation_volume_name(claim)
+            or authority.labels != preparation_volume_labels(claim)
+            or authority.owner_user_id != policy.user_id
+            or authority.owner_group_id != policy.group_id
+            or authority.size_limit_bytes != limits.runtime_volume_size_bytes
+            or authority.inode_limit != limits.runtime_volume_inode_limit
+            or self.runtime_volume_evidence.volume_authority != authority
+        ):
+            raise RunActionSupervisorContractError(
+                "prepared runtime volume differs from its execution policy"
+            )
+        keeper = self.volume_keeper_evidence
+        keeper_projection = keeper.issued_create_projection
+        if (
+            keeper.preparation_claim_id != claim.preparation_claim_id
+            or keeper.container_name != preparation_keeper_container_name(claim)
+            or keeper.labels != preparation_keeper_container_labels(claim)
+            or keeper_projection.execution_policy != policy
+            or keeper_projection.volume_authority != authority
+        ):
+            raise RunActionSupervisorContractError(
+                "runtime volume keeper differs from prepared authority"
+            )
+        workspace_binding = claim.reservation.frontier.workspace_before
+        workspace_access = claim.reservation.intent.workspace_access
+        if workspace_access is RunFrontierWorkspaceAccess.NONE:
+            if self.workspace_proof is not None or workspace_binding is not None:
+                raise RunActionSupervisorContractError(
+                    "workspace-free preparation carries a workspace proof"
+                )
+        elif (
+            type(self.workspace_proof) is not RunActionPreparedWorkspaceProof
+            or workspace_binding is None
+            or self.workspace_proof.preparation_claim_id != claim.preparation_claim_id
+            or self.workspace_proof.runtime_volume_authority_id
+            != authority.runtime_volume_authority_id
+            or self.workspace_proof.generation_nonce != authority.generation_nonce
+            or self.workspace_proof.workspace_binding != workspace_binding
+            or self.workspace_proof.owner_user_id != policy.user_id
+            or self.workspace_proof.owner_group_id != policy.group_id
+        ):
+            raise RunActionSupervisorContractError(
+                "prepared workspace proof differs from the durable frontier"
+            )
+        layout = self.layout_proof
+        expected_directories = tuple(
+            sorted(
+                {
+                    _RUNTIME_VOLUME_SUBPATHS["input"],
+                    _RUNTIME_VOLUME_SUBPATHS["result"],
+                    _RUNTIME_VOLUME_SUBPATHS["temporary"],
+                    *(
+                        ()
+                        if self.credential_file is None
+                        else (_RUNTIME_VOLUME_SUBPATHS["credential"],)
+                    ),
+                    *(
+                        ()
+                        if self.workspace_proof is None
+                        else (_RUNTIME_VOLUME_SUBPATHS["workspace"],)
+                    ),
+                }
+            )
+        )
+        workspace_size_bytes = (
+            0 if workspace_binding is None else workspace_binding.source_size_bytes
+        )
+        workspace_entry_count = (
+            0 if workspace_binding is None else workspace_binding.source_entry_count
+        )
+        expected_prepared_size_bytes = len(authority.generation_nonce) + (
+            workspace_size_bytes
+        )
+        expected_prepared_entry_count = (
+            len(expected_directories) + len(files) + 1 + workspace_entry_count
+        )
+        evidence = self.runtime_volume_evidence
+        required_available_size_bytes = sum(
+            _allocated_size(
+                prepared_file.payload_size_limit_bytes,
+                evidence.allocation_block_size_bytes,
+            )
+            for prepared_file in files
+        ) + _allocated_size(
+            limits.runtime_temporary_reservation_size_bytes,
+            evidence.allocation_block_size_bytes,
+        )
+        if (
+            layout.runtime_volume_authority_id != authority.runtime_volume_authority_id
+            or layout.generation_nonce != authority.generation_nonce
+            or layout.directory_relative_paths != expected_directories
+            or layout.prepared_file_ids
+            != tuple(sorted(prepared_file.prepared_file_id for prepared_file in files))
+            or layout.prepared_workspace_proof_id
+            != (
+                None
+                if self.workspace_proof is None
+                else self.workspace_proof.prepared_workspace_proof_id
+            )
+            or layout.logical_content_size_bytes != expected_prepared_size_bytes
+            or layout.logical_entry_count != expected_prepared_entry_count
+            or layout.observed_used_size_bytes != evidence.used_size_bytes
+            or layout.observed_used_inode_count != evidence.used_inode_count
+            or required_available_size_bytes >= evidence.available_size_bytes
+            or limits.runtime_temporary_reservation_inode_count
+            >= evidence.available_inode_count
+        ):
+            raise RunActionSupervisorContractError(
+                "prepared runtime volume lacks positive byte or inode headroom"
+            )
+        container_evidence = self.inert_container_evidence
+        issued_projection = container_evidence.issued_create_projection
+        if (
+            container_evidence.preparation_claim_id != claim.preparation_claim_id
+            or container_evidence.container_name != preparation_container_name(claim)
+            or container_evidence.labels != preparation_container_labels(claim)
+            or container_evidence.image_authority_id
+            != policy.image_authority.image_authority_id
+            or container_evidence.docker_runtime_settings_digest
             != policy.docker_runtime_settings_digest
+            or container_evidence.container_id == keeper.container_id
+            or container_evidence.container_name == keeper.container_name
             or issued_projection.execution_policy != policy
             or issued_projection.mounts
-            != _expected_prepared_mounts(claim, slots, workspace_walk)
+            != _expected_prepared_mounts(claim, authority.volume_name)
         ):
             raise RunActionSupervisorContractError(
                 "inert run action evidence differs from the prepared execution"
@@ -1198,224 +1679,204 @@ class RunActionPreparedExecution(StrictContract):
 
 
 @dataclass(frozen=True)
-class RunActionActivatedSlotObservation(StrictContract):
-    """Fresh post-delivery slot state without persisting payload contents."""
+class RunActionActivatedFileObservation(StrictContract):
+    """Fresh post-delivery shape and non-secret identity of one logical file."""
 
-    activated_slot_observation_id: str
-    prepared_slot_id: str
-    descriptor_walk: RunActionDescriptorWalkObservation
-    quota_backend_authority_id: str
-    filesystem_instance_id: str
-    exclusive_scope_id: str
-    quota_enabled: bool
-    quota_enforced: bool
-    hard_size_bytes: int
-    hard_entry_count: int
-    current_size_bytes: int
-    current_entry_count: int
+    activated_file_observation_id: str
+    prepared_file_id: str
+    runtime_volume_authority_id: str
+    generation_nonce: str
+    kind: RunActionPreparedFileKind
+    file_type: str
+    owner_user_id: int
+    owner_group_id: int
+    mode: int
+    link_count: int
+    size_bytes: int
+    content_digest: str | None
+    content_authority_id: str | None
 
-    CONTENT_NAMESPACE: ClassVar[str] = "run-action-activated-slot-observation"
-    IDENTITY_FIELD: ClassVar[str] = "activated_slot_observation_id"
+    CONTENT_NAMESPACE: ClassVar[str] = "run-action-activated-file-observation"
+    IDENTITY_FIELD: ClassVar[str] = "activated_file_observation_id"
 
     def _validate(self) -> None:
         _require_namespaced_content_id(
-            self.prepared_slot_id,
-            RunActionPreparedSlot.CONTENT_NAMESPACE,
-            "activated run action slot",
-        )
-        require_identifier(
-            self.filesystem_instance_id,
-            "activated run action filesystem instance",
+            self.prepared_file_id,
+            RunActionPreparedFile.CONTENT_NAMESPACE,
+            "activated prepared file",
         )
         _require_namespaced_content_id(
-            self.exclusive_scope_id,
-            "run-action-quota-scope",
-            "activated run action exclusive quota scope",
+            self.runtime_volume_authority_id,
+            RunActionRuntimeVolumeAuthority.CONTENT_NAMESPACE,
+            "activated runtime volume",
         )
-        _require_namespaced_content_id(
-            self.quota_backend_authority_id,
-            "run-action-quota-backend-authority",
-            "activated run action quota backend",
-        )
+        if self.content_authority_id is not None:
+            require_identifier(
+                self.content_authority_id,
+                "activated file content authority",
+            )
         if (
-            type(self.descriptor_walk) is not RunActionDescriptorWalkObservation
-            or self.quota_enabled is not True
-            or self.quota_enforced is not True
-            or type(self.hard_size_bytes) is not int
-            or self.hard_size_bytes <= 0
-            or type(self.hard_entry_count) is not int
-            or self.hard_entry_count <= 0
-            or type(self.current_size_bytes) is not int
-            or not 0 <= self.current_size_bytes <= self.hard_size_bytes
-            or type(self.current_entry_count) is not int
-            or not 0 <= self.current_entry_count <= self.hard_entry_count
+            _GENERATION_NONCE_PATTERN.fullmatch(self.generation_nonce) is None
+            or type(self.kind) is not RunActionPreparedFileKind
+            or self.file_type != "regular"
+            or type(self.owner_user_id) is not int
+            or self.owner_user_id <= 0
+            or type(self.owner_group_id) is not int
+            or self.owner_group_id <= 0
+            or self.mode != 0o600
+            or self.link_count != 1
+            or type(self.size_bytes) is not int
+            or self.size_bytes < 0
+            or (
+                self.content_digest is not None
+                and _SHA256_DIGEST_PATTERN.fullmatch(self.content_digest) is None
+            )
+            or (
+                self.kind is RunActionPreparedFileKind.INPUT
+                and (
+                    self.size_bytes <= 0
+                    or self.content_digest is None
+                    or self.content_authority_id is None
+                )
+            )
+            or (
+                self.kind is RunActionPreparedFileKind.RESULT
+                and (
+                    self.size_bytes != 0
+                    or self.content_digest is not None
+                    or self.content_authority_id is not None
+                )
+            )
+            or (
+                self.kind is RunActionPreparedFileKind.CREDENTIAL
+                and (
+                    self.size_bytes <= 0
+                    or self.content_digest is not None
+                    or self.content_authority_id is None
+                )
+            )
         ):
             raise RunActionSupervisorContractError(
-                "activated run action slot observation is unsafe"
+                "activated run action file observation is invalid"
             )
 
 
 @dataclass(frozen=True)
-class RunActionRequestDeliveryReceipt(StrictContract):
-    """Exact non-secret identity of request bytes delivered after spawn commit."""
+class RunActionActivatedWorkspaceObservation(StrictContract):
+    """Fresh post-commit observation of the still-exact copied workspace."""
 
-    request_delivery_receipt_id: str
-    prepared_execution_id: str
+    activated_workspace_observation_id: str
     spawn_commit_id: str
-    input_slot_id: str
-    request_blob_id: str
-    delivered_digest: str
-    delivered_size_bytes: int
-    delivered_entry_count: int
-    delivered_relative_name: str
-    delivered_file_type: str
-    delivered_owner_user_id: int
-    delivered_owner_group_id: int
-    delivered_mode: int
-    delivered_link_count: int
+    prepared_workspace_proof_id: str
+    runtime_volume_authority_id: str
+    generation_nonce: str
+    source_tree_digest: str
+    git_closure_digest: str
+    source_entry_count: int
+    source_size_bytes: int
+    owner_user_id: int
+    owner_group_id: int
+    root_mode: int
 
-    CONTENT_NAMESPACE: ClassVar[str] = "run-action-request-delivery-receipt"
-    IDENTITY_FIELD: ClassVar[str] = "request_delivery_receipt_id"
+    CONTENT_NAMESPACE: ClassVar[str] = "run-action-activated-workspace-observation"
+    IDENTITY_FIELD: ClassVar[str] = "activated_workspace_observation_id"
 
     def _validate(self) -> None:
-        for value, namespace, name in (
-            (
-                self.prepared_execution_id,
-                RunActionPreparedExecution.CONTENT_NAMESPACE,
-                "request delivery prepared execution",
-            ),
-            (
-                self.spawn_commit_id,
-                RunActionSpawnCommit.CONTENT_NAMESPACE,
-                "request delivery spawn commit",
-            ),
-            (
-                self.input_slot_id,
-                RunActionPreparedSlot.CONTENT_NAMESPACE,
-                "request delivery input slot",
-            ),
-            (
-                self.request_blob_id,
-                "run-action-request-blob",
-                "request delivery blob",
-            ),
-        ):
-            _require_namespaced_content_id(value, namespace, name)
-        if (
-            _SHA256_DIGEST_PATTERN.fullmatch(self.delivered_digest) is None
-            or type(self.delivered_size_bytes) is not int
-            or self.delivered_size_bytes <= 0
-            or self.delivered_entry_count != 1
-            or self.delivered_relative_name != "request.blob"
-            or self.delivered_file_type != "regular"
-            or type(self.delivered_owner_user_id) is not int
-            or self.delivered_owner_user_id <= 0
-            or type(self.delivered_owner_group_id) is not int
-            or self.delivered_owner_group_id <= 0
-            or self.delivered_mode != 0o400
-            or self.delivered_link_count != 1
-        ):
-            raise RunActionSupervisorContractError(
-                "run action request delivery receipt is invalid"
-            )
-
-
-@dataclass(frozen=True)
-class RunActionCredentialDeliveryReceipt(StrictContract):
-    """Credential lease delivery identity without secret bytes, digest, or path."""
-
-    credential_delivery_receipt_id: str
-    prepared_execution_id: str
-    spawn_commit_id: str
-    credential_slot_id: str
-    credential_policy_id: str
-    lease_authority_id: str
-    delivered_size_bytes: int
-    delivered_entry_count: int
-    delivered_relative_name: str
-    delivered_file_type: str
-    delivered_owner_user_id: int
-    delivered_owner_group_id: int
-    delivered_mode: int
-    delivered_link_count: int
-
-    CONTENT_NAMESPACE: ClassVar[str] = "run-action-credential-delivery-receipt"
-    IDENTITY_FIELD: ClassVar[str] = "credential_delivery_receipt_id"
-
-    def _validate(self) -> None:
-        for value, namespace, name in (
-            (
-                self.prepared_execution_id,
-                RunActionPreparedExecution.CONTENT_NAMESPACE,
-                "credential delivery prepared execution",
-            ),
-            (
-                self.spawn_commit_id,
-                RunActionSpawnCommit.CONTENT_NAMESPACE,
-                "credential delivery spawn commit",
-            ),
-            (
-                self.credential_slot_id,
-                RunActionPreparedSlot.CONTENT_NAMESPACE,
-                "credential delivery slot",
-            ),
-            (
-                self.credential_policy_id,
-                RunActionCredentialPolicy.CONTENT_NAMESPACE,
-                "credential delivery policy",
-            ),
-        ):
-            _require_namespaced_content_id(value, namespace, name)
-        require_identifier(
-            self.lease_authority_id,
-            "run action credential lease authority",
-        )
-        if (
-            type(self.delivered_size_bytes) is not int
-            or self.delivered_size_bytes <= 0
-            or self.delivered_entry_count != 1
-            or self.delivered_relative_name != "credentials"
-            or self.delivered_file_type != "regular"
-            or type(self.delivered_owner_user_id) is not int
-            or self.delivered_owner_user_id <= 0
-            or type(self.delivered_owner_group_id) is not int
-            or self.delivered_owner_group_id <= 0
-            or self.delivered_mode != 0o400
-            or self.delivered_link_count != 1
-        ):
-            raise RunActionSupervisorContractError(
-                "run action credential delivery receipt is invalid"
-            )
-
-
-@dataclass(frozen=True)
-class RunActionNoCredentialsProof(StrictContract):
-    """Positive proof that a credential-free policy received no credential slot."""
-
-    no_credentials_proof_id: str
-    prepared_execution_id: str
-    spawn_commit_id: str
-    credential_policy_id: str
-
-    CONTENT_NAMESPACE: ClassVar[str] = "run-action-no-credentials-proof"
-    IDENTITY_FIELD: ClassVar[str] = "no_credentials_proof_id"
-
-    def _validate(self) -> None:
-        _require_namespaced_content_id(
-            self.prepared_execution_id,
-            RunActionPreparedExecution.CONTENT_NAMESPACE,
-            "no-credentials prepared execution",
-        )
         _require_namespaced_content_id(
             self.spawn_commit_id,
             RunActionSpawnCommit.CONTENT_NAMESPACE,
-            "no-credentials spawn commit",
+            "activated workspace spawn commit",
         )
         _require_namespaced_content_id(
-            self.credential_policy_id,
-            RunActionCredentialPolicy.CONTENT_NAMESPACE,
-            "no-credentials policy",
+            self.prepared_workspace_proof_id,
+            RunActionPreparedWorkspaceProof.CONTENT_NAMESPACE,
+            "activated prepared workspace",
         )
+        _require_namespaced_content_id(
+            self.runtime_volume_authority_id,
+            RunActionRuntimeVolumeAuthority.CONTENT_NAMESPACE,
+            "activated workspace runtime volume",
+        )
+        if (
+            _GENERATION_NONCE_PATTERN.fullmatch(self.generation_nonce) is None
+            or _SHA256_DIGEST_PATTERN.fullmatch(self.source_tree_digest) is None
+            or _SHA256_DIGEST_PATTERN.fullmatch(self.git_closure_digest) is None
+            or type(self.source_entry_count) is not int
+            or self.source_entry_count < 0
+            or type(self.source_size_bytes) is not int
+            or self.source_size_bytes < 0
+            or type(self.owner_user_id) is not int
+            or self.owner_user_id <= 0
+            or type(self.owner_group_id) is not int
+            or self.owner_group_id <= 0
+            or self.root_mode != 0o700
+        ):
+            raise RunActionSupervisorContractError(
+                "activated workspace observation is invalid"
+            )
+
+
+@dataclass(frozen=True)
+class RunActionActivatedSentinelObservation(StrictContract):
+    """Fresh no-follow observation of the prepared generation sentinel."""
+
+    activated_sentinel_observation_id: str
+    spawn_commit_id: str
+    prepared_sentinel_evidence_id: str
+    runtime_volume_authority_id: str
+    generation_nonce: str
+    relative_path: str
+    file_type: str
+    owner_user_id: int
+    owner_group_id: int
+    mode: int
+    link_count: int
+    size_bytes: int
+    content_digest: str
+    mount_id: int
+    device: int
+    inode: int
+
+    CONTENT_NAMESPACE: ClassVar[str] = "run-action-activated-sentinel-observation"
+    IDENTITY_FIELD: ClassVar[str] = "activated_sentinel_observation_id"
+
+    def _validate(self) -> None:
+        _require_namespaced_content_id(
+            self.spawn_commit_id,
+            RunActionSpawnCommit.CONTENT_NAMESPACE,
+            "activated sentinel spawn commit",
+        )
+        _require_namespaced_content_id(
+            self.prepared_sentinel_evidence_id,
+            RunActionRuntimeVolumeSentinelEvidence.CONTENT_NAMESPACE,
+            "activated prepared sentinel",
+        )
+        _require_namespaced_content_id(
+            self.runtime_volume_authority_id,
+            RunActionRuntimeVolumeAuthority.CONTENT_NAMESPACE,
+            "activated sentinel runtime volume",
+        )
+        if (
+            _GENERATION_NONCE_PATTERN.fullmatch(self.generation_nonce) is None
+            or self.relative_path != _RUNTIME_VOLUME_SENTINEL_PATH
+            or self.file_type != "regular"
+            or type(self.owner_user_id) is not int
+            or self.owner_user_id <= 0
+            or type(self.owner_group_id) is not int
+            or self.owner_group_id <= 0
+            or self.mode != 0o400
+            or self.link_count != 1
+            or self.size_bytes != len(self.generation_nonce)
+            or self.content_digest
+            != tree_or_blob_digest(self.generation_nonce.encode("ascii"))
+            or any(
+                type(value) is not int or value <= 0
+                for value in (self.mount_id, self.device, self.inode)
+            )
+        ):
+            raise RunActionSupervisorContractError(
+                "activated sentinel observation is not the stable physical file"
+            )
 
 
 @dataclass(frozen=True)
@@ -1425,13 +1886,14 @@ class RunActionActivationRevalidationReceipt(StrictContract):
     activation_revalidation_receipt_id: str
     prepared_execution: RunActionPreparedExecution
     spawn_commit: RunActionSpawnCommit
+    reobserved_volume_evidence: RunActionRuntimeVolumeEvidence
+    reobserved_keeper_evidence: RunActionVolumeKeeperEvidence
     reobserved_container_evidence: RunActionInertContainerEvidence
-    input_slot_observation: RunActionActivatedSlotObservation
-    result_slot_observation: RunActionActivatedSlotObservation
-    credential_slot_observation: RunActionActivatedSlotObservation | None
-    request_delivery_receipt: RunActionRequestDeliveryReceipt
-    credential_delivery_receipt: RunActionCredentialDeliveryReceipt | None
-    no_credentials_proof: RunActionNoCredentialsProof | None
+    activated_workspace_observation: RunActionActivatedWorkspaceObservation | None
+    activated_sentinel_observation: RunActionActivatedSentinelObservation
+    input_file_observation: RunActionActivatedFileObservation
+    result_file_observation: RunActionActivatedFileObservation
+    credential_file_observation: RunActionActivatedFileObservation | None
 
     CONTENT_NAMESPACE: ClassVar[str] = "run-action-activation-revalidation-receipt"
     IDENTITY_FIELD: ClassVar[str] = "activation_revalidation_receipt_id"
@@ -1458,147 +1920,209 @@ class RunActionActivationRevalidationReceipt(StrictContract):
             != prepared.preparation_claim.reservation.frontier.security_observation_id
             or self.spawn_commit.provider_execution_id
             != prepared.inert_container_evidence.container_id
+            or not _reobserved_volume_matches_prepared(
+                self.reobserved_volume_evidence,
+                prepared.runtime_volume_evidence,
+            )
+            or self.reobserved_keeper_evidence != prepared.volume_keeper_evidence
             or self.reobserved_container_evidence != prepared.inert_container_evidence
-            or not _activated_slot_matches_prepared(
-                self.input_slot_observation,
-                prepared.input_slot,
+            or not _activated_workspace_matches_prepared(
+                self.activated_workspace_observation,
+                prepared.workspace_proof,
+                self.spawn_commit.spawn_commit_id,
             )
-            or not _activated_slot_matches_prepared(
-                self.result_slot_observation,
-                prepared.result_slot,
+            or not _activated_sentinel_matches_prepared(
+                self.activated_sentinel_observation,
+                prepared.runtime_volume_evidence.sentinel_evidence,
+                self.spawn_commit.spawn_commit_id,
             )
-            or self.input_slot_observation.current_size_bytes
+            or not _activated_file_matches_prepared(
+                self.input_file_observation,
+                prepared.input_file,
+            )
+            or not _activated_file_matches_prepared(
+                self.result_file_observation,
+                prepared.result_file,
+            )
+            or self.input_file_observation.size_bytes
             != prepared.preparation_claim.reservation.request_blob.size_bytes
-            or self.input_slot_observation.current_entry_count != 1
-            or self.result_slot_observation.current_size_bytes != 0
-            or self.result_slot_observation.current_entry_count != 0
-            or type(self.request_delivery_receipt)
-            is not RunActionRequestDeliveryReceipt
-            or self.request_delivery_receipt.prepared_execution_id
-            != prepared.prepared_execution_id
-            or self.request_delivery_receipt.spawn_commit_id
-            != self.spawn_commit.spawn_commit_id
-            or self.request_delivery_receipt.input_slot_id
-            != prepared.input_slot.prepared_slot_id
-            or self.request_delivery_receipt.request_blob_id
+            or self.input_file_observation.content_authority_id
             != prepared.preparation_claim.reservation.request_blob.request_blob_id
-            or self.request_delivery_receipt.delivered_digest
+            or self.input_file_observation.content_digest
             != prepared.preparation_claim.reservation.request_blob.digest
-            or self.request_delivery_receipt.delivered_size_bytes
-            != prepared.preparation_claim.reservation.request_blob.size_bytes
-            or self.request_delivery_receipt.delivered_owner_user_id
-            != prepared.preparation_claim.execution_policy.user_id
-            or self.request_delivery_receipt.delivered_owner_group_id
-            != prepared.preparation_claim.execution_policy.group_id
         ):
             raise RunActionSupervisorContractError(
                 "activation revalidation differs from prepared authority"
             )
+        limits = prepared.preparation_claim.execution_policy.docker_resource_limits
+        reobserved_volume = self.reobserved_volume_evidence
+        remaining_requirement_bytes = _allocated_size(
+            prepared.result_file.payload_size_limit_bytes,
+            reobserved_volume.allocation_block_size_bytes,
+        ) + _allocated_size(
+            limits.runtime_temporary_reservation_size_bytes,
+            reobserved_volume.allocation_block_size_bytes,
+        )
+        if (
+            remaining_requirement_bytes >= reobserved_volume.available_size_bytes
+            or limits.runtime_temporary_reservation_inode_count
+            >= reobserved_volume.available_inode_count
+        ):
+            raise RunActionSupervisorContractError(
+                "activation revalidation lacks result and temporary headroom"
+            )
         if credential_mode is RunActionCredentialMode.NONE:
-            if self.credential_delivery_receipt is not None:
+            if self.credential_file_observation is not None:
                 raise RunActionSupervisorContractError(
-                    "credential-free activation carries delivery authority"
-                )
-            if self.credential_slot_observation is not None:
-                raise RunActionSupervisorContractError(
-                    "credential-free activation carries a credential slot"
-                )
-            if (
-                type(self.no_credentials_proof) is not RunActionNoCredentialsProof
-                or self.no_credentials_proof.prepared_execution_id
-                != prepared.prepared_execution_id
-                or self.no_credentials_proof.spawn_commit_id
-                != self.spawn_commit.spawn_commit_id
-                or self.no_credentials_proof.credential_policy_id
-                != prepared.preparation_claim.execution_policy.credential_policy.credential_policy_id
-            ):
-                raise RunActionSupervisorContractError(
-                    "credential-free activation lacks an exact proof"
+                    "credential-free activation carries a credential file"
                 )
         else:
-            if self.no_credentials_proof is not None:
-                raise RunActionSupervisorContractError(
-                    "credentialed activation carries a no-credentials proof"
-                )
             if (
-                self.credential_slot_observation is None
-                or not _activated_slot_matches_prepared(
-                    self.credential_slot_observation,
-                    prepared.credential_slot,
+                self.credential_file_observation is None
+                or not _activated_file_matches_prepared(
+                    self.credential_file_observation,
+                    prepared.credential_file,
                 )
-                or self.credential_slot_observation.current_size_bytes <= 0
-                or self.credential_slot_observation.current_entry_count != 1
-                or type(self.credential_delivery_receipt)
-                is not RunActionCredentialDeliveryReceipt
-                or self.credential_delivery_receipt.prepared_execution_id
-                != prepared.prepared_execution_id
-                or self.credential_delivery_receipt.spawn_commit_id
-                != self.spawn_commit.spawn_commit_id
-                or self.credential_delivery_receipt.credential_slot_id
-                != prepared.credential_slot.prepared_slot_id
-                or self.credential_delivery_receipt.credential_policy_id
-                != prepared.preparation_claim.execution_policy.credential_policy.credential_policy_id
-                or self.credential_delivery_receipt.delivered_size_bytes
-                != self.credential_slot_observation.current_size_bytes
-                or self.credential_delivery_receipt.delivered_owner_user_id
-                != prepared.preparation_claim.execution_policy.user_id
-                or self.credential_delivery_receipt.delivered_owner_group_id
-                != prepared.preparation_claim.execution_policy.group_id
+                or self.credential_file_observation.content_authority_id is None
             ):
                 raise RunActionSupervisorContractError(
-                    "credentialed activation lacks an exact delivered slot"
+                    "credentialed activation lacks an exact delivered file"
                 )
+        minimum_reobserved_size_bytes = (
+            prepared.runtime_volume_evidence.used_size_bytes
+            + _allocated_size(
+                self.input_file_observation.size_bytes,
+                reobserved_volume.allocation_block_size_bytes,
+            )
+            + (
+                0
+                if self.credential_file_observation is None
+                else _allocated_size(
+                    self.credential_file_observation.size_bytes,
+                    reobserved_volume.allocation_block_size_bytes,
+                )
+            )
+        )
+        if (
+            reobserved_volume.used_size_bytes < minimum_reobserved_size_bytes
+            or reobserved_volume.used_inode_count
+            != prepared.runtime_volume_evidence.used_inode_count
+        ):
+            raise RunActionSupervisorContractError(
+                "activation revalidation statfs usage omits delivered payloads"
+            )
 
 
-def _activated_slot_matches_prepared(
-    observed: RunActionActivatedSlotObservation,
-    prepared: RunActionPreparedSlot | None,
+def _activated_file_matches_prepared(
+    observed: RunActionActivatedFileObservation,
+    prepared: RunActionPreparedFile | None,
 ) -> bool:
     if (
-        type(observed) is not RunActionActivatedSlotObservation
-        or type(prepared) is not RunActionPreparedSlot
+        type(observed) is not RunActionActivatedFileObservation
+        or type(prepared) is not RunActionPreparedFile
     ):
         return False
-    quota = prepared.quota_observation
     return (
-        observed.prepared_slot_id == prepared.prepared_slot_id
-        and observed.descriptor_walk == prepared.descriptor_walk
-        and observed.quota_backend_authority_id == quota.quota_backend_authority_id
-        and observed.filesystem_instance_id == quota.filesystem_instance_id
-        and observed.exclusive_scope_id == quota.exclusive_scope_id
-        and observed.quota_enabled == quota.enabled
-        and observed.quota_enforced == quota.enforced
-        and observed.hard_size_bytes == quota.hard_size_bytes
-        and observed.hard_entry_count == quota.hard_entry_count
+        observed.prepared_file_id == prepared.prepared_file_id
+        and observed.runtime_volume_authority_id == prepared.runtime_volume_authority_id
+        and observed.generation_nonce == prepared.generation_nonce
+        and observed.kind is prepared.kind
+        and observed.file_type == prepared.file_type
+        and observed.owner_user_id == prepared.owner_user_id
+        and observed.owner_group_id == prepared.owner_group_id
+        and observed.mode == prepared.mode
+        and observed.link_count == prepared.link_count
+        and observed.size_bytes <= prepared.payload_size_limit_bytes
     )
 
 
-def quota_scope_id(
-    preparation_claim_id: str,
-    slot_kind: RunActionPreparedSlotKind,
-    leaf_identity: RunActionFilesystemIdentity,
-) -> str:
-    """Derive one exclusive logical-quota scope from its exact slot leaf."""
-
-    _require_namespaced_content_id(
-        preparation_claim_id,
-        RunActionPreparationClaim.CONTENT_NAMESPACE,
-        "run action quota scope claim",
+def _activated_workspace_matches_prepared(
+    observed: RunActionActivatedWorkspaceObservation | None,
+    prepared: RunActionPreparedWorkspaceProof | None,
+    spawn_commit_id: str,
+) -> bool:
+    if prepared is None:
+        return observed is None
+    if type(observed) is not RunActionActivatedWorkspaceObservation:
+        return False
+    return (
+        observed.spawn_commit_id == spawn_commit_id
+        and observed.prepared_workspace_proof_id == prepared.prepared_workspace_proof_id
+        and observed.runtime_volume_authority_id == prepared.runtime_volume_authority_id
+        and observed.generation_nonce == prepared.generation_nonce
+        and observed.source_tree_digest == prepared.observed_source_tree_digest
+        and observed.git_closure_digest == prepared.observed_git_closure_digest
+        and observed.source_entry_count == prepared.observed_source_entry_count
+        and observed.source_size_bytes == prepared.observed_source_size_bytes
+        and observed.owner_user_id == prepared.owner_user_id
+        and observed.owner_group_id == prepared.owner_group_id
+        and observed.root_mode == prepared.root_mode
     )
+
+
+def _activated_sentinel_matches_prepared(
+    observed: RunActionActivatedSentinelObservation,
+    prepared: RunActionRuntimeVolumeSentinelEvidence,
+    spawn_commit_id: str,
+) -> bool:
     if (
-        type(slot_kind) is not RunActionPreparedSlotKind
-        or type(leaf_identity) is not RunActionFilesystemIdentity
+        type(observed) is not RunActionActivatedSentinelObservation
+        or type(prepared) is not RunActionRuntimeVolumeSentinelEvidence
     ):
-        raise RunActionSupervisorContractError(
-            "run action quota scope requires an exact slot and leaf"
-        )
-    return content_id(
-        "run-action-quota-scope",
-        {
-            "preparation_claim_id": preparation_claim_id,
-            "slot_kind": slot_kind.value,
-            "leaf_identity": leaf_identity.to_dict(),
-        },
+        return False
+    return (
+        observed.spawn_commit_id == spawn_commit_id
+        and observed.prepared_sentinel_evidence_id
+        == prepared.runtime_volume_sentinel_evidence_id
+        and observed.runtime_volume_authority_id == prepared.runtime_volume_authority_id
+        and observed.generation_nonce == prepared.generation_nonce
+        and observed.relative_path == prepared.relative_path
+        and observed.file_type == prepared.file_type
+        and observed.owner_user_id == prepared.owner_user_id
+        and observed.owner_group_id == prepared.owner_group_id
+        and observed.mode == prepared.mode
+        and observed.link_count == prepared.link_count
+        and observed.size_bytes == prepared.size_bytes
+        and observed.content_digest == prepared.content_digest
+        and observed.mount_id == prepared.mount_id
+        and observed.device == prepared.device
+        and observed.inode == prepared.inode
+    )
+
+
+def _reobserved_volume_matches_prepared(
+    reobserved: RunActionRuntimeVolumeEvidence,
+    prepared: RunActionRuntimeVolumeEvidence,
+) -> bool:
+    if (
+        type(reobserved) is not RunActionRuntimeVolumeEvidence
+        or type(prepared) is not RunActionRuntimeVolumeEvidence
+    ):
+        return False
+    return (
+        reobserved.volume_authority == prepared.volume_authority
+        and reobserved.observed_volume_name == prepared.observed_volume_name
+        and reobserved.observed_labels == prepared.observed_labels
+        and reobserved.observed_scope == prepared.observed_scope
+        and reobserved.observed_driver == prepared.observed_driver
+        and reobserved.observed_driver_options == prepared.observed_driver_options
+        and reobserved.observed_filesystem_type == prepared.observed_filesystem_type
+        and reobserved.observed_mount_flags == prepared.observed_mount_flags
+        and reobserved.observed_owner_user_id == prepared.observed_owner_user_id
+        and reobserved.observed_owner_group_id == prepared.observed_owner_group_id
+        and reobserved.observed_root_mode == prepared.observed_root_mode
+        and reobserved.allocation_block_size_bytes
+        == prepared.allocation_block_size_bytes
+        and reobserved.effective_block_count == prepared.effective_block_count
+        and reobserved.effective_size_bytes == prepared.effective_size_bytes
+        and reobserved.effective_inode_limit == prepared.effective_inode_limit
+        and reobserved.sentinel_evidence == prepared.sentinel_evidence
+        and reobserved.used_size_bytes >= prepared.used_size_bytes
+        and reobserved.used_block_count >= prepared.used_block_count
+        and reobserved.used_inode_count == prepared.used_inode_count
+        and reobserved.available_block_count <= prepared.available_block_count
+        and reobserved.available_size_bytes <= prepared.available_size_bytes
+        and reobserved.available_inode_count == prepared.available_inode_count
     )
 
 
@@ -1617,19 +2141,141 @@ def preparation_container_labels(
 ) -> tuple[RunActionContainerLabel, ...]:
     """Derive the complete label set without a prepared-execution back-edge."""
 
+    return _preparation_resource_labels(claim, "execution")
+
+
+def preparation_volume_name(claim: RunActionPreparationClaim) -> str:
+    """Derive the sole runtime-volume name from its semantic claim."""
+
     if type(claim) is not RunActionPreparationClaim:
         raise RunActionSupervisorContractError(
-            "run action container labels require an exact preparation claim"
+            "runtime volume name requires an exact preparation claim"
         )
+    return (
+        _RUNTIME_VOLUME_NAME_PREFIX
+        + claim.preparation_claim_id.rsplit(
+            ":sha256:",
+            1,
+        )[1]
+    )
+
+
+def preparation_volume_labels(
+    claim: RunActionPreparationClaim,
+) -> tuple[RunActionContainerLabel, ...]:
+    """Derive the exact labels owned by the claim's runtime volume."""
+
+    return _preparation_resource_labels(claim, "runtime-volume")
+
+
+def preparation_keeper_container_name(claim: RunActionPreparationClaim) -> str:
+    """Derive the sole keeper-container name from its semantic claim."""
+
+    if type(claim) is not RunActionPreparationClaim:
+        raise RunActionSupervisorContractError(
+            "runtime volume keeper name requires an exact preparation claim"
+        )
+    return (
+        _KEEPER_CONTAINER_NAME_PREFIX
+        + claim.preparation_claim_id.rsplit(
+            ":sha256:",
+            1,
+        )[1]
+    )
+
+
+def preparation_keeper_container_labels(
+    claim: RunActionPreparationClaim,
+) -> tuple[RunActionContainerLabel, ...]:
+    """Derive the exact labels owned by the claim's keeper container."""
+
+    return _preparation_resource_labels(claim, "volume-keeper")
+
+
+def runtime_volume_sentinel_identity(generation_nonce: str) -> str:
+    """Bind one unguessable volume generation to its in-volume sentinel."""
+
+    if (
+        not isinstance(generation_nonce, str)
+        or _GENERATION_NONCE_PATTERN.fullmatch(generation_nonce) is None
+    ):
+        raise RunActionSupervisorContractError(
+            "runtime volume generation nonce must be 32 lowercase hex characters"
+        )
+    return content_id(
+        "run-action-runtime-volume-sentinel",
+        {"generation_nonce": generation_nonce},
+    )
+
+
+def runtime_volume_keeper_helper_authority_id(
+    source_path: str,
+    executable_digest: str,
+) -> str:
+    """Bind the keeper helper bytes to their sole read-only mount destination."""
+
+    _require_absolute_host_path(
+        source_path,
+        "runtime volume keeper helper source",
+    )
+    if (
+        not isinstance(executable_digest, str)
+        or _SHA256_DIGEST_PATTERN.fullmatch(executable_digest) is None
+    ):
+        raise RunActionSupervisorContractError(
+            "runtime volume keeper helper digest is invalid"
+        )
+    return content_id(
+        "run-action-helper-executable-authority",
+        {
+            "destination": _RUNTIME_VOLUME_KEEPER_BUSYBOX_DESTINATION,
+            "digest": executable_digest,
+            "mount_access": RunActionPreparedMountAccess.READ_ONLY.value,
+            "source_path": source_path,
+        },
+    )
+
+
+def runtime_volume_driver_options(
+    authority: RunActionRuntimeVolumeAuthority,
+) -> tuple[str, ...]:
+    """Render the exact normalized local-driver tmpfs option mapping."""
+
+    if type(authority) is not RunActionRuntimeVolumeAuthority:
+        raise RunActionSupervisorContractError(
+            "runtime volume options require exact authority"
+        )
+    return tuple(
+        sorted(
+            (
+                "device=tmpfs",
+                (
+                    "o=nodev,nosuid,noswap,"
+                    f"size={authority.size_limit_bytes},"
+                    f"nr_inodes={authority.inode_limit},"
+                    f"mode={authority.root_mode:04o},"
+                    f"uid={authority.owner_user_id},"
+                    f"gid={authority.owner_group_id}"
+                ),
+                "type=tmpfs",
+            )
+        )
+    )
+
+
+def _preparation_resource_labels(
+    claim: RunActionPreparationClaim,
+    role: str,
+) -> tuple[RunActionContainerLabel, ...]:
+    if type(claim) is not RunActionPreparationClaim:
+        raise RunActionSupervisorContractError(
+            "run action resource labels require an exact preparation claim"
+        )
+    require_identifier(role, "run action preparation resource role")
     values = {
-        f"{_PREPARATION_LABEL_PREFIX}boundary": (
-            claim.reservation.intent.boundary_identity.boundary_identity_id
-        ),
         f"{_PREPARATION_LABEL_PREFIX}claim": claim.preparation_claim_id,
-        f"{_PREPARATION_LABEL_PREFIX}reservation": (claim.reservation.reservation_id),
-        f"{_PREPARATION_LABEL_PREFIX}policy": (
-            claim.execution_policy.docker_execution_policy_id
-        ),
+        f"{_PREPARATION_LABEL_PREFIX}reservation": claim.reservation.reservation_id,
+        f"{_PREPARATION_LABEL_PREFIX}role": role,
     }
     return tuple(
         RunActionContainerLabel(key=key, value=value)
@@ -1639,60 +2285,65 @@ def preparation_container_labels(
 
 def _expected_prepared_mounts(
     claim: RunActionPreparationClaim,
-    slots: tuple[RunActionPreparedSlot, ...],
-    workspace_walk: RunActionDescriptorWalkObservation | None,
+    volume_name: str,
 ) -> tuple[RunActionPreparedMount, ...]:
     filesystem = claim.execution_policy.filesystem_policy
-    mounts = [
-        RunActionPreparedMount(
-            kind={
-                RunActionPreparedSlotKind.INPUT: RunActionPreparedMountKind.INPUT,
-                RunActionPreparedSlotKind.RESULT: RunActionPreparedMountKind.RESULT,
-                RunActionPreparedSlotKind.CREDENTIAL: (
-                    RunActionPreparedMountKind.CREDENTIAL
-                ),
-            }[slot.kind],
-            prepared_slot_id=slot.prepared_slot_id,
-            source_walk=slot.descriptor_walk,
-            container_destination=slot.container_destination,
-            mount_type="bind",
-            access=(
-                RunActionPreparedMountAccess.READ_WRITE
-                if slot.kind is RunActionPreparedSlotKind.RESULT
-                else RunActionPreparedMountAccess.READ_ONLY
-            ),
-            bind_propagation="rprivate",
-            recursive_read_only=slot.kind is not RunActionPreparedSlotKind.RESULT,
-            nested_mount_count=0,
-        )
-        for slot in slots
+    specifications = [
+        (
+            RunActionPreparedMountKind.INPUT,
+            filesystem.input_destination,
+            RunActionPreparedMountAccess.READ_ONLY,
+        ),
+        (
+            RunActionPreparedMountKind.RESULT,
+            filesystem.result_destination,
+            RunActionPreparedMountAccess.READ_WRITE,
+        ),
+        (
+            RunActionPreparedMountKind.TEMPORARY,
+            filesystem.temporary_filesystem_destination,
+            RunActionPreparedMountAccess.READ_WRITE,
+        ),
     ]
+    if filesystem.credential_destination is not None:
+        specifications.append(
+            (
+                RunActionPreparedMountKind.CREDENTIAL,
+                filesystem.credential_destination,
+                RunActionPreparedMountAccess.READ_ONLY,
+            )
+        )
     workspace_access = claim.reservation.intent.workspace_access
     if workspace_access is not RunFrontierWorkspaceAccess.NONE:
-        if workspace_walk is None:
-            raise RunActionSupervisorContractError(
-                "run action workspace mount lacks a descriptor walk"
-            )
-        mounts.append(
-            RunActionPreparedMount(
-                kind=RunActionPreparedMountKind.WORKSPACE,
-                prepared_slot_id=None,
-                source_walk=workspace_walk,
-                container_destination=filesystem.workspace_destination,
-                mount_type="bind",
-                access=(
+        specifications.append(
+            (
+                RunActionPreparedMountKind.WORKSPACE,
+                filesystem.workspace_destination,
+                (
                     RunActionPreparedMountAccess.READ_WRITE
                     if workspace_access is RunFrontierWorkspaceAccess.EDIT_WORKSPACE
                     else RunActionPreparedMountAccess.READ_ONLY
                 ),
-                bind_propagation="rprivate",
-                recursive_read_only=(
-                    workspace_access is not RunFrontierWorkspaceAccess.EDIT_WORKSPACE
-                ),
-                nested_mount_count=0,
             )
         )
+    mounts = tuple(
+        RunActionPreparedMount(
+            kind=kind,
+            volume_name=volume_name,
+            volume_subpath=_RUNTIME_VOLUME_SUBPATHS[kind.value],
+            container_destination=destination,
+            mount_type="volume",
+            source_access=RunActionPreparedMountAccess.READ_WRITE,
+            container_access=container_access,
+            host_config_volume_subpath=_RUNTIME_VOLUME_SUBPATHS[kind.value],
+        )
+        for kind, destination, container_access in specifications
+    )
     return tuple(sorted(mounts, key=lambda mount: mount.container_destination))
+
+
+def _allocated_size(size_bytes: int, block_size_bytes: int) -> int:
+    return ((size_bytes + block_size_bytes - 1) // block_size_bytes) * block_size_bytes
 
 
 def _require_absolute_container_path(value: str) -> None:
@@ -1712,6 +2363,23 @@ def _require_absolute_container_path(value: str) -> None:
         )
 
 
+def _require_absolute_host_path(value: str, name: str) -> None:
+    if not isinstance(value, str) or not value or "\x00" in value:
+        raise RunActionSupervisorContractError(
+            f"{name} must be normalized and absolute"
+        )
+    path = PurePosixPath(value)
+    if (
+        not path.is_absolute()
+        or ".." in path.parts
+        or value != path.as_posix()
+        or path == PurePosixPath("/")
+    ):
+        raise RunActionSupervisorContractError(
+            f"{name} must be normalized and absolute"
+        )
+
+
 def _require_namespaced_content_id(
     value: str | None,
     namespace: str,
@@ -1725,36 +2393,45 @@ def _require_namespaced_content_id(
 __all__ = [
     "DockerRunActionCreateInspectProjection",
     "DockerRunActionExecutionPolicy",
+    "DockerRunActionKeeperCreateInspectProjection",
     "DockerRunActionResourceLimits",
     "DockerRunActionSafeCreateDefaults",
     "DockerRunActionSandboxSpec",
-    "RunActionActivatedSlotObservation",
+    "RunActionActivatedFileObservation",
+    "RunActionActivatedSentinelObservation",
+    "RunActionActivatedWorkspaceObservation",
     "RunActionActivationRevalidationReceipt",
     "RunActionActivationNetworkMode",
     "RunActionContainerLabel",
     "RunActionCredentialMode",
-    "RunActionCredentialDeliveryReceipt",
     "RunActionCredentialPolicy",
-    "RunActionDescriptorWalkObservation",
-    "RunActionFilesystemIdentity",
-    "RunActionFilesystemNodeObservation",
     "RunActionFilesystemPolicy",
     "RunActionInertContainerEvidence",
+    "RunActionKeeperHelperEvidence",
     "RunActionNetworkPolicy",
-    "RunActionNoCredentialsProof",
     "RunActionPreparationClaim",
     "RunActionPreparedExecution",
+    "RunActionPreparedFile",
+    "RunActionPreparedFileKind",
     "RunActionPreparedMount",
     "RunActionPreparedMountAccess",
     "RunActionPreparedMountKind",
-    "RunActionPreparedSlot",
-    "RunActionPreparedSlotKind",
-    "RunActionQuotaObservation",
-    "RunActionRequestDeliveryReceipt",
+    "RunActionPreparedWorkspaceProof",
+    "RunActionRuntimeVolumeAuthority",
+    "RunActionRuntimeVolumeEvidence",
+    "RunActionRuntimeVolumeLayoutProof",
+    "RunActionRuntimeVolumeSentinelEvidence",
     "RunActionStaticEnvironmentVariable",
     "RunActionSupervisorLimits",
     "RunActionSupervisorContractError",
+    "RunActionVolumeKeeperEvidence",
     "preparation_container_labels",
     "preparation_container_name",
-    "quota_scope_id",
+    "preparation_keeper_container_labels",
+    "preparation_keeper_container_name",
+    "preparation_volume_labels",
+    "preparation_volume_name",
+    "runtime_volume_driver_options",
+    "runtime_volume_keeper_helper_authority_id",
+    "runtime_volume_sentinel_identity",
 ]

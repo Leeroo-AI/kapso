@@ -1214,10 +1214,13 @@ class RunActionExecutionStore:
         prepared_execution_ids = set()
         prepared_container_ids = set()
         prepared_container_names = set()
-        prepared_slot_ids = set()
-        prepared_quota_scope_ids = set()
-        prepared_claim_root_identities = set()
-        prepared_slot_leaf_identities = set()
+        prepared_keeper_container_ids = set()
+        prepared_keeper_container_names = set()
+        prepared_volume_authority_ids = set()
+        prepared_volume_names = set()
+        prepared_generation_nonces = set()
+        prepared_sentinel_identities = set()
+        prepared_file_ids = set()
         provider_execution_ids = set()
         invocation_nonces = set()
         for operation_digest, numbered_names in sorted(grouped.items()):
@@ -1242,34 +1245,37 @@ class RunActionExecutionStore:
                 preparation_claim_ids.add(claim_id)
             if len(events) >= 3:
                 prepared = events[2].prepared_execution
-                slots = tuple(
-                    slot
-                    for slot in (
-                        prepared.input_slot,
-                        prepared.result_slot,
-                        prepared.credential_slot,
+                prepared_files = tuple(
+                    prepared_file
+                    for prepared_file in (
+                        prepared.input_file,
+                        prepared.result_file,
+                        prepared.credential_file,
                     )
-                    if slot is not None
+                    if prepared_file is not None
                 )
-                slot_ids = {slot.prepared_slot_id for slot in slots}
-                quota_scope_ids = {
-                    slot.quota_observation.exclusive_scope_id for slot in slots
-                }
-                claim_root_identities = {
-                    slot.descriptor_walk.nodes[-2].identity for slot in slots
-                }
-                slot_leaf_identities = {
-                    slot.descriptor_walk.nodes[-1].identity for slot in slots
+                file_ids = {
+                    prepared_file.prepared_file_id for prepared_file in prepared_files
                 }
                 evidence = prepared.inert_container_evidence
+                keeper = prepared.volume_keeper_evidence
+                volume = prepared.runtime_volume_authority
                 if (
                     prepared.prepared_execution_id in prepared_execution_ids
                     or evidence.container_id in prepared_container_ids
+                    or evidence.container_id in prepared_keeper_container_ids
                     or evidence.container_name in prepared_container_names
-                    or prepared_slot_ids & slot_ids
-                    or prepared_quota_scope_ids & quota_scope_ids
-                    or prepared_claim_root_identities & claim_root_identities
-                    or prepared_slot_leaf_identities & slot_leaf_identities
+                    or evidence.container_name in prepared_keeper_container_names
+                    or keeper.container_id in prepared_keeper_container_ids
+                    or keeper.container_id in prepared_container_ids
+                    or keeper.container_name in prepared_keeper_container_names
+                    or keeper.container_name in prepared_container_names
+                    or volume.runtime_volume_authority_id
+                    in prepared_volume_authority_ids
+                    or volume.volume_name in prepared_volume_names
+                    or volume.generation_nonce in prepared_generation_nonces
+                    or volume.sentinel_identity in prepared_sentinel_identities
+                    or prepared_file_ids & file_ids
                 ):
                     raise RunActionStoreError(
                         "run action prepared occurrence authority was reused"
@@ -1277,10 +1283,13 @@ class RunActionExecutionStore:
                 prepared_execution_ids.add(prepared.prepared_execution_id)
                 prepared_container_ids.add(evidence.container_id)
                 prepared_container_names.add(evidence.container_name)
-                prepared_slot_ids.update(slot_ids)
-                prepared_quota_scope_ids.update(quota_scope_ids)
-                prepared_claim_root_identities.update(claim_root_identities)
-                prepared_slot_leaf_identities.update(slot_leaf_identities)
+                prepared_keeper_container_ids.add(keeper.container_id)
+                prepared_keeper_container_names.add(keeper.container_name)
+                prepared_volume_authority_ids.add(volume.runtime_volume_authority_id)
+                prepared_volume_names.add(volume.volume_name)
+                prepared_generation_nonces.add(volume.generation_nonce)
+                prepared_sentinel_identities.add(volume.sentinel_identity)
+                prepared_file_ids.update(file_ids)
             if len(events) >= 4 and events[3].event_kind is (
                 RunActionExecutionEventKind.SPAWN_COMMITTED
             ):
@@ -1573,24 +1582,17 @@ class RunActionExecutionStore:
         candidate = event.prepared_execution
         if candidate is None:
             return
-        candidate_slots = tuple(
-            slot
-            for slot in (
-                candidate.input_slot,
-                candidate.result_slot,
-                candidate.credential_slot,
+        candidate_files = tuple(
+            prepared_file
+            for prepared_file in (
+                candidate.input_file,
+                candidate.result_file,
+                candidate.credential_file,
             )
-            if slot is not None
+            if prepared_file is not None
         )
-        candidate_slot_ids = {slot.prepared_slot_id for slot in candidate_slots}
-        candidate_quota_scope_ids = {
-            slot.quota_observation.exclusive_scope_id for slot in candidate_slots
-        }
-        candidate_claim_root_identities = {
-            slot.descriptor_walk.nodes[-2].identity for slot in candidate_slots
-        }
-        candidate_slot_leaf_identities = {
-            slot.descriptor_walk.nodes[-1].identity for slot in candidate_slots
+        candidate_file_ids = {
+            prepared_file.prepared_file_id for prepared_file in candidate_files
         }
         for tail in self._snapshot_from_event_names(
             store_descriptor,
@@ -1603,14 +1605,14 @@ class RunActionExecutionStore:
             if len(events) < 3:
                 continue
             existing = events[2].prepared_execution
-            existing_slots = tuple(
-                slot
-                for slot in (
-                    existing.input_slot,
-                    existing.result_slot,
-                    existing.credential_slot,
+            existing_files = tuple(
+                prepared_file
+                for prepared_file in (
+                    existing.input_file,
+                    existing.result_file,
+                    existing.credential_file,
                 )
-                if slot is not None
+                if prepared_file is not None
             )
             if (
                 existing.prepared_execution_id == candidate.prepared_execution_id
@@ -1618,14 +1620,28 @@ class RunActionExecutionStore:
                 == candidate.inert_container_evidence.container_id
                 or existing.inert_container_evidence.container_name
                 == candidate.inert_container_evidence.container_name
-                or candidate_slot_ids
-                & {slot.prepared_slot_id for slot in existing_slots}
-                or candidate_quota_scope_ids
-                & {slot.quota_observation.exclusive_scope_id for slot in existing_slots}
-                or candidate_claim_root_identities
-                & {slot.descriptor_walk.nodes[-2].identity for slot in existing_slots}
-                or candidate_slot_leaf_identities
-                & {slot.descriptor_walk.nodes[-1].identity for slot in existing_slots}
+                or existing.inert_container_evidence.container_id
+                == candidate.volume_keeper_evidence.container_id
+                or existing.inert_container_evidence.container_name
+                == candidate.volume_keeper_evidence.container_name
+                or existing.volume_keeper_evidence.container_id
+                == candidate.volume_keeper_evidence.container_id
+                or existing.volume_keeper_evidence.container_name
+                == candidate.volume_keeper_evidence.container_name
+                or existing.volume_keeper_evidence.container_id
+                == candidate.inert_container_evidence.container_id
+                or existing.volume_keeper_evidence.container_name
+                == candidate.inert_container_evidence.container_name
+                or existing.runtime_volume_authority.runtime_volume_authority_id
+                == candidate.runtime_volume_authority.runtime_volume_authority_id
+                or existing.runtime_volume_authority.volume_name
+                == candidate.runtime_volume_authority.volume_name
+                or existing.runtime_volume_authority.generation_nonce
+                == candidate.runtime_volume_authority.generation_nonce
+                or existing.runtime_volume_authority.sentinel_identity
+                == candidate.runtime_volume_authority.sentinel_identity
+                or candidate_file_ids
+                & {prepared_file.prepared_file_id for prepared_file in existing_files}
             ):
                 raise RunActionStoreError(
                     "run action prepared occurrence authority was reused"

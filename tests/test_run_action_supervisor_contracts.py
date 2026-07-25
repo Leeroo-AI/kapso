@@ -6,6 +6,7 @@ from dataclasses import fields, replace
 
 import pytest
 
+import kapso.cross_run.launch.run_action_supervisor_contracts as supervisor_contracts
 from kapso.cross_run.canonical import content_id, tree_or_blob_digest
 from kapso.cross_run.contracts import ContractValidationError
 from kapso.cross_run.docker.runtime import DockerImageAuthority
@@ -28,37 +29,46 @@ from kapso.cross_run.launch.run_action_spawn_contracts import RunActionSpawnComm
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
     DockerRunActionCreateInspectProjection,
     DockerRunActionExecutionPolicy,
+    DockerRunActionKeeperCreateInspectProjection,
     DockerRunActionResourceLimits,
     DockerRunActionSafeCreateDefaults,
     DockerRunActionSandboxSpec,
-    RunActionActivatedSlotObservation,
+    RunActionActivatedFileObservation,
+    RunActionActivatedSentinelObservation,
+    RunActionActivatedWorkspaceObservation,
     RunActionActivationNetworkMode,
     RunActionActivationRevalidationReceipt,
     RunActionCredentialMode,
-    RunActionCredentialDeliveryReceipt,
     RunActionCredentialPolicy,
-    RunActionDescriptorWalkObservation,
-    RunActionFilesystemIdentity,
-    RunActionFilesystemNodeObservation,
     RunActionFilesystemPolicy,
     RunActionInertContainerEvidence,
+    RunActionKeeperHelperEvidence,
     RunActionNetworkPolicy,
-    RunActionNoCredentialsProof,
     RunActionPreparationClaim,
     RunActionPreparedExecution,
+    RunActionPreparedFile,
+    RunActionPreparedFileKind,
     RunActionPreparedMount,
     RunActionPreparedMountAccess,
     RunActionPreparedMountKind,
-    RunActionPreparedSlot,
-    RunActionPreparedSlotKind,
-    RunActionQuotaObservation,
-    RunActionRequestDeliveryReceipt,
+    RunActionPreparedWorkspaceProof,
+    RunActionRuntimeVolumeAuthority,
+    RunActionRuntimeVolumeEvidence,
+    RunActionRuntimeVolumeLayoutProof,
+    RunActionRuntimeVolumeSentinelEvidence,
     RunActionStaticEnvironmentVariable,
     RunActionSupervisorContractError,
     RunActionSupervisorLimits,
+    RunActionVolumeKeeperEvidence,
     preparation_container_labels,
     preparation_container_name,
-    quota_scope_id,
+    preparation_keeper_container_labels,
+    preparation_keeper_container_name,
+    preparation_volume_labels,
+    preparation_volume_name,
+    runtime_volume_driver_options,
+    runtime_volume_keeper_helper_authority_id,
+    runtime_volume_sentinel_identity,
 )
 from kapso.cross_run.launch.resume_contracts import RunSafetyBoundary
 
@@ -128,6 +138,8 @@ def _execution_policy(
     command_template_label="default",
 ):
     credential_policy = _credential_policy(credential_mode)
+    helper_digest = tree_or_blob_digest(b"volume keeper helper")
+    helper_source_path = "/usr/bin/busybox"
     return DockerRunActionExecutionPolicy.mint(
         kind=kind,
         supervisor_protocol_version="kapso.run_action_supervisor.v1",
@@ -147,6 +159,14 @@ def _execution_policy(
             architecture="amd64",
             architecture_variant=None,
         ),
+        keeper_helper_source_path=helper_source_path,
+        keeper_helper_executable_authority_id=(
+            runtime_volume_keeper_helper_authority_id(
+                helper_source_path,
+                helper_digest,
+            )
+        ),
+        keeper_helper_executable_digest=helper_digest,
         command_template_id=_fixture_content_id(
             "docker-run-action-command-template",
             command_template_label,
@@ -247,11 +267,6 @@ def _execution_policy(
                 else "/kapso/workspace"
             ),
             temporary_filesystem_destination="/kapso/tmp",
-            temporary_filesystem_mode=0o700,
-            temporary_filesystem_read_only=False,
-            temporary_filesystem_nosuid=True,
-            temporary_filesystem_nodev=True,
-            temporary_filesystem_noexec=True,
         ),
         network_policy=RunActionNetworkPolicy.mint(
             activation_mode=RunActionActivationNetworkMode.NONE,
@@ -271,13 +286,14 @@ def _execution_policy(
             process_limit=128,
             block_io_weight=500,
             shared_memory_size_bytes=67108864,
-            temporary_filesystem_size_bytes=134217728,
+            runtime_volume_size_bytes=536870912,
+            runtime_volume_inode_limit=4096,
+            runtime_temporary_reservation_size_bytes=67108864,
+            runtime_temporary_reservation_inode_count=1024,
         ),
         supervisor_limits=RunActionSupervisorLimits.mint(
             execution_timeout_seconds=600,
             termination_grace_seconds=30,
-            stdout_size_bytes=16777216,
-            stderr_size_bytes=16777216,
             result_size_bytes=268435456,
         ),
     )
@@ -389,183 +405,139 @@ def _claim(
     )
 
 
-def _slot(claim, kind, *, inode_offset=0):
-    destinations = {
-        RunActionPreparedSlotKind.INPUT: (
-            claim.execution_policy.filesystem_policy.input_destination
-        ),
-        RunActionPreparedSlotKind.RESULT: (
-            claim.execution_policy.filesystem_policy.result_destination
-        ),
-        RunActionPreparedSlotKind.CREDENTIAL: (
-            claim.execution_policy.filesystem_policy.credential_destination
-        ),
-    }
-    maximum_sizes = {
-        RunActionPreparedSlotKind.INPUT: claim.reservation.request_blob.size_bytes,
-        RunActionPreparedSlotKind.RESULT: (
+def _volume_authority(claim, *, nonce):
+    limits = claim.execution_policy.docker_resource_limits
+    user_id = claim.execution_policy.user_id
+    group_id = claim.execution_policy.group_id
+    options = tuple(
+        sorted(
+            (
+                "device=tmpfs",
+                (
+                    "o=nodev,nosuid,noswap,"
+                    f"size={limits.runtime_volume_size_bytes},"
+                    f"nr_inodes={limits.runtime_volume_inode_limit},"
+                    f"mode=0700,uid={user_id},gid={group_id}"
+                ),
+                "type=tmpfs",
+            )
+        )
+    )
+    return RunActionRuntimeVolumeAuthority.mint(
+        preparation_claim_id=claim.preparation_claim_id,
+        volume_name=preparation_volume_name(claim),
+        labels=preparation_volume_labels(claim),
+        driver="local",
+        driver_options=options,
+        generation_nonce=nonce,
+        sentinel_relative_path=".kapso-generation",
+        sentinel_identity=runtime_volume_sentinel_identity(nonce),
+        owner_user_id=user_id,
+        owner_group_id=group_id,
+        root_mode=0o700,
+        size_limit_bytes=limits.runtime_volume_size_bytes,
+        inode_limit=limits.runtime_volume_inode_limit,
+        nosuid=True,
+        nodev=True,
+        noswap=True,
+        execution_allowed=True,
+    )
+
+
+def _prepared_file(claim, authority, kind):
+    limits = {
+        RunActionPreparedFileKind.INPUT: claim.reservation.request_blob.size_bytes,
+        RunActionPreparedFileKind.RESULT: (
             claim.execution_policy.supervisor_limits.result_size_bytes
         ),
-        RunActionPreparedSlotKind.CREDENTIAL: (
+        RunActionPreparedFileKind.CREDENTIAL: (
             claim.execution_policy.credential_policy.maximum_delivery_size_bytes
         ),
     }
-    position = tuple(RunActionPreparedSlotKind).index(kind)
-    descriptor_walk = RunActionDescriptorWalkObservation.mint(
-        root_authority_id=_fixture_content_id(
-            "run-action-storage-root-authority",
-            "supervisor-slots",
-        ),
-        resolution_protocol_version="openat2-beneath-no-symlink.v1",
-        nodes=(
-            _filesystem_node(
-                mount_id=1,
-                device=1,
-                inode=2,
-                generation=1,
-            ),
-            _filesystem_node(
-                mount_id=1,
-                device=201,
-                inode=211 + inode_offset,
-                generation=11 + inode_offset,
-            ),
-            _filesystem_node(
-                mount_id=1,
-                device=201,
-                inode=401 + position + inode_offset,
-                generation=21 + position + inode_offset,
-            ),
-        ),
-    )
-    return RunActionPreparedSlot.mint(
+    paths = {
+        RunActionPreparedFileKind.INPUT: "input/request.blob",
+        RunActionPreparedFileKind.RESULT: "result/result.blob",
+        RunActionPreparedFileKind.CREDENTIAL: "credential/credentials",
+    }
+    return RunActionPreparedFile.mint(
         preparation_claim_id=claim.preparation_claim_id,
+        runtime_volume_authority_id=authority.runtime_volume_authority_id,
+        generation_nonce=authority.generation_nonce,
         kind=kind,
-        descriptor_walk=descriptor_walk,
-        quota_observation=RunActionQuotaObservation.mint(
-            preparation_claim_id=claim.preparation_claim_id,
-            slot_kind=kind,
-            leaf_identity=descriptor_walk.nodes[-1].identity,
-            quota_backend_authority_id=_fixture_content_id(
-                "run-action-quota-backend-authority",
-                "project-quota",
-            ),
-            filesystem_instance_id="test.slot.filesystem",
-            filesystem_mount_id=descriptor_walk.nodes[-1].identity.mount_id,
-            filesystem_device=descriptor_walk.nodes[-1].identity.device,
-            exclusive_scope_id=quota_scope_id(
-                claim.preparation_claim_id,
-                kind,
-                descriptor_walk.nodes[-1].identity,
-            ),
-            enabled=True,
-            enforced=True,
-            hard_size_bytes=maximum_sizes[kind],
-            hard_entry_count=1,
-            current_size_bytes=0,
-            current_entry_count=0,
-        ),
-        expected_owner_user_id=1000,
-        expected_owner_group_id=1000,
-        expected_mode=0o700,
-        container_destination=destinations[kind],
-        payload_size_limit_bytes=maximum_sizes[kind],
+        relative_path=paths[kind],
+        file_type="regular",
+        owner_user_id=claim.execution_policy.user_id,
+        owner_group_id=claim.execution_policy.group_id,
+        mode=0o600,
+        link_count=1,
+        size_bytes=0,
+        payload_size_limit_bytes=limits[kind],
     )
 
 
-def _filesystem_node(*, mount_id, device, inode, generation):
-    return RunActionFilesystemNodeObservation(
-        identity=RunActionFilesystemIdentity(
-            mount_id=mount_id,
-            device=device,
-            inode=inode,
-            inode_generation=generation,
+def _mounts(claim, volume_name):
+    filesystem = claim.execution_policy.filesystem_policy
+    specifications = [
+        (
+            RunActionPreparedMountKind.INPUT,
+            "input",
+            filesystem.input_destination,
+            RunActionPreparedMountAccess.READ_ONLY,
         ),
-        file_type="directory",
-        owner_user_id=1000,
-        owner_group_id=1000,
-        mode=0o700,
-        unexpected_acl_count=0,
-        unexpected_link_count=0,
-    )
-
-
-def _workspace_walk(claim):
-    workspace = claim.reservation.frontier.workspace_before
-    if workspace is None:
-        raise AssertionError("workspace walk requires one workspace binding")
-    return RunActionDescriptorWalkObservation.mint(
-        root_authority_id=_fixture_content_id(
-            "run-action-storage-root-authority",
-            "workspace",
+        (
+            RunActionPreparedMountKind.RESULT,
+            "result",
+            filesystem.result_destination,
+            RunActionPreparedMountAccess.READ_WRITE,
         ),
-        resolution_protocol_version="openat2-beneath-no-symlink.v1",
-        nodes=(
-            _filesystem_node(
-                mount_id=2,
-                device=2,
-                inode=3,
-                generation=1,
-            ),
-            _filesystem_node(
-                mount_id=2,
-                device=workspace.workspace_device,
-                inode=workspace.workspace_inode,
-                generation=2,
-            ),
+        (
+            RunActionPreparedMountKind.TEMPORARY,
+            "temporary",
+            filesystem.temporary_filesystem_destination,
+            RunActionPreparedMountAccess.READ_WRITE,
         ),
-    )
-
-
-def _mounts(claim, slots):
-    mounts = [
-        RunActionPreparedMount(
-            kind={
-                RunActionPreparedSlotKind.INPUT: RunActionPreparedMountKind.INPUT,
-                RunActionPreparedSlotKind.RESULT: RunActionPreparedMountKind.RESULT,
-                RunActionPreparedSlotKind.CREDENTIAL: (
-                    RunActionPreparedMountKind.CREDENTIAL
-                ),
-            }[slot.kind],
-            prepared_slot_id=slot.prepared_slot_id,
-            source_walk=slot.descriptor_walk,
-            container_destination=slot.container_destination,
-            mount_type="bind",
-            access=(
-                RunActionPreparedMountAccess.READ_WRITE
-                if slot.kind is RunActionPreparedSlotKind.RESULT
-                else RunActionPreparedMountAccess.READ_ONLY
-            ),
-            bind_propagation="rprivate",
-            recursive_read_only=slot.kind is not RunActionPreparedSlotKind.RESULT,
-            nested_mount_count=0,
-        )
-        for slot in slots
     ]
-    workspace_access = claim.reservation.intent.workspace_access
-    if workspace_access is not RunFrontierWorkspaceAccess.NONE:
-        mounts.append(
-            RunActionPreparedMount(
-                kind=RunActionPreparedMountKind.WORKSPACE,
-                prepared_slot_id=None,
-                source_walk=_workspace_walk(claim),
-                container_destination=(
-                    claim.execution_policy.filesystem_policy.workspace_destination
-                ),
-                mount_type="bind",
-                access=(
-                    RunActionPreparedMountAccess.READ_WRITE
-                    if workspace_access is RunFrontierWorkspaceAccess.EDIT_WORKSPACE
-                    else RunActionPreparedMountAccess.READ_ONLY
-                ),
-                bind_propagation="rprivate",
-                recursive_read_only=(
-                    workspace_access is not RunFrontierWorkspaceAccess.EDIT_WORKSPACE
-                ),
-                nested_mount_count=0,
+    if filesystem.credential_destination is not None:
+        specifications.append(
+            (
+                RunActionPreparedMountKind.CREDENTIAL,
+                "credential",
+                filesystem.credential_destination,
+                RunActionPreparedMountAccess.READ_ONLY,
             )
         )
-    return tuple(sorted(mounts, key=lambda mount: mount.container_destination))
+    if filesystem.workspace_destination is not None:
+        specifications.append(
+            (
+                RunActionPreparedMountKind.WORKSPACE,
+                "workspace",
+                filesystem.workspace_destination,
+                (
+                    RunActionPreparedMountAccess.READ_WRITE
+                    if filesystem.workspace_access
+                    is RunFrontierWorkspaceAccess.EDIT_WORKSPACE
+                    else RunActionPreparedMountAccess.READ_ONLY
+                ),
+            )
+        )
+    return tuple(
+        sorted(
+            (
+                RunActionPreparedMount(
+                    kind=kind,
+                    volume_name=volume_name,
+                    volume_subpath=subpath,
+                    container_destination=destination,
+                    mount_type="volume",
+                    source_access=RunActionPreparedMountAccess.READ_WRITE,
+                    container_access=access,
+                    host_config_volume_subpath=subpath,
+                )
+                for kind, subpath, destination, access in specifications
+            ),
+            key=lambda mount: mount.container_destination,
+        )
+    )
 
 
 def _prepared_execution(
@@ -575,34 +547,183 @@ def _prepared_execution(
     inode_offset=0,
 ):
     claim = _claim() if claim is None else claim
-    input_slot = _slot(
-        claim,
-        RunActionPreparedSlotKind.INPUT,
-        inode_offset=inode_offset,
+    nonce = f"{inode_offset + 1:032x}"
+    authority = _volume_authority(claim, nonce=nonce)
+    sentinel_evidence = RunActionRuntimeVolumeSentinelEvidence.mint(
+        runtime_volume_authority_id=authority.runtime_volume_authority_id,
+        generation_nonce=authority.generation_nonce,
+        relative_path=".kapso-generation",
+        file_type="regular",
+        owner_user_id=claim.execution_policy.user_id,
+        owner_group_id=claim.execution_policy.group_id,
+        mode=0o400,
+        link_count=1,
+        size_bytes=len(authority.generation_nonce),
+        content_digest=tree_or_blob_digest(authority.generation_nonce.encode("ascii")),
+        mount_id=1000 + inode_offset,
+        device=500,
+        inode=10000 + inode_offset,
     )
-    result_slot = _slot(
-        claim,
-        RunActionPreparedSlotKind.RESULT,
-        inode_offset=inode_offset,
-    )
-    credential_slot = (
+    input_file = _prepared_file(claim, authority, RunActionPreparedFileKind.INPUT)
+    result_file = _prepared_file(claim, authority, RunActionPreparedFileKind.RESULT)
+    credential_file = (
         None
         if claim.execution_policy.credential_policy.mode is RunActionCredentialMode.NONE
-        else _slot(
+        else _prepared_file(
             claim,
-            RunActionPreparedSlotKind.CREDENTIAL,
-            inode_offset=inode_offset,
+            authority,
+            RunActionPreparedFileKind.CREDENTIAL,
         )
     )
-    slots = tuple(
-        slot for slot in (input_slot, result_slot, credential_slot) if slot is not None
+    files = tuple(
+        prepared_file
+        for prepared_file in (input_file, result_file, credential_file)
+        if prepared_file is not None
     )
     policy = claim.execution_policy
+    workspace_binding = claim.reservation.frontier.workspace_before
+    workspace_proof = (
+        None
+        if workspace_binding is None
+        else RunActionPreparedWorkspaceProof.mint(
+            preparation_claim_id=claim.preparation_claim_id,
+            runtime_volume_authority_id=authority.runtime_volume_authority_id,
+            generation_nonce=authority.generation_nonce,
+            volume_subpath="workspace",
+            workspace_binding=workspace_binding,
+            observed_source_tree_digest=workspace_binding.source_tree_digest,
+            observed_git_closure_digest=workspace_binding.git_closure_digest,
+            observed_source_entry_count=workspace_binding.source_entry_count,
+            observed_source_size_bytes=workspace_binding.source_size_bytes,
+            owner_user_id=policy.user_id,
+            owner_group_id=policy.group_id,
+            root_mode=0o700,
+            unexpected_entry_count=0,
+        )
+    )
+    directories = tuple(
+        sorted(
+            {
+                "input",
+                "result",
+                "temporary",
+                *(("credential",) if credential_file is not None else ()),
+                *(("workspace",) if workspace_proof is not None else ()),
+            }
+        )
+    )
+    workspace_size = (
+        0 if workspace_binding is None else workspace_binding.source_size_bytes
+    )
+    workspace_entries = (
+        0 if workspace_binding is None else workspace_binding.source_entry_count
+    )
+    logical_entry_count = len(directories) + len(files) + 1 + workspace_entries
+    observed_used_size = 32768
+    observed_used_inodes = logical_entry_count + 2
+    volume_evidence = RunActionRuntimeVolumeEvidence.mint(
+        volume_authority=authority,
+        observed_volume_name=authority.volume_name,
+        observed_labels=authority.labels,
+        observed_scope="local",
+        observed_driver=authority.driver,
+        observed_driver_options=authority.driver_options,
+        observed_filesystem_type="tmpfs",
+        observed_mount_flags=("nodev", "nosuid", "noswap"),
+        observed_owner_user_id=authority.owner_user_id,
+        observed_owner_group_id=authority.owner_group_id,
+        observed_root_mode=authority.root_mode,
+        allocation_block_size_bytes=4096,
+        effective_block_count=authority.size_limit_bytes // 4096,
+        effective_size_bytes=authority.size_limit_bytes,
+        effective_inode_limit=authority.inode_limit,
+        used_block_count=observed_used_size // 4096,
+        used_size_bytes=observed_used_size,
+        used_inode_count=observed_used_inodes,
+        available_block_count=(
+            authority.size_limit_bytes // 4096 - observed_used_size // 4096
+        ),
+        available_size_bytes=authority.size_limit_bytes - observed_used_size,
+        available_inode_count=authority.inode_limit - observed_used_inodes,
+        sentinel_evidence=sentinel_evidence,
+    )
+    layout_proof = RunActionRuntimeVolumeLayoutProof.mint(
+        runtime_volume_authority_id=authority.runtime_volume_authority_id,
+        generation_nonce=authority.generation_nonce,
+        empty_size_bytes=0,
+        empty_entry_count=0,
+        directory_relative_paths=directories,
+        prepared_file_ids=tuple(
+            sorted(prepared_file.prepared_file_id for prepared_file in files)
+        ),
+        prepared_workspace_proof_id=(
+            None
+            if workspace_proof is None
+            else workspace_proof.prepared_workspace_proof_id
+        ),
+        logical_content_size_bytes=len(authority.generation_nonce) + workspace_size,
+        logical_entry_count=logical_entry_count,
+        observed_used_size_bytes=observed_used_size,
+        observed_used_inode_count=observed_used_inodes,
+        unexpected_entry_count=0,
+    )
+    helper_evidence = RunActionKeeperHelperEvidence.mint(
+        helper_authority_id=policy.keeper_helper_executable_authority_id,
+        source_path=policy.keeper_helper_source_path,
+        destination="/kapso-supervisor/busybox",
+        mount_type="bind",
+        mount_access=RunActionPreparedMountAccess.READ_ONLY,
+        recursive_bind=False,
+        file_type="regular",
+        owner_user_id=0,
+        owner_group_id=0,
+        mode=0o755,
+        link_count=1,
+        file_format="elf",
+        dynamic_dependency_count=0,
+        elf_interpreter_present=False,
+        executable_digest=policy.keeper_helper_executable_digest,
+        mount_id=3000 + inode_offset,
+        device=700,
+        inode=800,
+    )
+    keeper_projection = DockerRunActionKeeperCreateInspectProjection.mint(
+        projection_protocol_version=policy.projection_protocol_version,
+        raw_field_schema_id=policy.raw_field_schema_id,
+        preparation_claim_id=claim.preparation_claim_id,
+        execution_policy=policy,
+        volume_authority=authority,
+        command_executable="/kapso-supervisor/busybox",
+        command_arguments=("tail", "-f", "/dev/null"),
+        helper_evidence=helper_evidence,
+        volume_mount_type="volume",
+        volume_mount_destination="/kapso/runtime-volume",
+        volume_mount_access=RunActionPreparedMountAccess.READ_WRITE,
+        network_mode="none",
+        exact_mount_count=2,
+        healthcheck_present=False,
+        docker_socket_mounted=False,
+        unclassified_raw_field_count=0,
+        nonauthoritative_raw_field_count=4,
+    )
+    keeper_evidence = RunActionVolumeKeeperEvidence.mint(
+        preparation_claim_id=claim.preparation_claim_id,
+        container_id=f"{inode_offset + 2:064x}",
+        container_name=preparation_keeper_container_name(claim),
+        labels=preparation_keeper_container_labels(claim),
+        issued_create_projection=keeper_projection,
+        observed_inspect_projection=keeper_projection,
+        container_status="running",
+        process_id=1000 + inode_offset,
+        restart_count=0,
+        restart_policy_name="no",
+        auto_remove=False,
+    )
     issued_projection = DockerRunActionCreateInspectProjection.mint(
         projection_protocol_version=policy.projection_protocol_version,
         raw_field_schema_id=policy.raw_field_schema_id,
         execution_policy=policy,
-        mounts=_mounts(claim, slots),
+        mounts=_mounts(claim, authority.volume_name),
         unclassified_raw_field_count=0,
         nonauthoritative_raw_field_count=4,
     )
@@ -631,9 +752,14 @@ def _prepared_execution(
     )
     return RunActionPreparedExecution.mint(
         preparation_claim=claim,
-        input_slot=input_slot,
-        result_slot=result_slot,
-        credential_slot=credential_slot,
+        runtime_volume_authority=authority,
+        runtime_volume_evidence=volume_evidence,
+        volume_keeper_evidence=keeper_evidence,
+        input_file=input_file,
+        result_file=result_file,
+        credential_file=credential_file,
+        workspace_proof=workspace_proof,
+        layout_proof=layout_proof,
         inert_container_evidence=evidence,
     )
 
@@ -666,6 +792,29 @@ def _evidence_with_projection(evidence, projection):
     )
 
 
+def _remint_contract(contract, **changes):
+    values = {
+        key: value
+        for key, value in contract.to_dict().items()
+        if key != contract.IDENTITY_FIELD
+    }
+    values.update(changes)
+    return type(contract).mint(**values)
+
+
+def _volume_with_added_blocks(evidence, added_block_count):
+    block_size = evidence.allocation_block_size_bytes
+    return _remint_contract(
+        evidence,
+        used_block_count=evidence.used_block_count + added_block_count,
+        used_size_bytes=(evidence.used_size_bytes + added_block_count * block_size),
+        available_block_count=(evidence.available_block_count - added_block_count),
+        available_size_bytes=(
+            evidence.available_size_bytes - added_block_count * block_size
+        ),
+    )
+
+
 def test_prepared_execution_round_trips_with_complete_content_identity():
     prepared = _prepared_execution()
 
@@ -682,69 +831,47 @@ def test_prepared_execution_round_trips_with_complete_content_identity():
 
 def test_activation_revalidation_binds_fresh_exact_prepared_observations():
     prepared = _prepared_execution()
-    input_observation = _activated_slot_observation(
-        prepared.input_slot,
-        current_size_bytes=(
-            prepared.preparation_claim.reservation.request_blob.size_bytes
-        ),
-        current_entry_count=1,
+    spawn = _spawn_commit(prepared)
+    request_blob = prepared.preparation_claim.reservation.request_blob
+    input_observation = _activated_file_observation(
+        prepared.input_file,
+        size_bytes=request_blob.size_bytes,
+        content_digest=request_blob.digest,
+        content_authority_id=request_blob.request_blob_id,
     )
-    result_observation = _activated_slot_observation(
-        prepared.result_slot,
-        current_size_bytes=0,
-        current_entry_count=0,
+    result_observation = _activated_file_observation(
+        prepared.result_file,
+        size_bytes=0,
+        content_digest=None,
+        content_authority_id=None,
     )
-    credential_observation = _activated_slot_observation(
-        prepared.credential_slot,
-        current_size_bytes=32,
-        current_entry_count=1,
+    credential_observation = _activated_file_observation(
+        prepared.credential_file,
+        size_bytes=32,
+        content_digest=None,
+        content_authority_id="test.credential.lease",
+    )
+    reobserved_volume = _volume_with_added_blocks(
+        prepared.runtime_volume_evidence,
+        2,
     )
     receipt = RunActionActivationRevalidationReceipt.mint(
         prepared_execution=prepared,
-        spawn_commit=_spawn_commit(prepared),
+        spawn_commit=spawn,
+        reobserved_volume_evidence=reobserved_volume,
+        reobserved_keeper_evidence=prepared.volume_keeper_evidence,
         reobserved_container_evidence=prepared.inert_container_evidence,
-        input_slot_observation=input_observation,
-        result_slot_observation=result_observation,
-        credential_slot_observation=credential_observation,
-        request_delivery_receipt=RunActionRequestDeliveryReceipt.mint(
-            prepared_execution_id=prepared.prepared_execution_id,
-            spawn_commit_id=_spawn_commit(prepared).spawn_commit_id,
-            input_slot_id=prepared.input_slot.prepared_slot_id,
-            request_blob_id=(
-                prepared.preparation_claim.reservation.request_blob.request_blob_id
-            ),
-            delivered_digest=(
-                prepared.preparation_claim.reservation.request_blob.digest
-            ),
-            delivered_size_bytes=(
-                prepared.preparation_claim.reservation.request_blob.size_bytes
-            ),
-            delivered_entry_count=1,
-            delivered_relative_name="request.blob",
-            delivered_file_type="regular",
-            delivered_owner_user_id=prepared.preparation_claim.execution_policy.user_id,
-            delivered_owner_group_id=prepared.preparation_claim.execution_policy.group_id,
-            delivered_mode=0o400,
-            delivered_link_count=1,
+        activated_workspace_observation=_activated_workspace_observation(
+            prepared,
+            spawn,
         ),
-        credential_delivery_receipt=RunActionCredentialDeliveryReceipt.mint(
-            prepared_execution_id=prepared.prepared_execution_id,
-            spawn_commit_id=_spawn_commit(prepared).spawn_commit_id,
-            credential_slot_id=prepared.credential_slot.prepared_slot_id,
-            credential_policy_id=(
-                prepared.preparation_claim.execution_policy.credential_policy.credential_policy_id
-            ),
-            lease_authority_id="test.credential.lease",
-            delivered_size_bytes=credential_observation.current_size_bytes,
-            delivered_entry_count=1,
-            delivered_relative_name="credentials",
-            delivered_file_type="regular",
-            delivered_owner_user_id=prepared.preparation_claim.execution_policy.user_id,
-            delivered_owner_group_id=prepared.preparation_claim.execution_policy.group_id,
-            delivered_mode=0o400,
-            delivered_link_count=1,
+        activated_sentinel_observation=_activated_sentinel_observation(
+            prepared,
+            spawn,
         ),
-        no_credentials_proof=None,
+        input_file_observation=input_observation,
+        result_file_observation=result_observation,
+        credential_file_observation=credential_observation,
     )
 
     assert (
@@ -759,124 +886,284 @@ def test_activation_revalidation_binds_fresh_exact_prepared_observations():
         match="prepared authority",
     ):
         replace(receipt, spawn_commit=_spawn_commit(foreign_prepared))
-    alternate_spawn = RunActionSpawnCommit.mint(
-        reservation_id=receipt.spawn_commit.reservation_id,
-        prepared_execution_id=receipt.spawn_commit.prepared_execution_id,
-        provider_execution_id=receipt.spawn_commit.provider_execution_id,
-        invocation_nonce="2" * 32,
-        security_observation_id=receipt.spawn_commit.security_observation_id,
-        boundary_identity=receipt.spawn_commit.boundary_identity,
-    )
     with pytest.raises(
-        RunActionSupervisorContractError,
-        match="prepared authority",
+        ContractValidationError,
+        match="must be an object",
     ):
-        replace(receipt, spawn_commit=alternate_spawn)
-
-    substituted_delivery = RunActionRequestDeliveryReceipt.mint(
-        **{
-            key: value
-            for key, value in receipt.request_delivery_receipt.to_dict().items()
-            if key != "request_delivery_receipt_id"
-        }
-        | {"delivered_digest": tree_or_blob_digest(b"same-size-substitute")}
-    )
-    with pytest.raises(
-        RunActionSupervisorContractError,
-        match="prepared authority",
-    ):
-        replace(receipt, request_delivery_receipt=substituted_delivery)
-
-    with pytest.raises(RunActionSupervisorContractError, match="request delivery"):
         replace(
-            receipt.request_delivery_receipt,
-            delivered_file_type="symlink",
+            receipt,
+            activated_workspace_observation=prepared.workspace_proof,
+        )
+    wrong_spawn = _spawn_commit(
+        prepared,
+        invocation_nonce="2" * 32,
+    )
+    wrong_spawn_workspace = _activated_workspace_observation(
+        prepared,
+        wrong_spawn,
+    )
+    with pytest.raises(
+        RunActionSupervisorContractError,
+        match="prepared authority",
+    ):
+        replace(
+            receipt,
+            activated_workspace_observation=wrong_spawn_workspace,
+        )
+    moved_sentinel = _remint_contract(
+        receipt.activated_sentinel_observation,
+        inode=receipt.activated_sentinel_observation.inode + 1,
+    )
+    with pytest.raises(
+        RunActionSupervisorContractError,
+        match="prepared authority",
+    ):
+        replace(
+            receipt,
+            activated_sentinel_observation=moved_sentinel,
+        )
+    wrong_spawn_sentinel = _activated_sentinel_observation(
+        prepared,
+        wrong_spawn,
+    )
+    with pytest.raises(
+        RunActionSupervisorContractError,
+        match="prepared authority",
+    ):
+        replace(
+            receipt,
+            activated_sentinel_observation=wrong_spawn_sentinel,
+        )
+    substituted_delivery = _remint_contract(
+        receipt.input_file_observation,
+        content_digest=tree_or_blob_digest(b"same-size-substitute"),
+    )
+    with pytest.raises(
+        RunActionSupervisorContractError,
+        match="prepared authority",
+    ):
+        replace(receipt, input_file_observation=substituted_delivery)
+
+    with pytest.raises(RunActionSupervisorContractError, match="file observation"):
+        replace(
+            receipt.input_file_observation,
+            file_type="symlink",
+        )
+    incomplete_usage = _volume_with_added_blocks(
+        prepared.runtime_volume_evidence,
+        1,
+    )
+    with pytest.raises(RunActionSupervisorContractError, match="statfs usage"):
+        _remint_contract(
+            receipt,
+            reobserved_volume_evidence=incomplete_usage,
+        )
+    limits = prepared.preparation_claim.execution_policy.docker_resource_limits
+    block_size = reobserved_volume.allocation_block_size_bytes
+    remaining_bytes = (
+        prepared.result_file.payload_size_limit_bytes
+        + limits.runtime_temporary_reservation_size_bytes
+    )
+    exact_exhaustion = (
+        reobserved_volume.effective_size_bytes
+        - ((remaining_bytes + block_size - 1) // block_size) * block_size
+    )
+    exhausted_usage = _remint_contract(
+        reobserved_volume,
+        used_block_count=exact_exhaustion // block_size,
+        used_size_bytes=exact_exhaustion,
+        available_block_count=(
+            reobserved_volume.effective_block_count - exact_exhaustion // block_size
+        ),
+        available_size_bytes=(
+            reobserved_volume.effective_size_bytes - exact_exhaustion
+        ),
+    )
+    with pytest.raises(RunActionSupervisorContractError, match="headroom"):
+        _remint_contract(
+            receipt,
+            reobserved_volume_evidence=exhausted_usage,
         )
 
 
-def test_activation_revalidation_requires_positive_no_credentials_proof():
+def test_activation_revalidation_requires_exact_live_volume_generation_and_keeper():
+    prepared = _prepared_execution()
+    spawn = _spawn_commit(prepared)
+    request_blob = prepared.preparation_claim.reservation.request_blob
+    values = {
+        "prepared_execution": prepared,
+        "spawn_commit": spawn,
+        "reobserved_volume_evidence": _volume_with_added_blocks(
+            prepared.runtime_volume_evidence,
+            2,
+        ),
+        "reobserved_keeper_evidence": prepared.volume_keeper_evidence,
+        "reobserved_container_evidence": prepared.inert_container_evidence,
+        "activated_workspace_observation": _activated_workspace_observation(
+            prepared,
+            spawn,
+        ),
+        "activated_sentinel_observation": _activated_sentinel_observation(
+            prepared,
+            spawn,
+        ),
+        "input_file_observation": _activated_file_observation(
+            prepared.input_file,
+            size_bytes=request_blob.size_bytes,
+            content_digest=request_blob.digest,
+            content_authority_id=request_blob.request_blob_id,
+        ),
+        "result_file_observation": _activated_file_observation(
+            prepared.result_file,
+            size_bytes=0,
+            content_digest=None,
+            content_authority_id=None,
+        ),
+        "credential_file_observation": _activated_file_observation(
+            prepared.credential_file,
+            size_bytes=32,
+            content_digest=None,
+            content_authority_id="test.credential.lease",
+        ),
+    }
+    wrong_generation = _remint_contract(
+        values["input_file_observation"],
+        generation_nonce="f" * 32,
+    )
+    with pytest.raises(RunActionSupervisorContractError, match="prepared authority"):
+        RunActionActivationRevalidationReceipt.mint(
+            **values | {"input_file_observation": wrong_generation}
+        )
+    with pytest.raises(RunActionSupervisorContractError, match="prepared authority"):
+        RunActionActivationRevalidationReceipt.mint(
+            **values
+            | {
+                "reobserved_keeper_evidence": _prepared_execution(
+                    inode_offset=8
+                ).volume_keeper_evidence
+            }
+        )
+
+
+def test_activation_revalidation_uses_absence_for_credential_free_policy():
     policy = _execution_policy(
         kind=RunFrontierActionKind.EMBEDDING,
         workspace_access=RunFrontierWorkspaceAccess.NONE,
         credential_mode=RunActionCredentialMode.NONE,
     )
     prepared = _prepared_execution(claim=_claim(policy=policy))
+    spawn = _spawn_commit(prepared)
     request_blob = prepared.preparation_claim.reservation.request_blob
     receipt = RunActionActivationRevalidationReceipt.mint(
         prepared_execution=prepared,
-        spawn_commit=_spawn_commit(prepared),
+        spawn_commit=spawn,
+        reobserved_volume_evidence=_volume_with_added_blocks(
+            prepared.runtime_volume_evidence,
+            1,
+        ),
+        reobserved_keeper_evidence=prepared.volume_keeper_evidence,
         reobserved_container_evidence=prepared.inert_container_evidence,
-        input_slot_observation=_activated_slot_observation(
-            prepared.input_slot,
-            current_size_bytes=request_blob.size_bytes,
-            current_entry_count=1,
+        activated_workspace_observation=None,
+        activated_sentinel_observation=_activated_sentinel_observation(
+            prepared,
+            spawn,
         ),
-        result_slot_observation=_activated_slot_observation(
-            prepared.result_slot,
-            current_size_bytes=0,
-            current_entry_count=0,
+        input_file_observation=_activated_file_observation(
+            prepared.input_file,
+            size_bytes=request_blob.size_bytes,
+            content_digest=request_blob.digest,
+            content_authority_id=request_blob.request_blob_id,
         ),
-        credential_slot_observation=None,
-        request_delivery_receipt=RunActionRequestDeliveryReceipt.mint(
-            prepared_execution_id=prepared.prepared_execution_id,
-            spawn_commit_id=_spawn_commit(prepared).spawn_commit_id,
-            input_slot_id=prepared.input_slot.prepared_slot_id,
-            request_blob_id=request_blob.request_blob_id,
-            delivered_digest=request_blob.digest,
-            delivered_size_bytes=request_blob.size_bytes,
-            delivered_entry_count=1,
-            delivered_relative_name="request.blob",
-            delivered_file_type="regular",
-            delivered_owner_user_id=prepared.preparation_claim.execution_policy.user_id,
-            delivered_owner_group_id=prepared.preparation_claim.execution_policy.group_id,
-            delivered_mode=0o400,
-            delivered_link_count=1,
+        result_file_observation=_activated_file_observation(
+            prepared.result_file,
+            size_bytes=0,
+            content_digest=None,
+            content_authority_id=None,
         ),
-        credential_delivery_receipt=None,
-        no_credentials_proof=RunActionNoCredentialsProof.mint(
-            prepared_execution_id=prepared.prepared_execution_id,
-            spawn_commit_id=_spawn_commit(prepared).spawn_commit_id,
-            credential_policy_id=(
-                prepared.preparation_claim.execution_policy.credential_policy.credential_policy_id
-            ),
-        ),
+        credential_file_observation=None,
     )
 
-    assert receipt.credential_slot_observation is None
-    assert receipt.no_credentials_proof is not None
+    assert receipt.credential_file_observation is None
+    assert receipt.activated_workspace_observation is None
+    with pytest.raises(ContractValidationError, match="must be an object"):
+        replace(
+            receipt,
+            activated_workspace_observation=_prepared_execution().workspace_proof,
+        )
 
 
-def _spawn_commit(prepared):
+def _spawn_commit(prepared, *, invocation_nonce="1" * 32):
     reservation = prepared.preparation_claim.reservation
     return RunActionSpawnCommit.mint(
         reservation_id=reservation.reservation_id,
         prepared_execution_id=prepared.prepared_execution_id,
         provider_execution_id=prepared.inert_container_evidence.container_id,
-        invocation_nonce="1" * 32,
+        invocation_nonce=invocation_nonce,
         security_observation_id=reservation.frontier.security_observation_id,
         boundary_identity=reservation.intent.boundary_identity,
     )
 
 
-def _activated_slot_observation(
-    slot,
+def _activated_workspace_observation(prepared, spawn):
+    workspace = prepared.workspace_proof
+    if workspace is None:
+        raise AssertionError("activated workspace fixture requires a workspace")
+    return RunActionActivatedWorkspaceObservation.mint(
+        spawn_commit_id=spawn.spawn_commit_id,
+        prepared_workspace_proof_id=workspace.prepared_workspace_proof_id,
+        runtime_volume_authority_id=workspace.runtime_volume_authority_id,
+        generation_nonce=workspace.generation_nonce,
+        source_tree_digest=workspace.observed_source_tree_digest,
+        git_closure_digest=workspace.observed_git_closure_digest,
+        source_entry_count=workspace.observed_source_entry_count,
+        source_size_bytes=workspace.observed_source_size_bytes,
+        owner_user_id=workspace.owner_user_id,
+        owner_group_id=workspace.owner_group_id,
+        root_mode=workspace.root_mode,
+    )
+
+
+def _activated_sentinel_observation(prepared, spawn):
+    sentinel = prepared.runtime_volume_evidence.sentinel_evidence
+    return RunActionActivatedSentinelObservation.mint(
+        spawn_commit_id=spawn.spawn_commit_id,
+        prepared_sentinel_evidence_id=(sentinel.runtime_volume_sentinel_evidence_id),
+        runtime_volume_authority_id=sentinel.runtime_volume_authority_id,
+        generation_nonce=sentinel.generation_nonce,
+        relative_path=sentinel.relative_path,
+        file_type=sentinel.file_type,
+        owner_user_id=sentinel.owner_user_id,
+        owner_group_id=sentinel.owner_group_id,
+        mode=sentinel.mode,
+        link_count=sentinel.link_count,
+        size_bytes=sentinel.size_bytes,
+        content_digest=sentinel.content_digest,
+        mount_id=sentinel.mount_id,
+        device=sentinel.device,
+        inode=sentinel.inode,
+    )
+
+
+def _activated_file_observation(
+    prepared_file,
     *,
-    current_size_bytes,
-    current_entry_count,
+    size_bytes,
+    content_digest,
+    content_authority_id,
 ):
-    quota = slot.quota_observation
-    return RunActionActivatedSlotObservation.mint(
-        prepared_slot_id=slot.prepared_slot_id,
-        descriptor_walk=slot.descriptor_walk,
-        quota_backend_authority_id=quota.quota_backend_authority_id,
-        filesystem_instance_id=quota.filesystem_instance_id,
-        exclusive_scope_id=quota.exclusive_scope_id,
-        quota_enabled=quota.enabled,
-        quota_enforced=quota.enforced,
-        hard_size_bytes=quota.hard_size_bytes,
-        hard_entry_count=quota.hard_entry_count,
-        current_size_bytes=current_size_bytes,
-        current_entry_count=current_entry_count,
+    return RunActionActivatedFileObservation.mint(
+        prepared_file_id=prepared_file.prepared_file_id,
+        runtime_volume_authority_id=prepared_file.runtime_volume_authority_id,
+        generation_nonce=prepared_file.generation_nonce,
+        kind=prepared_file.kind,
+        file_type=prepared_file.file_type,
+        owner_user_id=prepared_file.owner_user_id,
+        owner_group_id=prepared_file.owner_group_id,
+        mode=prepared_file.mode,
+        link_count=prepared_file.link_count,
+        size_bytes=size_bytes,
+        content_digest=content_digest,
+        content_authority_id=content_authority_id,
     )
 
 
@@ -1062,6 +1349,36 @@ def test_lifecycle_policy_binding_rejects_alternate_valid_sandbox():
         )
 
 
+def test_lifecycle_policy_binding_pins_the_keeper_helper_bytes():
+    claim = _claim()
+    alternate_digest = tree_or_blob_digest(b"alternate keeper helper")
+    substituted_policy = _remint_policy(
+        claim.execution_policy,
+        keeper_helper_executable_authority_id=(
+            runtime_volume_keeper_helper_authority_id(
+                claim.execution_policy.keeper_helper_source_path,
+                alternate_digest,
+            )
+        ),
+        keeper_helper_executable_digest=alternate_digest,
+    )
+
+    assert (
+        substituted_policy.docker_execution_policy_id
+        != claim.execution_policy.docker_execution_policy_id
+    )
+    with pytest.raises(RunActionSupervisorContractError, match="durable reservation"):
+        RunActionPreparationClaim.mint(
+            reservation=claim.reservation,
+            execution_policy=substituted_policy,
+        )
+    with pytest.raises(RunActionSupervisorContractError, match="keeper helper"):
+        _remint_policy(
+            claim.execution_policy,
+            keeper_helper_executable_digest=alternate_digest,
+        )
+
+
 def test_execution_policy_exposes_only_renderable_resource_degrees_of_freedom():
     assert {
         "nano_cpus",
@@ -1075,7 +1392,11 @@ def test_execution_policy_exposes_only_renderable_resource_degrees_of_freedom():
         "block_io_write_iops_rule_ids",
         "ulimits",
         "open_file_limit",
+        "temporary_filesystem_size_bytes",
     }.isdisjoint({field.name for field in fields(DockerRunActionResourceLimits)})
+    assert {"stdout_size_bytes", "stderr_size_bytes"}.isdisjoint(
+        {field.name for field in fields(RunActionSupervisorLimits)}
+    )
     assert "safe_create_defaults" in {
         field.name for field in fields(DockerRunActionExecutionPolicy)
     }
@@ -1199,209 +1520,315 @@ def test_closed_projection_rejects_unclassified_or_wrong_version(
         replace(projection, **{field_name: value})
 
 
-def test_prepared_slot_rejects_changed_owner_mode_or_acl():
-    slot = _prepared_execution().result_slot
-    walk = slot.descriptor_walk
-    changed_leaf = replace(walk.nodes[-1], mode=0o755)
-    changed_walk = RunActionDescriptorWalkObservation.mint(
-        root_authority_id=walk.root_authority_id,
-        resolution_protocol_version=walk.resolution_protocol_version,
-        nodes=(*walk.nodes[:-1], changed_leaf),
-    )
-
-    with pytest.raises(RunActionSupervisorContractError, match="not private"):
-        RunActionPreparedSlot.mint(
-            preparation_claim_id=slot.preparation_claim_id,
-            kind=slot.kind,
-            descriptor_walk=changed_walk,
-            quota_observation=slot.quota_observation,
-            expected_owner_user_id=slot.expected_owner_user_id,
-            expected_owner_group_id=slot.expected_owner_group_id,
-            expected_mode=slot.expected_mode,
-            container_destination=slot.container_destination,
-            payload_size_limit_bytes=slot.payload_size_limit_bytes,
-        )
-
-
-def test_prepared_slot_rejects_disabled_or_unenforced_quota():
-    quota = _prepared_execution().result_slot.quota_observation
-
-    with pytest.raises(RunActionSupervisorContractError, match="quota"):
-        replace(quota, enforced=False)
-
-
-def test_prepared_slot_rejects_reused_or_oversized_quota_scope():
+def test_runtime_volume_binds_exact_docker_inspect_and_statfs_evidence():
     prepared = _prepared_execution()
-    input_slot = prepared.input_slot
+    authority = prepared.runtime_volume_authority
+    evidence = prepared.runtime_volume_evidence
 
-    with pytest.raises(RunActionSupervisorContractError, match="exact leaf"):
-        RunActionPreparedSlot.mint(
-            preparation_claim_id=input_slot.preparation_claim_id,
-            kind=input_slot.kind,
-            descriptor_walk=input_slot.descriptor_walk,
-            quota_observation=prepared.result_slot.quota_observation,
-            expected_owner_user_id=input_slot.expected_owner_user_id,
-            expected_owner_group_id=input_slot.expected_owner_group_id,
-            expected_mode=input_slot.expected_mode,
-            container_destination=input_slot.container_destination,
-            payload_size_limit_bytes=input_slot.payload_size_limit_bytes,
-        )
-
-    oversized_quota = RunActionQuotaObservation.mint(
-        **{
-            key: value
-            for key, value in input_slot.quota_observation.to_dict().items()
-            if key != "quota_observation_id"
-        }
-        | {"hard_size_bytes": input_slot.payload_size_limit_bytes + 1}
+    assert authority.volume_name == preparation_volume_name(prepared.preparation_claim)
+    assert authority.labels == preparation_volume_labels(prepared.preparation_claim)
+    assert authority.driver_options == runtime_volume_driver_options(authority)
+    assert "noswap" in authority.driver_options[1]
+    assert evidence.observed_scope == "local"
+    assert evidence.observed_volume_name == authority.volume_name
+    assert evidence.observed_labels == authority.labels
+    assert evidence.used_size_bytes == prepared.layout_proof.observed_used_size_bytes
+    assert evidence.used_inode_count == prepared.layout_proof.observed_used_inode_count
+    assert evidence.used_size_bytes == (
+        evidence.used_block_count * evidence.allocation_block_size_bytes
     )
-    with pytest.raises(RunActionSupervisorContractError, match="exact leaf"):
-        RunActionPreparedSlot.mint(
-            preparation_claim_id=input_slot.preparation_claim_id,
-            kind=input_slot.kind,
-            descriptor_walk=input_slot.descriptor_walk,
-            quota_observation=oversized_quota,
-            expected_owner_user_id=input_slot.expected_owner_user_id,
-            expected_owner_group_id=input_slot.expected_owner_group_id,
-            expected_mode=input_slot.expected_mode,
-            container_destination=input_slot.container_destination,
-            payload_size_limit_bytes=input_slot.payload_size_limit_bytes,
+    assert (
+        evidence.used_block_count + evidence.available_block_count
+        == evidence.effective_block_count
+    )
+    assert (
+        evidence.used_size_bytes + evidence.available_size_bytes
+        == evidence.effective_size_bytes
+    )
+    assert (
+        evidence.used_inode_count + evidence.available_inode_count
+        == evidence.effective_inode_limit
+    )
+
+    with pytest.raises(RunActionSupervisorContractError, match="authority is invalid"):
+        replace(authority, noswap=False)
+    with pytest.raises(RunActionSupervisorContractError, match="bounded tmpfs"):
+        replace(
+            evidence,
+            available_block_count=evidence.available_block_count - 1,
+        )
+    with pytest.raises(RunActionSupervisorContractError, match="bounded tmpfs"):
+        replace(evidence, observed_scope="global")
+    with pytest.raises(RunActionSupervisorContractError, match="bounded tmpfs"):
+        replace(evidence, observed_labels=())
+
+
+def test_runtime_volume_sentinel_is_one_stable_physical_file():
+    prepared = _prepared_execution()
+    sentinel = prepared.runtime_volume_evidence.sentinel_evidence
+
+    assert sentinel.relative_path == ".kapso-generation"
+    assert sentinel.file_type == "regular"
+    assert sentinel.mode == 0o400
+    assert sentinel.link_count == 1
+    assert sentinel.content_digest == tree_or_blob_digest(
+        sentinel.generation_nonce.encode("ascii")
+    )
+    assert (sentinel.mount_id, sentinel.device, sentinel.inode) == (
+        1000,
+        500,
+        10000,
+    )
+    with pytest.raises(RunActionSupervisorContractError, match="stable physical file"):
+        replace(sentinel, file_type="symlink")
+    with pytest.raises(RunActionSupervisorContractError, match="stable physical file"):
+        replace(sentinel, content_digest=tree_or_blob_digest(b"substitute"))
+
+
+def test_prepared_workspace_proves_the_observed_copied_tree_and_git_closure():
+    prepared = _prepared_execution()
+    workspace = prepared.workspace_proof
+    binding = prepared.preparation_claim.reservation.frontier.workspace_before
+
+    assert workspace.observed_source_tree_digest == binding.source_tree_digest
+    assert workspace.observed_git_closure_digest == binding.git_closure_digest
+    assert workspace.observed_source_entry_count == binding.source_entry_count
+    assert workspace.observed_source_size_bytes == binding.source_size_bytes
+    with pytest.raises(RunActionSupervisorContractError, match="incomplete"):
+        replace(
+            workspace,
+            observed_source_tree_digest=tree_or_blob_digest(b"substituted source"),
+        )
+    with pytest.raises(RunActionSupervisorContractError, match="incomplete"):
+        replace(workspace, observed_source_entry_count=binding.source_entry_count + 1)
+
+
+def test_prepared_logical_files_are_empty_private_regular_files():
+    prepared = _prepared_execution()
+
+    for prepared_file in (
+        prepared.input_file,
+        prepared.result_file,
+        prepared.credential_file,
+    ):
+        assert prepared_file.file_type == "regular"
+        assert prepared_file.mode == 0o600
+        assert prepared_file.link_count == 1
+        assert prepared_file.size_bytes == 0
+    with pytest.raises(RunActionSupervisorContractError, match="invalid or nonempty"):
+        replace(prepared.input_file, mode=0o400)
+    with pytest.raises(RunActionSupervisorContractError, match="invalid or nonempty"):
+        replace(prepared.result_file, link_count=2)
+
+
+def test_runtime_volume_keeper_binds_helper_and_exact_live_generation():
+    prepared = _prepared_execution()
+    keeper = prepared.volume_keeper_evidence
+    projection = keeper.issued_create_projection
+    policy = prepared.preparation_claim.execution_policy
+
+    assert keeper.container_status == "running"
+    assert projection.network_mode == "none"
+    helper = projection.helper_evidence
+    assert helper.helper_authority_id == (policy.keeper_helper_executable_authority_id)
+    assert helper.source_path == "/usr/bin/busybox"
+    assert helper.destination == "/kapso-supervisor/busybox"
+    assert helper.mount_access is RunActionPreparedMountAccess.READ_ONLY
+    assert helper.recursive_bind is False
+    assert (helper.owner_user_id, helper.owner_group_id, helper.mode) == (
+        0,
+        0,
+        0o755,
+    )
+    assert helper.dynamic_dependency_count == 0
+    assert helper.elf_interpreter_present is False
+    assert projection.volume_authority == prepared.runtime_volume_authority
+    assert (
+        prepared.runtime_volume_evidence.sentinel_evidence.runtime_volume_authority_id
+        == projection.volume_authority.runtime_volume_authority_id
+    )
+    with pytest.raises(RunActionSupervisorContractError, match="unsafe or substituted"):
+        replace(
+            helper,
+            recursive_bind=True,
+        )
+    substituted_source = "/opt/substituted/busybox"
+    substituted_helper = _remint_contract(
+        helper,
+        source_path=substituted_source,
+        helper_authority_id=runtime_volume_keeper_helper_authority_id(
+            substituted_source,
+            helper.executable_digest,
+        ),
+    )
+    with pytest.raises(RunActionSupervisorContractError, match="incomplete or unsafe"):
+        replace(projection, helper_evidence=substituted_helper)
+    changed_observation = _remint_contract(
+        projection,
+        nonauthoritative_raw_field_count=5,
+    )
+    with pytest.raises(RunActionSupervisorContractError, match="exact and running"):
+        _remint_contract(
+            keeper,
+            observed_inspect_projection=changed_observation,
+        )
+    aliased_keeper = _remint_contract(
+        keeper,
+        container_id=prepared.inert_container_evidence.container_id,
+    )
+    with pytest.raises(RunActionSupervisorContractError, match="evidence differs"):
+        replace(prepared, volume_keeper_evidence=aliased_keeper)
+    with pytest.raises(ContractValidationError, match="must be an object"):
+        replace(prepared, volume_keeper_evidence=None)
+
+
+def test_prepared_execution_requires_strict_byte_and_inode_headroom():
+    prepared = _prepared_execution()
+    evidence = prepared.runtime_volume_evidence
+    limits = prepared.preparation_claim.execution_policy.docker_resource_limits
+    block_size = evidence.allocation_block_size_bytes
+    allocated_file_bytes = sum(
+        ((size + block_size - 1) // block_size) * block_size
+        for size in (
+            prepared.input_file.payload_size_limit_bytes,
+            prepared.result_file.payload_size_limit_bytes,
+            prepared.credential_file.payload_size_limit_bytes,
+        )
+    )
+    exact_byte_cap = (
+        evidence.used_size_bytes
+        + allocated_file_bytes
+        + (
+            (limits.runtime_temporary_reservation_size_bytes + block_size - 1)
+            // block_size
+        )
+        * block_size
+    )
+    exhausted_bytes = _remint_contract(
+        evidence,
+        effective_block_count=exact_byte_cap // block_size,
+        effective_size_bytes=exact_byte_cap,
+        available_block_count=(
+            exact_byte_cap // block_size - evidence.used_block_count
+        ),
+        available_size_bytes=exact_byte_cap - evidence.used_size_bytes,
+    )
+    with pytest.raises(RunActionSupervisorContractError, match="positive byte"):
+        replace(prepared, runtime_volume_evidence=exhausted_bytes)
+
+    exact_inode_cap = (
+        evidence.used_inode_count + limits.runtime_temporary_reservation_inode_count
+    )
+    exhausted_inodes = _remint_contract(
+        evidence,
+        effective_inode_limit=exact_inode_cap,
+        available_inode_count=exact_inode_cap - evidence.used_inode_count,
+    )
+    with pytest.raises(RunActionSupervisorContractError, match="positive byte"):
+        replace(prepared, runtime_volume_evidence=exhausted_inodes)
+
+
+def test_main_mounts_hide_volume_root_and_sentinel_and_bind_hostconfig_subpath():
+    prepared = _prepared_execution()
+    projection = prepared.inert_container_evidence.issued_create_projection
+
+    assert all(
+        mount.volume_subpath not in (".", ".kapso-generation")
+        for mount in projection.mounts
+    )
+    assert all(
+        mount.host_config_volume_subpath == mount.volume_subpath
+        for mount in projection.mounts
+    )
+    with pytest.raises(RunActionSupervisorContractError, match="mount is invalid"):
+        replace(
+            projection.mounts[0],
+            volume_subpath=".",
+            host_config_volume_subpath=".",
+        )
+    with pytest.raises(RunActionSupervisorContractError, match="mount is invalid"):
+        replace(
+            projection.mounts[0],
+            volume_subpath=".kapso-generation",
+            host_config_volume_subpath=".kapso-generation",
         )
 
 
-def test_quota_observation_rejects_wrong_leaf_filesystem_binding():
-    quota = _prepared_execution().input_slot.quota_observation
+def test_main_mounts_reject_prefix_overlap_and_wrong_access():
+    prepared = _prepared_execution()
+    projection = prepared.inert_container_evidence.issued_create_projection
+    input_mount = next(
+        mount
+        for mount in projection.mounts
+        if mount.kind is RunActionPreparedMountKind.INPUT
+    )
+    result_mount = next(
+        mount
+        for mount in projection.mounts
+        if mount.kind is RunActionPreparedMountKind.RESULT
+    )
 
-    with pytest.raises(RunActionSupervisorContractError, match="quota"):
-        replace(quota, filesystem_device=quota.filesystem_device + 1)
+    with pytest.raises(RunActionSupervisorContractError, match="delivery mount"):
+        replace(
+            input_mount,
+            container_access=RunActionPreparedMountAccess.READ_WRITE,
+        )
+    with pytest.raises(RunActionSupervisorContractError, match="mount is invalid"):
+        replace(
+            input_mount,
+            source_access=RunActionPreparedMountAccess.READ_ONLY,
+        )
+    with pytest.raises(RunActionSupervisorContractError, match="output mount"):
+        replace(
+            result_mount,
+            container_access=RunActionPreparedMountAccess.READ_ONLY,
+        )
+    with pytest.raises(RunActionSupervisorContractError, match="mount is invalid"):
+        replace(
+            input_mount,
+            volume_subpath="result/input",
+            host_config_volume_subpath="result/input",
+        )
 
 
-def test_prepared_execution_rejects_slot_mount_substitution():
+def test_prepared_execution_rejects_main_mount_substitution():
     prepared = _prepared_execution()
     evidence = prepared.inert_container_evidence
     projection = evidence.issued_create_projection
     mounts = list(projection.mounts)
-    source_walk = mounts[0].source_walk
-    changed_leaf = replace(
-        source_walk.nodes[-1],
-        identity=replace(
-            source_walk.nodes[-1].identity,
-            inode=source_walk.nodes[-1].identity.inode + 1,
-            inode_generation=source_walk.nodes[-1].identity.inode_generation + 1,
-        ),
+    workspace_position = next(
+        position
+        for position, mount in enumerate(mounts)
+        if mount.kind is RunActionPreparedMountKind.WORKSPACE
     )
-    mounts[0] = replace(
-        mounts[0],
-        source_walk=RunActionDescriptorWalkObservation.mint(
-            root_authority_id=source_walk.root_authority_id,
-            resolution_protocol_version=source_walk.resolution_protocol_version,
-            nodes=(*source_walk.nodes[:-1], changed_leaf),
-        ),
+    mounts[workspace_position] = replace(
+        mounts[workspace_position],
+        container_access=RunActionPreparedMountAccess.READ_WRITE,
     )
     substituted_projection = _projection_with_mounts(projection, tuple(mounts))
-    substituted_evidence = _evidence_with_projection(
-        evidence,
-        substituted_projection,
-    )
 
     with pytest.raises(RunActionSupervisorContractError, match="evidence differs"):
-        RunActionPreparedExecution.mint(
-            preparation_claim=prepared.preparation_claim,
-            input_slot=prepared.input_slot,
-            result_slot=prepared.result_slot,
-            credential_slot=prepared.credential_slot,
-            inert_container_evidence=substituted_evidence,
-        )
-
-
-def test_prepared_execution_rejects_bind_source_aliasing():
-    prepared = _prepared_execution()
-    projection = prepared.inert_container_evidence.issued_create_projection
-    mounts = list(projection.mounts)
-    workspace_position = next(
-        position
-        for position, mount in enumerate(mounts)
-        if mount.kind is RunActionPreparedMountKind.WORKSPACE
-    )
-    workspace_mount = mounts[workspace_position]
-    workspace_walk = workspace_mount.source_walk
-    aliased_workspace_walk = RunActionDescriptorWalkObservation.mint(
-        root_authority_id=workspace_walk.root_authority_id,
-        resolution_protocol_version=workspace_walk.resolution_protocol_version,
-        nodes=(
-            *workspace_walk.nodes[:-1],
-            replace(
-                workspace_walk.nodes[-1],
-                identity=prepared.result_slot.descriptor_walk.nodes[-1].identity,
-            ),
-        ),
-    )
-    mounts[workspace_position] = replace(
-        workspace_mount,
-        source_walk=aliased_workspace_walk,
-    )
-    projection = _projection_with_mounts(
-        projection,
-        tuple(mounts),
-    )
-
-    with pytest.raises(RunActionSupervisorContractError, match="alias"):
-        RunActionPreparedExecution.mint(
-            preparation_claim=prepared.preparation_claim,
-            input_slot=prepared.input_slot,
-            result_slot=prepared.result_slot,
-            credential_slot=prepared.credential_slot,
+        replace(
+            prepared,
             inert_container_evidence=_evidence_with_projection(
-                prepared.inert_container_evidence,
-                projection,
-            ),
-        )
-
-
-def test_prepared_execution_rejects_nested_bind_sources():
-    prepared = _prepared_execution()
-    projection = prepared.inert_container_evidence.issued_create_projection
-    mounts = list(projection.mounts)
-    result_mount = next(
-        mount for mount in mounts if mount.kind is RunActionPreparedMountKind.RESULT
-    )
-    workspace_position = next(
-        position
-        for position, mount in enumerate(mounts)
-        if mount.kind is RunActionPreparedMountKind.WORKSPACE
-    )
-    workspace_mount = mounts[workspace_position]
-    workspace_walk = workspace_mount.source_walk
-    nested_workspace_walk = RunActionDescriptorWalkObservation.mint(
-        root_authority_id=workspace_walk.root_authority_id,
-        resolution_protocol_version=workspace_walk.resolution_protocol_version,
-        nodes=(
-            workspace_walk.nodes[0],
-            replace(
-                result_mount.source_walk.nodes[-1],
-                owner_user_id=workspace_walk.nodes[-1].owner_user_id,
-                owner_group_id=workspace_walk.nodes[-1].owner_group_id,
-            ),
-            workspace_walk.nodes[-1],
-        ),
-    )
-    mounts[workspace_position] = replace(
-        workspace_mount,
-        source_walk=nested_workspace_walk,
-    )
-    substituted_projection = _projection_with_mounts(projection, tuple(mounts))
-
-    with pytest.raises(RunActionSupervisorContractError, match="contain"):
-        RunActionPreparedExecution.mint(
-            preparation_claim=prepared.preparation_claim,
-            input_slot=prepared.input_slot,
-            result_slot=prepared.result_slot,
-            credential_slot=prepared.credential_slot,
-            inert_container_evidence=_evidence_with_projection(
-                prepared.inert_container_evidence,
+                evidence,
                 substituted_projection,
             ),
         )
+
+
+def test_old_host_quota_and_descriptor_contracts_are_not_exported():
+    legacy_names = {
+        "RunActionDescriptorWalkObservation",
+        "RunActionFilesystemIdentity",
+        "RunActionFilesystemNodeObservation",
+        "RunActionPreparedSlot",
+        "RunActionQuotaObservation",
+        "quota_scope_id",
+    }
+
+    assert legacy_names.isdisjoint(supervisor_contracts.__all__)
+    assert all(not hasattr(supervisor_contracts, name) for name in legacy_names)
 
 
 def test_inert_evidence_rejects_observed_projection_substitution():
@@ -1473,6 +1900,14 @@ def test_container_identity_has_no_prepared_execution_back_edge():
         first.inert_container_evidence.labels == second.inert_container_evidence.labels
     )
     assert first.prepared_execution_id != second.prepared_execution_id
+    labels = {label.key: label.value for label in first.inert_container_evidence.labels}
+    assert labels == {
+        "com.kapso.run-action.claim": (first.preparation_claim.preparation_claim_id),
+        "com.kapso.run-action.reservation": (
+            first.preparation_claim.reservation.reservation_id
+        ),
+        "com.kapso.run-action.role": "execution",
+    }
     label_values = {label.value for label in first.inert_container_evidence.labels}
     assert first.prepared_execution_id not in label_values
     assert not any(
@@ -1480,13 +1915,13 @@ def test_container_identity_has_no_prepared_execution_back_edge():
     )
 
 
-def test_credential_policy_and_slot_contracts_carry_no_secret_or_host_path_fields():
+def test_credential_policy_and_file_contracts_carry_no_secret_or_host_path_fields():
     forbidden_fragments = ("secret", "value", "host_path", "credential_path")
 
     for contract_type in (
         RunActionCredentialPolicy,
-        RunActionCredentialDeliveryReceipt,
-        RunActionPreparedSlot,
+        RunActionActivatedFileObservation,
+        RunActionPreparedFile,
     ):
         names = tuple(field.name for field in fields(contract_type))
         assert not any(
@@ -1494,7 +1929,7 @@ def test_credential_policy_and_slot_contracts_carry_no_secret_or_host_path_field
         )
 
 
-def test_credential_free_preparation_has_no_credential_slot_or_workspace_mount():
+def test_credential_free_preparation_has_no_credential_file_or_workspace_mount():
     policy = _execution_policy(
         kind=RunFrontierActionKind.EMBEDDING,
         workspace_access=RunFrontierWorkspaceAccess.NONE,
@@ -1502,11 +1937,12 @@ def test_credential_free_preparation_has_no_credential_slot_or_workspace_mount()
     )
     prepared = _prepared_execution(claim=_claim(policy=policy))
 
-    assert prepared.credential_slot is None
+    assert prepared.credential_file is None
     assert {
         mount.kind
         for mount in prepared.inert_container_evidence.issued_create_projection.mounts
     } == {
         RunActionPreparedMountKind.INPUT,
         RunActionPreparedMountKind.RESULT,
+        RunActionPreparedMountKind.TEMPORARY,
     }

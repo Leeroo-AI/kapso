@@ -836,7 +836,7 @@ def test_action_store_rejects_reused_prepared_container_identity(
             )
 
 
-def test_action_store_rejects_reused_prepared_filesystem_authority(
+def test_action_store_rejects_reused_runtime_volume_generation_authority(
     publisher_case,
 ):
     frontier, request_payload, first, workspace = _reserved_action(

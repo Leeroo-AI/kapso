@@ -490,58 +490,60 @@ SpawnCommit → single-use ActivationGrant
 execution lifecycle: the lifecycle identity contains its exact policy ID, and the
 preparation path resolves it rather than accepting a caller-selected policy.
 The policy binds the action kind, command-template implementation ID,
-content-addressed image authority, pinned runtime-settings digest, closed raw-field
-schema/projection versions, value-constrained non-secret static environment,
-UID/GID, filesystem and activation-network policies, non-secret credential
-policy, sandbox profiles and controls, all Docker-visible resource controls, and
-separate supervisor-only time/result bounds. No argv or dynamic string argument
-is durable. The adapter renders a fixed lifecycle-owned command in memory from
-the template and admitted in-container paths; requests travel only through the
-input slot and credentials only through the post-commit credential slot.
+content-addressed image and volume-keeper helper authorities, pinned
+runtime-settings digest, closed raw-field schema/projection versions,
+value-constrained non-secret static environment, UID/GID, filesystem and
+activation-network policies, non-secret credential policy, sandbox profiles and
+controls, the Docker controls that this host can actually enforce, and separate
+supervisor-only time/result bounds. No argv or dynamic string argument is
+durable. The adapter renders a fixed lifecycle-owned command in memory from the
+template and admitted in-container paths; requests travel only through the input
+file and credentials only through the post-commit credential file.
 `PreparationClaim` is deterministic before Docker allocation and embeds the
 complete validated reservation and exact policy. Independently valid IDs cannot
 be spliced across reservations, policies, or same-kind lifecycle implementations.
 
 `PreparedExecution` is deliberately an occurrence receipt, not a reusable
-semantic identity. It embeds the claim, empty supervisor-owned input/result/
-credential slot receipts, and exact Docker inspection evidence for one named
-container. Each slot receipt includes an ordered `openat2`-beneath/no-symlink
-root-to-leaf walk with mount, device, inode and inode-generation identities;
-private ownership/mode and ACL/link facts; and an enabled, enforced, exclusive
-logical-quota observation bound to the exact claim, slot kind, leaf identity,
-mount/device, filesystem authority, and deterministic scope. Its byte limit
-equals the admitted payload bound and its entry limit is exactly one; scopes are
-pairwise distinct across slots.
-All slot walks share one private claim-root prefix and distinct leaves. The
-workspace has a separately rooted walk tied back to the durable workspace
-device/inode binding.
-The name and complete label set derive only from `PreparationClaim`, avoiding a
-back-edge from Docker state to `PreparedExecution`. The evidence requires
-`created`, PID/restart count zero, zero start/finish timestamps, restart `no`,
-auto-remove false, network `none`, no healthcheck, no volume-plugin mount, no
-Docker-socket mount, and an exact bind-mount bijection to the workspace and
-prepared slots. Full descriptor-walk ancestry proves that no bind source equals,
-contains, or is contained by another; inode generation prevents same-inode reuse
-from passing a reopen, every bind has type `bind` and recursively-private
-propagation, read-only mounts are recursively read-only, and nested mounts are
-absent. This
-prevents a writable result mount from aliasing or enclosing a read-only workspace,
-input, or credential directory. Raw create/inspect objects are validated in
-memory and are not persisted. One versioned, content-addressed, normalized
-create/inspect projection must match exactly in both directions. Its pinned
-raw-field schema classifies every raw path as projected, required-literal,
-runtime-evidence, or explicitly nonauthoritative; an unknown/unclassified path
-fails. The projection covers the policy, template ID, static environment,
-UID/GID, hostname, working directory, CPU/NanoCPU/realtime,
-memory/reservation/swap/OOM/PID/block-I/O/ulimit/shm/tmpfs controls and flags,
-namespaces, devices, groups, cgroup parent, capabilities, sysctls, security
-profiles/options, protected system paths, runtime, logging, init, mount policy,
-ports/network adjuncts, volumes/storage adjuncts, process flags, and privilege
-policy. Unsafe adjuncts are explicit empty/false fields, never omissions.
-Supervisor time and output/result byte limits do not pretend to be Docker
-inspection facts.
-Credential records contain policy and slot authority only—never secret bytes or
-host credential paths.
+semantic identity. One deterministic local Docker volume name identifies one
+random generation. The volume is a keeper-mounted `tmpfs` with exact byte and
+inode ceilings, UID/GID and mode, and mandatory `nosuid,nodev,noswap`; execution
+remains allowed because coding actions may run workspace outputs. A physical
+generation sentinel proves the reopened generation by no-follow
+mount/device/inode identity, regular-file type, owner, mode, link count, size,
+and content digest. Exact Docker volume name, labels, scope, driver and options
+must agree with the issued authority. `statfs` supplies effective byte/inode
+limits and actual allocated usage; logical file sizes are not treated as storage
+enforcement.
+
+A running, network-free keeper is the sole mount owner. The execution policy
+pins the helper source path and digest. Keeper evidence proves the read-only,
+nonrecursive bind resolves to the exact root-owned, singly linked, static ELF
+file by mount/device/inode, mode, digest, and absence of an interpreter or
+dynamic dependencies. The main container never sees the volume root or sentinel.
+It receives only prefix-disjoint named-volume subpaths for workspace, input,
+result, optional credential delivery, and temporary storage. Input and
+credential mounts are read-only; result and temporary mounts are writable;
+workspace access exactly follows the reservation.
+Input/result/credential files are empty, private, singly linked regular files
+before spawn. The workspace is copied into the same bounded generation and its
+observed tree digest, Git-closure digest, entry count, and byte count must equal
+the durable frontier binding.
+
+The deterministic volume, keeper, and main-container names and complete role
+labels derive only from `PreparationClaim`, avoiding a back-edge from Docker
+state to `PreparedExecution`. Main evidence requires `created`, PID/restart count
+zero, zero start/finish timestamps, restart `no`, auto-remove false, network
+`none`, no healthcheck, no anonymous or plugin mount, and no Docker-socket mount.
+Keeper evidence requires a running, never-restarted, network-free occurrence and
+the exact helper and full-volume mount. Both create/inspect projections must
+match in both directions. Their pinned raw-field schemas classify every raw path
+as projected, required literal, runtime evidence, or explicitly
+nonauthoritative; an unknown path fails. Unsupported paper controls—NanoCPU,
+real-time CPU, swappiness, abstract block-I/O rules, per-file project quotas, and
+`RLIMIT_FSIZE` as a storage boundary—are absent rather than falsely claimed.
+Supervisor time and result-byte limits remain supervisor facts rather than
+Docker inspection facts. Credential records contain opaque authority and file
+shape only—never secret bytes or host credential paths.
 
 The action store now atomically persists one
 `PreparationClaim → PreparedExecution` occurrence before `SpawnCommit`.
@@ -557,15 +559,22 @@ file before any Docker or slot resource is created. Before `SpawnCommit`, the
 production supervisor may only create or reopen that exact inert resource;
 request bytes and credential leases remain absent. A post-commit, single-use
 `ActivationGrant` will bind the whole
-`PreparedExecution`, spawn commit, and either exact credential-lease
-receipts or a no-credentials proof. Only the supervisor may consume it to attach
-the admitted broker network, populate the already-mounted private delivery
-slots, and start the same container once. Immediately before start, it must issue
-a new `ActivationRevalidationReceipt` after rewalking every slot/workspace,
-rechecking quota enforcement and delivered input/result/credential shapes, and
-re-inspecting the still-never-started container. The serialized receipt is
-evidence only: a process-bound single-use lease keeps the reopened descriptors and
-workspace lock live and is the sole authority that may synchronously start.
+`PreparedExecution`, spawn commit, and either exact credential-lease receipts or
+a no-credentials proof. Only the supervisor may consume it to attach the
+admitted broker network, populate the prepared delivery files, and start the
+same container once. Immediately before start, it must issue a new
+`ActivationRevalidationReceipt` after re-inspecting the volume, physical
+generation sentinel, running keeper, copied workspace, delivered
+input/result/credential files, and still-never-started main container. Immutable
+volume facts must equal preparation; allocated usage and actual available
+blocks/bytes/inodes must form the exact `statfs` capacity relationship, and the
+fresh observation must retain positive result-plus-temporary headroom. Workspace
+and sentinel observations are distinct activation-time contracts bound to the
+exact spawn commit and their preparation evidence IDs; replaying a preparation
+object is not revalidation.
+The serialized receipt is evidence only: a process-bound single-use lease keeps
+the live resource authority and workspace lock and is the sole authority that
+may synchronously start.
 It embeds the exact typed spawn commit and delivery predecessors. Request delivery
 proves the fixed regular-file name, digest, size, owner/group, read-only mode, and
 single link; credential delivery proves the same structural facts plus its opaque
@@ -580,11 +589,12 @@ when no spawn commit exists. Terminal observation precedes result capture: the
 observation never refers forward to a capture, while the capture may bind that
 exact predecessor observation.
 
-The lifecycle-owned policy, claim, prepared-slot/walk/quota, closed projection,
-mount, inert-evidence, prepared-execution, activation-revalidation contracts,
+The lifecycle-owned policy, claim, bounded-volume/sentinel/workspace, closed
+projection, mount, inert-evidence, prepared-execution, activation-revalidation contracts,
 durable claim/prepared index, six-event store embedding, and process-bound
-preparation/activation capabilities are implemented. The mechanically constrained
-Docker/OS supervisor, concrete activation/result receipts, positive cleanup
+preparation/activation capabilities and bounded runtime-volume contracts are
+implemented. The mechanically constrained Docker/OS projection parser and
+resource manager, concrete activation/result receipts, positive cleanup
 authority, and production adapters remain the next slices.
 
 The coordinator owns one process-bound, non-clonable implementation catalog fixed
