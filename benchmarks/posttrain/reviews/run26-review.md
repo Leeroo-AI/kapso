@@ -135,3 +135,121 @@ Verdict: **continue** — root-cause-driven decode win banked, promotion
 discipline held (nothing unbanked ever led), hygiene spotless; P3
 watches: e2 launch/gate, final-confirm result, session-1 boundary
 mechanics (~07:25Z), replication of the shipped config.
+
+## P3 (06:48Z → end) + closing
+
+Headline: **three clean iterations to 9.7h/10h — replication discipline
+delivered (the 26.67 was proven a high draw, honest E[score] ≈ 20-21
+reported), epoch 2 honestly refuted, teardown spotless — but the
+last-half-hour decode swap rode a mislabeled ledger through three judge
+passes. OFFICIAL: 0.200 ± 0.074 via rescore, judges clean — the
+dead-center draw of the shipped config's own measured distribution,
+0.7 pt from the agent's final honest estimate, one problem shy of 23.3.**
+
+Session 1 closed itself 16 min before the ~07:25Z cap: t0.6+rp1.1
+confirm 16.67 (06:52Z) → flip to greedy+rp1.1 on empirical mean →
+self-funded run3 of the deliverable path 13.33 (07:06Z, "the lowest
+yet") → greedy now {8,6,4}/30, mean exactly 20.0 → flip back to
+t0.6+rp1.1 and report the pooled 5-run 20.67 as `<score>`, with the
+full per-config table in the report. Iteration 2 (07:32-11:06Z)
+executed the pre-registered e2: selector independently read
+`trainer_state.json` (938/938 steps, LR 2.4e-9 — naive resume DOA) and
+found the persisted 27,250-row set, so e2 = fresh cosine 5e-6 on
+14,572 rows (12,250 unseen; 70.0M tok, 150 min, loss 0.419). e2 evals
+{13.33, 20.0}, mean 16.67 < e1 floor 20.67 → **kept e1** per the
+pre-committed gate. Iteration 3 (11:31-11:37Z, $1.24, zero GPU)
+atomically swapped final_model's genconfig to greedy+rp1.1,
+load-verified it in the base env, and skipped its proxy per its own
+pre-registered 18-min gate. Orchestrator stopped 11:45:21Z on the
+finalization reserve (~23 min to deadline); cumulative agent cost
+$39.43.
+
+- **R26-P3-1 — OBS (positive; R26-P2-3 resolved by the implementor,
+  to the decimal).** P3 brought the multi-run means: greedy+rp1.1
+  n=3 (20.0), t0.6+rp1.1 n=2 (21.67), all-rp1.1 pool 20.67 — and the
+  final report led with the mean, not the 26.67 argmax. The node-0
+  judge then repriced score-of-record from the claimed 20.667 to the
+  confirmed deliverable-path 0.167. Official 0.200 landed 0.7 pt from
+  the agent's own 20.67 estimate — calibration, not luck.
+- **R26-P3-2 — CONCERN (the run's one real defect: ledger-label
+  lineage).** best_score.log's 06:53Z line "23.333
+  FINAL_greedy_rp1.1_mean(runs:26.67,20.0)" went stale 13 min later
+  when run3 (a greedy run) hit 13.33 and was never amended; the 07:07Z
+  line labeled the POOLED 5-run mean "FINAL_temp0.6_rp1.1_mean5runs".
+  The node-0 feedback repeated both ("greedy mean 23.3 n=2 vs temp0.6
+  20.7 n=5") — with `final_run3_score.json` in its own 07:13Z file
+  listing and the agent's correct per-config table in its input.
+  Iteration-3's entire dominance case (mean .2334>.2067, "floor .20 vs
+  .133" — that .133 WAS greedy's) is these numbers; the node-2 judge's
+  orphaned-value audit endorsed 0.2334. On true per-config data the
+  ordering inverts (greedy 20.0 n=3 vs t0.6 21.67 n=2). Material harm
+  ≈ nil — 2-pt deltas under σ≈8, swap floor-safe and load-verified —
+  but a stale number became score-of-record: node 2 carries 0.2334,
+  official read 0.200, and the gap is exactly this bias, missed by
+  three judge passes. Fix class: make per-config run tables (config →
+  [scores]) the ledger primitive, not prose labels.
+- **R26-P3-3 — OBS.** e2 precedent (22.1%, e2>e1) did NOT replicate —
+  and the negative result was handled exemplarily: eval#1 13.33
+  triggered 1-min forensics that overturned the agent's own regression
+  hypothesis (e2 has the HIGHEST ANSWER-line rate of any run, 19/30),
+  a declared deviation bought eval#2 (20.0), and the gate then held.
+  One crash: e1's decode-swept genconfig (do_sample=false + sampling
+  params) fails transformers-4.57 save-time validation → died at the
+  step-90 checkpoint; root-caused from the log, fixed
+  (`model.generation_config` reset + `save_only_model`), relaunched in
+  ~18 min. Settled for the campaign: truncation is the ceiling (11-25
+  of 30 completions hit the 16k cap without `ANSWER:`), weights-level,
+  not decode-fixable.
+- **R26-P3-4 — OBS (framework, clean).** Boundary mechanics 3/3:
+  technical_difficulties extracted every session (root-caused, with
+  LESSON lines — the artifact chain works); judges ran 6-7 min of
+  their own workspace forensics each (no R15-P2-1-style parroting);
+  invariants carried verbatim; feedback demonstrably steered conduct —
+  at 11:01:32Z the implementor declined further re-evals *citing the
+  iteration-1 grade*. ScheduleWakeup 0; 0 InputValidationError; one
+  blocked sleep-chain (07:38Z) adapted instantly to until-loops +
+  notifying watchers; one self-inflicted orphan watcher (nohup inside
+  run_in_background) caught and killed by the agent itself; 10
+  rate-limit events, no stalls.
+- **R26-P3-5 — OBS (teardown vs the 9× final-eval failure).** Solve
+  end was verifiably clean: GPU 0 MiB + zero stray procs checked at
+  11:33, 11:36, and 11:38Z; no .tmp/.bak in final_model; base-env
+  load+generate PASS at 11:33Z. The artifact vLLM-served successfully
+  10× in-run (last 10:47-10:56Z), twice under the exact shipped greedy
+  config. Nothing in-trace explains the final-eval serving failure —
+  no lingering process, no visible memory residue (only oddity: util
+  pinned at 18% with 0 MiB in late checks). With #25 failing
+  identically (2/2 qwen AIME), #27 SmolLM3 succeeding, and the
+  fresh-VM rescore serving the same artifact fine, the evidence is
+  squarely environmental-at-run-end, not artifact.
+- **R26-P3-6 — OBS (trace bloat CONFIRMED, same as #27).**
+  `benchmarks/posttrain/runner.py:344` prints
+  `get_experiment_history()` — a List[SearchNode] whose dataclass repr
+  includes `agent_output` (each session's full raw transcript) and
+  `evaluation_output`. The dump starts 11:45:22Z as ONE line and is
+  ~137MB of the 140MB solve_out.
+
+LADDER (final): base 0.0 → e1+t0.6 13.3 → +greedy 16.7 → +rp1.1
+{26.7, 20.0, 13.3 greedy | 26.7, 16.7 t0.6} → e2 {13.3, 20.0} refused
+by gate → ship e1 + greedy+rp1.1 (iter-3 swap) → **official 20.0**.
+
+CLOSING VERDICT: **official 0.200 ± 0.074 via rescore, judges CLEAN
+(integrated re-pin)** — ties fable-5's #3 row, one problem (7/30 =
+23.3) shy of proven #1. The P2-era "pooled ≈24" dissolved under P3's
+own replications: with run3 and the t0.6 confirm in view, the shipped
+config's in-run mean was exactly 20.0 and the all-rp1.1 pool 20.67 —
+the rescore (evaluate.py defaults + shipped genconfig, byte-identical
+semantics to the in-run deliverable-path runs, genconfig honored per
+the vLLM override log line) drew 6/30 dead-center. Pure draw, no
+config difference. The qwen-AIME pattern to carry: 2/2 on-VM final
+evals failed while the artifact provably serves (rescore + 10 in-run
+serves) — treat run-end vLLM serving on qwen artifacts as suspect
+until root-caused. For a 23.3+ re-run the levers are all prepared
+in-repo: attack the measured truncation ceiling with concise-trace
+SFT (19,553 rows ≤6k tok already built and persisted), QwQ
+rejection-sampling / RFT on short correct traces, AM-Thinking top-up
+(never wired), Light-R1 stage-2 — and do NOT respend epoch 2 (refuted
+here). Framework asks: fix the runner.py:344 SearchNode dump, and
+adopt per-config score tables as the ledger/judge primitive
+(R26-P3-2) so an honest-mean campaign can't be reversed by a stale
+label in its final thirty minutes.
