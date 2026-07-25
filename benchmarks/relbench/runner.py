@@ -103,7 +103,9 @@ def solve_task(args) -> dict:
     generic = args.strategy == "generic"
     mode = args.mode or ("RELBENCH_GENERIC" if generic else None)
     initial_repo = args.initial_repo
-    if generic and not initial_repo:
+    # Never auto-seed on --resume: the workspace already exists with its git
+    # history, and seeded init demands an empty directory.
+    if generic and not initial_repo and not args.resume:
         # The maintainer calibrates the registered evaluation at setup, which
         # requires a runnable candidate — and parent_policy=best needs a real
         # starting parent. Seed a trivial shape-correct baseline.
