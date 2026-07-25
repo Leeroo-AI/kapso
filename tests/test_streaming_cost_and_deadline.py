@@ -37,7 +37,7 @@ def run_fake_cli(agent, monkeypatch, script, extra_args=()):
     monkeypatch.setattr(
         agent,
         "_build_command",
-        lambda model, use_stream_json=False: fake_cmd,
+        lambda model, use_stream_json=False, resume_session_id=None: fake_cmd,
     )
     return agent._run_streaming("prompt", "test-model", agent._timeout)
 

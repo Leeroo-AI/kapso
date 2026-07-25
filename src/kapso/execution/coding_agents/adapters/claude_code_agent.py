@@ -21,6 +21,7 @@
 import json
 import logging
 import os
+import re
 import select
 import shutil
 import signal
@@ -43,6 +44,68 @@ _DEADLINE_GRACE_SECONDS = 2.0
 # a silent-but-alive CLI gets before being reaped (process-lifecycle policy,
 # not an operator knob — same class as the deadline grace above).
 _POST_COMPLETION_GRACE_SECONDS = 60.0
+
+# OAuth session-limit failover (claude-swap): a Claude Max subscription's
+# usage window exhausting mid-run emits hard 429s in the stream —
+# 'rate_limit_event … session limit · resets 8:10pm (UTC)' — and the CLI
+# starves until the window resets (killed the official fable-5 SmolLM3 run;
+# blocked our runs 29-31 for ~1.8h on 2026-07-25). When recovery tokens are
+# present (CLAUDE_CODE_OAUTH_RECOVERY_TOKENS, comma-separated — solve.sh
+# derives it from lines 2+ of the oauth_token file), the adapter marks the
+# active token exhausted, kills the CLI pid-only, and respawns the SAME
+# session via --resume on the next healthy token. Detection threshold is
+# stream-parsing policy, not an operator knob (same class as the graces).
+_OAUTH_LIMIT_SWAP_THRESHOLD = 3
+# When the reset time can't be parsed from the event, assume the provider's
+# rolling-window length.
+_OAUTH_EXHAUSTED_FALLBACK_SECONDS = 5 * 3600.0
+# Process-wide registry: token -> unix time its usage window resets. Shared
+# across every adapter instance in the orchestrator so ideation members,
+# selectors, implementors and judges all avoid a token one of them exhausted.
+_OAUTH_EXHAUSTED_UNTIL: Dict[str, float] = {}
+_SESSION_LIMIT_RESET_RE = re.compile(
+    r"resets\s+(\d{1,2}):(\d{2})\s*(am|pm)", re.IGNORECASE
+)
+# What the resumed session reads as its (only) new user turn.
+_OAUTH_RESUME_MESSAGE = (
+    "Your session was interrupted by a provider usage limit and has been "
+    "resumed with restored capacity. Re-read PLAN.md and your workspace "
+    "state, then continue exactly where you left off."
+)
+
+
+def _parse_session_limit_reset(line: str) -> Optional[float]:
+    """Unix timestamp for 'resets H:MMam/pm (UTC)' in a stream line, if any.
+
+    The CLI prints the reset clock in UTC; resolve it against today (UTC),
+    rolling to tomorrow when the time already passed. None when the line
+    carries no parseable reset time.
+    """
+    match = _SESSION_LIMIT_RESET_RE.search(line)
+    if match is None:
+        return None
+    hour = int(match.group(1)) % 12
+    if match.group(3).lower() == "pm":
+        hour += 12
+    now = time.time()
+    day_start = now - (now % 86400.0)
+    reset_ts = day_start + hour * 3600.0 + int(match.group(2)) * 60.0
+    if reset_ts <= now:
+        reset_ts += 86400.0
+    return reset_ts
+
+
+def _select_oauth_token(candidates: List[str]) -> str:
+    """First candidate whose usage window is not marked exhausted.
+
+    All exhausted → the one that resets soonest (least-bad; the CLI will
+    surface the remaining wait in its own rate-limit events).
+    """
+    now = time.time()
+    for token in candidates:
+        if _OAUTH_EXHAUSTED_UNTIL.get(token, 0.0) <= now:
+            return token
+    return min(candidates, key=lambda t: _OAUTH_EXHAUSTED_UNTIL.get(t, 0.0))
 
 # ANSI color codes for terminal output
 _COLORS = {
@@ -182,6 +245,12 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         self._env_strip: List[str] = list(
             config.agent_specific.get("env_strip", [])
         )
+
+        # OAuth failover state: which token the last-spawned CLI runs on and
+        # which healthy standbys exist (both resolved per spawn in _get_env).
+        self._active_oauth_token: str = ""
+        self._standby_oauth_tokens: List[str] = []
+        self._oauth_swap_count: int = 0
 
         # Env defaults applied set-if-absent to the CLI child env (ambient
         # values — e.g. a benchmark wrapper like solve.sh — keep precedence).
@@ -527,15 +596,25 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         )
     
     def _run_streaming(
-        self, prompt: str, model: str, timeout_seconds: Optional[float]
+        self,
+        prompt: str,
+        model: str,
+        timeout_seconds: Optional[float],
+        resume_session_id: Optional[str] = None,
     ) -> CodingResult:
         """
         Run Claude Code CLI with live streaming output using stream-json format.
-        
+
         Parses JSON events and displays Claude's thinking, tool calls, and results
         in real-time for maximum visibility.
+
+        resume_session_id is set only by the OAuth session-limit failover:
+        this call continues the starved session's conversation on a fresh
+        token, with the remaining share of the original deadline.
         """
-        stream_cmd = self._build_command(model, use_stream_json=True)
+        stream_cmd = self._build_command(
+            model, use_stream_json=True, resume_session_id=resume_session_id
+        )
         
         start_time = time.time()
         raw_lines: List[str] = []
@@ -589,63 +668,197 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         deadline_exceeded = False
         completed_reaped = False
         completion_armed_at = None  # set when a result event carries all markers
-        
+        seen_session_id: Optional[str] = resume_session_id
+        limit_hits = 0
+        limit_reset_hint: Optional[float] = None
+
         try:
-            # Use select for non-blocking I/O on both stdout and stderr
+            # fd-level I/O. select() sees only the OS pipe, so pairing it
+            # with buffered readline() strands the tail of an output burst
+            # inside Python's reader buffer until the NEXT bytes arrive — a
+            # session-limit storm followed by starved silence never reached
+            # the swap threshold. Read raw bytes and split lines here; the
+            # wrapper objects are never read from.
             stdout_fd = process.stdout.fileno() if process.stdout else -1
             stderr_fd = process.stderr.fileno() if process.stderr else -1
+            stdout_buf = bytearray()
+            stderr_buf = bytearray()
+
+            def consume_stdout_line(line: str) -> None:
+                nonlocal completion_armed_at, seen_session_id
+                nonlocal limit_hits, limit_reset_hint
+                raw_lines.append(line)
+                if artifact_fh is not None:
+                    artifact_fh.write(line + "\n")
+                    artifact_fh.flush()
+                self._display_stream_event(line, assistant_texts)
+                # Completion-reap arming: any activity disarms; a terminal
+                # result carrying ALL markers re-arms. Idle-wait turns never
+                # contain the markers, so healthy waiting sessions are never
+                # touched.
+                completion_armed_at = None
+                if self._completion_markers and '"result"' in line:
+                    if all(m in line for m in self._completion_markers):
+                        completion_armed_at = time.time()
+                # OAuth failover bookkeeping: remember the session id (for
+                # --resume) and count hard usage-window hits. Same malformed-
+                # line tolerance as every other stream parse in this file:
+                # the CLI interleaves non-JSON notices on stdout.
+                if seen_session_id is None and '"session_id"' in line:
+                    try:
+                        event = json.loads(line)
+                    except json.JSONDecodeError:
+                        event = {}
+                    if event.get("type") == "system":
+                        seen_session_id = event.get("session_id")
+                if "session limit" in line:
+                    limit_hits += 1
+                    reset_hint = _parse_session_limit_reset(line)
+                    if reset_hint is not None:
+                        limit_reset_hint = reset_hint
+
+            def consume_stderr_line(line: str) -> None:
+                print(f"{c['yellow']}  [stderr] {line}{c['reset']}", file=sys.stderr, flush=True)
+
+            def read_stream_chunk(which: str) -> bool:
+                """Consume one os.read() chunk — every complete line in it.
+                Returns True if bytes arrived; on EOF flushes any trailing
+                partial line and retires the fd."""
+                nonlocal stdout_fd, stderr_fd
+                fd = stdout_fd if which == "stdout" else stderr_fd
+                buf = stdout_buf if which == "stdout" else stderr_buf
+                consume = consume_stdout_line if which == "stdout" else consume_stderr_line
+                chunk = os.read(fd, 65536)
+                if not chunk:
+                    if buf:
+                        consume(buf.decode("utf-8", errors="replace"))
+                        buf.clear()
+                    if which == "stdout":
+                        stdout_fd = -1
+                    else:
+                        stderr_fd = -1
+                    return False
+                buf += chunk
+                while True:
+                    newline_at = buf.find(b"\n")
+                    if newline_at < 0:
+                        break
+                    text = buf[:newline_at].decode("utf-8", errors="replace").rstrip("\r")
+                    del buf[: newline_at + 1]
+                    consume(text)
+                return True
+
+            def drain_stream(which: str, budget_seconds: float) -> None:
+                """Bounded post-kill/exit drain. Never blocks past the budget
+                on a write end inherited by a surviving background child
+                (pid-only kills leave those alive by design)."""
+                stop_at = time.time() + budget_seconds
+                while time.time() < stop_at:
+                    fd = stdout_fd if which == "stdout" else stderr_fd
+                    if fd < 0:
+                        return
+                    try:
+                        ready, _, _ = select.select([fd], [], [], 0.2)
+                    except (ValueError, OSError):
+                        return
+                    if not ready:
+                        if process.poll() is not None:
+                            return
+                        continue
+                    read_stream_chunk(which)
+
             last_heartbeat = time.time()
             heartbeat_interval = 10.0  # Show heartbeat every 10 seconds of silence
-            
+
             while True:
                 retcode = process.poll()
-                
-                # Use select to check which streams have data (with 0.5s timeout)
+
+                # select on the raw fds (0.5s tick drives deadline checks)
                 readable = []
-                if stdout_fd >= 0 or stderr_fd >= 0:
-                    fds_to_check = []
-                    if stdout_fd >= 0:
-                        fds_to_check.append(process.stdout)
-                    if stderr_fd >= 0:
-                        fds_to_check.append(process.stderr)
+                fds_to_check = [fd for fd in (stdout_fd, stderr_fd) if fd >= 0]
+                if fds_to_check:
                     try:
                         readable, _, _ = select.select(fds_to_check, [], [], 0.5)
                     except (ValueError, OSError):
                         # File descriptor closed
                         pass
-                
+                elif retcode is None:
+                    time.sleep(0.5)  # both pipes at EOF; pace the poll loop
+
                 got_output = False
+                if stdout_fd >= 0 and stdout_fd in readable and read_stream_chunk("stdout"):
+                    got_output = True
+                    last_heartbeat = time.time()
+                if stderr_fd >= 0 and stderr_fd in readable and read_stream_chunk("stderr"):
+                    got_output = True
+                    last_heartbeat = time.time()
                 
-                # Read from stdout if data available
-                if process.stdout in readable:
-                    line = process.stdout.readline()
-                    if line:
-                        line = line.rstrip('\n')
-                        raw_lines.append(line)
-                        if artifact_fh is not None:
-                            artifact_fh.write(line + "\n")
-                            artifact_fh.flush()
-                        self._display_stream_event(line, assistant_texts)
-                        got_output = True
-                        last_heartbeat = time.time()
-                        # Completion-reap arming: any activity disarms; a
-                        # terminal result carrying ALL markers re-arms. Idle
-                        # -wait turns never contain the markers, so healthy
-                        # waiting sessions are never touched.
-                        completion_armed_at = None
-                        if self._completion_markers and '"result"' in line:
-                            if all(m in line for m in self._completion_markers):
-                                completion_armed_at = time.time()
-                
-                # Read from stderr if data available
-                if process.stderr in readable:
-                    err_line = process.stderr.readline()
-                    if err_line:
-                        err_line = err_line.rstrip('\n')
-                        print(f"{c['yellow']}  [stderr] {err_line}{c['reset']}", file=sys.stderr, flush=True)
-                        got_output = True
-                        last_heartbeat = time.time()
-                
+                # OAuth session-limit failover: the usage window is
+                # exhausted (repeated hard 429s) and a healthy recovery
+                # token exists. Mark the active token exhausted until its
+                # advertised reset, kill the CLI pid-only (backgrounded GPU
+                # work survives, same stance as the reap), bank this
+                # process's flushed cost, and continue the SAME conversation
+                # on the next token via --resume with the remaining share of
+                # the deadline.
+                if (
+                    limit_hits >= _OAUTH_LIMIT_SWAP_THRESHOLD
+                    and self._auth_mode == "oauth"
+                    and self._active_oauth_token
+                    and any(
+                        _OAUTH_EXHAUSTED_UNTIL.get(t, 0.0) <= time.time()
+                        for t in self._standby_oauth_tokens
+                    )
+                ):
+                    _OAUTH_EXHAUSTED_UNTIL[self._active_oauth_token] = (
+                        limit_reset_hint
+                        or time.time() + _OAUTH_EXHAUSTED_FALLBACK_SECONDS
+                    )
+                    self._oauth_swap_count += 1
+                    print(
+                        f"{c['yellow']}  OAuth usage window exhausted "
+                        f"({limit_hits} session-limit events) — swapping to "
+                        f"a recovery token and resuming session "
+                        f"{seen_session_id or '(fresh start)'}"
+                        f"{c['reset']}",
+                        flush=True,
+                    )
+                    process.terminate()
+                    grace_end = time.time() + _DEADLINE_GRACE_SECONDS
+                    while process.poll() is None and time.time() < grace_end:
+                        time.sleep(0.1)
+                    if process.poll() is None:
+                        process.kill()
+                    # Collect the kill-flushed tail so this process's cost
+                    # lands in the cumulative ledger before recursing.
+                    drain_stream("stdout", _DEADLINE_GRACE_SECONDS)
+                    for banked_line in reversed(raw_lines):
+                        try:
+                            banked_event = json.loads(banked_line)
+                        except json.JSONDecodeError:
+                            continue
+                        if banked_event.get("type") == "result":
+                            self._cumulative_cost += banked_event.get(
+                                "total_cost_usd", 0.0
+                            )
+                            break
+                    if artifact_fh is not None:
+                        artifact_fh.close()
+                    remaining = (
+                        None
+                        if timeout_seconds is None
+                        else max(
+                            60.0,
+                            timeout_seconds - (time.time() - start_time),
+                        )
+                    )
+                    return self._run_streaming(
+                        _OAUTH_RESUME_MESSAGE if seen_session_id else prompt,
+                        model,
+                        remaining,
+                        resume_session_id=seen_session_id,
+                    )
+
                 # Reap a session that declared completion (per its output
                 # contract) and then went silent without exiting: the CLI
                 # process alone is killed — NOT the group — so detached or
@@ -683,17 +896,8 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                 
                 if retcode is not None:
                     # Drain remaining output
-                    if process.stdout:
-                        for line in process.stdout:
-                            line = line.rstrip('\n')
-                            raw_lines.append(line)
-                            if artifact_fh is not None:
-                                artifact_fh.write(line + "\n")
-                                artifact_fh.flush()
-                            self._display_stream_event(line, assistant_texts)
-                    if process.stderr:
-                        for err_line in process.stderr:
-                            print(f"{c['yellow']}  [stderr] {err_line.rstrip()}{c['reset']}", file=sys.stderr, flush=True)
+                    drain_stream("stdout", _DEADLINE_GRACE_SECONDS)
+                    drain_stream("stderr", _DEADLINE_GRACE_SECONDS)
                     break
 
                 # Enforce the configured deadline. SIGTERM first so the CLI can
@@ -720,16 +924,10 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                         os.killpg(process.pid, signal.SIGKILL)
                     break
 
-            if deadline_exceeded and process.stdout:
+            if deadline_exceeded:
                 # Collect anything the CLI flushed during the grace window so a
                 # terminated call still reports the cost it managed to emit.
-                for line in process.stdout:
-                    line = line.rstrip('\n')
-                    raw_lines.append(line)
-                    if artifact_fh is not None:
-                        artifact_fh.write(line + "\n")
-                        artifact_fh.flush()
-                    self._display_stream_event(line, assistant_texts)
+                drain_stream("stdout", _DEADLINE_GRACE_SECONDS)
 
             if artifact_fh is not None:
                 artifact_fh.close()
@@ -806,6 +1004,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                     metadata={
                         "model": model,
                         "auth_mode": self._auth_mode,
+                        "oauth_token_swaps": self._oauth_swap_count,
                         "elapsed_seconds": elapsed,
                         "completed_reaped": True,
                         "tool_call_count": tool_call_count,
@@ -835,6 +1034,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                     metadata={
                         "model": model,
                         "auth_mode": self._auth_mode,
+                        "oauth_token_swaps": self._oauth_swap_count,
                         "elapsed_seconds": elapsed,
                         "deadline_exceeded": True,
                         "completed_before_kill": completed_before_kill,
@@ -859,6 +1059,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                     metadata={
                         "model": model,
                         "auth_mode": self._auth_mode,
+                        "oauth_token_swaps": self._oauth_swap_count,
                         "elapsed_seconds": elapsed,
                         "tool_call_count": tool_call_count,
                         "last_tool": last_tool,
@@ -882,6 +1083,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                     "elapsed_seconds": elapsed,
                     "streaming": True,
                     "auth_mode": self._auth_mode,
+                    "oauth_token_swaps": self._oauth_swap_count,
                     "use_bedrock": self._use_bedrock,
                     "tool_call_count": tool_call_count,
                         "last_tool": last_tool,
@@ -1028,7 +1230,12 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
     # structurally rather than via config: no -p session can ever use it.
     PRINT_MODE_DEAD_TOOLS: List[str] = ["ScheduleWakeup"]
 
-    def _build_command(self, model: str, use_stream_json: bool = False) -> List[str]:
+    def _build_command(
+        self,
+        model: str,
+        use_stream_json: bool = False,
+        resume_session_id: Optional[str] = None,
+    ) -> List[str]:
         """Build the Claude Code CLI command.
 
         The prompt is deliberately NOT part of argv: it is piped via stdin.
@@ -1036,12 +1243,18 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         the solution text in its cmdline, and an agent's own
         `pkill -f <word-from-its-plan>` matches its ancestor and kills the
         session (run #8 lost two sessions this way).
+
+        resume_session_id continues a prior CLI conversation (used by the
+        OAuth session-limit failover to restart a starved session on a
+        recovery token without losing its context).
         """
         cmd = [
             "claude",
             "-p",  # Non-interactive (print) mode; prompt arrives on stdin
             "--dangerously-skip-permissions",  # Auto-approve all tool calls
         ]
+        if resume_session_id:
+            cmd.extend(["--resume", resume_session_id])
         
         # Output format: stream-json for live visibility, text for buffered
         if use_stream_json:
@@ -1116,6 +1329,20 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
             self._remove_provider_flags(env)
             env.pop("ANTHROPIC_API_KEY", None)
             env.pop("ANTHROPIC_AUTH_TOKEN", None)
+            # Failover pool: main token + recovery tokens. The child session
+            # gets exactly ONE resolved token; the spare list never reaches
+            # the agent's environment (same containment stance as env_strip).
+            recovery_raw = env.pop("CLAUDE_CODE_OAUTH_RECOVERY_TOKENS", "")
+            candidates = [
+                t.strip()
+                for t in [env.get("CLAUDE_CODE_OAUTH_TOKEN", ""), *recovery_raw.split(",")]
+                if t.strip()
+            ]
+            if candidates:
+                chosen = _select_oauth_token(candidates)
+                env["CLAUDE_CODE_OAUTH_TOKEN"] = chosen
+                self._active_oauth_token = chosen
+                self._standby_oauth_tokens = [t for t in candidates if t != chosen]
         else:  # Defensive: auto is always resolved during initialization.
             raise RuntimeError(f"Unresolved Claude Code auth mode: {self._auth_mode}")
 

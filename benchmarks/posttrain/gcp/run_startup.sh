@@ -118,6 +118,15 @@ sed -i 's/gpt-5\.1-codex/gpt-5.6-sol/' src/run_task.sh
 # harness's OPENAI_API_KEY. (xtrace off: secret values)
 set +x
 [ -n "$CLAUDE_OAUTH" ] && printf '%s' "$CLAUDE_OAUTH" > agents/kapso/oauth_token
+# Recovery tokens (session-limit failover): the claude-oauth-recovery secret
+# holds newline-separated spare tokens. They ride as EXTRA LINES of the same
+# oauth_token file (run_task.sh copies only that one file); solve.sh splits
+# line 1 = main, lines 2+ = recovery.
+CLAUDE_RECOVERY="$(gcloud secrets versions access latest --secret=claude-oauth-recovery 2>/dev/null || true)"
+if [ -n "$CLAUDE_OAUTH" ] && [ -n "$CLAUDE_RECOVERY" ]; then
+    printf '\n%s' "$CLAUDE_RECOVERY" >> agents/kapso/oauth_token
+fi
+echo "oauth recovery tokens present: $([ -n "$CLAUDE_RECOVERY" ] && echo yes || echo no)"
 CODEX_AUTH="$(gcloud secrets versions access latest --secret=codex-auth-json 2>/dev/null || true)"
 [ -n "$CODEX_AUTH" ] && printf '%s' "$CODEX_AUTH" > agents/kapso/auth.json
 echo "codex auth present: $([ -n "$CODEX_AUTH" ] && echo yes || echo no)"

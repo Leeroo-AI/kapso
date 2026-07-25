@@ -36,9 +36,18 @@ unset CODEX_API_KEY
 # Claude Max subscription auth: run_task.sh copies agents/kapso/oauth_token to
 # the job home when present (same mechanism as the upstream claude_non_api
 # agent). Prefer it over the API key to avoid auth conflicts.
+# The file may be MULTI-LINE: line 1 = main token; lines 2+ = recovery tokens
+# for the adapter's session-limit failover (a usage-window 429 storm swaps
+# the CLI to the next token via --resume; see claude_code_agent.py). The
+# recovery list travels in CLAUDE_CODE_OAUTH_RECOVERY_TOKENS (comma-joined);
+# the adapter strips it from every agent session's env.
 if [ -f /home/ben/oauth_token ]; then
-    CLAUDE_CODE_OAUTH_TOKEN="$(cat /home/ben/oauth_token)"
+    CLAUDE_CODE_OAUTH_TOKEN="$(head -n 1 /home/ben/oauth_token)"
     export CLAUDE_CODE_OAUTH_TOKEN
+    CLAUDE_CODE_OAUTH_RECOVERY_TOKENS="$(tail -n +2 /home/ben/oauth_token | grep -v '^[[:space:]]*$' | paste -sd, -)"
+    if [ -n "$CLAUDE_CODE_OAUTH_RECOVERY_TOKENS" ]; then
+        export CLAUDE_CODE_OAUTH_RECOVERY_TOKENS
+    fi
     unset ANTHROPIC_API_KEY
 fi
 
