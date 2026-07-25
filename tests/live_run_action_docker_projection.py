@@ -33,6 +33,9 @@ from kapso.cross_run.launch.run_action_docker_projection import (
     require_run_action_image,
     volume_create_arguments,
 )
+from kapso.cross_run.launch.run_action_contracts import (
+    RunFrontierWorkspaceAccess,
+)
 from kapso.cross_run.launch.run_action_docker_resources import (
     DockerRunActionResourceManager,
 )
@@ -47,9 +50,14 @@ from kapso.cross_run.launch.run_action_keeper_helper import (
     observe_keeper_helper,
 )
 from kapso.cross_run.launch.run_action_runtime_volume import (
+    RunActionRuntimeVolumeError,
+    materialize_runtime_volume_layout,
     observe_empty_runtime_volume,
+    reobserve_runtime_volume_layout,
 )
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
+    RunActionCredentialMode,
+    RunActionPreparedExecution,
     RunActionStaticEnvironmentVariable,
     preparation_container_labels,
     preparation_container_name,
@@ -196,9 +204,10 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
     tmp_path: Path,
 ) -> None:
     tmp_path.chmod(0o700)
-    settings = CrossRunSettings.from_dict(
+    cross_run_settings = CrossRunSettings.from_dict(
         load_config(_CANONICAL_CONFIG_PATH)["cross_run"]
-    ).docker
+    )
+    settings = cross_run_settings.docker
     busybox_bytes = read_verified_root_executable(
         Path(settings.helper_executable_path),
         settings.helper_executable_digest,
@@ -547,4 +556,201 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             )
             == ()
         )
+
+        layout_policy = _remint_policy(
+            _policy(
+                settings,
+                workspace_access=RunFrontierWorkspaceAccess.NONE,
+                credential_mode=RunActionCredentialMode.NONE,
+            ),
+            image_authority=image_authority,
+            command_template_id=command.command_template_id,
+            static_environment=(
+                RunActionStaticEnvironmentVariable(key="LANG", value="C"),
+                RunActionStaticEnvironmentVariable(key="PATH", value="/bin"),
+            ),
+        )
+        layout_claim = _claim(policy=layout_policy)
+        layout_authority = _volume_authority(
+            layout_claim,
+            nonce="b" * 32,
+        )
+        layout_volume_name = preparation_volume_name(layout_claim)
+        layout_volume_labels = preparation_volume_labels(layout_claim)
+        layout_keeper_name = preparation_keeper_container_name(layout_claim)
+        layout_keeper_labels = preparation_keeper_container_labels(layout_claim)
+        layout_main_name = preparation_container_name(layout_claim)
+        layout_main_labels = preparation_container_labels(layout_claim)
+        cleanup.callback(
+            _remove_owned_volume,
+            settings,
+            docker_config_root,
+            layout_volume_name,
+            layout_volume_labels,
+        )
+        layout_volume_result = runtime.run_control(
+            volume_create_arguments(
+                layout_claim,
+                layout_authority,
+                settings,
+            )
+        )
+        assert layout_volume_result.stdout == (
+            f"{layout_volume_name}\n".encode("ascii")
+        )
+        layout_volume_inventory = resource_manager.observe(layout_claim)
+        layout_volume_observation = observe_runtime_volume(
+            resource_manager.inspect_volume(layout_volume_inventory),
+            layout_claim,
+            layout_authority,
+            settings,
+        )
+        cleanup.callback(
+            _remove_owned_container,
+            settings,
+            docker_config_root,
+            layout_keeper_name,
+            layout_keeper_labels,
+        )
+        layout_keeper_result = runtime.run_control(
+            keeper_create_arguments(
+                layout_claim,
+                layout_authority,
+                image,
+                settings,
+            )
+        )
+        layout_keeper_id = layout_keeper_result.stdout.decode("ascii").strip()
+        runtime.run_control(("container", "start", layout_keeper_id))
+        layout_keeper_inventory = resource_manager.observe(layout_claim)
+        layout_keeper_evidence = observe_running_keeper(
+            resource_manager.inspect_keeper(layout_keeper_inventory),
+            layout_claim,
+            layout_authority,
+            layout_volume_observation,
+            helper_evidence,
+            settings,
+        )
+        layout_empty_volume = observe_empty_runtime_volume(
+            layout_authority,
+            layout_volume_observation,
+            layout_keeper_evidence,
+        )
+        prepared_volume = materialize_runtime_volume_layout(
+            layout_claim,
+            layout_empty_volume,
+            layout_keeper_evidence,
+            workspace_descriptor=None,
+            settings=cross_run_settings.launch,
+        )
+        cleanup.callback(
+            _remove_owned_container,
+            settings,
+            docker_config_root,
+            layout_main_name,
+            layout_main_labels,
+        )
+        layout_main_result = runtime.run_control(
+            main_create_arguments(
+                layout_claim,
+                layout_authority,
+                command,
+                image,
+                settings,
+            )
+        )
+        layout_main_id = layout_main_result.stdout.decode("ascii").strip()
+        layout_complete_inventory = resource_manager.observe(layout_claim)
+        layout_main_evidence = observe_inert_main_container(
+            resource_manager.inspect_main(layout_complete_inventory),
+            layout_claim,
+            layout_authority,
+            layout_volume_observation,
+            command,
+            settings,
+        )
+        prepared_execution = RunActionPreparedExecution.mint(
+            preparation_claim=layout_claim,
+            runtime_volume_authority=layout_authority,
+            runtime_volume_evidence=prepared_volume.runtime_volume_evidence,
+            volume_keeper_evidence=layout_keeper_evidence,
+            input_file=prepared_volume.input_file,
+            result_file=prepared_volume.result_file,
+            credential_file=prepared_volume.credential_file,
+            workspace_proof=prepared_volume.workspace_proof,
+            layout_proof=prepared_volume.layout_proof,
+            inert_container_evidence=layout_main_evidence,
+        )
+        reopened_volume = reobserve_runtime_volume_layout(
+            prepared_execution,
+            layout_volume_observation,
+            layout_keeper_evidence,
+            settings=cross_run_settings.launch,
+        )
+        assert reopened_volume == prepared_volume
+        assert prepared_volume.credential_file is None
+        assert prepared_volume.workspace_proof is None
+        assert prepared_volume.runtime_volume_evidence.root_inode == (
+            layout_empty_volume.root_inode
+        )
+        assert prepared_volume.runtime_volume_evidence.sentinel_evidence.inode != (
+            layout_empty_volume.root_inode
+        )
+        runtime.run_control(
+            (
+                "container",
+                "exec",
+                layout_keeper_id,
+                "/kapso-supervisor/busybox",
+                "touch",
+                "/kapso/runtime-volume/unexpected",
+            )
+        )
+        with pytest.raises(
+            RunActionRuntimeVolumeError,
+            match="root topology is incomplete",
+        ):
+            reobserve_runtime_volume_layout(
+                prepared_execution,
+                layout_volume_observation,
+                layout_keeper_evidence,
+                settings=cross_run_settings.launch,
+            )
+        runtime.run_control(
+            (
+                "container",
+                "exec",
+                layout_keeper_id,
+                "/kapso-supervisor/busybox",
+                "rm",
+                "/kapso/runtime-volume/unexpected",
+            )
+        )
+        runtime.run_control(
+            (
+                "container",
+                "exec",
+                layout_keeper_id,
+                "/kapso-supervisor/busybox",
+                "chmod",
+                "600",
+                "/kapso/runtime-volume/.kapso-generation",
+            )
+        )
+        with pytest.raises(
+            RunActionRuntimeVolumeError,
+            match="file is unsafe or substituted",
+        ):
+            reobserve_runtime_volume_layout(
+                prepared_execution,
+                layout_volume_observation,
+                layout_keeper_evidence,
+                settings=cross_run_settings.launch,
+            )
+
+        runtime.run_control(("container", "rm", "--force", "--volumes", layout_main_id))
+        runtime.run_control(
+            ("container", "rm", "--force", "--volumes", layout_keeper_id)
+        )
+        runtime.run_control(("volume", "rm", layout_volume_name))
         assert tree_or_blob_digest(busybox_bytes) == settings.helper_executable_digest

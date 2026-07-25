@@ -639,8 +639,23 @@ the complete source and `.git` topology before mutation, includes physical Git
 bytes and entries in capacity planning, sandwiches every copied inode against
 source metadata, normalizes copied directories to private mode, and independently
 reconciles both source and destination frontiers after the copy.
-Layout population/reopen reconciliation, concrete activation/result receipts,
-positive cleanup authority, and production adapters remain the next slices.
+Runtime-volume preparation now holds that same keeper/process/root descriptor
+lease from the empty proof through publication and final observation. It
+pre-admits physical workspace and `.git` bytes/inodes, transient staging, every
+future delivery/result/temporary reservation, and requires strict residual
+headroom. Private directories, empty delivery/result files, and the complete
+workspace are built under an unpublished staging directory. A completed
+read-only sentinel inode moves through a nonce-bound pending name and is
+atomically published with `RENAME_NOREPLACE` only after every final directory is
+in place and staging is gone; that rename is the final namespace mutation.
+Read-only reopen is available only from a durable `PreparedExecution` and
+reproves the exact root topology, child topology, file shapes, workspace/Git
+frontier, sentinel inode/content, keeper process generation, mount, and stable
+`statvfs` accounting. A crash at any point before the durable prepared event,
+including after final sentinel publication, leaves an orphan occurrence that
+claim-only recovery destroys; it is never reconstructed, adopted, or repaired.
+Concrete activation/result receipts, positive cleanup authority, and production
+adapters remain the next slices.
 
 The coordinator owns one process-bound, non-clonable implementation catalog fixed
 at composition; `recover()` accepts no caller-selected implementation. Each
