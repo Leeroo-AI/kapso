@@ -33,6 +33,7 @@ _ELF_64_PROGRAM_HEADER_SIZE = 56
 _ELF_IDENT_SIZE = 16
 _FDINFO_MOUNT_ID_PREFIX = "mnt_id:\t"
 _CONTAINER_ID_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+_LIVE_PROCESS_STATES = ("D", "I", "P", "R", "S", "T", "t")
 
 
 class RunActionKeeperHelperError(ValueError):
@@ -101,24 +102,48 @@ def observe_mounted_keeper_helper(
         raise RunActionKeeperHelperError(
             "mounted keeper helper requires exact source and process identities"
         )
-    process_cgroup_path_before = read_run_action_process_cgroup_path(
-        process_id,
-        container_id,
-    )
-    mounted_path = Path(
-        f"/proc/{process_id}/root"
-        f"{RUN_ACTION_RUNTIME_VOLUME_KEEPER_HELPER_DESTINATION}"
-    )
-    metadata, mount_id = _observe_helper_path(
-        mounted_path,
-        source_evidence.executable_digest,
-    )
-    process_cgroup_path_after = read_run_action_process_cgroup_path(
-        process_id,
-        container_id,
-    )
+    with ExitStack() as descriptors:
+        process_descriptor = os.open(
+            f"/proc/{process_id}",
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+        )
+        descriptors.callback(os.close, process_descriptor)
+        process_start_time_before = read_run_action_process_start_time_from_descriptor(
+            process_descriptor,
+            process_id,
+        )
+        process_cgroup_path_before = (
+            read_run_action_process_cgroup_path_from_descriptor(
+                process_descriptor,
+                container_id,
+            )
+        )
+        process_root_descriptor = os.open(
+            "root",
+            os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC,
+            dir_fd=process_descriptor,
+        )
+        descriptors.callback(os.close, process_root_descriptor)
+        mounted_descriptor = os.open(
+            RUN_ACTION_RUNTIME_VOLUME_KEEPER_HELPER_DESTINATION.removeprefix("/"),
+            os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
+            dir_fd=process_root_descriptor,
+        )
+        metadata, mount_id = _observe_helper_descriptor(
+            mounted_descriptor,
+            source_evidence.executable_digest,
+        )
+        process_cgroup_path_after = read_run_action_process_cgroup_path_from_descriptor(
+            process_descriptor,
+            container_id,
+        )
+        process_start_time_after = read_run_action_process_start_time_from_descriptor(
+            process_descriptor,
+            process_id,
+        )
     if (
-        process_cgroup_path_after != process_cgroup_path_before
+        process_start_time_after != process_start_time_before
+        or process_cgroup_path_after != process_cgroup_path_before
         or metadata.st_dev != source_evidence.device
         or metadata.st_ino != source_evidence.inode
         or mount_id == source_evidence.mount_id
@@ -130,6 +155,7 @@ def observe_mounted_keeper_helper(
         source_helper_evidence=source_evidence,
         container_id=container_id,
         process_id=process_id,
+        process_start_time_ticks=process_start_time_before,
         process_cgroup_path=process_cgroup_path_before,
         destination=RUN_ACTION_RUNTIME_VOLUME_KEEPER_HELPER_DESTINATION,
         mount_id=mount_id,
@@ -147,6 +173,13 @@ def _observe_helper_path(
         path,
         os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
     )
+    return _observe_helper_descriptor(descriptor, expected_executable_digest)
+
+
+def _observe_helper_descriptor(
+    descriptor: int,
+    expected_executable_digest: str,
+) -> tuple[os.stat_result, int]:
     with os.fdopen(descriptor, "rb") as handle:
         metadata_before = os.fstat(handle.fileno())
         mount_id_before = read_run_action_descriptor_mount_id(handle.fileno())
@@ -167,22 +200,45 @@ def _observe_helper_path(
     return metadata_before, mount_id_before
 
 
-def read_run_action_process_cgroup_path(
+def read_run_action_process_start_time_from_descriptor(
+    process_descriptor: int,
     process_id: int,
-    container_id: str,
-) -> str:
-    """Read one unified cgroup path bound to an exact Docker container."""
+) -> int:
+    """Read the Linux process-generation token through an open proc directory."""
 
-    process_descriptor = os.open(
-        f"/proc/{process_id}",
-        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+    if (
+        type(process_descriptor) is not int
+        or process_descriptor < 0
+        or type(process_id) is not int
+        or process_id <= 0
+    ):
+        raise RunActionKeeperHelperError("keeper process identity is malformed")
+    descriptor = os.open(
+        "stat",
+        os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
+        dir_fd=process_descriptor,
     )
-    with ExitStack() as descriptors:
-        descriptors.callback(os.close, process_descriptor)
-        return read_run_action_process_cgroup_path_from_descriptor(
-            process_descriptor,
-            container_id,
-        )
+    with os.fdopen(descriptor, "rb") as handle:
+        payload = handle.read()
+    prefix = f"{process_id} (".encode("ascii")
+    command_end = payload.rfind(b") ")
+    if (
+        not payload.endswith(b"\n")
+        or b"\x00" in payload
+        or not payload.startswith(prefix)
+        or command_end < len(prefix)
+        or not payload.isascii()
+    ):
+        raise RunActionKeeperHelperError("keeper process identity is malformed")
+    fields = payload[command_end + len(b") ") :].decode("ascii").split()
+    if (
+        len(fields) < 20
+        or fields[0] not in _LIVE_PROCESS_STATES
+        or not fields[19].isdigit()
+        or int(fields[19]) <= 0
+    ):
+        raise RunActionKeeperHelperError("keeper is not one live process generation")
+    return int(fields[19])
 
 
 def read_run_action_process_cgroup_path_from_descriptor(
@@ -381,6 +437,6 @@ __all__ = [
     "observe_keeper_helper",
     "observe_mounted_keeper_helper",
     "read_run_action_descriptor_mount_id",
-    "read_run_action_process_cgroup_path",
     "read_run_action_process_cgroup_path_from_descriptor",
+    "read_run_action_process_start_time_from_descriptor",
 ]

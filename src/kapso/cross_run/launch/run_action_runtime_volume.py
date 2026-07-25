@@ -16,6 +16,7 @@ from kapso.cross_run.launch.run_action_docker_inspect import (
 from kapso.cross_run.launch.run_action_keeper_helper import (
     read_run_action_descriptor_mount_id,
     read_run_action_process_cgroup_path_from_descriptor,
+    read_run_action_process_start_time_from_descriptor,
 )
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RUN_ACTION_RUNTIME_VOLUME_KEEPER_DESTINATION,
@@ -23,6 +24,7 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RunActionRuntimeVolumeAuthority,
     RunActionVolumeKeeperEvidence,
     issue_runtime_volume_authority,
+    run_action_keeper_process_cgroup_path,
 )
 
 _TMPFS_FILESYSTEM_TYPE = "tmpfs"
@@ -32,7 +34,6 @@ _SUPER_OPTION_KEYS = ("gid", "mode", "nr_inodes", "size", "uid")
 _OPTIONAL_MOUNT_FIELD_PATTERN = re.compile(r"^master:[1-9][0-9]*$")
 _CONTAINER_ID_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 _SIZE_OPTION_PATTERN = re.compile(r"^([1-9][0-9]*)([kmgt]?)$")
-_LIVE_PROCESS_STATES = ("D", "I", "P", "R", "S", "T", "t")
 _SIZE_MULTIPLIERS = {
     "": 1,
     "k": 1024,
@@ -54,6 +55,7 @@ class DockerRunActionEmptyVolumeObservation:
     docker_volume_observation: DockerRunActionVolumeObservation
     keeper_container_id: str
     keeper_process_id: int
+    keeper_process_start_time_ticks: int
     process_cgroup_path: str
     mount_id: int
     device: int
@@ -94,6 +96,8 @@ class DockerRunActionEmptyVolumeObservation:
             or _CONTAINER_ID_PATTERN.fullmatch(self.keeper_container_id) is None
             or type(self.keeper_process_id) is not int
             or self.keeper_process_id <= 0
+            or type(self.keeper_process_start_time_ticks) is not int
+            or self.keeper_process_start_time_ticks <= 0
             or cgroup_path is None
             or not self.process_cgroup_path.isascii()
             or "\x00" in self.process_cgroup_path
@@ -216,7 +220,7 @@ def observe_empty_runtime_volume(
             os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
         )
         descriptors.callback(os.close, process_descriptor)
-        process_start_time_before = _read_process_start_time(
+        process_start_time_before = read_run_action_process_start_time_from_descriptor(
             process_descriptor,
             process_id,
         )
@@ -258,13 +262,19 @@ def observe_empty_runtime_volume(
             process_descriptor,
             container_id,
         )
-        process_start_time_after = _read_process_start_time(
+        process_start_time_after = read_run_action_process_start_time_from_descriptor(
             process_descriptor,
             process_id,
         )
     if (
         process_start_time_after != process_start_time_before
+        or process_start_time_before != keeper.process_start_time_ticks
         or process_cgroup_path_after != process_cgroup_path_before
+        or process_cgroup_path_before
+        != run_action_keeper_process_cgroup_path(
+            keeper.issued_create_projection.execution_policy,
+            container_id,
+        )
         or _stable_metadata(metadata_after) != _stable_metadata(metadata_before)
         or mount_info_after != mount_info_before
         or _stable_filesystem(filesystem_after) != _stable_filesystem(filesystem_before)
@@ -299,6 +309,7 @@ def observe_empty_runtime_volume(
         docker_volume_observation=volume,
         keeper_container_id=container_id,
         keeper_process_id=process_id,
+        keeper_process_start_time_ticks=process_start_time_before,
         process_cgroup_path=process_cgroup_path_before,
         mount_id=mount_id,
         device=metadata_before.st_dev,
@@ -336,51 +347,6 @@ def _read_mount_info(
     with os.fdopen(descriptor, "rb") as handle:
         payload = handle.read()
     return _parse_mount_info_payload(payload, mount_id, destination)
-
-
-def _read_process_start_time(
-    process_descriptor: int,
-    process_id: int,
-) -> int:
-    if (
-        type(process_descriptor) is not int
-        or process_descriptor < 0
-        or type(process_id) is not int
-        or process_id <= 0
-    ):
-        raise RunActionRuntimeVolumeError(
-            "runtime volume process identity is malformed"
-        )
-    descriptor = os.open(
-        "stat",
-        os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
-        dir_fd=process_descriptor,
-    )
-    with os.fdopen(descriptor, "rb") as handle:
-        payload = handle.read()
-    prefix = f"{process_id} (".encode("ascii")
-    command_end = payload.rfind(b") ")
-    if (
-        not payload.endswith(b"\n")
-        or b"\x00" in payload
-        or not payload.startswith(prefix)
-        or command_end < len(prefix)
-        or not payload.isascii()
-    ):
-        raise RunActionRuntimeVolumeError(
-            "runtime volume process identity is malformed"
-        )
-    fields = payload[command_end + len(b") ") :].decode("ascii").split()
-    if (
-        len(fields) < 20
-        or fields[0] not in _LIVE_PROCESS_STATES
-        or not fields[19].isdigit()
-        or int(fields[19]) <= 0
-    ):
-        raise RunActionRuntimeVolumeError(
-            "runtime volume keeper is not one live process generation"
-        )
-    return int(fields[19])
 
 
 def _parse_mount_info_payload(

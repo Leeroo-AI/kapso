@@ -71,6 +71,7 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
     runtime_volume_driver_options,
     runtime_volume_keeper_helper_authority_id,
     runtime_volume_sentinel_identity,
+    run_action_keeper_process_cgroup_path,
 )
 from kapso.cross_run.launch.resume_contracts import RunSafetyBoundary
 
@@ -596,52 +597,6 @@ def _prepared_execution(
     logical_entry_count = len(directories) + len(files) + 1 + workspace_entries
     observed_used_size = 32768
     observed_used_inodes = logical_entry_count + 2
-    volume_evidence = RunActionRuntimeVolumeEvidence.mint(
-        volume_authority=authority,
-        observed_volume_name=authority.volume_name,
-        observed_labels=authority.labels,
-        observed_scope="local",
-        observed_driver=authority.driver,
-        observed_driver_options=authority.driver_options,
-        observed_filesystem_type="tmpfs",
-        observed_mount_flags=("nodev", "nosuid", "noswap"),
-        observed_owner_user_id=authority.owner_user_id,
-        observed_owner_group_id=authority.owner_group_id,
-        observed_root_mode=authority.root_mode,
-        allocation_block_size_bytes=4096,
-        effective_block_count=authority.size_limit_bytes // 4096,
-        effective_size_bytes=authority.size_limit_bytes,
-        effective_inode_limit=authority.inode_limit,
-        used_block_count=observed_used_size // 4096,
-        used_size_bytes=observed_used_size,
-        used_inode_count=observed_used_inodes,
-        available_block_count=(
-            authority.size_limit_bytes // 4096 - observed_used_size // 4096
-        ),
-        available_size_bytes=authority.size_limit_bytes - observed_used_size,
-        available_inode_count=authority.inode_limit - observed_used_inodes,
-        sentinel_evidence=sentinel_evidence,
-    )
-    layout_proof = RunActionRuntimeVolumeLayoutProof.mint(
-        runtime_volume_authority_id=authority.runtime_volume_authority_id,
-        generation_nonce=authority.generation_nonce,
-        empty_size_bytes=0,
-        empty_entry_count=0,
-        directory_relative_paths=directories,
-        prepared_file_ids=tuple(
-            sorted(prepared_file.prepared_file_id for prepared_file in files)
-        ),
-        prepared_workspace_proof_id=(
-            None
-            if workspace_proof is None
-            else workspace_proof.prepared_workspace_proof_id
-        ),
-        logical_content_size_bytes=len(authority.generation_nonce) + workspace_size,
-        logical_entry_count=logical_entry_count,
-        observed_used_size_bytes=observed_used_size,
-        observed_used_inode_count=observed_used_inodes,
-        unexpected_entry_count=0,
-    )
     helper_evidence = RunActionKeeperHelperEvidence.mint(
         helper_authority_id=policy.keeper_helper_executable_authority_id,
         source_path=policy.keeper_helper_source_path,
@@ -687,6 +642,7 @@ def _prepared_execution(
         source_helper_evidence=helper_evidence,
         container_id=keeper_container_id,
         process_id=keeper_process_id,
+        process_start_time_ticks=2000 + inode_offset,
         process_cgroup_path=(
             "/test.kapso.run_action.slice/" f"docker-{keeper_container_id}.scope"
         ),
@@ -706,9 +662,67 @@ def _prepared_execution(
         mounted_helper_evidence=mounted_helper_evidence,
         container_status="running",
         process_id=keeper_process_id,
+        process_start_time_ticks=mounted_helper_evidence.process_start_time_ticks,
         restart_count=0,
         restart_policy_name="no",
         auto_remove=False,
+    )
+    volume_evidence = RunActionRuntimeVolumeEvidence.mint(
+        volume_authority=authority,
+        volume_keeper_evidence_id=keeper_evidence.volume_keeper_evidence_id,
+        keeper_container_id=keeper_evidence.container_id,
+        keeper_process_id=keeper_evidence.process_id,
+        keeper_process_start_time_ticks=keeper_evidence.process_start_time_ticks,
+        keeper_process_cgroup_path=(
+            keeper_evidence.mounted_helper_evidence.process_cgroup_path
+        ),
+        root_mount_id=sentinel_evidence.mount_id,
+        root_device=sentinel_evidence.device,
+        root_inode=9000 + inode_offset,
+        observed_volume_name=authority.volume_name,
+        observed_labels=authority.labels,
+        observed_scope="local",
+        observed_driver=authority.driver,
+        observed_driver_options=authority.driver_options,
+        observed_filesystem_type="tmpfs",
+        observed_mount_flags=("nodev", "nosuid", "noswap"),
+        observed_owner_user_id=authority.owner_user_id,
+        observed_owner_group_id=authority.owner_group_id,
+        observed_root_mode=authority.root_mode,
+        allocation_block_size_bytes=4096,
+        effective_block_count=authority.size_limit_bytes // 4096,
+        effective_size_bytes=authority.size_limit_bytes,
+        effective_inode_limit=authority.inode_limit,
+        used_block_count=observed_used_size // 4096,
+        used_size_bytes=observed_used_size,
+        used_inode_count=observed_used_inodes,
+        available_block_count=(
+            authority.size_limit_bytes // 4096 - observed_used_size // 4096
+        ),
+        available_size_bytes=authority.size_limit_bytes - observed_used_size,
+        available_inode_count=authority.inode_limit - observed_used_inodes,
+        sentinel_evidence=sentinel_evidence,
+    )
+    layout_proof = RunActionRuntimeVolumeLayoutProof.mint(
+        runtime_volume_authority_id=authority.runtime_volume_authority_id,
+        runtime_volume_evidence_id=volume_evidence.runtime_volume_evidence_id,
+        generation_nonce=authority.generation_nonce,
+        empty_size_bytes=0,
+        empty_entry_count=0,
+        directory_relative_paths=directories,
+        prepared_file_ids=tuple(
+            sorted(prepared_file.prepared_file_id for prepared_file in files)
+        ),
+        prepared_workspace_proof_id=(
+            None
+            if workspace_proof is None
+            else workspace_proof.prepared_workspace_proof_id
+        ),
+        logical_content_size_bytes=len(authority.generation_nonce) + workspace_size,
+        logical_entry_count=logical_entry_count,
+        observed_used_size_bytes=observed_used_size,
+        observed_used_inode_count=observed_used_inodes,
+        unexpected_entry_count=0,
     )
     issued_projection = DockerRunActionCreateInspectProjection.mint(
         projection_protocol_version=policy.projection_protocol_version,
@@ -1033,6 +1047,16 @@ def test_activation_revalidation_requires_exact_live_volume_generation_and_keepe
                     inode_offset=8
                 ).volume_keeper_evidence
             }
+        )
+    recycled_process_volume = _remint_contract(
+        values["reobserved_volume_evidence"],
+        keeper_process_start_time_ticks=(
+            prepared.runtime_volume_evidence.keeper_process_start_time_ticks + 1
+        ),
+    )
+    with pytest.raises(RunActionSupervisorContractError, match="prepared authority"):
+        RunActionActivationRevalidationReceipt.mint(
+            **values | {"reobserved_volume_evidence": recycled_process_volume}
         )
 
 
@@ -1490,6 +1514,26 @@ def test_sandbox_accepts_maximum_length_systemd_slice():
     assert sandbox.cgroup_parent_id == cgroup_parent_id
 
 
+def test_keeper_cgroup_path_expands_systemd_slice_hierarchy():
+    container_id = "a" * 64
+    policy = _execution_policy()
+    hierarchical_policy = _remint_policy(
+        policy,
+        sandbox_spec=_remint_sandbox(
+            policy.sandbox_spec,
+            cgroup_parent_id="kapso-workers-actions.slice",
+        ),
+    )
+
+    assert run_action_keeper_process_cgroup_path(
+        hierarchical_policy,
+        container_id,
+    ) == (
+        "/kapso.slice/kapso-workers.slice/"
+        f"kapso-workers-actions.slice/docker-{container_id}.scope"
+    )
+
+
 @pytest.mark.parametrize("field_name", ("user_id", "group_id"))
 def test_execution_policy_rejects_identity_above_docker_boundary(field_name):
     policy = _execution_policy()
@@ -1552,6 +1596,20 @@ def test_runtime_volume_binds_exact_docker_inspect_and_statfs_evidence():
     assert evidence.observed_scope == "local"
     assert evidence.observed_volume_name == authority.volume_name
     assert evidence.observed_labels == authority.labels
+    assert evidence.volume_keeper_evidence_id == (
+        prepared.volume_keeper_evidence.volume_keeper_evidence_id
+    )
+    assert evidence.keeper_container_id == prepared.volume_keeper_evidence.container_id
+    assert evidence.keeper_process_id == prepared.volume_keeper_evidence.process_id
+    assert evidence.keeper_process_start_time_ticks == (
+        prepared.volume_keeper_evidence.process_start_time_ticks
+    )
+    assert evidence.keeper_process_cgroup_path == (
+        prepared.volume_keeper_evidence.mounted_helper_evidence.process_cgroup_path
+    )
+    assert evidence.root_mount_id == evidence.sentinel_evidence.mount_id
+    assert evidence.root_device == evidence.sentinel_evidence.device
+    assert evidence.root_inode != evidence.sentinel_evidence.inode
     assert evidence.used_size_bytes == prepared.layout_proof.observed_used_size_bytes
     assert evidence.used_inode_count == prepared.layout_proof.observed_used_inode_count
     assert evidence.used_size_bytes == (
@@ -1581,6 +1639,87 @@ def test_runtime_volume_binds_exact_docker_inspect_and_statfs_evidence():
         replace(evidence, observed_scope="global")
     with pytest.raises(RunActionSupervisorContractError, match="bounded tmpfs"):
         replace(evidence, observed_labels=())
+    with pytest.raises(RunActionSupervisorContractError, match="bounded tmpfs"):
+        replace(
+            evidence,
+            keeper_process_cgroup_path="/test/docker-" + "f" * 64 + ".scope",
+        )
+    with pytest.raises(RunActionSupervisorContractError, match="bounded tmpfs"):
+        replace(evidence, root_device=evidence.root_device + 1)
+
+
+def test_prepared_volume_rejects_keeper_and_layout_evidence_splices():
+    prepared = _prepared_execution()
+    evidence = prepared.runtime_volume_evidence
+    substituted_container_id = "f" * 64
+    substituted_evidence = _remint_contract(
+        evidence,
+        volume_keeper_evidence_id=_fixture_content_id(
+            "run-action-volume-keeper-evidence",
+            "substituted",
+        ),
+        keeper_container_id=substituted_container_id,
+        keeper_process_id=evidence.keeper_process_id + 1,
+        keeper_process_start_time_ticks=(evidence.keeper_process_start_time_ticks + 1),
+        keeper_process_cgroup_path=(
+            "/test.kapso.run_action.slice/" f"docker-{substituted_container_id}.scope"
+        ),
+    )
+
+    with pytest.raises(
+        RunActionSupervisorContractError,
+        match="keeper differs from prepared authority",
+    ):
+        replace(prepared, runtime_volume_evidence=substituted_evidence)
+
+    substituted_sentinel = _remint_contract(
+        evidence.sentinel_evidence,
+        mount_id=evidence.root_mount_id + 1,
+        device=evidence.root_device + 1,
+    )
+    substituted_root_evidence = _remint_contract(
+        evidence,
+        root_mount_id=evidence.root_mount_id + 1,
+        root_device=evidence.root_device + 1,
+        sentinel_evidence=substituted_sentinel,
+    )
+    with pytest.raises(
+        RunActionSupervisorContractError,
+        match="positive byte or inode headroom",
+    ):
+        replace(prepared, runtime_volume_evidence=substituted_root_evidence)
+
+    substituted_layout = _remint_contract(
+        prepared.layout_proof,
+        runtime_volume_evidence_id=_fixture_content_id(
+            "run-action-runtime-volume-evidence",
+            "substituted",
+        ),
+    )
+    with pytest.raises(
+        RunActionSupervisorContractError,
+        match="positive byte or inode headroom",
+    ):
+        replace(prepared, layout_proof=substituted_layout)
+
+
+def test_prepared_keeper_rejects_coordinated_wrong_cgroup_parent():
+    prepared = _prepared_execution()
+    keeper = prepared.volume_keeper_evidence
+    wrong_cgroup_path = f"/wrong.slice/docker-{keeper.container_id}.scope"
+    wrong_mounted_helper = _remint_contract(
+        keeper.mounted_helper_evidence,
+        process_cgroup_path=wrong_cgroup_path,
+    )
+
+    with pytest.raises(
+        RunActionSupervisorContractError,
+        match="not exact and running",
+    ):
+        _remint_contract(
+            keeper,
+            mounted_helper_evidence=wrong_mounted_helper,
+        )
 
 
 def test_runtime_volume_sentinel_is_one_stable_physical_file():
@@ -1729,7 +1868,10 @@ def test_runtime_volume_keeper_binds_helper_and_exact_live_generation():
         container_id=aliased_container_id,
         mounted_helper_evidence=aliased_mounted_helper,
     )
-    with pytest.raises(RunActionSupervisorContractError, match="evidence differs"):
+    with pytest.raises(
+        RunActionSupervisorContractError,
+        match="keeper differs from prepared authority",
+    ):
         replace(prepared, volume_keeper_evidence=aliased_keeper)
     with pytest.raises(ContractValidationError, match="must be an object"):
         replace(prepared, volume_keeper_evidence=None)

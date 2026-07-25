@@ -812,6 +812,14 @@ class RunActionRuntimeVolumeEvidence(StrictContract):
 
     runtime_volume_evidence_id: str
     volume_authority: RunActionRuntimeVolumeAuthority
+    volume_keeper_evidence_id: str
+    keeper_container_id: str
+    keeper_process_id: int
+    keeper_process_start_time_ticks: int
+    keeper_process_cgroup_path: str
+    root_mount_id: int
+    root_device: int
+    root_inode: int
     observed_volume_name: str
     observed_labels: tuple[RunActionContainerLabel, ...]
     observed_scope: str
@@ -838,13 +846,45 @@ class RunActionRuntimeVolumeEvidence(StrictContract):
     IDENTITY_FIELD: ClassVar[str] = "runtime_volume_evidence_id"
 
     def _validate(self) -> None:
+        _require_namespaced_content_id(
+            self.volume_keeper_evidence_id,
+            "run-action-volume-keeper-evidence",
+            "runtime volume keeper evidence",
+        )
         if type(self.volume_authority) is not RunActionRuntimeVolumeAuthority:
             raise RunActionSupervisorContractError(
                 "runtime volume evidence lacks issued authority"
             )
         authority = self.volume_authority
+        keeper_cgroup_path = (
+            PurePosixPath(self.keeper_process_cgroup_path)
+            if type(self.keeper_process_cgroup_path) is str
+            else None
+        )
         if (
-            self.observed_volume_name != authority.volume_name
+            _DOCKER_CONTAINER_ID_PATTERN.fullmatch(self.keeper_container_id) is None
+            or type(self.keeper_process_id) is not int
+            or self.keeper_process_id <= 0
+            or type(self.keeper_process_start_time_ticks) is not int
+            or self.keeper_process_start_time_ticks <= 0
+            or keeper_cgroup_path is None
+            or not self.keeper_process_cgroup_path.isascii()
+            or "\x00" in self.keeper_process_cgroup_path
+            or not keeper_cgroup_path.is_absolute()
+            or keeper_cgroup_path.as_posix() != self.keeper_process_cgroup_path
+            or ".." in keeper_cgroup_path.parts
+            or not self.keeper_process_cgroup_path.endswith(
+                f"/docker-{self.keeper_container_id}.scope"
+            )
+            or any(
+                type(value) is not int or value <= 0
+                for value in (
+                    self.root_mount_id,
+                    self.root_device,
+                    self.root_inode,
+                )
+            )
+            or self.observed_volume_name != authority.volume_name
             or self.observed_labels != authority.labels
             or self.observed_scope != "local"
             or self.observed_driver != authority.driver
@@ -894,6 +934,9 @@ class RunActionRuntimeVolumeEvidence(StrictContract):
             or self.sentinel_evidence.generation_nonce != authority.generation_nonce
             or self.sentinel_evidence.owner_user_id != authority.owner_user_id
             or self.sentinel_evidence.owner_group_id != authority.owner_group_id
+            or self.sentinel_evidence.mount_id != self.root_mount_id
+            or self.sentinel_evidence.device != self.root_device
+            or self.sentinel_evidence.inode == self.root_inode
         ):
             raise RunActionSupervisorContractError(
                 "runtime volume evidence differs from effective bounded tmpfs"
@@ -1020,6 +1063,7 @@ class RunActionRuntimeVolumeLayoutProof(StrictContract):
 
     runtime_volume_layout_proof_id: str
     runtime_volume_authority_id: str
+    runtime_volume_evidence_id: str
     generation_nonce: str
     empty_size_bytes: int
     empty_entry_count: int
@@ -1040,6 +1084,11 @@ class RunActionRuntimeVolumeLayoutProof(StrictContract):
             self.runtime_volume_authority_id,
             RunActionRuntimeVolumeAuthority.CONTENT_NAMESPACE,
             "runtime volume layout authority",
+        )
+        _require_namespaced_content_id(
+            self.runtime_volume_evidence_id,
+            RunActionRuntimeVolumeEvidence.CONTENT_NAMESPACE,
+            "runtime volume layout evidence",
         )
         if self.prepared_workspace_proof_id is not None:
             _require_namespaced_content_id(
@@ -1273,6 +1322,7 @@ class RunActionMountedKeeperHelperEvidence(StrictContract):
     source_helper_evidence: RunActionKeeperHelperEvidence
     container_id: str
     process_id: int
+    process_start_time_ticks: int
     process_cgroup_path: str
     destination: str
     mount_id: int
@@ -1289,6 +1339,8 @@ class RunActionMountedKeeperHelperEvidence(StrictContract):
             or _DOCKER_CONTAINER_ID_PATTERN.fullmatch(self.container_id) is None
             or type(self.process_id) is not int
             or self.process_id <= 0
+            or type(self.process_start_time_ticks) is not int
+            or self.process_start_time_ticks <= 0
             or not isinstance(self.process_cgroup_path, str)
             or not self.process_cgroup_path.isascii()
             or "\x00" in self.process_cgroup_path
@@ -1396,6 +1448,7 @@ class RunActionVolumeKeeperEvidence(StrictContract):
     mounted_helper_evidence: RunActionMountedKeeperHelperEvidence
     container_status: str
     process_id: int
+    process_start_time_ticks: int
     restart_count: int
     restart_policy_name: str
     auto_remove: bool
@@ -1430,9 +1483,18 @@ class RunActionVolumeKeeperEvidence(StrictContract):
             != self.issued_create_projection.helper_evidence
             or self.mounted_helper_evidence.container_id != self.container_id
             or self.mounted_helper_evidence.process_id != self.process_id
+            or self.mounted_helper_evidence.process_start_time_ticks
+            != self.process_start_time_ticks
+            or self.mounted_helper_evidence.process_cgroup_path
+            != run_action_keeper_process_cgroup_path(
+                self.issued_create_projection.execution_policy,
+                self.container_id,
+            )
             or self.container_status != "running"
             or type(self.process_id) is not int
             or self.process_id <= 0
+            or type(self.process_start_time_ticks) is not int
+            or self.process_start_time_ticks <= 0
             or self.restart_count != 0
             or self.restart_policy_name != "no"
             or self.auto_remove is not False
@@ -1616,6 +1678,7 @@ class RunActionPreparedExecution(StrictContract):
             raise RunActionSupervisorContractError(
                 "prepared runtime volume differs from its execution policy"
             )
+        volume_evidence = self.runtime_volume_evidence
         keeper = self.volume_keeper_evidence
         keeper_projection = keeper.issued_create_projection
         if (
@@ -1624,6 +1687,16 @@ class RunActionPreparedExecution(StrictContract):
             or keeper.labels != preparation_keeper_container_labels(claim)
             or keeper_projection.execution_policy != policy
             or keeper_projection.volume_authority != authority
+            or volume_evidence.volume_keeper_evidence_id
+            != keeper.volume_keeper_evidence_id
+            or volume_evidence.keeper_container_id != keeper.container_id
+            or volume_evidence.keeper_process_id != keeper.process_id
+            or volume_evidence.keeper_process_start_time_ticks
+            != keeper.process_start_time_ticks
+            or volume_evidence.keeper_process_cgroup_path
+            != keeper.mounted_helper_evidence.process_cgroup_path
+            or volume_evidence.keeper_process_cgroup_path
+            != run_action_keeper_process_cgroup_path(policy, keeper.container_id)
         ):
             raise RunActionSupervisorContractError(
                 "runtime volume keeper differs from prepared authority"
@@ -1681,7 +1754,7 @@ class RunActionPreparedExecution(StrictContract):
         expected_prepared_entry_count = (
             len(expected_directories) + len(files) + 1 + workspace_entry_count
         )
-        evidence = self.runtime_volume_evidence
+        evidence = volume_evidence
         required_available_size_bytes = sum(
             _allocated_size(
                 prepared_file.payload_size_limit_bytes,
@@ -1694,6 +1767,7 @@ class RunActionPreparedExecution(StrictContract):
         )
         if (
             layout.runtime_volume_authority_id != authority.runtime_volume_authority_id
+            or layout.runtime_volume_evidence_id != evidence.runtime_volume_evidence_id
             or layout.generation_nonce != authority.generation_nonce
             or layout.directory_relative_paths != expected_directories
             or layout.prepared_file_ids
@@ -2159,6 +2233,15 @@ def _reobserved_volume_matches_prepared(
         return False
     return (
         reobserved.volume_authority == prepared.volume_authority
+        and reobserved.volume_keeper_evidence_id == prepared.volume_keeper_evidence_id
+        and reobserved.keeper_container_id == prepared.keeper_container_id
+        and reobserved.keeper_process_id == prepared.keeper_process_id
+        and reobserved.keeper_process_start_time_ticks
+        == prepared.keeper_process_start_time_ticks
+        and reobserved.keeper_process_cgroup_path == prepared.keeper_process_cgroup_path
+        and reobserved.root_mount_id == prepared.root_mount_id
+        and reobserved.root_device == prepared.root_device
+        and reobserved.root_inode == prepared.root_inode
         and reobserved.observed_volume_name == prepared.observed_volume_name
         and reobserved.observed_labels == prepared.observed_labels
         and reobserved.observed_scope == prepared.observed_scope
@@ -2200,6 +2283,29 @@ def preparation_container_labels(
     """Derive the complete label set without a prepared-execution back-edge."""
 
     return _preparation_resource_labels(claim, "execution")
+
+
+def run_action_keeper_process_cgroup_path(
+    policy: DockerRunActionExecutionPolicy,
+    container_id: str,
+) -> str:
+    """Derive the exact physical cgroup path issued for one keeper process."""
+
+    if (
+        type(policy) is not DockerRunActionExecutionPolicy
+        or type(container_id) is not str
+        or _DOCKER_CONTAINER_ID_PATTERN.fullmatch(container_id) is None
+    ):
+        raise RunActionSupervisorContractError(
+            "keeper process cgroup path requires exact policy and container identity"
+        )
+    slice_name = policy.sandbox_spec.cgroup_parent_id
+    stem_parts = slice_name.removesuffix(".slice").split("-")
+    slice_path = "/".join(
+        f"{'-'.join(stem_parts[:part_count])}.slice"
+        for part_count in range(1, len(stem_parts) + 1)
+    )
+    return f"/{slice_path}/docker-{container_id}.scope"
 
 
 def preparation_volume_name(claim: RunActionPreparationClaim) -> str:
@@ -2579,4 +2685,5 @@ __all__ = [
     "runtime_volume_driver_options",
     "runtime_volume_keeper_helper_authority_id",
     "runtime_volume_sentinel_identity",
+    "run_action_keeper_process_cgroup_path",
 ]

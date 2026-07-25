@@ -61,6 +61,7 @@ def mounted_helper_observer(monkeypatch):
             source_helper_evidence=source_evidence,
             container_id=container_id,
             process_id=process_id,
+            process_start_time_ticks=123456,
             process_cgroup_path=(
                 f"/test.kapso.run_action.slice/docker-{container_id}.scope"
             ),

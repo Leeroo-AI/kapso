@@ -626,13 +626,21 @@ stat records relative to that lease. Before the first volume mutation it require
 the exact issued tmpfs mount/device/options/owner/mode, stable block and inode
 capacity accounting, a live non-zombie keeper generation, and zero root entries;
 the real Docker lifecycle proves this boundary before creating any layout path.
+That durable volume evidence now names the exact keeper evidence, container,
+process, Linux start-time generation, policy-derived systemd cgroup path, root
+mount, device, and inode used for the observation. The mounted-helper, keeper,
+volume, prepared-execution, and activation-reobservation contracts all preserve
+that process generation. The prepared layout names that exact
+content-addressed volume evidence, so neither a recycled PID, a cgroup-parent
+substitution, a valid observation from another keeper, nor a valid layout from
+another physical root can be spliced into a prepared execution.
 Workspace staging now has a descriptor-only copy prerequisite that inventories
 the complete source and `.git` topology before mutation, includes physical Git
 bytes and entries in capacity planning, sandwiches every copied inode against
 source metadata, normalizes copied directories to private mode, and independently
 reconciles both source and destination frontiers after the copy.
-Allocation/reopen reconciliation, concrete activation/result receipts, positive
-cleanup authority, and production adapters remain the next slices.
+Layout population/reopen reconciliation, concrete activation/result receipts,
+positive cleanup authority, and production adapters remain the next slices.
 
 The coordinator owns one process-bound, non-clonable implementation catalog fixed
 at composition; `recover()` accepts no caller-selected implementation. Each

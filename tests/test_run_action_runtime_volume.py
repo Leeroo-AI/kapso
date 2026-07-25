@@ -11,12 +11,15 @@ from kapso.core.config import load_config
 from kapso.cross_run.launch.run_action_docker_inspect import (
     observe_runtime_volume,
 )
+from kapso.cross_run.launch.run_action_keeper_helper import (
+    RunActionKeeperHelperError,
+    read_run_action_process_start_time_from_descriptor,
+)
 from kapso.cross_run.launch.run_action_runtime_volume import (
     DockerRunActionEmptyVolumeObservation,
     RunActionRuntimeVolumeError,
     _parse_mount_info_payload,
     _parse_size_option,
-    _read_process_start_time,
     _require_mount_authority,
     issue_fresh_runtime_volume_authority,
 )
@@ -84,6 +87,7 @@ def _empty_observation(authority, volume):
         docker_volume_observation=volume,
         keeper_container_id=_KEEPER_CONTAINER_ID,
         keeper_process_id=101,
+        keeper_process_start_time_ticks=123456,
         process_cgroup_path=(
             f"/test.kapso.run_action.slice/docker-{_KEEPER_CONTAINER_ID}.scope"
         ),
@@ -258,7 +262,13 @@ def test_runtime_volume_process_lease_parses_one_live_generation(tmp_path):
     )
     with ExitStack() as descriptors:
         descriptors.callback(os.close, process_descriptor)
-        assert _read_process_start_time(process_descriptor, process_id) == 123456
+        assert (
+            read_run_action_process_start_time_from_descriptor(
+                process_descriptor,
+                process_id,
+            )
+            == 123456
+        )
 
     (tmp_path / "stat").write_bytes(
         f"{process_id} (keeper) Z {' '.join(fields[1:])}\n".encode("ascii")
@@ -270,10 +280,13 @@ def test_runtime_volume_process_lease_parses_one_live_generation(tmp_path):
     with ExitStack() as descriptors:
         descriptors.callback(os.close, process_descriptor)
         with pytest.raises(
-            RunActionRuntimeVolumeError,
+            RunActionKeeperHelperError,
             match="not one live process generation",
         ):
-            _read_process_start_time(process_descriptor, process_id)
+            read_run_action_process_start_time_from_descriptor(
+                process_descriptor,
+                process_id,
+            )
 
 
 def test_empty_volume_observation_closes_identity_and_capacity_accounting(

@@ -343,6 +343,7 @@ def observe_running_keeper(
         mounted_helper_evidence=mounted_helper_evidence,
         container_status="running",
         process_id=state["Pid"],
+        process_start_time_ticks=mounted_helper_evidence.process_start_time_ticks,
         restart_count=0,
         restart_policy_name="no",
         auto_remove=False,
