@@ -13,19 +13,21 @@ from kapso.cross_run.launch.run_action_docker_projection import (
     DOCKER_RUN_ACTION_RAW_FIELD_SCHEMA_ID,
     DockerRunActionCommand,
     docker_run_action_raw_field_schema,
+    main_barrier_command,
     volume_create_arguments,
 )
-from kapso.cross_run.launch.run_action_keeper_helper import (
+from kapso.cross_run.launch.run_action_supervisor_helper import (
     observe_mounted_keeper_helper,
 )
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
     DockerRunActionCreateInspectProjection,
     DockerRunActionKeeperCreateInspectProjection,
+    RUN_ACTION_BARRIER_PROTOCOL_VERSION,
     RUN_ACTION_RUNTIME_VOLUME_KEEPER_DESTINATION,
-    RUN_ACTION_RUNTIME_VOLUME_KEEPER_HELPER_DESTINATION,
+    RUN_ACTION_SUPERVISOR_HELPER_DESTINATION,
     RunActionContainerLabel,
     RunActionInertContainerEvidence,
-    RunActionKeeperHelperEvidence,
+    RunActionSupervisorHelperEvidence,
     RunActionPreparationClaim,
     RunActionPreparedMount,
     RunActionPreparedMountAccess,
@@ -191,17 +193,29 @@ def issued_main_projection(
     claim: RunActionPreparationClaim,
     authority: RunActionRuntimeVolumeAuthority,
     command: DockerRunActionCommand,
+    helper_evidence: RunActionSupervisorHelperEvidence,
     settings: DockerRuntimeSettings,
 ) -> DockerRunActionCreateInspectProjection:
     """Build the normalized main-container projection before allocation."""
 
     volume_create_arguments(claim, authority, settings)
     _require_command_policy(command, claim)
+    _require_helper_evidence(helper_evidence, claim)
+    barrier_executable, barrier_arguments = main_barrier_command(command, settings)
+    mounts = preparation_main_mounts(claim, authority)
     return DockerRunActionCreateInspectProjection.mint(
         projection_protocol_version=DOCKER_RUN_ACTION_PROJECTION_PROTOCOL_VERSION,
         raw_field_schema_id=DOCKER_RUN_ACTION_RAW_FIELD_SCHEMA_ID,
         execution_policy=claim.execution_policy,
-        mounts=preparation_main_mounts(claim, authority),
+        supervisor_helper_evidence=helper_evidence,
+        barrier_protocol_version=RUN_ACTION_BARRIER_PROTOCOL_VERSION,
+        barrier_poll_interval_seconds=(
+            settings.run_action_barrier_poll_interval_seconds
+        ),
+        command_executable=barrier_executable,
+        command_arguments=barrier_arguments,
+        mounts=mounts,
+        exact_mount_count=len(mounts) + 1,
         unclassified_raw_field_count=0,
         nonauthoritative_raw_field_count=len(_MAIN_NONAUTHORITATIVE_RAW_FIELDS),
     )
@@ -213,25 +227,33 @@ def observe_inert_main_container(
     authority: RunActionRuntimeVolumeAuthority,
     volume: DockerRunActionVolumeObservation,
     command: DockerRunActionCommand,
+    helper_evidence: RunActionSupervisorHelperEvidence,
     settings: DockerRuntimeSettings,
 ) -> RunActionInertContainerEvidence:
     """Parse one never-started main container and bind it to issuance."""
 
-    issued = issued_main_projection(claim, authority, command, settings)
+    issued = issued_main_projection(
+        claim,
+        authority,
+        command,
+        helper_evidence,
+        settings,
+    )
     _require_volume_observation(volume, authority, settings)
     raw = _require_mapping(raw_inspection, "Docker main container inspection")
     expected_labels = preparation_container_labels(claim)
     expected_mounts = preparation_main_mounts(claim, authority)
+    barrier_executable, barrier_arguments = main_barrier_command(command, settings)
     container_id = _require_common_container(
         raw,
         claim=claim,
         labels=expected_labels,
         container_name=preparation_container_name(claim),
-        command_executable=command.entrypoint,
-        command_arguments=command.arguments,
+        command_executable=barrier_executable,
+        command_arguments=barrier_arguments,
         working_directory=claim.execution_policy.filesystem_policy.working_directory,
-        host_config_mounts=_main_host_config_mounts(expected_mounts),
-        top_level_mounts=_main_top_level_mounts(expected_mounts, volume),
+        host_config_mounts=_main_host_config_mounts(claim, expected_mounts),
+        top_level_mounts=_main_top_level_mounts(claim, expected_mounts, volume),
         settings=settings,
         running_keeper=False,
     )
@@ -263,7 +285,7 @@ def observe_inert_main_container(
 def issued_keeper_projection(
     claim: RunActionPreparationClaim,
     authority: RunActionRuntimeVolumeAuthority,
-    helper_evidence: RunActionKeeperHelperEvidence,
+    helper_evidence: RunActionSupervisorHelperEvidence,
     settings: DockerRuntimeSettings,
 ) -> DockerRunActionKeeperCreateInspectProjection:
     """Build the normalized keeper projection before allocation."""
@@ -276,7 +298,7 @@ def issued_keeper_projection(
         preparation_claim_id=claim.preparation_claim_id,
         execution_policy=claim.execution_policy,
         volume_authority=authority,
-        command_executable=RUN_ACTION_RUNTIME_VOLUME_KEEPER_HELPER_DESTINATION,
+        command_executable=RUN_ACTION_SUPERVISOR_HELPER_DESTINATION,
         command_arguments=("tail", "-f", "/dev/null"),
         helper_evidence=helper_evidence,
         volume_mount_type="volume",
@@ -296,7 +318,7 @@ def observe_running_keeper(
     claim: RunActionPreparationClaim,
     authority: RunActionRuntimeVolumeAuthority,
     volume: DockerRunActionVolumeObservation,
-    helper_evidence: RunActionKeeperHelperEvidence,
+    helper_evidence: RunActionSupervisorHelperEvidence,
     settings: DockerRuntimeSettings,
 ) -> RunActionVolumeKeeperEvidence:
     """Parse one running, network-free runtime-volume keeper."""
@@ -315,7 +337,7 @@ def observe_running_keeper(
         claim=claim,
         labels=labels,
         container_name=preparation_keeper_container_name(claim),
-        command_executable=RUN_ACTION_RUNTIME_VOLUME_KEEPER_HELPER_DESTINATION,
+        command_executable=RUN_ACTION_SUPERVISOR_HELPER_DESTINATION,
         command_arguments=("tail", "-f", "/dev/null"),
         working_directory=RUN_ACTION_RUNTIME_VOLUME_KEEPER_DESTINATION,
         host_config_mounts=_keeper_host_config_mounts(claim, authority),
@@ -355,7 +377,7 @@ def observe_inert_keeper(
     claim: RunActionPreparationClaim,
     authority: RunActionRuntimeVolumeAuthority,
     volume: DockerRunActionVolumeObservation,
-    helper_evidence: RunActionKeeperHelperEvidence,
+    helper_evidence: RunActionSupervisorHelperEvidence,
     settings: DockerRuntimeSettings,
 ) -> DockerRunActionInertKeeperObservation:
     """Parse one never-started keeper before issuing its sole start mutation."""
@@ -374,7 +396,7 @@ def observe_inert_keeper(
         claim=claim,
         labels=labels,
         container_name=preparation_keeper_container_name(claim),
-        command_executable=RUN_ACTION_RUNTIME_VOLUME_KEEPER_HELPER_DESTINATION,
+        command_executable=RUN_ACTION_SUPERVISOR_HELPER_DESTINATION,
         command_arguments=("tail", "-f", "/dev/null"),
         working_directory=RUN_ACTION_RUNTIME_VOLUME_KEEPER_DESTINATION,
         host_config_mounts=_keeper_host_config_mounts(claim, authority),
@@ -626,9 +648,21 @@ def _expected_host_config(
 
 
 def _main_host_config_mounts(
+    claim: RunActionPreparationClaim,
     mounts: tuple[RunActionPreparedMount, ...],
 ) -> list[dict[str, Any]]:
-    rendered: list[dict[str, Any]] = []
+    rendered: list[dict[str, Any]] = [
+        {
+            "BindOptions": {
+                "NonRecursive": True,
+                "Propagation": "rprivate",
+            },
+            "ReadOnly": True,
+            "Source": claim.execution_policy.supervisor_helper_source_path,
+            "Target": RUN_ACTION_SUPERVISOR_HELPER_DESTINATION,
+            "Type": "bind",
+        }
+    ]
     for mount in mounts:
         observed: dict[str, Any] = {
             "Source": mount.volume_name,
@@ -647,21 +681,34 @@ def _main_host_config_mounts(
 
 
 def _main_top_level_mounts(
+    claim: RunActionPreparationClaim,
     mounts: tuple[RunActionPreparedMount, ...],
     volume: DockerRunActionVolumeObservation,
 ) -> list[dict[str, Any]]:
     return [
         {
-            "Destination": mount.container_destination,
-            "Driver": "local",
-            "Mode": "z",
-            "Name": mount.volume_name,
-            "Propagation": "",
-            "RW": (mount.container_access is RunActionPreparedMountAccess.READ_WRITE),
-            "Source": volume.mountpoint,
-            "Type": "volume",
-        }
-        for mount in mounts
+            "Destination": RUN_ACTION_SUPERVISOR_HELPER_DESTINATION,
+            "Mode": "",
+            "Propagation": "rprivate",
+            "RW": False,
+            "Source": claim.execution_policy.supervisor_helper_source_path,
+            "Type": "bind",
+        },
+        *[
+            {
+                "Destination": mount.container_destination,
+                "Driver": "local",
+                "Mode": "z",
+                "Name": mount.volume_name,
+                "Propagation": "",
+                "RW": (
+                    mount.container_access is RunActionPreparedMountAccess.READ_WRITE
+                ),
+                "Source": volume.mountpoint,
+                "Type": "volume",
+            }
+            for mount in mounts
+        ],
     ]
 
 
@@ -676,8 +723,8 @@ def _keeper_host_config_mounts(
                 "Propagation": "rprivate",
             },
             "ReadOnly": True,
-            "Source": claim.execution_policy.keeper_helper_source_path,
-            "Target": RUN_ACTION_RUNTIME_VOLUME_KEEPER_HELPER_DESTINATION,
+            "Source": claim.execution_policy.supervisor_helper_source_path,
+            "Target": RUN_ACTION_SUPERVISOR_HELPER_DESTINATION,
             "Type": "bind",
         },
         {
@@ -699,11 +746,11 @@ def _keeper_top_level_mounts(
 ) -> list[dict[str, Any]]:
     return [
         {
-            "Destination": RUN_ACTION_RUNTIME_VOLUME_KEEPER_HELPER_DESTINATION,
+            "Destination": RUN_ACTION_SUPERVISOR_HELPER_DESTINATION,
             "Mode": "",
             "Propagation": "rprivate",
             "RW": False,
-            "Source": claim.execution_policy.keeper_helper_source_path,
+            "Source": claim.execution_policy.supervisor_helper_source_path,
             "Type": "bind",
         },
         {
@@ -1034,19 +1081,20 @@ def _require_command_policy(
 
 
 def _require_helper_evidence(
-    helper_evidence: RunActionKeeperHelperEvidence,
+    helper_evidence: RunActionSupervisorHelperEvidence,
     claim: RunActionPreparationClaim,
 ) -> None:
     policy = claim.execution_policy
     if (
-        type(helper_evidence) is not RunActionKeeperHelperEvidence
+        type(helper_evidence) is not RunActionSupervisorHelperEvidence
         or helper_evidence.helper_authority_id
-        != policy.keeper_helper_executable_authority_id
-        or helper_evidence.source_path != policy.keeper_helper_source_path
-        or helper_evidence.executable_digest != policy.keeper_helper_executable_digest
+        != policy.supervisor_helper_executable_authority_id
+        or helper_evidence.source_path != policy.supervisor_helper_source_path
+        or helper_evidence.executable_digest
+        != policy.supervisor_helper_executable_digest
     ):
         raise DockerRunActionInspectionError(
-            "Docker keeper helper differs from execution policy"
+            "Docker supervisor helper differs from execution policy"
         )
 
 

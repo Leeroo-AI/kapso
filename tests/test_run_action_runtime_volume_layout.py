@@ -24,7 +24,7 @@ from kapso.cross_run.launch.run_action_runtime_volume import (
     _plan_runtime_volume_layout,
     _require_same_exact_regular_file,
 )
-from kapso.cross_run.launch.run_action_keeper_helper import (
+from kapso.cross_run.launch.run_action_supervisor_helper import (
     read_run_action_descriptor_mount_id,
 )
 from kapso.cross_run.launch.run_action_reservation_contracts import (
@@ -417,6 +417,11 @@ def test_open_result_workspace_joins_live_sentinel_and_retains_its_path(
         mount_id=root_mount_id,
         device=root_metadata.st_dev,
     )
+    physical_control_directory = _remint_contract(
+        prepared.control_directory,
+        mount_id=root_mount_id,
+        device=root_metadata.st_dev,
+    )
     physical_temporary_directory = _remint_contract(
         prepared.temporary_directory,
         mount_id=root_mount_id,
@@ -455,6 +460,7 @@ def test_open_result_workspace_joins_live_sentinel_and_retains_its_path(
         prepared_runtime_directory_ids=tuple(
             sorted(
                 (
+                    physical_control_directory.prepared_runtime_directory_id,
                     physical_result_directory.prepared_runtime_directory_id,
                     physical_temporary_directory.prepared_runtime_directory_id,
                 )
@@ -468,6 +474,7 @@ def test_open_result_workspace_joins_live_sentinel_and_retains_its_path(
         runtime_volume_evidence=physical_prepared_volume,
         input_delivery_slot=physical_input,
         result_directory=physical_result_directory,
+        control_directory=physical_control_directory,
         temporary_directory=physical_temporary_directory,
         result_file=physical_result_file,
         workspace_proof=physical_workspace,
@@ -533,6 +540,7 @@ def test_open_result_workspace_joins_live_sentinel_and_retains_its_path(
                 physical_prepared.runtime_volume_evidence.sentinel_evidence.inode,
                 physical_prepared.input_delivery_slot.inode,
                 physical_prepared.result_directory.inode,
+                physical_prepared.control_directory.inode,
                 physical_prepared.temporary_directory.inode,
                 physical_prepared.result_file.inode,
                 physical_prepared.workspace_proof.inode,
@@ -707,6 +715,7 @@ def test_descriptor_materializer_publishes_complete_layout_and_sentinel_last(
     assert workspace_frontier is None
     assert tuple(sorted(path.name for path in root_path.iterdir())) == (
         ".kapso-generation",
+        "control",
         "input",
         "result",
         "temporary",
@@ -715,12 +724,13 @@ def test_descriptor_materializer_publishes_complete_layout_and_sentinel_last(
         authority.generation_nonce.encode("ascii")
     )
     assert stat.S_IMODE((root_path / ".kapso-generation").stat().st_mode) == 0o400
+    assert tuple((root_path / "control").iterdir()) == ()
     assert tuple((root_path / "input").iterdir()) == ()
     assert (root_path / "result" / "result.blob").read_bytes() == b""
     assert tuple((root_path / "temporary").iterdir()) == ()
     assert all(
         stat.S_IMODE((root_path / name).stat().st_mode) == 0o700
-        for name in ("input", "result", "temporary")
+        for name in ("control", "input", "result", "temporary")
     )
     assert stat.S_IMODE((root_path / "result" / "result.blob").stat().st_mode) == 0o600
 
@@ -728,6 +738,7 @@ def test_descriptor_materializer_publishes_complete_layout_and_sentinel_last(
 @pytest.mark.parametrize(
     ("failure_destination", "staging_present", "pending_present"),
     (
+        ("control", True, False),
         ("input", True, False),
         ("result", True, False),
         ("temporary", True, False),
@@ -886,6 +897,7 @@ def test_layout_plan_requires_strict_peak_and_execution_headroom(
             admitted.preparation_inode_count
             + len(admitted.delivery_slot_plans)
             + limits.runtime_temporary_reservation_inode_count
+            + 1
         )
         exhausted = replace(
             empty,
@@ -952,6 +964,7 @@ def test_prepared_volume_aggregate_rejects_layout_splices():
         runtime_volume_evidence=prepared.runtime_volume_evidence,
         input_delivery_slot=prepared.input_delivery_slot,
         result_directory=prepared.result_directory,
+        control_directory=prepared.control_directory,
         result_file=prepared.result_file,
         temporary_directory=prepared.temporary_directory,
         credential_delivery_slot=prepared.credential_delivery_slot,
@@ -987,6 +1000,7 @@ def test_prepared_volume_aggregate_rejects_same_graph_layout_lies(mutation):
         runtime_volume_evidence=prepared.runtime_volume_evidence,
         input_delivery_slot=prepared.input_delivery_slot,
         result_directory=prepared.result_directory,
+        control_directory=prepared.control_directory,
         result_file=prepared.result_file,
         temporary_directory=prepared.temporary_directory,
         credential_delivery_slot=prepared.credential_delivery_slot,
@@ -1016,6 +1030,7 @@ def test_prepared_volume_aggregate_rejects_claim_policy_authority_splice():
         runtime_volume_evidence=prepared.runtime_volume_evidence,
         input_delivery_slot=prepared.input_delivery_slot,
         result_directory=prepared.result_directory,
+        control_directory=prepared.control_directory,
         result_file=prepared.result_file,
         temporary_directory=prepared.temporary_directory,
         credential_delivery_slot=prepared.credential_delivery_slot,
@@ -1069,6 +1084,7 @@ def test_prepared_volume_aggregate_rejects_claim_policy_authority_splice():
         for runtime_directory in (
             observation.result_directory,
             observation.temporary_directory,
+            observation.control_directory,
         )
     )
     substituted_result_file = _remint_contract(
@@ -1123,6 +1139,7 @@ def test_prepared_volume_aggregate_rejects_claim_policy_authority_splice():
             result_directory=substituted_runtime_directories[0],
             result_file=substituted_result_file,
             temporary_directory=substituted_runtime_directories[1],
+            control_directory=substituted_runtime_directories[2],
             credential_delivery_slot=(
                 None
                 if len(substituted_delivery_slots) == 1
@@ -1149,6 +1166,7 @@ def test_prepared_volume_aggregate_rejects_delivery_slot_authority_splices(chang
         runtime_volume_evidence=prepared.runtime_volume_evidence,
         input_delivery_slot=prepared.input_delivery_slot,
         result_directory=prepared.result_directory,
+        control_directory=prepared.control_directory,
         result_file=prepared.result_file,
         temporary_directory=prepared.temporary_directory,
         credential_delivery_slot=prepared.credential_delivery_slot,
@@ -1196,6 +1214,7 @@ def test_prepared_volume_aggregate_rejects_workspace_authority_splice():
         runtime_volume_evidence=prepared.runtime_volume_evidence,
         input_delivery_slot=prepared.input_delivery_slot,
         result_directory=prepared.result_directory,
+        control_directory=prepared.control_directory,
         result_file=prepared.result_file,
         temporary_directory=prepared.temporary_directory,
         credential_delivery_slot=prepared.credential_delivery_slot,

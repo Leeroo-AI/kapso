@@ -15,7 +15,7 @@ from typing import ClassVar
 
 from kapso.cross_run.canonical import require_content_id
 from kapso.cross_run.contracts import StrictContract
-from kapso.cross_run.launch.run_action_keeper_helper import (
+from kapso.cross_run.launch.run_action_supervisor_helper import (
     read_run_action_descriptor_mount_id,
 )
 from kapso.cross_run.launch.run_action_reservation_contracts import (

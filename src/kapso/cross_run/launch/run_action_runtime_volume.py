@@ -19,7 +19,7 @@ from kapso.cross_run.launch.run_action_activation_delivery import (
 from kapso.cross_run.launch.run_action_docker_inspect import (
     DockerRunActionVolumeObservation,
 )
-from kapso.cross_run.launch.run_action_keeper_helper import (
+from kapso.cross_run.launch.run_action_supervisor_helper import (
     read_run_action_descriptor_mount_id,
     read_run_action_process_cgroup_path_from_descriptor,
     read_run_action_process_start_time_from_descriptor,
@@ -30,7 +30,7 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RUN_ACTION_RUNTIME_VOLUME_KEEPER_DESTINATION,
     RunActionActivatedFileObservation,
     RunActionActivatedSentinelObservation,
-    RunActionActivatedTemporaryDirectoryObservation,
+    RunActionActivatedRuntimeDirectoryObservation,
     RunActionActivatedWorkspaceObservation,
     RunActionCredentialMode,
     RunActionPreparationClaim,
@@ -216,6 +216,7 @@ class DockerRunActionPreparedVolumeObservation:
     preparation_claim: RunActionPreparationClaim
     runtime_volume_evidence: RunActionRuntimeVolumeEvidence
     input_delivery_slot: RunActionPreparedDeliverySlot
+    control_directory: RunActionPreparedRuntimeDirectory
     result_directory: RunActionPreparedRuntimeDirectory
     result_file: RunActionPreparedFile
     temporary_directory: RunActionPreparedRuntimeDirectory
@@ -252,7 +253,11 @@ class DockerRunActionPreparedVolumeObservation:
             if type(self.preparation_claim) is RunActionPreparationClaim
             else ()
         )
-        runtime_directories = (self.result_directory, self.temporary_directory)
+        runtime_directories = (
+            self.control_directory,
+            self.result_directory,
+            self.temporary_directory,
+        )
         expected_authority = (
             issue_runtime_volume_authority(
                 self.preparation_claim,
@@ -282,6 +287,7 @@ class DockerRunActionPreparedVolumeObservation:
             type(self.preparation_claim) is not RunActionPreparationClaim
             or type(self.runtime_volume_evidence) is not RunActionRuntimeVolumeEvidence
             or type(self.input_delivery_slot) is not RunActionPreparedDeliverySlot
+            or type(self.control_directory) is not RunActionPreparedRuntimeDirectory
             or type(self.result_directory) is not RunActionPreparedRuntimeDirectory
             or type(self.result_file) is not RunActionPreparedFile
             or type(self.temporary_directory) is not RunActionPreparedRuntimeDirectory
@@ -467,9 +473,9 @@ class DockerRunActionActivatedVolumeObservation:
     spawn_commit: RunActionSpawnCommit
     reobserved_volume_evidence: RunActionRuntimeVolumeEvidence
     activated_workspace_observation: RunActionActivatedWorkspaceObservation | None
-    activated_temporary_directory_observation: (
-        RunActionActivatedTemporaryDirectoryObservation
-    )
+    activated_runtime_directory_observations: tuple[
+        RunActionActivatedRuntimeDirectoryObservation, ...
+    ]
     activated_sentinel_observation: RunActionActivatedSentinelObservation
     input_file_observation: RunActionActivatedFileObservation
     result_file_observation: RunActionActivatedFileObservation
@@ -487,8 +493,11 @@ class DockerRunActionActivatedVolumeObservation:
                 and type(self.activated_workspace_observation)
                 is not RunActionActivatedWorkspaceObservation
             )
-            or type(self.activated_temporary_directory_observation)
-            is not RunActionActivatedTemporaryDirectoryObservation
+            or type(self.activated_runtime_directory_observations) is not tuple
+            or any(
+                type(observation) is not RunActionActivatedRuntimeDirectoryObservation
+                for observation in self.activated_runtime_directory_observations
+            )
             or type(self.activated_sentinel_observation)
             is not RunActionActivatedSentinelObservation
             or type(self.input_file_observation)
@@ -509,8 +518,8 @@ class DockerRunActionActivatedVolumeObservation:
             spawn_commit=self.spawn_commit,
             reobserved_volume_evidence=self.reobserved_volume_evidence,
             activated_workspace_observation=self.activated_workspace_observation,
-            activated_temporary_directory_observation=(
-                self.activated_temporary_directory_observation
+            activated_runtime_directory_observations=(
+                self.activated_runtime_directory_observations
             ),
             activated_sentinel_observation=self.activated_sentinel_observation,
             input_file_observation=self.input_file_observation,
@@ -1290,6 +1299,7 @@ def reobserve_runtime_volume_layout(
         preparation_claim=prepared.preparation_claim,
         runtime_volume_evidence=prepared.runtime_volume_evidence,
         input_delivery_slot=prepared.input_delivery_slot,
+        control_directory=prepared.control_directory,
         result_directory=prepared.result_directory,
         result_file=prepared.result_file,
         temporary_directory=prepared.temporary_directory,
@@ -1411,6 +1421,15 @@ def deliver_and_reobserve_runtime_volume_activation(
             prepared.input_delivery_slot.device,
             prepared.input_delivery_slot.inode,
         )
+        control_directory_descriptor = _open_activation_subpath_directory(
+            descriptors,
+            lease,
+            authority,
+            prepared.control_directory.directory_relative_path,
+            prepared.control_directory.mount_id,
+            prepared.control_directory.device,
+            prepared.control_directory.inode,
+        )
         result_directory_descriptor = _open_activation_subpath_directory(
             descriptors,
             lease,
@@ -1486,6 +1505,12 @@ def deliver_and_reobserve_runtime_volume_activation(
             prepared.result_file,
         )
         _require_exact_activation_directory(
+            prepared.control_directory,
+            lease.root_descriptor,
+            control_directory_descriptor,
+            expected_entries=(),
+        )
+        _require_exact_activation_directory(
             prepared.result_directory,
             lease.root_descriptor,
             result_directory_descriptor,
@@ -1525,6 +1550,12 @@ def deliver_and_reobserve_runtime_volume_activation(
         _require_same_mounted_runtime_volume(lease, keeper)
         _require_same_exact_regular_file(sentinel_observation)
         _require_same_exact_regular_file(result_file_observation)
+        _require_exact_activation_directory(
+            prepared.control_directory,
+            lease.root_descriptor,
+            control_directory_descriptor,
+            expected_entries=(),
+        )
         _require_exact_activation_directory(
             prepared.input_delivery_slot,
             lease.root_descriptor,
@@ -1719,22 +1750,28 @@ def _mint_activated_volume_observation(
         device=sentinel.device,
         inode=sentinel.inode,
     )
-    temporary = prepared.temporary_directory
-    activated_temporary_directory_observation = (
-        RunActionActivatedTemporaryDirectoryObservation.mint(
+    activated_runtime_directory_observations = tuple(
+        RunActionActivatedRuntimeDirectoryObservation.mint(
             spawn_commit_id=spawn_commit.spawn_commit_id,
-            prepared_runtime_directory_id=(temporary.prepared_runtime_directory_id),
-            runtime_volume_authority_id=temporary.runtime_volume_authority_id,
-            generation_nonce=temporary.generation_nonce,
-            directory_relative_path=temporary.directory_relative_path,
-            directory_type=temporary.directory_type,
-            owner_user_id=temporary.owner_user_id,
-            owner_group_id=temporary.owner_group_id,
-            mode=temporary.mode,
+            prepared_runtime_directory_id=(
+                runtime_directory.prepared_runtime_directory_id
+            ),
+            runtime_volume_authority_id=(runtime_directory.runtime_volume_authority_id),
+            generation_nonce=runtime_directory.generation_nonce,
+            kind=runtime_directory.kind,
+            directory_relative_path=runtime_directory.directory_relative_path,
+            directory_type=runtime_directory.directory_type,
+            owner_user_id=runtime_directory.owner_user_id,
+            owner_group_id=runtime_directory.owner_group_id,
+            mode=runtime_directory.mode,
             observed_entry_count=0,
-            mount_id=temporary.mount_id,
-            device=temporary.device,
-            inode=temporary.inode,
+            mount_id=runtime_directory.mount_id,
+            device=runtime_directory.device,
+            inode=runtime_directory.inode,
+        )
+        for runtime_directory in (
+            prepared.control_directory,
+            prepared.temporary_directory,
         )
     )
     activated_workspace_observation = _mint_activated_workspace_observation(
@@ -1747,8 +1784,8 @@ def _mint_activated_volume_observation(
         spawn_commit=spawn_commit,
         reobserved_volume_evidence=reobserved_volume_evidence,
         activated_workspace_observation=activated_workspace_observation,
-        activated_temporary_directory_observation=(
-            activated_temporary_directory_observation
+        activated_runtime_directory_observations=(
+            activated_runtime_directory_observations
         ),
         activated_sentinel_observation=activated_sentinel_observation,
         input_file_observation=input_file_observation,
@@ -2089,6 +2126,7 @@ def _plan_runtime_volume_layout(
         or current_inode_count
         + len(delivery_slot_plans)
         + limits.runtime_temporary_reservation_inode_count
+        + 1
         >= empty_volume.available_inode_count
     ):
         raise RunActionRuntimeVolumeError(
@@ -2458,6 +2496,7 @@ def _observe_prepared_layout_at_descriptor(
             )
         observed_identities.add(sentinel_identity)
         expected_children = {
+            "control": (),
             "input": (),
             "result": ("result.blob",),
             "temporary": (),
@@ -2877,7 +2916,7 @@ def _mint_prepared_volume_observation(
         allocation_block_size_bytes,
     )
     required_available_inode_count = (
-        len(delivery_slot_plans) + limits.runtime_temporary_reservation_inode_count
+        len(delivery_slot_plans) + limits.runtime_temporary_reservation_inode_count + 1
     )
     if (
         required_available_size_bytes >= available_size_bytes
@@ -2940,6 +2979,9 @@ def _mint_prepared_volume_observation(
         preparation_claim=claim,
         runtime_volume_evidence=volume_evidence,
         input_delivery_slot=delivery_slot_by_kind[RunActionPreparedFileKind.INPUT],
+        control_directory=runtime_directory_by_kind[
+            RunActionPreparedRuntimeDirectoryKind.CONTROL
+        ],
         result_directory=result_directory,
         result_file=result_file,
         temporary_directory=runtime_directory_by_kind[
@@ -3014,6 +3056,7 @@ def _expected_directory_names(claim: RunActionPreparationClaim) -> tuple[str, ..
     return tuple(
         sorted(
             (
+                "control",
                 "input",
                 "result",
                 "temporary",
@@ -3077,6 +3120,11 @@ def _expected_result_file_plan(
 
 def _expected_runtime_directory_plans() -> tuple[_PreparedRuntimeDirectoryPlan, ...]:
     return (
+        _PreparedRuntimeDirectoryPlan(
+            kind=RunActionPreparedRuntimeDirectoryKind.CONTROL,
+            directory_name="control",
+            observed_entry_count=0,
+        ),
         _PreparedRuntimeDirectoryPlan(
             kind=RunActionPreparedRuntimeDirectoryKind.RESULT,
             directory_name="result",

@@ -76,6 +76,7 @@ cross_run:
       - "name=apparmor"
       - "name=cgroupns"
       - "name=seccomp,profile=builtin"
+    run_action_barrier_poll_interval_seconds: 1
     command_timeout_seconds: 60
     cleanup_timeout_seconds: 30
     command_output_byte_limit: 16777216

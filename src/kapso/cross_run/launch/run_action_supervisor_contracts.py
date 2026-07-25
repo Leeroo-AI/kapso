@@ -84,13 +84,22 @@ _RUNTIME_VOLUME_NAME_PREFIX = "kapso-run-action-volume-"
 _PREPARATION_LABEL_PREFIX = "com.kapso.run-action."
 _RUNTIME_VOLUME_SENTINEL_PATH = ".kapso-generation"
 RUN_ACTION_RUNTIME_VOLUME_KEEPER_DESTINATION = "/kapso/runtime-volume"
-RUN_ACTION_RUNTIME_VOLUME_KEEPER_HELPER_DESTINATION = "/kapso-supervisor/busybox"
+RUN_ACTION_SUPERVISOR_HELPER_DESTINATION = "/kapso-supervisor/busybox"
+RUN_ACTION_BARRIER_CONTROL_DESTINATION = "/kapso-supervisor/control"
+RUN_ACTION_BARRIER_RELEASE_DESTINATION = "/kapso-supervisor/control/release"
+RUN_ACTION_BARRIER_PROTOCOL_VERSION = "kapso.run_action_barrier.v1"
+RUN_ACTION_BARRIER_SCRIPT = (
+    'while [ ! -f "$1" ] || [ ! -r "$1" ]; do "$2" sleep "$3"; done; '
+    'shift 3; exec "$@"'
+)
+RUN_ACTION_BARRIER_DUMMY_ARGUMENT = "kapso-run-action-barrier"
 _RUNTIME_VOLUME_SUBPATHS = {
     "workspace": "workspace",
     "input": "input",
     "result": "result",
     "credential": "credential",
     "temporary": "temporary",
+    "control": "control",
 }
 
 
@@ -124,6 +133,7 @@ class RunActionPreparedRuntimeDirectoryKind(str, Enum):
 
     RESULT = "result"
     TEMPORARY = "temporary"
+    CONTROL = "control"
 
 
 class RunActionPreparedMountKind(str, Enum):
@@ -134,6 +144,7 @@ class RunActionPreparedMountKind(str, Enum):
     RESULT = "result"
     CREDENTIAL = "credential"
     TEMPORARY = "temporary"
+    CONTROL = "control"
 
 
 class RunActionPreparedMountAccess(str, Enum):
@@ -456,6 +467,8 @@ class RunActionFilesystemPolicy(StrictContract):
             self.result_destination,
             self.working_directory,
             self.temporary_filesystem_destination,
+            RUN_ACTION_SUPERVISOR_HELPER_DESTINATION,
+            RUN_ACTION_BARRIER_CONTROL_DESTINATION,
             *(
                 ()
                 if self.workspace_destination is None
@@ -469,7 +482,7 @@ class RunActionFilesystemPolicy(StrictContract):
         )
         for destination in destinations:
             _require_absolute_container_path(destination)
-        mount_destinations = tuple(
+        workload_mount_destinations = tuple(
             destination
             for destination in (
                 self.workspace_destination,
@@ -479,6 +492,11 @@ class RunActionFilesystemPolicy(StrictContract):
                 self.temporary_filesystem_destination,
             )
             if destination is not None
+        )
+        mount_destinations = (
+            *workload_mount_destinations,
+            RUN_ACTION_SUPERVISOR_HELPER_DESTINATION,
+            RUN_ACTION_BARRIER_CONTROL_DESTINATION,
         )
         if any(
             left == right
@@ -499,7 +517,7 @@ class RunActionFilesystemPolicy(StrictContract):
         if not any(
             working_directory == PurePosixPath(destination)
             or PurePosixPath(destination) in working_directory.parents
-            for destination in mount_destinations
+            for destination in workload_mount_destinations
         ):
             raise RunActionSupervisorContractError(
                 "run action working directory is outside its mounted filesystems"
@@ -571,9 +589,9 @@ class DockerRunActionExecutionPolicy(StrictContract):
     raw_field_schema_id: str
     docker_runtime_settings_digest: str
     image_authority: DockerImageAuthority
-    keeper_helper_source_path: str
-    keeper_helper_executable_authority_id: str
-    keeper_helper_executable_digest: str
+    supervisor_helper_source_path: str
+    supervisor_helper_executable_authority_id: str
+    supervisor_helper_executable_digest: str
     command_template_id: str
     static_environment: tuple[RunActionStaticEnvironmentVariable, ...]
     user_id: int
@@ -636,22 +654,22 @@ class DockerRunActionExecutionPolicy(StrictContract):
             "Docker raw-field schema",
         )
         _require_namespaced_content_id(
-            self.keeper_helper_executable_authority_id,
+            self.supervisor_helper_executable_authority_id,
             "run-action-helper-executable-authority",
-            "runtime volume keeper helper",
+            "runtime supervisor helper",
         )
         _require_absolute_host_path(
-            self.keeper_helper_source_path,
-            "runtime volume keeper helper source",
+            self.supervisor_helper_source_path,
+            "runtime supervisor helper source",
         )
         if _SHA256_DIGEST_PATTERN.fullmatch(
-            self.keeper_helper_executable_digest
-        ) is None or self.keeper_helper_executable_authority_id != runtime_volume_keeper_helper_authority_id(
-            self.keeper_helper_source_path,
-            self.keeper_helper_executable_digest,
+            self.supervisor_helper_executable_digest
+        ) is None or self.supervisor_helper_executable_authority_id != run_action_supervisor_helper_authority_id(
+            self.supervisor_helper_source_path,
+            self.supervisor_helper_executable_digest,
         ):
             raise RunActionSupervisorContractError(
-                "runtime volume keeper helper differs from execution policy"
+                "runtime supervisor helper differs from execution policy"
             )
         has_credential_destination = (
             self.filesystem_policy.credential_destination is not None
@@ -1117,6 +1135,7 @@ class RunActionPreparedRuntimeDirectory(StrictContract):
         expected_entries = {
             RunActionPreparedRuntimeDirectoryKind.RESULT: 1,
             RunActionPreparedRuntimeDirectoryKind.TEMPORARY: 0,
+            RunActionPreparedRuntimeDirectoryKind.CONTROL: 0,
         }
         if (
             type(self.kind) is not RunActionPreparedRuntimeDirectoryKind
@@ -1124,7 +1143,8 @@ class RunActionPreparedRuntimeDirectory(StrictContract):
             or (
                 self.kind in expected_entries
                 and (
-                    self.directory_relative_path != self.kind.value
+                    self.directory_relative_path
+                    != _RUNTIME_VOLUME_SUBPATHS[self.kind.value]
                     or self.observed_entry_count != expected_entries[self.kind]
                 )
             )
@@ -1339,7 +1359,7 @@ class RunActionRuntimeVolumeLayoutProof(StrictContract):
                 != RunActionPreparedDeliverySlot.CONTENT_NAMESPACE
                 for slot_id in self.prepared_delivery_slot_ids
             )
-            or len(self.prepared_runtime_directory_ids) != 2
+            or len(self.prepared_runtime_directory_ids) != 3
             or self.prepared_runtime_directory_ids
             != tuple(sorted(set(self.prepared_runtime_directory_ids)))
             or any(
@@ -1424,6 +1444,7 @@ class RunActionPreparedMount(StrictContract):
             in (
                 RunActionPreparedMountKind.INPUT,
                 RunActionPreparedMountKind.CREDENTIAL,
+                RunActionPreparedMountKind.CONTROL,
             )
             and self.container_access is not RunActionPreparedMountAccess.READ_ONLY
         ):
@@ -1451,7 +1472,13 @@ class DockerRunActionCreateInspectProjection(StrictContract):
     projection_protocol_version: str
     raw_field_schema_id: str
     execution_policy: DockerRunActionExecutionPolicy
+    supervisor_helper_evidence: RunActionSupervisorHelperEvidence
+    barrier_protocol_version: str
+    barrier_poll_interval_seconds: int
+    command_executable: str
+    command_arguments: tuple[str, ...]
     mounts: tuple[RunActionPreparedMount, ...]
+    exact_mount_count: int
     unclassified_raw_field_count: int
     nonauthoritative_raw_field_count: int
 
@@ -1461,6 +1488,23 @@ class DockerRunActionCreateInspectProjection(StrictContract):
     def _validate(self) -> None:
         if (
             type(self.execution_policy) is not DockerRunActionExecutionPolicy
+            or type(self.supervisor_helper_evidence)
+            is not RunActionSupervisorHelperEvidence
+            or self.supervisor_helper_evidence.helper_authority_id
+            != self.execution_policy.supervisor_helper_executable_authority_id
+            or self.supervisor_helper_evidence.source_path
+            != self.execution_policy.supervisor_helper_source_path
+            or self.supervisor_helper_evidence.executable_digest
+            != self.execution_policy.supervisor_helper_executable_digest
+            or self.barrier_protocol_version != RUN_ACTION_BARRIER_PROTOCOL_VERSION
+            or type(self.barrier_poll_interval_seconds) is not int
+            or self.barrier_poll_interval_seconds <= 0
+            or not _barrier_command_matches_policy(
+                self.command_executable,
+                self.command_arguments,
+                self.barrier_poll_interval_seconds,
+                self.execution_policy,
+            )
             or self.projection_protocol_version
             != self.execution_policy.projection_protocol_version
             or self.raw_field_schema_id != self.execution_policy.raw_field_schema_id
@@ -1469,6 +1513,7 @@ class DockerRunActionCreateInspectProjection(StrictContract):
             != tuple(sorted({mount.container_destination for mount in self.mounts}))
             or len({mount.kind for mount in self.mounts}) != len(self.mounts)
             or len({mount.volume_name for mount in self.mounts}) != 1
+            or self.exact_mount_count != len(self.mounts) + 1
             or any(
                 left == right or left in right.parents or right in left.parents
                 for position, left in enumerate(
@@ -1489,10 +1534,10 @@ class DockerRunActionCreateInspectProjection(StrictContract):
 
 
 @dataclass(frozen=True)
-class RunActionKeeperHelperEvidence(StrictContract):
-    """Physical proof of the root-owned static BusyBox keeper bind."""
+class RunActionSupervisorHelperEvidence(StrictContract):
+    """Physical proof of the root-owned static BusyBox supervisor bind."""
 
-    keeper_helper_evidence_id: str
+    supervisor_helper_evidence_id: str
     helper_authority_id: str
     source_path: str
     destination: str
@@ -1512,26 +1557,26 @@ class RunActionKeeperHelperEvidence(StrictContract):
     device: int
     inode: int
 
-    CONTENT_NAMESPACE: ClassVar[str] = "run-action-keeper-helper-evidence"
-    IDENTITY_FIELD: ClassVar[str] = "keeper_helper_evidence_id"
+    CONTENT_NAMESPACE: ClassVar[str] = "run-action-supervisor-helper-evidence"
+    IDENTITY_FIELD: ClassVar[str] = "supervisor_helper_evidence_id"
 
     def _validate(self) -> None:
         _require_namespaced_content_id(
             self.helper_authority_id,
             "run-action-helper-executable-authority",
-            "runtime volume keeper helper authority",
+            "runtime supervisor helper authority",
         )
         _require_absolute_host_path(
             self.source_path,
-            "runtime volume keeper helper source",
+            "runtime supervisor helper source",
         )
         if (
             self.helper_authority_id
-            != runtime_volume_keeper_helper_authority_id(
+            != run_action_supervisor_helper_authority_id(
                 self.source_path,
                 self.executable_digest,
             )
-            or self.destination != RUN_ACTION_RUNTIME_VOLUME_KEEPER_HELPER_DESTINATION
+            or self.destination != RUN_ACTION_SUPERVISOR_HELPER_DESTINATION
             or self.mount_type != "bind"
             or self.mount_access is not RunActionPreparedMountAccess.READ_ONLY
             or self.recursive_bind is not False
@@ -1550,7 +1595,7 @@ class RunActionKeeperHelperEvidence(StrictContract):
             )
         ):
             raise RunActionSupervisorContractError(
-                "runtime volume keeper helper evidence is unsafe or substituted"
+                "runtime supervisor helper evidence is unsafe or substituted"
             )
 
 
@@ -1559,7 +1604,7 @@ class RunActionMountedKeeperHelperEvidence(StrictContract):
     """Spawn-bound proof that the keeper executes the issued helper inode."""
 
     mounted_keeper_helper_evidence_id: str
-    source_helper_evidence: RunActionKeeperHelperEvidence
+    source_helper_evidence: RunActionSupervisorHelperEvidence
     container_id: str
     process_id: int
     process_start_time_ticks: int
@@ -1575,7 +1620,7 @@ class RunActionMountedKeeperHelperEvidence(StrictContract):
 
     def _validate(self) -> None:
         if (
-            type(self.source_helper_evidence) is not RunActionKeeperHelperEvidence
+            type(self.source_helper_evidence) is not RunActionSupervisorHelperEvidence
             or _DOCKER_CONTAINER_ID_PATTERN.fullmatch(self.container_id) is None
             or type(self.process_id) is not int
             or self.process_id <= 0
@@ -1591,7 +1636,7 @@ class RunActionMountedKeeperHelperEvidence(StrictContract):
             or not self.process_cgroup_path.endswith(
                 f"/docker-{self.container_id}.scope"
             )
-            or self.destination != RUN_ACTION_RUNTIME_VOLUME_KEEPER_HELPER_DESTINATION
+            or self.destination != RUN_ACTION_SUPERVISOR_HELPER_DESTINATION
             or type(self.mount_id) is not int
             or self.mount_id <= 0
             or self.mount_id == self.source_helper_evidence.mount_id
@@ -1618,7 +1663,7 @@ class DockerRunActionKeeperCreateInspectProjection(StrictContract):
     volume_authority: RunActionRuntimeVolumeAuthority
     command_executable: str
     command_arguments: tuple[str, ...]
-    helper_evidence: RunActionKeeperHelperEvidence
+    helper_evidence: RunActionSupervisorHelperEvidence
     volume_mount_type: str
     volume_mount_destination: str
     volume_mount_access: RunActionPreparedMountAccess
@@ -1643,20 +1688,19 @@ class DockerRunActionKeeperCreateInspectProjection(StrictContract):
         if (
             type(self.execution_policy) is not DockerRunActionExecutionPolicy
             or type(self.volume_authority) is not RunActionRuntimeVolumeAuthority
-            or type(self.helper_evidence) is not RunActionKeeperHelperEvidence
+            or type(self.helper_evidence) is not RunActionSupervisorHelperEvidence
             or self.projection_protocol_version
             != self.execution_policy.projection_protocol_version
             or self.raw_field_schema_id != self.execution_policy.raw_field_schema_id
             or self.volume_authority.preparation_claim_id != self.preparation_claim_id
-            or self.command_executable
-            != RUN_ACTION_RUNTIME_VOLUME_KEEPER_HELPER_DESTINATION
+            or self.command_executable != RUN_ACTION_SUPERVISOR_HELPER_DESTINATION
             or self.command_arguments != ("tail", "-f", "/dev/null")
             or self.helper_evidence.helper_authority_id
-            != self.execution_policy.keeper_helper_executable_authority_id
+            != self.execution_policy.supervisor_helper_executable_authority_id
             or self.helper_evidence.source_path
-            != self.execution_policy.keeper_helper_source_path
+            != self.execution_policy.supervisor_helper_source_path
             or self.helper_evidence.executable_digest
-            != self.execution_policy.keeper_helper_executable_digest
+            != self.execution_policy.supervisor_helper_executable_digest
             or self.volume_mount_type != "volume"
             or self.volume_mount_destination
             != RUN_ACTION_RUNTIME_VOLUME_KEEPER_DESTINATION
@@ -1827,6 +1871,7 @@ class RunActionPreparedExecution(StrictContract):
     input_delivery_slot: RunActionPreparedDeliverySlot
     result_directory: RunActionPreparedRuntimeDirectory
     temporary_directory: RunActionPreparedRuntimeDirectory
+    control_directory: RunActionPreparedRuntimeDirectory
     result_file: RunActionPreparedFile
     credential_delivery_slot: RunActionPreparedDeliverySlot | None
     workspace_proof: RunActionPreparedWorkspaceProof | None
@@ -1846,6 +1891,7 @@ class RunActionPreparedExecution(StrictContract):
             or type(self.input_delivery_slot) is not RunActionPreparedDeliverySlot
             or type(self.result_directory) is not RunActionPreparedRuntimeDirectory
             or type(self.temporary_directory) is not RunActionPreparedRuntimeDirectory
+            or type(self.control_directory) is not RunActionPreparedRuntimeDirectory
             or type(self.result_file) is not RunActionPreparedFile
             or (
                 self.credential_delivery_slot is not None
@@ -1909,6 +1955,12 @@ class RunActionPreparedExecution(StrictContract):
             or self.temporary_directory.generation_nonce != authority.generation_nonce
             or self.temporary_directory.kind
             is not RunActionPreparedRuntimeDirectoryKind.TEMPORARY
+            or self.control_directory.preparation_claim_id != claim.preparation_claim_id
+            or self.control_directory.runtime_volume_authority_id
+            != authority.runtime_volume_authority_id
+            or self.control_directory.generation_nonce != authority.generation_nonce
+            or self.control_directory.kind
+            is not RunActionPreparedRuntimeDirectoryKind.CONTROL
             or self.result_file.preparation_claim_id != claim.preparation_claim_id
             or self.result_file.prepared_parent_directory_id
             != self.result_directory.prepared_runtime_directory_id
@@ -1937,6 +1989,7 @@ class RunActionPreparedExecution(StrictContract):
                 for directory in (
                     self.result_directory,
                     self.temporary_directory,
+                    self.control_directory,
                 )
             )
             or len(
@@ -1944,14 +1997,16 @@ class RunActionPreparedExecution(StrictContract):
                     *(delivery_slot.inode for delivery_slot in delivery_slots),
                     self.result_directory.inode,
                     self.temporary_directory.inode,
+                    self.control_directory.inode,
                     self.result_file.inode,
                 }
             )
-            != len(delivery_slots) + 3
+            != len(delivery_slots) + 4
             or {
                 *(delivery_slot.inode for delivery_slot in delivery_slots),
                 self.result_directory.inode,
                 self.temporary_directory.inode,
+                self.control_directory.inode,
                 self.result_file.inode,
             }
             & {
@@ -2027,6 +2082,7 @@ class RunActionPreparedExecution(StrictContract):
                 self.input_delivery_slot.inode,
                 self.result_directory.inode,
                 self.temporary_directory.inode,
+                self.control_directory.inode,
                 self.result_file.inode,
                 *(
                     ()
@@ -2045,6 +2101,7 @@ class RunActionPreparedExecution(StrictContract):
                     _RUNTIME_VOLUME_SUBPATHS["input"],
                     _RUNTIME_VOLUME_SUBPATHS["result"],
                     _RUNTIME_VOLUME_SUBPATHS["temporary"],
+                    _RUNTIME_VOLUME_SUBPATHS["control"],
                     *(
                         ()
                         if self.credential_delivery_slot is None
@@ -2089,7 +2146,7 @@ class RunActionPreparedExecution(StrictContract):
             )
         )
         required_available_inode_count = (
-            len(delivery_slots) + limits.runtime_temporary_reservation_inode_count
+            len(delivery_slots) + limits.runtime_temporary_reservation_inode_count + 1
         )
         if (
             layout.runtime_volume_authority_id != authority.runtime_volume_authority_id
@@ -2109,6 +2166,7 @@ class RunActionPreparedExecution(StrictContract):
                     (
                         self.result_directory.prepared_runtime_directory_id,
                         self.temporary_directory.prepared_runtime_directory_id,
+                        self.control_directory.prepared_runtime_directory_id,
                     )
                 )
             )
@@ -2142,6 +2200,8 @@ class RunActionPreparedExecution(StrictContract):
             or container_evidence.container_id == keeper.container_id
             or container_evidence.container_name == keeper.container_name
             or issued_projection.execution_policy != policy
+            or issued_projection.supervisor_helper_evidence
+            != keeper_projection.helper_evidence
             or issued_projection.mounts
             != _expected_prepared_mounts(claim, authority.volume_name)
         ):
@@ -2352,14 +2412,15 @@ class RunActionActivatedWorkspaceObservation(StrictContract):
 
 
 @dataclass(frozen=True)
-class RunActionActivatedTemporaryDirectoryObservation(StrictContract):
-    """Fresh pre-start proof that the exact temporary subpath remains empty."""
+class RunActionActivatedRuntimeDirectoryObservation(StrictContract):
+    """Fresh pre-start proof that one exact runtime subpath remains empty."""
 
-    activated_temporary_directory_observation_id: str
+    activated_runtime_directory_observation_id: str
     spawn_commit_id: str
     prepared_runtime_directory_id: str
     runtime_volume_authority_id: str
     generation_nonce: str
+    kind: RunActionPreparedRuntimeDirectoryKind
     directory_relative_path: str
     directory_type: str
     owner_user_id: int
@@ -2371,29 +2432,34 @@ class RunActionActivatedTemporaryDirectoryObservation(StrictContract):
     inode: int
 
     CONTENT_NAMESPACE: ClassVar[str] = (
-        "run-action-activated-temporary-directory-observation"
+        "run-action-activated-runtime-directory-observation"
     )
-    IDENTITY_FIELD: ClassVar[str] = "activated_temporary_directory_observation_id"
+    IDENTITY_FIELD: ClassVar[str] = "activated_runtime_directory_observation_id"
 
     def _validate(self) -> None:
         _require_namespaced_content_id(
             self.spawn_commit_id,
             RunActionSpawnCommit.CONTENT_NAMESPACE,
-            "activated temporary directory spawn commit",
+            "activated runtime directory spawn commit",
         )
         _require_namespaced_content_id(
             self.prepared_runtime_directory_id,
             RunActionPreparedRuntimeDirectory.CONTENT_NAMESPACE,
-            "activated prepared temporary directory",
+            "activated prepared runtime directory",
         )
         _require_namespaced_content_id(
             self.runtime_volume_authority_id,
             RunActionRuntimeVolumeAuthority.CONTENT_NAMESPACE,
-            "activated temporary directory runtime volume",
+            "activated runtime directory volume",
         )
         if (
             _GENERATION_NONCE_PATTERN.fullmatch(self.generation_nonce) is None
-            or self.directory_relative_path != _RUNTIME_VOLUME_SUBPATHS["temporary"]
+            or self.kind
+            not in {
+                RunActionPreparedRuntimeDirectoryKind.CONTROL,
+                RunActionPreparedRuntimeDirectoryKind.TEMPORARY,
+            }
+            or self.directory_relative_path != _RUNTIME_VOLUME_SUBPATHS[self.kind.value]
             or self.directory_type != "directory"
             or type(self.owner_user_id) is not int
             or self.owner_user_id <= 0
@@ -2407,7 +2473,7 @@ class RunActionActivatedTemporaryDirectoryObservation(StrictContract):
             )
         ):
             raise RunActionSupervisorContractError(
-                "activated temporary directory observation is invalid or nonempty"
+                "activated runtime directory observation is invalid or nonempty"
             )
 
 
@@ -2485,9 +2551,9 @@ class RunActionActivationRevalidationReceipt(StrictContract):
     reobserved_keeper_evidence: RunActionVolumeKeeperEvidence
     reobserved_container_evidence: RunActionInertContainerEvidence
     activated_workspace_observation: RunActionActivatedWorkspaceObservation | None
-    activated_temporary_directory_observation: (
-        RunActionActivatedTemporaryDirectoryObservation
-    )
+    activated_runtime_directory_observations: tuple[
+        RunActionActivatedRuntimeDirectoryObservation, ...
+    ]
     activated_sentinel_observation: RunActionActivatedSentinelObservation
     input_file_observation: RunActionActivatedFileObservation
     result_file_observation: RunActionActivatedFileObservation
@@ -2512,8 +2578,8 @@ class RunActionActivationRevalidationReceipt(StrictContract):
                 spawn_commit=self.spawn_commit,
                 reobserved_volume_evidence=self.reobserved_volume_evidence,
                 activated_workspace_observation=(self.activated_workspace_observation),
-                activated_temporary_directory_observation=(
-                    self.activated_temporary_directory_observation
+                activated_runtime_directory_observations=(
+                    self.activated_runtime_directory_observations
                 ),
                 activated_sentinel_observation=(self.activated_sentinel_observation),
                 input_file_observation=self.input_file_observation,
@@ -2827,18 +2893,68 @@ def _activated_workspace_matches_prepared(
     )
 
 
-def _activated_temporary_matches_prepared(
-    observed: RunActionActivatedTemporaryDirectoryObservation,
+def _barrier_command_matches_policy(
+    executable: str,
+    arguments: tuple[str, ...],
+    poll_interval_seconds: int,
+    policy: DockerRunActionExecutionPolicy,
+) -> bool:
+    if (
+        executable != RUN_ACTION_SUPERVISOR_HELPER_DESTINATION
+        or type(arguments) is not tuple
+        or len(arguments) < 10
+        or arguments[:8]
+        != (
+            "sh",
+            "-eu",
+            "-c",
+            RUN_ACTION_BARRIER_SCRIPT,
+            RUN_ACTION_BARRIER_DUMMY_ARGUMENT,
+            RUN_ACTION_BARRIER_RELEASE_DESTINATION,
+            RUN_ACTION_SUPERVISOR_HELPER_DESTINATION,
+            str(poll_interval_seconds),
+        )
+        or any(
+            not isinstance(argument, str) or not argument or "\x00" in argument
+            for argument in arguments[8:]
+        )
+    ):
+        return False
+    target_entrypoint = arguments[8]
+    target_path = PurePosixPath(target_entrypoint)
+    if (
+        not target_path.is_absolute()
+        or target_path == PurePosixPath("/")
+        or ".." in target_path.parts
+        or target_path.as_posix() != target_entrypoint
+    ):
+        return False
+    return policy.command_template_id == content_id(
+        "docker-run-action-command-template",
+        {
+            "arguments": arguments[9:],
+            "entrypoint": target_entrypoint,
+        },
+    )
+
+
+def _activated_runtime_directory_matches_prepared(
+    observed: RunActionActivatedRuntimeDirectoryObservation,
     prepared: RunActionPreparedRuntimeDirectory,
     spawn_commit_id: str,
 ) -> bool:
     if (
-        type(observed) is not RunActionActivatedTemporaryDirectoryObservation
+        type(observed) is not RunActionActivatedRuntimeDirectoryObservation
         or type(prepared) is not RunActionPreparedRuntimeDirectory
     ):
         return False
     return (
-        prepared.kind is RunActionPreparedRuntimeDirectoryKind.TEMPORARY
+        prepared.kind
+        in {
+            RunActionPreparedRuntimeDirectoryKind.CONTROL,
+            RunActionPreparedRuntimeDirectoryKind.TEMPORARY,
+        }
+        and observed.kind is prepared.kind
         and observed.spawn_commit_id == spawn_commit_id
         and observed.prepared_runtime_directory_id
         == prepared.prepared_runtime_directory_id
@@ -2933,9 +3049,9 @@ def run_action_activated_volume_evidence_matches(
     spawn_commit: RunActionSpawnCommit,
     reobserved_volume_evidence: RunActionRuntimeVolumeEvidence,
     activated_workspace_observation: RunActionActivatedWorkspaceObservation | None,
-    activated_temporary_directory_observation: (
-        RunActionActivatedTemporaryDirectoryObservation
-    ),
+    activated_runtime_directory_observations: tuple[
+        RunActionActivatedRuntimeDirectoryObservation, ...
+    ],
     activated_sentinel_observation: RunActionActivatedSentinelObservation,
     input_file_observation: RunActionActivatedFileObservation,
     result_file_observation: RunActionActivatedFileObservation,
@@ -2947,8 +3063,20 @@ def run_action_activated_volume_evidence_matches(
         type(prepared) is not RunActionPreparedExecution
         or type(spawn_commit) is not RunActionSpawnCommit
         or type(reobserved_volume_evidence) is not RunActionRuntimeVolumeEvidence
-        or type(activated_temporary_directory_observation)
-        is not RunActionActivatedTemporaryDirectoryObservation
+        or type(activated_runtime_directory_observations) is not tuple
+        or tuple(
+            observation.kind
+            for observation in activated_runtime_directory_observations
+            if type(observation) is RunActionActivatedRuntimeDirectoryObservation
+        )
+        != (
+            RunActionPreparedRuntimeDirectoryKind.CONTROL,
+            RunActionPreparedRuntimeDirectoryKind.TEMPORARY,
+        )
+        or any(
+            type(observation) is not RunActionActivatedRuntimeDirectoryObservation
+            for observation in activated_runtime_directory_observations
+        )
         or type(activated_sentinel_observation)
         is not RunActionActivatedSentinelObservation
         or type(input_file_observation) is not RunActionActivatedFileObservation
@@ -2985,6 +3113,7 @@ def run_action_activated_volume_evidence_matches(
         prepared.input_delivery_slot.inode,
         prepared.result_directory.inode,
         prepared.temporary_directory.inode,
+        prepared.control_directory.inode,
         prepared.result_file.inode,
         *(
             ()
@@ -3019,10 +3148,17 @@ def run_action_activated_volume_evidence_matches(
             prepared.workspace_proof,
             spawn_commit_id,
         )
-        and _activated_temporary_matches_prepared(
-            activated_temporary_directory_observation,
-            prepared.temporary_directory,
-            spawn_commit_id,
+        and all(
+            _activated_runtime_directory_matches_prepared(
+                observed,
+                expected,
+                spawn_commit_id,
+            )
+            for observed, expected in zip(
+                activated_runtime_directory_observations,
+                (prepared.control_directory, prepared.temporary_directory),
+                strict=True,
+            )
         )
         and _activated_sentinel_matches_prepared(
             activated_sentinel_observation,
@@ -3067,7 +3203,7 @@ def run_action_activated_volume_evidence_matches(
         )
         and remaining_requirement_bytes
         < reobserved_volume_evidence.available_size_bytes
-        and limits.runtime_temporary_reservation_inode_count
+        and limits.runtime_temporary_reservation_inode_count + 1
         < reobserved_volume_evidence.available_inode_count
     )
 
@@ -3375,27 +3511,27 @@ def runtime_volume_sentinel_identity(generation_nonce: str) -> str:
     )
 
 
-def runtime_volume_keeper_helper_authority_id(
+def run_action_supervisor_helper_authority_id(
     source_path: str,
     executable_digest: str,
 ) -> str:
-    """Bind the keeper helper bytes to their sole read-only mount destination."""
+    """Bind the supervisor helper bytes to their sole read-only mount destination."""
 
     _require_absolute_host_path(
         source_path,
-        "runtime volume keeper helper source",
+        "runtime supervisor helper source",
     )
     if (
         not isinstance(executable_digest, str)
         or _SHA256_DIGEST_PATTERN.fullmatch(executable_digest) is None
     ):
         raise RunActionSupervisorContractError(
-            "runtime volume keeper helper digest is invalid"
+            "runtime supervisor helper digest is invalid"
         )
     return content_id(
         "run-action-helper-executable-authority",
         {
-            "destination": RUN_ACTION_RUNTIME_VOLUME_KEEPER_HELPER_DESTINATION,
+            "destination": RUN_ACTION_SUPERVISOR_HELPER_DESTINATION,
             "digest": executable_digest,
             "mount_access": RunActionPreparedMountAccess.READ_ONLY.value,
             "source_path": source_path,
@@ -3487,6 +3623,11 @@ def _expected_prepared_mounts(
             RunActionPreparedMountKind.TEMPORARY,
             filesystem.temporary_filesystem_destination,
             RunActionPreparedMountAccess.READ_WRITE,
+        ),
+        (
+            RunActionPreparedMountKind.CONTROL,
+            RUN_ACTION_BARRIER_CONTROL_DESTINATION,
+            RunActionPreparedMountAccess.READ_ONLY,
         ),
     ]
     if filesystem.credential_destination is not None:
@@ -3589,11 +3730,16 @@ __all__ = [
     "DockerRunActionResourceLimits",
     "DockerRunActionSafeCreateDefaults",
     "DockerRunActionSandboxSpec",
+    "RUN_ACTION_BARRIER_CONTROL_DESTINATION",
+    "RUN_ACTION_BARRIER_DUMMY_ARGUMENT",
+    "RUN_ACTION_BARRIER_PROTOCOL_VERSION",
+    "RUN_ACTION_BARRIER_RELEASE_DESTINATION",
+    "RUN_ACTION_BARRIER_SCRIPT",
     "RUN_ACTION_RUNTIME_VOLUME_KEEPER_DESTINATION",
-    "RUN_ACTION_RUNTIME_VOLUME_KEEPER_HELPER_DESTINATION",
+    "RUN_ACTION_SUPERVISOR_HELPER_DESTINATION",
     "RunActionActivatedFileObservation",
     "RunActionActivatedSentinelObservation",
-    "RunActionActivatedTemporaryDirectoryObservation",
+    "RunActionActivatedRuntimeDirectoryObservation",
     "RunActionActivatedWorkspaceObservation",
     "RunActionActivationRevalidationReceipt",
     "RunActionActivationNetworkMode",
@@ -3602,7 +3748,7 @@ __all__ = [
     "RunActionCredentialPolicy",
     "RunActionFilesystemPolicy",
     "RunActionInertContainerEvidence",
-    "RunActionKeeperHelperEvidence",
+    "RunActionSupervisorHelperEvidence",
     "RunActionMountedKeeperHelperEvidence",
     "RunActionNetworkPolicy",
     "RunActionPreparationAllocation",
@@ -3636,7 +3782,7 @@ __all__ = [
     "preparation_volume_name",
     "issue_runtime_volume_authority",
     "runtime_volume_driver_options",
-    "runtime_volume_keeper_helper_authority_id",
+    "run_action_supervisor_helper_authority_id",
     "runtime_volume_sentinel_identity",
     "run_action_keeper_process_cgroup_path",
     "run_action_activated_volume_evidence_matches",

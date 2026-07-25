@@ -172,6 +172,48 @@ def test_docker_and_task_evaluation_provider_authorities_are_strict(
         CrossRunSettings.from_dict(raw)
 
 
+def test_shipped_docker_barrier_poll_interval_is_canonical():
+    raw = load_config(CANONICAL_CONFIG_PATH)["cross_run"]
+    settings = CrossRunSettings.from_dict(raw)
+
+    assert settings.docker.run_action_barrier_poll_interval_seconds == 1
+    assert settings.to_dict()["docker"]["run_action_barrier_poll_interval_seconds"] == 1
+
+
+def test_docker_barrier_poll_interval_is_required():
+    raw = copy.deepcopy(load_config(CANONICAL_CONFIG_PATH)["cross_run"])
+    del raw["docker"]["run_action_barrier_poll_interval_seconds"]
+
+    with pytest.raises(
+        ContractValidationError,
+        match="run_action_barrier_poll_interval_seconds",
+    ):
+        CrossRunSettings.from_dict(raw)
+
+
+@pytest.mark.parametrize(
+    "value",
+    (0, -1),
+)
+def test_docker_barrier_poll_interval_must_be_a_positive_integer(value):
+    raw = copy.deepcopy(load_config(CANONICAL_CONFIG_PATH)["cross_run"])
+    raw["docker"]["run_action_barrier_poll_interval_seconds"] = value
+
+    with pytest.raises(
+        CrossRunConfigurationError,
+        match="run_action_barrier_poll_interval_seconds must be a positive integer",
+    ):
+        CrossRunSettings.from_dict(raw)
+
+
+def test_docker_barrier_poll_interval_round_trips():
+    docker = CrossRunSettings.from_dict(
+        load_config(CANONICAL_CONFIG_PATH)["cross_run"]
+    ).docker
+
+    assert type(docker).from_dict(docker.to_dict()) == docker
+
+
 def test_raw_provider_cannot_override_derived_docker_runtime():
     raw = copy.deepcopy(load_config(CANONICAL_CONFIG_PATH)["cross_run"])
     raw["expert"]["validation"]["task_evaluation_provider"]["runtime"] = copy.deepcopy(

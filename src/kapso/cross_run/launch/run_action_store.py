@@ -1606,6 +1606,7 @@ class RunActionExecutionStore:
                 prepared = events[2].prepared_execution
                 subpath_authority_ids = {
                     prepared.input_delivery_slot.prepared_delivery_slot_id,
+                    prepared.control_directory.prepared_runtime_directory_id,
                     prepared.result_directory.prepared_runtime_directory_id,
                     prepared.result_file.prepared_file_id,
                     prepared.temporary_directory.prepared_runtime_directory_id,
@@ -2003,6 +2004,7 @@ class RunActionExecutionStore:
             return
         candidate_subpath_authority_ids = {
             candidate.input_delivery_slot.prepared_delivery_slot_id,
+            candidate.control_directory.prepared_runtime_directory_id,
             candidate.result_directory.prepared_runtime_directory_id,
             candidate.result_file.prepared_file_id,
             candidate.temporary_directory.prepared_runtime_directory_id,
@@ -2034,6 +2036,7 @@ class RunActionExecutionStore:
             existing = events[2].prepared_execution
             existing_subpath_authority_ids = {
                 existing.input_delivery_slot.prepared_delivery_slot_id,
+                existing.control_directory.prepared_runtime_directory_id,
                 existing.result_directory.prepared_runtime_directory_id,
                 existing.result_file.prepared_file_id,
                 existing.temporary_directory.prepared_runtime_directory_id,

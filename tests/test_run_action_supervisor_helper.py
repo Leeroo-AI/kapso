@@ -4,9 +4,9 @@ import struct
 
 import pytest
 
-from kapso.cross_run.launch import run_action_keeper_helper as helper_module
-from kapso.cross_run.launch.run_action_keeper_helper import (
-    RunActionKeeperHelperError,
+from kapso.cross_run.launch import run_action_supervisor_helper as helper_module
+from kapso.cross_run.launch.run_action_supervisor_helper import (
+    RunActionSupervisorHelperError,
 )
 
 _CONTAINER_ID = "a" * 64
@@ -20,7 +20,7 @@ def test_static_elf_program_table_is_admitted():
 def test_elf_dynamic_or_interpreter_program_header_is_rejected(program_type):
     payload = _minimal_elf64(program_type)
 
-    with pytest.raises(RunActionKeeperHelperError, match="dynamic"):
+    with pytest.raises(RunActionSupervisorHelperError, match="dynamic"):
         helper_module._require_static_elf(payload)
 
 
@@ -34,7 +34,7 @@ def test_elf_dynamic_or_interpreter_program_header_is_rejected(program_type):
     ),
 )
 def test_malformed_elf_fails_loud(payload):
-    with pytest.raises(RunActionKeeperHelperError):
+    with pytest.raises(RunActionSupervisorHelperError):
         helper_module._require_static_elf(payload)
 
 
@@ -66,7 +66,7 @@ def test_container_cgroup_payload_is_parsed_exactly():
     ),
 )
 def test_container_cgroup_payload_rejects_ambiguous_identity(payload):
-    with pytest.raises(RunActionKeeperHelperError):
+    with pytest.raises(RunActionSupervisorHelperError):
         helper_module._parse_run_action_process_cgroup_path(
             payload,
             _CONTAINER_ID,

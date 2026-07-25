@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+import time
 from contextlib import ExitStack
 from pathlib import Path
 
@@ -46,9 +47,9 @@ from kapso.cross_run.launch.run_action_docker_inspect import (
     observe_running_keeper,
     observe_runtime_volume,
 )
-from kapso.cross_run.launch.run_action_keeper_helper import (
-    RunActionKeeperHelperError,
-    observe_keeper_helper,
+from kapso.cross_run.launch.run_action_supervisor_helper import (
+    RunActionSupervisorHelperError,
+    observe_supervisor_helper,
 )
 from kapso.cross_run.launch.run_action_runtime_volume import (
     RunActionRuntimeVolumeError,
@@ -273,11 +274,13 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
                 "sh",
                 "-c",
                 (
-                    "grep -Fqx 'complete request' /kapso/input/request.blob"
+                    "printf started > /kapso/result/target-started"
+                    " && grep -Fqx 'complete request' /kapso/input/request.blob"
                     " && grep -Fqx 'credential bytes'"
                     " /kapso/credentials/credentials"
                     " && test -d /kapso/workspace/.git"
                 ),
+                "target; printf injected > /kapso/result/barrier-injection",
             ),
         )
         policy = _remint_policy(
@@ -289,7 +292,7 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
                 RunActionStaticEnvironmentVariable(key="PATH", value="/bin"),
             ),
         )
-        helper_evidence = observe_keeper_helper(policy)
+        helper_evidence = observe_supervisor_helper(policy)
         claim = _claim(policy=policy)
         authority = _volume_authority(claim, nonce=_GENERATION_NONCE)
         allocation = RunActionPreparationAllocation.mint(
@@ -438,6 +441,7 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
                 "mkdir",
                 "-p",
                 "/kapso/runtime-volume/credential",
+                "/kapso/runtime-volume/control",
                 "/kapso/runtime-volume/input",
                 "/kapso/runtime-volume/result",
                 "/kapso/runtime-volume/temporary",
@@ -480,6 +484,7 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             authority,
             volume_observation,
             command,
+            helper_evidence,
             settings,
         )
         assert main_evidence.container_id == main_id
@@ -507,7 +512,7 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             inode=helper_evidence.inode + 1,
         )
         with pytest.raises(
-            RunActionKeeperHelperError,
+            RunActionSupervisorHelperError,
             match="differs from its issued source inode",
         ):
             observe_running_keeper(
@@ -525,20 +530,36 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
         assert main["State"]["Status"] == "created"
         assert main["State"]["Pid"] == 0
         assert main["RestartCount"] == 0
-        assert main["Path"] == "/bin/busybox"
-        assert main["Args"] == [
-            "sh",
-            "-c",
-            (
-                "grep -Fqx 'complete request' /kapso/input/request.blob"
-                " && grep -Fqx 'credential bytes'"
-                " /kapso/credentials/credentials"
-                " && test -d /kapso/workspace/.git"
-            ),
-        ]
+        assert main["Path"] == (
+            main_evidence.issued_create_projection.command_executable
+        )
+        assert tuple(main["Args"]) == (
+            main_evidence.issued_create_projection.command_arguments
+        )
         host_mounts = main["HostConfig"]["Mounts"]
-        assert len(host_mounts) == 5
-        assert {mount["VolumeOptions"]["Subpath"] for mount in host_mounts} == {
+        assert len(host_mounts) == (
+            main_evidence.issued_create_projection.exact_mount_count
+        )
+        helper_host_mounts = tuple(
+            mount for mount in host_mounts if mount["Type"] == "bind"
+        )
+        assert helper_host_mounts == (
+            {
+                "Type": "bind",
+                "Source": policy.supervisor_helper_source_path,
+                "Target": (main_evidence.issued_create_projection.command_executable),
+                "ReadOnly": True,
+                "BindOptions": {
+                    "Propagation": "rprivate",
+                    "NonRecursive": True,
+                },
+            },
+        )
+        volume_host_mounts = tuple(
+            mount for mount in host_mounts if mount["Type"] == "volume"
+        )
+        assert {mount["VolumeOptions"]["Subpath"] for mount in volume_host_mounts} == {
+            "control",
             "credential",
             "input",
             "result",
@@ -546,7 +567,9 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             "workspace",
         }
         assert all("Subpath" not in mount for mount in main["Mounts"])
-        assert len(main["Mounts"]) == 5
+        assert len(main["Mounts"]) == (
+            main_evidence.issued_create_projection.exact_mount_count
+        )
 
         runtime.run_control(("container", "rm", "--force", "--volumes", main_id))
         runtime.run_control(("container", "rm", "--force", "--volumes", keeper_id))
@@ -751,6 +774,7 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             layout_authority,
             layout_volume_observation,
             command,
+            helper_evidence,
             settings,
         )
         prepared_execution = RunActionPreparedExecution.mint(
@@ -760,6 +784,7 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             volume_keeper_evidence=layout_keeper_evidence,
             input_delivery_slot=prepared_volume.input_delivery_slot,
             result_directory=prepared_volume.result_directory,
+            control_directory=prepared_volume.control_directory,
             result_file=prepared_volume.result_file,
             temporary_directory=prepared_volume.temporary_directory,
             credential_delivery_slot=prepared_volume.credential_delivery_slot,
@@ -880,13 +905,68 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             activated_volume.activated_workspace_observation.inode
             == prepared_execution.workspace_proof.inode
         )
-        assert (
-            activated_volume.activated_temporary_directory_observation.inode
-            == prepared_execution.temporary_directory.inode
+        assert tuple(
+            observation.inode
+            for observation in (
+                activated_volume.activated_runtime_directory_observations
+            )
+        ) == (
+            prepared_execution.control_directory.inode,
+            prepared_execution.temporary_directory.inode,
         )
         runtime.run_control(("container", "start", layout_main_id))
-        wait_result = runtime.run_control(("container", "wait", layout_main_id))
-        assert wait_result.stdout == b"0\n"
+        time.sleep(2 * settings.run_action_barrier_poll_interval_seconds)
+        running_layout_main = resource_manager.inspect_main(
+            resource_manager.observe(layout_allocation)
+        )
+        assert running_layout_main["State"]["Running"] is True
+        assert running_layout_main["State"]["Pid"] > 0
+        assert running_layout_main["Path"] == (
+            layout_main_evidence.issued_create_projection.command_executable
+        )
+        assert tuple(running_layout_main["Args"]) == (
+            layout_main_evidence.issued_create_projection.command_arguments
+        )
+        runtime.run_control(
+            (
+                "container",
+                "exec",
+                layout_keeper_id,
+                "/kapso-supervisor/busybox",
+                "test",
+                "!",
+                "-e",
+                "/kapso/runtime-volume/control/release",
+            )
+        )
+        for forbidden_path in (
+            "/kapso/runtime-volume/result/target-started",
+            "/kapso/runtime-volume/result/barrier-injection",
+        ):
+            runtime.run_control(
+                (
+                    "container",
+                    "exec",
+                    layout_keeper_id,
+                    "/kapso-supervisor/busybox",
+                    "test",
+                    "!",
+                    "-e",
+                    forbidden_path,
+                )
+            )
+        runtime.run_control(
+            (
+                "container",
+                "exec",
+                layout_keeper_id,
+                "/kapso-supervisor/busybox",
+                "test",
+                "!",
+                "-s",
+                "/kapso/runtime-volume/result/result.blob",
+            )
+        )
 
         runtime.run_control(("container", "rm", "--force", "--volumes", layout_main_id))
         runtime.run_control(

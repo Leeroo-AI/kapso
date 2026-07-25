@@ -7,6 +7,7 @@ from dataclasses import fields, replace
 import pytest
 
 import kapso.cross_run.launch.run_action_supervisor_contracts as supervisor_contracts
+from kapso.core.config import load_config
 from kapso.cross_run.canonical import content_id, tree_or_blob_digest
 from kapso.cross_run.contracts import ContractValidationError
 from kapso.cross_run.docker.runtime import DockerImageAuthority
@@ -33,9 +34,15 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
     DockerRunActionResourceLimits,
     DockerRunActionSafeCreateDefaults,
     DockerRunActionSandboxSpec,
+    RUN_ACTION_BARRIER_CONTROL_DESTINATION,
+    RUN_ACTION_BARRIER_DUMMY_ARGUMENT,
+    RUN_ACTION_BARRIER_PROTOCOL_VERSION,
+    RUN_ACTION_BARRIER_RELEASE_DESTINATION,
+    RUN_ACTION_BARRIER_SCRIPT,
+    RUN_ACTION_SUPERVISOR_HELPER_DESTINATION,
     RunActionActivatedFileObservation,
     RunActionActivatedSentinelObservation,
-    RunActionActivatedTemporaryDirectoryObservation,
+    RunActionActivatedRuntimeDirectoryObservation,
     RunActionActivatedWorkspaceObservation,
     RunActionActivationNetworkMode,
     RunActionActivationRevalidationReceipt,
@@ -43,7 +50,7 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RunActionCredentialPolicy,
     RunActionFilesystemPolicy,
     RunActionInertContainerEvidence,
-    RunActionKeeperHelperEvidence,
+    RunActionSupervisorHelperEvidence,
     RunActionMountedKeeperHelperEvidence,
     RunActionNetworkPolicy,
     RunActionPreparationAllocation,
@@ -76,13 +83,19 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
     preparation_volume_labels,
     preparation_volume_name,
     runtime_volume_driver_options,
-    runtime_volume_keeper_helper_authority_id,
+    run_action_supervisor_helper_authority_id,
     runtime_volume_sentinel_identity,
     run_action_activated_volume_evidence_matches,
     run_action_keeper_process_cgroup_path,
     run_action_terminal_result_evidence_matches,
 )
 from kapso.cross_run.launch.resume_contracts import RunSafetyBoundary
+from kapso.cross_run.settings import CrossRunSettings
+
+_CANONICAL_CONFIG_PATH = "src/kapso/config.yaml"
+_BARRIER_POLL_INTERVAL_SECONDS = CrossRunSettings.from_dict(
+    load_config(_CANONICAL_CONFIG_PATH)["cross_run"]
+).docker.run_action_barrier_poll_interval_seconds
 
 
 def _fixture_content_id(namespace: str, label: str) -> str:
@@ -171,17 +184,20 @@ def _execution_policy(
             architecture="amd64",
             architecture_variant=None,
         ),
-        keeper_helper_source_path=helper_source_path,
-        keeper_helper_executable_authority_id=(
-            runtime_volume_keeper_helper_authority_id(
+        supervisor_helper_source_path=helper_source_path,
+        supervisor_helper_executable_authority_id=(
+            run_action_supervisor_helper_authority_id(
                 helper_source_path,
                 helper_digest,
             )
         ),
-        keeper_helper_executable_digest=helper_digest,
-        command_template_id=_fixture_content_id(
+        supervisor_helper_executable_digest=helper_digest,
+        command_template_id=content_id(
             "docker-run-action-command-template",
-            command_template_label,
+            {
+                "arguments": (command_template_label,),
+                "entrypoint": "/bin/tool",
+            },
         ),
         static_environment=(
             RunActionStaticEnvironmentVariable(key="LANG", value="C"),
@@ -547,6 +563,12 @@ def _mounts(claim, volume_name):
             filesystem.temporary_filesystem_destination,
             RunActionPreparedMountAccess.READ_WRITE,
         ),
+        (
+            RunActionPreparedMountKind.CONTROL,
+            "control",
+            RUN_ACTION_BARRIER_CONTROL_DESTINATION,
+            RunActionPreparedMountAccess.READ_ONLY,
+        ),
     ]
     if filesystem.credential_destination is not None:
         specifications.append(
@@ -637,6 +659,14 @@ def _prepared_execution(
         device=file_device,
         inode=first_artifact_inode + 1,
     )
+    control_directory = _prepared_runtime_directory(
+        claim,
+        authority,
+        RunActionPreparedRuntimeDirectoryKind.CONTROL,
+        mount_id=file_mount_id,
+        device=file_device,
+        inode=first_artifact_inode + 6,
+    )
     temporary_directory = _prepared_runtime_directory(
         claim,
         authority,
@@ -697,6 +727,7 @@ def _prepared_execution(
     directories = tuple(
         sorted(
             {
+                "control",
                 "input",
                 "result",
                 "temporary",
@@ -714,9 +745,9 @@ def _prepared_execution(
     logical_entry_count = len(directories) + 2 + workspace_entries
     observed_used_size = 32768
     observed_used_inodes = logical_entry_count + 2
-    helper_evidence = RunActionKeeperHelperEvidence.mint(
-        helper_authority_id=policy.keeper_helper_executable_authority_id,
-        source_path=policy.keeper_helper_source_path,
+    helper_evidence = RunActionSupervisorHelperEvidence.mint(
+        helper_authority_id=policy.supervisor_helper_executable_authority_id,
+        source_path=policy.supervisor_helper_source_path,
         destination="/kapso-supervisor/busybox",
         mount_type="bind",
         mount_access=RunActionPreparedMountAccess.READ_ONLY,
@@ -729,7 +760,7 @@ def _prepared_execution(
         file_format="elf",
         dynamic_dependency_count=0,
         elf_interpreter_present=False,
-        executable_digest=policy.keeper_helper_executable_digest,
+        executable_digest=policy.supervisor_helper_executable_digest,
         mount_id=3000 + inode_offset,
         device=700,
         inode=800,
@@ -838,6 +869,7 @@ def _prepared_execution(
                 (
                     result_directory.prepared_runtime_directory_id,
                     temporary_directory.prepared_runtime_directory_id,
+                    control_directory.prepared_runtime_directory_id,
                 )
             )
         ),
@@ -857,7 +889,24 @@ def _prepared_execution(
         projection_protocol_version=policy.projection_protocol_version,
         raw_field_schema_id=policy.raw_field_schema_id,
         execution_policy=policy,
+        supervisor_helper_evidence=helper_evidence,
+        barrier_protocol_version=RUN_ACTION_BARRIER_PROTOCOL_VERSION,
+        barrier_poll_interval_seconds=_BARRIER_POLL_INTERVAL_SECONDS,
+        command_executable=RUN_ACTION_SUPERVISOR_HELPER_DESTINATION,
+        command_arguments=(
+            "sh",
+            "-eu",
+            "-c",
+            RUN_ACTION_BARRIER_SCRIPT,
+            RUN_ACTION_BARRIER_DUMMY_ARGUMENT,
+            RUN_ACTION_BARRIER_RELEASE_DESTINATION,
+            RUN_ACTION_SUPERVISOR_HELPER_DESTINATION,
+            str(_BARRIER_POLL_INTERVAL_SECONDS),
+            "/bin/tool",
+            "default",
+        ),
         mounts=_mounts(claim, authority.volume_name),
+        exact_mount_count=len(_mounts(claim, authority.volume_name)) + 1,
         unclassified_raw_field_count=0,
         nonauthoritative_raw_field_count=4,
     )
@@ -890,6 +939,7 @@ def _prepared_execution(
         runtime_volume_evidence=volume_evidence,
         volume_keeper_evidence=keeper_evidence,
         input_delivery_slot=input_delivery_slot,
+        control_directory=control_directory,
         result_directory=result_directory,
         temporary_directory=temporary_directory,
         result_file=result_file,
@@ -905,7 +955,13 @@ def _projection_with_mounts(projection, mounts):
         projection_protocol_version=projection.projection_protocol_version,
         raw_field_schema_id=projection.raw_field_schema_id,
         execution_policy=projection.execution_policy,
+        supervisor_helper_evidence=projection.supervisor_helper_evidence,
+        barrier_protocol_version=projection.barrier_protocol_version,
+        barrier_poll_interval_seconds=projection.barrier_poll_interval_seconds,
+        command_executable=projection.command_executable,
+        command_arguments=projection.command_arguments,
         mounts=mounts,
+        exact_mount_count=len(mounts) + 1,
         unclassified_raw_field_count=projection.unclassified_raw_field_count,
         nonauthoritative_raw_field_count=(projection.nonauthoritative_raw_field_count),
     )
@@ -980,6 +1036,7 @@ def test_prepared_execution_round_trips_with_complete_content_identity():
     assert layout.prepared_runtime_directory_ids == tuple(
         sorted(
             (
+                prepared.control_directory.prepared_runtime_directory_id,
                 prepared.result_directory.prepared_runtime_directory_id,
                 prepared.temporary_directory.prepared_runtime_directory_id,
             )
@@ -1002,10 +1059,14 @@ def test_prepared_execution_round_trips_with_complete_content_identity():
         prepared.preparation_claim.execution_policy.image_authority.image_authority_id
     )
     assert {
-        "RunActionActivatedTemporaryDirectoryObservation",
+        "RUN_ACTION_BARRIER_CONTROL_DESTINATION",
+        "RUN_ACTION_BARRIER_PROTOCOL_VERSION",
+        "RunActionActivatedRuntimeDirectoryObservation",
         "RunActionPreparedRuntimeDirectory",
         "RunActionPreparedRuntimeDirectoryKind",
+        "RunActionSupervisorHelperEvidence",
         "run_action_activated_volume_evidence_matches",
+        "run_action_supervisor_helper_authority_id",
     }.issubset(supervisor_contracts.__all__)
 
 
@@ -1051,8 +1112,8 @@ def test_activation_revalidation_binds_fresh_exact_prepared_observations():
             if prepared.workspace_proof is None
             else _activated_workspace_observation(prepared, spawn)
         ),
-        activated_temporary_directory_observation=(
-            _activated_temporary_directory_observation(prepared, spawn)
+        activated_runtime_directory_observations=(
+            _activated_runtime_directory_observations(prepared, spawn)
         ),
         activated_sentinel_observation=_activated_sentinel_observation(
             prepared,
@@ -1080,8 +1141,8 @@ def test_activation_revalidation_binds_fresh_exact_prepared_observations():
         spawn_commit=spawn,
         reobserved_volume_evidence=receipt.reobserved_volume_evidence,
         activated_workspace_observation=(receipt.activated_workspace_observation),
-        activated_temporary_directory_observation=(
-            receipt.activated_temporary_directory_observation
+        activated_runtime_directory_observations=(
+            receipt.activated_runtime_directory_observations
         ),
         activated_sentinel_observation=receipt.activated_sentinel_observation,
         input_file_observation=receipt.input_file_observation,
@@ -1132,7 +1193,7 @@ def test_activation_revalidation_binds_fresh_exact_prepared_observations():
             receipt,
             activated_workspace_observation=substituted_workspace_inode,
         )
-    wrong_spawn_temporary = _activated_temporary_directory_observation(
+    wrong_spawn_runtime_directories = _activated_runtime_directory_observations(
         prepared,
         wrong_spawn,
     )
@@ -1142,11 +1203,11 @@ def test_activation_revalidation_binds_fresh_exact_prepared_observations():
     ):
         replace(
             receipt,
-            activated_temporary_directory_observation=wrong_spawn_temporary,
+            activated_runtime_directory_observations=wrong_spawn_runtime_directories,
         )
-    substituted_temporary_inode = _remint_contract(
-        receipt.activated_temporary_directory_observation,
-        inode=receipt.activated_temporary_directory_observation.inode + 1,
+    substituted_control_inode = _remint_contract(
+        receipt.activated_runtime_directory_observations[0],
+        inode=receipt.activated_runtime_directory_observations[0].inode + 1,
     )
     with pytest.raises(
         RunActionSupervisorContractError,
@@ -1154,14 +1215,17 @@ def test_activation_revalidation_binds_fresh_exact_prepared_observations():
     ):
         replace(
             receipt,
-            activated_temporary_directory_observation=(substituted_temporary_inode),
+            activated_runtime_directory_observations=(
+                substituted_control_inode,
+                receipt.activated_runtime_directory_observations[1],
+            ),
         )
     with pytest.raises(
         RunActionSupervisorContractError,
         match="invalid or nonempty",
     ):
         replace(
-            receipt.activated_temporary_directory_observation,
+            receipt.activated_runtime_directory_observations[0],
             observed_entry_count=1,
         )
     moved_sentinel = _remint_contract(
@@ -1361,8 +1425,8 @@ def test_activation_revalidation_requires_exact_live_volume_generation_and_keepe
             prepared,
             spawn,
         ),
-        "activated_temporary_directory_observation": (
-            _activated_temporary_directory_observation(prepared, spawn)
+        "activated_runtime_directory_observations": (
+            _activated_runtime_directory_observations(prepared, spawn)
         ),
         "activated_sentinel_observation": _activated_sentinel_observation(
             prepared,
@@ -1440,8 +1504,8 @@ def test_activation_revalidation_uses_absence_for_credential_free_policy():
         reobserved_keeper_evidence=prepared.volume_keeper_evidence,
         reobserved_container_evidence=prepared.inert_container_evidence,
         activated_workspace_observation=None,
-        activated_temporary_directory_observation=(
-            _activated_temporary_directory_observation(prepared, spawn)
+        activated_runtime_directory_observations=(
+            _activated_runtime_directory_observations(prepared, spawn)
         ),
         activated_sentinel_observation=_activated_sentinel_observation(
             prepared,
@@ -1594,22 +1658,30 @@ def _activated_workspace_observation(prepared, spawn):
     )
 
 
-def _activated_temporary_directory_observation(prepared, spawn):
-    temporary = prepared.temporary_directory
-    return RunActionActivatedTemporaryDirectoryObservation.mint(
-        spawn_commit_id=spawn.spawn_commit_id,
-        prepared_runtime_directory_id=(temporary.prepared_runtime_directory_id),
-        runtime_volume_authority_id=temporary.runtime_volume_authority_id,
-        generation_nonce=temporary.generation_nonce,
-        directory_relative_path=temporary.directory_relative_path,
-        directory_type=temporary.directory_type,
-        owner_user_id=temporary.owner_user_id,
-        owner_group_id=temporary.owner_group_id,
-        mode=temporary.mode,
-        observed_entry_count=0,
-        mount_id=temporary.mount_id,
-        device=temporary.device,
-        inode=temporary.inode,
+def _activated_runtime_directory_observations(prepared, spawn):
+    return tuple(
+        RunActionActivatedRuntimeDirectoryObservation.mint(
+            spawn_commit_id=spawn.spawn_commit_id,
+            prepared_runtime_directory_id=(
+                runtime_directory.prepared_runtime_directory_id
+            ),
+            runtime_volume_authority_id=(runtime_directory.runtime_volume_authority_id),
+            generation_nonce=runtime_directory.generation_nonce,
+            kind=runtime_directory.kind,
+            directory_relative_path=runtime_directory.directory_relative_path,
+            directory_type=runtime_directory.directory_type,
+            owner_user_id=runtime_directory.owner_user_id,
+            owner_group_id=runtime_directory.owner_group_id,
+            mode=runtime_directory.mode,
+            observed_entry_count=0,
+            mount_id=runtime_directory.mount_id,
+            device=runtime_directory.device,
+            inode=runtime_directory.inode,
+        )
+        for runtime_directory in (
+            prepared.control_directory,
+            prepared.temporary_directory,
+        )
     )
 
 
@@ -1799,8 +1871,8 @@ def _activation_revalidation_receipt(prepared, spawn):
             if prepared.workspace_proof is None
             else _activated_workspace_observation(prepared, spawn)
         ),
-        activated_temporary_directory_observation=(
-            _activated_temporary_directory_observation(prepared, spawn)
+        activated_runtime_directory_observations=(
+            _activated_runtime_directory_observations(prepared, spawn)
         ),
         activated_sentinel_observation=_activated_sentinel_observation(
             prepared,
@@ -2065,12 +2137,12 @@ def test_filesystem_policy_rejects_docker_mount_delimiters(delimiter):
 
 
 @pytest.mark.parametrize("delimiter", (",", "\r", "\n", '"'))
-def test_keeper_helper_authority_rejects_docker_mount_delimiters(delimiter):
+def test_supervisor_helper_authority_rejects_docker_mount_delimiters(delimiter):
     with pytest.raises(
         RunActionSupervisorContractError,
         match="normalized and absolute",
     ):
-        runtime_volume_keeper_helper_authority_id(
+        run_action_supervisor_helper_authority_id(
             f"/usr/bin/busybox{delimiter}readonly",
             tree_or_blob_digest(b"helper"),
         )
@@ -2094,18 +2166,18 @@ def test_lifecycle_policy_binding_rejects_alternate_valid_sandbox():
         )
 
 
-def test_lifecycle_policy_binding_pins_the_keeper_helper_bytes():
+def test_lifecycle_policy_binding_pins_the_supervisor_helper_bytes():
     claim = _claim()
     alternate_digest = tree_or_blob_digest(b"alternate keeper helper")
     substituted_policy = _remint_policy(
         claim.execution_policy,
-        keeper_helper_executable_authority_id=(
-            runtime_volume_keeper_helper_authority_id(
-                claim.execution_policy.keeper_helper_source_path,
+        supervisor_helper_executable_authority_id=(
+            run_action_supervisor_helper_authority_id(
+                claim.execution_policy.supervisor_helper_source_path,
                 alternate_digest,
             )
         ),
-        keeper_helper_executable_digest=alternate_digest,
+        supervisor_helper_executable_digest=alternate_digest,
     )
 
     assert (
@@ -2117,10 +2189,10 @@ def test_lifecycle_policy_binding_pins_the_keeper_helper_bytes():
             reservation=claim.reservation,
             execution_policy=substituted_policy,
         )
-    with pytest.raises(RunActionSupervisorContractError, match="keeper helper"):
+    with pytest.raises(RunActionSupervisorContractError, match="supervisor helper"):
         _remint_policy(
             claim.execution_policy,
-            keeper_helper_executable_digest=alternate_digest,
+            supervisor_helper_executable_digest=alternate_digest,
         )
 
 
@@ -2612,7 +2684,9 @@ def test_runtime_volume_keeper_binds_helper_and_exact_live_generation():
     assert keeper.container_status == "running"
     assert projection.network_mode == "none"
     helper = projection.helper_evidence
-    assert helper.helper_authority_id == (policy.keeper_helper_executable_authority_id)
+    assert helper.helper_authority_id == (
+        policy.supervisor_helper_executable_authority_id
+    )
     assert helper.source_path == "/usr/bin/busybox"
     assert helper.destination == "/kapso-supervisor/busybox"
     assert helper.mount_access is RunActionPreparedMountAccess.READ_ONLY
@@ -2662,7 +2736,7 @@ def test_runtime_volume_keeper_binds_helper_and_exact_live_generation():
     substituted_helper = _remint_contract(
         helper,
         source_path=substituted_source,
-        helper_authority_id=runtime_volume_keeper_helper_authority_id(
+        helper_authority_id=run_action_supervisor_helper_authority_id(
             substituted_source,
             helper.executable_digest,
         ),
@@ -2835,13 +2909,17 @@ def test_prepared_execution_rejects_main_mount_substitution():
         )
 
 
-def test_old_host_quota_and_descriptor_contracts_are_not_exported():
+def test_superseded_contract_surfaces_are_removed():
     legacy_names = {
+        "RUN_ACTION_RUNTIME_VOLUME_KEEPER_HELPER_DESTINATION",
+        "RunActionActivatedTemporaryDirectoryObservation",
         "RunActionDescriptorWalkObservation",
         "RunActionFilesystemIdentity",
         "RunActionFilesystemNodeObservation",
+        "RunActionKeeperHelperEvidence",
         "RunActionPreparedSlot",
         "RunActionQuotaObservation",
+        "runtime_volume_keeper_helper_authority_id",
         "quota_scope_id",
     }
 
@@ -2858,7 +2936,13 @@ def test_inert_evidence_rejects_observed_projection_substitution():
         projection_protocol_version=substituted_policy.projection_protocol_version,
         raw_field_schema_id=substituted_policy.raw_field_schema_id,
         execution_policy=substituted_policy,
+        supervisor_helper_evidence=observed.supervisor_helper_evidence,
+        barrier_protocol_version=observed.barrier_protocol_version,
+        barrier_poll_interval_seconds=observed.barrier_poll_interval_seconds,
+        command_executable=observed.command_executable,
+        command_arguments=(*observed.command_arguments[:-1], "substituted"),
         mounts=observed.mounts,
+        exact_mount_count=observed.exact_mount_count,
         unclassified_raw_field_count=0,
         nonauthoritative_raw_field_count=(observed.nonauthoritative_raw_field_count),
     )
@@ -2976,6 +3060,7 @@ def test_credential_free_preparation_has_no_credential_slot_or_workspace_mount()
         mount.kind
         for mount in prepared.inert_container_evidence.issued_create_projection.mounts
     } == {
+        RunActionPreparedMountKind.CONTROL,
         RunActionPreparedMountKind.INPUT,
         RunActionPreparedMountKind.RESULT,
         RunActionPreparedMountKind.TEMPORARY,

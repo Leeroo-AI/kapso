@@ -11,8 +11,11 @@ from typing import Any, Mapping
 from kapso.cross_run.canonical import content_id, tree_or_blob_digest
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
     DockerRunActionExecutionPolicy,
+    RUN_ACTION_BARRIER_DUMMY_ARGUMENT,
+    RUN_ACTION_BARRIER_RELEASE_DESTINATION,
+    RUN_ACTION_BARRIER_SCRIPT,
     RUN_ACTION_RUNTIME_VOLUME_KEEPER_DESTINATION,
-    RUN_ACTION_RUNTIME_VOLUME_KEEPER_HELPER_DESTINATION,
+    RUN_ACTION_SUPERVISOR_HELPER_DESTINATION,
     RunActionPreparationClaim,
     RunActionPreparedMountAccess,
     RunActionRuntimeVolumeAuthority,
@@ -28,7 +31,7 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
 from kapso.cross_run.settings import DockerRuntimeSettings
 
 DOCKER_RUN_ACTION_PROJECTION_PROTOCOL_VERSION = (
-    "kapso.docker_run_action_create_inspect.v1"
+    "kapso.docker_run_action_create_inspect.v2"
 )
 
 _CONTAINER_ROOT_FIELDS = (
@@ -389,6 +392,36 @@ def docker_run_action_command_template_id(
     )
 
 
+def main_barrier_command(
+    command: DockerRunActionCommand,
+    settings: DockerRuntimeSettings,
+) -> tuple[str, tuple[str, ...]]:
+    """Render the fixed barrier while keeping the target as positional data."""
+
+    if (
+        type(command) is not DockerRunActionCommand
+        or type(settings) is not DockerRuntimeSettings
+    ):
+        raise DockerRunActionProjectionError(
+            "run action barrier requires exact target and Docker settings"
+        )
+    return (
+        RUN_ACTION_SUPERVISOR_HELPER_DESTINATION,
+        (
+            "sh",
+            "-eu",
+            "-c",
+            RUN_ACTION_BARRIER_SCRIPT,
+            RUN_ACTION_BARRIER_DUMMY_ARGUMENT,
+            RUN_ACTION_BARRIER_RELEASE_DESTINATION,
+            RUN_ACTION_SUPERVISOR_HELPER_DESTINATION,
+            str(settings.run_action_barrier_poll_interval_seconds),
+            command.entrypoint,
+            *command.arguments,
+        ),
+    )
+
+
 def docker_run_action_raw_field_schema() -> Mapping[str, tuple[str, ...]]:
     """Return the immutable schema whose identity is embedded in every policy."""
 
@@ -533,8 +566,8 @@ def keeper_create_arguments(
             "--mount",
             (
                 "type=bind,"
-                f"source={policy.keeper_helper_source_path},"
-                f"target={RUN_ACTION_RUNTIME_VOLUME_KEEPER_HELPER_DESTINATION},"
+                f"source={policy.supervisor_helper_source_path},"
+                f"target={RUN_ACTION_SUPERVISOR_HELPER_DESTINATION},"
                 "readonly,bind-recursive=disabled,bind-propagation=rprivate"
             ),
             "--mount",
@@ -545,7 +578,7 @@ def keeper_create_arguments(
                 "volume-nocopy"
             ),
             "--entrypoint",
-            RUN_ACTION_RUNTIME_VOLUME_KEEPER_HELPER_DESTINATION,
+            RUN_ACTION_SUPERVISOR_HELPER_DESTINATION,
             policy.image_authority.image_reference,
             *_KEEPER_COMMAND,
         )
@@ -573,6 +606,7 @@ def main_create_arguments(
             "run action command differs from its execution policy template"
         )
     require_run_action_image(image, policy, settings)
+    barrier_executable, barrier_arguments = main_barrier_command(command, settings)
     arguments = [
         "container",
         "create",
@@ -584,6 +618,17 @@ def main_create_arguments(
         _common_container_arguments(
             policy,
             working_directory=policy.filesystem_policy.working_directory,
+        )
+    )
+    arguments.extend(
+        (
+            "--mount",
+            (
+                "type=bind,"
+                f"source={policy.supervisor_helper_source_path},"
+                f"target={RUN_ACTION_SUPERVISOR_HELPER_DESTINATION},"
+                "readonly,bind-recursive=disabled,bind-propagation=rprivate"
+            ),
         )
     )
     for mount in preparation_main_mounts(claim, authority):
@@ -604,9 +649,9 @@ def main_create_arguments(
     arguments.extend(
         (
             "--entrypoint",
-            command.entrypoint,
+            barrier_executable,
             policy.image_authority.image_reference,
-            *command.arguments,
+            *barrier_arguments,
         )
     )
     return tuple(arguments)
@@ -624,8 +669,9 @@ def _require_projection_policy(
         or policy.raw_field_schema_id != DOCKER_RUN_ACTION_RAW_FIELD_SCHEMA_ID
         or policy.docker_runtime_settings_digest
         != tree_or_blob_digest(settings.to_json_bytes())
-        or policy.keeper_helper_source_path != settings.helper_executable_path
-        or policy.keeper_helper_executable_digest != settings.helper_executable_digest
+        or policy.supervisor_helper_source_path != settings.helper_executable_path
+        or policy.supervisor_helper_executable_digest
+        != settings.helper_executable_digest
     ):
         raise DockerRunActionProjectionError(
             "run action execution policy differs from closed Docker authority"
@@ -938,6 +984,7 @@ __all__ = [
     "docker_run_action_command_template_id",
     "docker_run_action_raw_field_schema",
     "keeper_create_arguments",
+    "main_barrier_command",
     "main_create_arguments",
     "require_run_action_image",
     "volume_create_arguments",

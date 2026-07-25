@@ -771,11 +771,12 @@ preparation/activation capabilities and bounded runtime-volume contracts are
 implemented. The shared Docker host authority now also pins its daemon root,
 systemd cgroup driver, and single-sourced static BusyBox helper. The structural
 raw-schema identity, strict action-image admission, exact bounded tmpfs-volume
-request, and exact keeper/main create requests are implemented. The static
-keeper helper is descriptor-proven as root-owned, singly linked, content-pinned
-ELF code with no dynamic loader or dependency table. Its running bind target is
-then re-read through the inspected keeper PID, bound to that container's cgroup,
-and required to retain the issued source device, inode, and digest. Volume,
+request, and exact keeper/main create requests are implemented. The shared static
+supervisor helper is descriptor-proven as root-owned, singly linked,
+content-pinned ELF code with no dynamic loader or dependency table. Its running
+keeper bind target is then re-read through the inspected keeper PID, bound to
+that container's cgroup, and required to retain the issued source device, inode,
+and digest. Volume,
 never-started keeper, running keeper, and never-started main inspections now
 require complete nested raw schemas and normalize only enumerated daemon
 identities and ordering; issued and observed projections are equal in repeated
@@ -829,6 +830,18 @@ is no named staging or pathname-based fallback. A completed
 read-only sentinel inode moves through a nonce-bound pending name and is
 atomically published with `RENAME_NOREPLACE` only after every final directory is
 in place and staging is gone; that rename is the final namespace mutation.
+Preparation also creates a distinct empty `control` directory, reserves the
+future release inode, and binds that directory into the prepared layout and
+global subpath-identity graph. Projection protocol v2 mounts the exact control
+subpath read-only at `/kapso-supervisor/control`, mounts the same pinned static
+helper read-only and non-recursively into the main container, and replaces direct
+target execution with the fixed positional-argument barrier. Main inspection
+requires that exact helper bind, control mount, wrapper program, poll setting,
+target command, and mount count. Activation proves the prepared control inode is
+still empty both before and after payload delivery. Real-Docker validation starts
+the wrapper, waits two configured poll intervals, and proves the target's
+first-write marker and a shell-metacharacter argument marker remain absent while
+`control/release` is absent and the result remains empty.
 Read-only reopen is available only from a durable `PreparedExecution` and
 reproves the exact root topology, child topology, file shapes, workspace/Git
 frontier, sentinel inode/content, keeper process generation, mount, and stable

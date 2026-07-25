@@ -11,8 +11,8 @@ from kapso.core.config import load_config
 from kapso.cross_run.launch.run_action_docker_inspect import (
     observe_runtime_volume,
 )
-from kapso.cross_run.launch.run_action_keeper_helper import (
-    RunActionKeeperHelperError,
+from kapso.cross_run.launch.run_action_supervisor_helper import (
+    RunActionSupervisorHelperError,
     read_run_action_process_start_time_from_descriptor,
 )
 from kapso.cross_run.launch.run_action_runtime_volume import (
@@ -255,7 +255,7 @@ def test_runtime_volume_process_lease_parses_one_live_generation(tmp_path):
     with ExitStack() as descriptors:
         descriptors.callback(os.close, process_descriptor)
         with pytest.raises(
-            RunActionKeeperHelperError,
+            RunActionSupervisorHelperError,
             match="not one live process generation",
         ):
             read_run_action_process_start_time_from_descriptor(

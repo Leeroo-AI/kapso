@@ -20,7 +20,7 @@ from kapso.cross_run.launch.run_action_activation_delivery import (
     RunActionActivationDeliveryError,
     publish_or_adopt_run_action_delivery,
 )
-from kapso.cross_run.launch.run_action_keeper_helper import (
+from kapso.cross_run.launch.run_action_supervisor_helper import (
     read_run_action_descriptor_mount_id,
 )
 from kapso.cross_run.launch.run_action_supervisor_contracts import (

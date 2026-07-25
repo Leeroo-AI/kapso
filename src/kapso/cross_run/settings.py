@@ -1205,6 +1205,7 @@ class DockerRuntimeSettings(StrictContract):
     helper_executable_path: str
     helper_executable_digest: str
     required_security_options: tuple[str, ...]
+    run_action_barrier_poll_interval_seconds: int
     command_timeout_seconds: int
     cleanup_timeout_seconds: int
     command_output_byte_limit: int
@@ -1261,6 +1262,10 @@ class DockerRuntimeSettings(StrictContract):
                 "Docker runtime security options must be sorted and unique"
             )
         for value, name in (
+            (
+                self.run_action_barrier_poll_interval_seconds,
+                "run_action_barrier_poll_interval_seconds",
+            ),
             (self.command_timeout_seconds, "command_timeout_seconds"),
             (self.cleanup_timeout_seconds, "cleanup_timeout_seconds"),
             (self.command_output_byte_limit, "command_output_byte_limit"),

@@ -17,9 +17,10 @@ from kapso.cross_run.launch.run_action_docker_inspect import (
 )
 from kapso.cross_run.launch.run_action_docker_projection import (
     DockerRunActionCommand,
+    main_barrier_command,
 )
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
-    RunActionKeeperHelperEvidence,
+    RunActionSupervisorHelperEvidence,
     RunActionMountedKeeperHelperEvidence,
     RunActionPreparedMountAccess,
     preparation_container_labels,
@@ -97,9 +98,9 @@ def _context(docker_settings):
         authority,
         docker_settings,
     )
-    helper = RunActionKeeperHelperEvidence.mint(
-        helper_authority_id=policy.keeper_helper_executable_authority_id,
-        source_path=policy.keeper_helper_source_path,
+    helper = RunActionSupervisorHelperEvidence.mint(
+        helper_authority_id=policy.supervisor_helper_executable_authority_id,
+        source_path=policy.supervisor_helper_source_path,
         destination="/kapso-supervisor/busybox",
         mount_type="bind",
         mount_access=RunActionPreparedMountAccess.READ_ONLY,
@@ -112,7 +113,7 @@ def _context(docker_settings):
         file_format="elf",
         dynamic_dependency_count=0,
         elf_interpreter_present=False,
-        executable_digest=policy.keeper_helper_executable_digest,
+        executable_digest=policy.supervisor_helper_executable_digest,
         mount_id=100,
         device=200,
         inode=300,
@@ -239,12 +240,11 @@ def _container_raw(
         storage_layer_id = _MAIN_STORAGE_LAYER_ID
         labels = preparation_container_labels(claim)
         name = preparation_container_name(claim)
-        executable = command.entrypoint
-        arguments = command.arguments
+        executable, arguments = main_barrier_command(command, docker_settings)
         working_directory = policy.filesystem_policy.working_directory
         mounts = preparation_main_mounts(claim, authority)
-        host_mounts = docker_inspect._main_host_config_mounts(mounts)
-        top_mounts = docker_inspect._main_top_level_mounts(mounts, volume)
+        host_mounts = docker_inspect._main_host_config_mounts(claim, mounts)
+        top_mounts = docker_inspect._main_top_level_mounts(claim, mounts, volume)
     container_root = (
         f"{docker_settings.runtime_root_directory}/containers/{container_id}"
     )
@@ -333,7 +333,7 @@ def test_volume_inspection_is_closed_and_normalized(docker_settings):
 
 
 def test_main_inspection_equals_issued_projection(docker_settings):
-    claim, authority, _volume_raw, volume, command, _helper = _context(docker_settings)
+    claim, authority, _volume_raw, volume, command, helper = _context(docker_settings)
     raw = _container_raw(
         claim,
         authority,
@@ -349,6 +349,7 @@ def test_main_inspection_equals_issued_projection(docker_settings):
         authority,
         volume,
         command,
+        helper,
         docker_settings,
     )
 
@@ -357,6 +358,7 @@ def test_main_inspection_equals_issued_projection(docker_settings):
         claim,
         authority,
         command,
+        helper,
         docker_settings,
     )
     assert evidence.observed_inspect_projection == evidence.issued_create_projection
@@ -465,7 +467,7 @@ def test_container_inspection_rejects_unknown_or_missing_field(
     target,
     mutate,
 ):
-    claim, authority, _volume_raw, volume, command, _helper = _context(docker_settings)
+    claim, authority, _volume_raw, volume, command, helper = _context(docker_settings)
     raw = _container_raw(
         claim,
         authority,
@@ -484,6 +486,7 @@ def test_container_inspection_rejects_unknown_or_missing_field(
             authority,
             volume,
             command,
+            helper,
             docker_settings,
         )
 
@@ -527,9 +530,19 @@ def test_volume_inspection_rejects_unknown_or_missing_field(
         ("HostConfig.Memory", 2**40),
         ("HostConfig.AutoRemove", 0),
         ("Config.AttachStderr", 1),
-        ("HostConfig.Mounts.0.VolumeOptions.Subpath", "result"),
-        ("Mounts.0.Name", "substituted-volume"),
-        ("Mounts.0.RW", 0),
+        ("HostConfig.Mounts.0.Source", "/usr/bin/substituted-helper"),
+        ("HostConfig.Mounts.0.ReadOnly", False),
+        ("HostConfig.Mounts.0.BindOptions.NonRecursive", False),
+        ("HostConfig.Mounts.0.BindOptions.Propagation", "shared"),
+        ("HostConfig.Mounts.1.VolumeOptions.Subpath", "result"),
+        ("HostConfig.Mounts.1.Target", "/substituted-control"),
+        ("HostConfig.Mounts.1.ReadOnly", False),
+        ("Mounts.0.Source", "/usr/bin/substituted-helper"),
+        ("Mounts.0.Destination", "/substituted-helper"),
+        ("Mounts.0.RW", True),
+        ("Mounts.1.Name", "substituted-volume"),
+        ("Mounts.1.Destination", "/substituted-control"),
+        ("Mounts.1.RW", True),
         ("State.Status", "running"),
         ("State.Pid", 99),
         ("State.Dead", 0),
@@ -547,7 +560,7 @@ def test_main_inspection_rejects_every_authority_expansion(
     path,
     value,
 ):
-    claim, authority, _volume_raw, volume, command, _helper = _context(docker_settings)
+    claim, authority, _volume_raw, volume, command, helper = _context(docker_settings)
     raw = _container_raw(
         claim,
         authority,
@@ -565,6 +578,7 @@ def test_main_inspection_rejects_every_authority_expansion(
             authority,
             volume,
             command,
+            helper,
             docker_settings,
         )
 
@@ -638,7 +652,7 @@ def test_volume_inspection_rejects_authority_substitution(
 def test_allowed_container_volatility_normalizes_to_one_projection(
     docker_settings,
 ):
-    claim, authority, _volume_raw, volume, command, _helper = _context(docker_settings)
+    claim, authority, _volume_raw, volume, command, helper = _context(docker_settings)
     first = _container_raw(
         claim,
         authority,
@@ -667,6 +681,7 @@ def test_allowed_container_volatility_normalizes_to_one_projection(
         authority,
         volume,
         command,
+        helper,
         docker_settings,
     )
     second_evidence = observe_inert_main_container(
@@ -675,6 +690,7 @@ def test_allowed_container_volatility_normalizes_to_one_projection(
         authority,
         volume,
         command,
+        helper,
         docker_settings,
     )
 
@@ -686,7 +702,7 @@ def test_allowed_container_volatility_normalizes_to_one_projection(
 
 
 def test_command_or_volume_observation_cannot_be_spliced(docker_settings):
-    claim, authority, _volume_raw, volume, command, _helper = _context(docker_settings)
+    claim, authority, _volume_raw, volume, command, helper = _context(docker_settings)
     raw = _container_raw(
         claim,
         authority,
@@ -716,6 +732,7 @@ def test_command_or_volume_observation_cannot_be_spliced(docker_settings):
             authority,
             volume,
             alternate_command,
+            helper,
             docker_settings,
         )
     with pytest.raises(DockerRunActionInspectionError, match="volume"):
@@ -725,6 +742,7 @@ def test_command_or_volume_observation_cannot_be_spliced(docker_settings):
             authority,
             substituted_volume,
             command,
+            helper,
             docker_settings,
         )
 
@@ -768,6 +786,7 @@ def test_every_container_leaf_is_classified_and_validated(
                     authority,
                     volume,
                     command,
+                    helper,
                     docker_settings,
                 )
 

@@ -1,4 +1,4 @@
-"""Descriptor-bound evidence for the static runtime-volume keeper helper."""
+"""Descriptor-bound evidence for the shared run-action supervisor helper."""
 
 from __future__ import annotations
 
@@ -12,8 +12,8 @@ from pathlib import Path, PurePosixPath
 from kapso.cross_run.canonical import tree_or_blob_digest
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
     DockerRunActionExecutionPolicy,
-    RUN_ACTION_RUNTIME_VOLUME_KEEPER_HELPER_DESTINATION,
-    RunActionKeeperHelperEvidence,
+    RUN_ACTION_SUPERVISOR_HELPER_DESTINATION,
+    RunActionSupervisorHelperEvidence,
     RunActionMountedKeeperHelperEvidence,
     RunActionPreparedMountAccess,
 )
@@ -36,36 +36,36 @@ _CONTAINER_ID_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 _LIVE_PROCESS_STATES = ("D", "I", "P", "R", "S", "T", "t")
 
 
-class RunActionKeeperHelperError(ValueError):
-    """The keeper helper differs from its immutable static-code authority."""
+class RunActionSupervisorHelperError(ValueError):
+    """The supervisor helper differs from its immutable static-code authority."""
 
 
-def observe_keeper_helper(
+def observe_supervisor_helper(
     policy: DockerRunActionExecutionPolicy,
-) -> RunActionKeeperHelperEvidence:
+) -> RunActionSupervisorHelperEvidence:
     """Read and prove one root-owned, singly-linked, static ELF executable."""
 
     if type(policy) is not DockerRunActionExecutionPolicy:
-        raise RunActionKeeperHelperError(
-            "keeper helper observation requires an exact execution policy"
+        raise RunActionSupervisorHelperError(
+            "supervisor helper observation requires an exact execution policy"
         )
-    path = Path(policy.keeper_helper_source_path)
+    path = Path(policy.supervisor_helper_source_path)
     if (
         not path.is_absolute()
         or path != Path(os.path.abspath(path))
         or path.resolve() != path
     ):
-        raise RunActionKeeperHelperError(
-            "keeper helper path must be canonical and absolute"
+        raise RunActionSupervisorHelperError(
+            "supervisor helper path must be canonical and absolute"
         )
     metadata, mount_id = _observe_helper_path(
         path,
-        policy.keeper_helper_executable_digest,
+        policy.supervisor_helper_executable_digest,
     )
-    return RunActionKeeperHelperEvidence.mint(
-        helper_authority_id=policy.keeper_helper_executable_authority_id,
-        source_path=policy.keeper_helper_source_path,
-        destination=RUN_ACTION_RUNTIME_VOLUME_KEEPER_HELPER_DESTINATION,
+    return RunActionSupervisorHelperEvidence.mint(
+        helper_authority_id=policy.supervisor_helper_executable_authority_id,
+        source_path=policy.supervisor_helper_source_path,
+        destination=RUN_ACTION_SUPERVISOR_HELPER_DESTINATION,
         mount_type="bind",
         mount_access=RunActionPreparedMountAccess.READ_ONLY,
         recursive_bind=False,
@@ -77,7 +77,7 @@ def observe_keeper_helper(
         file_format="elf",
         dynamic_dependency_count=0,
         elf_interpreter_present=False,
-        executable_digest=policy.keeper_helper_executable_digest,
+        executable_digest=policy.supervisor_helper_executable_digest,
         mount_id=mount_id,
         device=metadata.st_dev,
         inode=metadata.st_ino,
@@ -85,7 +85,7 @@ def observe_keeper_helper(
 
 
 def observe_mounted_keeper_helper(
-    source_evidence: RunActionKeeperHelperEvidence,
+    source_evidence: RunActionSupervisorHelperEvidence,
     *,
     container_id: str,
     process_id: int,
@@ -93,14 +93,14 @@ def observe_mounted_keeper_helper(
     """Prove the exact issued helper inode is mounted in the keeper process."""
 
     if (
-        type(source_evidence) is not RunActionKeeperHelperEvidence
+        type(source_evidence) is not RunActionSupervisorHelperEvidence
         or type(container_id) is not str
         or _CONTAINER_ID_PATTERN.fullmatch(container_id) is None
         or type(process_id) is not int
         or process_id <= 0
     ):
-        raise RunActionKeeperHelperError(
-            "mounted keeper helper requires exact source and process identities"
+        raise RunActionSupervisorHelperError(
+            "mounted supervisor helper requires exact source and process identities"
         )
     with ExitStack() as descriptors:
         process_descriptor = os.open(
@@ -125,7 +125,7 @@ def observe_mounted_keeper_helper(
         )
         descriptors.callback(os.close, process_root_descriptor)
         mounted_descriptor = os.open(
-            RUN_ACTION_RUNTIME_VOLUME_KEEPER_HELPER_DESTINATION.removeprefix("/"),
+            RUN_ACTION_SUPERVISOR_HELPER_DESTINATION.removeprefix("/"),
             os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
             dir_fd=process_root_descriptor,
         )
@@ -148,8 +148,8 @@ def observe_mounted_keeper_helper(
         or metadata.st_ino != source_evidence.inode
         or mount_id == source_evidence.mount_id
     ):
-        raise RunActionKeeperHelperError(
-            "mounted keeper helper differs from its issued source inode"
+        raise RunActionSupervisorHelperError(
+            "mounted supervisor helper differs from its issued source inode"
         )
     return RunActionMountedKeeperHelperEvidence.mint(
         source_helper_evidence=source_evidence,
@@ -157,7 +157,7 @@ def observe_mounted_keeper_helper(
         process_id=process_id,
         process_start_time_ticks=process_start_time_before,
         process_cgroup_path=process_cgroup_path_before,
-        destination=RUN_ACTION_RUNTIME_VOLUME_KEEPER_HELPER_DESTINATION,
+        destination=RUN_ACTION_SUPERVISOR_HELPER_DESTINATION,
         mount_id=mount_id,
         device=metadata.st_dev,
         inode=metadata.st_ino,
@@ -193,8 +193,8 @@ def _observe_helper_descriptor(
         or len(payload) != metadata_before.st_size
         or tree_or_blob_digest(payload) != expected_executable_digest
     ):
-        raise RunActionKeeperHelperError(
-            "keeper helper changed while proving its content"
+        raise RunActionSupervisorHelperError(
+            "supervisor helper changed while proving its content"
         )
     _require_static_elf(payload)
     return metadata_before, mount_id_before
@@ -212,7 +212,7 @@ def read_run_action_process_start_time_from_descriptor(
         or type(process_id) is not int
         or process_id <= 0
     ):
-        raise RunActionKeeperHelperError("keeper process identity is malformed")
+        raise RunActionSupervisorHelperError("keeper process identity is malformed")
     descriptor = os.open(
         "stat",
         os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
@@ -229,7 +229,7 @@ def read_run_action_process_start_time_from_descriptor(
         or command_end < len(prefix)
         or not payload.isascii()
     ):
-        raise RunActionKeeperHelperError("keeper process identity is malformed")
+        raise RunActionSupervisorHelperError("keeper process identity is malformed")
     fields = payload[command_end + len(b") ") :].decode("ascii").split()
     if (
         len(fields) < 20
@@ -237,7 +237,9 @@ def read_run_action_process_start_time_from_descriptor(
         or not fields[19].isdigit()
         or int(fields[19]) <= 0
     ):
-        raise RunActionKeeperHelperError("keeper is not one live process generation")
+        raise RunActionSupervisorHelperError(
+            "keeper is not one live process generation"
+        )
     return int(fields[19])
 
 
@@ -253,7 +255,7 @@ def read_run_action_process_cgroup_path_from_descriptor(
         or type(container_id) is not str
         or _CONTAINER_ID_PATTERN.fullmatch(container_id) is None
     ):
-        raise RunActionKeeperHelperError(
+        raise RunActionSupervisorHelperError(
             "keeper cgroup read requires exact process and container identities"
         )
     descriptor = os.open(
@@ -275,7 +277,7 @@ def _parse_run_action_process_cgroup_path(
         or type(container_id) is not str
         or _CONTAINER_ID_PATTERN.fullmatch(container_id) is None
     ):
-        raise RunActionKeeperHelperError(
+        raise RunActionSupervisorHelperError(
             "keeper cgroup parse requires exact payload and container identities"
         )
     lines = payload.splitlines()
@@ -286,12 +288,14 @@ def _parse_run_action_process_cgroup_path(
         or len(lines[0]) <= len(b"0::")
         or b"\x00" in lines[0]
     ):
-        raise RunActionKeeperHelperError(
+        raise RunActionSupervisorHelperError(
             "keeper process lacks one unified cgroup identity"
         )
     encoded_path = lines[0][len(b"0::") :]
     if not encoded_path.isascii():
-        raise RunActionKeeperHelperError("keeper process cgroup identity is not ASCII")
+        raise RunActionSupervisorHelperError(
+            "keeper process cgroup identity is not ASCII"
+        )
     process_cgroup_path = encoded_path.decode("ascii")
     parsed_path = PurePosixPath(process_cgroup_path)
     if (
@@ -300,7 +304,7 @@ def _parse_run_action_process_cgroup_path(
         or ".." in parsed_path.parts
         or not process_cgroup_path.endswith(f"/docker-{container_id}.scope")
     ):
-        raise RunActionKeeperHelperError(
+        raise RunActionSupervisorHelperError(
             "keeper process cgroup is not bound to the inspected container"
         )
     return process_cgroup_path
@@ -315,8 +319,8 @@ def _require_helper_metadata(metadata: os.stat_result) -> None:
         or metadata.st_nlink != 1
         or metadata.st_size <= 0
     ):
-        raise RunActionKeeperHelperError(
-            "keeper helper is not immutable root-owned executable code"
+        raise RunActionSupervisorHelperError(
+            "supervisor helper is not immutable root-owned executable code"
         )
 
 
@@ -341,8 +345,8 @@ def read_run_action_descriptor_mount_id(descriptor: int) -> int:
         or not values[0].isdigit()
         or int(values[0]) <= 0
     ):
-        raise RunActionKeeperHelperError(
-            "keeper helper descriptor lacks one mount identity"
+        raise RunActionSupervisorHelperError(
+            "supervisor helper descriptor lacks one mount identity"
         )
     return int(values[0])
 
@@ -354,8 +358,8 @@ def _require_static_elf(payload: bytes) -> None:
         or payload[:4] != _ELF_MAGIC
         or payload[6] != _ELF_CURRENT_VERSION
     ):
-        raise RunActionKeeperHelperError(
-            "keeper helper is not a supported ELF executable"
+        raise RunActionSupervisorHelperError(
+            "supervisor helper is not a supported ELF executable"
         )
     byte_order = {
         _ELF_ENDIAN_LITTLE: "<",
@@ -372,14 +376,16 @@ def _require_static_elf(payload: bytes) -> None:
         ),
     }.get(payload[4])
     if byte_order is None or layout is None:
-        raise RunActionKeeperHelperError(
-            "keeper helper uses an unsupported ELF encoding"
+        raise RunActionSupervisorHelperError(
+            "supervisor helper uses an unsupported ELF encoding"
         )
     header_format, program_header_size = layout
     encoded_header_size = struct.calcsize(byte_order + header_format)
     header_size = _ELF_IDENT_SIZE + encoded_header_size
     if len(payload) < header_size:
-        raise RunActionKeeperHelperError("keeper helper ELF header is truncated")
+        raise RunActionSupervisorHelperError(
+            "supervisor helper ELF header is truncated"
+        )
     header = struct.unpack(
         byte_order + header_format,
         payload[_ELF_IDENT_SIZE:header_size],
@@ -398,7 +404,9 @@ def _require_static_elf(payload: bytes) -> None:
         or program_header_offset < header_size
         or program_table_end > len(payload)
     ):
-        raise RunActionKeeperHelperError("keeper helper ELF program table is malformed")
+        raise RunActionSupervisorHelperError(
+            "supervisor helper ELF program table is malformed"
+        )
     program_types = tuple(
         struct.unpack(
             byte_order + "I",
@@ -415,8 +423,8 @@ def _require_static_elf(payload: bytes) -> None:
         _ELF_PROGRAM_DYNAMIC in program_types
         or _ELF_PROGRAM_INTERPRETER in program_types
     ):
-        raise RunActionKeeperHelperError(
-            "keeper helper carries a dynamic loader or dependency table"
+        raise RunActionSupervisorHelperError(
+            "supervisor helper carries a dynamic loader or dependency table"
         )
 
 
@@ -433,8 +441,8 @@ def _stable_metadata(metadata: os.stat_result) -> tuple[int, ...]:
 
 
 __all__ = [
-    "RunActionKeeperHelperError",
-    "observe_keeper_helper",
+    "RunActionSupervisorHelperError",
+    "observe_supervisor_helper",
     "observe_mounted_keeper_helper",
     "read_run_action_descriptor_mount_id",
     "read_run_action_process_cgroup_path_from_descriptor",

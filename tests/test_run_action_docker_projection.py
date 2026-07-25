@@ -29,7 +29,7 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
     preparation_keeper_container_name,
     preparation_volume_labels,
     preparation_volume_name,
-    runtime_volume_keeper_helper_authority_id,
+    run_action_supervisor_helper_authority_id,
 )
 from kapso.cross_run.settings import CrossRunSettings
 from test_run_action_supervisor_contracts import (
@@ -74,14 +74,14 @@ def _policy(
         docker_runtime_settings_digest=tree_or_blob_digest(
             docker_settings.to_json_bytes()
         ),
-        keeper_helper_source_path=docker_settings.helper_executable_path,
-        keeper_helper_executable_authority_id=(
-            runtime_volume_keeper_helper_authority_id(
+        supervisor_helper_source_path=docker_settings.helper_executable_path,
+        supervisor_helper_executable_authority_id=(
+            run_action_supervisor_helper_authority_id(
                 docker_settings.helper_executable_path,
                 docker_settings.helper_executable_digest,
             )
         ),
-        keeper_helper_executable_digest=docker_settings.helper_executable_digest,
+        supervisor_helper_executable_digest=docker_settings.helper_executable_digest,
         **(
             {}
             if command_template_id is None
@@ -248,11 +248,11 @@ def _common_arguments(policy, working_directory):
 def test_projection_schema_identity_is_structural_and_content_addressed():
     assert (
         DOCKER_RUN_ACTION_PROJECTION_PROTOCOL_VERSION
-        == "kapso.docker_run_action_create_inspect.v1"
+        == "kapso.docker_run_action_create_inspect.v2"
     )
     assert DOCKER_RUN_ACTION_RAW_FIELD_SCHEMA_ID == (
         "docker-raw-field-schema:"
-        "sha256:c5ab4c585e8124992ec64d6a1018da6783c5bebdb604add6f4809923d6d12c94"
+        "sha256:bf01bab02459890b4deb7fd952b06124f0cc49fb393b360b6e5f1ec32c0b711f"
     )
 
 
@@ -342,6 +342,18 @@ def test_main_creation_uses_only_sorted_bounded_volume_subpaths(docker_settings)
         *_common_arguments(policy, "/kapso/workspace"),
         "--mount",
         (
+            "type=bind,source=/usr/bin/busybox,"
+            "target=/kapso-supervisor/busybox,"
+            "readonly,bind-recursive=disabled,bind-propagation=rprivate"
+        ),
+        "--mount",
+        (
+            f"type=volume,source={authority.volume_name},"
+            "target=/kapso-supervisor/control,readonly,volume-nocopy,"
+            "volume-subpath=control"
+        ),
+        "--mount",
+        (
             f"type=volume,source={authority.volume_name},"
             "target=/kapso/credentials,readonly,volume-nocopy,"
             "volume-subpath=credential"
@@ -368,8 +380,20 @@ def test_main_creation_uses_only_sorted_bounded_volume_subpaths(docker_settings)
             "volume-subpath=workspace"
         ),
         "--entrypoint",
-        "/usr/bin/codex",
+        "/kapso-supervisor/busybox",
         policy.image_authority.image_reference,
+        "sh",
+        "-eu",
+        "-c",
+        (
+            'while [ ! -f "$1" ] || [ ! -r "$1" ]; do "$2" sleep "$3"; done; '
+            'shift 3; exec "$@"'
+        ),
+        "kapso-run-action-barrier",
+        "/kapso-supervisor/control/release",
+        "/kapso-supervisor/busybox",
+        str(docker_settings.run_action_barrier_poll_interval_seconds),
+        "/usr/bin/codex",
         "exec",
         "--json",
         "/kapso/input/request.blob",
