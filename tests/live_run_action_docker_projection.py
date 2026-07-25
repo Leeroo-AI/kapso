@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 from contextlib import ExitStack
 from pathlib import Path
 
@@ -33,8 +34,8 @@ from kapso.cross_run.launch.run_action_docker_projection import (
     require_run_action_image,
     volume_create_arguments,
 )
-from kapso.cross_run.launch.run_action_contracts import (
-    RunFrontierWorkspaceAccess,
+from kapso.cross_run.launch.run_action_reservation_contracts import (
+    RunActionWorkspaceBinding,
 )
 from kapso.cross_run.launch.run_action_docker_resources import (
     DockerRunActionResourceManager,
@@ -51,13 +52,14 @@ from kapso.cross_run.launch.run_action_keeper_helper import (
 )
 from kapso.cross_run.launch.run_action_runtime_volume import (
     RunActionRuntimeVolumeError,
+    deliver_and_reobserve_runtime_volume_activation,
     materialize_runtime_volume_layout,
     observe_empty_runtime_volume,
     reobserve_runtime_volume_layout,
 )
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
-    RunActionCredentialMode,
     RunActionPreparationAllocation,
+    RunActionPreparationClaim,
     RunActionPreparedExecution,
     RunActionStaticEnvironmentVariable,
     preparation_container_labels,
@@ -67,8 +69,12 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
     preparation_volume_labels,
     preparation_volume_name,
 )
+from kapso.cross_run.launch.workspace_frontier import (
+    inspect_run_workspace_frontier,
+)
 from kapso.cross_run.settings import CrossRunSettings
 from live_expert_replay_docker import _start_local_oci_registry
+from test_launch_resolver import resolver_case
 from test_run_action_docker_projection import (
     _GENERATION_NONCE,
     _policy,
@@ -77,11 +83,14 @@ from test_run_action_supervisor_contracts import (
     _claim,
     _remint_contract,
     _remint_policy,
+    _spawn_commit,
     _volume_authority,
 )
+from test_run_state_publisher import publisher_case
 
 _CANONICAL_CONFIG_PATH = "src/kapso/config.yaml"
 _CONTAINER_ID_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+_ORIGINAL_SUBPROCESS_RUN = subprocess.run
 
 
 def _remove_owned_container(
@@ -203,7 +212,10 @@ def _listed_exact(
 
 def test_real_docker_accepts_only_the_issued_run_action_projection(
     tmp_path: Path,
+    publisher_case,
+    monkeypatch,
 ) -> None:
+    monkeypatch.setattr(subprocess, "run", _ORIGINAL_SUBPROCESS_RUN)
     tmp_path.chmod(0o700)
     cross_run_settings = CrossRunSettings.from_dict(
         load_config(_CANONICAL_CONFIG_PATH)["cross_run"]
@@ -257,7 +269,16 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
         )
         command = DockerRunActionCommand.build(
             entrypoint="/bin/busybox",
-            arguments=("true",),
+            arguments=(
+                "sh",
+                "-c",
+                (
+                    "grep -Fqx 'complete request' /kapso/input/request.blob"
+                    " && grep -Fqx 'credential bytes'"
+                    " /kapso/credentials/credentials"
+                    " && test -d /kapso/workspace/.git"
+                ),
+            ),
         )
         policy = _remint_policy(
             _policy(settings),
@@ -505,7 +526,16 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
         assert main["State"]["Pid"] == 0
         assert main["RestartCount"] == 0
         assert main["Path"] == "/bin/busybox"
-        assert main["Args"] == ["true"]
+        assert main["Args"] == [
+            "sh",
+            "-c",
+            (
+                "grep -Fqx 'complete request' /kapso/input/request.blob"
+                " && grep -Fqx 'credential bytes'"
+                " /kapso/credentials/credentials"
+                " && test -d /kapso/workspace/.git"
+            ),
+        ]
         host_mounts = main["HostConfig"]["Mounts"]
         assert len(host_mounts) == 5
         assert {mount["VolumeOptions"]["Subpath"] for mount in host_mounts} == {
@@ -567,12 +597,22 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             == ()
         )
 
+        workspace_descriptor, _workspace_identity = publisher_case[
+            "active"
+        ]._open_execution_workspace(cleanup)
+        expected_workspace_commit = publisher_case[
+            "checkpoint"
+        ].safety_state.derivative_frontier.evidence.branch_heads[
+            publisher_case["settings"].workspace_git_branch
+        ]
+        source_frontier = inspect_run_workspace_frontier(
+            workspace_descriptor,
+            settings=publisher_case["settings"],
+            expected_commit_sha=expected_workspace_commit,
+        )
+        workspace_binding = RunActionWorkspaceBinding.from_identity(source_frontier)
         layout_policy = _remint_policy(
-            _policy(
-                settings,
-                workspace_access=RunFrontierWorkspaceAccess.NONE,
-                credential_mode=RunActionCredentialMode.NONE,
-            ),
+            _policy(settings),
             image_authority=image_authority,
             command_template_id=command.command_template_id,
             static_environment=(
@@ -580,7 +620,32 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
                 RunActionStaticEnvironmentVariable(key="PATH", value="/bin"),
             ),
         )
-        layout_claim = _claim(policy=layout_policy)
+        initial_layout_claim = _claim(policy=layout_policy)
+        layout_frontier = _remint_contract(
+            initial_layout_claim.reservation.frontier,
+            workspace_before=workspace_binding,
+        )
+        layout_reservation = _remint_contract(
+            initial_layout_claim.reservation,
+            frontier=layout_frontier,
+            exact_dependency_ids=tuple(
+                sorted(
+                    (
+                        layout_frontier.frontier_binding_id
+                        if dependency_id
+                        == initial_layout_claim.reservation.frontier.frontier_binding_id
+                        else dependency_id
+                    )
+                    for dependency_id in (
+                        initial_layout_claim.reservation.exact_dependency_ids
+                    )
+                )
+            ),
+        )
+        layout_claim = RunActionPreparationClaim.mint(
+            reservation=layout_reservation,
+            execution_policy=layout_policy,
+        )
         layout_authority = _volume_authority(
             layout_claim,
             nonce="b" * 32,
@@ -659,7 +724,7 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             layout_claim,
             layout_empty_volume,
             layout_keeper_evidence,
-            workspace_descriptor=None,
+            workspace_descriptor=workspace_descriptor,
             settings=cross_run_settings.launch,
         )
         cleanup.callback(
@@ -694,7 +759,9 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             runtime_volume_evidence=prepared_volume.runtime_volume_evidence,
             volume_keeper_evidence=layout_keeper_evidence,
             input_delivery_slot=prepared_volume.input_delivery_slot,
+            result_directory=prepared_volume.result_directory,
             result_file=prepared_volume.result_file,
+            temporary_directory=prepared_volume.temporary_directory,
             credential_delivery_slot=prepared_volume.credential_delivery_slot,
             workspace_proof=prepared_volume.workspace_proof,
             layout_proof=prepared_volume.layout_proof,
@@ -707,8 +774,8 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             settings=cross_run_settings.launch,
         )
         assert reopened_volume == prepared_volume
-        assert prepared_volume.credential_delivery_slot is None
-        assert prepared_volume.workspace_proof is None
+        assert prepared_volume.credential_delivery_slot is not None
+        assert prepared_volume.workspace_proof is not None
         assert prepared_volume.runtime_volume_evidence.root_inode == (
             layout_empty_volume.root_inode
         )
@@ -766,6 +833,60 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
                 layout_keeper_evidence,
                 settings=cross_run_settings.launch,
             )
+        runtime.run_control(
+            (
+                "container",
+                "exec",
+                layout_keeper_id,
+                "/kapso-supervisor/busybox",
+                "chmod",
+                "400",
+                "/kapso/runtime-volume/.kapso-generation",
+            )
+        )
+        spawn_commit = _spawn_commit(prepared_execution)
+        activated_volume = deliver_and_reobserve_runtime_volume_activation(
+            prepared_execution,
+            spawn_commit,
+            layout_volume_observation,
+            layout_keeper_evidence,
+            request_payload=b"complete request",
+            credential_payload=b"credential bytes",
+            credential_content_authority_id="test.credential.lease",
+            workspace_descriptor=workspace_descriptor,
+            settings=cross_run_settings.launch,
+        )
+        assert activated_volume.spawn_commit == spawn_commit
+        assert (
+            activated_volume.input_file_observation.content_digest
+            == prepared_execution.preparation_claim.reservation.request_blob.digest
+        )
+        assert (
+            activated_volume.input_file_observation.prepared_parent_authority_id
+            == prepared_execution.input_delivery_slot.prepared_delivery_slot_id
+        )
+        assert (
+            activated_volume.result_file_observation.prepared_parent_authority_id
+            == prepared_execution.result_directory.prepared_runtime_directory_id
+        )
+        assert activated_volume.credential_file_observation is not None
+        assert activated_volume.credential_file_observation.content_digest is None
+        assert (
+            activated_volume.credential_file_observation.content_authority_id
+            == "test.credential.lease"
+        )
+        assert activated_volume.activated_workspace_observation is not None
+        assert (
+            activated_volume.activated_workspace_observation.inode
+            == prepared_execution.workspace_proof.inode
+        )
+        assert (
+            activated_volume.activated_temporary_directory_observation.inode
+            == prepared_execution.temporary_directory.inode
+        )
+        runtime.run_control(("container", "start", layout_main_id))
+        wait_result = runtime.run_control(("container", "wait", layout_main_id))
+        assert wait_result.stdout == b"0\n"
 
         runtime.run_control(("container", "rm", "--force", "--volumes", layout_main_id))
         runtime.run_control(

@@ -1558,7 +1558,7 @@ class RunActionExecutionStore:
         prepared_container_names = set()
         prepared_keeper_container_ids = set()
         prepared_keeper_container_names = set()
-        prepared_payload_authority_ids = set()
+        prepared_subpath_authority_ids = set()
         provider_execution_ids = set()
         invocation_nonces = set()
         activation_revalidation_receipt_ids = set()
@@ -1604,15 +1604,22 @@ class RunActionExecutionStore:
                 is RunActionExecutionEventKind.EXECUTION_PREPARED
             ):
                 prepared = events[2].prepared_execution
-                payload_authority_ids = {
+                subpath_authority_ids = {
                     prepared.input_delivery_slot.prepared_delivery_slot_id,
+                    prepared.result_directory.prepared_runtime_directory_id,
                     prepared.result_file.prepared_file_id,
+                    prepared.temporary_directory.prepared_runtime_directory_id,
                     *(
                         ()
                         if prepared.credential_delivery_slot is None
                         else (
                             prepared.credential_delivery_slot.prepared_delivery_slot_id,
                         )
+                    ),
+                    *(
+                        ()
+                        if prepared.workspace_proof is None
+                        else (prepared.workspace_proof.prepared_workspace_proof_id,)
                     ),
                 }
                 evidence = prepared.inert_container_evidence
@@ -1627,7 +1634,7 @@ class RunActionExecutionStore:
                     or keeper.container_id in prepared_container_ids
                     or keeper.container_name in prepared_keeper_container_names
                     or keeper.container_name in prepared_container_names
-                    or prepared_payload_authority_ids & payload_authority_ids
+                    or prepared_subpath_authority_ids & subpath_authority_ids
                 ):
                     raise RunActionStoreError(
                         "run action prepared occurrence authority was reused"
@@ -1637,7 +1644,7 @@ class RunActionExecutionStore:
                 prepared_container_names.add(evidence.container_name)
                 prepared_keeper_container_ids.add(keeper.container_id)
                 prepared_keeper_container_names.add(keeper.container_name)
-                prepared_payload_authority_ids.update(payload_authority_ids)
+                prepared_subpath_authority_ids.update(subpath_authority_ids)
             if len(events) >= 4 and events[3].event_kind is (
                 RunActionExecutionEventKind.SPAWN_COMMITTED
             ):
@@ -1994,13 +2001,20 @@ class RunActionExecutionStore:
         candidate = event.prepared_execution
         if candidate is None:
             return
-        candidate_payload_authority_ids = {
+        candidate_subpath_authority_ids = {
             candidate.input_delivery_slot.prepared_delivery_slot_id,
+            candidate.result_directory.prepared_runtime_directory_id,
             candidate.result_file.prepared_file_id,
+            candidate.temporary_directory.prepared_runtime_directory_id,
             *(
                 ()
                 if candidate.credential_delivery_slot is None
                 else (candidate.credential_delivery_slot.prepared_delivery_slot_id,)
+            ),
+            *(
+                ()
+                if candidate.workspace_proof is None
+                else (candidate.workspace_proof.prepared_workspace_proof_id,)
             ),
         }
         for tail in self._snapshot_from_event_names(
@@ -2018,13 +2032,20 @@ class RunActionExecutionStore:
             ):
                 continue
             existing = events[2].prepared_execution
-            existing_payload_authority_ids = {
+            existing_subpath_authority_ids = {
                 existing.input_delivery_slot.prepared_delivery_slot_id,
+                existing.result_directory.prepared_runtime_directory_id,
                 existing.result_file.prepared_file_id,
+                existing.temporary_directory.prepared_runtime_directory_id,
                 *(
                     ()
                     if existing.credential_delivery_slot is None
                     else (existing.credential_delivery_slot.prepared_delivery_slot_id,)
+                ),
+                *(
+                    ()
+                    if existing.workspace_proof is None
+                    else (existing.workspace_proof.prepared_workspace_proof_id,)
                 ),
             }
             if (
@@ -2053,7 +2074,7 @@ class RunActionExecutionStore:
                 == candidate.runtime_volume_authority.generation_nonce
                 or existing.runtime_volume_authority.sentinel_identity
                 == candidate.runtime_volume_authority.sentinel_identity
-                or candidate_payload_authority_ids & existing_payload_authority_ids
+                or candidate_subpath_authority_ids & existing_subpath_authority_ids
             ):
                 raise RunActionStoreError(
                     "run action prepared occurrence authority was reused"

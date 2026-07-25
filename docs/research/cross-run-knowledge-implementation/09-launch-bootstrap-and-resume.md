@@ -19,8 +19,12 @@ M9 action adapters, with shared host/runtime authority owned once by top-level
 adapters and the mechanically constrained supervisor remain, while the
 content-addressed Docker execution-policy, deterministic preparation-claim,
 inert-evidence, prepared-execution contracts, and durable eight-event action prefix
-are implemented. OS executor activation, explicit E0/S-EMPTY provisioning
-orchestration, full policy refresh on resume, and API/runner activation remain.
+are implemented. Every Docker volume-subpath now has preparation-time physical
+authority, and post-spawn request/credential delivery plus pre-start volume
+reobservation are crash-atomic and descriptor-bound. Full event-5 receipt
+assembly, committed-container reinspection and token-sealed start, terminal
+capture, OS executor activation, explicit E0/S-EMPTY provisioning orchestration,
+full policy refresh on resume, and API/runner activation remain.
 
 ## Objective
 
@@ -53,6 +57,8 @@ src/kapso/cross_run/launch/
   run_action_reservation_contracts.py
   run_action_spawn_contracts.py
   run_action_supervisor_contracts.py
+  run_action_activation_delivery.py
+  run_action_runtime_volume.py
 
 src/kapso/
   kapso.py
@@ -614,10 +620,13 @@ credential mounts are read-only; result and temporary mounts are writable;
 workspace access exactly follows the reservation.
 Input and optional credential final names are absent before spawn; their exact
 private parent directories are the durable delivery-slot authority. Only the
-result is a pre-created empty, private, singly linked regular file. The workspace
-is copied into the same bounded generation and its observed tree digest,
-Git-closure digest, entry count, and byte count must equal the durable frontier
-binding.
+result is a pre-created empty, private, singly linked regular file.
+`PreparedExecution` pins every path Docker will resolve at start: the input
+parent, optional credential parent, result parent and result inode, temporary
+root, optional workspace root, volume root, and sentinel by mount/device/inode.
+The workspace is copied into the same bounded generation and its observed tree
+digest, Git-closure digest, entry count, and byte count must equal the durable
+frontier binding.
 
 The deterministic volume, keeper, and main-container names and complete role
 labels derive only from `PreparationClaim`, avoiding a back-edge from Docker
@@ -653,12 +662,14 @@ exact credential-lease receipts or a no-credentials proof. Only the supervisor
 may consume it to attach the admitted broker network, populate the prepared
 delivery slots, and derive an `ActivationRevalidationReceipt` after re-inspecting
 the volume, physical generation sentinel, running keeper, copied workspace,
-exact prepared delivery-slot directory identities, delivered
-input/credential files, the pre-created result file, and still-never-started
-main container. Immutable
+every prepared mounted-subpath directory, delivered input/credential files, the
+pre-created result parent and file, empty temporary root, optional workspace
+root, and still-never-started main container. The result-file observation carries
+its exact prepared parent identity; temporary and workspace roots have distinct
+activation observations. Immutable
 volume facts must equal preparation; allocated usage and actual available
-blocks/bytes/inodes must form the exact `statfs` capacity relationship, and the
-fresh observation must retain positive result-plus-temporary headroom. Workspace
+blocks/bytes/inodes must form the exact delivery-delta `statfs` relationship, and
+the fresh observation must retain positive result-plus-temporary headroom. Workspace
 and sentinel observations are distinct activation-time contracts bound to the
 exact spawn commit and their preparation evidence IDs; replaying a preparation
 object is not revalidation. Event 5 durably selects one full receipt with
@@ -737,7 +748,10 @@ do not exist at preparation, so no authoritative writable payload inode can
 contain a torn write. Activation writes a complete payload into an anonymous
 `O_TMPFILE`, validates and fsyncs it, changes it to read-only mode, publishes it
 exactly once with `linkat(AT_EMPTY_PATH)` and no replacement, fsyncs the slot
-directory, and reopens the final name to prove the same inode and content. A
+directory, and retains the exact linked descriptor through aggregate
+construction. Immediately before the candidate can return, activation joins the
+sole final pathname back to that retained mount/device/inode, metadata, and
+complete bytes, then rechecks the retained descriptor before releasing it. A
 crash before the link leaves the slot empty; a crash after the link leaves only
 the complete final file. Unsupported filesystems and collisions fail loud; there
 is no named staging or pathname-based fallback. A completed
@@ -854,6 +868,13 @@ this path is activated.
   local pin, and reconcile that exact checkpoint, generation, journal, and views.
 - Corrupt each local component/receipt/tree and require fail-loud resume.
 - Exercise performance and security revocation differences.
+- Prove crash-before-link, crash-after-link adoption, concurrent no-replace
+  publication, unsupported anonymous-file/link syscalls, parent/inode
+  substitution, exact delivery `statfs` deltas, and retained result/temporary
+  headroom.
+- In real Docker, create the inert container before delivery, activate a complete
+  request plus credential and copied Git workspace, then start only after the
+  all-subpath observation closes and require every mounted input to be visible.
 - Verify expert repo is writable only inside the run workspace and snapshot/adapter
   roots remain read-only.
 - Verify old `initial_repo` and checkpoint paths are absent after activation.

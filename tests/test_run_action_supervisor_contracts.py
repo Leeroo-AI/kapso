@@ -35,6 +35,7 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
     DockerRunActionSandboxSpec,
     RunActionActivatedFileObservation,
     RunActionActivatedSentinelObservation,
+    RunActionActivatedTemporaryDirectoryObservation,
     RunActionActivatedWorkspaceObservation,
     RunActionActivationNetworkMode,
     RunActionActivationRevalidationReceipt,
@@ -54,6 +55,8 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RunActionPreparedMount,
     RunActionPreparedMountAccess,
     RunActionPreparedMountKind,
+    RunActionPreparedRuntimeDirectory,
+    RunActionPreparedRuntimeDirectoryKind,
     RunActionPreparedWorkspaceProof,
     RunActionRuntimeVolumeAuthority,
     RunActionRuntimeVolumeEvidence,
@@ -75,6 +78,7 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
     runtime_volume_driver_options,
     runtime_volume_keeper_helper_authority_id,
     runtime_volume_sentinel_identity,
+    run_action_activated_volume_evidence_matches,
     run_action_keeper_process_cgroup_path,
 )
 from kapso.cross_run.launch.resume_contracts import RunSafetyBoundary
@@ -465,12 +469,14 @@ def _prepared_delivery_slot(
 def _prepared_result_file(
     claim,
     authority,
+    parent_directory,
     *,
     mount_id,
     device,
     inode,
 ):
     return RunActionPreparedFile.mint(
+        prepared_parent_directory_id=(parent_directory.prepared_runtime_directory_id),
         preparation_claim_id=claim.preparation_claim_id,
         runtime_volume_authority_id=authority.runtime_volume_authority_id,
         generation_nonce=authority.generation_nonce,
@@ -484,6 +490,34 @@ def _prepared_result_file(
         size_bytes=0,
         payload_size_limit_bytes=(
             claim.execution_policy.supervisor_limits.result_size_bytes
+        ),
+        mount_id=mount_id,
+        device=device,
+        inode=inode,
+    )
+
+
+def _prepared_runtime_directory(
+    claim,
+    authority,
+    kind,
+    *,
+    mount_id,
+    device,
+    inode,
+):
+    return RunActionPreparedRuntimeDirectory.mint(
+        preparation_claim_id=claim.preparation_claim_id,
+        runtime_volume_authority_id=authority.runtime_volume_authority_id,
+        generation_nonce=authority.generation_nonce,
+        kind=kind,
+        directory_relative_path=kind.value,
+        directory_type="directory",
+        owner_user_id=claim.execution_policy.user_id,
+        owner_group_id=claim.execution_policy.group_id,
+        mode=0o700,
+        observed_entry_count=(
+            1 if kind is RunActionPreparedRuntimeDirectoryKind.RESULT else 0
         ),
         mount_id=mount_id,
         device=device,
@@ -585,7 +619,7 @@ def _prepared_execution(
     )
     file_mount_id = 1000 + inode_offset
     file_device = 500
-    first_artifact_inode = 20000 + inode_offset * 3
+    first_artifact_inode = 20000 + inode_offset * 8
     input_delivery_slot = _prepared_delivery_slot(
         claim,
         authority,
@@ -594,12 +628,29 @@ def _prepared_execution(
         device=file_device,
         inode=first_artifact_inode,
     )
-    result_file = _prepared_result_file(
+    result_directory = _prepared_runtime_directory(
         claim,
         authority,
+        RunActionPreparedRuntimeDirectoryKind.RESULT,
         mount_id=file_mount_id,
         device=file_device,
         inode=first_artifact_inode + 1,
+    )
+    temporary_directory = _prepared_runtime_directory(
+        claim,
+        authority,
+        RunActionPreparedRuntimeDirectoryKind.TEMPORARY,
+        mount_id=file_mount_id,
+        device=file_device,
+        inode=first_artifact_inode + 2,
+    )
+    result_file = _prepared_result_file(
+        claim,
+        authority,
+        result_directory,
+        mount_id=file_mount_id,
+        device=file_device,
+        inode=first_artifact_inode + 3,
     )
     credential_delivery_slot = (
         None
@@ -610,7 +661,7 @@ def _prepared_execution(
             RunActionPreparedFileKind.CREDENTIAL,
             mount_id=file_mount_id,
             device=file_device,
-            inode=first_artifact_inode + 2,
+            inode=first_artifact_inode + 4,
         )
     )
     delivery_slots = tuple(
@@ -637,6 +688,9 @@ def _prepared_execution(
             owner_group_id=policy.group_id,
             root_mode=0o700,
             unexpected_entry_count=0,
+            mount_id=file_mount_id,
+            device=file_device,
+            inode=first_artifact_inode + 5,
         )
     )
     directories = tuple(
@@ -778,6 +832,14 @@ def _prepared_execution(
                 for delivery_slot in delivery_slots
             )
         ),
+        prepared_runtime_directory_ids=tuple(
+            sorted(
+                (
+                    result_directory.prepared_runtime_directory_id,
+                    temporary_directory.prepared_runtime_directory_id,
+                )
+            )
+        ),
         prepared_result_file_id=result_file.prepared_file_id,
         prepared_workspace_proof_id=(
             None
@@ -827,6 +889,8 @@ def _prepared_execution(
         runtime_volume_evidence=volume_evidence,
         volume_keeper_evidence=keeper_evidence,
         input_delivery_slot=input_delivery_slot,
+        result_directory=result_directory,
+        temporary_directory=temporary_directory,
         result_file=result_file,
         credential_delivery_slot=credential_delivery_slot,
         workspace_proof=workspace_proof,
@@ -912,13 +976,36 @@ def test_prepared_execution_round_trips_with_complete_content_identity():
             )
         )
     )
+    assert layout.prepared_runtime_directory_ids == tuple(
+        sorted(
+            (
+                prepared.result_directory.prepared_runtime_directory_id,
+                prepared.temporary_directory.prepared_runtime_directory_id,
+            )
+        )
+    )
     assert layout.prepared_result_file_id == prepared.result_file.prepared_file_id
+    assert prepared.result_file.prepared_parent_directory_id == (
+        prepared.result_directory.prepared_runtime_directory_id
+    )
+    assert (
+        RunActionPreparedRuntimeDirectory.from_json_bytes(
+            prepared.result_directory.to_json_bytes()
+        )
+        == prepared.result_directory
+    )
     assert prepared.prepared_execution_id.startswith(
         "run-action-prepared-execution:sha256:"
     )
     assert (
         prepared.preparation_claim.execution_policy.image_authority.image_authority_id
     )
+    assert {
+        "RunActionActivatedTemporaryDirectoryObservation",
+        "RunActionPreparedRuntimeDirectory",
+        "RunActionPreparedRuntimeDirectoryKind",
+        "run_action_activated_volume_evidence_matches",
+    }.issubset(supervisor_contracts.__all__)
 
 
 def test_activation_revalidation_binds_fresh_exact_prepared_observations():
@@ -935,6 +1022,7 @@ def test_activation_revalidation_binds_fresh_exact_prepared_observations():
     result_observation = _activated_file_observation(
         prepared.result_file,
         spawn,
+        parent_authority=prepared.result_directory,
         size_bytes=0,
         content_digest=None,
         content_authority_id=None,
@@ -962,6 +1050,9 @@ def test_activation_revalidation_binds_fresh_exact_prepared_observations():
             if prepared.workspace_proof is None
             else _activated_workspace_observation(prepared, spawn)
         ),
+        activated_temporary_directory_observation=(
+            _activated_temporary_directory_observation(prepared, spawn)
+        ),
         activated_sentinel_observation=_activated_sentinel_observation(
             prepared,
             spawn,
@@ -974,6 +1065,27 @@ def test_activation_revalidation_binds_fresh_exact_prepared_observations():
     assert (
         RunActionActivationRevalidationReceipt.from_json_bytes(receipt.to_json_bytes())
         == receipt
+    )
+    assert receipt.credential_file_observation.content_digest is None
+    activated_file_fields = {field.name for field in fields(type(input_observation))}
+    assert {
+        "prepared_delivery_slot_id",
+        "delivery_slot_mount_id",
+        "delivery_slot_device",
+        "delivery_slot_inode",
+    }.isdisjoint(activated_file_fields)
+    assert run_action_activated_volume_evidence_matches(
+        prepared=prepared,
+        spawn_commit=spawn,
+        reobserved_volume_evidence=receipt.reobserved_volume_evidence,
+        activated_workspace_observation=(receipt.activated_workspace_observation),
+        activated_temporary_directory_observation=(
+            receipt.activated_temporary_directory_observation
+        ),
+        activated_sentinel_observation=receipt.activated_sentinel_observation,
+        input_file_observation=receipt.input_file_observation,
+        result_file_observation=receipt.result_file_observation,
+        credential_file_observation=receipt.credential_file_observation,
     )
     foreign_prepared = _prepared_execution(
         claim=_claim(request_digest=tree_or_blob_digest(b"another request"))
@@ -1006,6 +1118,50 @@ def test_activation_revalidation_binds_fresh_exact_prepared_observations():
         replace(
             receipt,
             activated_workspace_observation=wrong_spawn_workspace,
+        )
+    substituted_workspace_inode = _remint_contract(
+        receipt.activated_workspace_observation,
+        inode=receipt.activated_workspace_observation.inode + 1,
+    )
+    with pytest.raises(
+        RunActionSupervisorContractError,
+        match="prepared authority",
+    ):
+        replace(
+            receipt,
+            activated_workspace_observation=substituted_workspace_inode,
+        )
+    wrong_spawn_temporary = _activated_temporary_directory_observation(
+        prepared,
+        wrong_spawn,
+    )
+    with pytest.raises(
+        RunActionSupervisorContractError,
+        match="prepared authority",
+    ):
+        replace(
+            receipt,
+            activated_temporary_directory_observation=wrong_spawn_temporary,
+        )
+    substituted_temporary_inode = _remint_contract(
+        receipt.activated_temporary_directory_observation,
+        inode=receipt.activated_temporary_directory_observation.inode + 1,
+    )
+    with pytest.raises(
+        RunActionSupervisorContractError,
+        match="prepared authority",
+    ):
+        replace(
+            receipt,
+            activated_temporary_directory_observation=(substituted_temporary_inode),
+        )
+    with pytest.raises(
+        RunActionSupervisorContractError,
+        match="invalid or nonempty",
+    ):
+        replace(
+            receipt.activated_temporary_directory_observation,
+            observed_entry_count=1,
         )
     moved_sentinel = _remint_contract(
         receipt.activated_sentinel_observation,
@@ -1051,7 +1207,7 @@ def test_activation_revalidation_binds_fresh_exact_prepared_observations():
         replace(receipt, input_file_observation=substituted_delivery)
     foreign_delivery = _remint_contract(
         receipt.input_file_observation,
-        prepared_delivery_slot_id=(
+        prepared_parent_authority_id=(
             foreign_prepared.input_delivery_slot.prepared_delivery_slot_id
         ),
     )
@@ -1062,7 +1218,7 @@ def test_activation_revalidation_binds_fresh_exact_prepared_observations():
         replace(receipt, input_file_observation=foreign_delivery)
     substituted_delivery_parent = _remint_contract(
         receipt.input_file_observation,
-        delivery_slot_inode=receipt.input_file_observation.delivery_slot_inode + 1,
+        parent_inode=receipt.input_file_observation.parent_inode + 1,
     )
     with pytest.raises(
         RunActionSupervisorContractError,
@@ -1082,14 +1238,34 @@ def test_activation_revalidation_binds_fresh_exact_prepared_observations():
         )
     with pytest.raises(
         RunActionSupervisorContractError,
-        match="carries a delivery slot",
+        match="another namespace",
     ):
         _remint_contract(
             receipt.result_file_observation,
-            prepared_delivery_slot_id=(
+            prepared_parent_authority_id=(
                 prepared.input_delivery_slot.prepared_delivery_slot_id
             ),
         )
+    foreign_result_parent = _remint_contract(
+        receipt.result_file_observation,
+        prepared_parent_authority_id=(
+            foreign_prepared.result_directory.prepared_runtime_directory_id
+        ),
+    )
+    with pytest.raises(
+        RunActionSupervisorContractError,
+        match="prepared authority",
+    ):
+        replace(receipt, result_file_observation=foreign_result_parent)
+    substituted_result_parent = _remint_contract(
+        receipt.result_file_observation,
+        parent_inode=receipt.result_file_observation.parent_inode + 1,
+    )
+    with pytest.raises(
+        RunActionSupervisorContractError,
+        match="prepared authority",
+    ):
+        replace(receipt, result_file_observation=substituted_result_parent)
 
     with pytest.raises(RunActionSupervisorContractError, match="file observation"):
         replace(
@@ -1101,10 +1277,30 @@ def test_activation_revalidation_binds_fresh_exact_prepared_observations():
         1,
         added_inode_count=2,
     )
-    with pytest.raises(RunActionSupervisorContractError, match="statfs usage"):
+    with pytest.raises(RunActionSupervisorContractError, match="prepared authority"):
         _remint_contract(
             receipt,
             reobserved_volume_evidence=incomplete_usage,
+        )
+    unexplained_extra_block = _volume_with_added_blocks(
+        prepared.runtime_volume_evidence,
+        3,
+        added_inode_count=2,
+    )
+    with pytest.raises(RunActionSupervisorContractError, match="prepared authority"):
+        _remint_contract(
+            receipt,
+            reobserved_volume_evidence=unexplained_extra_block,
+        )
+    unexplained_extra_inode = _volume_with_added_blocks(
+        prepared.runtime_volume_evidence,
+        2,
+        added_inode_count=3,
+    )
+    with pytest.raises(RunActionSupervisorContractError, match="prepared authority"):
+        _remint_contract(
+            receipt,
+            reobserved_volume_evidence=unexplained_extra_inode,
         )
     colliding_delivery = _remint_contract(
         receipt.input_file_observation,
@@ -1112,7 +1308,7 @@ def test_activation_revalidation_binds_fresh_exact_prepared_observations():
     )
     with pytest.raises(
         RunActionSupervisorContractError,
-        match="inode identity",
+        match="prepared authority",
     ):
         _remint_contract(
             receipt,
@@ -1139,7 +1335,7 @@ def test_activation_revalidation_binds_fresh_exact_prepared_observations():
             reobserved_volume.effective_size_bytes - exact_exhaustion
         ),
     )
-    with pytest.raises(RunActionSupervisorContractError, match="headroom"):
+    with pytest.raises(RunActionSupervisorContractError, match="prepared authority"):
         _remint_contract(
             receipt,
             reobserved_volume_evidence=exhausted_usage,
@@ -1164,6 +1360,9 @@ def test_activation_revalidation_requires_exact_live_volume_generation_and_keepe
             prepared,
             spawn,
         ),
+        "activated_temporary_directory_observation": (
+            _activated_temporary_directory_observation(prepared, spawn)
+        ),
         "activated_sentinel_observation": _activated_sentinel_observation(
             prepared,
             spawn,
@@ -1178,6 +1377,7 @@ def test_activation_revalidation_requires_exact_live_volume_generation_and_keepe
         "result_file_observation": _activated_file_observation(
             prepared.result_file,
             spawn,
+            parent_authority=prepared.result_directory,
             size_bytes=0,
             content_digest=None,
             content_authority_id=None,
@@ -1239,6 +1439,9 @@ def test_activation_revalidation_uses_absence_for_credential_free_policy():
         reobserved_keeper_evidence=prepared.volume_keeper_evidence,
         reobserved_container_evidence=prepared.inert_container_evidence,
         activated_workspace_observation=None,
+        activated_temporary_directory_observation=(
+            _activated_temporary_directory_observation(prepared, spawn)
+        ),
         activated_sentinel_observation=_activated_sentinel_observation(
             prepared,
             spawn,
@@ -1253,6 +1456,7 @@ def test_activation_revalidation_uses_absence_for_credential_free_policy():
         result_file_observation=_activated_file_observation(
             prepared.result_file,
             spawn,
+            parent_authority=prepared.result_directory,
             size_bytes=0,
             content_digest=None,
             content_authority_id=None,
@@ -1262,6 +1466,27 @@ def test_activation_revalidation_uses_absence_for_credential_free_policy():
 
     assert receipt.credential_file_observation is None
     assert receipt.activated_workspace_observation is None
+    foreign_credential_slot = _prepared_execution().credential_delivery_slot
+    forbidden_credential = _activated_file_observation(
+        foreign_credential_slot,
+        spawn,
+        size_bytes=32,
+        content_digest=None,
+        content_authority_id="test.credential.lease",
+    )
+    with pytest.raises(
+        RunActionSupervisorContractError,
+        match="prepared authority",
+    ):
+        _remint_contract(
+            receipt,
+            reobserved_volume_evidence=_volume_with_added_blocks(
+                prepared.runtime_volume_evidence,
+                2,
+                added_inode_count=2,
+            ),
+            credential_file_observation=forbidden_credential,
+        )
     with pytest.raises(ContractValidationError, match="must be an object"):
         replace(
             receipt,
@@ -1333,6 +1558,28 @@ def _activated_workspace_observation(prepared, spawn):
         owner_user_id=workspace.owner_user_id,
         owner_group_id=workspace.owner_group_id,
         root_mode=workspace.root_mode,
+        mount_id=workspace.mount_id,
+        device=workspace.device,
+        inode=workspace.inode,
+    )
+
+
+def _activated_temporary_directory_observation(prepared, spawn):
+    temporary = prepared.temporary_directory
+    return RunActionActivatedTemporaryDirectoryObservation.mint(
+        spawn_commit_id=spawn.spawn_commit_id,
+        prepared_runtime_directory_id=(temporary.prepared_runtime_directory_id),
+        runtime_volume_authority_id=temporary.runtime_volume_authority_id,
+        generation_nonce=temporary.generation_nonce,
+        directory_relative_path=temporary.directory_relative_path,
+        directory_type=temporary.directory_type,
+        owner_user_id=temporary.owner_user_id,
+        owner_group_id=temporary.owner_group_id,
+        mode=temporary.mode,
+        observed_entry_count=0,
+        mount_id=temporary.mount_id,
+        device=temporary.device,
+        inode=temporary.inode,
     )
 
 
@@ -1361,11 +1608,20 @@ def _activated_file_observation(
     prepared_authority,
     spawn_commit,
     *,
+    parent_authority=None,
     size_bytes,
     content_digest,
     content_authority_id,
 ):
     is_delivery = type(prepared_authority) is RunActionPreparedDeliverySlot
+    parent_authority = prepared_authority if is_delivery else parent_authority
+    if (
+        is_delivery and type(parent_authority) is not RunActionPreparedDeliverySlot
+    ) or (
+        not is_delivery
+        and type(parent_authority) is not RunActionPreparedRuntimeDirectory
+    ):
+        raise AssertionError("activated file fixture requires its exact parent")
     relative_path = (
         (
             f"{prepared_authority.directory_relative_path}/"
@@ -1376,13 +1632,15 @@ def _activated_file_observation(
     )
     return RunActionActivatedFileObservation.mint(
         spawn_commit_id=spawn_commit.spawn_commit_id,
-        prepared_delivery_slot_id=(
-            prepared_authority.prepared_delivery_slot_id if is_delivery else None
+        prepared_parent_authority_id=(
+            parent_authority.prepared_delivery_slot_id
+            if is_delivery
+            else parent_authority.prepared_runtime_directory_id
         ),
         prepared_file_id=(None if is_delivery else prepared_authority.prepared_file_id),
-        delivery_slot_mount_id=(prepared_authority.mount_id if is_delivery else None),
-        delivery_slot_device=(prepared_authority.device if is_delivery else None),
-        delivery_slot_inode=(prepared_authority.inode if is_delivery else None),
+        parent_mount_id=parent_authority.mount_id,
+        parent_device=parent_authority.device,
+        parent_inode=parent_authority.inode,
         runtime_volume_authority_id=prepared_authority.runtime_volume_authority_id,
         generation_nonce=prepared_authority.generation_nonce,
         kind=prepared_authority.kind,
@@ -1505,6 +1763,9 @@ def _activation_revalidation_receipt(prepared, spawn):
             if prepared.workspace_proof is None
             else _activated_workspace_observation(prepared, spawn)
         ),
+        activated_temporary_directory_observation=(
+            _activated_temporary_directory_observation(prepared, spawn)
+        ),
         activated_sentinel_observation=_activated_sentinel_observation(
             prepared,
             spawn,
@@ -1519,6 +1780,7 @@ def _activation_revalidation_receipt(prepared, spawn):
         result_file_observation=_activated_file_observation(
             prepared.result_file,
             spawn,
+            parent_authority=prepared.result_directory,
             size_bytes=0,
             content_digest=None,
             content_authority_id=None,
@@ -2189,6 +2451,10 @@ def test_prepared_workspace_proves_the_observed_copied_tree_and_git_closure():
     assert workspace.observed_git_closure_digest == binding.git_closure_digest
     assert workspace.observed_source_entry_count == binding.source_entry_count
     assert workspace.observed_source_size_bytes == binding.source_size_bytes
+    assert (workspace.mount_id, workspace.device) == (
+        prepared.runtime_volume_evidence.root_mount_id,
+        prepared.runtime_volume_evidence.root_device,
+    )
     with pytest.raises(RunActionSupervisorContractError, match="incomplete"):
         replace(
             workspace,
@@ -2196,6 +2462,15 @@ def test_prepared_workspace_proves_the_observed_copied_tree_and_git_closure():
         )
     with pytest.raises(RunActionSupervisorContractError, match="incomplete"):
         replace(workspace, observed_source_entry_count=binding.source_entry_count + 1)
+    substituted_workspace = _remint_contract(
+        workspace,
+        inode=workspace.inode + 100,
+    )
+    with pytest.raises(
+        RunActionSupervisorContractError,
+        match="positive byte or inode headroom",
+    ):
+        replace(prepared, workspace_proof=substituted_workspace)
 
 
 def test_prepared_delivery_slots_are_empty_and_result_file_is_precreated():
@@ -2233,6 +2508,63 @@ def test_prepared_delivery_slots_are_empty_and_result_file_is_precreated():
         replace(prepared.result_file, link_count=2)
     with pytest.raises(RunActionSupervisorContractError, match="invalid or nonempty"):
         replace(prepared.result_file, kind=RunActionPreparedFileKind.INPUT)
+
+
+def test_prepared_runtime_directories_pin_result_and_temporary_subpaths():
+    prepared = _prepared_execution()
+    result = prepared.result_directory
+    temporary = prepared.temporary_directory
+
+    assert (
+        result.kind,
+        result.directory_relative_path,
+        result.observed_entry_count,
+    ) == (RunActionPreparedRuntimeDirectoryKind.RESULT, "result", 1)
+    assert (
+        temporary.kind,
+        temporary.directory_relative_path,
+        temporary.observed_entry_count,
+    ) == (RunActionPreparedRuntimeDirectoryKind.TEMPORARY, "temporary", 0)
+    assert (result.mount_id, result.device) == (
+        prepared.runtime_volume_evidence.root_mount_id,
+        prepared.runtime_volume_evidence.root_device,
+    )
+    assert (temporary.mount_id, temporary.device) == (
+        prepared.runtime_volume_evidence.root_mount_id,
+        prepared.runtime_volume_evidence.root_device,
+    )
+    assert len({result.inode, temporary.inode, prepared.result_file.inode}) == 3
+
+    with pytest.raises(
+        RunActionSupervisorContractError,
+        match="runtime directory is invalid",
+    ):
+        replace(result, observed_entry_count=0)
+    with pytest.raises(
+        RunActionSupervisorContractError,
+        match="runtime directory is invalid",
+    ):
+        replace(temporary, observed_entry_count=1)
+    substituted_result = _remint_contract(result, inode=result.inode + 100)
+    with pytest.raises(
+        RunActionSupervisorContractError,
+        match="artifacts differ from their preparation claim",
+    ):
+        replace(prepared, result_directory=substituted_result)
+    foreign = _prepared_execution(inode_offset=8)
+    with pytest.raises(
+        RunActionSupervisorContractError,
+        match="positive byte or inode headroom",
+    ):
+        replace(
+            prepared,
+            layout_proof=_remint_contract(
+                prepared.layout_proof,
+                prepared_runtime_directory_ids=(
+                    foreign.layout_proof.prepared_runtime_directory_ids
+                ),
+            ),
+        )
 
 
 def test_runtime_volume_keeper_binds_helper_and_exact_live_generation():
@@ -2577,6 +2909,21 @@ def test_credential_policy_and_file_contracts_carry_no_secret_or_host_path_field
         names = tuple(field.name for field in fields(contract_type))
         assert not any(
             fragment in name for name in names for fragment in forbidden_fragments
+        )
+    prepared = _prepared_execution()
+    activation = _activation_revalidation_receipt(
+        prepared,
+        _spawn_commit(prepared),
+    )
+    credential = activation.credential_file_observation
+    assert credential.content_digest is None
+    with pytest.raises(
+        RunActionSupervisorContractError,
+        match="file observation is invalid",
+    ):
+        replace(
+            credential,
+            content_digest=tree_or_blob_digest(b"credential secret bytes"),
         )
 
 

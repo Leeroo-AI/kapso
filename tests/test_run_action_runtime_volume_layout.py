@@ -60,6 +60,65 @@ _CANONICAL_CONFIG_PATH = "src/kapso/config.yaml"
 _GENERATION_NONCE = "9" * 32
 
 
+def test_substituted_spawn_is_rejected_before_any_delivery_publication(
+    tmp_path,
+    monkeypatch,
+):
+    settings = CrossRunSettings.from_dict(
+        load_config(_CANONICAL_CONFIG_PATH)["cross_run"]
+    )
+    policy = _policy(
+        settings.docker,
+        workspace_access=RunFrontierWorkspaceAccess.NONE,
+        credential_mode=RunActionCredentialMode.SUPERVISOR_FILE,
+    )
+    prepared = _prepared_execution(claim=_claim(policy=policy))
+    substituted_prepared = _prepared_execution(
+        claim=prepared.preparation_claim,
+        inode_offset=7,
+    )
+    substituted_spawn = _spawn_commit(substituted_prepared)
+    authority = prepared.runtime_volume_authority
+    volume = observe_runtime_volume(
+        _volume_raw(authority, settings.docker),
+        prepared.preparation_claim,
+        authority,
+        settings.docker,
+    )
+    input_final = tmp_path / prepared.input_delivery_slot.final_file_name
+    credential_final = tmp_path / prepared.credential_delivery_slot.final_file_name
+
+    def publish_if_called(slot, slot_directory_descriptor, payload):
+        destination = input_final if slot.kind.value == "input" else credential_final
+        destination.write_bytes(payload)
+        raise AssertionError("delivery publication ran before spawn validation")
+
+    monkeypatch.setattr(
+        volume_module,
+        "publish_or_adopt_run_action_delivery",
+        publish_if_called,
+    )
+
+    with pytest.raises(
+        RunActionRuntimeVolumeError,
+        match="activation spawn differs",
+    ):
+        volume_module.deliver_and_reobserve_runtime_volume_activation(
+            prepared,
+            substituted_spawn,
+            volume,
+            prepared.volume_keeper_evidence,
+            request_payload=b"complete request",
+            credential_payload=b"provider-token",
+            credential_content_authority_id="test.credential.lease",
+            workspace_descriptor=None,
+            settings=settings.launch,
+        )
+
+    assert input_final.exists() is False
+    assert credential_final.exists() is False
+
+
 def test_terminal_workspace_source_requires_exact_prepared_volume_occurrence():
     prepared = _prepared_execution()
     spawn = _spawn_commit(prepared)
@@ -727,7 +786,9 @@ def test_prepared_volume_aggregate_rejects_layout_splices():
         preparation_claim=prepared.preparation_claim,
         runtime_volume_evidence=prepared.runtime_volume_evidence,
         input_delivery_slot=prepared.input_delivery_slot,
+        result_directory=prepared.result_directory,
         result_file=prepared.result_file,
+        temporary_directory=prepared.temporary_directory,
         credential_delivery_slot=prepared.credential_delivery_slot,
         workspace_proof=prepared.workspace_proof,
         layout_proof=prepared.layout_proof,
@@ -760,7 +821,9 @@ def test_prepared_volume_aggregate_rejects_same_graph_layout_lies(mutation):
         preparation_claim=prepared.preparation_claim,
         runtime_volume_evidence=prepared.runtime_volume_evidence,
         input_delivery_slot=prepared.input_delivery_slot,
+        result_directory=prepared.result_directory,
         result_file=prepared.result_file,
+        temporary_directory=prepared.temporary_directory,
         credential_delivery_slot=prepared.credential_delivery_slot,
         workspace_proof=prepared.workspace_proof,
         layout_proof=prepared.layout_proof,
@@ -787,7 +850,9 @@ def test_prepared_volume_aggregate_rejects_claim_policy_authority_splice():
         preparation_claim=prepared.preparation_claim,
         runtime_volume_evidence=prepared.runtime_volume_evidence,
         input_delivery_slot=prepared.input_delivery_slot,
+        result_directory=prepared.result_directory,
         result_file=prepared.result_file,
+        temporary_directory=prepared.temporary_directory,
         credential_delivery_slot=prepared.credential_delivery_slot,
         workspace_proof=prepared.workspace_proof,
         layout_proof=prepared.layout_proof,
@@ -829,9 +894,24 @@ def test_prepared_volume_aggregate_rejects_claim_policy_authority_splice():
         )
         if delivery_slot is not None
     )
+    substituted_runtime_directories = tuple(
+        _remint_contract(
+            runtime_directory,
+            runtime_volume_authority_id=(
+                substituted_authority.runtime_volume_authority_id
+            ),
+        )
+        for runtime_directory in (
+            observation.result_directory,
+            observation.temporary_directory,
+        )
+    )
     substituted_result_file = _remint_contract(
         observation.result_file,
         runtime_volume_authority_id=(substituted_authority.runtime_volume_authority_id),
+        prepared_parent_directory_id=(
+            substituted_runtime_directories[0].prepared_runtime_directory_id
+        ),
     )
     substituted_workspace = (
         None
@@ -853,6 +933,12 @@ def test_prepared_volume_aggregate_rejects_claim_policy_authority_splice():
                 for delivery_slot in substituted_delivery_slots
             )
         ),
+        prepared_runtime_directory_ids=tuple(
+            sorted(
+                directory.prepared_runtime_directory_id
+                for directory in substituted_runtime_directories
+            )
+        ),
         prepared_result_file_id=substituted_result_file.prepared_file_id,
         prepared_workspace_proof_id=(
             None
@@ -869,7 +955,9 @@ def test_prepared_volume_aggregate_rejects_claim_policy_authority_splice():
             observation,
             runtime_volume_evidence=substituted_evidence,
             input_delivery_slot=substituted_delivery_slots[0],
+            result_directory=substituted_runtime_directories[0],
             result_file=substituted_result_file,
+            temporary_directory=substituted_runtime_directories[1],
             credential_delivery_slot=(
                 None
                 if len(substituted_delivery_slots) == 1
@@ -895,7 +983,9 @@ def test_prepared_volume_aggregate_rejects_delivery_slot_authority_splices(chang
         preparation_claim=prepared.preparation_claim,
         runtime_volume_evidence=prepared.runtime_volume_evidence,
         input_delivery_slot=prepared.input_delivery_slot,
+        result_directory=prepared.result_directory,
         result_file=prepared.result_file,
+        temporary_directory=prepared.temporary_directory,
         credential_delivery_slot=prepared.credential_delivery_slot,
         workspace_proof=prepared.workspace_proof,
         layout_proof=prepared.layout_proof,
@@ -940,7 +1030,9 @@ def test_prepared_volume_aggregate_rejects_workspace_authority_splice():
         preparation_claim=prepared.preparation_claim,
         runtime_volume_evidence=prepared.runtime_volume_evidence,
         input_delivery_slot=prepared.input_delivery_slot,
+        result_directory=prepared.result_directory,
         result_file=prepared.result_file,
+        temporary_directory=prepared.temporary_directory,
         credential_delivery_slot=prepared.credential_delivery_slot,
         workspace_proof=prepared.workspace_proof,
         layout_proof=prepared.layout_proof,
