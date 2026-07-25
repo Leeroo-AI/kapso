@@ -617,9 +617,10 @@ never-started main, and running keeper inspections now require complete nested
 raw schemas and normalize only enumerated daemon identities and ordering; issued
 and observed projections are equal in repeated Docker 29.1.3 runs with a
 digest-pulled loopback OCI image. The race-safe name/label resource manager,
-concrete
-activation/result receipts, positive cleanup authority, and production adapters
-remain the next slices.
+now has a twice-stable name-only, name-plus-label, and label-only inventory with
+inspect-by-ID container rebinding and full-inspection volume occurrence digests.
+Allocation/reopen reconciliation, concrete activation/result receipts, positive
+cleanup authority, and production adapters remain the next slices.
 
 The coordinator owns one process-bound, non-clonable implementation catalog fixed
 at composition; `recover()` accepts no caller-selected implementation. Each

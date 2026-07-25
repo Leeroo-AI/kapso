@@ -33,6 +33,9 @@ from kapso.cross_run.launch.run_action_docker_projection import (
     require_run_action_image,
     volume_create_arguments,
 )
+from kapso.cross_run.launch.run_action_docker_resources import (
+    DockerRunActionResourceManager,
+)
 from kapso.cross_run.launch.run_action_docker_inspect import (
     observe_inert_main_container,
     observe_running_keeper,
@@ -230,6 +233,7 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             trusted_root=runtime_root.resolve(),
             settings=settings,
         )
+        resource_manager = DockerRunActionResourceManager(runtime)
         image_authority = DockerImageAuthority.mint(
             image_reference=local_registry.image_reference,
             image_config_digest=local_registry.config_digest,
@@ -289,6 +293,7 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             )
             == ()
         )
+        assert resource_manager.observe(claim).is_absent
 
         image = runtime.inspect_exact_image(image_authority)
         require_run_action_image(image, policy, settings)
@@ -304,10 +309,12 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             volume_create_arguments(claim, authority, settings)
         )
         assert volume_result.stdout == f"{volume_name}\n".encode("ascii")
+        volume_inventory = resource_manager.observe(claim)
+        assert volume_inventory.volume_present is True
+        assert volume_inventory.keeper_container_id is None
+        assert volume_inventory.main_container_id is None
         volume_observation = observe_runtime_volume(
-            runtime.run_json_control(
-                ("volume", "inspect", "--format", "{{json .}}", volume_name)
-            ),
+            resource_manager.inspect_volume(volume_inventory),
             claim,
             authority,
             settings,
@@ -346,6 +353,10 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
                 "/kapso/runtime-volume/workspace",
             )
         )
+        keeper_inventory = resource_manager.observe(claim)
+        assert keeper_inventory.volume_present is True
+        assert keeper_inventory.keeper_container_id == keeper_id
+        assert keeper_inventory.main_container_id is None
 
         cleanup.callback(
             _remove_owned_container,
@@ -366,12 +377,12 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
         main_id = main_result.stdout.decode("ascii").strip()
         assert _CONTAINER_ID_PATTERN.fullmatch(main_id) is not None
 
-        keeper = runtime.run_json_control(
-            ("container", "inspect", "--format", "{{json .}}", keeper_id)
-        )
-        main = runtime.run_json_control(
-            ("container", "inspect", "--format", "{{json .}}", main_id)
-        )
+        complete_inventory = resource_manager.observe(claim)
+        assert complete_inventory.volume_present is True
+        assert complete_inventory.keeper_container_id == keeper_id
+        assert complete_inventory.main_container_id == main_id
+        keeper = resource_manager.inspect_keeper(complete_inventory)
+        main = resource_manager.inspect_main(complete_inventory)
         main_evidence = observe_inert_main_container(
             main,
             claim,
