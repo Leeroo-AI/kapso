@@ -28,6 +28,7 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RunActionPreparedFile,
     RunActionPreparedFileKind,
     RunActionPreparedWorkspaceProof,
+    RunActionResultCaptureReceipt,
     RunActionRuntimeVolumeAuthority,
     RunActionRuntimeVolumeEvidence,
     RunActionRuntimeVolumeLayoutProof,
@@ -59,6 +60,7 @@ _SENTINEL_NAME = ".kapso-generation"
 _PREPARED_DIRECTORY_MODE = 0o700
 _PREPARED_FILE_MODE = 0o600
 _SENTINEL_MODE = 0o400
+_RESULT_WORKSPACE_LEASE_AUTHORITY = object()
 _SIZE_MULTIPLIERS = {
     "": 1,
     "k": 1024,
@@ -70,6 +72,97 @@ _SIZE_MULTIPLIERS = {
 
 class RunActionRuntimeVolumeError(RuntimeError):
     """The mounted runtime volume differs from its issued tmpfs authority."""
+
+
+class RunActionResultWorkspaceLease:
+    """Process-bound descriptor lease for the exact terminal runtime workspace."""
+
+    def __init__(
+        self,
+        *,
+        descriptors: ExitStack,
+        mounted_volume: "_MountedRuntimeVolumeLease",
+        keeper: RunActionVolumeKeeperEvidence,
+        sentinel_observation: "_ExactRegularFileObservation",
+        workspace_descriptor: int,
+        workspace_identity: tuple[int, int],
+        _authority: object,
+    ) -> None:
+        if (
+            type(descriptors) is not ExitStack
+            or type(mounted_volume) is not _MountedRuntimeVolumeLease
+            or type(keeper) is not RunActionVolumeKeeperEvidence
+            or type(sentinel_observation) is not _ExactRegularFileObservation
+            or type(workspace_descriptor) is not int
+            or workspace_descriptor < 0
+            or type(workspace_identity) is not tuple
+            or len(workspace_identity) != 2
+            or _authority is not _RESULT_WORKSPACE_LEASE_AUTHORITY
+        ):
+            raise RunActionRuntimeVolumeError(
+                "result workspace lease lacks exact physical authority"
+            )
+        self._descriptors = descriptors
+        self._mounted_volume = mounted_volume
+        self._keeper = keeper
+        self._sentinel_observation = sentinel_observation
+        self._workspace_descriptor = workspace_descriptor
+        self._workspace_identity = workspace_identity
+        self._owner_process_id = os.getpid()
+        self._closed = False
+        self.require_current()
+
+    @property
+    def workspace_descriptor(self) -> int:
+        self.require_current()
+        return self._workspace_descriptor
+
+    def require_current(self) -> None:
+        if self._owner_process_id != os.getpid() or self._closed:
+            raise RunActionRuntimeVolumeError(
+                "result workspace lease is closed or belongs to another process"
+            )
+        _require_same_mounted_runtime_volume(
+            self._mounted_volume,
+            self._keeper,
+        )
+        _require_same_exact_regular_file(self._sentinel_observation)
+        opened = os.fstat(self._workspace_descriptor)
+        current = os.stat(
+            "workspace",
+            dir_fd=self._mounted_volume.root_descriptor,
+            follow_symlinks=False,
+        )
+        if (
+            not stat.S_ISDIR(opened.st_mode)
+            or not stat.S_ISDIR(current.st_mode)
+            or opened.st_uid != os.geteuid()
+            or current.st_uid != os.geteuid()
+            or stat.S_IMODE(opened.st_mode) != _PREPARED_DIRECTORY_MODE
+            or stat.S_IMODE(current.st_mode) != _PREPARED_DIRECTORY_MODE
+            or read_run_action_descriptor_mount_id(self._workspace_descriptor)
+            != self._mounted_volume.root_mount_id
+            or (opened.st_dev, opened.st_ino) != self._workspace_identity
+            or (current.st_dev, current.st_ino) != self._workspace_identity
+        ):
+            raise RunActionRuntimeVolumeError(
+                "result workspace lease changed physical generation"
+            )
+
+    def __enter__(self) -> "RunActionResultWorkspaceLease":
+        self.require_current()
+        return self
+
+    def __exit__(self, *_arguments: object) -> None:
+        self.close()
+
+    def close(self) -> None:
+        if self._owner_process_id != os.getpid() or self._closed:
+            raise RunActionRuntimeVolumeError(
+                "result workspace lease is already closed or foreign"
+            )
+        self._closed = True
+        self._descriptors.close()
 
 
 @dataclass(frozen=True)
@@ -509,6 +602,205 @@ def _require_same_mounted_runtime_volume(
     ):
         raise RunActionRuntimeVolumeError(
             "runtime volume lease changed process or physical root"
+        )
+
+
+def open_run_action_result_workspace(
+    prepared: RunActionPreparedExecution,
+    result_capture_receipt: RunActionResultCaptureReceipt,
+) -> RunActionResultWorkspaceLease:
+    """Retain the exact event-3/event-6 runtime workspace by descriptor."""
+
+    if (
+        type(prepared) is not RunActionPreparedExecution
+        or type(result_capture_receipt) is not RunActionResultCaptureReceipt
+        or prepared.workspace_proof is None
+        or prepared.preparation_claim.reservation.intent.workspace_access
+        is not RunFrontierWorkspaceAccess.EDIT_WORKSPACE
+        or result_capture_receipt.runtime_volume_authority_id
+        != prepared.runtime_volume_authority.runtime_volume_authority_id
+    ):
+        raise RunActionRuntimeVolumeError(
+            "result workspace lease requires exact edit execution evidence"
+        )
+    keeper = prepared.volume_keeper_evidence
+    captured_volume = result_capture_receipt.reobserved_volume_evidence
+    _require_result_volume_occurrence(prepared, captured_volume)
+    with ExitStack() as descriptors:
+        mounted_volume = _open_mounted_runtime_volume(descriptors, keeper)
+        if (
+            mounted_volume.root_mount_id != captured_volume.root_mount_id
+            or mounted_volume.root_device != captured_volume.root_device
+            or mounted_volume.root_inode != captured_volume.root_inode
+        ):
+            raise RunActionRuntimeVolumeError(
+                "captured result workspace physical root was substituted"
+            )
+        sentinel_observation = _open_exact_regular_file(
+            descriptors,
+            mounted_volume.root_descriptor,
+            _SENTINEL_NAME,
+            expected_payload=(
+                prepared.runtime_volume_authority.generation_nonce.encode("ascii")
+            ),
+            expected_mode=_SENTINEL_MODE,
+            authority=prepared.runtime_volume_authority,
+            root_mount_id=mounted_volume.root_mount_id,
+            root_device=mounted_volume.root_device,
+        )
+        _require_result_sentinel_observation(
+            sentinel_observation,
+            captured_volume.sentinel_evidence,
+        )
+        workspace_descriptor = os.open(
+            "workspace",
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+            dir_fd=mounted_volume.root_descriptor,
+        )
+        descriptors.callback(os.close, workspace_descriptor)
+        workspace_metadata = os.fstat(workspace_descriptor)
+        if (
+            not stat.S_ISDIR(workspace_metadata.st_mode)
+            or workspace_metadata.st_uid
+            != prepared.runtime_volume_authority.owner_user_id
+            or workspace_metadata.st_gid
+            != prepared.runtime_volume_authority.owner_group_id
+            or stat.S_IMODE(workspace_metadata.st_mode) != _PREPARED_DIRECTORY_MODE
+            or workspace_metadata.st_dev != mounted_volume.root_device
+            or read_run_action_descriptor_mount_id(workspace_descriptor)
+            != mounted_volume.root_mount_id
+        ):
+            raise RunActionRuntimeVolumeError(
+                "captured result workspace directory is unsafe or substituted"
+            )
+        lease = RunActionResultWorkspaceLease(
+            descriptors=descriptors,
+            mounted_volume=mounted_volume,
+            keeper=keeper,
+            sentinel_observation=sentinel_observation,
+            workspace_descriptor=workspace_descriptor,
+            workspace_identity=(workspace_metadata.st_dev, workspace_metadata.st_ino),
+            _authority=_RESULT_WORKSPACE_LEASE_AUTHORITY,
+        )
+        lease._descriptors = descriptors.pop_all()
+    return lease
+
+
+def _require_result_sentinel_observation(
+    observed: _ExactRegularFileObservation,
+    expected: RunActionRuntimeVolumeSentinelEvidence,
+) -> None:
+    if (
+        type(observed) is not _ExactRegularFileObservation
+        or type(expected) is not RunActionRuntimeVolumeSentinelEvidence
+    ):
+        raise RunActionRuntimeVolumeError(
+            "captured result workspace sentinel was substituted"
+        )
+    metadata = observed.metadata
+    if (
+        expected.relative_path,
+        expected.file_type,
+        expected.owner_user_id,
+        expected.owner_group_id,
+        expected.mode,
+        expected.link_count,
+        expected.size_bytes,
+        expected.content_digest,
+        expected.mount_id,
+        expected.device,
+        expected.inode,
+    ) != (
+        observed.name,
+        "regular",
+        metadata.st_uid,
+        metadata.st_gid,
+        stat.S_IMODE(metadata.st_mode),
+        metadata.st_nlink,
+        metadata.st_size,
+        tree_or_blob_digest(observed.payload),
+        observed.mount_id,
+        metadata.st_dev,
+        metadata.st_ino,
+    ):
+        raise RunActionRuntimeVolumeError(
+            "captured result workspace sentinel was substituted"
+        )
+
+
+def _require_result_volume_occurrence(
+    prepared: RunActionPreparedExecution,
+    captured: RunActionRuntimeVolumeEvidence,
+) -> None:
+    if type(captured) is not RunActionRuntimeVolumeEvidence:
+        raise RunActionRuntimeVolumeError(
+            "captured result volume differs from its prepared occurrence"
+        )
+    original = prepared.runtime_volume_evidence
+    keeper = prepared.volume_keeper_evidence
+    immutable_original = (
+        original.volume_authority,
+        original.volume_keeper_evidence_id,
+        original.keeper_container_id,
+        original.keeper_process_id,
+        original.keeper_process_start_time_ticks,
+        original.keeper_process_cgroup_path,
+        original.root_mount_id,
+        original.root_device,
+        original.root_inode,
+        original.observed_volume_name,
+        original.observed_labels,
+        original.observed_scope,
+        original.observed_driver,
+        original.observed_driver_options,
+        original.observed_filesystem_type,
+        original.observed_mount_flags,
+        original.observed_owner_user_id,
+        original.observed_owner_group_id,
+        original.observed_root_mode,
+        original.allocation_block_size_bytes,
+        original.effective_block_count,
+        original.effective_size_bytes,
+        original.effective_inode_limit,
+        original.sentinel_evidence,
+    )
+    immutable_captured = (
+        captured.volume_authority,
+        captured.volume_keeper_evidence_id,
+        captured.keeper_container_id,
+        captured.keeper_process_id,
+        captured.keeper_process_start_time_ticks,
+        captured.keeper_process_cgroup_path,
+        captured.root_mount_id,
+        captured.root_device,
+        captured.root_inode,
+        captured.observed_volume_name,
+        captured.observed_labels,
+        captured.observed_scope,
+        captured.observed_driver,
+        captured.observed_driver_options,
+        captured.observed_filesystem_type,
+        captured.observed_mount_flags,
+        captured.observed_owner_user_id,
+        captured.observed_owner_group_id,
+        captured.observed_root_mode,
+        captured.allocation_block_size_bytes,
+        captured.effective_block_count,
+        captured.effective_size_bytes,
+        captured.effective_inode_limit,
+        captured.sentinel_evidence,
+    )
+    if (
+        immutable_captured != immutable_original
+        or captured.volume_keeper_evidence_id != keeper.volume_keeper_evidence_id
+        or captured.keeper_container_id != keeper.container_id
+        or captured.keeper_process_id != keeper.process_id
+        or captured.keeper_process_start_time_ticks != keeper.process_start_time_ticks
+        or captured.keeper_process_cgroup_path
+        != keeper.mounted_helper_evidence.process_cgroup_path
+    ):
+        raise RunActionRuntimeVolumeError(
+            "captured result volume differs from its prepared occurrence"
         )
 
 
@@ -1888,8 +2180,10 @@ def _stable_filesystem(filesystem: os.statvfs_result) -> tuple[int, ...]:
 __all__ = [
     "DockerRunActionEmptyVolumeObservation",
     "DockerRunActionPreparedVolumeObservation",
+    "RunActionResultWorkspaceLease",
     "RunActionRuntimeVolumeError",
     "materialize_runtime_volume_layout",
     "observe_empty_runtime_volume",
+    "open_run_action_result_workspace",
     "reobserve_runtime_volume_layout",
 ]

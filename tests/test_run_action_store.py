@@ -43,6 +43,9 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RunActionPreparationClaim,
     issue_runtime_volume_authority,
 )
+from kapso.cross_run.launch.run_action_workspace_promotion import (
+    RunActionWorkspacePromotion,
+)
 from kapso.cross_run.launch.resume_contracts import RunSafetyBoundary
 from kapso.cross_run.launch.workspace_frontier import (
     inspect_run_workspace_frontier,
@@ -313,6 +316,7 @@ def test_action_store_reopens_complete_request_result_and_terminal_prefix(
             ),
             disposition=RunActionResultDisposition.SUCCEEDED,
             accepted_result_payload=accepted_result,
+            workspace_promotion=None,
         )
         acceptance = session.accept_decision(
             workspace_after=workspace,
@@ -380,6 +384,7 @@ def test_action_store_requires_exact_decision_before_acceptance(
                 result_interpreter_identity=foreign_interpreter,
                 disposition=RunActionResultDisposition.SUCCEEDED,
                 accepted_result_payload=b'{"accepted":"foreign"}',
+                workspace_promotion=None,
             )
         decision = session.decide_result(
             result_interpreter_identity=(
@@ -387,6 +392,7 @@ def test_action_store_requires_exact_decision_before_acceptance(
             ),
             disposition=RunActionResultDisposition.SUCCEEDED,
             accepted_result_payload=b'{"accepted":"exact"}',
+            workspace_promotion=None,
         )
         assert session.events[-1].event_kind is (
             RunActionExecutionEventKind.RESULT_DECIDED
@@ -404,6 +410,7 @@ def test_action_store_requires_exact_decision_before_acceptance(
         ),
         disposition=decision.disposition,
         accepted_result_blob=decision.accepted_result_blob,
+        workspace_promotion=None,
     )
     foreign_decision_event = _execution_event(
         reservation=reservation,
@@ -678,6 +685,7 @@ def test_result_decision_blob_and_event_recover_as_one_durable_boundary(
                 ),
                 disposition=RunActionResultDisposition.SUCCEEDED,
                 accepted_result_payload=b'{"accepted":"durable decision"}',
+                workspace_promotion=None,
             )
 
     reopened = _open_store(
@@ -1028,6 +1036,7 @@ def test_action_store_rejects_reminted_failed_edit_with_changed_workspace(
             ),
             disposition=RunActionResultDisposition.FAILED,
             accepted_result_payload=b'{"accepted_result":"failed"}',
+            workspace_promotion=None,
         )
         session.accept_decision(
             workspace_after=reservation.frontier.workspace_before.to_identity(),
@@ -1095,7 +1104,7 @@ def test_action_store_rejects_reminted_failed_edit_with_changed_workspace(
     assert orphan_path.read_bytes() == orphan_payload
 
 
-def test_successful_edit_waits_for_durable_workspace_promotion(
+def test_successful_edit_decision_owns_exact_workspace_promotion(
     publisher_case,
 ) -> None:
     _publisher, frontier, _security, gate = _action_case(
@@ -1113,27 +1122,137 @@ def test_successful_edit_waits_for_durable_workspace_promotion(
         publisher_case["settings"],
     )
     with _open_session(store, reservation) as session:
-        _prepare_session(session)
+        prepared = _prepare_session(session)
         spawn = session.commit_spawn(
             security_observation_id=reservation.frontier.security_observation_id,
             boundary_identity=reservation.intent.boundary_identity,
         )
-        _record_captured_result(
+        result_receipt = _record_captured_result(
             session,
             spawn,
             b'{"provider_result":"successful edit"}',
         )
-        with pytest.raises(RunActionStoreError, match="workspace promotion"):
+        before = reservation.frontier.workspace_before
+        candidate_identity = replace(
+            before.to_identity(),
+            workspace_identity=(
+                before.workspace_device,
+                before.workspace_inode + 1,
+            ),
+            commit_sha=("a" * 40 if before.commit_sha != "a" * 40 else "b" * 40),
+            parent_commit_shas=(before.commit_sha,),
+            git_tree_sha=("c" * 40 if before.git_tree_sha != "c" * 40 else "d" * 40),
+            source_tree_digest=(
+                "sha256:" + "1" * 64
+                if before.source_tree_digest != "sha256:" + "1" * 64
+                else "sha256:" + "2" * 64
+            ),
+            source_entry_count=before.source_entry_count + 1,
+            source_size_bytes=before.source_size_bytes + 1,
+        )
+        with pytest.raises(
+            RunActionStoreError,
+            match="decision promotion",
+        ):
             session.decide_result(
                 result_interpreter_identity=(
                     reservation.intent.boundary_identity.result_interpreter_identity
                 ),
                 disposition=RunActionResultDisposition.SUCCEEDED,
-                accepted_result_payload=b'{"accepted_result":"successful edit"}',
+                accepted_result_payload=b'{"accepted_result":"missing promotion"}',
+                workspace_promotion=None,
             )
-        assert session.events[-1].event_kind is (
-            RunActionExecutionEventKind.RESULT_RECEIVED
+        promotion = RunActionWorkspacePromotion.mint(
+            result_receipt_id=result_receipt.result_receipt_id,
+            prepared_workspace_proof_id=(
+                prepared.workspace_proof.prepared_workspace_proof_id
+            ),
+            candidate_workspace=RunActionWorkspaceBinding.from_identity(
+                candidate_identity
+            ),
         )
+        foreign_result_promotion = RunActionWorkspacePromotion.mint(
+            result_receipt_id=content_id(
+                "run-action-result-receipt",
+                {"foreign": "result"},
+            ),
+            prepared_workspace_proof_id=(promotion.prepared_workspace_proof_id),
+            candidate_workspace=promotion.candidate_workspace,
+        )
+        with pytest.raises(
+            RunActionStoreError,
+            match="durable execution",
+        ):
+            session.decide_result(
+                result_interpreter_identity=(
+                    reservation.intent.boundary_identity.result_interpreter_identity
+                ),
+                disposition=RunActionResultDisposition.SUCCEEDED,
+                accepted_result_payload=b'{"accepted_result":"foreign result"}',
+                workspace_promotion=foreign_result_promotion,
+            )
+        foreign_proof_promotion = RunActionWorkspacePromotion.mint(
+            result_receipt_id=promotion.result_receipt_id,
+            prepared_workspace_proof_id=content_id(
+                "run-action-prepared-workspace-proof",
+                {"foreign": "proof"},
+            ),
+            candidate_workspace=promotion.candidate_workspace,
+        )
+        with pytest.raises(
+            RunActionStoreError,
+            match="durable execution",
+        ):
+            session.decide_result(
+                result_interpreter_identity=(
+                    reservation.intent.boundary_identity.result_interpreter_identity
+                ),
+                disposition=RunActionResultDisposition.SUCCEEDED,
+                accepted_result_payload=b'{"accepted_result":"foreign proof"}',
+                workspace_promotion=foreign_proof_promotion,
+            )
+        nondirect_promotion = RunActionWorkspacePromotion.mint(
+            result_receipt_id=promotion.result_receipt_id,
+            prepared_workspace_proof_id=(promotion.prepared_workspace_proof_id),
+            candidate_workspace=RunActionWorkspaceBinding.from_identity(
+                replace(
+                    candidate_identity,
+                    parent_commit_shas=("f" * 40,),
+                )
+            ),
+        )
+        with pytest.raises(
+            RunActionStoreError,
+            match="direct source successor",
+        ):
+            session.decide_result(
+                result_interpreter_identity=(
+                    reservation.intent.boundary_identity.result_interpreter_identity
+                ),
+                disposition=RunActionResultDisposition.SUCCEEDED,
+                accepted_result_payload=b'{"accepted_result":"nondirect"}',
+                workspace_promotion=nondirect_promotion,
+            )
+        decision = session.decide_result(
+            result_interpreter_identity=(
+                reservation.intent.boundary_identity.result_interpreter_identity
+            ),
+            disposition=RunActionResultDisposition.SUCCEEDED,
+            accepted_result_payload=b'{"accepted_result":"successful edit"}',
+            workspace_promotion=promotion,
+        )
+        with pytest.raises(
+            RunActionStoreError,
+            match="promoted workspace",
+        ):
+            session.accept_decision(
+                workspace_after=before.to_identity(),
+            )
+        acceptance = session.accept_decision(
+            workspace_after=candidate_identity,
+        )
+        assert decision.workspace_promotion == promotion
+        assert acceptance.workspace_after == promotion.candidate_workspace
 
 
 def test_action_store_requires_sealed_construction_and_mutation(
@@ -1306,6 +1425,7 @@ def test_action_store_rejects_request_substitution_and_result_corruption(
                 ),
                 disposition=RunActionResultDisposition.SUCCEEDED,
                 accepted_result_payload=b'{"accepted":"durable"}',
+                workspace_promotion=None,
             )
             session.accept_decision(workspace_after=workspace)
             result_blob = decision.accepted_result_blob
@@ -1442,6 +1562,7 @@ def test_action_store_rejects_reused_prepared_container_identity(
             ),
             disposition=RunActionResultDisposition.SUCCEEDED,
             accepted_result_payload=b'{"accepted":"first"}',
+            workspace_promotion=None,
         )
         session.accept_decision(
             workspace_after=workspace,

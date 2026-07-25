@@ -34,6 +34,7 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RunActionContainerLabel,
     RunActionCredentialMode,
     RunActionPreparationClaim,
+    RunActionRuntimeVolumeSentinelEvidence,
 )
 from kapso.cross_run.launch.workspace_frontier import (
     inspect_run_workspace_frontier,
@@ -44,15 +45,353 @@ from test_run_action_docker_projection import _policy
 from test_launch_resolver import resolver_case
 from test_run_action_supervisor_contracts import (
     _claim,
+    _activation_revalidation_receipt,
     _fixture_content_id,
     _prepared_execution,
     _remint_contract,
+    _result_capture_receipt,
+    _spawn_commit,
+    _terminal_observation,
     _volume_authority,
 )
 from test_run_state_publisher import publisher_case
 
 _CANONICAL_CONFIG_PATH = "src/kapso/config.yaml"
 _GENERATION_NONCE = "9" * 32
+
+
+def test_terminal_workspace_source_requires_exact_prepared_volume_occurrence():
+    prepared = _prepared_execution()
+    spawn = _spawn_commit(prepared)
+    activation = _activation_revalidation_receipt(prepared, spawn)
+    terminal = _terminal_observation(prepared, spawn)
+    capture = _result_capture_receipt(
+        prepared,
+        activation,
+        terminal,
+        b'{"result":"complete"}',
+    )
+
+    volume_module._require_result_volume_occurrence(
+        prepared,
+        capture.reobserved_volume_evidence,
+    )
+
+    substituted = _prepared_execution(inode_offset=7).runtime_volume_evidence
+    with pytest.raises(
+        RunActionRuntimeVolumeError,
+        match="prepared occurrence",
+    ):
+        volume_module._require_result_volume_occurrence(
+            prepared,
+            substituted,
+        )
+
+
+@pytest.mark.parametrize("mutation", ("remove", "substitute"))
+def test_result_workspace_lease_retains_exact_event_6_sentinel(
+    tmp_path,
+    monkeypatch,
+    mutation,
+):
+    prepared = _prepared_execution()
+    authority = prepared.runtime_volume_authority
+    keeper = prepared.volume_keeper_evidence
+    root_path = tmp_path / "result-volume"
+    root_path.mkdir(mode=0o700)
+    workspace_path = root_path / "workspace"
+    workspace_path.mkdir(mode=0o700)
+    sentinel_path = root_path / ".kapso-generation"
+    sentinel_payload = authority.generation_nonce.encode("ascii")
+    sentinel_path.write_bytes(sentinel_payload)
+    sentinel_path.chmod(0o400)
+    descriptors = ExitStack()
+    root_descriptor = os.open(
+        root_path,
+        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+    )
+    descriptors.callback(os.close, root_descriptor)
+    workspace_descriptor = os.open(
+        "workspace",
+        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+        dir_fd=root_descriptor,
+    )
+    descriptors.callback(os.close, workspace_descriptor)
+    root_metadata = os.fstat(root_descriptor)
+    workspace_metadata = os.fstat(workspace_descriptor)
+    root_mount_id = read_run_action_descriptor_mount_id(root_descriptor)
+    sentinel_observation = volume_module._open_exact_regular_file(
+        descriptors,
+        root_descriptor,
+        ".kapso-generation",
+        expected_payload=sentinel_payload,
+        expected_mode=0o400,
+        authority=authority,
+        root_mount_id=root_mount_id,
+        root_device=root_metadata.st_dev,
+    )
+    sentinel_metadata = sentinel_observation.metadata
+    sentinel_evidence = RunActionRuntimeVolumeSentinelEvidence.mint(
+        runtime_volume_authority_id=authority.runtime_volume_authority_id,
+        generation_nonce=authority.generation_nonce,
+        relative_path=".kapso-generation",
+        file_type="regular",
+        owner_user_id=sentinel_metadata.st_uid,
+        owner_group_id=sentinel_metadata.st_gid,
+        mode=stat.S_IMODE(sentinel_metadata.st_mode),
+        link_count=sentinel_metadata.st_nlink,
+        size_bytes=sentinel_metadata.st_size,
+        content_digest=volume_module.tree_or_blob_digest(sentinel_payload),
+        mount_id=sentinel_observation.mount_id,
+        device=sentinel_metadata.st_dev,
+        inode=sentinel_metadata.st_ino,
+    )
+    volume_module._require_result_sentinel_observation(
+        sentinel_observation,
+        sentinel_evidence,
+    )
+    substituted_evidence = RunActionRuntimeVolumeSentinelEvidence.mint(
+        runtime_volume_authority_id=authority.runtime_volume_authority_id,
+        generation_nonce=authority.generation_nonce,
+        relative_path=".kapso-generation",
+        file_type="regular",
+        owner_user_id=sentinel_metadata.st_uid,
+        owner_group_id=sentinel_metadata.st_gid,
+        mode=stat.S_IMODE(sentinel_metadata.st_mode),
+        link_count=sentinel_metadata.st_nlink,
+        size_bytes=sentinel_metadata.st_size,
+        content_digest=volume_module.tree_or_blob_digest(sentinel_payload),
+        mount_id=sentinel_observation.mount_id,
+        device=sentinel_metadata.st_dev,
+        inode=sentinel_metadata.st_ino + 1,
+    )
+    with pytest.raises(
+        RunActionRuntimeVolumeError,
+        match="sentinel was substituted",
+    ):
+        volume_module._require_result_sentinel_observation(
+            sentinel_observation,
+            substituted_evidence,
+        )
+    mounted_volume = volume_module._MountedRuntimeVolumeLease(
+        process_descriptor=root_descriptor,
+        root_descriptor=root_descriptor,
+        keeper_container_id=keeper.container_id,
+        keeper_process_id=keeper.process_id,
+        process_start_time_ticks=keeper.process_start_time_ticks,
+        process_cgroup_path=keeper.mounted_helper_evidence.process_cgroup_path,
+        root_mount_id=root_mount_id,
+        root_device=root_metadata.st_dev,
+        root_inode=root_metadata.st_ino,
+    )
+    monkeypatch.setattr(
+        volume_module,
+        "_require_same_mounted_runtime_volume",
+        lambda _mounted, _keeper: None,
+    )
+    lease = volume_module.RunActionResultWorkspaceLease(
+        descriptors=descriptors,
+        mounted_volume=mounted_volume,
+        keeper=keeper,
+        sentinel_observation=sentinel_observation,
+        workspace_descriptor=workspace_descriptor,
+        workspace_identity=(workspace_metadata.st_dev, workspace_metadata.st_ino),
+        _authority=volume_module._RESULT_WORKSPACE_LEASE_AUTHORITY,
+    )
+
+    sentinel_path.unlink()
+    if mutation == "substitute":
+        sentinel_path.write_bytes(sentinel_payload)
+        sentinel_path.chmod(0o400)
+        expected_error = RunActionRuntimeVolumeError
+    else:
+        expected_error = FileNotFoundError
+    with pytest.raises(expected_error):
+        lease.require_current()
+    lease.close()
+
+
+def test_open_result_workspace_joins_live_sentinel_and_retains_its_path(
+    layout_context,
+    tmp_path,
+    monkeypatch,
+):
+    settings, _claim_without_workspace, _authority, _empty = layout_context
+    policy = _policy(
+        settings.docker,
+        workspace_access=RunFrontierWorkspaceAccess.EDIT_WORKSPACE,
+        credential_mode=RunActionCredentialMode.NONE,
+    )
+    prepared = _prepared_execution(claim=_claim(policy=policy))
+    spawn = _spawn_commit(prepared)
+    activation = _activation_revalidation_receipt(prepared, spawn)
+    terminal = _terminal_observation(prepared, spawn)
+    capture = _result_capture_receipt(
+        prepared,
+        activation,
+        terminal,
+        b'{"result":"complete"}',
+    )
+    authority = prepared.runtime_volume_authority
+    root_path = tmp_path / "captured-result-volume"
+    root_path.mkdir(mode=0o700)
+    (root_path / "workspace").mkdir(mode=0o700)
+    sentinel_path = root_path / ".kapso-generation"
+    sentinel_payload = authority.generation_nonce.encode("ascii")
+    sentinel_path.write_bytes(sentinel_payload)
+    sentinel_path.chmod(0o400)
+    with ExitStack() as observations:
+        root_descriptor = os.open(
+            root_path,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+        )
+        observations.callback(os.close, root_descriptor)
+        root_metadata = os.fstat(root_descriptor)
+        root_mount_id = read_run_action_descriptor_mount_id(root_descriptor)
+        sentinel_metadata = sentinel_path.stat(follow_symlinks=False)
+    sentinel_evidence = RunActionRuntimeVolumeSentinelEvidence.mint(
+        runtime_volume_authority_id=authority.runtime_volume_authority_id,
+        generation_nonce=authority.generation_nonce,
+        relative_path=".kapso-generation",
+        file_type="regular",
+        owner_user_id=sentinel_metadata.st_uid,
+        owner_group_id=sentinel_metadata.st_gid,
+        mode=stat.S_IMODE(sentinel_metadata.st_mode),
+        link_count=sentinel_metadata.st_nlink,
+        size_bytes=sentinel_metadata.st_size,
+        content_digest=volume_module.tree_or_blob_digest(sentinel_payload),
+        mount_id=root_mount_id,
+        device=root_metadata.st_dev,
+        inode=sentinel_metadata.st_ino,
+    )
+    captured_volume = _remint_contract(
+        capture.reobserved_volume_evidence,
+        root_mount_id=root_mount_id,
+        root_device=root_metadata.st_dev,
+        root_inode=root_metadata.st_ino,
+        sentinel_evidence=sentinel_evidence,
+    )
+    exact_capture = _remint_contract(
+        capture,
+        reobserved_volume_evidence=captured_volume,
+        prepared_sentinel_evidence_id=(
+            sentinel_evidence.runtime_volume_sentinel_evidence_id
+        ),
+        mount_id=root_mount_id,
+        device=root_metadata.st_dev,
+    )
+
+    opened_roots = []
+
+    def open_test_volume(descriptors, keeper):
+        root = os.open(
+            root_path,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+        )
+        opened_roots.append(root)
+        descriptors.callback(os.close, root)
+        return volume_module._MountedRuntimeVolumeLease(
+            process_descriptor=root,
+            root_descriptor=root,
+            keeper_container_id=keeper.container_id,
+            keeper_process_id=keeper.process_id,
+            process_start_time_ticks=keeper.process_start_time_ticks,
+            process_cgroup_path=keeper.mounted_helper_evidence.process_cgroup_path,
+            root_mount_id=root_mount_id,
+            root_device=root_metadata.st_dev,
+            root_inode=root_metadata.st_ino,
+        )
+
+    monkeypatch.setattr(
+        volume_module,
+        "_require_result_volume_occurrence",
+        lambda _prepared, _captured: None,
+    )
+    monkeypatch.setattr(
+        volume_module,
+        "_open_mounted_runtime_volume",
+        open_test_volume,
+    )
+    monkeypatch.setattr(
+        volume_module,
+        "_require_same_mounted_runtime_volume",
+        lambda _mounted, _keeper: None,
+    )
+    substituted_sentinel = RunActionRuntimeVolumeSentinelEvidence.mint(
+        runtime_volume_authority_id=authority.runtime_volume_authority_id,
+        generation_nonce=authority.generation_nonce,
+        relative_path=".kapso-generation",
+        file_type="regular",
+        owner_user_id=sentinel_metadata.st_uid,
+        owner_group_id=sentinel_metadata.st_gid,
+        mode=stat.S_IMODE(sentinel_metadata.st_mode),
+        link_count=sentinel_metadata.st_nlink,
+        size_bytes=sentinel_metadata.st_size,
+        content_digest=volume_module.tree_or_blob_digest(sentinel_payload),
+        mount_id=root_mount_id,
+        device=root_metadata.st_dev,
+        inode=sentinel_metadata.st_ino + 1,
+    )
+    substituted_volume = _remint_contract(
+        captured_volume,
+        sentinel_evidence=substituted_sentinel,
+    )
+    substituted_capture = _remint_contract(
+        exact_capture,
+        reobserved_volume_evidence=substituted_volume,
+        prepared_sentinel_evidence_id=(
+            substituted_sentinel.runtime_volume_sentinel_evidence_id
+        ),
+    )
+    with pytest.raises(
+        RunActionRuntimeVolumeError,
+        match="sentinel was substituted",
+    ):
+        volume_module.open_run_action_result_workspace(
+            prepared,
+            substituted_capture,
+        )
+    with pytest.raises(OSError):
+        os.fstat(opened_roots[-1])
+
+    original_require_current = (
+        volume_module.RunActionResultWorkspaceLease.require_current
+    )
+
+    def reject_initial_lease_validation(_lease):
+        raise RuntimeError("injected lease construction race")
+
+    monkeypatch.setattr(
+        volume_module.RunActionResultWorkspaceLease,
+        "require_current",
+        reject_initial_lease_validation,
+    )
+    with pytest.raises(RuntimeError, match="lease construction race"):
+        volume_module.open_run_action_result_workspace(
+            prepared,
+            exact_capture,
+        )
+    with pytest.raises(OSError):
+        os.fstat(opened_roots[-1])
+    monkeypatch.setattr(
+        volume_module.RunActionResultWorkspaceLease,
+        "require_current",
+        original_require_current,
+    )
+
+    lease = volume_module.open_run_action_result_workspace(
+        prepared,
+        exact_capture,
+    )
+    sentinel_path.unlink()
+    sentinel_path.write_bytes(sentinel_payload)
+    sentinel_path.chmod(0o400)
+    with pytest.raises(
+        RunActionRuntimeVolumeError,
+        match="changed during exact observation",
+    ):
+        lease.require_current()
+    lease.close()
 
 
 @pytest.fixture(scope="module")

@@ -995,7 +995,7 @@ def test_published_envelope_rejects_legacy_run_action_lock(
         )
 
 
-def test_published_envelope_requires_empty_action_workspace_staging(
+def test_published_envelope_rejects_unexpected_action_workspace_staging(
     resolver_case,
     tmp_path,
 ):
@@ -1008,7 +1008,35 @@ def test_published_envelope_requires_empty_action_workspace_staging(
     )
     target.mkdir(mode=0o700)
 
-    with pytest.raises(LaunchWorkspaceError, match="staging root is not empty"):
+    with pytest.raises(
+        LaunchWorkspaceError,
+        match="workspace staging entry is unsafe",
+    ):
+        prepared._builder_verifier._verify_outer_run_root_closure(
+            prepared.run_root,
+            layout,
+            prepared._published_root_identity,
+        )
+
+
+def test_published_envelope_rejects_special_action_workspace_staging_entry(
+    resolver_case,
+    tmp_path,
+):
+    prepared = _build(resolver_case, (tmp_path / "run").absolute())
+    layout = prepared.bootstrap_pin.installation_receipt.layout
+    staged_workspace = (
+        prepared.run_root
+        / layout.run_action_workspace_staging_relative_path
+        / "workspace"
+    )
+    staged_workspace.mkdir(mode=0o700)
+    os.mkfifo(staged_workspace / "unsafe")
+
+    with pytest.raises(
+        LaunchWorkspaceError,
+        match="workspace staging entry is unsafe",
+    ):
         prepared._builder_verifier._verify_outer_run_root_closure(
             prepared.run_root,
             layout,

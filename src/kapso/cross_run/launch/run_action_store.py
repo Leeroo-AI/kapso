@@ -51,6 +51,9 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
     issue_runtime_volume_authority,
     run_action_terminal_result_evidence_matches,
 )
+from kapso.cross_run.launch.run_action_workspace_promotion import (
+    RunActionWorkspacePromotion,
+)
 from kapso.cross_run.launch.workspace import ActiveLaunchWorkspace
 from kapso.cross_run.launch.workspace_frontier import RunWorkspaceFrontierIdentity
 from kapso.cross_run.settings import LaunchSettings
@@ -218,6 +221,7 @@ class RunActionResultDecision(StrictContract):
     result_interpreter_identity_id: str
     disposition: RunActionResultDisposition
     accepted_result_blob: RunActionResultBlob
+    workspace_promotion: RunActionWorkspacePromotion | None
 
     CONTENT_NAMESPACE: ClassVar[str] = "run-action-result-decision"
     IDENTITY_FIELD: ClassVar[str] = "result_decision_id"
@@ -236,6 +240,10 @@ class RunActionResultDecision(StrictContract):
         if (
             type(self.disposition) is not RunActionResultDisposition
             or type(self.accepted_result_blob) is not RunActionResultBlob
+            or (
+                self.workspace_promotion is not None
+                and type(self.workspace_promotion) is not RunActionWorkspacePromotion
+            )
         ):
             raise RunActionStoreError("run action result decision is invalid")
 
@@ -849,6 +857,7 @@ class _RunActionExecutionSession:
         result_interpreter_identity: RunActionResultInterpreterIdentity,
         disposition: RunActionResultDisposition,
         accepted_result_payload: bytes,
+        workspace_promotion: RunActionWorkspacePromotion | None,
     ) -> RunActionResultDecision:
         self._require_tail(RunActionExecutionEventKind.RESULT_RECEIVED)
         if (
@@ -862,9 +871,13 @@ class _RunActionExecutionSession:
             raise RunActionStoreError(
                 "run action decision differs from its received result"
             )
-        _require_decision_without_promotion(
+        _require_decision_promotion(
             self.reservation.intent.workspace_access,
             disposition,
+            workspace_promotion,
+            self._events[-1].result_receipt,
+            self._events[2].prepared_execution,
+            self.reservation.frontier.workspace_before,
         )
         accepted_result_blob = RunActionResultBlob(
             digest=tree_or_blob_digest(accepted_result_payload),
@@ -877,6 +890,7 @@ class _RunActionExecutionSession:
             ),
             disposition=disposition,
             accepted_result_blob=accepted_result_blob,
+            workspace_promotion=workspace_promotion,
         )
         event = self._event(
             RunActionExecutionEventKind.RESULT_DECIDED,
@@ -910,6 +924,7 @@ class _RunActionExecutionSession:
         _require_workspace_acceptance(
             self.reservation.intent.workspace_access,
             result_decision.disposition,
+            result_decision.workspace_promotion,
             before,
             after,
         )
@@ -1342,6 +1357,28 @@ class RunActionExecutionStore:
                 else fcntl.LOCK_SH
             ),
         )
+        rebound_store_descriptor, rebound_store_identity = self._open_store(descriptors)
+        current = os.stat(
+            "workspace.lock",
+            dir_fd=rebound_store_descriptor,
+            follow_symlinks=False,
+        )
+        if (
+            rebound_store_identity
+            != (
+                receipt.run_action_store_device,
+                receipt.run_action_store_inode,
+            )
+            or not stat.S_ISREG(current.st_mode)
+            or current.st_uid != metadata.st_uid
+            or current.st_nlink != metadata.st_nlink
+            or current.st_size != metadata.st_size
+            or stat.S_IMODE(current.st_mode) != stat.S_IMODE(metadata.st_mode)
+            or (current.st_dev, current.st_ino) != (metadata.st_dev, metadata.st_ino)
+        ):
+            raise RunActionStoreError(
+                "run action workspace lock detached while acquiring authority"
+            )
         return descriptor
 
     def _open_store(
@@ -2712,9 +2749,13 @@ def _validate_event_prefix(events: tuple[RunActionExecutionEvent, ...]) -> None:
             != interpreter_identity.result_interpreter_identity_id
         ):
             raise RunActionStoreError("run action decision differs from its result")
-        _require_decision_without_promotion(
+        _require_decision_promotion(
             reservation.intent.workspace_access,
             decision.disposition,
+            decision.workspace_promotion,
+            result,
+            events[2].prepared_execution,
+            reservation.frontier.workspace_before,
         )
     if len(events) == 8:
         decision = events[6].result_decision
@@ -2724,6 +2765,7 @@ def _validate_event_prefix(events: tuple[RunActionExecutionEvent, ...]) -> None:
         _require_workspace_acceptance(
             reservation.intent.workspace_access,
             decision.disposition,
+            decision.workspace_promotion,
             reservation.frontier.workspace_before,
             acceptance.workspace_after,
         )
@@ -2756,29 +2798,71 @@ def _validate_event_prefix(events: tuple[RunActionExecutionEvent, ...]) -> None:
             )
 
 
-def _require_decision_without_promotion(
+def _require_decision_promotion(
     access: RunFrontierWorkspaceAccess,
     disposition: RunActionResultDisposition,
+    promotion: RunActionWorkspacePromotion | None,
+    result_receipt: RunActionResultReceipt,
+    prepared_execution: RunActionPreparedExecution,
+    before: _RunActionWorkspaceBinding | None,
 ) -> None:
     if (
         type(access) is not RunFrontierWorkspaceAccess
         or type(disposition) is not RunActionResultDisposition
+        or type(result_receipt) is not RunActionResultReceipt
+        or type(prepared_execution) is not RunActionPreparedExecution
     ):
         raise RunActionStoreError(
             "run action decision lacks exact workspace and result semantics"
         )
-    if (
+    requires_promotion = (
         access is RunFrontierWorkspaceAccess.EDIT_WORKSPACE
         and disposition is RunActionResultDisposition.SUCCEEDED
+    )
+    if requires_promotion != (promotion is not None):
+        raise RunActionStoreError(
+            "run action decision promotion differs from its workspace semantics"
+        )
+    if promotion is None:
+        return
+    workspace_proof = prepared_execution.workspace_proof
+    if (
+        type(promotion) is not RunActionWorkspacePromotion
+        or before is None
+        or workspace_proof is None
+        or workspace_proof.workspace_binding != before
+        or promotion.result_receipt_id != result_receipt.result_receipt_id
+        or promotion.prepared_workspace_proof_id
+        != workspace_proof.prepared_workspace_proof_id
     ):
         raise RunActionStoreError(
-            "successful editing action requires durable workspace promotion"
+            "run action workspace promotion differs from its durable execution"
+        )
+    candidate = promotion.candidate_workspace
+    if (
+        (
+            candidate.workspace_device,
+            candidate.workspace_inode,
+        )
+        == (
+            before.workspace_device,
+            before.workspace_inode,
+        )
+        or candidate.branch != before.branch
+        or candidate.commit_sha == before.commit_sha
+        or candidate.parent_commit_shas != (before.commit_sha,)
+        or candidate.git_tree_sha == before.git_tree_sha
+        or candidate.source_tree_digest == before.source_tree_digest
+    ):
+        raise RunActionStoreError(
+            "run action workspace promotion is not one direct source successor"
         )
 
 
 def _require_workspace_acceptance(
     access: RunFrontierWorkspaceAccess,
     disposition: RunActionResultDisposition,
+    promotion: RunActionWorkspacePromotion | None,
     before: _RunActionWorkspaceBinding | None,
     after: _RunActionWorkspaceBinding | None,
 ) -> None:
@@ -2796,7 +2880,12 @@ def _require_workspace_acceptance(
         raise RunActionStoreError(
             "workspace action acceptance lacks a workspace frontier"
         )
-    _require_decision_without_promotion(access, disposition)
+    if promotion is not None:
+        if after != promotion.candidate_workspace:
+            raise RunActionStoreError(
+                "run action acceptance differs from its promoted workspace"
+            )
+        return
     if after != before:
         raise RunActionStoreError(
             "run action acceptance changed its workspace without promotion"

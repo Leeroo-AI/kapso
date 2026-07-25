@@ -5,6 +5,7 @@ from __future__ import annotations
 import fcntl
 import hashlib
 import os
+import shutil
 from copy import copy
 from contextlib import ExitStack
 from dataclasses import replace
@@ -12,11 +13,14 @@ from dataclasses import replace
 import pytest
 
 import kapso.cross_run.launch.run_action_recovery as run_action_recovery_module
+import kapso.cross_run.launch.run_action_workspace_promotion as promotion_module
 from kapso.cross_run.launch.checkpoint_contracts import (
     RunCheckpointStatus,
     RunCheckpointStop,
 )
 from kapso.cross_run.launch.resume_contracts import (
+    RunBranchAdvance,
+    RunDerivativeFrontier,
     RunEligibilityDisposition,
     RunSafetyBoundary,
 )
@@ -77,13 +81,17 @@ from kapso.cross_run.launch.workspace_frontier import (
     RunWorkspaceFrontierError,
 )
 from test_launch_resolver import resolver_case
-from test_launch_resume_contracts import _security_observation
+from test_launch_resume_contracts import (
+    _remint_evidence,
+    _security_observation,
+)
 from test_run_frontier_action_gate import (
     _action_case,
     _boundary_identity,
     _commit_workspace_edit,
     _reserve_ideation_agent,
     _reserve_implementation_agent,
+    _run_git,
     _successor_at_boundary,
     _StaticSecurityAuthority,
 )
@@ -125,6 +133,71 @@ class _FakeResultInterpreter:
 
 class _ObservationTokenString(str):
     pass
+
+
+class _FakeResultWorkspaceLease:
+    def __init__(self, path) -> None:
+        self._path = path
+        self._descriptor = os.open(
+            path,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+        )
+        self._identity = (
+            os.fstat(self._descriptor).st_dev,
+            os.fstat(self._descriptor).st_ino,
+        )
+        self._closed = False
+
+    @property
+    def workspace_descriptor(self):
+        self.require_current()
+        return self._descriptor
+
+    def require_current(self):
+        if self._closed:
+            raise AssertionError("fake result workspace lease is closed")
+        current = os.stat(self._path, follow_symlinks=False)
+        assert (current.st_dev, current.st_ino) == self._identity
+        assert (
+            os.fstat(self._descriptor).st_dev,
+            os.fstat(self._descriptor).st_ino,
+        ) == self._identity
+
+    def __enter__(self):
+        self.require_current()
+        return self
+
+    def __exit__(self, *_arguments):
+        os.close(self._descriptor)
+        self._closed = True
+
+
+def _isolated_edit_candidate(
+    case,
+    tmp_path,
+    *,
+    candidate_name="isolated-candidate",
+    edit_name="isolated-edit.py",
+):
+    candidate = tmp_path / candidate_name
+    shutil.copytree(case["active"].workspace, candidate)
+    candidate.chmod(0o700)
+    (candidate / edit_name).write_text(
+        "ISOLATED_EDIT = True\n",
+        encoding="utf-8",
+    )
+    _run_git(candidate, "add", "--", edit_name)
+    _run_git(
+        candidate,
+        "-c",
+        "user.name=Kapso Test",
+        "-c",
+        "user.email=kapso-test@example.invalid",
+        "commit",
+        "-m",
+        "Apply isolated edit",
+    )
+    return candidate
 
 
 class _FakeExecutionAdapter:
@@ -809,6 +882,7 @@ def _append_result_decided(gate, reservation) -> bytes:
             ),
             disposition=RunActionResultDisposition.SUCCEEDED,
             accepted_result_payload=b'{"accepted_result":"complete"}',
+            workspace_promotion=None,
         )
     return raw_result
 
@@ -1524,8 +1598,10 @@ def test_failed_edit_recovery_terminates_with_unchanged_workspace(
     )
 
 
-def test_successful_edit_recovery_waits_at_received_result_for_promotion(
+def test_successful_edit_recovery_promotes_isolated_result_workspace(
     publisher_case,
+    tmp_path,
+    monkeypatch,
 ) -> None:
     _publisher, frontier, _security, gate = _action_case(
         publisher_case,
@@ -1538,12 +1614,22 @@ def test_successful_edit_recovery_waits_at_received_result_for_promotion(
         b'{"implementation":"isolated success"}',
     )
     adapter = _FakeExecutionAdapter(reservation.intent.boundary_identity)
+    candidate = _isolated_edit_candidate(publisher_case, tmp_path)
+    monkeypatch.setattr(
+        run_action_recovery_module,
+        "open_run_action_result_workspace",
+        lambda _prepared, _capture: _FakeResultWorkspaceLease(candidate),
+    )
 
-    with pytest.raises(RunActionRecoveryError, match="workspace promotion"):
-        _recovery_coordinator(gate, adapter).recover(frontier)
+    report = _recovery_coordinator(gate, adapter).recover(frontier)
 
-    events = gate._action_store.inspect().events_for(reservation.intent.operation_id)
-    assert events[-1].event_kind is RunActionExecutionEventKind.RESULT_RECEIVED
+    events = report.recovered_operations[-1].events
+    assert report.is_complete
+    assert events[-2].event_kind is RunActionExecutionEventKind.RESULT_DECIDED
+    assert events[-1].event_kind is RunActionExecutionEventKind.RESULT_ACCEPTED
+    promotion = events[-2].result_decision.workspace_promotion
+    assert promotion is not None
+    assert events[-1].acceptance.workspace_after == promotion.candidate_workspace
     assert len(adapter.result_interpreter.interpret_calls) == 2
     with ExitStack() as descriptors:
         workspace_descriptor, _identity = publisher_case[
@@ -1552,9 +1638,418 @@ def test_successful_edit_recovery_waits_at_received_result_for_promotion(
         observed_workspace = inspect_run_workspace_frontier(
             workspace_descriptor,
             settings=publisher_case["settings"],
-            expected_commit_sha=reservation.frontier.workspace_before.commit_sha,
+            expected_commit_sha=promotion.candidate_workspace.commit_sha,
         )
-    assert reservation.frontier.workspace_before.to_identity() == observed_workspace
+    assert promotion.candidate_workspace.to_identity() == observed_workspace
+    staging = (
+        publisher_case["active"].run_root
+        / publisher_case[
+            "active"
+        ].bootstrap_pin.installation_receipt.layout.run_action_workspace_staging_relative_path
+    )
+    assert tuple(staging.iterdir()) == ()
+
+
+def test_durable_edit_decision_recovers_without_provider_or_interpreter(
+    publisher_case,
+    tmp_path,
+    monkeypatch,
+) -> None:
+    _publisher, frontier, _security, gate = _action_case(
+        publisher_case,
+        boundary=RunSafetyBoundary.IMPLEMENTATION,
+    )
+    reservation = _reserve_implementation_agent(
+        gate,
+        frontier,
+        "durable_edit_decision",
+        b'{"implementation":"durable decision"}',
+    )
+    adapter = _AccessGuardedExecutionAdapter(reservation.intent.boundary_identity)
+    guarded_interpreter = _AccessGuardedResultInterpreter(
+        reservation.intent.boundary_identity.result_interpreter_identity
+    )
+    adapter.result_interpreter = guarded_interpreter
+    candidate = _isolated_edit_candidate(publisher_case, tmp_path)
+    monkeypatch.setattr(
+        run_action_recovery_module,
+        "open_run_action_result_workspace",
+        lambda _prepared, _capture: _FakeResultWorkspaceLease(candidate),
+    )
+    original = gate._action_store._publish_result_event
+
+    def publish_decision_then_die(*arguments, **keywords):
+        original(*arguments, **keywords)
+        if keywords["event"].event_kind is RunActionExecutionEventKind.RESULT_DECIDED:
+            raise RuntimeError("injected death after durable edit decision")
+
+    monkeypatch.setattr(
+        gate._action_store,
+        "_publish_result_event",
+        publish_decision_then_die,
+    )
+    coordinator = _recovery_coordinator(gate, adapter)
+    with pytest.raises(RuntimeError, match="durable edit decision"):
+        coordinator.recover(frontier)
+    events = gate._action_store.inspect().events_for(reservation.intent.operation_id)
+    assert events[-1].event_kind is RunActionExecutionEventKind.RESULT_DECIDED
+    assert events[-1].result_decision.workspace_promotion is not None
+    monkeypatch.setattr(
+        gate._action_store,
+        "_publish_result_event",
+        original,
+    )
+    adapter.reject_execution_access = True
+    guarded_interpreter.reject_interpreter_access = True
+
+    report = coordinator.recover(frontier)
+
+    assert report.is_complete
+    assert report.recovered_operations[-1].events[-1].event_kind is (
+        RunActionExecutionEventKind.RESULT_ACCEPTED
+    )
+
+
+def test_exchanged_edit_decision_recovers_before_event_8_without_stale_inspection(
+    publisher_case,
+    tmp_path,
+    monkeypatch,
+) -> None:
+    _publisher, frontier, _security, gate = _action_case(
+        publisher_case,
+        boundary=RunSafetyBoundary.IMPLEMENTATION,
+    )
+    reservation = _reserve_implementation_agent(
+        gate,
+        frontier,
+        "exchanged_edit_decision",
+        b'{"implementation":"exchange then restart"}',
+    )
+    adapter = _AccessGuardedExecutionAdapter(reservation.intent.boundary_identity)
+    guarded_interpreter = _AccessGuardedResultInterpreter(
+        reservation.intent.boundary_identity.result_interpreter_identity
+    )
+    adapter.result_interpreter = guarded_interpreter
+    candidate = _isolated_edit_candidate(publisher_case, tmp_path)
+    monkeypatch.setattr(
+        run_action_recovery_module,
+        "open_run_action_result_workspace",
+        lambda _prepared, _capture: _FakeResultWorkspaceLease(candidate),
+    )
+    coordinator = _recovery_coordinator(gate, adapter)
+    original_promote = coordinator._workspace_promoter._promote_decided
+
+    def promote_then_die(**arguments):
+        promoted = original_promote(**arguments)
+        assert promoted.commit_sha != reservation.frontier.workspace_before.commit_sha
+        raise RuntimeError("injected death after workspace exchange")
+
+    monkeypatch.setattr(
+        coordinator._workspace_promoter,
+        "_promote_decided",
+        promote_then_die,
+    )
+    with pytest.raises(RuntimeError, match="after workspace exchange"):
+        coordinator.recover(frontier)
+    events = gate._action_store.inspect().events_for(reservation.intent.operation_id)
+    promotion = events[-1].result_decision.workspace_promotion
+    assert events[-1].event_kind is RunActionExecutionEventKind.RESULT_DECIDED
+    assert promotion is not None
+
+    restarted = _recovery_coordinator(gate, adapter)
+    adapter.reject_execution_access = True
+    guarded_interpreter.reject_interpreter_access = True
+    report = restarted.recover(frontier)
+
+    assert report.is_complete
+    terminal_events = report.recovered_operations[-1].events
+    assert terminal_events[-1].event_kind is (
+        RunActionExecutionEventKind.RESULT_ACCEPTED
+    )
+    assert terminal_events[-1].acceptance.workspace_after == (
+        promotion.candidate_workspace
+    )
+
+
+def test_accepted_edit_cleanup_retries_from_durable_event_8(
+    publisher_case,
+    tmp_path,
+    monkeypatch,
+) -> None:
+    _publisher, frontier, _security, gate = _action_case(
+        publisher_case,
+        boundary=RunSafetyBoundary.IMPLEMENTATION,
+    )
+    reservation = _reserve_implementation_agent(
+        gate,
+        frontier,
+        "accepted_cleanup_retry",
+        b'{"implementation":"cleanup retry"}',
+    )
+    adapter = _FakeExecutionAdapter(reservation.intent.boundary_identity)
+    candidate = _isolated_edit_candidate(publisher_case, tmp_path)
+    monkeypatch.setattr(
+        run_action_recovery_module,
+        "open_run_action_result_workspace",
+        lambda _prepared, _capture: _FakeResultWorkspaceLease(candidate),
+    )
+    original_unlink = promotion_module.os.unlink
+    removed_entries = 0
+
+    def unlink_then_die(name, *, dir_fd):
+        nonlocal removed_entries
+        original_unlink(name, dir_fd=dir_fd)
+        removed_entries += 1
+        if removed_entries == 1:
+            raise RuntimeError("injected death after durable event 8")
+
+    coordinator = _recovery_coordinator(gate, adapter)
+    original_cleanup = coordinator._workspace_promoter._cleanup_accepted
+
+    def cleanup_with_crash(**arguments):
+        monkeypatch.setattr(
+            promotion_module.os,
+            "unlink",
+            unlink_then_die,
+        )
+        return original_cleanup(**arguments)
+
+    monkeypatch.setattr(
+        coordinator._workspace_promoter,
+        "_cleanup_accepted",
+        cleanup_with_crash,
+    )
+    with pytest.raises(RuntimeError, match="durable event 8"):
+        coordinator.recover(frontier)
+    events = gate._action_store.inspect().events_for(reservation.intent.operation_id)
+    assert events[-1].event_kind is RunActionExecutionEventKind.RESULT_ACCEPTED
+    monkeypatch.setattr(promotion_module.os, "unlink", original_unlink)
+    monkeypatch.setattr(
+        coordinator._workspace_promoter,
+        "_cleanup_accepted",
+        original_cleanup,
+    )
+
+    report = coordinator.recover(frontier)
+
+    assert report.is_complete
+    staging = (
+        publisher_case["active"].run_root
+        / publisher_case[
+            "active"
+        ].bootstrap_pin.installation_receipt.layout.run_action_workspace_staging_relative_path
+    )
+    assert tuple(staging.iterdir()) == ()
+
+
+def test_projected_event_8_cleanup_precedes_new_pending_edit_after_restart(
+    resolver_case,
+    publisher_case,
+    tmp_path,
+    monkeypatch,
+) -> None:
+    publisher, frontier, _security, gate = _action_case(
+        publisher_case,
+        boundary=RunSafetyBoundary.IMPLEMENTATION,
+    )
+    reservation = _reserve_implementation_agent(
+        gate,
+        frontier,
+        "projected_cleanup_restart",
+        b'{"implementation":"projected cleanup"}',
+    )
+    adapter = _FakeExecutionAdapter(reservation.intent.boundary_identity)
+    candidate = _isolated_edit_candidate(publisher_case, tmp_path)
+    monkeypatch.setattr(
+        run_action_recovery_module,
+        "open_run_action_result_workspace",
+        lambda _prepared, _capture: _FakeResultWorkspaceLease(candidate),
+    )
+    coordinator = _recovery_coordinator(gate, adapter)
+
+    def stop_before_cleanup(**_arguments):
+        raise RuntimeError("injected death before accepted cleanup")
+
+    original_cleanup = coordinator._workspace_promoter._cleanup_accepted
+    monkeypatch.setattr(
+        coordinator._workspace_promoter,
+        "_cleanup_accepted",
+        stop_before_cleanup,
+    )
+    with pytest.raises(RuntimeError, match="before accepted cleanup"):
+        coordinator.recover(frontier)
+    monkeypatch.setattr(
+        coordinator._workspace_promoter,
+        "_cleanup_accepted",
+        original_cleanup,
+    )
+    events = gate._action_store.inspect().events_for(reservation.intent.operation_id)
+    promotion = events[-2].result_decision.workspace_promotion
+    current_evidence = frontier.checkpoint.safety_state.derivative_frontier.evidence
+    branch = publisher_case["settings"].workspace_git_branch
+    prior_advances = tuple(
+        advance
+        for advance in current_evidence.branch_advances
+        if (
+            advance.branch == branch
+            and advance.commit_sha == reservation.frontier.workspace_before.commit_sha
+        )
+    )
+    predecessor_advance_id = (
+        None
+        if current_evidence.branch_origin_heads[branch]
+        == reservation.frontier.workspace_before.commit_sha
+        else prior_advances[0].branch_advance_id
+    )
+    branch_advance = RunBranchAdvance.build(
+        branch=branch,
+        predecessor_commit_sha=reservation.frontier.workspace_before.commit_sha,
+        commit_sha=promotion.candidate_workspace.commit_sha,
+        predecessor_branch_advance_id=predecessor_advance_id,
+        authorization_safety_state_id=(
+            frontier.checkpoint.safety_state.safety_state_id
+        ),
+    )
+    advanced_evidence = _remint_evidence(
+        current_evidence,
+        branch_heads={
+            **current_evidence.branch_heads,
+            branch: promotion.candidate_workspace.commit_sha,
+        },
+        branch_advances=(
+            *current_evidence.branch_advances,
+            branch_advance,
+        ),
+    )
+    advanced_frontier = RunDerivativeFrontier.build(
+        launch_subject_ids=(
+            frontier.checkpoint.safety_state.derivative_frontier.launch_subject_ids
+        ),
+        evidence=advanced_evidence,
+        derivatives=(frontier.checkpoint.safety_state.derivative_frontier.derivatives),
+    )
+    successor_bundle, successor_checkpoint = _successor_at_boundary(
+        publisher_case,
+        publisher,
+        frontier,
+        RunSafetyBoundary.IMPLEMENTATION,
+        derivative_frontier=advanced_frontier,
+    )
+    published = publisher.publish(
+        publisher.issue_publication_permit(
+            frontier,
+            successor_checkpoint,
+            successor_bundle,
+        ),
+        successor_checkpoint,
+        successor_bundle,
+    )
+    run_root = publisher_case["active"].run_root
+    publisher_case["active"].close()
+
+    settings = resolver_case["resolver"]._settings
+    active = StarterWorkspaceBuilder(settings).reopen(run_root)
+    reopened_publisher = RunStatePublisher(active, settings.launch)
+    reopened_frontier = reopened_publisher.load_reconciled()
+    assert reopened_frontier.run_checkpoint_id == published.run_checkpoint_id
+    security = _StaticSecurityAuthority(
+        reopened_frontier.checkpoint.safety_state.security_observation
+    )
+    reopened_gate = RunFrontierActionGate(
+        active_workspace=active,
+        publisher=reopened_publisher,
+        security_authority=security,
+    )
+    publisher_case["active"] = active
+    pending = _reserve_implementation_agent(
+        reopened_gate,
+        reopened_frontier,
+        "pending_after_projected_cleanup",
+        b'{"implementation":"edit after projected cleanup"}',
+    )
+    next_candidate = _isolated_edit_candidate(
+        publisher_case,
+        tmp_path,
+        candidate_name="next-isolated-candidate",
+        edit_name="next-isolated-edit.py",
+    )
+    monkeypatch.setattr(
+        run_action_recovery_module,
+        "open_run_action_result_workspace",
+        lambda _prepared, _capture: _FakeResultWorkspaceLease(next_candidate),
+    )
+    reopened_adapter = _AccessGuardedExecutionAdapter(pending.intent.boundary_identity)
+    guarded_interpreter = _AccessGuardedResultInterpreter(
+        pending.intent.boundary_identity.result_interpreter_identity
+    )
+    reopened_adapter.result_interpreter = guarded_interpreter
+    reopened_coordinator = _recovery_coordinator(
+        reopened_gate,
+        reopened_adapter,
+    )
+    original_publish = reopened_gate._action_store._publish_result_event
+
+    def publish_second_decision_then_die(*arguments, **keywords):
+        original_publish(*arguments, **keywords)
+        if keywords["event"].event_kind is RunActionExecutionEventKind.RESULT_DECIDED:
+            raise RuntimeError("injected death after second durable edit decision")
+
+    monkeypatch.setattr(
+        reopened_gate._action_store,
+        "_publish_result_event",
+        publish_second_decision_then_die,
+    )
+    with pytest.raises(RuntimeError, match="second durable edit decision"):
+        reopened_coordinator.recover(reopened_frontier)
+    second_events = reopened_gate._action_store.inspect().events_for(
+        pending.intent.operation_id
+    )
+    assert second_events[-1].event_kind is RunActionExecutionEventKind.RESULT_DECIDED
+    assert second_events[-1].result_decision.workspace_promotion is not None
+    monkeypatch.setattr(
+        reopened_gate._action_store,
+        "_publish_result_event",
+        original_publish,
+    )
+    restarted_coordinator = _recovery_coordinator(
+        reopened_gate,
+        reopened_adapter,
+    )
+    prior_cleanup_calls = 0
+
+    def reject_prior_cleanup(**_arguments):
+        nonlocal prior_cleanup_calls
+        prior_cleanup_calls += 1
+        raise AssertionError("durable event 7 was mistaken for prior cleanup residue")
+
+    monkeypatch.setattr(
+        restarted_coordinator._workspace_promoter,
+        "_cleanup_accepted_if_owned",
+        reject_prior_cleanup,
+    )
+    reopened_adapter.reject_execution_access = True
+    guarded_interpreter.reject_interpreter_access = True
+
+    report = restarted_coordinator.recover(reopened_frontier)
+    assert report.is_complete
+    terminal_events = report.recovered_operations[-1].events
+    assert terminal_events[0].reservation.intent.operation_id == (
+        pending.intent.operation_id
+    )
+    assert terminal_events[-1].event_kind is (
+        RunActionExecutionEventKind.RESULT_ACCEPTED
+    )
+    assert terminal_events[-2].result_decision.workspace_promotion is not None
+    assert len(reopened_adapter.prepare_calls) == 1
+    assert len(reopened_adapter.continuation_calls) == 1
+    assert len(guarded_interpreter.interpret_calls) == 2
+    assert prior_cleanup_calls == 0
+    staging = (
+        active.run_root
+        / active.bootstrap_pin.installation_receipt.layout.run_action_workspace_staging_relative_path
+    )
+    assert tuple(staging.iterdir()) == ()
+    active.close()
 
 
 @pytest.mark.parametrize(

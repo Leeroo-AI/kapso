@@ -761,19 +761,10 @@ class RunStatePublisher:
         if workspace_before is None:
             return
         branch = self._settings.workspace_git_branch
-        with ExitStack() as descriptors:
-            _workspace_descriptor, workspace_identity = (
-                self._authority._open_execution_workspace(descriptors)
-            )
         if (
             workspace_before.branch != branch
             or workspace_before.commit_sha
             != safety.derivative_frontier.evidence.branch_heads.get(branch)
-            or (
-                workspace_before.workspace_device,
-                workspace_before.workspace_inode,
-            )
-            != workspace_identity
         ):
             raise RunStatePublisherError(
                 "run action workspace binding differs from the current frontier"

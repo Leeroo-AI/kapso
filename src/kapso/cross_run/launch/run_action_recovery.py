@@ -34,6 +34,9 @@ from kapso.cross_run.launch.run_action_reservation_contracts import (
     RunActionViewBinding,
     RunActionWorkspaceBinding,
 )
+from kapso.cross_run.launch.run_action_runtime_volume import (
+    open_run_action_result_workspace,
+)
 from kapso.cross_run.launch.run_action_spawn_contracts import RunActionSpawnCommit
 from kapso.cross_run.launch.run_action_store import (
     _RUN_ACTION_RECOVERY_AUTHORITY,
@@ -53,6 +56,11 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RunActionResultCaptureReceipt,
     RunActionTerminalObservation,
     run_action_terminal_result_evidence_matches,
+)
+from kapso.cross_run.launch.run_action_workspace_promotion import (
+    _RUN_ACTION_WORKSPACE_PROMOTION_AUTHORITY,
+    RunActionWorkspacePromotion,
+    RunActionWorkspacePromoter,
 )
 from kapso.cross_run.launch.run_state_publisher import (
     ReconciledRunFrontier,
@@ -1311,6 +1319,10 @@ class RunActionRecoveryCoordinator:
         self._active_workspace = active_workspace
         self._publisher = publisher
         self._store = publisher._action_store
+        self._workspace_promoter = RunActionWorkspacePromoter(
+            active_workspace=active_workspace,
+            settings=publisher._settings,
+        )
         self._security_authority = security_authority
         implementation_registry._require_owner_process()
         self._implementation_registry = implementation_registry
@@ -1342,12 +1354,28 @@ class RunActionRecoveryCoordinator:
         self._implementation_registry._require_owner_process()
         with ExitStack() as descriptors:
             self._publisher._hold_current(frontier, descriptors)
-            self._store.lock_workspace(
+            workspace_lock_descriptor = self._store.lock_workspace(
                 RunFrontierWorkspaceAccess.EDIT_WORKSPACE,
                 descriptors,
             )
             inspection = self._store.inspect()
             plan = self._plan(frontier, inspection)
+            pending_events = (
+                ()
+                if plan.pending_operation_id is None
+                else inspection.events_for(plan.pending_operation_id)
+            )
+            pending_owns_durable_stage = (
+                bool(pending_events)
+                and pending_events[-1].event_kind
+                is RunActionExecutionEventKind.RESULT_DECIDED
+                and pending_events[-1].result_decision.workspace_promotion is not None
+            )
+            if not pending_owns_durable_stage:
+                self._cleanup_latest_accepted_promotion(
+                    workspace_lock_descriptor,
+                    only_if_owned=True,
+                )
             if plan.pending_operation_id is not None:
                 events = inspection.events_for(plan.pending_operation_id)
                 with self._store._recovery_session(
@@ -1362,7 +1390,11 @@ class RunActionRecoveryCoordinator:
                         frontier,
                         session,
                         descriptors,
+                        workspace_lock_descriptor,
                     )
+            self._cleanup_latest_accepted_promotion(
+                workspace_lock_descriptor,
+            )
             return self._report(frontier)
 
     def _recover_session(
@@ -1370,6 +1402,7 @@ class RunActionRecoveryCoordinator:
         frontier: ReconciledRunFrontier,
         session,
         descriptors: ExitStack,
+        workspace_lock_descriptor: int,
     ) -> None:
         reservation = session.reservation
         self._require_reservation_frontier(frontier, reservation)
@@ -1559,6 +1592,7 @@ class RunActionRecoveryCoordinator:
                 confirmed_descriptor,
                 frontier,
                 descriptors,
+                workspace_lock_descriptor,
             )
             return
         if tail_kind is RunActionExecutionEventKind.SPAWN_COMMITTED:
@@ -1599,6 +1633,7 @@ class RunActionRecoveryCoordinator:
                     workspace_descriptor,
                     frontier,
                     descriptors,
+                    workspace_lock_descriptor,
                 )
             return
         if tail_kind is RunActionExecutionEventKind.ACTIVATION_COMMITTED:
@@ -1611,18 +1646,21 @@ class RunActionRecoveryCoordinator:
                 execution_adapter,
                 frontier,
                 descriptors,
+                workspace_lock_descriptor,
             )
             return
         if tail_kind is RunActionExecutionEventKind.RESULT_RECEIVED:
             self._interpret_received(
                 session,
                 descriptors,
+                workspace_lock_descriptor,
             )
             return
         if tail_kind is RunActionExecutionEventKind.RESULT_DECIDED:
             self._accept_decided(
                 session,
                 descriptors,
+                workspace_lock_descriptor,
             )
             return
         raise RunActionRecoveryError(
@@ -1638,6 +1676,7 @@ class RunActionRecoveryCoordinator:
         workspace_descriptor: int | None,
         frontier: ReconciledRunFrontier,
         descriptors: ExitStack,
+        workspace_lock_descriptor: int,
     ) -> RunActionAcceptance | None:
         predecessor_event_id = session.events[-1].event_id
         activation_event_size_bound = execution_adapter.activation_event_size_bound(
@@ -1695,6 +1734,7 @@ class RunActionRecoveryCoordinator:
             execution_adapter,
             frontier,
             descriptors,
+            workspace_lock_descriptor,
         )
 
     def _recover_committed(
@@ -1703,6 +1743,7 @@ class RunActionRecoveryCoordinator:
         execution_adapter: RunActionExecutionAdapter,
         frontier: ReconciledRunFrontier,
         descriptors: ExitStack,
+        workspace_lock_descriptor: int,
     ) -> RunActionAcceptance | None:
         activation_event = session.events[-1]
         if (
@@ -1759,6 +1800,7 @@ class RunActionRecoveryCoordinator:
                 session,
                 outcome.result,
                 descriptors,
+                workspace_lock_descriptor,
             )
         session.interrupt(
             reason=RunActionTerminalReason.PROVIDER_INTERRUPTED,
@@ -1822,6 +1864,7 @@ class RunActionRecoveryCoordinator:
         session,
         result: RunActionProviderResult,
         descriptors: ExitStack,
+        workspace_lock_descriptor: int,
     ) -> RunActionAcceptance:
         if type(result) is not RunActionProviderResult:
             raise RunActionRecoveryError(
@@ -1843,12 +1886,17 @@ class RunActionRecoveryCoordinator:
             result_capture_receipt=result.result_capture_receipt,
             result_payload=result.result_payload,
         )
-        return self._interpret_received(session, descriptors)
+        return self._interpret_received(
+            session,
+            descriptors,
+            workspace_lock_descriptor,
+        )
 
     def _interpret_received(
         self,
         session,
         descriptors: ExitStack,
+        workspace_lock_descriptor: int,
     ) -> RunActionAcceptance:
         reservation = session.reservation
         result_receipt = session.events[-1].result_receipt
@@ -1877,14 +1925,11 @@ class RunActionRecoveryCoordinator:
             raise RunActionRecoveryError(
                 "run action result interpretation is invalid or nondeterministic"
             )
-        if (
+        successful_edit = (
             reservation.intent.workspace_access
             is RunFrontierWorkspaceAccess.EDIT_WORKSPACE
             and interpreted.disposition is RunActionResultDisposition.SUCCEEDED
-        ):
-            raise RunActionRecoveryError(
-                "successful editing action requires durable workspace promotion"
-            )
+        )
         _descriptor, confirmed_workspace = self._inspect_workspace(
             reservation,
             descriptors,
@@ -1893,44 +1938,121 @@ class RunActionRecoveryCoordinator:
             raise RunActionRecoveryError(
                 "workspace changed during run action result interpretation"
             )
+        workspace_promotion = None
+        if successful_edit:
+            prepared_execution = session.events[2].prepared_execution
+            with open_run_action_result_workspace(
+                prepared_execution,
+                result_receipt.result_capture_receipt,
+            ) as candidate:
+                workspace_promotion = self._workspace_promoter.stage(
+                    result_receipt_id=result_receipt.result_receipt_id,
+                    prepared_workspace_proof_id=(
+                        prepared_execution.workspace_proof.prepared_workspace_proof_id
+                    ),
+                    predecessor=reservation.frontier.workspace_before,
+                    candidate_descriptor=candidate.workspace_descriptor,
+                    workspace_lock_descriptor=workspace_lock_descriptor,
+                    _authority=_RUN_ACTION_WORKSPACE_PROMOTION_AUTHORITY,
+                )
+                candidate.require_current()
         session.decide_result(
             result_interpreter_identity=interpreter.result_interpreter_identity,
             disposition=interpreted.disposition,
             accepted_result_payload=interpreted.accepted_result_payload,
+            workspace_promotion=workspace_promotion,
         )
-        return self._accept_decided(session, descriptors)
+        return self._accept_decided(
+            session,
+            descriptors,
+            workspace_lock_descriptor,
+        )
 
     def _accept_decided(
         self,
         session,
         descriptors: ExitStack,
+        workspace_lock_descriptor: int,
     ) -> RunActionAcceptance:
         reservation = session.reservation
-        _descriptor, confirmed_workspace = self._inspect_workspace(
-            reservation,
-            descriptors,
-        )
+        decision = session.events[-1].result_decision
         before = reservation.frontier.workspace_before
-        if (
-            None
-            if confirmed_workspace is None
-            else RunActionWorkspaceBinding.from_identity(confirmed_workspace)
-        ) != before:
-            raise RunActionRecoveryError(
-                "workspace changed before durable run action acceptance"
+        promotion = decision.workspace_promotion
+        if promotion is None:
+            _descriptor, confirmed_workspace = self._inspect_workspace(
+                reservation,
+                descriptors,
+            )
+            if (
+                None
+                if confirmed_workspace is None
+                else RunActionWorkspaceBinding.from_identity(confirmed_workspace)
+            ) != before:
+                raise RunActionRecoveryError(
+                    "workspace changed before durable run action acceptance"
+                )
+            workspace_after = confirmed_workspace
+        else:
+            prepared_execution = session.events[2].prepared_execution
+            result_receipt = session.events[5].result_receipt
+            workspace_after = self._workspace_promoter._promote_decided(
+                predecessor=before,
+                promotion=promotion,
+                result_receipt_id=result_receipt.result_receipt_id,
+                prepared_workspace_proof_id=(
+                    prepared_execution.workspace_proof.prepared_workspace_proof_id
+                ),
+                workspace_lock_descriptor=workspace_lock_descriptor,
+                _authority=_RUN_ACTION_WORKSPACE_PROMOTION_AUTHORITY,
             )
         durable_acceptance = session.accept_decision(
-            workspace_after=confirmed_workspace,
+            workspace_after=workspace_after,
         )
-        _descriptor, terminal_workspace = self._inspect_workspace(
-            reservation,
+        terminal_workspace = self._inspect_workspace_binding(
+            durable_acceptance.workspace_after,
             descriptors,
         )
-        if terminal_workspace != confirmed_workspace:
+        if terminal_workspace != workspace_after:
             raise RunActionRecoveryError(
                 "workspace changed after durable run action acceptance"
             )
         return durable_acceptance
+
+    def _cleanup_latest_accepted_promotion(
+        self,
+        workspace_lock_descriptor: int,
+        *,
+        only_if_owned: bool = False,
+    ) -> None:
+        inspection = self._store.inspect()
+        ordered = inspection.operations_since(RunActionLedgerSnapshot.empty())
+        accepted_promotions = tuple(
+            events
+            for events in ordered
+            if (
+                len(events) == 8
+                and events[-1].event_kind is RunActionExecutionEventKind.RESULT_ACCEPTED
+                and events[-2].result_decision.workspace_promotion is not None
+            )
+        )
+        if not accepted_promotions:
+            return
+        events = accepted_promotions[-1]
+        promotion = events[-2].result_decision.workspace_promotion
+        arguments = {
+            "predecessor": events[0].reservation.frontier.workspace_before,
+            "promotion": promotion,
+            "result_receipt_id": events[5].result_receipt.result_receipt_id,
+            "prepared_workspace_proof_id": (
+                events[2].prepared_execution.workspace_proof.prepared_workspace_proof_id
+            ),
+            "workspace_lock_descriptor": workspace_lock_descriptor,
+            "_authority": _RUN_ACTION_WORKSPACE_PROMOTION_AUTHORITY,
+        }
+        if only_if_owned:
+            self._workspace_promoter._cleanup_accepted_if_owned(**arguments)
+        else:
+            self._workspace_promoter._cleanup_accepted(**arguments)
 
     def _inspect_workspace(
         self,
@@ -1950,6 +2072,34 @@ class RunActionRecoveryCoordinator:
             expected_commit_sha=before.commit_sha,
         )
         return descriptor, observed
+
+    def _inspect_workspace_binding(
+        self,
+        binding: RunActionWorkspaceBinding | None,
+        descriptors: ExitStack,
+    ) -> RunWorkspaceFrontierIdentity | None:
+        if binding is None:
+            return None
+        descriptor, identity = self._active_workspace._open_execution_workspace(
+            descriptors
+        )
+        observed = inspect_run_workspace_frontier(
+            descriptor,
+            settings=self._publisher._settings,
+            expected_commit_sha=binding.commit_sha,
+        )
+        if (
+            identity
+            != (
+                binding.workspace_device,
+                binding.workspace_inode,
+            )
+            or observed != binding.to_identity()
+        ):
+            raise RunActionRecoveryError(
+                "public workspace differs from its accepted binding"
+            )
+        return observed
 
     def _inspect_pre_spawn_workspace(
         self,

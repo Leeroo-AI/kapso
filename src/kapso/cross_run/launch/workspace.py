@@ -75,6 +75,9 @@ _RUN_ACTION_INPUT_PATTERN = re.compile(r"^input-[0-9a-f]{64}[.]blob$")
 _RUN_ACTION_STAGING_PATTERN = re.compile(
     r"^[.](?:accepted|event|input|result)-[0-9a-f]{32}[.]tmp$"
 )
+_RUN_ACTION_WORKSPACE_STAGING_PATTERN = re.compile(
+    r"^(?:workspace|[.]workspace-[0-9a-f]{32}[.]tmp)$"
+)
 
 
 class _WorkspaceBuilderAuthority:
@@ -2931,6 +2934,9 @@ class StarterWorkspaceBuilder:
         action_workspace_staging = PurePosixPath(
             layout.run_action_workspace_staging_relative_path
         )
+        action_workspace_staging_metadata = (
+            run_root / action_workspace_staging.as_posix()
+        ).stat(follow_symlinks=False)
         control_directories = {
             parent
             for control_file in (
@@ -2963,6 +2969,10 @@ class StarterWorkspaceBuilder:
         action_store_entry_count = 0
         action_store_operation_digests = set()
         action_store_size_bytes = 0
+        action_workspace_staging_roots = set()
+        action_workspace_staging_inodes = set()
+        action_workspace_staging_entry_count = 0
+        action_workspace_staging_size_bytes = 0
         for path in run_root.rglob("*"):
             relative_path = PurePosixPath(path.relative_to(run_root).as_posix())
             if path.is_symlink():
@@ -3117,9 +3127,46 @@ class StarterWorkspaceBuilder:
                     )
                 continue
             if action_workspace_staging in relative_path.parents:
-                raise LaunchWorkspaceError(
-                    "published run action workspace staging root is not empty"
+                staged_relative_path = relative_path.relative_to(
+                    action_workspace_staging
                 )
+                staged_root = staged_relative_path.parts[0]
+                action_workspace_staging_roots.add(staged_root)
+                action_workspace_staging_entry_count += 1
+                inode_identity = (metadata.st_dev, metadata.st_ino)
+                if (
+                    _RUN_ACTION_WORKSPACE_STAGING_PATTERN.fullmatch(staged_root) is None
+                    or metadata.st_dev != action_workspace_staging_metadata.st_dev
+                    or metadata.st_uid != os.geteuid()
+                    or inode_identity in action_workspace_staging_inodes
+                    or metadata.st_mode & (stat.S_ISUID | stat.S_ISGID)
+                    or (
+                        stat.S_ISDIR(metadata.st_mode)
+                        and stat.S_IMODE(metadata.st_mode) != 0o700
+                    )
+                    or (
+                        stat.S_ISREG(metadata.st_mode)
+                        and (
+                            metadata.st_nlink != 1
+                            or stat.S_IMODE(metadata.st_mode)
+                            not in {0o400, 0o444, 0o600, 0o644, 0o700, 0o755}
+                        )
+                    )
+                    or not (
+                        stat.S_ISDIR(metadata.st_mode) or stat.S_ISREG(metadata.st_mode)
+                    )
+                    or (
+                        len(staged_relative_path.parts) == 1
+                        and not stat.S_ISDIR(metadata.st_mode)
+                    )
+                ):
+                    raise LaunchWorkspaceError(
+                        "published run action workspace staging entry is unsafe"
+                    )
+                action_workspace_staging_inodes.add(inode_identity)
+                if stat.S_ISREG(metadata.st_mode):
+                    action_workspace_staging_size_bytes += metadata.st_size
+                continue
             if action_store in relative_path.parents:
                 action_store_entry_count += 1
                 is_fixed_lock = relative_path.name in {
@@ -3238,6 +3285,24 @@ class StarterWorkspaceBuilder:
         ):
             raise LaunchWorkspaceError(
                 "published run action store exceeds its configured bounds"
+            )
+        if (
+            len(action_workspace_staging_roots)
+            > self._settings.launch.run_action_staging_entry_limit
+            or action_workspace_staging_entry_count
+            > (
+                self._settings.launch.run_workspace_entry_limit
+                + self._settings.launch.run_workspace_git_entry_limit
+                + self._settings.launch.run_action_staging_entry_limit
+            )
+            or action_workspace_staging_size_bytes
+            > (
+                self._settings.launch.run_workspace_size_bytes
+                + self._settings.launch.run_workspace_git_metadata_size_bytes
+            )
+        ):
+            raise LaunchWorkspaceError(
+                "published run action workspace staging exceeds its configured bounds"
             )
         if (
             not observed_checkpoint_journal

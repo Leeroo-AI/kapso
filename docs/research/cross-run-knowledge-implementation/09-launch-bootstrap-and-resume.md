@@ -371,12 +371,37 @@ in-place file transaction. The public workspace pathname is stable, but its leaf
 inode is dynamic; its ancestors, the run root, the workspace lock, and a private
 same-filesystem promotion-staging root remain receipt-pinned. Before event 7, the
 coordinator copies and fully reconciles the isolated result into that staging
-root without changing the public workspace. Event 7 binds the staged clean direct
-successor. Recovery then admits exactly `(public=predecessor, stage=successor)` or
+root without changing the public workspace. The source is a process-bound
+descriptor lease reopened directly from event 3's prepared keeper/volume/workspace
+proof and event 6's terminal result-capture volume and generation-sentinel
+evidence. The lease retains and re-proves the keeper process, mounted root,
+sentinel pathname/content/inode, and workspace pathname/inode; neither the
+execution adapter nor the result interpreter receives promotion authority. Event
+7 requires the promotion exactly for a successful edit and binds its result
+receipt, prepared-workspace proof, and staged clean direct successor. Recovery
+then admits exactly `(public=predecessor, stage=successor)` or
 `(public=successor, stage=predecessor)` and performs at most one atomic
-`RENAME_EXCHANGE`. Event 8 follows only after both parents are fsynced and the
-public successor is fully re-inspected. No per-path write-ahead log or mutable
-selector exists.
+`RENAME_EXCHANGE`. Event 8 accepts exactly that candidate only after both parents
+are fsynced and the public successor is fully re-inspected.
+
+The retired predecessor remains in staging until event 8 is durable. Cleanup is
+bounded, descriptor-relative, mount-ID confined, identity-reproved, and
+idempotent; recovery retries partial cleanup and also reconciles the latest
+accepted promotion when event 8 is already included in the checkpoint projection.
+Ledger ownership is checked first: a newer durable event-7 stage is never treated
+as older cleanup residue, while pre-event-7 staging can be discarded and derived
+again from event 3/event 6. Before event 7, an interrupted temporary tree is
+validated and removed, while a fully renamed candidate is reproved and reused. No
+per-path write-ahead log or mutable selector exists.
+
+This protocol assumes a local filesystem that implements crash-atomic,
+same-filesystem `renameat2(RENAME_EXCHANGE)` and persists the exchange after both
+parent directories are fsynced. Production activation therefore requires a
+destructive VM/filesystem power-loss test, not only injected process exits. The
+receipt-pinned workspace flock is the cooperating-process exclusion boundary:
+the lock pathname and both exchange-parent paths are rebound immediately before
+mutation, while a hostile unrestricted same-UID process that ignores the lock is
+outside the runtime trust boundary and must be excluded by the provider sandbox.
 
 A live authenticated denylist descendant must equal the observation already
 checkpointed in the safety state; any advance requires a durable safety-state
