@@ -196,6 +196,41 @@ Runs reviewed:
    judge tag-retry nudge ran with empty context and correctly failed safe
    (evaluation_valid=False) — the retry wiring deserves its own look.
 
+## R7 — clean re-run under anti-cheat + ioai config: user-attendance (2026-07-24/25, COMPLETED)
+
+10 iterations, ioai-2025 config (effort max, opus selector, web-on lens
+planner, 4h full cap), fresh CLAUDE_CODE_OAUTH_TOKEN, anti-cheat INTEGRITY
+rule live, shared cache wiped of tainted artifacts. Official: **selected
+run_0005, val 0.231992 → TEST 0.256895 (NMAE 0.3362)**, $168.22 ledger,
+exit 0. Below best-known; WORSE than R6's official 0.2385 — the val-overfit
+inversion decided the run.
+
+Machinery: FLAWLESS — 11 archives / 10 iterations, ZERO scoreless sessions
+(bash-clock + teardown-guard fixes fully validated), zero fable/codex
+failures, lens planner ran once. Anti-cheat verified live: the regenerated
+lens plan cited only general methodology (intermittent-demand forecasting)
+— no Kaggle writeups (the tainted run's plan had web-mined the exact
+published solution of the competition rel-event derives from).
+
+Search story: iterations 1-3 plateaued at val 0.234973 with the agents'
+own diagnosis "val SE≈0.013 cannot adjudicate a sub-SE beat" (the val
+split's noise floor exceeds the gain needed to clear SOTA). Iteration 4's
+cross-family consensus (CatBoost+XGBoost+LightGBM, tau=0.45 quantile, V0
+gate) broke it: val 0.231992 — but private test 0.2569, drift +0.0249,
+the deepest inversion yet. Iterations 5-10 (CatBoost deep-tune, GNN,
+fusion GNN, more) ALL finished at champion parity; the run consolidated
+on a val-optimal/test-poor champion.
+
+**Cell-level conclusion (5 attempts of evidence):** below val≈0.235 this
+cell's val gains are ANTI-correlated with test (runner-up val 0.2335 →
+test 0.2334 ≈ drift 0; val 0.2320 → +0.025). The val window (fall 2012,
+Thanksgiving inside) rewards seasonal fitting the test window punishes;
+val-greedy selection at the frontier is structurally adversarial here.
+Paths if re-attempted: drift-aware-validation hint in the task knowledge
+context (prompt-shaping — needs approval), or accept and prioritize
+other cells. Board position of the honest result: NMAE 0.3362, mid-field
+(below GelGT 0.3167), vs clean SOTA 0.3071.
+
 ## R6 — first campaign run: rel-event/user-attendance, generic, 10 iters (2026-07-17/18, COMPLETED)
 
 Fresh-slate campaign opener (solo after the parallel attempt rebooted the
