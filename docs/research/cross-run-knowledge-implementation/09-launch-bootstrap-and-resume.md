@@ -795,9 +795,18 @@ argv, exact full-EOF mountinfo payload/length/digest and reparsed normalized
 records, derived effective access, source-to-resolved inode joins, and logical
 file/workspace observations; it rejects stacked or nested overlays and
 intentionally carries the exact activation receipt rather than an unverified
-event-ID string. The store integration must join that receipt to the actual typed
-durable event 5, and the runtime assembly must sandwich the observations around
-its mount proof. Volume,
+event-ID string. The runtime assembly now consumes only the recovery coordinator's
+active, one-shot `RUNNING_CONTINUABLE` capability, joins its token-sealed Docker
+inspection to the actual typed durable event 5, retains one host `/proc` occurrence,
+and owns the exact init, wrapper, namespace, executable, mount-root, and logical-file
+descriptors in a process-and-thread-bound lease. Every reuse performs a closed
+forward/reverse sandwich around the logical mount proof, admits only scheduler
+`R`/`S` movement within the same PID/parent/start generation, and revalidates the
+closed Docker semantics while treating changes limited to enumerated
+nonauthoritative raw fields as new audit observations rather than new container
+occurrences. The process-snapshot bound comes only from `LaunchSettings`; executable
+authority uses its independent configured content digest and static-ELF proof.
+Volume,
 never-started keeper, running keeper, and never-started main inspections now
 require complete nested raw schemas and normalize only enumerated daemon
 identities and ordering; issued and observed projections are equal in repeated
@@ -997,7 +1006,11 @@ this path is activated.
   released workload.
 - In real Docker, create the inert container before delivery, activate a complete
   request plus credential and copied Git workspace, then start only after the
-  all-subpath observation closes and require every mounted input to be visible.
+  all-subpath observation closes. Commit the exact activation receipt as durable
+  event 5, have the recovery coordinator issue its one-shot continuation
+  capability, resolve and revalidate the blocked workload twice, and prove the
+  release, target command, and result remain absent while the ledger stays at
+  five events.
 - Verify expert repo is writable only inside the run workspace and snapshot/adapter
   roots remain read-only.
 - Verify old `initial_repo` and checkpoint paths are absent after activation.

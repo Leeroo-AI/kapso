@@ -35,9 +35,28 @@ from kapso.cross_run.launch.run_action_docker_projection import (
     require_run_action_image,
     volume_create_arguments,
 )
+from kapso.cross_run.launch.run_action_contracts import (
+    RunActionBoundaryIdentity,
+    RunFrontierActionKind,
+    RunFrontierWorkspaceAccess,
+)
+from kapso.cross_run.launch.run_action_barrier_contracts import (
+    RunActionResolvedMountKind,
+)
+from kapso.cross_run.launch.run_action_recovery import (
+    RunActionCommittedSpawnObservation,
+    RunActionCommittedSpawnState,
+    RunActionContinuationOutcome,
+    RunActionContinuationState,
+)
+from kapso.cross_run.launch.run_action_resolved_workload import (
+    open_run_action_blocked_workload,
+)
+from kapso.cross_run.launch.run_action_store import _RUN_ACTION_RECOVERY_AUTHORITY
 from kapso.cross_run.launch.run_action_reservation_contracts import (
     RunActionWorkspaceBinding,
 )
+from kapso.cross_run.launch.resume_contracts import RunSafetyBoundary
 from kapso.cross_run.launch.run_action_docker_resources import (
     DockerRunActionResourceManager,
 )
@@ -61,8 +80,8 @@ from kapso.cross_run.launch.run_action_runtime_volume import (
     reobserve_runtime_volume_layout,
 )
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
+    RunActionActivationRevalidationReceipt,
     RunActionPreparationAllocation,
-    RunActionPreparationClaim,
     RunActionPreparedExecution,
     RunActionStaticEnvironmentVariable,
     preparation_container_labels,
@@ -82,11 +101,12 @@ from test_run_action_docker_projection import (
     _GENERATION_NONCE,
     _policy,
 )
+from test_run_action_recovery import _recovery_coordinator
+from test_run_frontier_action_gate import _action_case, _boundary_identity
 from test_run_action_supervisor_contracts import (
     _claim,
     _remint_contract,
     _remint_policy,
-    _spawn_commit,
     _volume_authority,
 )
 from test_run_state_publisher import publisher_case
@@ -94,6 +114,105 @@ from test_run_state_publisher import publisher_case
 _CANONICAL_CONFIG_PATH = "src/kapso/config.yaml"
 _CONTAINER_ID_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 _ORIGINAL_SUBPROCESS_RUN = subprocess.run
+
+
+class _UnusedLiveResultInterpreter:
+    def __init__(self, result_interpreter_identity) -> None:
+        self.result_interpreter_identity = result_interpreter_identity
+
+    def interpret(self, *, request_payload, result_payload):
+        raise AssertionError("blocked-workload proof must not interpret a result")
+
+
+class _LiveBlockedWorkloadAdapter:
+    def __init__(
+        self,
+        *,
+        boundary_identity,
+        execution_policy,
+        resource_manager,
+        preparation_allocation,
+        command,
+        volume_observation,
+        helper_evidence,
+        init_source_evidence,
+        docker_settings,
+        launch_settings,
+    ) -> None:
+        self.execution_lifecycle_identity = (
+            boundary_identity.execution_lifecycle_identity
+        )
+        self.execution_policy = execution_policy
+        self.result_interpreter = _UnusedLiveResultInterpreter(
+            boundary_identity.result_interpreter_identity
+        )
+        self._resource_manager = resource_manager
+        self._preparation_allocation = preparation_allocation
+        self._command = command
+        self._volume_observation = volume_observation
+        self._helper_evidence = helper_evidence
+        self._init_source_evidence = init_source_evidence
+        self._docker_settings = docker_settings
+        self._launch_settings = launch_settings
+        self._committed_running_observation = None
+        self.lease = None
+
+    def prepared_event_size_bound(self, **_arguments):
+        raise AssertionError("durable event 5 must not replay preparation")
+
+    def activation_event_size_bound(self, **_arguments):
+        raise AssertionError("durable event 5 must not replay activation")
+
+    def prepare(self, _capability):
+        raise AssertionError("durable event 5 must not replay preparation")
+
+    def stage_activation(self, _capability):
+        raise AssertionError("durable event 5 must not replay activation")
+
+    def inspect_unactivated(self, _query):
+        raise AssertionError("durable event 5 is already activated")
+
+    def inspect_committed(self, query):
+        if query.preparation_allocation != self._preparation_allocation:
+            raise AssertionError("committed live query differs from exact allocation")
+        inventory = self._resource_manager.observe(self._preparation_allocation)
+        running = observe_running_barrier_main_container(
+            self._resource_manager.inspect_main(inventory),
+            self._preparation_allocation.preparation_claim,
+            self._preparation_allocation.runtime_volume_authority,
+            self._volume_observation,
+            self._command,
+            self._helper_evidence,
+            self._init_source_evidence,
+            self._docker_settings,
+        )
+        if running.container_id != query.spawn_commit.provider_execution_id:
+            raise AssertionError("committed live query differs from running container")
+        self._committed_running_observation = running
+        return RunActionCommittedSpawnObservation(
+            state=RunActionCommittedSpawnState.RUNNING_CONTINUABLE,
+            observation_token=running.complete_inspection_digest,
+        )
+
+    def continue_committed_once(self, capability):
+        if self._committed_running_observation is None:
+            raise AssertionError("committed running observation was not sealed")
+        self.lease = open_run_action_blocked_workload(
+            capability,
+            committed_running_observation=self._committed_running_observation,
+            resource_manager=self._resource_manager,
+            preparation_allocation=self._preparation_allocation,
+            command=self._command,
+            volume_observation=self._volume_observation,
+            helper_evidence=self._helper_evidence,
+            init_source_evidence=self._init_source_evidence,
+            docker_settings=self._docker_settings,
+            launch_settings=self._launch_settings,
+        )
+        return RunActionContinuationOutcome(
+            state=RunActionContinuationState.PENDING,
+            result=None,
+        )
 
 
 def _remove_owned_container(
@@ -651,40 +770,41 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
                 RunActionStaticEnvironmentVariable(key="PATH", value="/bin"),
             ),
         )
-        initial_layout_claim = _claim(policy=layout_policy)
-        layout_frontier = _remint_contract(
-            initial_layout_claim.reservation.frontier,
-            workspace_before=workspace_binding,
+        (
+            _action_publisher,
+            action_frontier,
+            _security_authority,
+            action_gate,
+        ) = _action_case(publisher_case)
+        base_boundary_identity = _boundary_identity(
+            RunFrontierActionKind.CODING_AGENT,
+            RunFrontierWorkspaceAccess.READ_ONLY,
         )
-        layout_reservation = _remint_contract(
-            initial_layout_claim.reservation,
-            frontier=layout_frontier,
-            exact_dependency_ids=tuple(
-                sorted(
-                    (
-                        layout_frontier.frontier_binding_id
-                        if dependency_id
-                        == initial_layout_claim.reservation.frontier.frontier_binding_id
-                        else dependency_id
-                    )
-                    for dependency_id in (
-                        initial_layout_claim.reservation.exact_dependency_ids
-                    )
-                )
+        boundary_identity = RunActionBoundaryIdentity.mint(
+            kind=RunFrontierActionKind.CODING_AGENT,
+            execution_lifecycle_identity=_remint_contract(
+                base_boundary_identity.execution_lifecycle_identity,
+                execution_policy_id=layout_policy.docker_execution_policy_id,
+            ),
+            result_interpreter_identity=(
+                base_boundary_identity.result_interpreter_identity
             ),
         )
-        layout_claim = RunActionPreparationClaim.mint(
-            reservation=layout_reservation,
-            execution_policy=layout_policy,
+        layout_reservation = action_gate.reserve(
+            action_frontier,
+            kind=RunFrontierActionKind.CODING_AGENT,
+            boundary=RunSafetyBoundary.IDEATION,
+            operation_id="live_blocked_workload_0123456789abcdef",
+            request_payload=b"complete request",
+            workspace_access=RunFrontierWorkspaceAccess.READ_ONLY,
+            boundary_identity=boundary_identity,
         )
-        layout_authority = _volume_authority(
-            layout_claim,
-            nonce="b" * 32,
-        )
-        layout_allocation = RunActionPreparationAllocation.mint(
-            preparation_claim=layout_claim,
-            runtime_volume_authority=layout_authority,
-        )
+        assert layout_reservation.frontier.workspace_before == workspace_binding
+        with action_gate._action_store._recovery_session(
+            layout_reservation,
+            _authority=_RUN_ACTION_RECOVERY_AUTHORITY,
+        ) as session:
+            layout_allocation = session.allocate_preparation(layout_policy)
         layout_claim = layout_allocation.preparation_claim
         layout_authority = layout_allocation.runtime_volume_authority
         layout_volume_name = preparation_volume_name(layout_claim)
@@ -879,7 +999,17 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
                 "/kapso/runtime-volume/.kapso-generation",
             )
         )
-        spawn_commit = _spawn_commit(prepared_execution)
+        with action_gate._action_store._recovery_session(
+            layout_reservation,
+            _authority=_RUN_ACTION_RECOVERY_AUTHORITY,
+        ) as session:
+            session.commit_prepared_execution(prepared_execution)
+            spawn_commit = session.commit_spawn(
+                security_observation_id=(
+                    layout_reservation.frontier.security_observation_id
+                ),
+                boundary_identity=boundary_identity,
+            )
         activated_volume = deliver_and_reobserve_runtime_volume_activation(
             prepared_execution,
             spawn_commit,
@@ -924,6 +1054,30 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             prepared_execution.control_directory.inode,
             prepared_execution.temporary_directory.inode,
         )
+        activation_receipt = RunActionActivationRevalidationReceipt.mint(
+            prepared_execution=prepared_execution,
+            spawn_commit=spawn_commit,
+            reobserved_volume_evidence=(activated_volume.reobserved_volume_evidence),
+            reobserved_keeper_evidence=layout_keeper_evidence,
+            reobserved_container_evidence=layout_main_evidence,
+            activated_workspace_observation=(
+                activated_volume.activated_workspace_observation
+            ),
+            activated_runtime_directory_observations=(
+                activated_volume.activated_runtime_directory_observations
+            ),
+            activated_sentinel_observation=(
+                activated_volume.activated_sentinel_observation
+            ),
+            input_file_observation=activated_volume.input_file_observation,
+            result_file_observation=activated_volume.result_file_observation,
+            credential_file_observation=(activated_volume.credential_file_observation),
+        )
+        with action_gate._action_store._recovery_session(
+            layout_reservation,
+            _authority=_RUN_ACTION_RECOVERY_AUTHORITY,
+        ) as session:
+            activation_event = session.commit_activation(activation_receipt)
         runtime.run_control(("container", "start", layout_main_id))
         time.sleep(2 * settings.run_action_barrier_poll_interval_seconds)
         running_layout_main = resource_manager.inspect_main(
@@ -991,6 +1145,76 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
                 "/kapso/runtime-volume/result/result.blob",
             )
         )
+        adapter = _LiveBlockedWorkloadAdapter(
+            boundary_identity=boundary_identity,
+            execution_policy=layout_policy,
+            resource_manager=resource_manager,
+            preparation_allocation=layout_allocation,
+            command=command,
+            volume_observation=layout_volume_observation,
+            helper_evidence=helper_evidence,
+            init_source_evidence=init_source_evidence,
+            docker_settings=settings,
+            launch_settings=cross_run_settings.launch,
+        )
+        report = _recovery_coordinator(action_gate, adapter).recover(action_frontier)
+        assert not report.is_complete
+        assert report.unresolved_operation_id == layout_reservation.intent.operation_id
+        assert adapter.lease is not None
+        with adapter.lease:
+            adapter.lease.require_current()
+            adapter.lease.require_current()
+            assert adapter.lease.activation_event == activation_event
+            resolved = adapter.lease.resolved_workload_observation
+            assert resolved.activation_revalidation_receipt == activation_receipt
+            assert resolved.running_container_observation.container_id == layout_main_id
+            assert resolved.init_process_observation.process_id == (
+                running_main_observation.init_process_id
+            )
+            assert resolved.wrapper_process_observation.parent_process_id == (
+                resolved.init_process_observation.process_id
+            )
+            assert {
+                observation.kind
+                for observation in resolved.resolved_mount_root_observations
+            } == {
+                RunActionResolvedMountKind.DOCKER_INIT,
+                RunActionResolvedMountKind.SUPERVISOR_HELPER,
+                *(
+                    RunActionResolvedMountKind(mount.kind.value)
+                    for mount in (
+                        prepared_execution.inert_container_evidence.issued_create_projection.mounts
+                    )
+                ),
+            }
+            assert resolved.control_entry_count == 0
+            assert resolved.temporary_entry_count == 0
+            assert resolved.release_present is False
+            assert (
+                len(
+                    action_gate._action_store.inspect().events_for(
+                        layout_reservation.intent.operation_id
+                    )
+                )
+                == 5
+            )
+            for forbidden_path in (
+                "/kapso/runtime-volume/control/release",
+                "/kapso/runtime-volume/result/target-started",
+                "/kapso/runtime-volume/result/barrier-injection",
+            ):
+                runtime.run_control(
+                    (
+                        "container",
+                        "exec",
+                        layout_keeper_id,
+                        "/kapso-supervisor/busybox",
+                        "test",
+                        "!",
+                        "-e",
+                        forbidden_path,
+                    )
+                )
 
         runtime.run_control(("container", "rm", "--force", "--volumes", layout_main_id))
         runtime.run_control(
