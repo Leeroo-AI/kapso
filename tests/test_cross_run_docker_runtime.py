@@ -92,11 +92,13 @@ def _version(settings):
 def _info(settings):
     return {
         "Architecture": settings.runtime_host_architecture,
+        "CgroupDriver": settings.runtime_cgroup_driver,
         "CgroupVersion": settings.runtime_cgroup_version,
         "CpuCfsPeriod": True,
         "CpuCfsQuota": True,
         "DefaultRuntime": settings.runtime_default_runtime,
         "Driver": settings.runtime_storage_driver,
+        "DockerRootDir": settings.runtime_root_directory,
         "MemoryLimit": True,
         "OSType": settings.runtime_host_operating_system,
         "PidsLimit": True,
@@ -291,6 +293,8 @@ def test_runtime_client_version_is_bound_by_bytes_not_server_version(
         ("version_server", "ApiVersion", "different"),
         ("info", "Architecture", "different"),
         ("info", "Driver", "different"),
+        ("info", "DockerRootDir", "/another/root"),
+        ("info", "CgroupDriver", "cgroupfs"),
         ("info", "CgroupVersion", "different"),
         ("info", "MemoryLimit", False),
         ("info", "SwapLimit", False),

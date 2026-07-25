@@ -1198,8 +1198,12 @@ class DockerRuntimeSettings(StrictContract):
     runtime_host_operating_system: str
     runtime_host_architecture: str
     runtime_storage_driver: str
+    runtime_root_directory: str
+    runtime_cgroup_driver: str
     runtime_cgroup_version: str
     runtime_default_runtime: str
+    helper_executable_path: str
+    helper_executable_digest: str
     required_security_options: tuple[str, ...]
     command_timeout_seconds: int
     cleanup_timeout_seconds: int
@@ -1209,6 +1213,8 @@ class DockerRuntimeSettings(StrictContract):
         for value, name in (
             (self.runtime_executable_path, "runtime_executable_path"),
             (self.runtime_socket_path, "runtime_socket_path"),
+            (self.runtime_root_directory, "runtime_root_directory"),
+            (self.helper_executable_path, "helper_executable_path"),
         ):
             _require_path(
                 value,
@@ -1218,6 +1224,7 @@ class DockerRuntimeSettings(StrictContract):
                 raise CrossRunConfigurationError(f"docker.{name} must be absolute")
         for value, name in (
             (self.runtime_executable_digest, "runtime_executable_digest"),
+            (self.helper_executable_digest, "helper_executable_digest"),
         ):
             if re.fullmatch(r"sha256:[0-9a-f]{64}", value) is None:
                 raise CrossRunConfigurationError(
@@ -1232,6 +1239,7 @@ class DockerRuntimeSettings(StrictContract):
             ),
             (self.runtime_host_architecture, "runtime_host_architecture"),
             (self.runtime_storage_driver, "runtime_storage_driver"),
+            (self.runtime_cgroup_driver, "runtime_cgroup_driver"),
             (self.runtime_cgroup_version, "runtime_cgroup_version"),
             (self.runtime_default_runtime, "runtime_default_runtime"),
         ):
@@ -1271,8 +1279,6 @@ class DockerRuntimeSettings(StrictContract):
 class TaskEvaluationDockerProviderSettings(StrictContract):
     workspace_path: str
     runtime: DockerRuntimeSettings
-    helper_executable_path: str
-    helper_executable_digest: str
     container_user_id: int
     container_group_id: int
     cpu_period_microseconds: int
@@ -1286,20 +1292,6 @@ class TaskEvaluationDockerProviderSettings(StrictContract):
         if type(self.runtime) is not DockerRuntimeSettings:
             raise CrossRunConfigurationError(
                 "task evaluation provider requires exact Docker runtime settings"
-            )
-        _require_path(
-            self.helper_executable_path,
-            "expert.validation.task_evaluation_provider.helper_executable_path",
-        )
-        if not PurePosixPath(self.helper_executable_path).is_absolute():
-            raise CrossRunConfigurationError(
-                "expert.validation.task_evaluation_provider."
-                "helper_executable_path must be absolute"
-            )
-        if re.fullmatch(r"sha256:[0-9a-f]{64}", self.helper_executable_digest) is None:
-            raise CrossRunConfigurationError(
-                "expert.validation.task_evaluation_provider."
-                "helper_executable_digest must be a sha256 digest"
             )
         for value, name in (
             (self.container_user_id, "container_user_id"),

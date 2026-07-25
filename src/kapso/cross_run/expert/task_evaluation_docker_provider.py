@@ -491,8 +491,8 @@ class TaskEvaluationDockerSandbox:
         identity: TaskEvaluationDockerResourceIdentity,
     ) -> Path:
         helper_bytes = read_verified_root_executable(
-            Path(self._provider_settings.helper_executable_path),
-            self._provider_settings.helper_executable_digest,
+            Path(self._provider_settings.runtime.helper_executable_path),
+            self._provider_settings.runtime.helper_executable_digest,
         )
         helper_root = identity.workspace_root / _PROVIDER_DIRECTORY_NAME
         materialize_verified_byte_tree(
@@ -501,7 +501,7 @@ class TaskEvaluationDockerSandbox:
             descriptors=(
                 SourceFileDescriptor(
                     relative_path=_HELPER_FILENAME,
-                    digest=self._provider_settings.helper_executable_digest,
+                    digest=self._provider_settings.runtime.helper_executable_digest,
                     mode="100755",
                     size=len(helper_bytes),
                 ),

@@ -362,6 +362,8 @@ def _require_daemon_authority(
         or info.get("OSType") != settings.runtime_host_operating_system
         or info.get("Architecture") != settings.runtime_host_architecture
         or info.get("Driver") != settings.runtime_storage_driver
+        or info.get("DockerRootDir") != settings.runtime_root_directory
+        or info.get("CgroupDriver") != settings.runtime_cgroup_driver
         or str(info.get("CgroupVersion")) != settings.runtime_cgroup_version
         or info.get("DefaultRuntime") != settings.runtime_default_runtime
         or any(info.get(name) is not True for name in required_boolean_capabilities)

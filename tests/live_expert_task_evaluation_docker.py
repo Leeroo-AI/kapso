@@ -377,8 +377,8 @@ def test_real_docker_executes_parent_and_bootstrap_task_evaluations(
         release_matrix_fixture_module._quality_only_validation_settings().task_evaluation_provider
     )
     busybox_bytes = read_verified_root_executable(
-        Path(provider_settings.helper_executable_path),
-        provider_settings.helper_executable_digest,
+        Path(provider_settings.runtime.helper_executable_path),
+        provider_settings.runtime.helper_executable_digest,
     )
 
     with ExitStack() as cleanup:
