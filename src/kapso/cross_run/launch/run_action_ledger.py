@@ -10,7 +10,7 @@ from kapso.cross_run.canonical import require_content_id, require_identifier
 from kapso.cross_run.contracts import StrictContract
 from kapso.cross_run.launch.run_action_contracts import RunActionContractError
 
-_MAXIMUM_EVENT_COUNT = 7
+_MAXIMUM_EVENT_COUNT = 8
 
 
 class RunActionLedgerError(RunActionContractError):
@@ -26,6 +26,7 @@ class RunActionExecutionEventKind(str, Enum):
     SPAWN_COMMITTED = "spawn_committed"
     ACTIVATION_COMMITTED = "activation_committed"
     RESULT_RECEIVED = "result_received"
+    RESULT_DECIDED = "result_decided"
     RESULT_ACCEPTED = "result_accepted"
     CANCELLED = "cancelled"
     INTERRUPTED = "interrupted"
@@ -63,7 +64,8 @@ class RunActionOperationTail(StrictContract):
                 RunActionExecutionEventKind.RESULT_RECEIVED,
                 RunActionExecutionEventKind.INTERRUPTED,
             },
-            7: {RunActionExecutionEventKind.RESULT_ACCEPTED},
+            7: {RunActionExecutionEventKind.RESULT_DECIDED},
+            8: {RunActionExecutionEventKind.RESULT_ACCEPTED},
         }
         require_identifier(self.operation_id, "run action tail operation ID")
         _require_namespaced_id(

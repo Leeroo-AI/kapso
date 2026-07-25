@@ -23,6 +23,7 @@ from kapso.cross_run.launch.run_action_gate import (
 from kapso.cross_run.launch.run_action_ledger import RunActionLedgerError
 from kapso.cross_run.launch.run_action_reservation_contracts import (
     RunActionReservation,
+    RunActionWorkspaceBinding,
 )
 from kapso.cross_run.launch.run_action_store import (
     _RUN_ACTION_RECOVERY_AUTHORITY,
@@ -32,6 +33,7 @@ from kapso.cross_run.launch.run_action_store import (
     RunActionExecutionStore,
     RunActionExecutionEvent,
     RunActionAcceptance,
+    RunActionResultDecision,
     RunActionResultDisposition,
     RunActionStoreError,
     RunActionTerminalReason,
@@ -89,6 +91,14 @@ def test_reservation_authority_cannot_open_an_execution_session():
     assert not hasattr(
         run_action_store_module._RunActionExecutionSession,
         "reserve",
+    )
+    assert not hasattr(
+        run_action_store_module._RunActionExecutionSession,
+        "accept_result",
+    )
+    assert not hasattr(
+        run_action_store_module._RunActionExecutionSession,
+        "read_accepted_result",
     )
     assert not hasattr(
         run_action_store_module,
@@ -183,6 +193,9 @@ def _execution_event(
     prepared_execution=None,
     spawn_commit=None,
     activation_revalidation_receipt=None,
+    result_receipt=None,
+    result_decision=None,
+    acceptance=None,
     terminal_reason=None,
     workspace_after=None,
 ):
@@ -195,8 +208,9 @@ def _execution_event(
         prepared_execution=prepared_execution,
         spawn_commit=spawn_commit,
         activation_revalidation_receipt=activation_revalidation_receipt,
-        result_receipt=None,
-        acceptance=None,
+        result_receipt=result_receipt,
+        result_decision=result_decision,
+        acceptance=acceptance,
         terminal_reason=terminal_reason,
         workspace_after=workspace_after,
     )
@@ -293,20 +307,29 @@ def test_action_store_reopens_complete_request_result_and_terminal_prefix(
         result = _record_captured_result(session, spawn, raw_result)
         assert session.read_result(result) == raw_result
         accepted_result = b'{"proposal":"complete"}'
-        acceptance = session.accept_result(
-            result_receipt=result,
+        decision = session.decide_result(
+            result_interpreter_identity=(
+                reservation.intent.boundary_identity.result_interpreter_identity
+            ),
             disposition=RunActionResultDisposition.SUCCEEDED,
             accepted_result_payload=accepted_result,
+        )
+        acceptance = session.accept_decision(
             workspace_after=workspace,
         )
-        assert session.read_accepted_result(acceptance) == accepted_result
+        assert session.read_decided_result(decision) == accepted_result
         assert acceptance.workspace_after.to_identity() == workspace
 
     snapshot = store.snapshot()
-    assert snapshot.event_count == 7
+    assert snapshot.event_count == 8
     assert snapshot.operation_tails[0].tail_kind is (
         RunActionExecutionEventKind.RESULT_ACCEPTED
     )
+    with pytest.raises(RunActionLedgerError, match="tail is invalid"):
+        replace(
+            snapshot.operation_tails[0],
+            event_ids=snapshot.operation_tails[0].event_ids[:7],
+        )
 
     reopened = _open_store(
         publisher_case["active"],
@@ -317,8 +340,96 @@ def test_action_store_reopens_complete_request_result_and_terminal_prefix(
         assert session.read_request() == request_payload
         assert session.read_result(session.events[5].result_receipt) == raw_result
         assert (
-            session.read_accepted_result(session.events[6].acceptance)
+            session.read_decided_result(session.events[6].result_decision)
             == accepted_result
+        )
+
+
+def test_action_store_requires_exact_decision_before_acceptance(
+    publisher_case,
+) -> None:
+    frontier, request_payload, reservation, workspace = _reserved_action(
+        publisher_case,
+        operation_id="decision_boundary_0123456789abcdef",
+    )
+    store = _open_store(
+        publisher_case["active"],
+        publisher_case["settings"],
+    )
+    _reserve_action(store, reservation, request_payload)
+    with _open_session(store, reservation) as session:
+        _prepare_session(session)
+        spawn = session.commit_spawn(
+            security_observation_id=(
+                frontier.checkpoint.safety_state.security_observation.observation_id
+            ),
+            boundary_identity=reservation.intent.boundary_identity,
+        )
+        result = _record_captured_result(
+            session,
+            spawn,
+            b'{"provider_response":"complete"}',
+        )
+        with pytest.raises(RunActionStoreError, match="result_decided tail"):
+            session.accept_decision(workspace_after=workspace)
+        foreign_interpreter = _boundary_identity(
+            RunFrontierActionKind.EMBEDDING
+        ).result_interpreter_identity
+        with pytest.raises(RunActionStoreError, match="differs"):
+            session.decide_result(
+                result_interpreter_identity=foreign_interpreter,
+                disposition=RunActionResultDisposition.SUCCEEDED,
+                accepted_result_payload=b'{"accepted":"foreign"}',
+            )
+        decision = session.decide_result(
+            result_interpreter_identity=(
+                reservation.intent.boundary_identity.result_interpreter_identity
+            ),
+            disposition=RunActionResultDisposition.SUCCEEDED,
+            accepted_result_payload=b'{"accepted":"exact"}',
+        )
+        assert session.events[-1].event_kind is (
+            RunActionExecutionEventKind.RESULT_DECIDED
+        )
+        acceptance = session.accept_decision(workspace_after=workspace)
+        events = session.events
+
+    assert decision.result_receipt_id == result.result_receipt_id
+    assert acceptance.result_decision_id == decision.result_decision_id
+    assert events[-1].event_number == 8
+    foreign_decision = RunActionResultDecision.mint(
+        result_receipt_id=result.result_receipt_id,
+        result_interpreter_identity_id=(
+            foreign_interpreter.result_interpreter_identity_id
+        ),
+        disposition=decision.disposition,
+        accepted_result_blob=decision.accepted_result_blob,
+    )
+    foreign_decision_event = _execution_event(
+        reservation=reservation,
+        event_number=7,
+        predecessor_event_id=events[5].event_id,
+        event_kind=RunActionExecutionEventKind.RESULT_DECIDED,
+        result_decision=foreign_decision,
+    )
+    with pytest.raises(RunActionStoreError, match="decision differs"):
+        run_action_store_module._validate_event_prefix(
+            (*events[:6], foreign_decision_event)
+        )
+    foreign_acceptance = RunActionAcceptance.mint(
+        result_decision_id=foreign_decision.result_decision_id,
+        workspace_after=acceptance.workspace_after,
+    )
+    foreign_acceptance_event = _execution_event(
+        reservation=reservation,
+        event_number=8,
+        predecessor_event_id=events[6].event_id,
+        event_kind=RunActionExecutionEventKind.RESULT_ACCEPTED,
+        acceptance=foreign_acceptance,
+    )
+    with pytest.raises(RunActionStoreError, match="acceptance differs"):
+        run_action_store_module._validate_event_prefix(
+            (*events[:7], foreign_acceptance_event)
         )
 
 
@@ -510,6 +621,82 @@ def test_preparation_allocation_survives_ambiguous_event_publication(
         allocation.runtime_volume_authority.preparation_claim_id
         == allocation.preparation_claim.preparation_claim_id
     )
+
+
+@pytest.mark.parametrize("decision_event_committed", (False, True))
+def test_result_decision_blob_and_event_recover_as_one_durable_boundary(
+    publisher_case,
+    monkeypatch,
+    decision_event_committed,
+) -> None:
+    publication_state = "committed" if decision_event_committed else "absent"
+    frontier, request_payload, reservation, _workspace = _reserved_action(
+        publisher_case,
+        operation_id=f"decision_publication_{publication_state}_0123456789abcdef",
+    )
+    store = _open_store(
+        publisher_case["active"],
+        publisher_case["settings"],
+    )
+    _reserve_action(store, reservation, request_payload)
+    with _open_session(store, reservation) as session:
+        _prepare_session(session)
+        spawn = session.commit_spawn(
+            security_observation_id=(
+                frontier.checkpoint.safety_state.security_observation.observation_id
+            ),
+            boundary_identity=reservation.intent.boundary_identity,
+        )
+        _record_captured_result(
+            session,
+            spawn,
+            b'{"provider_response":"complete"}',
+        )
+
+    publish_event_locked = store._publish_event_locked
+
+    def interrupt_decision_publication(store_descriptor, operation_id, event):
+        if (
+            event.event_kind is RunActionExecutionEventKind.RESULT_DECIDED
+            and not decision_event_committed
+        ):
+            raise RuntimeError("injected death before result decision event")
+        publish_event_locked(store_descriptor, operation_id, event)
+        if event.event_kind is RunActionExecutionEventKind.RESULT_DECIDED:
+            raise RuntimeError("injected death after result decision event")
+
+    monkeypatch.setattr(
+        store,
+        "_publish_event_locked",
+        interrupt_decision_publication,
+    )
+    with pytest.raises(RuntimeError, match="result decision event"):
+        with _open_session(store, reservation) as session:
+            session.decide_result(
+                result_interpreter_identity=(
+                    reservation.intent.boundary_identity.result_interpreter_identity
+                ),
+                disposition=RunActionResultDisposition.SUCCEEDED,
+                accepted_result_payload=b'{"accepted":"durable decision"}',
+            )
+
+    reopened = _open_store(
+        publisher_case["active"],
+        publisher_case["settings"],
+    )
+    events = reopened.inspect().events_for(reservation.intent.operation_id)
+    expected_tail = (
+        RunActionExecutionEventKind.RESULT_DECIDED
+        if decision_event_committed
+        else RunActionExecutionEventKind.RESULT_RECEIVED
+    )
+    assert events[-1].event_kind is expected_tail
+    store_path = (
+        publisher_case["active"].run_root
+        / publisher_case["settings"].run_action_store_path
+    )
+    accepted_blobs = tuple(store_path.glob("accepted-*.blob"))
+    assert len(accepted_blobs) == int(decision_event_committed)
 
 
 def test_allocated_resource_loss_is_terminal_without_request_authority(
@@ -768,25 +955,25 @@ def test_action_reservation_requires_complete_lifecycle_capacity_without_strands
         event_kind=RunActionExecutionEventKind.INTENT_RESERVED,
     )
     if constrained_resource == "entry":
-        projected_entry_count = len(tuple(store_path.iterdir())) + 2 + 5 + 2
+        projected_capacity = len(tuple(store_path.iterdir())) + 2 + 7 + 2
         object.__setattr__(
             constrained_settings,
             "run_action_store_entry_limit",
-            projected_entry_count - 1,
+            projected_capacity - 1,
         )
     else:
         current_size_bytes = sum(path.stat().st_size for path in store_path.iterdir())
-        projected_size_bytes = (
+        projected_capacity = (
             current_size_bytes
             + len(request_payload)
             + len(intent_event.to_json_bytes())
-            + 5 * constrained_settings.run_action_event_size_bytes
+            + 7 * constrained_settings.run_action_event_size_bytes
             + 2 * constrained_settings.run_action_result_size_bytes
         )
         object.__setattr__(
             constrained_settings,
             "run_action_store_size_bytes",
-            projected_size_bytes - 1,
+            projected_capacity - 1,
         )
     object.__setattr__(store, "_settings", constrained_settings)
     with pytest.raises(RunActionStoreError, match="lacks capacity"):
@@ -796,6 +983,14 @@ def test_action_reservation_requires_complete_lifecycle_capacity_without_strands
         "registry.lock",
         "workspace.lock",
     }
+    setting_name = (
+        "run_action_store_entry_limit"
+        if constrained_resource == "entry"
+        else "run_action_store_size_bytes"
+    )
+    object.__setattr__(constrained_settings, setting_name, projected_capacity)
+    reserved = _reserve_action(store, reservation, request_payload)
+    assert reserved.event_kind is RunActionExecutionEventKind.INTENT_RESERVED
 
 
 def test_action_store_rejects_reminted_failed_edit_with_changed_workspace(
@@ -822,39 +1017,41 @@ def test_action_store_rejects_reminted_failed_edit_with_changed_workspace(
             security_observation_id=reservation.frontier.security_observation_id,
             boundary_identity=reservation.intent.boundary_identity,
         )
-        result = _record_captured_result(
+        _record_captured_result(
             session,
             spawn,
             b'{"provider_result":"complete"}',
         )
-        _commit_workspace_edit(
-            publisher_case,
-            "reminted-failed-edit.txt",
-            "complete\n",
+        session.decide_result(
+            result_interpreter_identity=(
+                reservation.intent.boundary_identity.result_interpreter_identity
+            ),
+            disposition=RunActionResultDisposition.FAILED,
+            accepted_result_payload=b'{"accepted_result":"failed"}',
         )
-        with ExitStack() as descriptors:
-            workspace_descriptor, _identity = publisher_case[
-                "active"
-            ]._open_execution_workspace(descriptors)
-            workspace_after = inspect_run_workspace_frontier(
-                workspace_descriptor,
-                settings=publisher_case["settings"],
-                expected_commit_sha=None,
-            )
-        session.accept_result(
-            result_receipt=result,
-            disposition=RunActionResultDisposition.SUCCEEDED,
-            accepted_result_payload=b'{"accepted_result":"complete"}',
-            workspace_after=workspace_after,
+        session.accept_decision(
+            workspace_after=reservation.frontier.workspace_before.to_identity(),
         )
 
+    _commit_workspace_edit(
+        publisher_case,
+        "reminted-failed-edit.txt",
+        "complete\n",
+    )
+    with ExitStack() as descriptors:
+        workspace_descriptor, _identity = publisher_case[
+            "active"
+        ]._open_execution_workspace(descriptors)
+        changed_workspace = inspect_run_workspace_frontier(
+            workspace_descriptor,
+            settings=publisher_case["settings"],
+            expected_commit_sha=None,
+        )
     events = store.inspect().events_for(reservation.intent.operation_id)
     original = events[-1]
     acceptance = RunActionAcceptance.mint(
-        result_receipt_id=original.acceptance.result_receipt_id,
-        disposition=RunActionResultDisposition.FAILED,
-        accepted_result_blob=original.acceptance.accepted_result_blob,
-        workspace_after=original.acceptance.workspace_after,
+        result_decision_id=original.acceptance.result_decision_id,
+        workspace_after=RunActionWorkspaceBinding.from_identity(changed_workspace),
     )
     tampered = RunActionExecutionEvent.mint(
         event_number=original.event_number,
@@ -866,6 +1063,7 @@ def test_action_store_rejects_reminted_failed_edit_with_changed_workspace(
         spawn_commit=None,
         activation_revalidation_receipt=None,
         result_receipt=None,
+        result_decision=None,
         acceptance=acceptance,
         terminal_reason=None,
         workspace_after=None,
@@ -876,7 +1074,7 @@ def test_action_store_rejects_reminted_failed_edit_with_changed_workspace(
     event_path = (
         publisher_case["active"].run_root
         / publisher_case["settings"].run_action_store_path
-        / f"operation-{operation_digest}-event-0007.json"
+        / f"operation-{operation_digest}-event-0008.json"
     )
     event_path.chmod(0o600)
     event_path.write_bytes(tampered.to_json_bytes())
@@ -889,12 +1087,53 @@ def test_action_store_rejects_reminted_failed_edit_with_changed_workspace(
     orphan_path.write_bytes(orphan_payload)
     orphan_path.chmod(0o400)
 
-    with pytest.raises(RunActionStoreError, match="failed editing action"):
+    with pytest.raises(RunActionStoreError, match="changed its workspace"):
         _open_store(
             publisher_case["active"],
             publisher_case["settings"],
         )
     assert orphan_path.read_bytes() == orphan_payload
+
+
+def test_successful_edit_waits_for_durable_workspace_promotion(
+    publisher_case,
+) -> None:
+    _publisher, frontier, _security, gate = _action_case(
+        publisher_case,
+        RunSafetyBoundary.IMPLEMENTATION,
+    )
+    reservation = _reserve_implementation_agent(
+        gate,
+        frontier,
+        "promotion_required",
+        b'{"implementation":"isolated success"}',
+    )
+    store = _open_store(
+        publisher_case["active"],
+        publisher_case["settings"],
+    )
+    with _open_session(store, reservation) as session:
+        _prepare_session(session)
+        spawn = session.commit_spawn(
+            security_observation_id=reservation.frontier.security_observation_id,
+            boundary_identity=reservation.intent.boundary_identity,
+        )
+        _record_captured_result(
+            session,
+            spawn,
+            b'{"provider_result":"successful edit"}',
+        )
+        with pytest.raises(RunActionStoreError, match="workspace promotion"):
+            session.decide_result(
+                result_interpreter_identity=(
+                    reservation.intent.boundary_identity.result_interpreter_identity
+                ),
+                disposition=RunActionResultDisposition.SUCCEEDED,
+                accepted_result_payload=b'{"accepted_result":"successful edit"}',
+            )
+        assert session.events[-1].event_kind is (
+            RunActionExecutionEventKind.RESULT_RECEIVED
+        )
 
 
 def test_action_store_requires_sealed_construction_and_mutation(
@@ -1033,10 +1272,12 @@ def test_action_store_cancel_and_interrupted_prefixes_are_terminal(
     assert workspace == second_workspace
 
 
+@pytest.mark.parametrize("result_kind", ("result", "accepted"))
 def test_action_store_rejects_request_substitution_and_result_corruption(
     publisher_case,
+    result_kind,
 ):
-    _frontier, request_payload, reservation, _workspace = _reserved_action(
+    _frontier, request_payload, reservation, workspace = _reserved_action(
         publisher_case
     )
     store = _open_store(
@@ -1057,10 +1298,21 @@ def test_action_store_rejects_request_substitution_and_result_corruption(
             spawn,
             b'{"result":"durable"}',
         )
+        result_blob = result.result_blob
+        if result_kind == "accepted":
+            decision = session.decide_result(
+                result_interpreter_identity=(
+                    reservation.intent.boundary_identity.result_interpreter_identity
+                ),
+                disposition=RunActionResultDisposition.SUCCEEDED,
+                accepted_result_payload=b'{"accepted":"durable"}',
+            )
+            session.accept_decision(workspace_after=workspace)
+            result_blob = decision.accepted_result_blob
     result_path = (
         publisher_case["active"].run_root
         / publisher_case["settings"].run_action_store_path
-        / f"result-{result.result_blob.digest.removeprefix('sha256:')}.blob"
+        / f"{result_kind}-{result_blob.digest.removeprefix('sha256:')}.blob"
     )
     result_path.chmod(0o600)
     result_path.write_bytes(b'{"result":"corrupt"}')
@@ -1184,10 +1436,14 @@ def test_action_store_rejects_reused_prepared_container_identity(
             spawn,
             b'{"result":"first"}',
         )
-        session.accept_result(
-            result_receipt=result,
+        session.decide_result(
+            result_interpreter_identity=(
+                first.intent.boundary_identity.result_interpreter_identity
+            ),
             disposition=RunActionResultDisposition.SUCCEEDED,
             accepted_result_payload=b'{"accepted":"first"}',
+        )
+        session.accept_decision(
             workspace_after=workspace,
         )
     _frontier, second_payload, second, _workspace = _reserved_action(

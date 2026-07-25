@@ -18,7 +18,7 @@ M9 action adapters, with shared host/runtime authority owned once by top-level
 `cross_run.docker` rather than by either consumer. Boundary-specific production
 adapters and the mechanically constrained supervisor remain, while the
 content-addressed Docker execution-policy, deterministic preparation-claim,
-inert-evidence, prepared-execution contracts, and durable seven-event action prefix
+inert-evidence, prepared-execution contracts, and durable eight-event action prefix
 are implemented. OS executor activation, explicit E0/S-EMPTY provisioning
 orchestration, full policy refresh on resume, and API/runner activation remain.
 
@@ -297,7 +297,7 @@ expert workspace before the new runtime becomes reachable.
       the exclusive checkpoint lock.
 - [x] Make the action store authoritative across processes: compare-and-swap each
       reservation against the exact predecessor ledger, persist intent/claim/
-      prepared/spawn/result/acceptance events, hold the receipt-pinned workspace
+      prepared/spawn/result/decision/acceptance events, hold the receipt-pinned workspace
       lock, require terminal live state for publication, and derive branch
       accounting from durable events.
 - [x] Recover one exact final nonterminal prefix without replaying a committed
@@ -403,8 +403,9 @@ The gate persists `INTENT_RESERVED` before returning a reservation. The recovery
 coordinator alone persists
 `SPAWN_COMMITTED` before exposing bounded delivery/revalidation authority,
 `ACTIVATION_COMMITTED` before provider-start authority, complete raw results
-before interpretation, and complete accepted results with the exact post-action
-workspace. A crash deliberately leaves the last complete durable prefix for
+before interpretation, complete interpreted decisions before workspace
+completion, and terminal acceptance with the exact post-action workspace. A
+crash deliberately leaves the last complete durable prefix for
 resume. Admission is a ledger compare-and-swap, so reconstructed gates and
 concurrent processes cannot both reserve against the same live floor. The old
 permit, lease, context manager, and direct gate transition methods have been
@@ -425,7 +426,7 @@ match the complete current frontier, including all mutable-view digests.
 Terminal operations replay their complete accepted bytes without contacting an
 execution adapter, result interpreter, or provider.
 
-Recovery is an explicit seven-event state machine:
+Recovery is an explicit eight-event state machine:
 
 ```text
 INTENT_RESERVED
@@ -434,6 +435,7 @@ INTENT_RESERVED
   → SPAWN_COMMITTED
   → ACTIVATION_COMMITTED
   → RESULT_RECEIVED
+  → RESULT_DECIDED
   → RESULT_ACCEPTED
 ```
 
@@ -449,9 +451,11 @@ prepared occurrence is never replaced. `SPAWN_COMMITTED` means the exact
 occurrence has no selected activation receipt and may only stage an inert
 activation or remain unresolved. `ACTIVATION_COMMITTED` selects the sole receipt
 that may precede start and may terminate only as a result or provider
-interruption. Every event repeats the exact reservation and predecessor, while
-allocation, prepared, spawn, activation, result, and acceptance payloads bind their
-immediate durable authority.
+interruption. `RESULT_DECIDED` binds the exact result receipt, pure interpreter
+identity, disposition, and complete accepted bytes. `RESULT_ACCEPTED` binds that
+decision to the final workspace proof. Every event repeats the exact reservation
+and predecessor, while allocation, prepared, spawn, activation, result, decision,
+and acceptance payloads bind their immediate durable authority.
 The store rejects skipped/reordered phases, old intent-to-spawn records, identity
 splices, multiple nonterminal operations, and global reuse of claim, allocation,
 volume, generation, sentinel, prepared, container, keeper, file, provider, or
@@ -492,7 +496,7 @@ revalidation can return only the identical occurrence, positive loss, or
 uncertainty; it cannot allocate. Partial, substituted, or ambiguous event-2
 resources remain unresolved and never receive replacement authority. Early
 interruption is admitted after the allocation
-or prepared event without changing the normal seven-event success chain.
+or prepared event without changing the normal eight-event success chain.
 
 An event-4 query admits only exact inert or unknown state; running or exited state
 cannot be adopted without durable activation. Exact inert state may restage and
@@ -594,7 +598,7 @@ shape only—never secret bytes or host credential paths.
 
 The action store now atomically persists one
 `PreparationAllocation → PreparedExecution` occurrence before `SpawnCommit`.
-Reservation admission accounts for the complete remaining lifecycle: at most seven
+Reservation admission accounts for the complete remaining lifecycle: at most eight
 event files and three content blobs per operation, plus the configured crash
 staging allowance and two fixed lock files. Every append and reopen rechecks its
 remaining event/blob headroom, so an accepted intent cannot strand an
@@ -640,7 +644,7 @@ exact predecessor observation.
 
 The lifecycle-owned policy, allocation, bounded-volume/sentinel/workspace, closed
 projection, mount, inert-evidence, prepared-execution, activation-revalidation contracts,
-durable allocation/prepared index, seven-event store embedding, and process-bound
+durable allocation/prepared index, eight-event store embedding, and process-bound
 preparation/activation capabilities and bounded runtime-volume contracts are
 implemented. The shared Docker host authority now also pins its daemon root,
 systemd cgroup driver, and single-sourced static BusyBox helper. The structural
@@ -705,7 +709,9 @@ fresh physical volume evidence, file metadata, size, and digest. `RESULT_RECEIVE
 embeds both receipts before the existing atomic blob-to-event publication and
 revalidates their complete prepared/spawn/container/volume/sentinel/file graph;
 durable recovery therefore replays the captured bytes without contacting the
-provider or discarding terminal provenance. Concrete terminal Docker inspection,
+provider or discarding terminal provenance. Pure interpretation then publishes
+the accepted bytes and `RESULT_DECIDED` atomically; terminal acceptance carries
+no duplicate result blob. Concrete terminal Docker inspection,
 descriptor-bound result capture, a Docker implementation of the token-sealed
 continuation protocol, positive cleanup authority, and production adapters remain
 the next slices. No production caller can receive Docker start authority from the
@@ -721,18 +727,24 @@ interpreters receive only the complete
 request and raw-result bytes: no workspace binding, descriptor, provider object,
 or execution method. A `RESULT_RECEIVED` tail resolves and invokes only the
 interpreter. Interpretation is repeated to detect nondeterminism, while the
-coordinator alone reconciles the workspace before, during, and after durable
-acceptance. A crash after spawn commit therefore reopens only as committed work;
-a crash after raw-result persistence re-runs only local interpretation.
+coordinator alone reconciles the unchanged host workspace before and after the
+durable decision. A `RESULT_DECIDED` tail invokes neither adapter nor interpreter;
+it revalidates the workspace and appends only terminal acceptance. A crash after
+spawn commit therefore reopens only as committed work; a crash after raw-result
+persistence re-runs only local interpretation; a crash after the decision reruns
+only workspace completion. Successful editing results remain at
+`RESULT_RECEIVED` until the isolated staging/promotion protocol lands.
 
 Publication takes the locks in checkpoint → workspace → registry order and
 retains them through bundle/checkpoint/view commit. The candidate `ACTION_LEDGER`
 must equal the live store exactly, every new prefix must be terminal and bind the
 current frontier, and old terminal prefixes are immutable. Zero workspace edits
-requires unchanged branch evidence. One successfully accepted or concretely
-interrupted workspace-changing edit requires the live workspace and exactly one
-authorized branch advance to match its durable before/after identities. Missing
-post-crash workspace identity stays blocked rather than being guessed. Read-only
+requires unchanged branch evidence. The current eight-event foundation admits
+only workspace-free actions, unchanged read-only actions, and failed unchanged
+editing actions. A successful editing result cannot mutate or advance the live
+host; it remains nonterminal until the isolated promotion slice supplies exact
+write-ahead authority. Missing post-crash workspace identity stays blocked rather
+than being guessed. Read-only
 and otherwise unchanged terminals still form one exact full workspace-identity
 chain, including source and admitted Git closure digests, whose final identity
 must equal the live workspace. Resume can now classify and reconcile each
@@ -770,13 +782,15 @@ this path is activated.
 - Reject stopped/completed action frontiers, duplicate reservations, request
   changes, invalid boundary/capability combinations, and dirty or substituted
   workspace state at reservation and recovery.
-- Inject death at reserved, allocated, prepared, spawn-committed, and raw-result
-  prefixes; prove allocation creation, allocation reopen, and prepared revalidation are
-  distinct, committed work is never freshly replayed, ambiguous provider state
-  remains unresolved, implementation catalogs and single-use capabilities reject
-  clone/fork/reuse, security movement before allocation cancels, security movement
-  after allocation remains cleanup-blocked, and workspace mutation during local
-  interpretation never becomes a terminal event.
+- Inject death at reserved, allocated, prepared, spawn-committed,
+  activation-committed, raw-result, and result-decided prefixes; prove allocation
+  creation, allocation reopen, and prepared revalidation are distinct, committed
+  work is never freshly replayed, an exact result decision accepts without provider
+  or interpreter access, ambiguous provider state remains unresolved, implementation
+  catalogs and single-use capabilities reject clone/fork/reuse, security movement
+  before allocation cancels, security movement after allocation remains
+  cleanup-blocked, and workspace mutation during local interpretation never becomes
+  a terminal event.
 - Prove embeddings receive no workspace capability; prove edits exclude parallel
   edits/readers across processes, poison stale reservations/publication candidates, and
   become usable only after an exact branch-advance checkpoint successor.

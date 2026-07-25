@@ -40,6 +40,7 @@ from kapso.cross_run.launch.run_action_store import (
     RunActionAcceptance,
     RunActionExecutionEvent,
     RunActionExecutionStore,
+    RunActionResultDecision,
     RunActionResultDisposition,
     RunActionStoreInspection,
     RunActionTerminalReason,
@@ -1200,6 +1201,19 @@ class RunActionRecoveredOperation:
     accepted_result_payload: bytes | None
 
     def __post_init__(self) -> None:
+        accepted_decision = (
+            self.events[-2].result_decision
+            if (
+                len(self.events) == 8
+                and all(type(event) is RunActionExecutionEvent for event in self.events)
+                and self.events[-1].event_kind
+                is RunActionExecutionEventKind.RESULT_ACCEPTED
+                and self.events[-2].event_kind
+                is RunActionExecutionEventKind.RESULT_DECIDED
+                and type(self.events[-2].result_decision) is RunActionResultDecision
+            )
+            else None
+        )
         if (
             not self.events
             or any(type(event) is not RunActionExecutionEvent for event in self.events)
@@ -1214,10 +1228,11 @@ class RunActionRecoveredOperation:
                 and (
                     type(self.accepted_result_payload) is not bytes
                     or not self.accepted_result_payload
+                    or accepted_decision is None
                     or tree_or_blob_digest(self.accepted_result_payload)
-                    != self.events[-1].acceptance.accepted_result_blob.digest
+                    != accepted_decision.accepted_result_blob.digest
                     or len(self.accepted_result_payload)
-                    != self.events[-1].acceptance.accepted_result_blob.size_bytes
+                    != accepted_decision.accepted_result_blob.size_bytes
                 )
             )
         ):
@@ -1385,7 +1400,6 @@ class RunActionRecoveryCoordinator:
                 else self._inspect_workspace(
                     reservation,
                     descriptors,
-                    allow_edit_successor=False,
                 )
             )
             expected_workspace = reservation.frontier.workspace_before
@@ -1567,7 +1581,6 @@ class RunActionRecoveryCoordinator:
                 workspace_descriptor, observed_workspace = self._inspect_workspace(
                     reservation,
                     descriptors,
-                    allow_edit_successor=False,
                 )
                 expected_workspace = reservation.frontier.workspace_before
                 if (
@@ -1602,6 +1615,12 @@ class RunActionRecoveryCoordinator:
             return
         if tail_kind is RunActionExecutionEventKind.RESULT_RECEIVED:
             self._interpret_received(
+                session,
+                descriptors,
+            )
+            return
+        if tail_kind is RunActionExecutionEventKind.RESULT_DECIDED:
+            self._accept_decided(
                 session,
                 descriptors,
             )
@@ -1662,7 +1681,6 @@ class RunActionRecoveryCoordinator:
         _post_stage_descriptor, observed_workspace = self._inspect_workspace(
             session.reservation,
             descriptors,
-            allow_edit_successor=False,
         )
         expected_workspace = session.reservation.frontier.workspace_before
         if (
@@ -1789,7 +1807,6 @@ class RunActionRecoveryCoordinator:
         _workspace_descriptor, observed_workspace = self._inspect_workspace(
             reservation,
             descriptors,
-            allow_edit_successor=False,
         )
         expected_workspace = reservation.frontier.workspace_before
         if (
@@ -1840,7 +1857,6 @@ class RunActionRecoveryCoordinator:
         _descriptor, observed_workspace = self._inspect_workspace(
             reservation,
             descriptors,
-            allow_edit_successor=True,
         )
         interpreter = self._resolve_result_interpreter(
             self._implementation_registry,
@@ -1861,25 +1877,54 @@ class RunActionRecoveryCoordinator:
             raise RunActionRecoveryError(
                 "run action result interpretation is invalid or nondeterministic"
             )
+        if (
+            reservation.intent.workspace_access
+            is RunFrontierWorkspaceAccess.EDIT_WORKSPACE
+            and interpreted.disposition is RunActionResultDisposition.SUCCEEDED
+        ):
+            raise RunActionRecoveryError(
+                "successful editing action requires durable workspace promotion"
+            )
         _descriptor, confirmed_workspace = self._inspect_workspace(
             reservation,
             descriptors,
-            allow_edit_successor=True,
         )
         if confirmed_workspace != observed_workspace:
             raise RunActionRecoveryError(
                 "workspace changed during run action result interpretation"
             )
-        durable_acceptance = session.accept_result(
-            result_receipt=result_receipt,
+        session.decide_result(
+            result_interpreter_identity=interpreter.result_interpreter_identity,
             disposition=interpreted.disposition,
             accepted_result_payload=interpreted.accepted_result_payload,
+        )
+        return self._accept_decided(session, descriptors)
+
+    def _accept_decided(
+        self,
+        session,
+        descriptors: ExitStack,
+    ) -> RunActionAcceptance:
+        reservation = session.reservation
+        _descriptor, confirmed_workspace = self._inspect_workspace(
+            reservation,
+            descriptors,
+        )
+        before = reservation.frontier.workspace_before
+        if (
+            None
+            if confirmed_workspace is None
+            else RunActionWorkspaceBinding.from_identity(confirmed_workspace)
+        ) != before:
+            raise RunActionRecoveryError(
+                "workspace changed before durable run action acceptance"
+            )
+        durable_acceptance = session.accept_decision(
             workspace_after=confirmed_workspace,
         )
         _descriptor, terminal_workspace = self._inspect_workspace(
             reservation,
             descriptors,
-            allow_edit_successor=True,
         )
         if terminal_workspace != confirmed_workspace:
             raise RunActionRecoveryError(
@@ -1891,8 +1936,6 @@ class RunActionRecoveryCoordinator:
         self,
         reservation: RunActionReservation,
         descriptors: ExitStack,
-        *,
-        allow_edit_successor: bool,
     ) -> tuple[int | None, RunWorkspaceFrontierIdentity | None]:
         access = reservation.intent.workspace_access
         if access is RunFrontierWorkspaceAccess.NONE:
@@ -1901,18 +1944,10 @@ class RunActionRecoveryCoordinator:
             descriptors
         )
         before = reservation.frontier.workspace_before
-        expected_commit_sha = (
-            None
-            if (
-                access is RunFrontierWorkspaceAccess.EDIT_WORKSPACE
-                and allow_edit_successor
-            )
-            else before.commit_sha
-        )
         observed = inspect_run_workspace_frontier(
             descriptor,
             settings=self._publisher._settings,
-            expected_commit_sha=expected_commit_sha,
+            expected_commit_sha=before.commit_sha,
         )
         return descriptor, observed
 
@@ -1979,7 +2014,7 @@ class RunActionRecoveryCoordinator:
                         "terminal run action changed during report construction"
                     )
                 accepted_payload = (
-                    session.read_accepted_result(events[-1].acceptance)
+                    session.read_decided_result(events[-2].result_decision)
                     if events[-1].event_kind
                     is RunActionExecutionEventKind.RESULT_ACCEPTED
                     else None

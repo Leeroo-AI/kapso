@@ -24,6 +24,7 @@ from kapso.cross_run.contracts import StrictContract
 from kapso.cross_run.launch.run_action_contracts import (
     RunActionBoundaryIdentity,
     RunActionContractError,
+    RunActionResultInterpreterIdentity,
     RunFrontierWorkspaceAccess,
 )
 from kapso.cross_run.launch.run_action_ledger import (
@@ -65,7 +66,7 @@ _INPUT_NAME_PATTERN = re.compile(r"^input-(?P<digest>[0-9a-f]{64})[.]blob$")
 _STAGING_NAME_PATTERN = re.compile(
     r"^[.](?P<kind>accepted|event|input|result)-[0-9a-f]{32}[.]tmp$"
 )
-_MAXIMUM_EVENT_COUNT = 7
+_MAXIMUM_EVENT_COUNT = 8
 _RUN_ACTION_STORE_AUTHORITY = object()
 _RUN_ACTION_RESERVATION_AUTHORITY = object()
 _RUN_ACTION_RECOVERY_AUTHORITY = object()
@@ -75,12 +76,13 @@ _TERMINAL_EVENT_KINDS = {
     RunActionExecutionEventKind.INTERRUPTED,
 }
 _FUTURE_EVENT_COUNT_BY_TAIL = {
-    RunActionExecutionEventKind.INTENT_RESERVED: 6,
-    RunActionExecutionEventKind.PREPARATION_ALLOCATED: 5,
-    RunActionExecutionEventKind.EXECUTION_PREPARED: 4,
-    RunActionExecutionEventKind.SPAWN_COMMITTED: 3,
-    RunActionExecutionEventKind.ACTIVATION_COMMITTED: 2,
-    RunActionExecutionEventKind.RESULT_RECEIVED: 1,
+    RunActionExecutionEventKind.INTENT_RESERVED: 7,
+    RunActionExecutionEventKind.PREPARATION_ALLOCATED: 6,
+    RunActionExecutionEventKind.EXECUTION_PREPARED: 5,
+    RunActionExecutionEventKind.SPAWN_COMMITTED: 4,
+    RunActionExecutionEventKind.ACTIVATION_COMMITTED: 3,
+    RunActionExecutionEventKind.RESULT_RECEIVED: 2,
+    RunActionExecutionEventKind.RESULT_DECIDED: 1,
     RunActionExecutionEventKind.RESULT_ACCEPTED: 0,
     RunActionExecutionEventKind.CANCELLED: 0,
     RunActionExecutionEventKind.INTERRUPTED: 0,
@@ -92,6 +94,7 @@ _FUTURE_RESULT_BLOB_COUNT_BY_TAIL = {
     RunActionExecutionEventKind.SPAWN_COMMITTED: 2,
     RunActionExecutionEventKind.ACTIVATION_COMMITTED: 2,
     RunActionExecutionEventKind.RESULT_RECEIVED: 1,
+    RunActionExecutionEventKind.RESULT_DECIDED: 0,
     RunActionExecutionEventKind.RESULT_ACCEPTED: 0,
     RunActionExecutionEventKind.CANCELLED: 0,
     RunActionExecutionEventKind.INTERRUPTED: 0,
@@ -207,13 +210,42 @@ class RunActionResultReceipt(StrictContract):
 
 
 @dataclass(frozen=True)
-class RunActionAcceptance(StrictContract):
-    """Adapter acceptance and post-action workspace proof."""
+class RunActionResultDecision(StrictContract):
+    """Durable pure interpretation of one received provider result."""
 
-    acceptance_id: str
+    result_decision_id: str
     result_receipt_id: str
+    result_interpreter_identity_id: str
     disposition: RunActionResultDisposition
     accepted_result_blob: RunActionResultBlob
+
+    CONTENT_NAMESPACE: ClassVar[str] = "run-action-result-decision"
+    IDENTITY_FIELD: ClassVar[str] = "result_decision_id"
+
+    def _validate(self) -> None:
+        _require_namespaced_id(
+            self.result_receipt_id,
+            RunActionResultReceipt.CONTENT_NAMESPACE,
+            "run action decision result",
+        )
+        _require_namespaced_id(
+            self.result_interpreter_identity_id,
+            RunActionResultInterpreterIdentity.CONTENT_NAMESPACE,
+            "run action decision interpreter",
+        )
+        if (
+            type(self.disposition) is not RunActionResultDisposition
+            or type(self.accepted_result_blob) is not RunActionResultBlob
+        ):
+            raise RunActionStoreError("run action result decision is invalid")
+
+
+@dataclass(frozen=True)
+class RunActionAcceptance(StrictContract):
+    """Terminal proof that one durable result decision was applied."""
+
+    acceptance_id: str
+    result_decision_id: str
     workspace_after: _RunActionWorkspaceBinding | None
 
     CONTENT_NAMESPACE: ClassVar[str] = "run-action-acceptance"
@@ -221,17 +253,13 @@ class RunActionAcceptance(StrictContract):
 
     def _validate(self) -> None:
         _require_namespaced_id(
-            self.result_receipt_id,
-            RunActionResultReceipt.CONTENT_NAMESPACE,
-            "run action acceptance result",
+            self.result_decision_id,
+            RunActionResultDecision.CONTENT_NAMESPACE,
+            "run action acceptance decision",
         )
         if (
-            type(self.disposition) is not RunActionResultDisposition
-            or type(self.accepted_result_blob) is not RunActionResultBlob
-            or (
-                self.workspace_after is not None
-                and type(self.workspace_after) is not _RunActionWorkspaceBinding
-            )
+            self.workspace_after is not None
+            and type(self.workspace_after) is not _RunActionWorkspaceBinding
         ):
             raise RunActionStoreError("run action acceptance is invalid")
 
@@ -250,6 +278,7 @@ class RunActionExecutionEvent(StrictContract):
     spawn_commit: _RunActionSpawnCommit | None
     activation_revalidation_receipt: RunActionActivationRevalidationReceipt | None
     result_receipt: RunActionResultReceipt | None
+    result_decision: RunActionResultDecision | None
     acceptance: RunActionAcceptance | None
     terminal_reason: RunActionTerminalReason | None
     workspace_after: _RunActionWorkspaceBinding | None
@@ -281,6 +310,7 @@ class RunActionExecutionEvent(StrictContract):
                 RunActionActivationRevalidationReceipt,
             ),
             (self.result_receipt, RunActionResultReceipt),
+            (self.result_decision, RunActionResultDecision),
             (self.acceptance, RunActionAcceptance),
             (self.terminal_reason, RunActionTerminalReason),
             (self.workspace_after, _RunActionWorkspaceBinding),
@@ -298,12 +328,14 @@ class RunActionExecutionEvent(StrictContract):
             self.spawn_commit is not None,
             self.activation_revalidation_receipt is not None,
             self.result_receipt is not None,
+            self.result_decision is not None,
             self.acceptance is not None,
             self.terminal_reason is not None,
             self.workspace_after is not None,
         )
         expected = {
             RunActionExecutionEventKind.INTENT_RESERVED: (
+                False,
                 False,
                 False,
                 False,
@@ -322,10 +354,12 @@ class RunActionExecutionEvent(StrictContract):
                 False,
                 False,
                 False,
+                False,
             ),
             RunActionExecutionEventKind.EXECUTION_PREPARED: (
                 False,
                 True,
+                False,
                 False,
                 False,
                 False,
@@ -342,12 +376,14 @@ class RunActionExecutionEvent(StrictContract):
                 False,
                 False,
                 False,
+                False,
             ),
             RunActionExecutionEventKind.ACTIVATION_COMMITTED: (
                 False,
                 False,
                 False,
                 True,
+                False,
                 False,
                 False,
                 False,
@@ -362,8 +398,21 @@ class RunActionExecutionEvent(StrictContract):
                 False,
                 False,
                 False,
+                False,
+            ),
+            RunActionExecutionEventKind.RESULT_DECIDED: (
+                False,
+                False,
+                False,
+                False,
+                False,
+                True,
+                False,
+                False,
+                False,
             ),
             RunActionExecutionEventKind.RESULT_ACCEPTED: (
+                False,
                 False,
                 False,
                 False,
@@ -380,10 +429,12 @@ class RunActionExecutionEvent(StrictContract):
                 False,
                 False,
                 False,
+                False,
                 True,
                 False,
             ),
             RunActionExecutionEventKind.INTERRUPTED: (
+                False,
                 False,
                 False,
                 False,
@@ -792,50 +843,44 @@ class _RunActionExecutionSession:
         self._events = (*self._events, event)
         return result_receipt
 
-    def accept_result(
+    def decide_result(
         self,
         *,
-        result_receipt: RunActionResultReceipt,
+        result_interpreter_identity: RunActionResultInterpreterIdentity,
         disposition: RunActionResultDisposition,
         accepted_result_payload: bytes,
-        workspace_after: RunWorkspaceFrontierIdentity | None,
-    ) -> RunActionAcceptance:
+    ) -> RunActionResultDecision:
         self._require_tail(RunActionExecutionEventKind.RESULT_RECEIVED)
         if (
-            type(result_receipt) is not RunActionResultReceipt
-            or result_receipt != self._events[-1].result_receipt
+            type(result_interpreter_identity) is not RunActionResultInterpreterIdentity
+            or result_interpreter_identity
+            != self.reservation.intent.boundary_identity.result_interpreter_identity
             or type(accepted_result_payload) is not bytes
             or not accepted_result_payload
             or type(disposition) is not RunActionResultDisposition
         ):
             raise RunActionStoreError(
-                "run action acceptance differs from its received result"
+                "run action decision differs from its received result"
             )
-        before = self.reservation.frontier.workspace_before
-        after = (
-            None
-            if workspace_after is None
-            else _RunActionWorkspaceBinding.from_identity(workspace_after)
-        )
-        _require_workspace_acceptance(
+        _require_decision_without_promotion(
             self.reservation.intent.workspace_access,
             disposition,
-            before,
-            after,
         )
         accepted_result_blob = RunActionResultBlob(
             digest=tree_or_blob_digest(accepted_result_payload),
             size_bytes=len(accepted_result_payload),
         )
-        acceptance = RunActionAcceptance.mint(
-            result_receipt_id=result_receipt.result_receipt_id,
+        result_decision = RunActionResultDecision.mint(
+            result_receipt_id=self._events[-1].result_receipt.result_receipt_id,
+            result_interpreter_identity_id=(
+                result_interpreter_identity.result_interpreter_identity_id
+            ),
             disposition=disposition,
             accepted_result_blob=accepted_result_blob,
-            workspace_after=after,
         )
         event = self._event(
-            RunActionExecutionEventKind.RESULT_ACCEPTED,
-            acceptance=acceptance,
+            RunActionExecutionEventKind.RESULT_DECIDED,
+            result_decision=result_decision,
         )
         _validate_event_prefix((*self._events, event))
         self._store._publish_result_event(
@@ -847,6 +892,37 @@ class _RunActionExecutionSession:
             event=event,
         )
         self._events = (*self._events, event)
+        return result_decision
+
+    def accept_decision(
+        self,
+        *,
+        workspace_after: RunWorkspaceFrontierIdentity | None,
+    ) -> RunActionAcceptance:
+        self._require_tail(RunActionExecutionEventKind.RESULT_DECIDED)
+        result_decision = self._events[-1].result_decision
+        before = self.reservation.frontier.workspace_before
+        after = (
+            None
+            if workspace_after is None
+            else _RunActionWorkspaceBinding.from_identity(workspace_after)
+        )
+        _require_workspace_acceptance(
+            self.reservation.intent.workspace_access,
+            result_decision.disposition,
+            before,
+            after,
+        )
+        acceptance = RunActionAcceptance.mint(
+            result_decision_id=result_decision.result_decision_id,
+            workspace_after=after,
+        )
+        self._append(
+            self._event(
+                RunActionExecutionEventKind.RESULT_ACCEPTED,
+                acceptance=acceptance,
+            )
+        )
         return acceptance
 
     def cancel(self, reason: RunActionTerminalReason) -> None:
@@ -953,6 +1029,7 @@ class _RunActionExecutionSession:
                 RunActionExecutionEventKind.SPAWN_COMMITTED,
                 RunActionExecutionEventKind.ACTIVATION_COMMITTED,
                 RunActionExecutionEventKind.RESULT_RECEIVED,
+                RunActionExecutionEventKind.RESULT_DECIDED,
                 RunActionExecutionEventKind.RESULT_ACCEPTED,
                 RunActionExecutionEventKind.INTERRUPTED,
             }
@@ -969,15 +1046,15 @@ class _RunActionExecutionSession:
             self.reservation.request_blob,
         )
 
-    def read_accepted_result(self, acceptance: RunActionAcceptance) -> bytes:
+    def read_decided_result(self, decision: RunActionResultDecision) -> bytes:
         self._require_active()
-        if type(acceptance) is not RunActionAcceptance:
+        if type(decision) is not RunActionResultDecision:
             raise RunActionStoreError(
-                "run action accepted-result read requires one exact acceptance"
+                "run action decided-result read requires one exact decision"
             )
         return self._store._read_result(
             self._descriptors,
-            acceptance.accepted_result_blob,
+            decision.accepted_result_blob,
             kind="accepted",
         )
 
@@ -992,6 +1069,7 @@ class _RunActionExecutionSession:
             RunActionActivationRevalidationReceipt | None
         ) = None,
         result_receipt: RunActionResultReceipt | None = None,
+        result_decision: RunActionResultDecision | None = None,
         acceptance: RunActionAcceptance | None = None,
         terminal_reason: RunActionTerminalReason | None = None,
         workspace_after: _RunActionWorkspaceBinding | None = None,
@@ -1008,6 +1086,7 @@ class _RunActionExecutionSession:
             spawn_commit=spawn_commit,
             activation_revalidation_receipt=activation_revalidation_receipt,
             result_receipt=result_receipt,
+            result_decision=result_decision,
             acceptance=acceptance,
             terminal_reason=terminal_reason,
             workspace_after=workspace_after,
@@ -1155,6 +1234,7 @@ class RunActionExecutionStore:
             spawn_commit=None,
             activation_revalidation_receipt=None,
             result_receipt=None,
+            result_decision=None,
             acceptance=None,
             terminal_reason=None,
             workspace_after=None,
@@ -1570,9 +1650,9 @@ class RunActionExecutionStore:
                     payload_descriptors.append(
                         ("result", event.result_receipt.result_blob)
                     )
-                if event.acceptance is not None:
+                if event.result_decision is not None:
                     payload_descriptors.append(
-                        ("accepted", event.acceptance.accepted_result_blob)
+                        ("accepted", event.result_decision.accepted_result_blob)
                     )
                 for kind, result_blob in payload_descriptors:
                     result_payload = _read_file(
@@ -2288,10 +2368,10 @@ class RunActionExecutionStore:
                     "result-"
                     f"{event.result_receipt.result_blob.digest.removeprefix('sha256:')}.blob"
                 )
-            if event.acceptance is not None:
+            if event.result_decision is not None:
                 referenced.add(
                     "accepted-"
-                    f"{event.acceptance.accepted_result_blob.digest.removeprefix('sha256:')}.blob"
+                    f"{event.result_decision.accepted_result_blob.digest.removeprefix('sha256:')}.blob"
                 )
         orphan_names = tuple(name for name in blob_names if name not in referenced)
         for orphan_name in orphan_names:
@@ -2513,6 +2593,7 @@ def _validate_event_prefix(events: tuple[RunActionExecutionEvent, ...]) -> None:
         RunActionExecutionEventKind.SPAWN_COMMITTED,
         RunActionExecutionEventKind.ACTIVATION_COMMITTED,
         RunActionExecutionEventKind.RESULT_RECEIVED,
+        RunActionExecutionEventKind.RESULT_DECIDED,
         RunActionExecutionEventKind.RESULT_ACCEPTED,
     )
     if events[-1].event_kind is RunActionExecutionEventKind.CANCELLED:
@@ -2619,14 +2700,30 @@ def _validate_event_prefix(events: tuple[RunActionExecutionEvent, ...]) -> None:
             )
         ):
             raise RunActionStoreError("run action result differs from its spawn")
-    if len(events) == 7:
+    if len(events) >= 7:
         result = events[5].result_receipt
-        acceptance = events[6].acceptance
-        if acceptance.result_receipt_id != result.result_receipt_id:
-            raise RunActionStoreError("run action acceptance differs from its result")
+        decision = events[6].result_decision
+        interpreter_identity = (
+            reservation.intent.boundary_identity.result_interpreter_identity
+        )
+        if (
+            decision.result_receipt_id != result.result_receipt_id
+            or decision.result_interpreter_identity_id
+            != interpreter_identity.result_interpreter_identity_id
+        ):
+            raise RunActionStoreError("run action decision differs from its result")
+        _require_decision_without_promotion(
+            reservation.intent.workspace_access,
+            decision.disposition,
+        )
+    if len(events) == 8:
+        decision = events[6].result_decision
+        acceptance = events[7].acceptance
+        if acceptance.result_decision_id != decision.result_decision_id:
+            raise RunActionStoreError("run action acceptance differs from its decision")
         _require_workspace_acceptance(
             reservation.intent.workspace_access,
-            acceptance.disposition,
+            decision.disposition,
             reservation.frontier.workspace_before,
             acceptance.workspace_after,
         )
@@ -2659,6 +2756,26 @@ def _validate_event_prefix(events: tuple[RunActionExecutionEvent, ...]) -> None:
             )
 
 
+def _require_decision_without_promotion(
+    access: RunFrontierWorkspaceAccess,
+    disposition: RunActionResultDisposition,
+) -> None:
+    if (
+        type(access) is not RunFrontierWorkspaceAccess
+        or type(disposition) is not RunActionResultDisposition
+    ):
+        raise RunActionStoreError(
+            "run action decision lacks exact workspace and result semantics"
+        )
+    if (
+        access is RunFrontierWorkspaceAccess.EDIT_WORKSPACE
+        and disposition is RunActionResultDisposition.SUCCEEDED
+    ):
+        raise RunActionStoreError(
+            "successful editing action requires durable workspace promotion"
+        )
+
+
 def _require_workspace_acceptance(
     access: RunFrontierWorkspaceAccess,
     disposition: RunActionResultDisposition,
@@ -2679,33 +2796,10 @@ def _require_workspace_acceptance(
         raise RunActionStoreError(
             "workspace action acceptance lacks a workspace frontier"
         )
-    if access is RunFrontierWorkspaceAccess.READ_ONLY:
-        if after != before:
-            raise RunActionStoreError(
-                "read-only action acceptance changed its workspace"
-            )
-        return
-    if disposition is RunActionResultDisposition.FAILED:
-        if after != before:
-            raise RunActionStoreError(
-                "failed editing action acceptance changed its workspace"
-            )
-        return
-    if (
-        after.branch != before.branch
-        or after.commit_sha == before.commit_sha
-        or after.parent_commit_shas != (before.commit_sha,)
-        or (
-            after.workspace_device,
-            after.workspace_inode,
-        )
-        != (
-            before.workspace_device,
-            before.workspace_inode,
-        )
-    ):
+    _require_decision_without_promotion(access, disposition)
+    if after != before:
         raise RunActionStoreError(
-            "editing action acceptance lacks one direct workspace successor"
+            "run action acceptance changed its workspace without promotion"
         )
 
 
@@ -2726,27 +2820,8 @@ def _require_interrupted_workspace(
         )
     if after is None:
         return
-    if access is RunFrontierWorkspaceAccess.READ_ONLY:
-        if after != before:
-            raise RunActionStoreError(
-                "interrupted read-only action changed its workspace"
-            )
-        return
-    if after != before and (
-        after.branch != before.branch
-        or after.parent_commit_shas != (before.commit_sha,)
-        or (
-            after.workspace_device,
-            after.workspace_inode,
-        )
-        != (
-            before.workspace_device,
-            before.workspace_inode,
-        )
-    ):
-        raise RunActionStoreError(
-            "interrupted edit has an unaccountable workspace frontier"
-        )
+    if after != before:
+        raise RunActionStoreError("interrupted action changed its live host workspace")
 
 
 def _require_unchanged_pre_spawn_workspace(
@@ -2962,6 +3037,7 @@ __all__ = [
     "RunActionLedgerSnapshot",
     "RunActionOperationTail",
     "RunActionResultBlob",
+    "RunActionResultDecision",
     "RunActionResultDisposition",
     "RunActionResultReceipt",
     "RunActionStoreInspection",

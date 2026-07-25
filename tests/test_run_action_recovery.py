@@ -6,6 +6,7 @@ import fcntl
 import hashlib
 import os
 from copy import copy
+from contextlib import ExitStack
 from dataclasses import replace
 
 import pytest
@@ -42,6 +43,7 @@ from kapso.cross_run.launch.run_action_recovery import (
     RunActionPreparationOrigin,
     RunActionPreparationState,
     RunActionProviderResult,
+    RunActionRecoveredOperation,
     RunActionRecoveryError,
     RunActionRecoveryImplementation,
     RunActionRecoveryImplementationRegistry,
@@ -65,9 +67,15 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
     issue_runtime_volume_authority,
     RunActionPreparationAllocation,
 )
-from kapso.cross_run.launch.run_state_publisher import RunStatePublisher
+from kapso.cross_run.launch.run_state_publisher import (
+    RunStatePublisher,
+    RunStatePublisherError,
+)
 from kapso.cross_run.launch.workspace import StarterWorkspaceBuilder
-from kapso.cross_run.launch.workspace_frontier import RunWorkspaceFrontierError
+from kapso.cross_run.launch.workspace_frontier import (
+    inspect_run_workspace_frontier,
+    RunWorkspaceFrontierError,
+)
 from test_launch_resolver import resolver_case
 from test_launch_resume_contracts import _security_observation
 from test_run_frontier_action_gate import (
@@ -213,6 +221,7 @@ class _FakeExecutionAdapter:
             spawn_commit=None,
             activation_revalidation_receipt=None,
             result_receipt=None,
+            result_decision=None,
             acceptance=None,
             terminal_reason=None,
             workspace_after=None,
@@ -240,6 +249,7 @@ class _FakeExecutionAdapter:
             spawn_commit=None,
             activation_revalidation_receipt=activation,
             result_receipt=None,
+            result_decision=None,
             acceptance=None,
             terminal_reason=None,
             workspace_after=None,
@@ -680,6 +690,23 @@ class _AccessGuardedExecutionAdapter(_FakeExecutionAdapter):
         return super().__getattribute__(name)
 
 
+class _AccessGuardedResultInterpreter(_FakeResultInterpreter):
+    def __init__(self, result_interpreter_identity) -> None:
+        self.reject_interpreter_access = False
+        super().__init__(result_interpreter_identity)
+
+    def __getattribute__(self, name):
+        if name in {
+            "interpret",
+            "result_interpreter_identity",
+        } and object.__getattribute__(
+            self,
+            "reject_interpreter_access",
+        ):
+            raise AssertionError("decided-result recovery accessed the interpreter")
+        return super().__getattribute__(name)
+
+
 class _WorkspaceMutatingResultInterpreter(_FakeResultInterpreter):
     def __init__(self, result_interpreter_identity) -> None:
         super().__init__(result_interpreter_identity)
@@ -770,17 +797,30 @@ def _append_result_received(gate, reservation) -> bytes:
     return raw_result
 
 
-def _append_result_accepted(gate, reservation) -> bytes:
+def _append_result_decided(gate, reservation) -> bytes:
     raw_result = _append_result_received(gate, reservation)
     with gate._action_store._recovery_session(
         reservation,
         _authority=_RUN_ACTION_RECOVERY_AUTHORITY,
     ) as session:
-        workspace_binding = reservation.frontier.workspace_before
-        session.accept_result(
-            result_receipt=session.events[-1].result_receipt,
+        session.decide_result(
+            result_interpreter_identity=(
+                reservation.intent.boundary_identity.result_interpreter_identity
+            ),
             disposition=RunActionResultDisposition.SUCCEEDED,
             accepted_result_payload=b'{"accepted_result":"complete"}',
+        )
+    return raw_result
+
+
+def _append_result_accepted(gate, reservation) -> bytes:
+    raw_result = _append_result_decided(gate, reservation)
+    with gate._action_store._recovery_session(
+        reservation,
+        _authority=_RUN_ACTION_RECOVERY_AUTHORITY,
+    ) as session:
+        workspace_binding = reservation.frontier.workspace_before
+        session.accept_decision(
             workspace_after=(
                 None if workspace_binding is None else workspace_binding.to_identity()
             ),
@@ -1474,13 +1514,47 @@ def test_failed_edit_recovery_terminates_with_unchanged_workspace(
 
     report = _recovery_coordinator(gate, adapter).recover(frontier)
 
-    terminal = report.recovered_operations[-1].events[-1]
+    events = report.recovered_operations[-1].events
+    terminal = events[-1]
     assert report.is_complete
-    assert terminal.acceptance.disposition is RunActionResultDisposition.FAILED
+    assert events[-2].result_decision.disposition is RunActionResultDisposition.FAILED
     assert (
         terminal.acceptance.workspace_after
         == terminal.reservation.frontier.workspace_before
     )
+
+
+def test_successful_edit_recovery_waits_at_received_result_for_promotion(
+    publisher_case,
+) -> None:
+    _publisher, frontier, _security, gate = _action_case(
+        publisher_case,
+        boundary=RunSafetyBoundary.IMPLEMENTATION,
+    )
+    reservation = _reserve_implementation_agent(
+        gate,
+        frontier,
+        "successful_edit_promotion",
+        b'{"implementation":"isolated success"}',
+    )
+    adapter = _FakeExecutionAdapter(reservation.intent.boundary_identity)
+
+    with pytest.raises(RunActionRecoveryError, match="workspace promotion"):
+        _recovery_coordinator(gate, adapter).recover(frontier)
+
+    events = gate._action_store.inspect().events_for(reservation.intent.operation_id)
+    assert events[-1].event_kind is RunActionExecutionEventKind.RESULT_RECEIVED
+    assert len(adapter.result_interpreter.interpret_calls) == 2
+    with ExitStack() as descriptors:
+        workspace_descriptor, _identity = publisher_case[
+            "active"
+        ]._open_execution_workspace(descriptors)
+        observed_workspace = inspect_run_workspace_frontier(
+            workspace_descriptor,
+            settings=publisher_case["settings"],
+            expected_commit_sha=reservation.frontier.workspace_before.commit_sha,
+        )
+    assert reservation.frontier.workspace_before.to_identity() == observed_workspace
 
 
 @pytest.mark.parametrize(
@@ -1720,6 +1794,54 @@ def test_received_result_does_not_access_execution_adapter(
     )
 
 
+def test_decided_result_accepts_without_adapter_or_interpreter_access(
+    publisher_case,
+) -> None:
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
+    _append_result_decided(gate, reservation)
+    execution_adapter = _AccessGuardedExecutionAdapter(
+        reservation.intent.boundary_identity
+    )
+    guarded_interpreter = _AccessGuardedResultInterpreter(
+        reservation.intent.boundary_identity.result_interpreter_identity
+    )
+    execution_adapter.result_interpreter = guarded_interpreter
+    coordinator = _recovery_coordinator(gate, execution_adapter)
+    execution_adapter.reject_execution_access = True
+    guarded_interpreter.reject_interpreter_access = True
+
+    report = coordinator.recover(frontier)
+
+    assert report.is_complete
+    events = report.recovered_operations[-1].events
+    assert events[-2].event_kind is RunActionExecutionEventKind.RESULT_DECIDED
+    assert events[-1].event_kind is RunActionExecutionEventKind.RESULT_ACCEPTED
+    assert report.recovered_operations[-1].accepted_result_payload == (
+        b'{"accepted_result":"complete"}'
+    )
+
+
+def test_decided_result_remains_nonterminal_for_publication(
+    publisher_case,
+) -> None:
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
+    _append_result_decided(gate, reservation)
+    publisher = gate._publisher
+    successor_bundle, successor_checkpoint = _successor_at_boundary(
+        publisher_case,
+        publisher,
+        frontier,
+        RunSafetyBoundary.IMPLEMENTATION,
+    )
+
+    with pytest.raises(RunStatePublisherError, match="unresolved execution"):
+        publisher.issue_publication_permit(
+            frontier,
+            successor_checkpoint,
+            successor_bundle,
+        )
+
+
 def test_nondeterministic_local_interpretation_never_becomes_durable(
     publisher_case,
 ) -> None:
@@ -1783,6 +1905,27 @@ def test_terminal_replay_reads_accepted_bytes_without_implementation_use(
     assert not adapter.continuation_calls
     assert not adapter.inspect_calls
     assert not adapter.result_interpreter.interpret_calls
+
+
+def test_recovered_operation_rejects_malformed_accepted_prefix(
+    publisher_case,
+) -> None:
+    _frontier, gate, reservation, _payload = _reserved_case(publisher_case)
+    _append_result_accepted(gate, reservation)
+    with gate._action_store._recovery_session(
+        reservation,
+        _authority=_RUN_ACTION_RECOVERY_AUTHORITY,
+    ) as session:
+        accepted_event = session.events[-1]
+
+    with pytest.raises(
+        RunActionRecoveryError,
+        match="recovered run action operation is invalid",
+    ):
+        RunActionRecoveredOperation(
+            events=(accepted_event,),
+            accepted_result_payload=b'{"accepted_result":"complete"}',
+        )
 
 
 def test_activation_staging_crash_reopens_only_as_unactivated_spawn(
@@ -2218,6 +2361,45 @@ def test_result_received_recovers_after_full_runtime_restart(
     assert report.is_complete
     assert adapter.result_interpreter.interpret_calls[0][1] == raw_result
     assert not adapter.inspect_calls
+    active.close()
+
+
+def test_result_decided_recovers_after_full_runtime_restart_without_implementation(
+    resolver_case,
+    publisher_case,
+) -> None:
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
+    _append_result_decided(gate, reservation)
+    run_root = publisher_case["active"].run_root
+    publisher_case["active"].close()
+
+    settings = resolver_case["resolver"]._settings
+    active = StarterWorkspaceBuilder(settings).reopen(run_root)
+    publisher = RunStatePublisher(active, settings.launch)
+    reopened_frontier = publisher.load_reconciled()
+    security = _StaticSecurityAuthority(
+        reopened_frontier.checkpoint.safety_state.security_observation
+    )
+    reopened_gate = RunFrontierActionGate(
+        active_workspace=active,
+        publisher=publisher,
+        security_authority=security,
+    )
+    adapter = _AccessGuardedExecutionAdapter(reservation.intent.boundary_identity)
+    guarded_interpreter = _AccessGuardedResultInterpreter(
+        reservation.intent.boundary_identity.result_interpreter_identity
+    )
+    adapter.result_interpreter = guarded_interpreter
+    coordinator = _recovery_coordinator(reopened_gate, adapter)
+    adapter.reject_execution_access = True
+    guarded_interpreter.reject_interpreter_access = True
+
+    report = coordinator.recover(reopened_frontier)
+
+    assert report.is_complete
+    assert report.recovered_operations[-1].accepted_result_payload == (
+        b'{"accepted_result":"complete"}'
+    )
     active.close()
 
 
