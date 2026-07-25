@@ -257,11 +257,11 @@ def _common_arguments(policy, working_directory):
 def test_projection_schema_identity_is_structural_and_content_addressed():
     assert (
         DOCKER_RUN_ACTION_PROJECTION_PROTOCOL_VERSION
-        == "kapso.docker_run_action_create_inspect.v3"
+        == "kapso.docker_run_action_create_inspect.v4"
     )
     assert DOCKER_RUN_ACTION_RAW_FIELD_SCHEMA_ID == (
         "docker-raw-field-schema:"
-        "sha256:fe5859ba0fc8eaec16c51e4c8d38bf91abe6b2794e566a3e4a1219a07fdbb813"
+        "sha256:dfe5f18d8510b8910e00b8eed87386e868230162281cd7f414144a4747a4732c"
     )
 
 

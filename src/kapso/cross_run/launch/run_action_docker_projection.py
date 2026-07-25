@@ -31,7 +31,7 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
 from kapso.cross_run.settings import DockerRuntimeSettings
 
 DOCKER_RUN_ACTION_PROJECTION_PROTOCOL_VERSION = (
-    "kapso.docker_run_action_create_inspect.v3"
+    "kapso.docker_run_action_create_inspect.v4"
 )
 
 _CONTAINER_ROOT_FIELDS = (

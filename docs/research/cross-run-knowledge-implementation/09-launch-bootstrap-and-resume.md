@@ -789,8 +789,15 @@ that container's cgroup, and required to retain the issued source device, inode,
 and digest. Shared descriptor-safe `/proc` primitives now parse the exact live
 PID/state/parent/start generation, full byte-exact NUL-separated argv, unified
 cgroup, process root, executable, and mount/PID namespace identities without
-pathname fallback; the resolved-barrier assembly must sandwich those observations
-around its mount proof. Volume,
+pathname fallback. The canonical resolved-workload graph now preserves the
+complete validated Docker-inspection digest, exact init/wrapper generations and
+argv, exact full-EOF mountinfo payload/length/digest and reparsed normalized
+records, derived effective access, source-to-resolved inode joins, and logical
+file/workspace observations; it rejects stacked or nested overlays and
+intentionally carries the exact activation receipt rather than an unverified
+event-ID string. The store integration must join that receipt to the actual typed
+durable event 5, and the runtime assembly must sandwich the observations around
+its mount proof. Volume,
 never-started keeper, running keeper, and never-started main inspections now
 require complete nested raw schemas and normalize only enumerated daemon
 identities and ordering; issued and observed projections are equal in repeated
@@ -846,16 +853,20 @@ atomically published with `RENAME_NOREPLACE` only after every final directory is
 in place and staging is gone; that rename is the final namespace mutation.
 Preparation also creates a distinct empty `control` directory, reserves the
 future release inode, and binds that directory into the prepared layout and
-global subpath-identity graph. Projection protocol v3 mounts the exact control
+global subpath-identity graph. Projection protocol v4 mounts the exact control
 subpath read-only at `/kapso-supervisor/control`, mounts the same pinned static
 helper read-only and non-recursively into the main container, and replaces direct
 target execution with the fixed positional-argument barrier. Main inspection
 requires that exact helper bind, control mount, wrapper program, poll setting,
-target command, and mount count. Activation proves the prepared control inode is
-still empty both before and after payload delivery. Real-Docker validation starts
-the wrapper, waits two configured poll intervals, and proves the target's
-first-write marker and a shell-metacharacter argument marker remain absent while
-`control/release` is absent and the result remains empty.
+target command, and mount count. Its running observation also closes the exact
+Docker lifecycle occurrence, including PID/start timestamp, zero restart count,
+and safe runtime-normalized daemon fields, without claiming proc-generation or
+resolved-mount authority. Activation proves the prepared control inode is still
+empty both before and after payload delivery. Real-Docker validation starts the
+wrapper, parses that running observation, waits two configured poll intervals,
+and proves the target's first-write marker and a shell-metacharacter argument
+marker remain absent while `control/release` is absent and the result remains
+empty.
 The post-start boundary can now reopen that exact generation through the keeper
 as a process-bound `RunActionBarrierControlLease`: it retains the mounted root,
 sentinel, and control descriptors; reproves their original physical identities;

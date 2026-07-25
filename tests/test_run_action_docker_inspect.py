@@ -1,17 +1,24 @@
 from __future__ import annotations
 
 import copy
+from dataclasses import replace
 
 import pytest
 
 from kapso.core.config import load_config
+from kapso.cross_run.canonical import canonical_json_bytes, tree_or_blob_digest
+from kapso.cross_run.contracts import ContractValidationError
 from kapso.cross_run.launch import run_action_docker_inspect as docker_inspect
+from kapso.cross_run.launch.run_action_barrier_contracts import (
+    RunActionBarrierRunningContainerObservation,
+)
 from kapso.cross_run.launch.run_action_docker_inspect import (
     DockerRunActionInspectionError,
     issued_keeper_projection,
     issued_main_projection,
     observe_inert_keeper,
     observe_inert_main_container,
+    observe_running_barrier_main_container,
     observe_running_keeper,
     observe_runtime_volume,
 )
@@ -286,7 +293,11 @@ def _container_raw(
         "HostConfig": docker_inspect._expected_host_config(
             claim,
             mounts=host_mounts,
-            running_keeper=keeper,
+            lifecycle=(
+                docker_inspect._DockerContainerLifecycle.RUNNING_KEEPER
+                if keeper
+                else docker_inspect._DockerContainerLifecycle.CREATED_MAIN
+            ),
         ),
         "HostnamePath": f"{container_root}/hostname" if keeper else "",
         "HostsPath": f"{container_root}/hosts" if keeper else "",
@@ -327,6 +338,40 @@ def _inert_keeper_raw(
     raw["NetworkSettings"] = _none_network(running=False)
     raw["ResolvConfPath"] = ""
     raw["State"] = _state(running=False)
+    return raw
+
+
+def _running_main_raw(
+    claim,
+    authority,
+    volume,
+    command,
+    docker_settings,
+):
+    raw = _container_raw(
+        claim,
+        authority,
+        volume,
+        command,
+        docker_settings,
+        keeper=False,
+    )
+    raw["HostConfig"] = docker_inspect._expected_host_config(
+        claim,
+        mounts=docker_inspect._main_host_config_mounts(
+            claim,
+            preparation_main_mounts(claim, authority),
+        ),
+        lifecycle=docker_inspect._DockerContainerLifecycle.RUNNING_MAIN,
+    )
+    container_root = (
+        f"{docker_settings.runtime_root_directory}/containers/{_MAIN_CONTAINER_ID}"
+    )
+    raw["HostnamePath"] = f"{container_root}/hostname"
+    raw["HostsPath"] = f"{container_root}/hosts"
+    raw["NetworkSettings"] = _none_network(running=True)
+    raw["ResolvConfPath"] = f"{container_root}/resolv.conf"
+    raw["State"] = _state(running=True)
     return raw
 
 
@@ -386,6 +431,50 @@ def test_main_inspection_equals_issued_projection(docker_settings):
     )
     assert evidence.observed_inspect_projection == evidence.issued_create_projection
     assert evidence.issued_create_projection.unclassified_raw_field_count == 0
+
+
+def test_running_main_inspection_is_closed_without_process_or_mount_claims(
+    docker_settings,
+):
+    claim, authority, _volume_raw, volume, command, helper, init = _context(
+        docker_settings
+    )
+    raw = _running_main_raw(
+        claim,
+        authority,
+        volume,
+        command,
+        docker_settings,
+    )
+
+    observation = observe_running_barrier_main_container(
+        raw,
+        claim,
+        authority,
+        volume,
+        command,
+        helper,
+        init,
+        docker_settings,
+    )
+
+    assert type(observation) is RunActionBarrierRunningContainerObservation
+    assert observation.container_id == _MAIN_CONTAINER_ID
+    assert observation.init_process_id == 4242
+    assert observation.started_at == raw["State"]["StartedAt"]
+    assert observation.observed_inspect_projection == issued_main_projection(
+        claim,
+        authority,
+        command,
+        helper,
+        init,
+        docker_settings,
+    )
+    with pytest.raises(
+        ContractValidationError,
+        match="must be an integer",
+    ):
+        replace(observation, restart_count=False)
 
 
 def test_keeper_inspection_equals_issued_projection(docker_settings):
@@ -619,6 +708,168 @@ def test_main_inspection_rejects_every_authority_expansion(
             helper,
             init,
             docker_settings,
+        )
+
+
+@pytest.mark.parametrize(
+    ("path", "value"),
+    (
+        ("Path", "/bin/substituted-wrapper"),
+        ("Args", ["sh", "-c", "exit 0"]),
+        ("HostConfig.NetworkMode", "bridge"),
+        ("HostConfig.OomKillDisable", False),
+        ("State.Status", "created"),
+        ("State.Running", False),
+        ("State.Pid", 0),
+        ("State.StartedAt", "0001-01-01T00:00:00Z"),
+        ("State.FinishedAt", "2026-07-25T00:00:02Z"),
+        ("State.OOMKilled", True),
+        ("State.Paused", True),
+        ("State.Restarting", True),
+        ("State.Dead", True),
+        ("RestartCount", 1),
+        ("NetworkSettings.SandboxID", ""),
+        ("HostnamePath", ""),
+        ("Mounts.0.RW", True),
+    ),
+)
+def test_running_main_rejects_lifecycle_or_issued_authority_expansion(
+    docker_settings,
+    path,
+    value,
+):
+    claim, authority, _volume_raw, volume, command, helper, init = _context(
+        docker_settings
+    )
+    raw = _running_main_raw(
+        claim,
+        authority,
+        volume,
+        command,
+        docker_settings,
+    )
+    _assign(raw, path, value)
+
+    with pytest.raises(DockerRunActionInspectionError):
+        observe_running_barrier_main_container(
+            raw,
+            claim,
+            authority,
+            volume,
+            command,
+            helper,
+            init,
+            docker_settings,
+        )
+
+
+def test_running_main_process_race_produces_a_distinct_observation(
+    docker_settings,
+):
+    claim, authority, _volume_raw, volume, command, helper, init = _context(
+        docker_settings
+    )
+    first_raw = _running_main_raw(
+        claim,
+        authority,
+        volume,
+        command,
+        docker_settings,
+    )
+    second_raw = copy.deepcopy(first_raw)
+    second_raw["State"]["Pid"] = 4343
+    second_raw["State"]["StartedAt"] = "2026-07-25T00:00:02.123456789Z"
+
+    first = observe_running_barrier_main_container(
+        first_raw,
+        claim,
+        authority,
+        volume,
+        command,
+        helper,
+        init,
+        docker_settings,
+    )
+    second = observe_running_barrier_main_container(
+        second_raw,
+        claim,
+        authority,
+        volume,
+        command,
+        helper,
+        init,
+        docker_settings,
+    )
+
+    assert first.observed_inspect_projection == second.observed_inspect_projection
+    assert first.complete_inspection_digest == tree_or_blob_digest(
+        canonical_json_bytes(first_raw)
+    )
+    assert second.complete_inspection_digest == tree_or_blob_digest(
+        canonical_json_bytes(second_raw)
+    )
+    assert first.complete_inspection_digest != second.complete_inspection_digest
+    assert first != second
+
+
+def test_running_main_uses_one_immutable_inspection_snapshot(
+    docker_settings,
+    monkeypatch,
+):
+    claim, authority, _volume_raw, volume, command, helper, init = _context(
+        docker_settings
+    )
+    raw = _running_main_raw(
+        claim,
+        authority,
+        volume,
+        command,
+        docker_settings,
+    )
+    expected_process_id = raw["State"]["Pid"]
+    expected_digest = tree_or_blob_digest(canonical_json_bytes(raw))
+    original_require = docker_inspect._require_common_container
+
+    def mutate_supplied_after_validation(snapshot, **arguments):
+        container_id = original_require(snapshot, **arguments)
+        raw["State"]["Pid"] = expected_process_id + 1
+        raw["State"]["StartedAt"] = "2026-07-25T00:00:03Z"
+        raw["Created"] = "2026-07-25T00:00:04Z"
+        return container_id
+
+    monkeypatch.setattr(
+        docker_inspect,
+        "_require_common_container",
+        mutate_supplied_after_validation,
+    )
+
+    observation = observe_running_barrier_main_container(
+        raw,
+        claim,
+        authority,
+        volume,
+        command,
+        helper,
+        init,
+        docker_settings,
+    )
+
+    assert observation.init_process_id == expected_process_id
+    assert observation.complete_inspection_digest == expected_digest
+
+
+def test_common_container_lifecycle_rejects_the_old_boolean_mode(
+    docker_settings,
+):
+    claim, _authority, _volume_raw, _volume, _command, _helper, _init = _context(
+        docker_settings
+    )
+
+    with pytest.raises(DockerRunActionInspectionError, match="lifecycle mode"):
+        docker_inspect._expected_host_config(
+            claim,
+            mounts=[],
+            lifecycle=False,
         )
 
 
@@ -893,6 +1144,38 @@ def test_every_inert_keeper_leaf_is_classified_and_validated(docker_settings):
                 claim,
                 authority,
                 volume,
+                helper,
+                init,
+                docker_settings,
+            )
+
+
+def test_every_running_main_leaf_is_classified_and_validated(docker_settings):
+    claim, authority, _volume_raw, volume, command, helper, init = _context(
+        docker_settings
+    )
+    raw = _running_main_raw(
+        claim,
+        authority,
+        volume,
+        command,
+        docker_settings,
+    )
+    for path in _leaf_paths(raw):
+        mutated = copy.deepcopy(raw)
+        original = _path_value(mutated, path)
+        _assign_parts(
+            mutated,
+            path,
+            "unexpected-non-null-value" if original is None else None,
+        )
+        with pytest.raises(DockerRunActionInspectionError):
+            observe_running_barrier_main_container(
+                mutated,
+                claim,
+                authority,
+                volume,
+                command,
                 helper,
                 init,
                 docker_settings,

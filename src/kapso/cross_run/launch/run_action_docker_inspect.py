@@ -5,9 +5,18 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import PurePosixPath
 from typing import Any
 
+from kapso.cross_run.canonical import (
+    canonical_json_bytes,
+    parse_json_bytes,
+    tree_or_blob_digest,
+)
+from kapso.cross_run.launch.run_action_barrier_contracts import (
+    RunActionBarrierRunningContainerObservation,
+)
 from kapso.cross_run.launch.run_action_docker_projection import (
     DOCKER_RUN_ACTION_PROJECTION_PROTOCOL_VERSION,
     DOCKER_RUN_ACTION_RAW_FIELD_SCHEMA_ID,
@@ -58,18 +67,7 @@ _ORDER_NORMALIZED_RAW_FIELDS = (
     "HostConfig.Mounts",
     "Mounts",
 )
-_MAIN_NONAUTHORITATIVE_RAW_FIELDS = (
-    *_ORDER_NORMALIZED_RAW_FIELDS,
-    "Created",
-    "GraphDriver.Data.ID",
-    "GraphDriver.Data.LowerDir",
-    "GraphDriver.Data.MergedDir",
-    "GraphDriver.Data.UpperDir",
-    "GraphDriver.Data.WorkDir",
-    "Id",
-)
-_KEEPER_NONAUTHORITATIVE_RAW_FIELDS = (
-    *_MAIN_NONAUTHORITATIVE_RAW_FIELDS,
+_RUNNING_CONTAINER_NONAUTHORITATIVE_RAW_FIELDS = (
     "HostnamePath",
     "HostsPath",
     "HostConfig.OomKillDisable",
@@ -81,6 +79,18 @@ _KEEPER_NONAUTHORITATIVE_RAW_FIELDS = (
     "State.Pid",
     "State.StartedAt",
 )
+_MAIN_NONAUTHORITATIVE_RAW_FIELDS = (
+    *_ORDER_NORMALIZED_RAW_FIELDS,
+    "Created",
+    "GraphDriver.Data.ID",
+    "GraphDriver.Data.LowerDir",
+    "GraphDriver.Data.MergedDir",
+    "GraphDriver.Data.UpperDir",
+    "GraphDriver.Data.WorkDir",
+    "Id",
+    *_RUNNING_CONTAINER_NONAUTHORITATIVE_RAW_FIELDS,
+)
+_KEEPER_NONAUTHORITATIVE_RAW_FIELDS = _MAIN_NONAUTHORITATIVE_RAW_FIELDS
 _VOLUME_NONAUTHORITATIVE_RAW_FIELDS = ("CreatedAt", "Mountpoint")
 
 
@@ -140,6 +150,15 @@ class DockerRunActionInertKeeperObservation:
             raise DockerRunActionInspectionError(
                 "inert keeper observation differs from its issued projection"
             )
+
+
+class _DockerContainerLifecycle(str, Enum):
+    """Exact lifecycle and role admitted by common container inspection."""
+
+    CREATED_MAIN = "created_main"
+    INERT_KEEPER = "inert_keeper"
+    RUNNING_KEEPER = "running_keeper"
+    RUNNING_MAIN = "running_main"
 
 
 def observe_runtime_volume(
@@ -261,7 +280,7 @@ def observe_inert_main_container(
         host_config_mounts=_main_host_config_mounts(claim, expected_mounts),
         top_level_mounts=_main_top_level_mounts(claim, expected_mounts, volume),
         settings=settings,
-        running_keeper=False,
+        lifecycle=_DockerContainerLifecycle.CREATED_MAIN,
     )
     return RunActionInertContainerEvidence.mint(
         preparation_claim_id=claim.preparation_claim_id,
@@ -285,6 +304,70 @@ def observe_inert_main_container(
         healthcheck_present=False,
         volume_plugin_mount_count=0,
         docker_socket_mounted=False,
+    )
+
+
+def observe_running_barrier_main_container(
+    raw_inspection: Mapping[str, Any],
+    claim: RunActionPreparationClaim,
+    authority: RunActionRuntimeVolumeAuthority,
+    volume: DockerRunActionVolumeObservation,
+    command: DockerRunActionCommand,
+    helper_evidence: RunActionSupervisorHelperEvidence,
+    init_source_evidence: RunActionDockerInitSourceEvidence,
+    settings: DockerRuntimeSettings,
+) -> RunActionBarrierRunningContainerObservation:
+    """Parse a running main without claiming wrapper generation or resolved mounts."""
+
+    issued = issued_main_projection(
+        claim,
+        authority,
+        command,
+        helper_evidence,
+        init_source_evidence,
+        settings,
+    )
+    _require_volume_observation(volume, authority, settings)
+    supplied = _require_mapping(
+        raw_inspection,
+        "Docker running main inspection",
+    )
+    complete_inspection_payload = canonical_json_bytes(supplied)
+    raw = _require_mapping(
+        parse_json_bytes(complete_inspection_payload),
+        "Docker running main inspection snapshot",
+    )
+    labels = preparation_container_labels(claim)
+    mounts = preparation_main_mounts(claim, authority)
+    barrier_executable, barrier_arguments = main_barrier_command(command, settings)
+    container_id = _require_common_container(
+        raw,
+        claim=claim,
+        labels=labels,
+        container_name=preparation_container_name(claim),
+        command_executable=barrier_executable,
+        command_arguments=barrier_arguments,
+        working_directory=claim.execution_policy.filesystem_policy.working_directory,
+        host_config_mounts=_main_host_config_mounts(claim, mounts),
+        top_level_mounts=_main_top_level_mounts(claim, mounts, volume),
+        settings=settings,
+        lifecycle=_DockerContainerLifecycle.RUNNING_MAIN,
+    )
+    state = raw["State"]
+    return RunActionBarrierRunningContainerObservation.mint(
+        container_id=container_id,
+        observed_inspect_projection=issued,
+        complete_inspection_digest=tree_or_blob_digest(complete_inspection_payload),
+        container_status=state["Status"],
+        init_process_id=state["Pid"],
+        restart_count=raw["RestartCount"],
+        started_at=state["StartedAt"],
+        finished_at=state["FinishedAt"],
+        paused=state["Paused"],
+        restarting=state["Restarting"],
+        dead=state["Dead"],
+        oom_killed=state["OOMKilled"],
+        state_error=state["Error"],
     )
 
 
@@ -358,7 +441,7 @@ def observe_running_keeper(
             volume,
         ),
         settings=settings,
-        running_keeper=True,
+        lifecycle=_DockerContainerLifecycle.RUNNING_KEEPER,
     )
     state = raw["State"]
     mounted_helper_evidence = observe_mounted_keeper_helper(
@@ -419,7 +502,7 @@ def observe_inert_keeper(
             volume,
         ),
         settings=settings,
-        running_keeper=False,
+        lifecycle=_DockerContainerLifecycle.INERT_KEEPER,
     )
     return DockerRunActionInertKeeperObservation(
         container_id=container_id,
@@ -440,8 +523,12 @@ def _require_common_container(
     host_config_mounts: list[dict[str, Any]],
     top_level_mounts: list[dict[str, Any]],
     settings: DockerRuntimeSettings,
-    running_keeper: bool,
+    lifecycle: _DockerContainerLifecycle,
 ) -> str:
+    if type(lifecycle) is not _DockerContainerLifecycle:
+        raise DockerRunActionInspectionError(
+            "Docker container lifecycle mode is invalid"
+        )
     _require_exact_fields(raw, "container_root", "Docker container")
     container_id = raw["Id"]
     if (
@@ -472,7 +559,11 @@ def _require_common_container(
     )
     _require_exact_fields(state, "container_state", "Docker container State")
     _require_graph_driver(graph_driver, container_id, settings)
-    _require_network(network_settings, running_keeper=running_keeper)
+    running = lifecycle in {
+        _DockerContainerLifecycle.RUNNING_KEEPER,
+        _DockerContainerLifecycle.RUNNING_MAIN,
+    }
+    _require_network(network_settings, running=running)
     expected_config = _expected_container_config(
         claim,
         labels=labels,
@@ -486,7 +577,7 @@ def _require_common_container(
     expected_host_config = _expected_host_config(
         claim,
         mounts=host_config_mounts,
-        running_keeper=running_keeper,
+        lifecycle=lifecycle,
     )
     observed_host_config = dict(host_config)
     observed_host_config["Mounts"] = _normalized_mounts(
@@ -508,7 +599,7 @@ def _require_common_container(
     expected_daemon_paths = _daemon_managed_paths(
         container_id,
         settings,
-        running_keeper=running_keeper,
+        running=running,
     )
     expected_root_fields = {
         "AppArmorProfile": policy.sandbox_spec.apparmor_profile_id,
@@ -545,7 +636,7 @@ def _require_common_container(
             observed_top_level_mounts if field_name == "Mounts" else raw[field_name]
         )
         _require_exact_value(observed_value, expected_value, field_name)
-    _require_container_state(state, running_keeper=running_keeper)
+    _require_container_state(state, lifecycle=lifecycle)
     return container_id
 
 
@@ -586,11 +677,19 @@ def _expected_host_config(
     claim: RunActionPreparationClaim,
     *,
     mounts: list[dict[str, Any]],
-    running_keeper: bool,
+    lifecycle: _DockerContainerLifecycle,
 ) -> dict[str, Any]:
+    if type(lifecycle) is not _DockerContainerLifecycle:
+        raise DockerRunActionInspectionError(
+            "Docker host configuration lifecycle mode is invalid"
+        )
     policy = claim.execution_policy
     limits = policy.docker_resource_limits
     sandbox = policy.sandbox_spec
+    running = lifecycle in {
+        _DockerContainerLifecycle.RUNNING_KEEPER,
+        _DockerContainerLifecycle.RUNNING_MAIN,
+    }
     return {
         "AutoRemove": False,
         "Binds": None,
@@ -639,7 +738,7 @@ def _expected_host_config(
         "Mounts": mounts,
         "NanoCpus": 0,
         "NetworkMode": "none",
-        "OomKillDisable": None if running_keeper else False,
+        "OomKillDisable": None if running else False,
         "OomScoreAdj": limits.oom_score_adjustment,
         "PidMode": "",
         "PidsLimit": limits.process_limit,
@@ -857,7 +956,7 @@ def _require_storage_path(
 def _require_network(
     network_settings: Mapping[str, Any],
     *,
-    running_keeper: bool,
+    running: bool,
 ) -> None:
     _require_exact_fields(
         network_settings,
@@ -896,7 +995,7 @@ def _require_network(
         raise DockerRunActionInspectionError(
             "Docker none network exposes unexpected addressing or ports"
         )
-    if running_keeper:
+    if running:
         sandbox_id = network_settings["SandboxID"]
         if (
             not isinstance(sandbox_id, str)
@@ -1016,8 +1115,12 @@ def _normalized_environment(value: Any) -> list[str]:
 def _require_container_state(
     state: Mapping[str, Any],
     *,
-    running_keeper: bool,
+    lifecycle: _DockerContainerLifecycle,
 ) -> None:
+    if type(lifecycle) is not _DockerContainerLifecycle:
+        raise DockerRunActionInspectionError(
+            "Docker container state lifecycle mode is invalid"
+        )
     expected_common = {
         "Dead": False,
         "Error": "",
@@ -1034,7 +1137,10 @@ def _require_container_state(
         raise DockerRunActionInspectionError(
             "Docker container state differs from safe lifecycle"
         )
-    if running_keeper:
+    if lifecycle in {
+        _DockerContainerLifecycle.RUNNING_KEEPER,
+        _DockerContainerLifecycle.RUNNING_MAIN,
+    }:
         if (
             state["Running"] is not True
             or state["Status"] != "running"
@@ -1044,7 +1150,7 @@ def _require_container_state(
             or state["StartedAt"] == _ZERO_DOCKER_TIMESTAMP
         ):
             raise DockerRunActionInspectionError(
-                "Docker keeper is not one stable running process"
+                "Docker container is not one stable running process"
             )
     elif (
         state["Running"] is not False
@@ -1054,7 +1160,7 @@ def _require_container_state(
         or state["StartedAt"] != _ZERO_DOCKER_TIMESTAMP
     ):
         raise DockerRunActionInspectionError(
-            "Docker main container is not inert and never-started"
+            "Docker container is not inert and never-started"
         )
 
 
@@ -1062,9 +1168,9 @@ def _daemon_managed_paths(
     container_id: str,
     settings: DockerRuntimeSettings,
     *,
-    running_keeper: bool,
+    running: bool,
 ) -> dict[str, str]:
-    if not running_keeper:
+    if not running:
         return {
             "HostnamePath": "",
             "HostsPath": "",
@@ -1268,10 +1374,12 @@ __all__ = [
     "DockerRunActionInertKeeperObservation",
     "DockerRunActionInspectionError",
     "DockerRunActionVolumeObservation",
+    "RunActionBarrierRunningContainerObservation",
     "issued_keeper_projection",
     "issued_main_projection",
     "observe_inert_keeper",
     "observe_inert_main_container",
+    "observe_running_barrier_main_container",
     "observe_running_keeper",
     "observe_runtime_volume",
 ]

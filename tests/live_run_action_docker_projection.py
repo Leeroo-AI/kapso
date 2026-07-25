@@ -44,6 +44,7 @@ from kapso.cross_run.launch.run_action_docker_resources import (
 from kapso.cross_run.launch.run_action_docker_inspect import (
     observe_inert_keeper,
     observe_inert_main_container,
+    observe_running_barrier_main_container,
     observe_running_keeper,
     observe_runtime_volume,
 )
@@ -928,8 +929,22 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
         running_layout_main = resource_manager.inspect_main(
             resource_manager.observe(layout_allocation)
         )
+        running_main_observation = observe_running_barrier_main_container(
+            running_layout_main,
+            layout_claim,
+            layout_authority,
+            layout_volume_observation,
+            command,
+            helper_evidence,
+            init_source_evidence,
+            settings,
+        )
         assert running_layout_main["State"]["Running"] is True
         assert running_layout_main["State"]["Pid"] > 0
+        assert running_main_observation.container_id == layout_main_id
+        assert running_main_observation.init_process_id == (
+            running_layout_main["State"]["Pid"]
+        )
         assert running_layout_main["Path"] == (
             layout_main_evidence.issued_create_projection.command_executable
         )
