@@ -116,6 +116,29 @@ class DockerRunActionVolumeObservation:
             )
 
 
+@dataclass(frozen=True)
+class DockerRunActionInertKeeperObservation:
+    """Closed pre-start keeper observation with no activation authority."""
+
+    container_id: str
+    issued_create_projection: DockerRunActionKeeperCreateInspectProjection
+    observed_inspect_projection: DockerRunActionKeeperCreateInspectProjection
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.container_id) is not str
+            or _CONTAINER_ID_PATTERN.fullmatch(self.container_id) is None
+            or type(self.issued_create_projection)
+            is not DockerRunActionKeeperCreateInspectProjection
+            or type(self.observed_inspect_projection)
+            is not DockerRunActionKeeperCreateInspectProjection
+            or self.observed_inspect_projection != self.issued_create_projection
+        ):
+            raise DockerRunActionInspectionError(
+                "inert keeper observation differs from its issued projection"
+            )
+
+
 def observe_runtime_volume(
     raw_inspection: Mapping[str, Any],
     claim: RunActionPreparationClaim,
@@ -323,6 +346,49 @@ def observe_running_keeper(
         restart_count=0,
         restart_policy_name="no",
         auto_remove=False,
+    )
+
+
+def observe_inert_keeper(
+    raw_inspection: Mapping[str, Any],
+    claim: RunActionPreparationClaim,
+    authority: RunActionRuntimeVolumeAuthority,
+    volume: DockerRunActionVolumeObservation,
+    helper_evidence: RunActionKeeperHelperEvidence,
+    settings: DockerRuntimeSettings,
+) -> DockerRunActionInertKeeperObservation:
+    """Parse one never-started keeper before issuing its sole start mutation."""
+
+    issued = issued_keeper_projection(
+        claim,
+        authority,
+        helper_evidence,
+        settings,
+    )
+    _require_volume_observation(volume, authority, settings)
+    raw = _require_mapping(raw_inspection, "Docker inert keeper inspection")
+    labels = preparation_keeper_container_labels(claim)
+    container_id = _require_common_container(
+        raw,
+        claim=claim,
+        labels=labels,
+        container_name=preparation_keeper_container_name(claim),
+        command_executable=RUN_ACTION_RUNTIME_VOLUME_KEEPER_HELPER_DESTINATION,
+        command_arguments=("tail", "-f", "/dev/null"),
+        working_directory=RUN_ACTION_RUNTIME_VOLUME_KEEPER_DESTINATION,
+        host_config_mounts=_keeper_host_config_mounts(claim, authority),
+        top_level_mounts=_keeper_top_level_mounts(
+            claim,
+            authority,
+            volume,
+        ),
+        settings=settings,
+        running_keeper=False,
+    )
+    return DockerRunActionInertKeeperObservation(
+        container_id=container_id,
+        issued_create_projection=issued,
+        observed_inspect_projection=issued,
     )
 
 
@@ -1119,10 +1185,12 @@ def _is_utc_timestamp(value: Any) -> bool:
 
 
 __all__ = [
+    "DockerRunActionInertKeeperObservation",
     "DockerRunActionInspectionError",
     "DockerRunActionVolumeObservation",
     "issued_keeper_projection",
     "issued_main_projection",
+    "observe_inert_keeper",
     "observe_inert_main_container",
     "observe_running_keeper",
     "observe_runtime_volume",

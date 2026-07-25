@@ -10,6 +10,7 @@ from kapso.cross_run.launch.run_action_docker_inspect import (
     DockerRunActionInspectionError,
     issued_keeper_projection,
     issued_main_projection,
+    observe_inert_keeper,
     observe_inert_main_container,
     observe_running_keeper,
     observe_runtime_volume,
@@ -287,6 +288,30 @@ def _container_raw(
     }
 
 
+def _inert_keeper_raw(
+    claim,
+    authority,
+    volume,
+    command,
+    docker_settings,
+):
+    raw = _container_raw(
+        claim,
+        authority,
+        volume,
+        command,
+        docker_settings,
+        keeper=True,
+    )
+    raw["HostConfig"]["OomKillDisable"] = False
+    raw["HostnamePath"] = ""
+    raw["HostsPath"] = ""
+    raw["NetworkSettings"] = _none_network(running=False)
+    raw["ResolvConfPath"] = ""
+    raw["State"] = _state(running=False)
+    return raw
+
+
 def test_volume_inspection_is_closed_and_normalized(docker_settings):
     claim, authority, volume_raw, volume, _command, _helper = _context(docker_settings)
 
@@ -372,6 +397,37 @@ def test_keeper_inspection_equals_issued_projection(docker_settings):
         docker_settings,
     )
     assert evidence.observed_inspect_projection == evidence.issued_create_projection
+
+
+def test_inert_keeper_inspection_equals_issued_projection(docker_settings):
+    claim, authority, _volume_raw, volume, command, helper = _context(docker_settings)
+    raw = _inert_keeper_raw(
+        claim,
+        authority,
+        volume,
+        command,
+        docker_settings,
+    )
+
+    observation = observe_inert_keeper(
+        raw,
+        claim,
+        authority,
+        volume,
+        helper,
+        docker_settings,
+    )
+
+    assert observation.container_id == _KEEPER_CONTAINER_ID
+    assert observation.issued_create_projection == issued_keeper_projection(
+        claim,
+        authority,
+        helper,
+        docker_settings,
+    )
+    assert observation.observed_inspect_projection == (
+        observation.issued_create_projection
+    )
 
 
 def _add_field(value):
@@ -730,6 +786,34 @@ def test_every_volume_leaf_is_classified_and_validated(docker_settings):
                 mutated,
                 claim,
                 authority,
+                docker_settings,
+            )
+
+
+def test_every_inert_keeper_leaf_is_classified_and_validated(docker_settings):
+    claim, authority, _volume_raw, volume, command, helper = _context(docker_settings)
+    raw = _inert_keeper_raw(
+        claim,
+        authority,
+        volume,
+        command,
+        docker_settings,
+    )
+    for path in _leaf_paths(raw):
+        mutated = copy.deepcopy(raw)
+        original = _path_value(mutated, path)
+        _assign_parts(
+            mutated,
+            path,
+            "unexpected-non-null-value" if original is None else None,
+        )
+        with pytest.raises(DockerRunActionInspectionError):
+            observe_inert_keeper(
+                mutated,
+                claim,
+                authority,
+                volume,
+                helper,
                 docker_settings,
             )
 

@@ -613,9 +613,10 @@ keeper helper is descriptor-proven as root-owned, singly linked, content-pinned
 ELF code with no dynamic loader or dependency table. Its running bind target is
 then re-read through the inspected keeper PID, bound to that container's cgroup,
 and required to retain the issued source device, inode, and digest. Volume,
-never-started main, and running keeper inspections now require complete nested
-raw schemas and normalize only enumerated daemon identities and ordering; issued
-and observed projections are equal in repeated Docker 29.1.3 runs with a
+never-started keeper, running keeper, and never-started main inspections now
+require complete nested raw schemas and normalize only enumerated daemon
+identities and ordering; issued and observed projections are equal in repeated
+Docker 29.1.3 runs with a
 digest-pulled loopback OCI image. The race-safe name/label resource manager,
 now has a twice-stable name-only, name-plus-label, and label-only inventory with
 inspect-by-ID container rebinding and full-inspection volume occurrence digests.

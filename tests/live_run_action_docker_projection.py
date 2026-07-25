@@ -37,6 +37,7 @@ from kapso.cross_run.launch.run_action_docker_resources import (
     DockerRunActionResourceManager,
 )
 from kapso.cross_run.launch.run_action_docker_inspect import (
+    observe_inert_keeper,
     observe_inert_main_container,
     observe_running_keeper,
     observe_runtime_volume,
@@ -336,6 +337,19 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
         )
         keeper_id = keeper_result.stdout.decode("ascii").strip()
         assert _CONTAINER_ID_PATTERN.fullmatch(keeper_id) is not None
+        inert_keeper_inventory = resource_manager.observe(claim)
+        assert inert_keeper_inventory.volume_present is True
+        assert inert_keeper_inventory.keeper_container_id == keeper_id
+        assert inert_keeper_inventory.main_container_id is None
+        inert_keeper = observe_inert_keeper(
+            resource_manager.inspect_keeper(inert_keeper_inventory),
+            claim,
+            authority,
+            volume_observation,
+            helper_evidence,
+            settings,
+        )
+        assert inert_keeper.container_id == keeper_id
         started_keeper = runtime.run_control(("container", "start", keeper_id))
         assert started_keeper.stdout == f"{keeper_id}\n".encode("ascii")
         runtime.run_control(
