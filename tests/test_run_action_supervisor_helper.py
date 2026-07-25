@@ -6,12 +6,22 @@ from contextlib import ExitStack
 
 import pytest
 
+from kapso.core.config import load_config
 from kapso.cross_run.launch import run_action_supervisor_helper as helper_module
 from kapso.cross_run.launch.run_action_supervisor_helper import (
     RunActionSupervisorHelperError,
 )
+from kapso.cross_run.settings import CrossRunSettings
 
+_CANONICAL_CONFIG_PATH = "src/kapso/config.yaml"
 _CONTAINER_ID = "a" * 64
+
+
+@pytest.fixture(scope="module")
+def docker_settings():
+    return CrossRunSettings.from_dict(
+        load_config(_CANONICAL_CONFIG_PATH)["cross_run"]
+    ).docker
 
 
 def _process_stat_payload(
@@ -226,6 +236,374 @@ def test_process_command_line_parser_rejects_non_exact_payload(payload):
         match="not exact NUL-separated argv",
     ):
         helper_module._parse_run_action_process_command_line(payload)
+
+
+def test_direct_child_reader_uses_retained_process_descriptor(tmp_path):
+    process_id = 42
+    process_directory = tmp_path / "retained-process"
+    task_directory = process_directory / "task" / str(process_id)
+    task_directory.mkdir(parents=True)
+    (task_directory / "children").write_bytes(b"917 ")
+    process_descriptor = os.open(
+        process_directory,
+        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+    )
+    with ExitStack() as descriptors:
+        descriptors.callback(os.close, process_descriptor)
+
+        assert (
+            helper_module.read_run_action_process_direct_child_from_descriptor(
+                process_descriptor,
+                process_id,
+                len(b"917 "),
+            )
+            == 917
+        )
+
+
+@pytest.mark.parametrize(
+    "payload",
+    (
+        b"",
+        b"0 ",
+        b"17",
+        b"17\n",
+        b"17 18 ",
+        b"17 17 ",
+        b"+17 ",
+        b"-17 ",
+        b" 17 ",
+        b"17  ",
+        b"17 \n",
+        b"17\x00 ",
+    ),
+)
+def test_direct_child_parser_rejects_empty_malformed_multiple_or_duplicate_snapshot(
+    payload,
+):
+    with pytest.raises(
+        RunActionSupervisorHelperError,
+        match="exactly one direct child",
+    ):
+        helper_module._parse_run_action_direct_child(payload)
+
+
+def test_direct_child_reader_refuses_symlinked_task_component(tmp_path):
+    process_directory = tmp_path / "retained-process"
+    alternate_task_directory = tmp_path / "alternate-task"
+    (alternate_task_directory / "42").mkdir(parents=True)
+    (alternate_task_directory / "42" / "children").write_bytes(b"917 ")
+    process_directory.mkdir()
+    (process_directory / "task").symlink_to(alternate_task_directory)
+    process_descriptor = os.open(
+        process_directory,
+        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+    )
+    with ExitStack() as descriptors:
+        descriptors.callback(os.close, process_descriptor)
+        with pytest.raises(OSError):
+            helper_module.read_run_action_process_direct_child_from_descriptor(
+                process_descriptor,
+                42,
+                len(b"917 "),
+            )
+
+
+def test_direct_child_reader_fails_when_full_snapshot_exceeds_byte_limit(tmp_path):
+    payload = b"917 "
+    process_id = 42
+    process_directory = tmp_path / "retained-process"
+    task_directory = process_directory / "task" / str(process_id)
+    task_directory.mkdir(parents=True)
+    (task_directory / "children").write_bytes(payload)
+    process_descriptor = os.open(
+        process_directory,
+        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+    )
+    with ExitStack() as descriptors:
+        descriptors.callback(os.close, process_descriptor)
+        with pytest.raises(
+            RunActionSupervisorHelperError,
+            match="complete-payload byte limit",
+        ):
+            helper_module.read_run_action_process_direct_child_from_descriptor(
+                process_descriptor,
+                process_id,
+                len(payload) - 1,
+            )
+
+
+@pytest.mark.parametrize("byte_limit", (0, -1, True, "4"))
+def test_direct_child_reader_requires_positive_integer_byte_limit(
+    tmp_path,
+    byte_limit,
+):
+    process_directory = tmp_path / "retained-process"
+    process_directory.mkdir()
+    process_descriptor = os.open(
+        process_directory,
+        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+    )
+    with ExitStack() as descriptors:
+        descriptors.callback(os.close, process_descriptor)
+        with pytest.raises(
+            RunActionSupervisorHelperError,
+            match="direct-child identity is malformed",
+        ):
+            helper_module.read_run_action_process_direct_child_from_descriptor(
+                process_descriptor,
+                42,
+                byte_limit,
+            )
+
+
+def test_mountinfo_reader_returns_exact_full_eof_ascii_payload(tmp_path):
+    payload = b"41 28 0:37 / /workspace rw - tmpfs tmpfs rw\n"
+    process_directory = tmp_path / "retained-process"
+    process_directory.mkdir()
+    (process_directory / "mountinfo").write_bytes(payload)
+    process_descriptor = os.open(
+        process_directory,
+        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+    )
+    with ExitStack() as descriptors:
+        descriptors.callback(os.close, process_descriptor)
+
+        assert helper_module.read_run_action_process_mount_info_from_descriptor(
+            process_descriptor,
+            len(payload),
+        ) == payload.decode("ascii")
+
+
+def test_mountinfo_reader_fails_when_full_payload_exceeds_byte_limit(tmp_path):
+    payload = b"41 28 0:37 / /workspace rw - tmpfs tmpfs rw\n"
+    process_directory = tmp_path / "retained-process"
+    process_directory.mkdir()
+    (process_directory / "mountinfo").write_bytes(payload)
+    process_descriptor = os.open(
+        process_directory,
+        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+    )
+    with ExitStack() as descriptors:
+        descriptors.callback(os.close, process_descriptor)
+        with pytest.raises(
+            RunActionSupervisorHelperError,
+            match="complete-payload byte limit",
+        ):
+            helper_module.read_run_action_process_mount_info_from_descriptor(
+                process_descriptor,
+                len(payload) - 1,
+            )
+
+
+@pytest.mark.parametrize("byte_limit", (0, -1, True, "4096"))
+def test_mountinfo_reader_requires_positive_integer_byte_limit(
+    tmp_path,
+    byte_limit,
+):
+    process_directory = tmp_path / "retained-process"
+    process_directory.mkdir()
+    process_descriptor = os.open(
+        process_directory,
+        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+    )
+    with ExitStack() as descriptors:
+        descriptors.callback(os.close, process_descriptor)
+        with pytest.raises(
+            RunActionSupervisorHelperError,
+            match="mountinfo read authority is malformed",
+        ):
+            helper_module.read_run_action_process_mount_info_from_descriptor(
+                process_descriptor,
+                byte_limit,
+            )
+
+
+@pytest.mark.parametrize(
+    "payload",
+    (
+        b"",
+        b"41 28 0:37 / /workspace rw - tmpfs tmpfs rw",
+        b"41 28 0:37 / /workspace rw - tmpfs tmpfs rw\r\n",
+        b"41 28 0:37 / /workspace rw - tmpfs tmpfs \xff\n",
+        b"41 28 0:37 / /workspace rw - tmpfs tmpfs rw\x00\n",
+    ),
+)
+def test_mountinfo_reader_rejects_payload_unsuitable_for_exact_snapshot(
+    tmp_path,
+    payload,
+):
+    process_directory = tmp_path / "retained-process"
+    process_directory.mkdir()
+    (process_directory / "mountinfo").write_bytes(payload)
+    process_descriptor = os.open(
+        process_directory,
+        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+    )
+    with ExitStack() as descriptors:
+        descriptors.callback(os.close, process_descriptor)
+        with pytest.raises(
+            RunActionSupervisorHelperError,
+            match="full-EOF ASCII",
+        ):
+            helper_module.read_run_action_process_mount_info_from_descriptor(
+                process_descriptor,
+                max(len(payload), 1),
+            )
+
+
+def test_host_boot_id_reader_uses_fixed_no_follow_components(tmp_path):
+    boot_id = "01234567-89ab-4def-8123-456789abcdef"
+    boot_id_directory = tmp_path / "sys" / "kernel" / "random"
+    boot_id_directory.mkdir(parents=True)
+    (boot_id_directory / "boot_id").write_text(f"{boot_id}\n", encoding="ascii")
+    proc_root_descriptor = os.open(
+        tmp_path,
+        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+    )
+    with ExitStack() as descriptors:
+        descriptors.callback(os.close, proc_root_descriptor)
+
+        assert (
+            helper_module.read_run_action_host_boot_id(proc_root_descriptor) == boot_id
+        )
+
+
+@pytest.mark.parametrize(
+    "payload",
+    (
+        b"",
+        b"01234567-89ab-4def-8123-456789abcdef",
+        b"01234567-89AB-4DEF-8123-456789ABCDEF\n",
+        b"not-a-boot-id\n",
+    ),
+)
+def test_host_boot_id_reader_rejects_noncanonical_payload(tmp_path, payload):
+    boot_id_directory = tmp_path / "sys" / "kernel" / "random"
+    boot_id_directory.mkdir(parents=True)
+    (boot_id_directory / "boot_id").write_bytes(payload)
+    proc_root_descriptor = os.open(
+        tmp_path,
+        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+    )
+    with ExitStack() as descriptors:
+        descriptors.callback(os.close, proc_root_descriptor)
+        with pytest.raises(
+            RunActionSupervisorHelperError,
+            match="boot ID payload is malformed",
+        ):
+            helper_module.read_run_action_host_boot_id(proc_root_descriptor)
+
+
+def test_host_boot_id_reader_rejects_structural_overflow(tmp_path):
+    boot_id_directory = tmp_path / "sys" / "kernel" / "random"
+    boot_id_directory.mkdir(parents=True)
+    (boot_id_directory / "boot_id").write_bytes(
+        b"01234567-89ab-4def-8123-456789abcdef\nextra\n"
+    )
+    proc_root_descriptor = os.open(
+        tmp_path,
+        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+    )
+    with ExitStack() as descriptors:
+        descriptors.callback(os.close, proc_root_descriptor)
+        with pytest.raises(
+            RunActionSupervisorHelperError,
+            match="complete-payload byte limit",
+        ):
+            helper_module.read_run_action_host_boot_id(proc_root_descriptor)
+
+
+def test_host_boot_id_reader_refuses_symlinked_path_component(tmp_path):
+    alternate_sys_directory = tmp_path / "alternate-sys"
+    boot_id_directory = alternate_sys_directory / "kernel" / "random"
+    boot_id_directory.mkdir(parents=True)
+    (boot_id_directory / "boot_id").write_text(
+        "01234567-89ab-4def-8123-456789abcdef\n",
+        encoding="ascii",
+    )
+    (tmp_path / "sys").symlink_to(alternate_sys_directory)
+    proc_root_descriptor = os.open(
+        tmp_path,
+        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+    )
+    with ExitStack() as descriptors:
+        descriptors.callback(os.close, proc_root_descriptor)
+        with pytest.raises(OSError):
+            helper_module.read_run_action_host_boot_id(proc_root_descriptor)
+
+
+def test_executable_descriptor_verification_is_stable_and_nonclosing(
+    docker_settings,
+):
+    executable_path = docker_settings.init_executable_path
+    expected_digest = docker_settings.init_executable_digest
+    descriptor = os.open(
+        executable_path,
+        os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
+    )
+    with ExitStack() as descriptors:
+        descriptors.callback(os.close, descriptor)
+        os.lseek(descriptor, 11, os.SEEK_SET)
+
+        observation = helper_module.verify_run_action_executable_descriptor(
+            descriptor,
+            expected_digest,
+        )
+
+        assert observation.executable_digest == expected_digest
+        assert observation.device == os.fstat(descriptor).st_dev
+        assert observation.inode == os.fstat(descriptor).st_ino
+        assert os.lseek(descriptor, 0, os.SEEK_CUR) == 11
+
+
+def test_executable_descriptor_remains_open_after_digest_failure(docker_settings):
+    descriptor = os.open(
+        docker_settings.init_executable_path,
+        os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
+    )
+    with ExitStack() as descriptors:
+        descriptors.callback(os.close, descriptor)
+        with pytest.raises(
+            RunActionSupervisorHelperError,
+            match="changed while proving",
+        ):
+            helper_module.verify_run_action_executable_descriptor(
+                descriptor,
+                "sha256:" + "0" * 64,
+            )
+
+        assert os.fstat(descriptor).st_ino > 0
+
+
+def test_executable_descriptor_mount_identity_race_fails_without_closing(
+    monkeypatch,
+    docker_settings,
+):
+    executable_path = docker_settings.init_executable_path
+    expected_digest = docker_settings.init_executable_digest
+    descriptor = os.open(
+        executable_path,
+        os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
+    )
+    mount_ids = iter((41, 42))
+    monkeypatch.setattr(
+        helper_module,
+        "read_run_action_descriptor_mount_id",
+        lambda _descriptor: next(mount_ids),
+    )
+    with ExitStack() as descriptors:
+        descriptors.callback(os.close, descriptor)
+        with pytest.raises(
+            RunActionSupervisorHelperError,
+            match="changed while proving",
+        ):
+            helper_module.verify_run_action_executable_descriptor(
+                descriptor,
+                expected_digest,
+            )
+
+        assert os.fstat(descriptor).st_ino > 0
 
 
 def test_process_root_executable_and_namespace_metadata_are_descriptor_bound():

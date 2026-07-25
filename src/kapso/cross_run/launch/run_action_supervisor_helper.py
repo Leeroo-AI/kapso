@@ -9,6 +9,7 @@ import struct
 from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
+from typing import BinaryIO
 
 from kapso.cross_run.canonical import tree_or_blob_digest
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
@@ -35,6 +36,11 @@ _ELF_64_PROGRAM_HEADER_SIZE = 56
 _ELF_IDENT_SIZE = 16
 _FDINFO_MOUNT_ID_PREFIX = "mnt_id:\t"
 _CONTAINER_ID_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+_SHA256_DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
+_HOST_BOOT_ID_PATTERN = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-" r"[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+)
+_HOST_BOOT_ID_PAYLOAD_SIZE = 37
 _LIVE_PROCESS_STATES = ("D", "I", "P", "R", "S", "T", "t")
 _PROCESS_DESCRIPTOR_FILE_TYPES = {
     "exe": "regular",
@@ -115,6 +121,46 @@ class RunActionProcessDescriptorMetadata:
         ):
             raise RunActionSupervisorHelperError(
                 "run-action process descriptor metadata is malformed"
+            )
+
+
+@dataclass(frozen=True)
+class RunActionExecutableDescriptorObservation:
+    """Stable content and physical identity of one retained executable."""
+
+    mount_id: int
+    device: int
+    inode: int
+    mode: int
+    owner_user_id: int
+    owner_group_id: int
+    link_count: int
+    size: int
+    executable_digest: str
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.mount_id) is not int
+            or self.mount_id <= 0
+            or type(self.device) is not int
+            or self.device < 0
+            or type(self.inode) is not int
+            or self.inode <= 0
+            or type(self.mode) is not int
+            or self.mode != 0o755
+            or type(self.owner_user_id) is not int
+            or self.owner_user_id != 0
+            or type(self.owner_group_id) is not int
+            or self.owner_group_id != 0
+            or type(self.link_count) is not int
+            or self.link_count != 1
+            or type(self.size) is not int
+            or self.size <= 0
+            or type(self.executable_digest) is not str
+            or _SHA256_DIGEST_PATTERN.fullmatch(self.executable_digest) is None
+        ):
+            raise RunActionSupervisorHelperError(
+                "run-action executable descriptor observation is malformed"
             )
 
 
@@ -308,23 +354,75 @@ def _observe_static_executable_descriptor(
     description: str,
 ) -> tuple[os.stat_result, int]:
     with os.fdopen(descriptor, "rb") as handle:
-        metadata_before = os.fstat(handle.fileno())
-        mount_id_before = read_run_action_descriptor_mount_id(handle.fileno())
-        _require_static_executable_metadata(metadata_before, description)
-        payload = handle.read()
-        metadata_after = os.fstat(handle.fileno())
-        mount_id_after = read_run_action_descriptor_mount_id(handle.fileno())
+        observation, metadata = _verify_run_action_executable_descriptor(
+            handle.fileno(),
+            expected_executable_digest,
+            description,
+        )
+    return metadata, observation.mount_id
+
+
+def verify_run_action_executable_descriptor(
+    descriptor: int,
+    expected_executable_digest: str,
+) -> RunActionExecutableDescriptorObservation:
+    """Verify retained static executable authority without consuming its descriptor."""
+
+    observation, _ = _verify_run_action_executable_descriptor(
+        descriptor,
+        expected_executable_digest,
+        "run-action executable descriptor",
+    )
+    return observation
+
+
+def _verify_run_action_executable_descriptor(
+    descriptor: int,
+    expected_executable_digest: str,
+    description: str,
+) -> tuple[RunActionExecutableDescriptorObservation, os.stat_result]:
+    if (
+        type(descriptor) is not int
+        or descriptor < 0
+        or type(expected_executable_digest) is not str
+        or _SHA256_DIGEST_PATTERN.fullmatch(expected_executable_digest) is None
+        or type(description) is not str
+        or not description
+    ):
+        raise RunActionSupervisorHelperError(
+            "run-action executable descriptor authority is malformed"
+        )
+    metadata_before = os.fstat(descriptor)
+    mount_id_before = read_run_action_descriptor_mount_id(descriptor)
+    _require_static_executable_metadata(metadata_before, description)
+    payload = os.pread(descriptor, metadata_before.st_size + 1, 0)
+    metadata_after = os.fstat(descriptor)
+    mount_id_after = read_run_action_descriptor_mount_id(descriptor)
+    executable_digest = tree_or_blob_digest(payload)
     if (
         _stable_metadata(metadata_before) != _stable_metadata(metadata_after)
         or mount_id_before != mount_id_after
         or len(payload) != metadata_before.st_size
-        or tree_or_blob_digest(payload) != expected_executable_digest
+        or executable_digest != expected_executable_digest
     ):
         raise RunActionSupervisorHelperError(
             f"{description} changed while proving its content"
         )
     _require_static_elf(payload, description)
-    return metadata_before, mount_id_before
+    return (
+        RunActionExecutableDescriptorObservation(
+            mount_id=mount_id_before,
+            device=metadata_before.st_dev,
+            inode=metadata_before.st_ino,
+            mode=stat.S_IMODE(metadata_before.st_mode),
+            owner_user_id=metadata_before.st_uid,
+            owner_group_id=metadata_before.st_gid,
+            link_count=metadata_before.st_nlink,
+            size=metadata_before.st_size,
+            executable_digest=executable_digest,
+        ),
+        metadata_before,
+    )
 
 
 def read_run_action_process_stat_from_descriptor(
@@ -410,6 +508,170 @@ def read_run_action_process_command_line_from_descriptor(
     with os.fdopen(descriptor, "rb") as handle:
         payload = handle.read()
     return _parse_run_action_process_command_line(payload)
+
+
+def read_run_action_process_direct_child_from_descriptor(
+    process_descriptor: int,
+    process_id: int,
+    byte_limit: int,
+) -> int:
+    """Read the one exact direct-child snapshot through a retained proc PID."""
+
+    if (
+        type(process_descriptor) is not int
+        or process_descriptor < 0
+        or type(process_id) is not int
+        or process_id <= 0
+        or type(byte_limit) is not int
+        or byte_limit <= 0
+    ):
+        raise RunActionSupervisorHelperError(
+            "run-action direct-child identity is malformed"
+        )
+    with ExitStack() as descriptors:
+        task_directory_descriptor = os.open(
+            "task",
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+            dir_fd=process_descriptor,
+        )
+        descriptors.callback(os.close, task_directory_descriptor)
+        task_descriptor = os.open(
+            str(process_id),
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+            dir_fd=task_directory_descriptor,
+        )
+        descriptors.callback(os.close, task_descriptor)
+        children_descriptor = os.open(
+            "children",
+            os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
+            dir_fd=task_descriptor,
+        )
+        with os.fdopen(children_descriptor, "rb") as handle:
+            payload = _read_complete_bounded_payload(
+                handle,
+                byte_limit,
+                "run-action direct-child snapshot",
+            )
+    return _parse_run_action_direct_child(payload)
+
+
+def _parse_run_action_direct_child(payload: bytes) -> int:
+    if (
+        type(payload) is not bytes
+        or not payload.endswith(b" ")
+        or not payload[:-1]
+        or not payload[:-1].isdigit()
+    ):
+        raise RunActionSupervisorHelperError(
+            "run-action process lacks exactly one direct child"
+        )
+    child_process_id = int(payload[:-1])
+    if child_process_id <= 0:
+        raise RunActionSupervisorHelperError(
+            "run-action process lacks exactly one direct child"
+        )
+    return child_process_id
+
+
+def read_run_action_process_mount_info_from_descriptor(
+    process_descriptor: int,
+    byte_limit: int,
+) -> str:
+    """Read one complete bounded mountinfo snapshot through a retained proc PID."""
+
+    if (
+        type(process_descriptor) is not int
+        or process_descriptor < 0
+        or type(byte_limit) is not int
+        or byte_limit <= 0
+    ):
+        raise RunActionSupervisorHelperError(
+            "run-action mountinfo read authority is malformed"
+        )
+    descriptor = os.open(
+        "mountinfo",
+        os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
+        dir_fd=process_descriptor,
+    )
+    with os.fdopen(descriptor, "rb") as handle:
+        payload = _read_complete_bounded_payload(
+            handle,
+            byte_limit,
+            "run-action mountinfo",
+        )
+    if (
+        not payload
+        or not payload.isascii()
+        or not payload.endswith(b"\n")
+        or b"\x00" in payload
+        or b"\r" in payload
+    ):
+        raise RunActionSupervisorHelperError(
+            "run-action mountinfo is not exact full-EOF ASCII text"
+        )
+    return payload.decode("ascii")
+
+
+def read_run_action_host_boot_id(proc_root_descriptor: int) -> str:
+    """Read the strict host boot ID through fixed no-follow proc components."""
+
+    if type(proc_root_descriptor) is not int or proc_root_descriptor < 0:
+        raise RunActionSupervisorHelperError(
+            "run-action host boot ID requires an exact proc root descriptor"
+        )
+    root_metadata = os.fstat(proc_root_descriptor)
+    if not stat.S_ISDIR(root_metadata.st_mode):
+        raise RunActionSupervisorHelperError(
+            "run-action host boot ID root is not a directory"
+        )
+    with ExitStack() as descriptors:
+        parent_descriptor = proc_root_descriptor
+        for component in ("sys", "kernel", "random"):
+            parent_descriptor = os.open(
+                component,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                dir_fd=parent_descriptor,
+            )
+            descriptors.callback(os.close, parent_descriptor)
+        boot_id_descriptor = os.open(
+            "boot_id",
+            os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
+            dir_fd=parent_descriptor,
+        )
+        with os.fdopen(boot_id_descriptor, "rb") as handle:
+            payload = _read_complete_bounded_payload(
+                handle,
+                _HOST_BOOT_ID_PAYLOAD_SIZE,
+                "run-action host boot ID",
+            )
+    if (
+        not payload.endswith(b"\n")
+        or b"\n" in payload[:-1]
+        or not payload[:-1].isascii()
+    ):
+        raise RunActionSupervisorHelperError(
+            "run-action host boot ID payload is malformed"
+        )
+    host_boot_id = payload[:-1].decode("ascii")
+    if _HOST_BOOT_ID_PATTERN.fullmatch(host_boot_id) is None:
+        raise RunActionSupervisorHelperError(
+            "run-action host boot ID payload is malformed"
+        )
+    return host_boot_id
+
+
+def _read_complete_bounded_payload(
+    handle: BinaryIO,
+    byte_limit: int,
+    description: str,
+) -> bytes:
+    payload = handle.read(byte_limit + 1)
+    trailing_payload = b"" if len(payload) > byte_limit else handle.read(1)
+    if len(payload) > byte_limit or trailing_payload:
+        raise RunActionSupervisorHelperError(
+            f"{description} exceeds its complete-payload byte limit"
+        )
+    return payload
 
 
 def _parse_run_action_process_command_line(
@@ -778,6 +1040,7 @@ def _stable_metadata(metadata: os.stat_result) -> tuple[int, ...]:
 
 
 __all__ = [
+    "RunActionExecutableDescriptorObservation",
     "RunActionProcessDescriptorMetadata",
     "RunActionProcessStatObservation",
     "RunActionSupervisorHelperError",
@@ -788,7 +1051,11 @@ __all__ = [
     "open_run_action_process_namespace_descriptor",
     "open_run_action_process_root_descriptor",
     "read_run_action_descriptor_mount_id",
+    "read_run_action_host_boot_id",
     "read_run_action_process_cgroup_path_from_descriptor",
     "read_run_action_process_command_line_from_descriptor",
+    "read_run_action_process_direct_child_from_descriptor",
+    "read_run_action_process_mount_info_from_descriptor",
     "read_run_action_process_stat_from_descriptor",
+    "verify_run_action_executable_descriptor",
 ]
