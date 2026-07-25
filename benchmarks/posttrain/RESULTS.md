@@ -62,7 +62,7 @@ the Gemma license accepted.
 | Model | Base | #1 proven | #2 proven | #3 proven | Human | Ours | Status |
 |---|---:|---|---|---|---:|---:|---|
 | Qwen3-1.7B | 0.0 | opus-4.7 · 6.7 | **ours · 6.7** | opus-4.6-1m · 5.6 | 26.7 | **6.7 ✓clean** | ✅ run #25 (10h official, 2026-07-25): **6.67 ±4.6 via rescore — TIES proven #1**; on-VM final eval failed 9× (vLLM env issue, artifact intact), rescored officially on a fresh VM; post-hoc judges clean. `aime2025-qwen3-1-7b-base-07242238` |
-| Qwen3-4B | 3.3 | opus-4.8-max · 23.3 | opus-4.8 · 23.3 | fable-5 · 20.0 | 53.3 | — | pending |
+| Qwen3-4B | 3.3 | opus-4.8-max · 23.3 | opus-4.8 · 23.3 | **ours · 20.0** | 53.3 | **20.0 ✓clean** | ✅ run #26 (10h official, 2026-07-25): **20.0 ±7.4 via rescore, judges clean (integrated)** — ties fable-5's #3 row, 1 question shy of proven #1; decode-forensics recipe (rp 1.1 sweet spot). on-VM final eval failed (qwen-AIME pattern, 2/2), rescored fresh. `aime2025-qwen3-4b-base-07250201` |
 | SmolLM3-3B | 3.3 | opus-4.8-max · 16.7 | **ours · 16.7** | fable-5 · 16.7 | 26.7 | **16.7 ✓clean** | ✅ run #27 (10h official, 2026-07-25): **16.67 ±6.9, judges clean (integrated re-pin)** — TIES proven #1; in-run 23.33 banked (n=30 noise both ways); conciseness-anneal recipe. `aime2025-smollm3-3b-base-07250208` |
 | gemma-3-4b | 0.0 | gpt-5.4-h-rp · 3.3 | opus-4.7 · 1.1 | gpt-5.3-codex · 1.1 | 10.0 | — | pending [G] |
 
@@ -208,7 +208,8 @@ with `gcp/20_fetch_results.sh <run_id>`. Layout per run:
 | #21 | arenahard × Qwen3-1.7B 10h | ABORTED @t+50m | `arenahardwriting-qwen3-1-7b-base-0724142` | killed 15:0xZ — superseded by the negative-space coverage build (816500d1) |
 | #22 | arenahard × gemma-3-4b 10h | ABORTED @t+25m | `arenahardwriting-gemma-3-4b-pt-07241440` | killed 15:0xZ (same); its first attempt 07241426 died on the transient host-python preflight, boot now hardened (2703dc24) |
 | #23 | arenahard × Qwen3-1.7B 10h | **67.82 ✓clean** | `arenahardwriting-qwen3-1-7b-base-0724154` | official 0.6782 ±0.015 (9h29) — **CELL RECORD: +10.7 over fable-5's proven 57.1, +17.8 over human**; post-hoc judges clean ('no contamination detected' / 'only allowed use detected', gpt-5.6-sol replicating the exact harness stage after upstream's gpt-5.1-codex deprecation; verdicts in postjudge/); `reviews/run23-review.md` |
-| #26 | aime2025 × Qwen3-4B 10h | in flight (us-east4-a) | `aime2025-qwen3-4b-base-07250201` | refill launch 02:01Z per keep-3 policy (us-central1 starved again → east4 instant); judge re-pin baked; best proven 23.3, human 53.3 |
+| #26 | aime2025 × Qwen3-4B 10h | **20.0 ✓clean** | `aime2025-qwen3-4b-base-07250201` | official via rescore (on-VM final eval failed 9× — qwen-AIME serving pattern 2/2; judges clean integrated) — 1 shy of proven #1; in-run pooled ≈24; `reviews/run26-review.md` |
+| #30 | gpqamain × Qwen3-1.7B 10h | in flight (us-east4-a) | `gpqamain-qwen3-1-7b-base-07251202` | GPQA queue #2, launched 12:02Z |
 | #27 | aime2025 × SmolLM3 10h | **16.67 ✓clean** | `aime2025-smollm3-3b-base-07250208` | official (9h18) TIES proven #1; first fully-integrated judge re-pin test PASSED; `reviews/run27-review.md` |
 | #29 | gpqamain × Qwen3-4B 10h | in flight (us-east4-a) | `gpqamain-qwen3-4b-base-07251146` | GPQA queue #1, launched 11:46Z; best proven ~30.5-band cell (table row TBD), human 53.3-row; format-parse hazard is the watchlist headline |
 | #24 | arenahard × gemma-3-4b 10h | **37.28 ✓clean** | `arenahardwriting-gemma-3-4b-pt-07241547` | official 0.3728 ±0.015 (9h11) — first kapso row on this cell (base 0.3; proven 47.4 stands); post-hoc judges clean (verdicts in postjudge/); `reviews/run24-review.md` |
