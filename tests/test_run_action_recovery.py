@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-import os
+import fcntl
 import hashlib
+import os
 from copy import copy
 from dataclasses import replace
 
@@ -54,6 +55,7 @@ from kapso.cross_run.launch.run_action_reservation_contracts import (
     RunActionViewBinding,
 )
 from kapso.cross_run.launch.run_action_store import (
+    _RUN_ACTION_RECOVERY_AUTHORITY,
     RunActionExecutionEvent,
     RunActionResultDisposition,
     RunActionStoreError,
@@ -71,12 +73,10 @@ from test_launch_resume_contracts import _security_observation
 from test_run_frontier_action_gate import (
     _action_case,
     _boundary_identity,
-    _claim_action,
     _commit_workspace_edit,
-    _complete_action,
-    _issue_ideation_agent,
-    _issue_implementation_agent,
-    _record_result,
+    _reserve_ideation_agent,
+    _reserve_implementation_agent,
+    _successor_at_boundary,
     _StaticSecurityAuthority,
 )
 from test_run_state_publisher import publisher_case
@@ -360,6 +360,23 @@ class _FakeExecutionAdapter:
             state=self.observation_state,
             observation_token=None if token is None else f"sha256:{token}",
         )
+
+
+class _PublicationLockAuditAdapter(_FakeExecutionAdapter):
+    def __init__(self, boundary_identity, checkpoint_lock_path) -> None:
+        super().__init__(boundary_identity)
+        self.checkpoint_lock_path = checkpoint_lock_path
+        self.exclusive_lock_rejections = 0
+
+    def continue_committed_once(self, capability):
+        with self.checkpoint_lock_path.open("r+b", buffering=0) as handle:
+            with pytest.raises(BlockingIOError):
+                fcntl.flock(
+                    handle.fileno(),
+                    fcntl.LOCK_EX | fcntl.LOCK_NB,
+                )
+        self.exclusive_lock_rejections += 1
+        return super().continue_committed_once(capability)
 
 
 def _recovery_registry(
@@ -698,45 +715,76 @@ def test_recovery_implementation_requires_distinct_lifecycle_and_interpreter() -
 def _reserved_case(case):
     _publisher, frontier, _security, gate = _action_case(case)
     payload = b'{"prompt":"recover-completely"}'
-    permit = _issue_ideation_agent(gate, frontier, payload)
-    return frontier, gate, permit, payload
+    reservation = _reserve_ideation_agent(gate, frontier, payload)
+    return frontier, gate, reservation, payload
 
 
-def _leave_spawn_committed(gate, permit, payload) -> None:
-    with pytest.raises(RuntimeError, match="after spawn"):
-        with gate.hold(permit, payload) as lease:
-            _claim_action(gate, lease)
-            raise RuntimeError("injected death after spawn")
+def _append_spawn_committed(gate, reservation):
+    with gate._action_store._recovery_session(
+        reservation,
+        _authority=_RUN_ACTION_RECOVERY_AUTHORITY,
+    ) as session:
+        adapter = _FakeExecutionAdapter(reservation.intent.boundary_identity)
+        allocation = session.allocate_preparation(adapter.execution_policy)
+        prepared = adapter._prepared_for_allocation(allocation)
+        session.commit_prepared_execution(prepared)
+        return session.commit_spawn(
+            security_observation_id=reservation.frontier.security_observation_id,
+            boundary_identity=reservation.intent.boundary_identity,
+        )
 
 
-def _commit_test_activation(gate, lease):
-    prepared = lease._session.events[2].prepared_execution
-    activation = _activation_revalidation_receipt(
-        prepared,
-        lease._spawn_commit,
-    )
-    gate.commit_activation(
-        lease,
-        activation_revalidation_receipt=activation,
-    )
-    return activation
+def _append_activation_committed(gate, reservation):
+    spawn = _append_spawn_committed(gate, reservation)
+    with gate._action_store._recovery_session(
+        reservation,
+        _authority=_RUN_ACTION_RECOVERY_AUTHORITY,
+    ) as session:
+        prepared = session.events[2].prepared_execution
+        activation = _activation_revalidation_receipt(prepared, spawn)
+        session.commit_activation(activation)
+        return activation
 
 
-def _leave_activation_committed(gate, permit, payload) -> None:
-    with pytest.raises(RuntimeError, match="after activation"):
-        with gate.hold(permit, payload) as lease:
-            _claim_action(gate, lease)
-            _commit_test_activation(gate, lease)
-            raise RuntimeError("injected death after activation")
-
-
-def _leave_result_received(gate, permit, payload) -> bytes:
+def _append_result_received(gate, reservation) -> bytes:
     raw_result = b'{"provider":"durable-result"}'
-    with pytest.raises(RuntimeError, match="after result"):
-        with gate.hold(permit, payload) as lease:
-            _claim_action(gate, lease)
-            _record_result(gate, lease, raw_result)
-            raise RuntimeError("injected death after result")
+    activation = _append_activation_committed(gate, reservation)
+    with gate._action_store._recovery_session(
+        reservation,
+        _authority=_RUN_ACTION_RECOVERY_AUTHORITY,
+    ) as session:
+        prepared = session.events[2].prepared_execution
+        spawn = session.events[3].spawn_commit
+        result = _FakeExecutionAdapter._provider_result(
+            prepared,
+            spawn,
+            activation,
+            raw_result,
+        )
+        session.record_result(
+            spawn_commit=spawn,
+            terminal_observation=result.terminal_observation,
+            result_capture_receipt=result.result_capture_receipt,
+            result_payload=result.result_payload,
+        )
+    return raw_result
+
+
+def _append_result_accepted(gate, reservation) -> bytes:
+    raw_result = _append_result_received(gate, reservation)
+    with gate._action_store._recovery_session(
+        reservation,
+        _authority=_RUN_ACTION_RECOVERY_AUTHORITY,
+    ) as session:
+        workspace_binding = reservation.frontier.workspace_before
+        session.accept_result(
+            result_receipt=session.events[-1].result_receipt,
+            disposition=RunActionResultDisposition.SUCCEEDED,
+            accepted_result_payload=b'{"accepted_result":"complete"}',
+            workspace_after=(
+                None if workspace_binding is None else workspace_binding.to_identity()
+            ),
+        )
     return raw_result
 
 
@@ -808,7 +856,7 @@ def test_committed_spawn_query_rejects_security_boundary_splice():
 def test_reserved_action_recovers_through_one_preparation_and_activation(
     publisher_case,
 ) -> None:
-    frontier, gate, _permit, _payload = _reserved_case(publisher_case)
+    frontier, gate, _reservation, _payload = _reserved_case(publisher_case)
     adapter = _FakeExecutionAdapter(
         _boundary_identity(RunFrontierActionKind.CODING_AGENT)
     )
@@ -834,8 +882,10 @@ def test_reserved_action_recovers_through_one_preparation_and_activation(
 def test_preparation_capability_is_spent_and_clone_fork_invalid(
     publisher_case,
 ) -> None:
-    frontier, gate, permit, _payload = _reserved_case(publisher_case)
-    adapter = _ActivePreparationCapabilityAuditAdapter(permit.intent.boundary_identity)
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
+    adapter = _ActivePreparationCapabilityAuditAdapter(
+        reservation.intent.boundary_identity
+    )
 
     report = _recovery_coordinator(gate, adapter).recover(frontier)
 
@@ -871,8 +921,8 @@ def test_preparation_capability_is_spent_and_clone_fork_invalid(
 def test_activation_capability_is_spent_and_clone_fork_invalid(
     publisher_case,
 ) -> None:
-    frontier, gate, permit, _payload = _reserved_case(publisher_case)
-    adapter = _FakeExecutionAdapter(permit.intent.boundary_identity)
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
+    adapter = _FakeExecutionAdapter(reservation.intent.boundary_identity)
 
     report = _recovery_coordinator(gate, adapter).recover(frontier)
 
@@ -910,8 +960,10 @@ def test_activation_capability_is_spent_and_clone_fork_invalid(
 def test_committed_continuation_capability_is_active_only_once(
     publisher_case,
 ) -> None:
-    frontier, gate, permit, _payload = _reserved_case(publisher_case)
-    adapter = _ActiveContinuationCapabilityAuditAdapter(permit.intent.boundary_identity)
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
+    adapter = _ActiveContinuationCapabilityAuditAdapter(
+        reservation.intent.boundary_identity
+    )
 
     report = _recovery_coordinator(gate, adapter).recover(frontier)
 
@@ -953,9 +1005,9 @@ def test_committed_inspection_carries_only_state_and_token() -> None:
 def test_committed_query_rejects_event_two_and_event_five_splices(
     publisher_case,
 ) -> None:
-    frontier, gate, permit, payload = _reserved_case(publisher_case)
-    _leave_activation_committed(gate, permit, payload)
-    events = gate._action_store.inspect().events_for(permit.intent.operation_id)
+    frontier, gate, reservation, payload = _reserved_case(publisher_case)
+    _append_activation_committed(gate, reservation)
+    events = gate._action_store.inspect().events_for(reservation.intent.operation_id)
     allocation = events[1].preparation_allocation
     replacement_nonce = (
         "e" * 32
@@ -998,8 +1050,8 @@ def test_committed_query_rejects_event_two_and_event_five_splices(
 def test_committed_continuation_reuses_exact_inspection_seal(
     publisher_case,
 ) -> None:
-    frontier, gate, permit, _payload = _reserved_case(publisher_case)
-    adapter = _TokenSealingExecutionAdapter(permit.intent.boundary_identity)
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
+    adapter = _TokenSealingExecutionAdapter(reservation.intent.boundary_identity)
 
     report = _recovery_coordinator(gate, adapter).recover(frontier)
 
@@ -1018,17 +1070,17 @@ def test_committed_continuation_rejects_invalid_pending_outcome(
     publisher_case,
     observation_state,
 ) -> None:
-    frontier, gate, permit, payload = _reserved_case(publisher_case)
-    _leave_activation_committed(gate, permit, payload)
+    frontier, gate, reservation, payload = _reserved_case(publisher_case)
+    _append_activation_committed(gate, reservation)
     adapter = _InvalidContinuationOutcomeAdapter(
-        permit.intent.boundary_identity,
+        reservation.intent.boundary_identity,
         observation_state=observation_state,
     )
 
     with pytest.raises(RunActionRecoveryError, match="invalid committed continuation"):
         _recovery_coordinator(gate, adapter).recover(frontier)
 
-    events = gate._action_store.inspect().events_for(permit.intent.operation_id)
+    events = gate._action_store.inspect().events_for(reservation.intent.operation_id)
     assert events[-1].event_kind is RunActionExecutionEventKind.ACTIVATION_COMMITTED
 
 
@@ -1070,23 +1122,61 @@ def test_legacy_direct_spawn_interfaces_are_removed() -> None:
         assert not hasattr(RunActionPreparationOrigin, name)
 
 
+def test_recovery_callback_holds_shared_publication_lock(
+    publisher_case,
+) -> None:
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
+    publisher = gate._publisher
+    checkpoint_lock_path = (
+        publisher_case["active"].run_root
+        / publisher_case["settings"].run_checkpoint_lock_path
+    )
+    adapter = _PublicationLockAuditAdapter(
+        reservation.intent.boundary_identity,
+        checkpoint_lock_path,
+    )
+
+    report = _recovery_coordinator(gate, adapter).recover(frontier)
+
+    assert report.is_complete
+    assert adapter.exclusive_lock_rejections == 1
+    successor_bundle, successor_checkpoint = _successor_at_boundary(
+        publisher_case,
+        publisher,
+        frontier,
+        RunSafetyBoundary.IMPLEMENTATION,
+    )
+    successor = publisher.publish(
+        publisher.issue_publication_permit(
+            frontier,
+            successor_checkpoint,
+            successor_bundle,
+        ),
+        successor_checkpoint,
+        successor_bundle,
+    )
+    assert successor.checkpoint == successor_checkpoint
+
+
 def test_allocation_crash_recovery_reuses_exact_durable_authority(
     publisher_case,
 ) -> None:
-    frontier, gate, permit, _payload = _reserved_case(publisher_case)
-    allocation_crash = _CrashAfterPreparationAdapter(permit.intent.boundary_identity)
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
+    allocation_crash = _CrashAfterPreparationAdapter(
+        reservation.intent.boundary_identity
+    )
     coordinator = _recovery_coordinator(gate, allocation_crash)
 
     with pytest.raises(RuntimeError, match="provider preparation"):
         coordinator.recover(frontier)
     durable_allocation = (
         gate._action_store.inspect()
-        .events_for(permit.intent.operation_id)[-1]
+        .events_for(reservation.intent.operation_id)[-1]
         .preparation_allocation
     )
     assert (
         gate._action_store.inspect()
-        .events_for(permit.intent.operation_id)[-1]
+        .events_for(reservation.intent.operation_id)[-1]
         .event_kind
         is RunActionExecutionEventKind.PREPARATION_ALLOCATED
     )
@@ -1125,7 +1215,7 @@ def test_allocation_crash_recovery_reuses_exact_durable_authority(
     )
     prepared = (
         gate._action_store.inspect()
-        .events_for(permit.intent.operation_id)[2]
+        .events_for(reservation.intent.operation_id)[2]
         .prepared_execution
     )
     assert (
@@ -1136,15 +1226,15 @@ def test_allocation_crash_recovery_reuses_exact_durable_authority(
 def test_preparation_rejects_replacement_allocation_nonce(
     publisher_case,
 ) -> None:
-    frontier, gate, permit, _payload = _reserved_case(publisher_case)
-    adapter = _ReplacementAllocationAdapter(permit.intent.boundary_identity)
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
+    adapter = _ReplacementAllocationAdapter(reservation.intent.boundary_identity)
 
     with pytest.raises(RunActionRecoveryError, match="another prepared execution"):
         _recovery_coordinator(gate, adapter).recover(frontier)
 
     allocation = (
         gate._action_store.inspect()
-        .events_for(permit.intent.operation_id)[-1]
+        .events_for(reservation.intent.operation_id)[-1]
         .preparation_allocation
     )
     assert allocation is not None
@@ -1158,9 +1248,9 @@ def test_preparation_rejects_replacement_allocation_nonce(
 def test_prepared_crash_recovery_uses_revalidation_mode(
     publisher_case,
 ) -> None:
-    frontier, gate, permit, _payload = _reserved_case(publisher_case)
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
     prepared_crash = _FakeExecutionAdapter(
-        permit.intent.boundary_identity,
+        reservation.intent.boundary_identity,
     )
     coordinator = _recovery_coordinator(gate, prepared_crash)
     security_check_count = 0
@@ -1177,7 +1267,7 @@ def test_prepared_crash_recovery_uses_revalidation_mode(
         coordinator.recover(frontier)
     assert (
         gate._action_store.inspect()
-        .events_for(permit.intent.operation_id)[-1]
+        .events_for(reservation.intent.operation_id)[-1]
         .event_kind
         is RunActionExecutionEventKind.EXECUTION_PREPARED
     )
@@ -1193,9 +1283,9 @@ def test_prepared_crash_recovery_uses_revalidation_mode(
 def test_allocated_resource_loss_terminally_closes_without_provider_authority(
     publisher_case,
 ) -> None:
-    frontier, gate, permit, _payload = _reserved_case(publisher_case)
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
     adapter = _NonExactPreparationAdapter(
-        permit.intent.boundary_identity,
+        reservation.intent.boundary_identity,
         RunActionPreparationState.PROVEN_RESOURCE_LOST,
         {RunActionPreparationMode.CREATE_ALLOCATED},
     )
@@ -1216,9 +1306,9 @@ def test_allocated_resource_loss_terminally_closes_without_provider_authority(
 def test_prepared_resource_loss_interrupts_without_recreation(
     publisher_case,
 ) -> None:
-    frontier, gate, permit, _payload = _reserved_case(publisher_case)
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
     adapter = _NonExactPreparationAdapter(
-        permit.intent.boundary_identity,
+        reservation.intent.boundary_identity,
         RunActionPreparationState.PROVEN_RESOURCE_LOST,
         {RunActionPreparationMode.REVALIDATE_PREPARED},
     )
@@ -1237,7 +1327,7 @@ def test_prepared_resource_loss_interrupts_without_recreation(
         coordinator.recover(frontier)
     durable_prepared = (
         gate._action_store.inspect()
-        .events_for(permit.intent.operation_id)[2]
+        .events_for(reservation.intent.operation_id)[2]
         .prepared_execution
     )
     coordinator._security_is_current = lambda _frontier: True
@@ -1264,9 +1354,9 @@ def test_prepared_resource_loss_interrupts_without_recreation(
 def test_unknown_preparation_remains_retryable_and_request_inaccessible(
     publisher_case,
 ) -> None:
-    frontier, gate, permit, _payload = _reserved_case(publisher_case)
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
     adapter = _NonExactPreparationAdapter(
-        permit.intent.boundary_identity,
+        reservation.intent.boundary_identity,
         RunActionPreparationState.UNKNOWN,
         {
             RunActionPreparationMode.CREATE_ALLOCATED,
@@ -1280,7 +1370,7 @@ def test_unknown_preparation_remains_retryable_and_request_inaccessible(
 
     assert not first.is_complete
     assert not second.is_complete
-    events = gate._action_store.inspect().events_for(permit.intent.operation_id)
+    events = gate._action_store.inspect().events_for(reservation.intent.operation_id)
     assert events[-1].event_kind is RunActionExecutionEventKind.PREPARATION_ALLOCATED
     assert adapter.prepare_modes == [
         RunActionPreparationMode.CREATE_ALLOCATED,
@@ -1292,16 +1382,16 @@ def test_unknown_preparation_remains_retryable_and_request_inaccessible(
 def test_preparation_envelope_rejects_oversize_before_materialization(
     publisher_case,
 ) -> None:
-    frontier, gate, permit, _payload = _reserved_case(publisher_case)
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
     adapter = _OversizedPreparationEnvelopeAdapter(
-        permit.intent.boundary_identity,
+        reservation.intent.boundary_identity,
         publisher_case["settings"].run_action_event_size_bytes + 1,
     )
 
     with pytest.raises(RunActionRecoveryError, match="event envelope"):
         _recovery_coordinator(gate, adapter).recover(frontier)
 
-    events = gate._action_store.inspect().events_for(permit.intent.operation_id)
+    events = gate._action_store.inspect().events_for(reservation.intent.operation_id)
     assert events[-1].event_kind is (RunActionExecutionEventKind.PREPARATION_ALLOCATED)
     assert not adapter.prepare_calls
     assert not adapter.continuation_calls
@@ -1310,16 +1400,16 @@ def test_preparation_envelope_rejects_oversize_before_materialization(
 def test_activation_envelope_rejects_oversize_before_delivery(
     publisher_case,
 ) -> None:
-    frontier, gate, permit, _payload = _reserved_case(publisher_case)
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
     adapter = _OversizedActivationEnvelopeAdapter(
-        permit.intent.boundary_identity,
+        reservation.intent.boundary_identity,
         publisher_case["settings"].run_action_event_size_bytes + 1,
     )
 
     with pytest.raises(RunActionRecoveryError, match="activation event envelope"):
         _recovery_coordinator(gate, adapter).recover(frontier)
 
-    events = gate._action_store.inspect().events_for(permit.intent.operation_id)
+    events = gate._action_store.inspect().events_for(reservation.intent.operation_id)
     assert events[-1].event_kind is RunActionExecutionEventKind.SPAWN_COMMITTED
     assert not adapter.stage_calls
     assert not adapter.continuation_calls
@@ -1328,16 +1418,18 @@ def test_activation_envelope_rejects_oversize_before_delivery(
 def test_committed_inert_recovery_activates_same_spawn_without_repreparing(
     publisher_case,
 ) -> None:
-    frontier, gate, permit, _payload = _reserved_case(publisher_case)
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
     adapter = _CrashBeforeProviderContinuationAdapter(
-        permit.intent.boundary_identity,
+        reservation.intent.boundary_identity,
     )
     coordinator = _recovery_coordinator(gate, adapter)
 
     with pytest.raises(RuntimeError, match="before provider start"):
         coordinator.recover(frontier)
 
-    durable_prefix = gate._action_store.inspect().events_for(permit.intent.operation_id)
+    durable_prefix = gate._action_store.inspect().events_for(
+        reservation.intent.operation_id
+    )
     assert durable_prefix[-1].event_kind is (
         RunActionExecutionEventKind.ACTIVATION_COMMITTED
     )
@@ -1369,14 +1461,14 @@ def test_failed_edit_recovery_terminates_with_unchanged_workspace(
         boundary=RunSafetyBoundary.IMPLEMENTATION,
     )
     payload = b'{"implementation":"provider failure"}'
-    permit = _issue_implementation_agent(
+    reservation = _reserve_implementation_agent(
         gate,
         frontier,
         "failed_recovery",
         payload,
     )
     adapter = _FakeExecutionAdapter(
-        permit.intent.boundary_identity,
+        reservation.intent.boundary_identity,
         disposition=RunActionResultDisposition.FAILED,
     )
 
@@ -1417,10 +1509,10 @@ def test_committed_spawn_is_queried_and_never_reactivated(
     expected_continuation_calls,
     expected_terminal,
 ) -> None:
-    frontier, gate, permit, payload = _reserved_case(publisher_case)
-    _leave_activation_committed(gate, permit, payload)
+    frontier, gate, reservation, payload = _reserved_case(publisher_case)
+    _append_activation_committed(gate, reservation)
     adapter = _FakeExecutionAdapter(
-        permit.intent.boundary_identity,
+        reservation.intent.boundary_identity,
         observation_state=state,
     )
 
@@ -1442,24 +1534,20 @@ def test_quiescent_edit_rejects_a_host_workspace_successor(
         boundary=RunSafetyBoundary.IMPLEMENTATION,
     )
     payload = b'{"implementation":"recover edit"}'
-    permit = _issue_implementation_agent(
+    reservation = _reserve_implementation_agent(
         gate,
         frontier,
         "recovery",
         payload,
     )
-    with pytest.raises(RuntimeError, match="after clean edit"):
-        with gate.hold(permit, payload) as lease:
-            _claim_action(gate, lease)
-            _commit_test_activation(gate, lease)
-            commit_sha = _commit_workspace_edit(
-                publisher_case,
-                "recovered.py",
-                "RECOVERED = True\n",
-            )
-            raise RuntimeError("injected death after clean edit")
+    _append_activation_committed(gate, reservation)
+    commit_sha = _commit_workspace_edit(
+        publisher_case,
+        "recovered.py",
+        "RECOVERED = True\n",
+    )
     adapter = _FakeExecutionAdapter(
-        permit.intent.boundary_identity,
+        reservation.intent.boundary_identity,
         observation_state=(RunActionCommittedSpawnState.QUIESCENT_RECHECKABLE),
     )
 
@@ -1469,7 +1557,7 @@ def test_quiescent_edit_rejects_a_host_workspace_successor(
     ):
         _recovery_coordinator(gate, adapter).recover(frontier)
 
-    assert commit_sha != permit.workspace_frontier.commit_sha
+    assert commit_sha != reservation.frontier.workspace_before.commit_sha
 
 
 @pytest.mark.parametrize("workspace_state", ("dirty", "multiple_commits"))
@@ -1482,34 +1570,30 @@ def test_ambiguous_edit_workspace_remains_nonterminal(
         boundary=RunSafetyBoundary.IMPLEMENTATION,
     )
     payload = b'{"implementation":"ambiguous edit"}'
-    permit = _issue_implementation_agent(
+    reservation = _reserve_implementation_agent(
         gate,
         frontier,
         workspace_state,
         payload,
     )
-    with pytest.raises(RuntimeError, match="after ambiguous edit"):
-        with gate.hold(permit, payload) as lease:
-            _claim_action(gate, lease)
-            _commit_test_activation(gate, lease)
-            if workspace_state == "dirty":
-                (publisher_case["active"].workspace / "uncommitted.py").write_text(
-                    "DIRTY = True\n", encoding="utf-8"
-                )
-            else:
-                _commit_workspace_edit(
-                    publisher_case,
-                    "first.py",
-                    "FIRST = True\n",
-                )
-                _commit_workspace_edit(
-                    publisher_case,
-                    "second.py",
-                    "SECOND = True\n",
-                )
-            raise RuntimeError("injected death after ambiguous edit")
+    _append_activation_committed(gate, reservation)
+    if workspace_state == "dirty":
+        (publisher_case["active"].workspace / "uncommitted.py").write_text(
+            "DIRTY = True\n", encoding="utf-8"
+        )
+    else:
+        _commit_workspace_edit(
+            publisher_case,
+            "first.py",
+            "FIRST = True\n",
+        )
+        _commit_workspace_edit(
+            publisher_case,
+            "second.py",
+            "SECOND = True\n",
+        )
     adapter = _FakeExecutionAdapter(
-        permit.intent.boundary_identity,
+        reservation.intent.boundary_identity,
         observation_state=(RunActionCommittedSpawnState.QUIESCENT_RECHECKABLE),
     )
     with pytest.raises(RunWorkspaceFrontierError):
@@ -1517,24 +1601,24 @@ def test_ambiguous_edit_workspace_remains_nonterminal(
 
     assert (
         _recovery_coordinator(gate, adapter).inspect(frontier).pending_operation_id
-        == permit.intent.operation_id
+        == reservation.intent.operation_id
     )
 
 
 def test_unknown_committed_spawn_remains_unresolved_without_replay(
     publisher_case,
 ) -> None:
-    frontier, gate, permit, payload = _reserved_case(publisher_case)
-    _leave_activation_committed(gate, permit, payload)
+    frontier, gate, reservation, payload = _reserved_case(publisher_case)
+    _append_activation_committed(gate, reservation)
     adapter = _FakeExecutionAdapter(
-        permit.intent.boundary_identity,
+        reservation.intent.boundary_identity,
         observation_state=RunActionCommittedSpawnState.UNKNOWN,
     )
 
     report = _recovery_coordinator(gate, adapter).recover(frontier)
 
     assert not report.is_complete
-    assert report.unresolved_operation_id == permit.intent.operation_id
+    assert report.unresolved_operation_id == reservation.intent.operation_id
     assert report.live_ledger.operation_tails[-1].tail_kind is (
         RunActionExecutionEventKind.ACTIVATION_COMMITTED
     )
@@ -1546,10 +1630,10 @@ def test_unknown_committed_spawn_remains_unresolved_without_replay(
 def test_continuation_without_a_result_remains_unresolved(
     publisher_case,
 ) -> None:
-    frontier, gate, permit, payload = _reserved_case(publisher_case)
-    _leave_activation_committed(gate, permit, payload)
+    frontier, gate, reservation, payload = _reserved_case(publisher_case)
+    _append_activation_committed(gate, reservation)
     adapter = _FakeExecutionAdapter(
-        permit.intent.boundary_identity,
+        reservation.intent.boundary_identity,
         observation_state=(RunActionCommittedSpawnState.RUNNING_CONTINUABLE),
         continuation_result=False,
     )
@@ -1563,11 +1647,11 @@ def test_continuation_without_a_result_remains_unresolved(
 def test_security_advance_prevents_committed_spawn_continuation(
     publisher_case,
 ) -> None:
-    frontier, gate, permit, payload = _reserved_case(publisher_case)
-    _leave_activation_committed(gate, permit, payload)
+    frontier, gate, reservation, payload = _reserved_case(publisher_case)
+    _append_activation_committed(gate, reservation)
     _advance_security(publisher_case, gate, frontier)
     adapter = _FakeExecutionAdapter(
-        permit.intent.boundary_identity,
+        reservation.intent.boundary_identity,
         observation_state=(RunActionCommittedSpawnState.RUNNING_CONTINUABLE),
     )
 
@@ -1581,9 +1665,9 @@ def test_security_advance_prevents_committed_spawn_continuation(
 def test_workspace_mutation_during_continuation_never_records_result(
     publisher_case,
 ) -> None:
-    frontier, gate, permit, _payload = _reserved_case(publisher_case)
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
     adapter = _WorkspaceMutatingContinuationAdapter(
-        permit.intent.boundary_identity,
+        reservation.intent.boundary_identity,
         publisher_case["active"].workspace,
     )
     coordinator = _recovery_coordinator(gate, adapter)
@@ -1592,7 +1676,7 @@ def test_workspace_mutation_during_continuation_never_records_result(
         coordinator.recover(frontier)
 
     plan = coordinator.inspect(frontier)
-    assert plan.pending_operation_id == permit.intent.operation_id
+    assert plan.pending_operation_id == reservation.intent.operation_id
     assert plan.live_ledger.operation_tails[-1].tail_kind is (
         RunActionExecutionEventKind.ACTIVATION_COMMITTED
     )
@@ -1601,9 +1685,9 @@ def test_workspace_mutation_during_continuation_never_records_result(
 def test_received_result_runs_only_pure_local_interpretation(
     publisher_case,
 ) -> None:
-    frontier, gate, permit, payload = _reserved_case(publisher_case)
-    raw_result = _leave_result_received(gate, permit, payload)
-    adapter = _FakeExecutionAdapter(permit.intent.boundary_identity)
+    frontier, gate, reservation, payload = _reserved_case(publisher_case)
+    raw_result = _append_result_received(gate, reservation)
+    adapter = _FakeExecutionAdapter(reservation.intent.boundary_identity)
 
     report = _recovery_coordinator(gate, adapter).recover(frontier)
 
@@ -1619,9 +1703,11 @@ def test_received_result_runs_only_pure_local_interpretation(
 def test_received_result_does_not_access_execution_adapter(
     publisher_case,
 ) -> None:
-    frontier, gate, permit, payload = _reserved_case(publisher_case)
-    raw_result = _leave_result_received(gate, permit, payload)
-    execution_adapter = _AccessGuardedExecutionAdapter(permit.intent.boundary_identity)
+    frontier, gate, reservation, payload = _reserved_case(publisher_case)
+    raw_result = _append_result_received(gate, reservation)
+    execution_adapter = _AccessGuardedExecutionAdapter(
+        reservation.intent.boundary_identity
+    )
     coordinator = _recovery_coordinator(gate, execution_adapter)
     execution_adapter.reject_execution_access = True
 
@@ -1637,11 +1723,11 @@ def test_received_result_does_not_access_execution_adapter(
 def test_nondeterministic_local_interpretation_never_becomes_durable(
     publisher_case,
 ) -> None:
-    frontier, gate, permit, payload = _reserved_case(publisher_case)
-    _leave_result_received(gate, permit, payload)
-    adapter = _FakeExecutionAdapter(permit.intent.boundary_identity)
+    frontier, gate, reservation, payload = _reserved_case(publisher_case)
+    _append_result_received(gate, reservation)
+    adapter = _FakeExecutionAdapter(reservation.intent.boundary_identity)
     adapter.result_interpreter = _NondeterministicResultInterpreter(
-        permit.intent.boundary_identity.result_interpreter_identity
+        reservation.intent.boundary_identity.result_interpreter_identity
     )
     coordinator = _recovery_coordinator(gate, adapter)
 
@@ -1649,7 +1735,7 @@ def test_nondeterministic_local_interpretation_never_becomes_durable(
         coordinator.recover(frontier)
 
     plan = coordinator.inspect(frontier)
-    assert plan.pending_operation_id == permit.intent.operation_id
+    assert plan.pending_operation_id == reservation.intent.operation_id
     assert plan.live_ledger.operation_tails[-1].tail_kind is (
         RunActionExecutionEventKind.RESULT_RECEIVED
     )
@@ -1658,10 +1744,10 @@ def test_nondeterministic_local_interpretation_never_becomes_durable(
 def test_workspace_mutation_during_interpretation_never_becomes_terminal(
     publisher_case,
 ) -> None:
-    frontier, gate, permit, _payload = _reserved_case(publisher_case)
-    adapter = _FakeExecutionAdapter(permit.intent.boundary_identity)
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
+    adapter = _FakeExecutionAdapter(reservation.intent.boundary_identity)
     adapter.result_interpreter = _WorkspaceMutatingResultInterpreter(
-        permit.intent.boundary_identity.result_interpreter_identity
+        reservation.intent.boundary_identity.result_interpreter_identity
     )
     adapter.result_interpreter.retained_workspace_descriptor = os.open(
         publisher_case["active"].workspace,
@@ -1674,7 +1760,7 @@ def test_workspace_mutation_during_interpretation_never_becomes_terminal(
 
     os.close(adapter.result_interpreter.retained_workspace_descriptor)
     plan = coordinator.inspect(frontier)
-    assert plan.pending_operation_id == permit.intent.operation_id
+    assert plan.pending_operation_id == reservation.intent.operation_id
     assert plan.live_ledger.operation_tails[-1].tail_kind is (
         RunActionExecutionEventKind.RESULT_RECEIVED
     )
@@ -1683,10 +1769,9 @@ def test_workspace_mutation_during_interpretation_never_becomes_terminal(
 def test_terminal_replay_reads_accepted_bytes_without_implementation_use(
     publisher_case,
 ) -> None:
-    frontier, gate, permit, payload = _reserved_case(publisher_case)
-    with gate.hold(permit, payload) as lease:
-        _complete_action(gate, lease)
-    adapter = _FakeExecutionAdapter(permit.intent.boundary_identity)
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
+    _append_result_accepted(gate, reservation)
+    adapter = _FakeExecutionAdapter(reservation.intent.boundary_identity)
 
     report = _recovery_coordinator(gate, adapter).recover(frontier)
 
@@ -1703,9 +1788,9 @@ def test_terminal_replay_reads_accepted_bytes_without_implementation_use(
 def test_activation_staging_crash_reopens_only_as_unactivated_spawn(
     publisher_case,
 ) -> None:
-    frontier, gate, permit, _payload = _reserved_case(publisher_case)
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
     crashing = _FakeExecutionAdapter(
-        permit.intent.boundary_identity,
+        reservation.intent.boundary_identity,
         fail_activation=True,
     )
     coordinator = _recovery_coordinator(gate, crashing)
@@ -1726,9 +1811,9 @@ def test_activation_staging_crash_reopens_only_as_unactivated_spawn(
 def test_security_advance_cancels_unspawned_reservation(
     publisher_case,
 ) -> None:
-    frontier, gate, permit, _payload = _reserved_case(publisher_case)
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
     _advance_security(publisher_case, gate, frontier)
-    adapter = _FakeExecutionAdapter(permit.intent.boundary_identity)
+    adapter = _FakeExecutionAdapter(reservation.intent.boundary_identity)
 
     report = _recovery_coordinator(gate, adapter).recover(frontier)
 
@@ -1742,9 +1827,9 @@ def test_security_advance_cancels_unspawned_reservation(
 def test_security_advance_after_preparation_terminally_invalidates_frontier(
     publisher_case,
 ) -> None:
-    frontier, gate, permit, _payload = _reserved_case(publisher_case)
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
     adapter = _SecurityAdvancingPrepareAdapter(
-        permit.intent.boundary_identity,
+        reservation.intent.boundary_identity,
         lambda: _advance_security(publisher_case, gate, frontier),
     )
 
@@ -1753,7 +1838,9 @@ def test_security_advance_after_preparation_terminally_invalidates_frontier(
     assert report.is_complete
     assert len(adapter.prepare_calls) == 1
     assert not adapter.continuation_calls
-    terminal = gate._action_store.inspect().events_for(permit.intent.operation_id)[-1]
+    terminal = gate._action_store.inspect().events_for(reservation.intent.operation_id)[
+        -1
+    ]
     assert terminal.event_kind is RunActionExecutionEventKind.INTERRUPTED
     assert terminal.terminal_reason is (
         RunActionTerminalReason.FRONTIER_INVALIDATED_BEFORE_SPAWN
@@ -1764,7 +1851,7 @@ def test_security_advance_after_preparation_terminally_invalidates_frontier(
 def test_security_advance_during_allocation_fsync_prevents_materialization(
     publisher_case,
 ) -> None:
-    frontier, gate, permit, _payload = _reserved_case(publisher_case)
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
     required = frontier.checkpoint.safety_state.security_observation
     pin = publisher_case["active"].bootstrap_pin
     advanced = _security_observation(
@@ -1782,14 +1869,14 @@ def test_security_advance_during_allocation_fsync_prevents_materialization(
         advance_on_call=2,
     )
     gate._security_authority = authority
-    adapter = _FakeExecutionAdapter(permit.intent.boundary_identity)
+    adapter = _FakeExecutionAdapter(reservation.intent.boundary_identity)
 
     report = _recovery_coordinator(gate, adapter).recover(frontier)
 
     assert report.is_complete
     assert authority.call_count == 2
     assert not adapter.prepare_calls
-    events = gate._action_store.inspect().events_for(permit.intent.operation_id)
+    events = gate._action_store.inspect().events_for(reservation.intent.operation_id)
     assert events[1].event_kind is RunActionExecutionEventKind.PREPARATION_ALLOCATED
     assert events[1].preparation_allocation is not None
     assert events[-1].event_kind is RunActionExecutionEventKind.INTERRUPTED
@@ -1801,9 +1888,9 @@ def test_security_advance_during_allocation_fsync_prevents_materialization(
 def test_security_advance_during_activation_staging_never_starts_provider(
     publisher_case,
 ) -> None:
-    frontier, gate, permit, _payload = _reserved_case(publisher_case)
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
     adapter = _SecurityAdvancingStageAdapter(
-        permit.intent.boundary_identity,
+        reservation.intent.boundary_identity,
         lambda: _advance_security(publisher_case, gate, frontier),
     )
 
@@ -1812,14 +1899,14 @@ def test_security_advance_during_activation_staging_never_starts_provider(
     assert not report.is_complete
     assert len(adapter.stage_calls) == 1
     assert not adapter.continuation_calls
-    events = gate._action_store.inspect().events_for(permit.intent.operation_id)
+    events = gate._action_store.inspect().events_for(reservation.intent.operation_id)
     assert events[-1].event_kind is RunActionExecutionEventKind.SPAWN_COMMITTED
 
 
 def test_security_advance_after_activation_commit_never_starts_provider(
     publisher_case,
 ) -> None:
-    frontier, gate, permit, _payload = _reserved_case(publisher_case)
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
     required = frontier.checkpoint.safety_state.security_observation
     pin = publisher_case["active"].bootstrap_pin
     advanced = _security_observation(
@@ -1837,7 +1924,7 @@ def test_security_advance_after_activation_commit_never_starts_provider(
         advance_on_call=5,
     )
     gate._security_authority = authority
-    adapter = _FakeExecutionAdapter(permit.intent.boundary_identity)
+    adapter = _FakeExecutionAdapter(reservation.intent.boundary_identity)
 
     report = _recovery_coordinator(gate, adapter).recover(frontier)
 
@@ -1845,15 +1932,15 @@ def test_security_advance_after_activation_commit_never_starts_provider(
     assert authority.call_count == 5
     assert len(adapter.stage_calls) == 1
     assert not adapter.continuation_calls
-    events = gate._action_store.inspect().events_for(permit.intent.operation_id)
+    events = gate._action_store.inspect().events_for(reservation.intent.operation_id)
     assert events[-1].event_kind is (RunActionExecutionEventKind.ACTIVATION_COMMITTED)
 
 
 def test_workspace_advance_after_claim_terminally_invalidates_frontier(
     publisher_case,
 ) -> None:
-    frontier, gate, permit, _payload = _reserved_case(publisher_case)
-    adapter = _CrashAfterPreparationAdapter(permit.intent.boundary_identity)
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
+    adapter = _CrashAfterPreparationAdapter(reservation.intent.boundary_identity)
     coordinator = _recovery_coordinator(gate, adapter)
 
     with pytest.raises(RuntimeError, match="provider preparation"):
@@ -1881,8 +1968,8 @@ def test_workspace_advance_after_claim_terminally_invalidates_frontier(
 def test_recovery_rejects_boundary_identity_substitution(
     publisher_case,
 ) -> None:
-    frontier, gate, permit, payload = _reserved_case(publisher_case)
-    _leave_result_received(gate, permit, payload)
+    frontier, gate, reservation, payload = _reserved_case(publisher_case)
+    _append_result_received(gate, reservation)
     substituted = _FakeExecutionAdapter(
         _boundary_identity(RunFrontierActionKind.EMBEDDING)
     )
@@ -1892,16 +1979,17 @@ def test_recovery_rejects_boundary_identity_substitution(
         coordinator.recover(frontier)
 
     assert (
-        coordinator.inspect(frontier).pending_operation_id == permit.intent.operation_id
+        coordinator.inspect(frontier).pending_operation_id
+        == reservation.intent.operation_id
     )
 
 
 def test_recovery_rejects_same_identity_execution_object_substitution(
     publisher_case,
 ) -> None:
-    frontier, gate, permit, _payload = _reserved_case(publisher_case)
-    original = _FakeExecutionAdapter(permit.intent.boundary_identity)
-    substituted = _FakeExecutionAdapter(permit.intent.boundary_identity)
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
+    original = _FakeExecutionAdapter(reservation.intent.boundary_identity)
+    substituted = _FakeExecutionAdapter(reservation.intent.boundary_identity)
     implementation_registry = _recovery_registry(original)
     coordinator = gate.recovery_coordinator(implementation_registry)
     original_implementation = implementation_registry._implementations[0]
@@ -1923,14 +2011,14 @@ def test_recovery_rejects_same_identity_execution_object_substitution(
 def test_recovery_rejects_same_identity_interpreter_object_substitution(
     publisher_case,
 ) -> None:
-    frontier, gate, permit, payload = _reserved_case(publisher_case)
-    _leave_result_received(gate, permit, payload)
-    execution_adapter = _FakeExecutionAdapter(permit.intent.boundary_identity)
+    frontier, gate, reservation, payload = _reserved_case(publisher_case)
+    _append_result_received(gate, reservation)
+    execution_adapter = _FakeExecutionAdapter(reservation.intent.boundary_identity)
     implementation_registry = _recovery_registry(execution_adapter)
     coordinator = gate.recovery_coordinator(implementation_registry)
     implementation = implementation_registry._implementations[0]
     substituted = _FakeResultInterpreter(
-        permit.intent.boundary_identity.result_interpreter_identity
+        reservation.intent.boundary_identity.result_interpreter_identity
     )
     object.__setattr__(implementation, "result_interpreter", substituted)
 
@@ -1945,7 +2033,7 @@ def test_recovery_rejects_same_identity_interpreter_object_substitution(
 def test_recovery_rejects_substituted_frontier_view_binding(
     publisher_case,
 ) -> None:
-    frontier, gate, _permit, _payload = _reserved_case(publisher_case)
+    frontier, gate, _reservation, _payload = _reserved_case(publisher_case)
     original = (
         gate._publisher._action_store.inspect()
         .operations_since(frontier.projection.action_ledger)[0][0]
@@ -1989,7 +2077,7 @@ def test_recovery_rejects_substituted_frontier_view_binding(
 def test_recovery_rejects_exact_frontier_at_another_safety_boundary(
     publisher_case,
 ) -> None:
-    frontier, gate, _permit, payload = _reserved_case(publisher_case)
+    frontier, gate, _reservation, payload = _reserved_case(publisher_case)
     original = (
         gate._publisher._action_store.inspect()
         .operations_since(frontier.projection.action_ledger)[0][0]
@@ -2025,7 +2113,7 @@ def test_recovery_rejects_a_nonactionable_current_frontier(
     publisher_case,
     ineligible_state,
 ) -> None:
-    frontier, gate, _permit, _payload = _reserved_case(publisher_case)
+    frontier, gate, _reservation, _payload = _reserved_case(publisher_case)
     reservation = (
         gate._publisher._action_store.inspect()
         .operations_since(frontier.projection.action_ledger)[0][0]
@@ -2072,8 +2160,8 @@ def test_recovery_rejects_a_nonactionable_current_frontier(
 def test_recovery_coordinator_clone_and_forked_copy_are_invalid(
     publisher_case,
 ) -> None:
-    frontier, gate, permit, _payload = _reserved_case(publisher_case)
-    adapter = _FakeExecutionAdapter(permit.intent.boundary_identity)
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
+    adapter = _FakeExecutionAdapter(reservation.intent.boundary_identity)
     implementation_registry = _recovery_registry(adapter)
     coordinator = gate.recovery_coordinator(implementation_registry)
     cloned = copy(coordinator)
@@ -2090,7 +2178,9 @@ def test_recovery_coordinator_clone_and_forked_copy_are_invalid(
         with pytest.raises(RunActionRecoveryError, match="foreign"):
             coordinator.inspect(frontier)
         with pytest.raises(RunActionRecoveryError, match="foreign"):
-            implementation_registry.resolve_execution(permit.intent.boundary_identity)
+            implementation_registry.resolve_execution(
+                reservation.intent.boundary_identity
+            )
         os.write(write_descriptor, b"invalid")
         os._exit(0)
     os.close(write_descriptor)
@@ -2105,8 +2195,8 @@ def test_result_received_recovers_after_full_runtime_restart(
     resolver_case,
     publisher_case,
 ) -> None:
-    frontier, gate, permit, payload = _reserved_case(publisher_case)
-    raw_result = _leave_result_received(gate, permit, payload)
+    frontier, gate, reservation, payload = _reserved_case(publisher_case)
+    raw_result = _append_result_received(gate, reservation)
     run_root = publisher_case["active"].run_root
     publisher_case["active"].close()
 
@@ -2122,7 +2212,7 @@ def test_result_received_recovers_after_full_runtime_restart(
         publisher=publisher,
         security_authority=security,
     )
-    adapter = _FakeExecutionAdapter(permit.intent.boundary_identity)
+    adapter = _FakeExecutionAdapter(reservation.intent.boundary_identity)
     report = _recovery_coordinator(reopened_gate, adapter).recover(reopened_frontier)
 
     assert report.is_complete
@@ -2136,7 +2226,7 @@ def test_fresh_embedding_recovery_never_receives_workspace_descriptor(
 ) -> None:
     _publisher, frontier, _security, gate = _action_case(publisher_case)
     payload = b'{"embedding":["complete input"]}'
-    permit = gate.issue(
+    reservation = gate.reserve(
         frontier,
         kind=RunFrontierActionKind.EMBEDDING,
         boundary=RunSafetyBoundary.IDEATION,
@@ -2145,7 +2235,7 @@ def test_fresh_embedding_recovery_never_receives_workspace_descriptor(
         workspace_access=RunFrontierWorkspaceAccess.NONE,
         boundary_identity=_boundary_identity(RunFrontierActionKind.EMBEDDING),
     )
-    adapter = _FakeExecutionAdapter(permit.intent.boundary_identity)
+    adapter = _FakeExecutionAdapter(reservation.intent.boundary_identity)
 
     report = _recovery_coordinator(gate, adapter).recover(frontier)
 

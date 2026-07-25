@@ -1,19 +1,15 @@
-"""Current-frontier action permits and shared publication exclusion."""
+"""Reservation-only current-frontier action gate tests."""
 
 from __future__ import annotations
 
-import gc
-import hashlib
 import os
 import subprocess
-import struct
-import zlib
-from concurrent.futures import ThreadPoolExecutor, TimeoutError
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 
 import pytest
 
-from kapso.cross_run.canonical import content_id, tree_or_blob_digest
+from kapso.cross_run.canonical import tree_or_blob_digest
 from kapso.cross_run.launch.checkpoint_contracts import (
     RunCheckpoint,
     RunCheckpointStatus,
@@ -21,7 +17,6 @@ from kapso.cross_run.launch.checkpoint_contracts import (
 )
 from kapso.cross_run.launch.derived_state_contracts import RunStateAuthority
 from kapso.cross_run.launch.resume_contracts import (
-    RunBranchAdvance,
     RunDerivativeFrontier,
     RunReleaseUseMode,
     RunSafetyBoundary,
@@ -31,7 +26,6 @@ from kapso.cross_run.launch.run_action_contracts import (
     RunActionBoundaryIdentity,
     RunActionContractError,
     RunActionExecutionLifecycleIdentity,
-    RunActionIntent,
     RunActionResultInterpreterIdentity,
 )
 from kapso.cross_run.launch.run_action_gate import (
@@ -40,22 +34,9 @@ from kapso.cross_run.launch.run_action_gate import (
     RunFrontierActionKind,
     RunFrontierWorkspaceAccess,
 )
+from kapso.cross_run.launch.run_action_ledger import RunActionExecutionEventKind
 from kapso.cross_run.launch.run_action_reservation_contracts import (
     RunActionReservation,
-)
-from kapso.cross_run.launch.run_action_spawn_contracts import RunActionSpawnCommit
-from kapso.cross_run.launch.run_action_store import (
-    RunActionAcceptance,
-    RunActionExecutionEvent,
-    RunActionExecutionEventKind,
-    RunActionResultDisposition,
-    RunActionResultReceipt,
-    RunActionStoreError,
-    RunActionTerminalReason,
-)
-from kapso.cross_run.launch.run_action_supervisor_contracts import (
-    RunActionPreparationAllocation,
-    issue_runtime_volume_authority,
 )
 from kapso.cross_run.launch.run_state_publisher import (
     RunStatePublisher,
@@ -65,21 +46,14 @@ from kapso.cross_run.launch.workspace_frontier import RunWorkspaceFrontierError
 from kapso.cross_run.security_authority_contracts import (
     SecurityDenylistObservation,
 )
-from test_launch_resolver import resolver_case
 from test_launch_resume_contracts import (
     _remint_evidence,
     _security_observation,
     _subjects,
 )
+from test_launch_resolver import resolver_case
+from test_run_action_supervisor_contracts import _execution_policy
 from test_run_state_publisher import _publish_genesis, publisher_case
-from test_run_action_supervisor_contracts import (
-    _activation_revalidation_receipt,
-    _execution_policy,
-    _prepared_execution,
-    _remint_contract,
-    _result_capture_receipt,
-    _terminal_observation,
-)
 
 
 def _boundary_identity(
@@ -256,8 +230,12 @@ def _action_case(case, boundary=RunSafetyBoundary.IDEATION):
     return publisher, receipt, security, gate
 
 
-def _issue_ideation_agent(gate, receipt, payload=b'{"prompt":"complete"}'):
-    return gate.issue(
+def _reserve_ideation_agent(
+    gate,
+    receipt,
+    payload=b'{"prompt":"complete"}',
+):
+    return gate.reserve(
         receipt,
         kind=RunFrontierActionKind.CODING_AGENT,
         boundary=RunSafetyBoundary.IDEATION,
@@ -271,13 +249,13 @@ def _issue_ideation_agent(gate, receipt, payload=b'{"prompt":"complete"}'):
     )
 
 
-def _issue_implementation_agent(
+def _reserve_implementation_agent(
     gate,
     receipt,
     operation_suffix,
     payload=b'{"implementation":"complete"}',
 ):
-    return gate.issue(
+    return gate.reserve(
         receipt,
         kind=RunFrontierActionKind.CODING_AGENT,
         boundary=RunSafetyBoundary.IMPLEMENTATION,
@@ -325,329 +303,33 @@ def _run_git(workspace, *arguments):
     return stdout
 
 
-def _prepare_action(gate, lease, kind=RunFrontierActionKind.CODING_AGENT):
-    policy = _execution_policy(
-        kind=kind,
-        workspace_access=lease._reservation.intent.workspace_access,
-    )
-    allocation = gate.allocate_preparation(
-        lease,
-        kind=kind,
-        execution_policy=policy,
-    )
-    operation_digest = hashlib.sha256(
-        lease._reservation.intent.operation_id.encode("utf-8")
-    ).hexdigest()
-    prepared = _prepared_execution(
-        claim=allocation.preparation_claim,
-        authority=allocation.runtime_volume_authority,
-        container_id=operation_digest,
-        inode_offset=int(operation_digest[:8], 16),
-    )
-    gate.commit_prepared_execution(
-        lease,
-        kind=kind,
-        prepared_execution=prepared,
-    )
-    return prepared
-
-
-def _claim_action(gate, lease, kind=RunFrontierActionKind.CODING_AGENT):
-    _prepare_action(gate, lease, kind)
-    return gate.claim_activation(
-        lease,
-        kind=kind,
-        boundary_identity=lease._reservation.intent.boundary_identity,
-    )
-
-
-def test_gate_terminally_closes_allocated_resource_loss_before_spawn(
+def test_gate_reserves_exact_event_one_and_complete_request(
     publisher_case,
 ) -> None:
-    _publisher, frontier, _security, gate = _action_case(publisher_case)
-    payload = b'{"prompt":"claim then lose supervisor resource"}'
-    permit = _issue_ideation_agent(
-        gate,
-        frontier,
-        payload,
-    )
+    publisher, frontier, security, gate = _action_case(publisher_case)
+    payload = b'{"prompt":"complete untruncated request"}'
 
-    with gate.hold(permit, payload) as lease:
-        gate.allocate_preparation(
-            lease,
-            kind=RunFrontierActionKind.CODING_AGENT,
-            execution_policy=_execution_policy(
-                kind=RunFrontierActionKind.CODING_AGENT,
-                workspace_access=RunFrontierWorkspaceAccess.READ_ONLY,
-            ),
-        )
-        gate.interrupt_pre_spawn(
-            lease,
-            reason=(RunActionTerminalReason.SUPERVISOR_RESOURCE_LOST_BEFORE_SPAWN),
-        )
-        terminal = lease._session.events[-1]
-        assert terminal.event_number == 3
-        assert terminal.workspace_after == permit._reservation.frontier.workspace_before
-        with pytest.raises(RunActionStoreError, match="unavailable before spawn"):
-            lease._session.read_request()
+    reservation = _reserve_ideation_agent(gate, frontier, payload)
 
-    assert gate._action_store.snapshot().operation_tails[-1].tail_kind is (
-        RunActionExecutionEventKind.INTERRUPTED
-    )
+    events = gate._action_store.inspect().events_for(reservation.intent.operation_id)
+    assert type(reservation) is RunActionReservation
+    assert len(events) == 1
+    assert events[0].event_kind is RunActionExecutionEventKind.INTENT_RESERVED
+    assert events[0].reservation == reservation
+    assert reservation.request_blob.size_bytes == len(payload)
+    assert publisher.action_ledger_snapshot().event_count == 1
+    assert not security.calls
 
 
-def _record_result(gate, lease, payload):
-    prepared = lease._session.events[2].prepared_execution
-    activation = _activation_revalidation_receipt(prepared, lease._spawn_commit)
-    if (
-        lease._session.events[-1].event_kind
-        is RunActionExecutionEventKind.SPAWN_COMMITTED
-    ):
-        gate.commit_activation(
-            lease,
-            activation_revalidation_receipt=activation,
-        )
-    terminal = _terminal_observation(prepared, lease._spawn_commit)
-    capture = _result_capture_receipt(
-        prepared,
-        activation,
-        terminal,
-        payload,
-    )
-    return gate.record_result(
-        lease,
-        terminal_observation=terminal,
-        result_capture_receipt=capture,
-        result_payload=payload,
-    )
-
-
-def _accept_action(gate, lease):
-    result = _record_result(
-        gate,
-        lease,
-        b'{"provider_result":"complete"}',
-    )
-    return gate.accept_result(
-        lease,
-        result_receipt=result,
-        disposition=RunActionResultDisposition.SUCCEEDED,
-        accepted_result_payload=b'{"accepted_result":"complete"}',
-    )
-
-
-def _complete_action(
-    gate,
-    lease,
-    kind=RunFrontierActionKind.CODING_AGENT,
-):
-    workspace_descriptor = _claim_action(gate, lease, kind)
-    _accept_action(gate, lease)
-    return workspace_descriptor
-
-
-def _workspace_advance_frontier(case, receipt, commit_sha):
-    predecessor_safety = receipt.checkpoint.safety_state
-    predecessor_frontier = predecessor_safety.derivative_frontier
-    predecessor_evidence = predecessor_frontier.evidence
-    branch = case["settings"].workspace_git_branch
-    predecessor_commit_sha = predecessor_evidence.branch_heads[branch]
-    terminal = tuple(
-        advance
-        for advance in predecessor_evidence.branch_advances
-        if advance.branch == branch and advance.commit_sha == predecessor_commit_sha
-    )
-    predecessor_advance_id = (
-        None
-        if predecessor_evidence.branch_origin_heads[branch] == predecessor_commit_sha
-        else terminal[0].branch_advance_id
-    )
-    advance = RunBranchAdvance.build(
-        branch=branch,
-        predecessor_commit_sha=predecessor_commit_sha,
-        commit_sha=commit_sha,
-        predecessor_branch_advance_id=predecessor_advance_id,
-        authorization_safety_state_id=predecessor_safety.safety_state_id,
-    )
-    evidence = _remint_evidence(
-        predecessor_evidence,
-        branch_advances=tuple(
-            sorted(
-                (*predecessor_evidence.branch_advances, advance),
-                key=lambda item: item.branch_advance_id,
-            )
-        ),
-        branch_heads={
-            **predecessor_evidence.branch_heads,
-            branch: commit_sha,
-        },
-    )
-    return RunDerivativeFrontier.build(
-        launch_subject_ids=predecessor_frontier.launch_subject_ids,
-        evidence=evidence,
-        derivatives=predecessor_frontier.derivatives,
-    )
-
-
-def _complete_unpublished_workspace_edit(case):
-    publisher, receipt, _security, gate = _action_case(
-        case,
-        RunSafetyBoundary.IMPLEMENTATION,
-    )
-    stale_bundle, stale_checkpoint = _successor_at_boundary(
-        case,
-        publisher,
-        receipt,
-        RunSafetyBoundary.EVALUATION,
-    )
-    payload = b'{"implementation":"complete"}'
-    permit = _issue_implementation_agent(
-        gate,
-        receipt,
-        "gc_lifetime",
-        payload,
-    )
-    with gate.hold(permit, payload) as lease:
-        _claim_action(gate, lease)
-        _commit_workspace_edit(
-            case,
-            "gc-lifetime-result.txt",
-            "complete result\n",
-        )
-        _accept_action(gate, lease)
-    return stale_bundle, stale_checkpoint
-
-
-def _install_raw_commit(workspace, payload):
-    object_bytes = f"commit {len(payload)}\0".encode("ascii") + payload
-    object_id = hashlib.sha1(
-        object_bytes,
-        usedforsecurity=False,
-    ).hexdigest()
-    object_directory = workspace / ".git" / "objects" / object_id[:2]
-    object_directory.mkdir(mode=0o700, exist_ok=True)
-    object_path = object_directory / object_id[2:]
-    object_path.write_bytes(zlib.compress(object_bytes))
-    object_path.chmod(0o400)
-    return object_id
-
-
-def _rewrite_git_index(workspace, mutation):
-    index_path = workspace / ".git" / "index"
-    payload = index_path.read_bytes()
-    entry_count = struct.unpack_from("!L", payload, 8)[0]
-    entries = []
-    position = 12
-    for _entry_number in range(entry_count):
-        terminator = payload.index(b"\0", position + 62, len(payload) - 20)
-        entry_end = position + ((terminator + 1 - position + 7) // 8) * 8
-        entries.append(bytearray(payload[position:entry_end]))
-        position = entry_end
-    extensions = payload[position:-20]
-    if mutation == "order":
-        entries[0], entries[1] = entries[1], entries[0]
-    else:
-        mode = struct.unpack_from("!L", entries[0], 24)[0]
-        struct.pack_into("!L", entries[0], 24, mode | 0x80000000)
-    body = payload[:12] + b"".join(entries) + extensions
-    checksum = hashlib.sha1(body, usedforsecurity=False).digest()
-    index_path.write_bytes(body + checksum)
-
-
-def test_action_gate_holds_current_frontier_and_claims_once(
+def test_reservation_rejects_boundary_kind_substitution(
     publisher_case,
 ) -> None:
-    publisher, receipt, security, gate = _action_case(publisher_case)
-    payload = b'{"prompt":"complete"}'
-    permit = _issue_ideation_agent(gate, receipt, payload)
-
-    with gate.hold(permit, payload) as lease:
-        workspace_descriptor = _claim_action(gate, lease)
-        workspace = os.fstat(workspace_descriptor)
-        assert (
-            workspace.st_dev,
-            workspace.st_ino,
-        ) == permit.workspace_frontier.workspace_identity
-        assert lease.run_checkpoint_id == receipt.run_checkpoint_id
-        assert lease.safety_state_id == receipt.checkpoint.safety_state.safety_state_id
-        assert publisher.require_current(receipt) == receipt.checkpoint
-        with pytest.raises(RunFrontierActionError, match="another phase"):
-            gate.allocate_preparation(
-                lease,
-                kind=RunFrontierActionKind.CODING_AGENT,
-                execution_policy=_execution_policy(
-                    kind=RunFrontierActionKind.CODING_AGENT,
-                    workspace_access=RunFrontierWorkspaceAccess.READ_ONLY,
-                ),
-            )
-        _accept_action(gate, lease)
-
-    ledger = publisher.action_ledger_snapshot()
-    assert ledger.event_count == 7
-    assert ledger.operation_tails[0].tail_kind is (
-        RunActionExecutionEventKind.RESULT_ACCEPTED
-    )
-    expected_security_call = (
-        receipt.checkpoint.safety_state.security_observation.scope_id,
-        receipt.checkpoint.safety_state.security_observation.scope_contract_id,
-        receipt.checkpoint.safety_state.security_observation.checked_subject_ids,
-        receipt.checkpoint.safety_state.security_observation,
-    )
-    assert security.calls == [expected_security_call] * 3
-    with pytest.raises(RunFrontierActionError, match="consumed"):
-        with gate.hold(permit, payload):
-            raise AssertionError("consumed permit entered")
-
-
-def test_action_claim_rejects_adapter_substitution_before_security_use(
-    publisher_case,
-) -> None:
-    _publisher, receipt, security, gate = _action_case(publisher_case)
-    payload = b'{"prompt":"adapter-bound"}'
-    permit = _issue_ideation_agent(gate, receipt, payload)
-    substituted = RunActionBoundaryIdentity.mint(
-        kind=RunFrontierActionKind.CODING_AGENT,
-        execution_lifecycle_identity=RunActionExecutionLifecycleIdentity.mint(
-            kind=RunFrontierActionKind.CODING_AGENT,
-            implementation_id="test.coding_agent.execution",
-            implementation_version="test.execution.v2",
-            recovery_protocol_version="test.recovery.v1",
-            execution_policy_id=(
-                permit.intent.boundary_identity.execution_lifecycle_identity.execution_policy_id
-            ),
-        ),
-        result_interpreter_identity=(
-            permit.intent.boundary_identity.result_interpreter_identity
-        ),
-    )
-
-    with gate.hold(permit, payload) as lease:
-        _prepare_action(gate, lease)
-        security_call_count = len(security.calls)
-        with pytest.raises(RunFrontierActionError, match="activation boundary"):
-            gate.claim_activation(
-                lease,
-                kind=RunFrontierActionKind.CODING_AGENT,
-                boundary_identity=substituted,
-            )
-        assert len(security.calls) == security_call_count
-        gate.claim_activation(
-            lease,
-            kind=RunFrontierActionKind.CODING_AGENT,
-            boundary_identity=lease._reservation.intent.boundary_identity,
-        )
-        _accept_action(gate, lease)
-
-
-def test_action_issue_rejects_boundary_kind_substitution(
-    publisher_case,
-) -> None:
-    publisher, receipt, _security, gate = _action_case(publisher_case)
+    publisher, frontier, _security, gate = _action_case(publisher_case)
     before = publisher.action_ledger_snapshot()
 
     with pytest.raises(RunFrontierActionError, match="unrecognized enum"):
-        gate.issue(
-            receipt,
+        gate.reserve(
+            frontier,
             kind=RunFrontierActionKind.CODING_AGENT,
             boundary=RunSafetyBoundary.IDEATION,
             operation_id="wrong_adapter_kind_0123456789abcdef",
@@ -681,98 +363,14 @@ def test_boundary_rejects_cross_kind_lifecycle_or_interpreter() -> None:
         )
 
 
-@pytest.mark.parametrize("mutation", ("clone", "request"))
-def test_action_permit_rejects_clone_and_complete_request_change(
-    publisher_case,
-    mutation,
-) -> None:
-    _publisher, receipt, _security, gate = _action_case(publisher_case)
-    payload = b'{"prompt":"complete"}'
-    permit = _issue_ideation_agent(gate, receipt, payload)
-    attempted_permit = replace(permit) if mutation == "clone" else permit
-    attempted_payload = payload if mutation == "clone" else b'{"prompt":"changed"}'
-
-    with pytest.raises(
-        RunFrontierActionError,
-        match="cloned|another request",
-    ):
-        with gate.hold(attempted_permit, attempted_payload):
-            raise AssertionError("invalid action permit entered")
-
-
-def test_action_gate_requires_exact_current_security_observation(
+def test_reservation_rejects_wrong_checkpoint_boundary(
     publisher_case,
 ) -> None:
-    _publisher, receipt, security, gate = _action_case(publisher_case)
-    current = receipt.checkpoint.safety_state.security_observation
-    security.observation = _security_observation(
-        publisher_case["active"].bootstrap_pin,
-        current.checked_subject_ids,
-        generation_offset=(
-            current.generation
-            - publisher_case[
-                "active"
-            ].bootstrap_pin.launch_manifest.security_observation.generation
-            + 1
-        ),
-    )
-    payload = b'{"prompt":"complete"}'
-    permit = _issue_ideation_agent(gate, receipt, payload)
-
-    with pytest.raises(RunFrontierActionError, match="must be refreshed"):
-        with gate.hold(permit, payload) as lease:
-            _claim_action(gate, lease)
-
-    security.observation = current
-    with pytest.raises(RunFrontierActionError, match="consumed"):
-        with gate.hold(permit, payload):
-            raise AssertionError("failed security permit was replayed")
-
-
-def test_action_gate_rechecks_security_at_activation_commit(
-    publisher_case,
-) -> None:
-    _publisher, receipt, security, gate = _action_case(publisher_case)
-    current = receipt.checkpoint.safety_state.security_observation
-    payload = b'{"prompt":"security changes during activation staging"}'
-    permit = _issue_ideation_agent(gate, receipt, payload)
-
-    with pytest.raises(RunFrontierActionError, match="must be refreshed"):
-        with gate.hold(permit, payload) as lease:
-            _claim_action(gate, lease)
-            prepared = lease._session.events[2].prepared_execution
-            activation = _activation_revalidation_receipt(
-                prepared,
-                lease._spawn_commit,
-            )
-            security.observation = _security_observation(
-                publisher_case["active"].bootstrap_pin,
-                current.checked_subject_ids,
-                generation_offset=(
-                    current.generation
-                    - publisher_case[
-                        "active"
-                    ].bootstrap_pin.launch_manifest.security_observation.generation
-                    + 1
-                ),
-            )
-            gate.commit_activation(
-                lease,
-                activation_revalidation_receipt=activation,
-            )
-
-    events = gate._action_store.inspect().events_for(permit.intent.operation_id)
-    assert events[-1].event_kind is RunActionExecutionEventKind.SPAWN_COMMITTED
-
-
-def test_action_gate_rejects_wrong_checkpoint_boundary(
-    publisher_case,
-) -> None:
-    _publisher, receipt, _security, gate = _action_case(publisher_case)
+    _publisher, frontier, _security, gate = _action_case(publisher_case)
 
     with pytest.raises(RunFrontierActionError, match="boundary"):
-        gate.issue(
-            receipt,
+        gate.reserve(
+            frontier,
             kind=RunFrontierActionKind.EVALUATOR,
             boundary=RunSafetyBoundary.EVALUATION,
             operation_id="evaluation_0123456789abcdef",
@@ -782,127 +380,15 @@ def test_action_gate_rejects_wrong_checkpoint_boundary(
         )
 
 
-def test_action_shared_lease_blocks_run_state_publication(
+def test_unresolved_reservation_blocks_checkpoint_publication(
     publisher_case,
 ) -> None:
-    publisher, receipt, _security, gate = _action_case(publisher_case)
-    payload = b'{"prompt":"complete"}'
-    action_permit = _issue_ideation_agent(gate, receipt, payload)
-
-    with ThreadPoolExecutor(max_workers=1) as executor:
-        with gate.hold(action_permit, payload) as lease:
-            _complete_action(gate, lease)
-            successor_bundle, successor_checkpoint = _successor_at_boundary(
-                publisher_case,
-                publisher,
-                receipt,
-                RunSafetyBoundary.IMPLEMENTATION,
-            )
-
-            def publish_successor():
-                publication_permit = publisher.issue_publication_permit(
-                    receipt,
-                    successor_checkpoint,
-                    successor_bundle,
-                )
-                return publisher.publish(
-                    publication_permit,
-                    successor_checkpoint,
-                    successor_bundle,
-                )
-
-            future = executor.submit(
-                publish_successor,
-            )
-            with pytest.raises(TimeoutError):
-                future.result(timeout=0.05)
-        successor_receipt = future.result(timeout=5)
-
-    assert successor_receipt.checkpoint == successor_checkpoint
-    with pytest.raises(RunFrontierActionError, match="consumed"):
-        with gate.hold(action_permit, payload):
-            raise AssertionError("completed action permit was replayed")
-
-
-def test_publication_requires_exact_unchanged_terminal_workspace(
-    publisher_case,
-) -> None:
-    publisher, receipt, _security, gate = _action_case(publisher_case)
-    payload = b'{"prompt":"complete"}'
-    permit = _issue_ideation_agent(gate, receipt, payload)
-    with gate.hold(permit, payload) as lease:
-        _complete_action(gate, lease)
-    (publisher_case["active"].workspace / ".git" / "COMMIT_EDITMSG").write_text(
-        "changed after terminal action\n",
-        encoding="utf-8",
-    )
+    publisher, frontier, _security, gate = _action_case(publisher_case)
+    _reserve_ideation_agent(gate, frontier)
     successor_bundle, successor_checkpoint = _successor_at_boundary(
         publisher_case,
         publisher,
-        receipt,
-        RunSafetyBoundary.IMPLEMENTATION,
-    )
-
-    with pytest.raises(
-        RunStatePublisherError,
-        match="terminal workspace changed",
-    ):
-        publisher.issue_publication_permit(
-            receipt,
-            successor_checkpoint,
-            successor_bundle,
-        )
-
-
-def test_multiple_read_only_actions_form_one_workspace_chain(
-    publisher_case,
-) -> None:
-    publisher, receipt, _security, gate = _action_case(publisher_case)
-    first_payload = b'{"prompt":"first complete request"}'
-    first = _issue_ideation_agent(gate, receipt, first_payload)
-    with gate.hold(first, first_payload) as lease:
-        _complete_action(gate, lease)
-    second_payload = b'{"prompt":"second complete request"}'
-    second = gate.issue(
-        receipt,
-        kind=RunFrontierActionKind.CODING_AGENT,
-        boundary=RunSafetyBoundary.IDEATION,
-        operation_id="second_read_action_0123456789abcdef",
-        request_payload=second_payload,
-        workspace_access=RunFrontierWorkspaceAccess.READ_ONLY,
-        boundary_identity=_boundary_identity(RunFrontierActionKind.CODING_AGENT),
-    )
-    with gate.hold(second, second_payload) as lease:
-        _complete_action(gate, lease)
-    successor_bundle, successor_checkpoint = _successor_at_boundary(
-        publisher_case,
-        publisher,
-        receipt,
-        RunSafetyBoundary.IMPLEMENTATION,
-    )
-
-    successor = publisher.publish(
-        publisher.issue_publication_permit(
-            receipt,
-            successor_checkpoint,
-            successor_bundle,
-        ),
-        successor_checkpoint,
-        successor_bundle,
-    )
-
-    assert successor.projection.action_ledger.event_count == 14
-
-
-def test_unresolved_durable_action_blocks_candidate_publication(
-    publisher_case,
-) -> None:
-    publisher, receipt, _security, gate = _action_case(publisher_case)
-    _issue_ideation_agent(gate, receipt)
-    successor_bundle, successor_checkpoint = _successor_at_boundary(
-        publisher_case,
-        publisher,
-        receipt,
+        frontier,
         RunSafetyBoundary.IMPLEMENTATION,
     )
 
@@ -911,13 +397,13 @@ def test_unresolved_durable_action_blocks_candidate_publication(
         match="unresolved execution",
     ):
         publisher.issue_publication_permit(
-            receipt,
+            frontier,
             successor_checkpoint,
             successor_bundle,
         )
 
 
-def test_stopped_checkpoint_cannot_issue_an_action(
+def test_stopped_checkpoint_cannot_reserve_an_action(
     publisher_case,
 ) -> None:
     publisher, initial = _publish_genesis(publisher_case)
@@ -942,16 +428,16 @@ def test_stopped_checkpoint_cannot_issue_an_action(
     )
 
     with pytest.raises(RunFrontierActionError, match="stopped or completed"):
-        _issue_ideation_agent(gate, receipt)
+        _reserve_ideation_agent(gate, receipt)
 
 
 def test_completed_checkpoint_is_not_actionable(
     publisher_case,
 ) -> None:
-    _publisher, receipt, _security, gate = _action_case(publisher_case)
-    permit = _issue_ideation_agent(gate, receipt)
+    _publisher, frontier, _security, gate = _action_case(publisher_case)
+    reservation = _reserve_ideation_agent(gate, frontier)
     completed = object.__new__(RunCheckpoint)
-    for field_name, value in vars(receipt.checkpoint).items():
+    for field_name, value in vars(frontier.checkpoint).items():
         object.__setattr__(completed, field_name, value)
     object.__setattr__(
         completed,
@@ -960,7 +446,7 @@ def test_completed_checkpoint_is_not_actionable(
     )
 
     with pytest.raises(RunFrontierActionError, match="stopped or completed"):
-        gate._require_actionable(completed, permit.intent)
+        gate._require_actionable(completed, reservation.intent)
 
 
 @pytest.mark.parametrize(
@@ -993,20 +479,20 @@ def test_completed_checkpoint_is_not_actionable(
         ),
     ),
 )
-def test_action_gate_enforces_exact_capability_matrix(
+def test_reservation_enforces_exact_capability_matrix(
     publisher_case,
     boundary,
     kind,
     access,
 ) -> None:
-    _publisher, receipt, _security, gate = _action_case(
+    _publisher, frontier, _security, gate = _action_case(
         publisher_case,
         boundary,
     )
 
     with pytest.raises(RunFrontierActionError, match="workspace access"):
-        gate.issue(
-            receipt,
+        gate.reserve(
+            frontier,
             kind=kind,
             boundary=boundary,
             operation_id="forbidden_action_0123456789abcdef",
@@ -1016,45 +502,35 @@ def test_action_gate_enforces_exact_capability_matrix(
         )
 
 
-def test_embedding_action_receives_no_workspace_capability(
+def test_embedding_reservation_has_no_workspace_binding(
     publisher_case,
 ) -> None:
-    _publisher, receipt, _security, gate = _action_case(publisher_case)
-    payload = b'{"texts":["complete input"]}'
-    permit = gate.issue(
-        receipt,
+    _publisher, frontier, _security, gate = _action_case(publisher_case)
+    reservation = gate.reserve(
+        frontier,
         kind=RunFrontierActionKind.EMBEDDING,
         boundary=RunSafetyBoundary.IDEATION,
         operation_id="embedding_0123456789abcdef",
-        request_payload=payload,
+        request_payload=b'{"texts":["complete input"]}',
         workspace_access=RunFrontierWorkspaceAccess.NONE,
         boundary_identity=_boundary_identity(RunFrontierActionKind.EMBEDDING),
     )
 
-    assert permit.workspace_frontier is None
-    with gate.hold(permit, payload) as lease:
-        assert (
-            _complete_action(
-                gate,
-                lease,
-                RunFrontierActionKind.EMBEDDING,
-            )
-            is None
-        )
+    assert reservation.frontier.workspace_before is None
 
 
-def test_duplicate_action_intent_and_operation_are_reserved_once(
+def test_duplicate_intent_and_operation_are_reserved_once(
     publisher_case,
 ) -> None:
-    _publisher, receipt, _security, gate = _action_case(publisher_case)
+    _publisher, frontier, _security, gate = _action_case(publisher_case)
     payload = b'{"prompt":"complete"}'
-    first = _issue_ideation_agent(gate, receipt, payload)
+    first = _reserve_ideation_agent(gate, frontier, payload)
 
     with pytest.raises(RunFrontierActionError, match="unresolved durable action"):
-        _issue_ideation_agent(gate, receipt, payload)
+        _reserve_ideation_agent(gate, frontier, payload)
     with pytest.raises(RunFrontierActionError, match="unresolved durable action"):
-        gate.issue(
-            receipt,
+        gate.reserve(
+            frontier,
             kind=RunFrontierActionKind.CODING_AGENT,
             boundary=RunSafetyBoundary.IDEATION,
             operation_id=first.intent.operation_id,
@@ -1063,29 +539,26 @@ def test_duplicate_action_intent_and_operation_are_reserved_once(
             boundary_identity=_boundary_identity(RunFrontierActionKind.CODING_AGENT),
         )
 
-    with gate.hold(first, payload) as lease:
-        _complete_action(gate, lease)
 
-
-def test_concurrent_duplicate_action_issue_has_one_winner(
+def test_concurrent_duplicate_reservation_has_one_winner(
     publisher_case,
 ) -> None:
-    _publisher, receipt, _security, gate = _action_case(publisher_case)
+    _publisher, frontier, _security, gate = _action_case(publisher_case)
 
     with ThreadPoolExecutor(max_workers=2) as executor:
         futures = tuple(
-            executor.submit(_issue_ideation_agent, gate, receipt)
+            executor.submit(_reserve_ideation_agent, gate, frontier)
             for _attempt in range(2)
         )
-    permits = []
+    reservations = []
     errors = []
     for future in futures:
         if future.exception() is None:
-            permits.append(future.result())
+            reservations.append(future.result())
         else:
             errors.append(future.exception())
 
-    assert len(permits) == 1
+    assert len(reservations) == 1
     assert len(errors) == 1
     assert isinstance(errors[0], RunFrontierActionError)
     assert (
@@ -1096,11 +569,11 @@ def test_concurrent_duplicate_action_issue_has_one_winner(
     )
 
 
-def test_reconstructed_gate_observes_durable_unresolved_reservation(
+def test_reconstructed_gate_observes_unresolved_reservation(
     publisher_case,
 ) -> None:
-    publisher, receipt, security, gate = _action_case(publisher_case)
-    _issue_ideation_agent(gate, receipt)
+    publisher, frontier, security, gate = _action_case(publisher_case)
+    _reserve_ideation_agent(gate, frontier)
     reconstructed_publisher = RunStatePublisher(
         publisher_case["active"],
         publisher_case["settings"],
@@ -1110,659 +583,63 @@ def test_reconstructed_gate_observes_durable_unresolved_reservation(
         publisher=reconstructed_publisher,
         security_authority=security,
     )
-    reconstructed_receipt = reconstructed_publisher.load_reconciled()
+    reconstructed_frontier = reconstructed_publisher.load_reconciled()
 
     with pytest.raises(
         RunFrontierActionError,
         match="unresolved durable action",
     ):
-        _issue_ideation_agent(
+        _reserve_ideation_agent(
             reconstructed_gate,
-            reconstructed_receipt,
+            reconstructed_frontier,
             b'{"prompt":"different complete request"}',
         )
 
 
-@pytest.mark.parametrize(
-    "mutation",
-    (
-        "source",
-        "index",
-        "branch",
-        "assume_unchanged",
-        "replace_ref",
-        "alternates",
-        "shallow",
-        "unreachable_object",
-        "missing_object",
-    ),
-)
-def test_workspace_mutation_after_issue_invalidates_action(
-    publisher_case,
-    mutation,
-) -> None:
-    _publisher, receipt, _security, gate = _action_case(publisher_case)
-    payload = b'{"prompt":"complete"}'
-    permit = _issue_ideation_agent(gate, receipt, payload)
-    workspace = publisher_case["active"].workspace
-    if mutation == "source":
-        (workspace / "uncommitted.txt").write_text(
-            "dirty",
-            encoding="utf-8",
-        )
-    elif mutation == "index":
-        index = workspace / ".git" / "index"
-        payload_bytes = bytearray(index.read_bytes())
-        payload_bytes[-1] ^= 1
-        index.write_bytes(payload_bytes)
-    elif mutation == "branch":
-        (
-            workspace
-            / ".git"
-            / "refs"
-            / "heads"
-            / publisher_case["settings"].workspace_git_branch
-        ).write_text("0" * 40 + "\n", encoding="ascii")
-    elif mutation == "assume_unchanged":
-        _run_git(
-            workspace,
-            "update-index",
-            "--assume-unchanged",
-            "EXPERT_REPO.md",
-        )
-    elif mutation == "replace_ref":
-        replacement = workspace / ".git" / "refs" / "replace"
-        replacement.mkdir()
-        (replacement / permit.workspace_frontier.commit_sha).write_text(
-            permit.workspace_frontier.commit_sha + "\n",
-            encoding="ascii",
-        )
-    elif mutation == "alternates":
-        (workspace / ".git" / "objects" / "info" / "alternates").write_text(
-            "/untrusted/object/store\n",
-            encoding="utf-8",
-        )
-    elif mutation == "shallow":
-        (workspace / ".git" / "shallow").write_text(
-            permit.workspace_frontier.commit_sha + "\n",
-            encoding="ascii",
-        )
-    elif mutation == "unreachable_object":
-        message = workspace / ".git" / "COMMIT_EDITMSG"
-        message.write_text("unreachable object\n", encoding="utf-8")
-        _run_git(
-            workspace,
-            "hash-object",
-            "-w",
-            ".git/COMMIT_EDITMSG",
-        )
-    else:
-        blob_id = _run_git(
-            workspace,
-            "rev-parse",
-            "HEAD:EXPERT_REPO.md",
-        ).strip()
-        (workspace / ".git" / "objects" / blob_id[:2] / blob_id[2:]).unlink()
-
-    with pytest.raises(
-        RunWorkspaceFrontierError,
-        match=(
-            "commit tree|checksum|checkpoint|unsupported control|"
-            "unsupported references|not loose and self-contained|"
-            "unreachable|missing or wrong-kind|object directory is invalid"
-            "|unsupported flags"
-        ),
-    ):
-        with gate.hold(permit, payload):
-            raise AssertionError("dirty workspace authorized an action")
-
-
-def test_admitted_git_metadata_is_bound_to_read_only_frontier(
-    publisher_case,
-) -> None:
-    _publisher, receipt, _security, gate = _action_case(publisher_case)
-    payload = b'{"prompt":"complete"}'
-    permit = _issue_ideation_agent(gate, receipt, payload)
-    (publisher_case["active"].workspace / ".git" / "COMMIT_EDITMSG").write_text(
-        "changed metadata\n",
-        encoding="utf-8",
-    )
-
-    with pytest.raises(
-        RunFrontierActionError,
-        match="workspace frontier changed",
-    ):
-        with gate.hold(permit, payload):
-            raise AssertionError("changed Git metadata authorized an action")
-
-
-@pytest.mark.parametrize("mutation", ("order", "mode"))
-def test_git_index_requires_canonical_entry_order_and_mode(
-    publisher_case,
-    mutation,
-) -> None:
-    _publisher, receipt, _security, gate = _action_case(publisher_case)
-    payload = b'{"prompt":"complete"}'
-    permit = _issue_ideation_agent(gate, receipt, payload)
-    _rewrite_git_index(
-        publisher_case["active"].workspace,
-        mutation,
-    )
-
-    with pytest.raises(
-        RunWorkspaceFrontierError,
-        match="path order|entry is invalid",
-    ):
-        with gate.hold(permit, payload):
-            raise AssertionError("noncanonical Git index authorized an action")
-
-
-@pytest.mark.parametrize(
-    "headers",
-    (
-        (
-            b"author Kapso Test <kapso-test@example.invalid> 1 +0000\n"
-            b"parent {parent}\n"
-            b"committer Kapso Test <kapso-test@example.invalid> 1 +0000\n"
-        ),
-        (
-            b"parent {parent}\n"
-            b"committer Kapso Test <kapso-test@example.invalid> 1 +0000\n"
-        ),
-        (
-            b"parent {parent}\n"
-            b"author Kapso Test <kapso-test@example.invalid> 1 +0000\n"
-            b"author Kapso Test <kapso-test@example.invalid> 1 +0000\n"
-            b"committer Kapso Test <kapso-test@example.invalid> 1 +0000\n"
-        ),
-    ),
-)
-def test_workspace_edit_rejects_malformed_commit_parent_grammar(
-    publisher_case,
-    headers,
-) -> None:
-    _publisher, receipt, _security, gate = _action_case(
-        publisher_case,
-        RunSafetyBoundary.IMPLEMENTATION,
-    )
-    payload = b'{"implementation":"complete"}'
-    permit = _issue_implementation_agent(
-        gate,
-        receipt,
-        "malformed_commit",
-        payload,
-    )
-    workspace = publisher_case["active"].workspace
-    before = permit.workspace_frontier
-    commit_payload = (
-        f"tree {before.git_tree_sha}\n".encode("ascii")
-        + headers.replace(
-            b"{parent}",
-            before.commit_sha.encode("ascii"),
-        )
-        + b"\nmalformed\n"
-    )
-
-    with pytest.raises(
-        RunWorkspaceFrontierError,
-        match="commit",
-    ):
-        with gate.hold(permit, payload) as lease:
-            _claim_action(gate, lease)
-            commit_sha = _install_raw_commit(workspace, commit_payload)
-            (
-                workspace
-                / ".git"
-                / "refs"
-                / "heads"
-                / publisher_case["settings"].workspace_git_branch
-            ).write_text(commit_sha + "\n", encoding="ascii")
-            _accept_action(gate, lease)
-
-
-def test_workspace_cannot_change_after_durable_acceptance(
-    publisher_case,
-) -> None:
-    _publisher, receipt, _security, gate = _action_case(
-        publisher_case,
-        RunSafetyBoundary.IMPLEMENTATION,
-    )
-    payload = b'{"implementation":"complete"}'
-    permit = _issue_implementation_agent(
-        gate,
-        receipt,
-        "post_accept_mutation",
-        payload,
-    )
-    workspace = publisher_case["active"].workspace
-
-    with pytest.raises(
-        RunWorkspaceFrontierError,
-        match="commit tree",
-    ):
-        with gate.hold(permit, payload) as lease:
-            _claim_action(gate, lease)
-            _commit_workspace_edit(
-                publisher_case,
-                "accepted-result.txt",
-                "accepted result\n",
-            )
-            _accept_action(gate, lease)
-            (workspace / "accepted-result.txt").write_text(
-                "changed after acceptance\n",
-                encoding="utf-8",
-            )
-
-
-def test_failed_workspace_edit_accepts_only_the_unchanged_frontier(
-    publisher_case,
-) -> None:
-    _publisher, receipt, _security, gate = _action_case(
-        publisher_case,
-        RunSafetyBoundary.IMPLEMENTATION,
-    )
-    payload = b'{"implementation":"provider failed"}'
-    permit = _issue_implementation_agent(
-        gate,
-        receipt,
-        "failed_unchanged",
-        payload,
-    )
-
-    with gate.hold(permit, payload) as lease:
-        _claim_action(gate, lease)
-        result = _record_result(
-            gate,
-            lease,
-            b'{"provider_result":"failed"}',
-        )
-        acceptance = gate.accept_result(
-            lease,
-            result_receipt=result,
-            disposition=RunActionResultDisposition.FAILED,
-            accepted_result_payload=b'{"accepted_result":"failed"}',
-        )
-
-    assert acceptance.workspace_after == lease._reservation.frontier.workspace_before
-
-
-def test_failed_workspace_edit_rejects_a_committed_successor(
-    publisher_case,
-) -> None:
-    _publisher, receipt, _security, gate = _action_case(
-        publisher_case,
-        RunSafetyBoundary.IMPLEMENTATION,
-    )
-    payload = b'{"implementation":"provider failed after edit"}'
-    permit = _issue_implementation_agent(
-        gate,
-        receipt,
-        "failed_changed",
-        payload,
-    )
-
-    with pytest.raises(
-        RunActionStoreError,
-        match="failed editing action",
-    ):
-        with gate.hold(permit, payload) as lease:
-            _claim_action(gate, lease)
-            _commit_workspace_edit(
-                publisher_case,
-                "failed-edit.txt",
-                "must not be accepted\n",
-            )
-            result = _record_result(
-                gate,
-                lease,
-                b'{"provider_result":"failed"}',
-            )
-            gate.accept_result(
-                lease,
-                result_receipt=result,
-                disposition=RunActionResultDisposition.FAILED,
-                accepted_result_payload=b'{"accepted_result":"failed"}',
-            )
-
-
-def test_action_gate_rejects_a_reminted_terminal_from_another_safety_boundary(
+def test_dirty_workspace_cannot_be_reserved(
     publisher_case,
 ) -> None:
     _publisher, frontier, _security, gate = _action_case(publisher_case)
-    payload = b'{"prompt":"complete before frontier remint"}'
-    permit = _issue_ideation_agent(gate, frontier, payload)
-    with gate.hold(permit, payload) as lease:
-        _claim_action(gate, lease)
-        _accept_action(gate, lease)
+    (publisher_case["active"].workspace / "uncommitted.py").write_text(
+        "DIRTY = True\n",
+        encoding="utf-8",
+    )
 
-    original_events = gate._action_store.inspect().events_for(
-        permit.intent.operation_id
-    )
-    original_reservation = original_events[0].reservation
-    reminted_intent = RunActionIntent.from_request(
-        kind=original_reservation.intent.kind,
-        boundary=RunSafetyBoundary.EVALUATION,
-        operation_id=original_reservation.intent.operation_id,
-        request_payload=payload,
-        workspace_access=original_reservation.intent.workspace_access,
-        boundary_identity=original_reservation.intent.boundary_identity,
-    )
-    reminted_reservation = RunActionReservation.build(
-        intent=reminted_intent,
-        frontier=original_reservation.frontier,
-        predecessor_ledger=permit._predecessor_ledger,
-    )
-    original_allocation = original_events[1].preparation_allocation
-    reminted_claim = type(original_allocation.preparation_claim).mint(
-        reservation=reminted_reservation,
-        execution_policy=original_allocation.preparation_claim.execution_policy,
-    )
-    reminted_allocation = RunActionPreparationAllocation.mint(
-        preparation_claim=reminted_claim,
-        runtime_volume_authority=issue_runtime_volume_authority(
-            reminted_claim,
-            original_allocation.runtime_volume_authority.generation_nonce,
-        ),
-    )
-    operation_digest = hashlib.sha256(
-        permit.intent.operation_id.encode("utf-8")
-    ).hexdigest()
-    reminted_prepared = _prepared_execution(
-        claim=reminted_claim,
-        authority=reminted_allocation.runtime_volume_authority,
-        container_id=original_events[
-            2
-        ].prepared_execution.inert_container_evidence.container_id,
-        inode_offset=int(operation_digest[:8], 16),
-    )
-    original_spawn = original_events[3].spawn_commit
-    reminted_spawn = RunActionSpawnCommit.mint(
-        reservation_id=reminted_reservation.reservation_id,
-        prepared_execution_id=reminted_prepared.prepared_execution_id,
-        provider_execution_id=original_spawn.provider_execution_id,
-        invocation_nonce=original_spawn.invocation_nonce,
-        security_observation_id=original_spawn.security_observation_id,
-        boundary_identity=original_spawn.boundary_identity,
-    )
-    reminted_activation = _activation_revalidation_receipt(
-        reminted_prepared,
-        reminted_spawn,
-    )
-    original_result = original_events[5].result_receipt
-    reminted_terminal = _terminal_observation(
-        reminted_prepared,
-        reminted_spawn,
-    )
-    reminted_capture = _result_capture_receipt(
-        reminted_prepared,
-        reminted_activation,
-        reminted_terminal,
-        b'{"provider_result":"complete"}',
-    )
-    reminted_result = RunActionResultReceipt.mint(
-        spawn_commit_id=reminted_spawn.spawn_commit_id,
-        provider_execution_id=reminted_spawn.provider_execution_id,
-        activation_revalidation_receipt_id=(
-            reminted_activation.activation_revalidation_receipt_id
-        ),
-        terminal_observation=reminted_terminal,
-        result_capture_receipt=reminted_capture,
-        result_blob=original_result.result_blob,
-    )
-    original_acceptance = original_events[6].acceptance
-    reminted_acceptance = RunActionAcceptance.mint(
-        result_receipt_id=reminted_result.result_receipt_id,
-        disposition=original_acceptance.disposition,
-        accepted_result_blob=original_acceptance.accepted_result_blob,
-        workspace_after=original_acceptance.workspace_after,
-    )
-    event_payloads = (
-        (
-            RunActionExecutionEventKind.INTENT_RESERVED,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-        ),
-        (
-            RunActionExecutionEventKind.PREPARATION_ALLOCATED,
-            reminted_allocation,
-            None,
-            None,
-            None,
-            None,
-            None,
-        ),
-        (
-            RunActionExecutionEventKind.EXECUTION_PREPARED,
-            None,
-            reminted_prepared,
-            None,
-            None,
-            None,
-            None,
-        ),
-        (
-            RunActionExecutionEventKind.SPAWN_COMMITTED,
-            None,
-            None,
-            reminted_spawn,
-            None,
-            None,
-            None,
-        ),
-        (
-            RunActionExecutionEventKind.ACTIVATION_COMMITTED,
-            None,
-            None,
-            None,
-            reminted_activation,
-            None,
-            None,
-        ),
-        (
-            RunActionExecutionEventKind.RESULT_RECEIVED,
-            None,
-            None,
-            None,
-            None,
-            reminted_result,
-            None,
-        ),
-        (
-            RunActionExecutionEventKind.RESULT_ACCEPTED,
-            None,
-            None,
-            None,
-            None,
-            None,
-            reminted_acceptance,
-        ),
-    )
-    predecessor_event_id = None
-    reminted_events = []
-    for event_number, (
-        event_kind,
-        preparation_allocation,
-        prepared_execution,
-        spawn_commit,
-        activation_revalidation_receipt,
-        result_receipt,
-        acceptance,
-    ) in enumerate(event_payloads, start=1):
-        event = RunActionExecutionEvent.mint(
-            event_number=event_number,
-            predecessor_event_id=predecessor_event_id,
-            event_kind=event_kind,
-            reservation=reminted_reservation,
-            preparation_allocation=preparation_allocation,
-            prepared_execution=prepared_execution,
-            spawn_commit=spawn_commit,
-            activation_revalidation_receipt=activation_revalidation_receipt,
-            result_receipt=result_receipt,
-            acceptance=acceptance,
-            terminal_reason=None,
-            workspace_after=None,
-        )
-        reminted_events.append(event)
-        predecessor_event_id = event.event_id
-    operation_digest = tree_or_blob_digest(
-        permit.intent.operation_id.encode("utf-8")
-    ).removeprefix("sha256:")
-    store_path = (
-        publisher_case["active"].run_root
-        / publisher_case["settings"].run_action_store_path
-    )
-    for event in reminted_events:
-        event_path = store_path / (
-            f"operation-{operation_digest}-event-{event.event_number:04d}.json"
-        )
-        event_path.chmod(0o600)
-        event_path.write_bytes(event.to_json_bytes())
-        event_path.chmod(0o400)
-
-    with pytest.raises(
-        RunFrontierActionError,
-        match="another frontier",
-    ):
-        gate.issue(
-            frontier,
-            kind=RunFrontierActionKind.CODING_AGENT,
-            boundary=RunSafetyBoundary.IDEATION,
-            operation_id="after_remint_0123456789abcdef0123456789abcdef",
-            request_payload=b'{"prompt":"must not run"}',
-            workspace_access=RunFrontierWorkspaceAccess.READ_ONLY,
-            boundary_identity=_boundary_identity(RunFrontierActionKind.CODING_AGENT),
-        )
+    with pytest.raises(RunWorkspaceFrontierError):
+        _reserve_ideation_agent(gate, frontier)
 
 
-def test_durable_edit_evidence_survives_gate_and_publisher_collection(
+def test_gate_cannot_cross_process_boundary(
     publisher_case,
 ) -> None:
-    stale_bundle, stale_checkpoint = _complete_unpublished_workspace_edit(
-        publisher_case
-    )
-    gc.collect()
-    publisher = RunStatePublisher(
-        publisher_case["active"],
-        publisher_case["settings"],
-    )
-    receipt = publisher.load_reconciled()
+    _publisher, frontier, _security, gate = _action_case(publisher_case)
+    read_descriptor, write_descriptor = os.pipe()
+    child_process_id = os.fork()
+    if child_process_id == 0:
+        os.close(read_descriptor)
+        with pytest.raises(RunFrontierActionError, match="process boundary"):
+            _reserve_ideation_agent(gate, frontier)
+        os.write(write_descriptor, b"invalid")
+        os._exit(0)
+    os.close(write_descriptor)
+    assert os.read(read_descriptor, len(b"invalid")) == b"invalid"
+    os.close(read_descriptor)
+    waited_process_id, status = os.waitpid(child_process_id, 0)
+    assert waited_process_id == child_process_id
+    assert os.waitstatus_to_exitcode(status) == 0
 
-    with pytest.raises(
-        RunStatePublisherError,
-        match="action ledger",
+
+def test_direct_gate_lifecycle_is_absent() -> None:
+    for name in (
+        "issue",
+        "hold",
+        "allocate_preparation",
+        "commit_prepared_execution",
+        "claim_activation",
+        "commit_activation",
+        "record_result",
+        "accept_result",
+        "interrupt",
+        "interrupt_pre_spawn",
     ):
-        publisher.issue_publication_permit(
-            receipt,
-            stale_checkpoint,
-            stale_bundle,
-        )
-
-
-def test_workspace_edit_is_exclusive_and_requires_accounting_successor(
-    publisher_case,
-) -> None:
-    publisher, receipt, security, gate = _action_case(
-        publisher_case,
-        RunSafetyBoundary.IMPLEMENTATION,
-    )
-    payload = b'{"implementation":"complete"}'
-    stale_bundle, stale_checkpoint = _successor_at_boundary(
-        publisher_case,
-        publisher,
-        receipt,
-        RunSafetyBoundary.EVALUATION,
-    )
-    stale_publication = publisher.issue_publication_permit(
-        receipt,
-        stale_checkpoint,
-        stale_bundle,
-    )
-    first = _issue_implementation_agent(gate, receipt, "first", payload)
-    with pytest.raises(
-        RunFrontierActionError,
-        match="unresolved durable action",
-    ):
-        _issue_implementation_agent(gate, receipt, "second", payload)
-    with gate.hold(first, payload) as lease:
-        _claim_action(gate, lease)
-        commit_sha = _commit_workspace_edit(
-            publisher_case,
-            "implementation-result.txt",
-            "complete result\n",
-        )
-        _accept_action(gate, lease)
-
-    with pytest.raises(
-        RunStatePublisherError,
-        match="action ledger",
-    ):
-        publisher.publish(
-            stale_publication,
-            stale_checkpoint,
-            stale_bundle,
-        )
-    with pytest.raises(
-        RunFrontierActionError,
-        match="awaits reconciliation",
-    ):
-        gate.issue(
-            receipt,
-            kind=RunFrontierActionKind.CODING_AGENT,
-            boundary=RunSafetyBoundary.IMPLEMENTATION,
-            operation_id="post_edit_0123456789abcdef",
-            request_payload=payload,
-            workspace_access=RunFrontierWorkspaceAccess.EDIT_WORKSPACE,
-            boundary_identity=_boundary_identity(RunFrontierActionKind.CODING_AGENT),
-        )
-    alternate_publisher = RunStatePublisher(
-        publisher_case["active"],
-        publisher_case["settings"],
-    )
-    alternate_receipt = alternate_publisher.load_reconciled()
-
-    frontier = _workspace_advance_frontier(
-        publisher_case,
-        receipt,
-        commit_sha,
-    )
-    bundle, checkpoint = _successor_at_boundary(
-        publisher_case,
-        publisher,
-        receipt,
-        RunSafetyBoundary.EVALUATION,
-        derivative_frontier=frontier,
-    )
-    with pytest.raises(
-        RunStatePublisherError,
-        match="action ledger",
-    ):
-        alternate_publisher.issue_publication_permit(
-            alternate_receipt,
-            stale_checkpoint,
-            stale_bundle,
-        )
-    successor = publisher.publish(
-        publisher.issue_publication_permit(
-            receipt,
-            checkpoint,
-            bundle,
-        ),
-        checkpoint,
-        bundle,
-    )
-    security.observation = successor.checkpoint.safety_state.security_observation
-    evaluation_permit = gate.issue(
-        successor,
-        kind=RunFrontierActionKind.EVALUATOR,
-        boundary=RunSafetyBoundary.EVALUATION,
-        operation_id="evaluation_after_edit_0123456789abcdef",
-        request_payload=b'{"evaluation":"complete"}',
-        workspace_access=RunFrontierWorkspaceAccess.READ_ONLY,
-        boundary_identity=_boundary_identity(RunFrontierActionKind.EVALUATOR),
-    )
-
-    assert evaluation_permit.workspace_frontier.commit_sha == commit_sha
+        assert not hasattr(RunFrontierActionGate, name)

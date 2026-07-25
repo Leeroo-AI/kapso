@@ -67,7 +67,7 @@ _STAGING_NAME_PATTERN = re.compile(
 )
 _MAXIMUM_EVENT_COUNT = 7
 _RUN_ACTION_STORE_AUTHORITY = object()
-_RUN_ACTION_MUTATION_AUTHORITY = object()
+_RUN_ACTION_RESERVATION_AUTHORITY = object()
 _RUN_ACTION_RECOVERY_AUTHORITY = object()
 _TERMINAL_EVENT_KINDS = {
     RunActionExecutionEventKind.RESULT_ACCEPTED,
@@ -591,32 +591,6 @@ class _RunActionExecutionSession:
         self._require_active()
         return self._events
 
-    def reserve(self, request_payload: bytes) -> RunActionExecutionEvent:
-        self._require_active()
-        if self._events:
-            raise RunActionStoreError("run action operation is already reserved")
-        if (
-            type(request_payload) is not bytes
-            or not request_payload
-            or tree_or_blob_digest(request_payload)
-            != self.reservation.request_blob.digest
-            or len(request_payload) != self.reservation.request_blob.size_bytes
-        ):
-            raise RunActionStoreError(
-                "run action reservation requires its complete request bytes"
-            )
-        event = self._event(
-            RunActionExecutionEventKind.INTENT_RESERVED,
-        )
-        self._store._reserve(
-            self._descriptors,
-            self.reservation,
-            request_payload,
-            event,
-        )
-        self._events = (event,)
-        return event
-
     def allocate_preparation(
         self,
         execution_policy: DockerRunActionExecutionPolicy,
@@ -1088,7 +1062,11 @@ class _RunActionSessionContext:
                 self.reservation.intent.operation_id,
                 descriptors,
             )
-            if events and events[0].reservation != self.reservation:
+            if not events:
+                raise RunActionStoreError(
+                    "run action recovery requires a durable reservation"
+                )
+            if events[0].reservation != self.reservation:
                 raise RunActionStoreError(
                     "run action operation ID was reserved for another request"
                 )
@@ -1143,21 +1121,52 @@ class RunActionExecutionStore:
             self._lock_registry(store_descriptor, descriptors)
             self._prepare_store_locked(store_descriptor)
 
-    def _session(
+    def _reserve_action(
         self,
         reservation: _RunActionReservation,
+        request_payload: bytes,
         *,
         _authority: object,
-    ) -> _RunActionSessionContext:
+    ) -> RunActionExecutionEvent:
         self._require_owner_process()
         if (
             type(reservation) is not _RunActionReservation
-            or _authority is not _RUN_ACTION_MUTATION_AUTHORITY
+            or _authority is not _RUN_ACTION_RESERVATION_AUTHORITY
         ):
             raise RunActionStoreError(
-                "run action session requires sealed mutation authority"
+                "run action reservation requires sealed reservation authority"
             )
-        return _RunActionSessionContext(self, reservation)
+        if (
+            type(request_payload) is not bytes
+            or not request_payload
+            or tree_or_blob_digest(request_payload) != reservation.request_blob.digest
+            or len(request_payload) != reservation.request_blob.size_bytes
+        ):
+            raise RunActionStoreError(
+                "run action reservation requires its complete request bytes"
+            )
+        event = RunActionExecutionEvent.mint(
+            event_number=1,
+            predecessor_event_id=None,
+            event_kind=RunActionExecutionEventKind.INTENT_RESERVED,
+            reservation=reservation,
+            preparation_allocation=None,
+            prepared_execution=None,
+            spawn_commit=None,
+            activation_revalidation_receipt=None,
+            result_receipt=None,
+            acceptance=None,
+            terminal_reason=None,
+            workspace_after=None,
+        )
+        with ExitStack() as descriptors:
+            self._reserve(
+                descriptors,
+                reservation,
+                request_payload,
+                event,
+            )
+        return event
 
     def _recovery_session(
         self,

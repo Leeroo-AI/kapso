@@ -9,9 +9,9 @@ contracts, atomic workspace/bootstrap-pin installation, exact run-checkpoint
 contracts, the protected checkpoint CAS store, the immutable derived-generation
 contract/layout, and the dependency-pure reconciled archive/history/journal
 projection and retained bundle layer, single-lock checkpoint/generation
-publisher, mutable-view promotion, current-frontier action lease, receipt-pinned
+publisher, mutable-view promotion, current-frontier action reservation, receipt-pinned
 create-only action store, mandatory action-ledger projection, and durable
-gate/publication composition, descriptor-safe runtime reopen, and deterministic
+reservation/recovery composition, descriptor-safe runtime reopen, and deterministic
 nonterminal action recovery are implemented. The pinned Docker CLI, daemon, and
 image authority is now a domain-neutral runtime reusable by M8 evaluators and
 M9 action adapters, with shared host/runtime authority owned once by top-level
@@ -214,8 +214,9 @@ M9 owns these high-conflict files until M10 performs final cleanup/activation.
 
 ## Checkpoint and resume
 
-The implemented checkpoint foundation is deliberately dormant until the execution
-permit and transactional view-promotion work below lands. One exact
+The implemented checkpoint foundation governs publication, reservation, and
+action recovery, while production provider execution remains dormant until the
+supervisor and transactional edit-promotion work below land. One exact
 `RunCheckpoint` owns strategy, safety, cost, feedback, termination, bootstrap,
 derivative-frontier, and derived-generation authority. A candidate can advance
 only the exact predecessor; Generic and tree strategy states enforce their own
@@ -249,7 +250,7 @@ complete strategy/archive/safety predecessor relation rather than trusting an ID
 
 1. reopens the canonical journal/checkpoint lineage, referenced generation, and
    every strategy-owned view through descriptor-relative no-follow paths;
-2. binds a one-shot permit to the observed checkpoint, journal head and byte
+2. binds a one-shot publication permit to the observed checkpoint, journal head and byte
    position, candidate, generation, and exact bundle digest/size;
 3. validates the candidate's complete predecessor closure and rejects journal,
    generation, view, store-entry, or staging exhaustion before authoritative
@@ -289,12 +290,11 @@ expert workspace before the new runtime becomes reachable.
       and return a non-clonable reconciled-frontier receipt. A durable checkpoint
       alone must never authorize capture or another paid/dangerous action.
 - [x] Require a live reconciled receipt for every non-genesis state publication,
-      and issue one-shot action permits from complete request bytes. Permit
-      consumption holds a shared checkpoint lock for the entire external action,
-      reopens the pinned workspace by descriptor, reconciles the source tree,
-      Git branch, commit tree, and index to checkpoint evidence, and authenticates
-      the current denylist as the exact checkpointed observation; state
-      publication retains the exclusive lock.
+      and persist one exact action reservation from complete request bytes.
+      Recovery reopens the pinned workspace by descriptor, reconciles source and
+      Git state to checkpoint evidence, and authenticates the current denylist
+      before issuing sealed transition capabilities; state publication retains
+      the exclusive checkpoint lock.
 - [x] Make the action store authoritative across processes: compare-and-swap each
       reservation against the exact predecessor ledger, persist intent/claim/
       prepared/spawn/result/acceptance events, hold the receipt-pinned workspace
@@ -337,24 +337,25 @@ unrelated journal tails, unsafe views, stale permits, and inode substitutions fa
 loudly. A bundle published before a failed checkpoint CAS remains an inert orphan
 and can be reused only by a later authorized candidate naming it exactly.
 
-`RunFrontierActionGate` is the only new-run authority for coding-agent, embedding,
-and evaluator calls. It derives an immutable intent from the complete canonical
-request bytes, binds it to the exact checkpoint/safety/generation/journal/bundle/
-view closure, and burns the permit before revalidation. The same operation or
-content-derived intent cannot be issued twice. Only active, non-yielded
-checkpoints act, and the capability matrix is exact: ideation/evaluation coding
-agents and evaluators read the workspace, implementation coding agents edit it,
-and embeddings receive no workspace descriptor.
+`RunFrontierActionGate` has one mutation: it durably reserves event 1 for a
+coding-agent, embedding, or evaluator call. It derives an immutable intent from
+the complete canonical request bytes and binds it to the exact checkpoint,
+safety, generation, journal, bundle, view, and workspace closure. The same
+operation or content-derived intent cannot be reserved twice. Only active,
+non-yielded checkpoints act, and the capability matrix is exact:
+ideation/evaluation coding agents and evaluators read the workspace,
+implementation coding agents edit it, and embeddings receive no workspace
+binding.
 
-Consumption holds a shared descriptor-safe frontier lock through boundary
-completion, while checkpoint publication requires the exclusive lock. Before
-use, the gate proves that the owner-private workspace has the checkpointed branch
-head, a clean source tree equal to the commit tree, an exact flag-free Git index,
-one exact configured ref, no replace/alternate/shallow/graft state, and a bounded
+Reservation holds the checkpoint and descriptor-safe workspace locks only long
+enough to revalidate the complete frontier and append `INTENT_RESERVED`. It
+proves that the owner-private workspace has the checkpointed branch head, a clean
+source tree equal to the commit tree, an exact flag-free Git index, one exact
+configured ref, no replace/alternate/shallow/graft state, and a bounded
 self-contained loose object store equal to the complete reachable
-commit/parent/tree/blob closure. The returned identity includes the canonical
-digest of every admitted Git metadata file, so read-only actions must leave the
-full source and Git frontier unchanged.
+commit/parent/tree/blob closure. Every later transition belongs exclusively to
+`RunActionRecoveryCoordinator`, which reacquires and reproves the authorities
+needed for that exact durable prefix. Checkpoint publication remains exclusive.
 
 An edit is exclusive across processes against all workspace readers and other
 edits. A successful result must finish as one clean direct-successor commit with
@@ -398,15 +399,17 @@ registries, and cannot use or release the parent's authority. Resume deliberatel
 does not require the initial checkpoint journal or initial writable expert tree:
 the publisher and action-recovery layers own those evolved authorities.
 
-The gate now persists `INTENT_RESERVED` before returning a permit,
+The gate persists `INTENT_RESERVED` before returning a reservation. The recovery
+coordinator alone persists
 `SPAWN_COMMITTED` before exposing bounded delivery/revalidation authority,
 `ACTIVATION_COMMITTED` before provider-start authority, complete raw results
 before interpretation, and complete accepted results with the exact post-action
-workspace. Normal context exit requires a terminal durable prefix; exceptional
-exit deliberately leaves ambiguous spawn, activation, or received-result state
-for resume. Admission is a ledger compare-and-swap, so reconstructed gates and
-concurrent processes cannot both reserve against the same live floor.
-Mutation entry points are internal and sealed to the gate. Provider execution
+workspace. A crash deliberately leaves the last complete durable prefix for
+resume. Admission is a ledger compare-and-swap, so reconstructed gates and
+concurrent processes cannot both reserve against the same live floor. The old
+permit, lease, context manager, and direct gate transition methods have been
+deleted; store transition entry points are internal and sealed to recovery
+authority. Provider execution
 IDs and invocation nonces are unique across the full store, not merely within
 one operation. Every reservation and spawn also pins one content-addressed
 boundary identity. The boundary jointly embeds an action-kind-bound,
@@ -705,10 +708,9 @@ durable recovery therefore replays the captured bytes without contacting the
 provider or discarding terminal provenance. Concrete terminal Docker inspection,
 descriptor-bound result capture, a Docker implementation of the token-sealed
 continuation protocol, positive cleanup authority, and production adapters remain
-the next slices. Until that composition lands, the direct gate mutation
-methods are a dormant store-contract surface: no production caller may receive
-Docker start authority from them. M9 activation must route execution only through
-the coordinator's sealed capabilities and delete or privatize that direct surface.
+the next slices. No production caller can receive Docker start authority from the
+reservation gate; M9 activation must continue to route every post-reservation
+transition through the coordinator's sealed capabilities.
 
 The coordinator owns one process-bound, non-clonable implementation catalog fixed
 at composition; `recover()` accepts no caller-selected implementation. Each
@@ -765,9 +767,9 @@ this path is activated.
 - Bootstrap explicit E0/EMPTY; prove missing remote does not trigger it.
 - Inject death after every download/stage/rename/pin/checkpoint boundary.
 - Prove no coding-agent/embedding/evaluator call occurs before `BootstrapPin`.
-- Reject stopped/completed action frontiers, duplicate operations, cloned permits,
-  request changes, invalid boundary/capability combinations, and workspace
-  mutation between issuance and consumption.
+- Reject stopped/completed action frontiers, duplicate reservations, request
+  changes, invalid boundary/capability combinations, and dirty or substituted
+  workspace state at reservation and recovery.
 - Inject death at reserved, allocated, prepared, spawn-committed, and raw-result
   prefixes; prove allocation creation, allocation reopen, and prepared revalidation are
   distinct, committed work is never freshly replayed, ambiguous provider state
@@ -776,7 +778,7 @@ this path is activated.
   after allocation remains cleanup-blocked, and workspace mutation during local
   interpretation never becomes a terminal event.
 - Prove embeddings receive no workspace capability; prove edits exclude parallel
-  edits/readers across processes, poison old permits/publication candidates, and
+  edits/readers across processes, poison stale reservations/publication candidates, and
   become usable only after an exact branch-advance checkpoint successor.
 - Reject replace refs, alternates, shallow/graft state, packed or unreachable Git
   objects, missing reachable objects, index behavior flags, malformed commit

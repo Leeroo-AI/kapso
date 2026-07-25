@@ -25,7 +25,8 @@ from kapso.cross_run.launch.run_action_reservation_contracts import (
     RunActionReservation,
 )
 from kapso.cross_run.launch.run_action_store import (
-    _RUN_ACTION_MUTATION_AUTHORITY,
+    _RUN_ACTION_RECOVERY_AUTHORITY,
+    _RUN_ACTION_RESERVATION_AUTHORITY,
     _RUN_ACTION_STORE_AUTHORITY,
     RunActionExecutionEventKind,
     RunActionExecutionStore,
@@ -45,12 +46,10 @@ from kapso.cross_run.launch.workspace_frontier import (
     inspect_run_workspace_frontier,
 )
 from test_run_frontier_action_gate import (
-    _accept_action,
     _action_case,
     _boundary_identity,
-    _claim_action,
     _commit_workspace_edit,
-    _issue_implementation_agent,
+    _reserve_implementation_agent,
 )
 from test_launch_resolver import resolver_case
 from test_run_state_publisher import publisher_case
@@ -85,6 +84,18 @@ def test_reservation_contracts_are_not_reexported_by_action_store():
         assert not hasattr(run_action_store_module, name)
 
 
+def test_reservation_authority_cannot_open_an_execution_session():
+    assert not hasattr(RunActionExecutionStore, "_session")
+    assert not hasattr(
+        run_action_store_module._RunActionExecutionSession,
+        "reserve",
+    )
+    assert not hasattr(
+        run_action_store_module,
+        "_RUN_ACTION_MUTATION_AUTHORITY",
+    )
+
+
 def test_store_owns_fresh_preparation_allocation_entropy():
     claim = _prepared_execution().preparation_claim
 
@@ -107,9 +118,17 @@ def test_store_owns_fresh_preparation_allocation_entropy():
 
 
 def _open_session(store, reservation):
-    return store._session(
+    return store._recovery_session(
         reservation,
-        _authority=_RUN_ACTION_MUTATION_AUTHORITY,
+        _authority=_RUN_ACTION_RECOVERY_AUTHORITY,
+    )
+
+
+def _reserve_action(store, reservation, request_payload):
+    return store._reserve_action(
+        reservation,
+        request_payload,
+        _authority=_RUN_ACTION_RESERVATION_AUTHORITY,
     )
 
 
@@ -186,8 +205,7 @@ def _execution_event(
 def _reserve_concurrently(active, settings, reservation, request_payload, start):
     store = _open_store(active, settings)
     start.wait()
-    with _open_session(store, reservation) as session:
-        session.reserve(request_payload)
+    _reserve_action(store, reservation, request_payload)
 
 
 def _acquire_workspace_lock_concurrently(
@@ -257,9 +275,9 @@ def test_action_store_reopens_complete_request_result_and_terminal_prefix(
         publisher_case["active"],
         publisher_case["settings"],
     )
+    reserved = _reserve_action(store, reservation, request_payload)
+    assert reserved.event_kind is RunActionExecutionEventKind.INTENT_RESERVED
     with _open_session(store, reservation) as session:
-        reserved = session.reserve(request_payload)
-        assert reserved.event_kind is RunActionExecutionEventKind.INTENT_RESERVED
         with pytest.raises(RunActionStoreError, match="unavailable before spawn"):
             session.read_request()
         _prepare_session(session)
@@ -315,8 +333,8 @@ def test_action_store_rejects_terminal_and_capture_occurrence_splices(
         publisher_case["active"],
         publisher_case["settings"],
     )
+    _reserve_action(store, reservation, request_payload)
     with _open_session(store, reservation) as session:
-        session.reserve(request_payload)
         prepared = _prepare_session(session)
         spawn = session.commit_spawn(
             security_observation_id=(
@@ -430,9 +448,9 @@ def test_activation_selection_survives_ambiguous_event_publication(
         "_publish_event_locked",
         publish_then_interrupt,
     )
+    _reserve_action(store, reservation, request_payload)
     with pytest.raises(RuntimeError, match="after activation event"):
         with _open_session(store, reservation) as session:
-            session.reserve(request_payload)
             prepared = _prepare_session(session)
             spawn = session.commit_spawn(
                 security_observation_id=(
@@ -473,9 +491,9 @@ def test_preparation_allocation_survives_ambiguous_event_publication(
         "_publish_event_locked",
         publish_then_interrupt,
     )
+    _reserve_action(store, reservation, request_payload)
     with pytest.raises(RuntimeError, match="after allocation event"):
         with _open_session(store, reservation) as session:
-            session.reserve(request_payload)
             session.allocate_preparation(
                 _execution_policy(
                     kind=reservation.intent.kind,
@@ -505,8 +523,8 @@ def test_allocated_resource_loss_is_terminal_without_request_authority(
         publisher_case["active"],
         publisher_case["settings"],
     )
+    _reserve_action(store, reservation, request_payload)
     with _open_session(store, reservation) as session:
-        session.reserve(request_payload)
         session.allocate_preparation(
             _execution_policy(
                 kind=reservation.intent.kind,
@@ -542,8 +560,8 @@ def test_prepared_frontier_invalidation_is_terminal_and_cannot_extend(
         publisher_case["active"],
         publisher_case["settings"],
     )
+    _reserve_action(store, reservation, request_payload)
     with _open_session(store, reservation) as session:
-        session.reserve(request_payload)
         _prepare_session(session)
         session.interrupt_pre_spawn(
             reason=RunActionTerminalReason.FRONTIER_INVALIDATED_BEFORE_SPAWN,
@@ -581,8 +599,8 @@ def test_action_store_rejects_legacy_and_cross_authority_event_splices(
         publisher_case["active"],
         publisher_case["settings"],
     )
+    _reserve_action(store, reservation, request_payload)
     with _open_session(store, reservation) as session:
-        session.reserve(request_payload)
         durable_prepared = _prepare_session(session)
         session.commit_spawn(
             security_observation_id=reservation.frontier.security_observation_id,
@@ -706,8 +724,8 @@ def test_action_store_rejects_wrong_spawn_security_before_publication(
         publisher_case["active"].run_root
         / publisher_case["settings"].run_action_store_path
     )
+    _reserve_action(store, reservation, request_payload)
     with _open_session(store, reservation) as session:
-        session.reserve(request_payload)
         _prepare_session(session)
         with pytest.raises(RunActionStoreError, match="spawn security"):
             session.commit_spawn(
@@ -743,37 +761,36 @@ def test_action_reservation_requires_complete_lifecycle_capacity_without_strands
         / publisher_case["settings"].run_action_store_path
     )
     constrained_settings = replace(publisher_case["settings"])
-    with _open_session(store, reservation) as session:
-        intent_event = session._event(
-            RunActionExecutionEventKind.INTENT_RESERVED,
+    intent_event = _execution_event(
+        reservation=reservation,
+        event_number=1,
+        predecessor_event_id=None,
+        event_kind=RunActionExecutionEventKind.INTENT_RESERVED,
+    )
+    if constrained_resource == "entry":
+        projected_entry_count = len(tuple(store_path.iterdir())) + 2 + 5 + 2
+        object.__setattr__(
+            constrained_settings,
+            "run_action_store_entry_limit",
+            projected_entry_count - 1,
         )
-        if constrained_resource == "entry":
-            projected_entry_count = len(tuple(store_path.iterdir())) + 2 + 5 + 2
-            object.__setattr__(
-                constrained_settings,
-                "run_action_store_entry_limit",
-                projected_entry_count - 1,
-            )
-        else:
-            current_size_bytes = sum(
-                path.stat().st_size for path in store_path.iterdir()
-            )
-            projected_size_bytes = (
-                current_size_bytes
-                + len(request_payload)
-                + len(intent_event.to_json_bytes())
-                + 5 * constrained_settings.run_action_event_size_bytes
-                + 2 * constrained_settings.run_action_result_size_bytes
-            )
-            object.__setattr__(
-                constrained_settings,
-                "run_action_store_size_bytes",
-                projected_size_bytes - 1,
-            )
-        object.__setattr__(store, "_settings", constrained_settings)
-        with pytest.raises(RunActionStoreError, match="lacks capacity"):
-            session.reserve(request_payload)
-        assert session.events == ()
+    else:
+        current_size_bytes = sum(path.stat().st_size for path in store_path.iterdir())
+        projected_size_bytes = (
+            current_size_bytes
+            + len(request_payload)
+            + len(intent_event.to_json_bytes())
+            + 5 * constrained_settings.run_action_event_size_bytes
+            + 2 * constrained_settings.run_action_result_size_bytes
+        )
+        object.__setattr__(
+            constrained_settings,
+            "run_action_store_size_bytes",
+            projected_size_bytes - 1,
+        )
+    object.__setattr__(store, "_settings", constrained_settings)
+    with pytest.raises(RunActionStoreError, match="lacks capacity"):
+        _reserve_action(store, reservation, request_payload)
 
     assert {path.name for path in store_path.iterdir()} == {
         "registry.lock",
@@ -789,26 +806,49 @@ def test_action_store_rejects_reminted_failed_edit_with_changed_workspace(
         RunSafetyBoundary.IMPLEMENTATION,
     )
     payload = b'{"implementation":"complete before tamper"}'
-    permit = _issue_implementation_agent(
+    reservation = _reserve_implementation_agent(
         gate,
         frontier,
         "reminted_failed_edit",
         payload,
     )
-    with gate.hold(permit, payload) as lease:
-        _claim_action(gate, lease)
+    store = _open_store(
+        publisher_case["active"],
+        publisher_case["settings"],
+    )
+    with _open_session(store, reservation) as session:
+        _prepare_session(session)
+        spawn = session.commit_spawn(
+            security_observation_id=reservation.frontier.security_observation_id,
+            boundary_identity=reservation.intent.boundary_identity,
+        )
+        result = _record_captured_result(
+            session,
+            spawn,
+            b'{"provider_result":"complete"}',
+        )
         _commit_workspace_edit(
             publisher_case,
             "reminted-failed-edit.txt",
             "complete\n",
         )
-        _accept_action(gate, lease)
+        with ExitStack() as descriptors:
+            workspace_descriptor, _identity = publisher_case[
+                "active"
+            ]._open_execution_workspace(descriptors)
+            workspace_after = inspect_run_workspace_frontier(
+                workspace_descriptor,
+                settings=publisher_case["settings"],
+                expected_commit_sha=None,
+            )
+        session.accept_result(
+            result_receipt=result,
+            disposition=RunActionResultDisposition.SUCCEEDED,
+            accepted_result_payload=b'{"accepted_result":"complete"}',
+            workspace_after=workspace_after,
+        )
 
-    store = _open_store(
-        publisher_case["active"],
-        publisher_case["settings"],
-    )
-    events = store.inspect().events_for(permit.intent.operation_id)
+    events = store.inspect().events_for(reservation.intent.operation_id)
     original = events[-1]
     acceptance = RunActionAcceptance.mint(
         result_receipt_id=original.acceptance.result_receipt_id,
@@ -831,7 +871,7 @@ def test_action_store_rejects_reminted_failed_edit_with_changed_workspace(
         workspace_after=None,
     )
     operation_digest = tree_or_blob_digest(
-        permit.intent.operation_id.encode("utf-8")
+        reservation.intent.operation_id.encode("utf-8")
     ).removeprefix("sha256:")
     event_path = (
         publisher_case["active"].run_root
@@ -866,24 +906,31 @@ def test_action_store_requires_sealed_construction_and_mutation(
             settings=publisher_case["settings"],
             _authority=object(),
         )
-    _frontier, _payload, reservation, _workspace = _reserved_action(publisher_case)
+    _frontier, payload, reservation, _workspace = _reserved_action(publisher_case)
     store = _open_store(
         publisher_case["active"],
         publisher_case["settings"],
     )
-    with pytest.raises(RunActionStoreError, match="sealed mutation"):
-        store._session(reservation, _authority=object())
+    with pytest.raises(RunActionStoreError, match="sealed reservation"):
+        store._reserve_action(
+            reservation,
+            payload,
+            _authority=object(),
+        )
+    with pytest.raises(RunActionStoreError, match="sealed recovery"):
+        store._recovery_session(reservation, _authority=object())
 
 
-def test_action_session_registration_failure_closes_pinned_descriptors(
+def test_recovery_session_registration_failure_closes_pinned_descriptors(
     publisher_case,
     monkeypatch,
 ):
-    _frontier, _payload, reservation, _workspace = _reserved_action(publisher_case)
+    _frontier, payload, reservation, _workspace = _reserved_action(publisher_case)
     store = _open_store(
         publisher_case["active"],
         publisher_case["settings"],
     )
+    _reserve_action(store, reservation, payload)
     opened_descriptors = []
     original_open_store = store._open_store
 
@@ -918,11 +965,9 @@ def test_action_store_durably_rejects_duplicate_operation(
         publisher_case["active"],
         publisher_case["settings"],
     )
-    with _open_session(store, reservation) as session:
-        session.reserve(request_payload)
-    with _open_session(store, reservation) as session:
-        with pytest.raises(RunActionStoreError, match="already reserved"):
-            session.reserve(request_payload)
+    _reserve_action(store, reservation, request_payload)
+    with pytest.raises(RunActionStoreError, match="predecessor ledger moved"):
+        _reserve_action(store, reservation, request_payload)
 
     assert store.snapshot().event_count == 1
 
@@ -938,8 +983,8 @@ def test_action_store_cancel_and_interrupted_prefixes_are_terminal(
         publisher_case["active"],
         publisher_case["settings"],
     )
+    _reserve_action(store, reservation, request_payload)
     with _open_session(store, reservation) as session:
-        session.reserve(request_payload)
         session.cancel(RunActionTerminalReason.STALE_FRONTIER)
         with pytest.raises(RunActionStoreError, match="terminal reason"):
             replace(
@@ -965,8 +1010,8 @@ def test_action_store_cancel_and_interrupted_prefixes_are_terminal(
         frontier=frontier,
         workspace=workspace,
     )
+    _reserve_action(store, second_reservation, second_payload)
     with _open_session(store, second_reservation) as session:
-        session.reserve(second_payload)
         _prepare_session(session)
         session.commit_spawn(
             security_observation_id=(
@@ -998,10 +1043,10 @@ def test_action_store_rejects_request_substitution_and_result_corruption(
         publisher_case["active"],
         publisher_case["settings"],
     )
+    with pytest.raises(RunActionStoreError, match="complete request"):
+        _reserve_action(store, reservation, request_payload + b" altered")
+    _reserve_action(store, reservation, request_payload)
     with _open_session(store, reservation) as session:
-        with pytest.raises(RunActionStoreError, match="complete request"):
-            session.reserve(request_payload + b" altered")
-        session.reserve(request_payload)
         _prepare_session(session)
         spawn = session.commit_spawn(
             security_observation_id=(reservation.frontier.security_observation_id),
@@ -1035,8 +1080,7 @@ def test_action_ledger_snapshot_is_canonical_and_content_addressed(
         publisher_case["settings"],
     )
     assert store.snapshot().event_count == 0
-    with _open_session(store, reservation) as session:
-        session.reserve(request_payload)
+    _reserve_action(store, reservation, request_payload)
     snapshot = store.snapshot()
     assert snapshot == type(snapshot).from_json_bytes(snapshot.to_json_bytes())
     assert tree_or_blob_digest(snapshot.to_json_bytes()).startswith("sha256:")
@@ -1126,8 +1170,8 @@ def test_action_store_rejects_reused_prepared_container_identity(
         publisher_case["settings"],
     )
     shared_container_id = "d" * 64
+    _reserve_action(store, first, request_payload)
     with _open_session(store, first) as session:
-        session.reserve(request_payload)
         _prepare_session(session, container_id=shared_container_id)
         spawn = session.commit_spawn(
             security_observation_id=(
@@ -1152,8 +1196,8 @@ def test_action_store_rejects_reused_prepared_container_identity(
         frontier=frontier,
         workspace=workspace,
     )
+    _reserve_action(store, second, second_payload)
     with _open_session(store, second) as session:
-        session.reserve(second_payload)
         policy = _execution_policy(
             kind=session.reservation.intent.kind,
             workspace_access=session.reservation.intent.workspace_access,
@@ -1186,8 +1230,8 @@ def test_action_store_rejects_reused_runtime_volume_generation_authority(
         publisher_case["active"],
         publisher_case["settings"],
     )
+    _reserve_action(store, first, request_payload)
     with _open_session(store, first) as session:
-        session.reserve(request_payload)
         allocation = session.allocate_preparation(
             _execution_policy(
                 kind=first.intent.kind,
@@ -1205,8 +1249,8 @@ def test_action_store_rejects_reused_runtime_volume_generation_authority(
         frontier=frontier,
         workspace=workspace,
     )
+    _reserve_action(store, second, second_payload)
     with _open_session(store, second) as session:
-        session.reserve(second_payload)
         policy = _execution_policy(
             kind=second.intent.kind,
             workspace_access=second.intent.workspace_access,
@@ -1329,8 +1373,7 @@ def test_action_store_rejects_event_sequence_gap(
         publisher_case["active"],
         publisher_case["settings"],
     )
-    with _open_session(store, reservation) as session:
-        session.reserve(request_payload)
+    _reserve_action(store, reservation, request_payload)
     operation_digest = tree_or_blob_digest(
         reservation.intent.operation_id.encode("utf-8")
     ).removeprefix("sha256:")
