@@ -21,11 +21,10 @@ from kapso.cross_run.launch.run_action_runtime_volume import (
     _parse_mount_info_payload,
     _parse_size_option,
     _require_mount_authority,
-    issue_fresh_runtime_volume_authority,
 )
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RUN_ACTION_RUNTIME_VOLUME_KEEPER_DESTINATION,
-    runtime_volume_driver_options,
+    issue_runtime_volume_authority,
 )
 from kapso.cross_run.settings import CrossRunSettings
 from test_run_action_docker_inspect import _volume_raw
@@ -42,7 +41,7 @@ def runtime_volume_context():
         load_config(_CANONICAL_CONFIG_PATH)["cross_run"]
     ).docker
     claim = _claim(policy=_policy(settings))
-    authority = issue_fresh_runtime_volume_authority(claim)
+    authority = issue_runtime_volume_authority(claim, "a" * 32)
     volume = observe_runtime_volume(
         _volume_raw(authority, settings),
         claim,
@@ -112,30 +111,6 @@ def _empty_observation(authority, volume):
         empty_entry_count=0,
         empty_size_bytes=0,
     )
-
-
-def test_fresh_runtime_volume_authority_issues_one_unpredictable_generation():
-    settings = CrossRunSettings.from_dict(
-        load_config(_CANONICAL_CONFIG_PATH)["cross_run"]
-    ).docker
-    claim = _claim(policy=_policy(settings))
-
-    first = issue_fresh_runtime_volume_authority(claim)
-    second = issue_fresh_runtime_volume_authority(claim)
-
-    assert first.preparation_claim_id == claim.preparation_claim_id
-    assert first.volume_name == second.volume_name
-    assert first.labels == second.labels
-    assert first.generation_nonce != second.generation_nonce
-    assert len(first.generation_nonce) == 32
-    assert set(first.generation_nonce) <= set("0123456789abcdef")
-    assert first.runtime_volume_authority_id != second.runtime_volume_authority_id
-    assert first.driver_options == runtime_volume_driver_options(first)
-    with pytest.raises(
-        RunActionRuntimeVolumeError,
-        match="requires an exact preparation claim",
-    ):
-        issue_fresh_runtime_volume_authority(object())
 
 
 def test_runtime_volume_mountinfo_parses_and_proves_exact_tmpfs_authority(

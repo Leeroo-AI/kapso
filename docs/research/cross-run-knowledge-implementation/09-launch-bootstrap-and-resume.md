@@ -426,7 +426,7 @@ Recovery is an explicit seven-event state machine:
 
 ```text
 INTENT_RESERVED
-  → PREPARATION_CLAIMED
+  → PREPARATION_ALLOCATED
   → EXECUTION_PREPARED
   → SPAWN_COMMITTED
   → ACTIVATION_COMMITTED
@@ -434,8 +434,8 @@ INTENT_RESERVED
   → RESULT_ACCEPTED
 ```
 
-`INTENT_RESERVED` may cancel before allocation when its frontier is stale.
-Claimed or prepared work may terminally interrupt before spawn when its frontier
+`INTENT_RESERVED` may cancel before logical allocation when its frontier is stale.
+Allocated or prepared work may terminally interrupt before spawn when its frontier
 is invalidated or the supervisor positively proves its resource was lost. This
 terminal records the reservation's exact unchanged workspace binding (or no
 workspace for a workspace-free action) because no request, credential, or start
@@ -447,17 +447,23 @@ occurrence has no selected activation receipt and may only stage an inert
 activation or remain unresolved. `ACTIVATION_COMMITTED` selects the sole receipt
 that may precede start and may terminate only as a result or provider
 interruption. Every event repeats the exact reservation and predecessor, while
-claim, prepared, spawn, activation, result, and acceptance payloads bind their
+allocation, prepared, spawn, activation, result, and acceptance payloads bind their
 immediate durable authority.
 The store rejects skipped/reordered phases, old intent-to-spawn records, identity
-splices, multiple nonterminal operations, and global reuse of claim, prepared,
-container, slot, quota, filesystem, provider, or invocation identities.
+splices, multiple nonterminal operations, and global reuse of claim, allocation,
+volume, generation, sentinel, prepared, container, keeper, file, provider, or
+invocation identities.
 
-Before allocating, recovery durably appends the deterministic claim. A
-same-process/same-thread preparation capability distinguishes first allocation,
-claim reopen, and exact prepared-occurrence revalidation; it carries the live
+Before any physical Docker mutation, recovery durably appends one logical
+allocation containing the deterministic claim and its unpredictable generation-
+bound runtime-volume authority. The generation-derived sentinel identity is also
+present in the issued Docker volume labels, so even a pre-sentinel volume is
+observable as that exact allocation. Recovery rechecks workspace and security
+after the event-2 fsync. A same-process/same-thread preparation capability
+distinguishes first materialization, allocation reopen, and exact prepared-
+occurrence revalidation; it carries the live
 workspace descriptor and daemon-visible source path when the policy requires a
-workspace. Before allocation, the exact lifecycle adapter must twice produce the
+workspace. Before physical allocation, the exact lifecycle adapter must twice produce the
 same conservative bound for the complete prepared-event encoding; the coordinator
 rejects a nonpositive, nondeterministic, or over-limit envelope. The returned
 prepared event must then fit that declared bound. Prepared evidence is persisted
@@ -474,10 +480,13 @@ event-5 receipt byte-for-byte and start once. Both capabilities burn on success
 or exception and close their descriptors.
 Request bytes are unreadable from the action session before spawn.
 Preparation returns one typed state: exact prepared with an origin compatible
-with its allocation/reopen/revalidation mode, positively lost, or unknown.
-Claim reopen may allocate only after positive exact absence. Prepared
+with its create/reopen/revalidation mode, positively lost, or unknown.
+Allocation reopen may physically materialize only after positive total absence,
+or may re-open only the completely reobserved event-2 occurrence. Prepared
 revalidation can return only the identical occurrence, positive loss, or
-uncertainty; it cannot allocate. Early interruption is admitted after the claim
+uncertainty; it cannot allocate. Partial, substituted, or ambiguous event-2
+resources remain unresolved and never receive replacement authority. Early
+interruption is admitted after the allocation
 or prepared event without changing the normal seven-event success chain.
 
 An event-4 query admits only exact inert or unknown state; running or exited state
@@ -570,7 +579,7 @@ Docker inspection facts. Credential records contain opaque authority and file
 shape only—never secret bytes or host credential paths.
 
 The action store now atomically persists one
-`PreparationClaim → PreparedExecution` occurrence before `SpawnCommit`.
+`PreparationAllocation → PreparedExecution` occurrence before `SpawnCommit`.
 Reservation admission accounts for the complete remaining lifecycle: at most seven
 event files and three content blobs per operation, plus the configured crash
 staging allowance and two fixed lock files. Every append and reopen rechecks its
@@ -579,7 +588,7 @@ irreversible spawn solely because the store later reaches its configured byte or
 entry bound. This capacity proof is separate from the lifecycle adapter's
 pre-allocation serialization envelope: the former reserves store space, while the
 latter proves that the complete concrete prepared record can occupy one event
-file before any Docker or slot resource is created. Before `SpawnCommit`, the
+file before any Docker resource is created. Before `SpawnCommit`, the
 production supervisor may only create or reopen that exact inert resource;
 request bytes and credential leases remain absent. A post-spawn, single-use
 staging capability binds the whole `PreparedExecution`, spawn commit, and either
@@ -615,9 +624,9 @@ when no spawn commit exists. Terminal observation precedes result capture: the
 observation never refers forward to a capture, while the capture may bind that
 exact predecessor observation.
 
-The lifecycle-owned policy, claim, bounded-volume/sentinel/workspace, closed
+The lifecycle-owned policy, allocation, bounded-volume/sentinel/workspace, closed
 projection, mount, inert-evidence, prepared-execution, activation-revalidation contracts,
-durable claim/prepared index, seven-event store embedding, and process-bound
+durable allocation/prepared index, seven-event store embedding, and process-bound
 preparation/activation capabilities and bounded runtime-volume contracts are
 implemented. The shared Docker host authority now also pins its daemon root,
 systemd cgroup driver, and single-sourced static BusyBox helper. The structural
@@ -631,9 +640,15 @@ never-started keeper, running keeper, and never-started main inspections now
 require complete nested raw schemas and normalize only enumerated daemon
 identities and ordering; issued and observed projections are equal in repeated
 Docker 29.1.3 runs with a
-digest-pulled loopback OCI image. The race-safe name/label resource manager,
-now has a twice-stable name-only, name-plus-label, and label-only inventory with
-inspect-by-ID container rebinding and full-inspection volume occurrence digests.
+digest-pulled loopback OCI image. A durable preparation allocation binds the
+claim to one unpredictable runtime-volume generation before Docker allocation.
+The deterministic volume name remains claim-bound, while its exact label set
+also carries the generation's sentinel content identity; keeper and main labels
+remain claim-bound. The race-safe name/label resource manager therefore accepts
+the complete preparation allocation and has a twice-stable name-only,
+name-plus-label, and label-only inventory with inspect-by-ID container rebinding
+and full-inspection volume occurrence digests. A stale volume from another
+generation of the same claim is a substitution before sentinel publication.
 After the keeper starts, the supervisor now opens one descriptor-bound
 `/proc/<pid>` process generation and resolves its cgroup, root, mountinfo, and
 stat records relative to that lease. Before the first volume mutation it requires
@@ -665,9 +680,10 @@ in place and staging is gone; that rename is the final namespace mutation.
 Read-only reopen is available only from a durable `PreparedExecution` and
 reproves the exact root topology, child topology, file shapes, workspace/Git
 frontier, sentinel inode/content, keeper process generation, mount, and stable
-`statvfs` accounting. A crash at any point before the durable prepared event,
-including after final sentinel publication, leaves an orphan occurrence that
-claim-only recovery destroys; it is never reconstructed, adopted, or repaired.
+`statvfs` accounting. After an event-2 crash, allocation-bound recovery may create
+only after proven total absence or may adopt only a completely reobserved exact
+occurrence. Partial or ambiguous resources remain unresolved until positive
+terminal cleanup exists; no path mints replacement allocation authority.
 The result boundary no longer admits provider bytes alone. A provider result now
 carries a terminal main-container observation and a descriptor-capture receipt
 that binds the terminal fence, prepared result file, exact runtime generation,
@@ -740,8 +756,8 @@ this path is activated.
 - Reject stopped/completed action frontiers, duplicate operations, cloned permits,
   request changes, invalid boundary/capability combinations, and workspace
   mutation between issuance and consumption.
-- Inject death at reserved, claimed, prepared, spawn-committed, and raw-result
-  prefixes; prove allocation, claim reopen, and prepared revalidation are
+- Inject death at reserved, allocated, prepared, spawn-committed, and raw-result
+  prefixes; prove allocation creation, allocation reopen, and prepared revalidation are
   distinct, committed work is never freshly replayed, ambiguous provider state
   remains unresolved, implementation catalogs and single-use capabilities reject
   clone/fork/reuse, security movement before allocation cancels, security movement

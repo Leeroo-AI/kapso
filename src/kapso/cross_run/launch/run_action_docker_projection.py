@@ -494,7 +494,10 @@ def volume_create_arguments(
         "--driver",
         authority.driver,
     ]
-    _append_labels(arguments, preparation_volume_labels(claim))
+    _append_labels(
+        arguments,
+        preparation_volume_labels(claim, authority.generation_nonce),
+    )
     for option in runtime_volume_driver_options(authority):
         arguments.extend(("--opt", option))
     arguments.append(preparation_volume_name(claim))
@@ -638,7 +641,8 @@ def _require_claim_authority(
         or type(authority) is not RunActionRuntimeVolumeAuthority
         or authority.preparation_claim_id != claim.preparation_claim_id
         or authority.volume_name != preparation_volume_name(claim)
-        or authority.labels != preparation_volume_labels(claim)
+        or authority.labels
+        != preparation_volume_labels(claim, authority.generation_nonce)
         or authority.driver != "local"
         or authority.driver_options != runtime_volume_driver_options(authority)
         or authority.owner_user_id != claim.execution_policy.user_id

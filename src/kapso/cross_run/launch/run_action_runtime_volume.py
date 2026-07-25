@@ -5,7 +5,6 @@ from __future__ import annotations
 import ctypes
 import os
 import re
-import secrets
 import stat
 from contextlib import ExitStack
 from dataclasses import dataclass
@@ -418,18 +417,6 @@ class _MountInfo:
     filesystem_type: str
     source: str
     super_options: tuple[str, ...]
-
-
-def issue_fresh_runtime_volume_authority(
-    claim: RunActionPreparationClaim,
-) -> RunActionRuntimeVolumeAuthority:
-    """Issue one unpredictable generation beneath a deterministic claim."""
-
-    if type(claim) is not RunActionPreparationClaim:
-        raise RunActionRuntimeVolumeError(
-            "fresh runtime volume authority requires an exact preparation claim"
-        )
-    return issue_runtime_volume_authority(claim, secrets.token_hex(16))
 
 
 def _open_mounted_runtime_volume(
@@ -1902,7 +1889,6 @@ __all__ = [
     "DockerRunActionEmptyVolumeObservation",
     "DockerRunActionPreparedVolumeObservation",
     "RunActionRuntimeVolumeError",
-    "issue_fresh_runtime_volume_authority",
     "materialize_runtime_volume_layout",
     "observe_empty_runtime_volume",
     "reobserve_runtime_volume_layout",

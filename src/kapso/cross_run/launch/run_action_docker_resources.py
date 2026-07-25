@@ -1,4 +1,4 @@
-"""Race-bound inventory for Docker resources owned by one preparation claim."""
+"""Race-bound inventory for Docker resources owned by one preparation allocation."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from kapso.cross_run.canonical import canonical_json_bytes, tree_or_blob_digest
 from kapso.cross_run.docker.runtime import PinnedDockerRuntime
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RunActionContainerLabel,
-    RunActionPreparationClaim,
+    RunActionPreparationAllocation,
     preparation_container_labels,
     preparation_container_name,
     preparation_keeper_container_labels,
@@ -31,16 +31,16 @@ class DockerRunActionResourceError(RuntimeError):
 
 @dataclass(frozen=True)
 class DockerRunActionResourceInventory:
-    """Stable two-scan inventory for one claim's three deterministic names."""
+    """Stable two-scan inventory for one allocation's three deterministic names."""
 
-    preparation_claim: RunActionPreparationClaim
+    preparation_allocation: RunActionPreparationAllocation
     volume_inspection_digest: str | None
     keeper_container_id: str | None
     main_container_id: str | None
 
     def __post_init__(self) -> None:
         if (
-            type(self.preparation_claim) is not RunActionPreparationClaim
+            type(self.preparation_allocation) is not RunActionPreparationAllocation
             or (
                 self.volume_inspection_digest is not None
                 and (
@@ -101,17 +101,17 @@ class DockerRunActionResourceManager:
 
     def observe(
         self,
-        claim: RunActionPreparationClaim,
+        allocation: RunActionPreparationAllocation,
     ) -> DockerRunActionResourceInventory:
         """Require two identical full inventories around exact ID inspections."""
 
-        if type(claim) is not RunActionPreparationClaim:
+        if type(allocation) is not RunActionPreparationAllocation:
             raise DockerRunActionResourceError(
-                "Docker run-action inventory requires an exact preparation claim"
+                "Docker run-action inventory requires an exact preparation allocation"
             )
         self._runtime.require_live_authority()
-        first = self._scan_once(claim)
-        second = self._scan_once(claim)
+        first = self._scan_once(allocation)
+        second = self._scan_once(allocation)
         if first != second:
             raise DockerRunActionResourceError(
                 "Docker run-action resources changed during inventory"
@@ -129,10 +129,12 @@ class DockerRunActionResourceManager:
             raise DockerRunActionResourceError(
                 "Docker run-action inventory has no volume to inspect"
             )
-        claim = inventory.preparation_claim
+        allocation = inventory.preparation_allocation
+        claim = allocation.preparation_claim
+        authority = allocation.runtime_volume_authority
         payload = self._inspect_volume_identity(
             preparation_volume_name(claim),
-            preparation_volume_labels(claim),
+            preparation_volume_labels(claim, authority.generation_nonce),
         )
         if _inspection_digest(payload) != inventory.volume_inspection_digest:
             raise DockerRunActionResourceError(
@@ -151,7 +153,7 @@ class DockerRunActionResourceManager:
             raise DockerRunActionResourceError(
                 "Docker run-action inventory has no keeper to inspect"
             )
-        claim = inventory.preparation_claim
+        claim = inventory.preparation_allocation.preparation_claim
         return self._inspect_container_identity(
             inventory.keeper_container_id,
             preparation_keeper_container_name(claim),
@@ -169,7 +171,7 @@ class DockerRunActionResourceManager:
             raise DockerRunActionResourceError(
                 "Docker run-action inventory has no main container to inspect"
             )
-        claim = inventory.preparation_claim
+        claim = inventory.preparation_allocation.preparation_claim
         return self._inspect_container_identity(
             inventory.main_container_id,
             preparation_container_name(claim),
@@ -184,18 +186,20 @@ class DockerRunActionResourceManager:
             raise DockerRunActionResourceError(
                 "Docker run-action inspection requires an exact inventory"
             )
-        if self.observe(inventory.preparation_claim) != inventory:
+        if self.observe(inventory.preparation_allocation) != inventory:
             raise DockerRunActionResourceError(
                 "Docker run-action inventory changed before inspection"
             )
 
     def _scan_once(
         self,
-        claim: RunActionPreparationClaim,
+        allocation: RunActionPreparationAllocation,
     ) -> DockerRunActionResourceInventory:
+        claim = allocation.preparation_claim
+        authority = allocation.runtime_volume_authority
         volume_inspection_digest = self._observe_volume(
             preparation_volume_name(claim),
-            preparation_volume_labels(claim),
+            preparation_volume_labels(claim, authority.generation_nonce),
         )
         keeper_container_id = self._observe_container_id(
             preparation_keeper_container_name(claim),
@@ -206,7 +210,7 @@ class DockerRunActionResourceManager:
             preparation_container_labels(claim),
         )
         return DockerRunActionResourceInventory(
-            preparation_claim=claim,
+            preparation_allocation=allocation,
             volume_inspection_digest=volume_inspection_digest,
             keeper_container_id=keeper_container_id,
             main_container_id=main_container_id,

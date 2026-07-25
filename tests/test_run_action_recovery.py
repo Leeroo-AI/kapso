@@ -144,6 +144,9 @@ class _FakeExecutionAdapter:
         self.fail_activation = fail_activation
         self.reattach_result = reattach_result
         self.prepare_calls = []
+        self.preparation_capabilities = []
+        self.prepare_allocations = []
+        self.prepared_bound_allocations = []
         self.prepare_modes = []
         self.stage_calls = []
         self.start_calls = []
@@ -152,14 +155,22 @@ class _FakeExecutionAdapter:
         self.reattach_calls = []
 
     @staticmethod
-    def _prepared_for_claim(claim):
+    def _prepared_for_allocation(allocation):
+        claim = allocation.preparation_claim
         operation_digest = hashlib.sha256(
             claim.reservation.intent.operation_id.encode("utf-8")
         ).hexdigest()
+        inode_offset = (
+            int(
+                allocation.runtime_volume_authority.generation_nonce,
+                16,
+            )
+            - 1
+        )
         return _prepared_execution(
             claim=claim,
             container_id=operation_digest,
-            inode_offset=int(operation_digest[:8], 16),
+            inode_offset=inode_offset,
         )
 
     @staticmethod
@@ -179,16 +190,17 @@ class _FakeExecutionAdapter:
     def prepared_event_size_bound(
         self,
         *,
-        preparation_claim,
+        preparation_allocation,
         predecessor_event_id,
     ):
-        prepared = self._prepared_for_claim(preparation_claim)
+        self.prepared_bound_allocations.append(preparation_allocation)
+        prepared = self._prepared_for_allocation(preparation_allocation)
         event = RunActionExecutionEvent.mint(
             event_number=3,
             predecessor_event_id=predecessor_event_id,
             event_kind=RunActionExecutionEventKind.EXECUTION_PREPARED,
-            reservation=preparation_claim.reservation,
-            preparation_claim=None,
+            reservation=preparation_allocation.preparation_claim.reservation,
+            preparation_allocation=None,
             prepared_execution=prepared,
             spawn_commit=None,
             activation_revalidation_receipt=None,
@@ -215,7 +227,7 @@ class _FakeExecutionAdapter:
             predecessor_event_id=predecessor_event_id,
             event_kind=RunActionExecutionEventKind.ACTIVATION_COMMITTED,
             reservation=prepared_execution.preparation_claim.reservation,
-            preparation_claim=None,
+            preparation_allocation=None,
             prepared_execution=None,
             spawn_commit=None,
             activation_revalidation_receipt=activation,
@@ -227,7 +239,9 @@ class _FakeExecutionAdapter:
         return len(event.to_json_bytes())
 
     def prepare(self, capability):
-        claim = capability.preparation_claim
+        self.preparation_capabilities.append(capability)
+        allocation = capability.preparation_allocation
+        claim = allocation.preparation_claim
         mode = capability.mode
         durable = capability.durable_prepared_execution
         workspace_descriptor = capability.workspace_descriptor
@@ -239,18 +253,19 @@ class _FakeExecutionAdapter:
                 os.fstat(workspace_descriptor).st_ino
             )
         self.prepare_calls.append(claim.reservation)
+        self.prepare_allocations.append(allocation)
         self.prepare_modes.append(mode)
         prepared = (
             durable
             if mode is RunActionPreparationMode.REVALIDATE_PREPARED
-            else self._prepared_for_claim(claim)
+            else self._prepared_for_allocation(allocation)
         )
         origin = {
-            RunActionPreparationMode.ALLOCATE_ONCE: (
-                RunActionPreparationOrigin.NEW_ALLOCATION
+            RunActionPreparationMode.CREATE_ALLOCATED: (
+                RunActionPreparationOrigin.NEWLY_MATERIALIZED
             ),
-            RunActionPreparationMode.REOPEN_CLAIM: (
-                RunActionPreparationOrigin.REOPENED_CLAIM
+            RunActionPreparationMode.REOPEN_ALLOCATED: (
+                RunActionPreparationOrigin.REOPENED_ALLOCATION
             ),
             RunActionPreparationMode.REVALIDATE_PREPARED: (
                 RunActionPreparationOrigin.REVALIDATED_PREPARED
@@ -381,6 +396,36 @@ class _SecurityAdvancingPrepareAdapter(_FakeExecutionAdapter):
         return observation
 
 
+class _ActivePreparationCapabilityAuditAdapter(_FakeExecutionAdapter):
+    def __init__(self, boundary_identity) -> None:
+        super().__init__(boundary_identity)
+        self.active_clone_and_fork_rejected = False
+
+    def prepare(self, capability):
+        cloned = copy(capability)
+        with pytest.raises(RunActionRecoveryError, match="not in its one invocation"):
+            cloned.preparation_allocation
+        read_descriptor, write_descriptor = os.pipe()
+        child_process_id = os.fork()
+        if child_process_id == 0:
+            os.close(read_descriptor)
+            with pytest.raises(
+                RunActionRecoveryError,
+                match="not in its one invocation",
+            ):
+                capability.preparation_allocation
+            os.write(write_descriptor, b"invalid")
+            os._exit(0)
+        os.close(write_descriptor)
+        assert os.read(read_descriptor, len(b"invalid")) == b"invalid"
+        os.close(read_descriptor)
+        waited_process_id, status = os.waitpid(child_process_id, 0)
+        assert waited_process_id == child_process_id
+        assert os.waitstatus_to_exitcode(status) == 0
+        self.active_clone_and_fork_rejected = True
+        return super().prepare(capability)
+
+
 class _SecurityAdvancingStageAdapter(_FakeExecutionAdapter):
     def __init__(self, boundary_identity, advance_security) -> None:
         super().__init__(boundary_identity)
@@ -461,15 +506,40 @@ class _NonExactPreparationAdapter(_FakeExecutionAdapter):
         mode = capability.mode
         if mode not in self.nonexact_modes:
             return super().prepare(capability)
-        claim = capability.preparation_claim
+        allocation = capability.preparation_allocation
+        claim = allocation.preparation_claim
         if capability.workspace_descriptor is not None:
             os.fstat(capability.workspace_descriptor)
         self.prepare_calls.append(claim.reservation)
+        self.prepare_allocations.append(allocation)
         self.prepare_modes.append(mode)
         return RunActionPreparationObservation(
             state=self.preparation_state,
             prepared_execution=None,
             origin=None,
+        )
+
+
+class _ReplacementAllocationAdapter(_FakeExecutionAdapter):
+    def prepare(self, capability):
+        allocation = capability.preparation_allocation
+        claim = allocation.preparation_claim
+        replacement_nonce = (
+            "0" * 31 + "2"
+            if allocation.runtime_volume_authority.generation_nonce == "0" * 31 + "1"
+            else "0" * 31 + "1"
+        )
+        self.prepare_calls.append(claim.reservation)
+        self.prepare_allocations.append(allocation)
+        self.prepare_modes.append(capability.mode)
+        self.replacement_prepared = _prepared_execution(
+            claim=claim,
+            inode_offset=int(replacement_nonce, 16) - 1,
+        )
+        return RunActionPreparationObservation(
+            state=RunActionPreparationState.EXACT_PREPARED,
+            prepared_execution=self.replacement_prepared,
+            origin=RunActionPreparationOrigin.NEWLY_MATERIALIZED,
         )
 
 
@@ -683,6 +753,43 @@ def test_reserved_action_recovers_through_one_preparation_and_activation(
     )
 
 
+def test_preparation_capability_is_spent_and_clone_fork_invalid(
+    publisher_case,
+) -> None:
+    frontier, gate, permit, _payload = _reserved_case(publisher_case)
+    adapter = _ActivePreparationCapabilityAuditAdapter(permit.intent.boundary_identity)
+
+    report = _recovery_coordinator(gate, adapter).recover(frontier)
+
+    assert report.is_complete
+    assert adapter.active_clone_and_fork_rejected
+    capability = adapter.preparation_capabilities[0]
+    with pytest.raises(RunActionRecoveryError, match="not in its one invocation"):
+        capability.preparation_allocation
+    with pytest.raises(RunActionRecoveryError, match="not in its one invocation"):
+        adapter.prepare(capability)
+    cloned = copy(capability)
+    with pytest.raises(RunActionRecoveryError, match="not in its one invocation"):
+        cloned.preparation_allocation
+    read_descriptor, write_descriptor = os.pipe()
+    child_process_id = os.fork()
+    if child_process_id == 0:
+        os.close(read_descriptor)
+        with pytest.raises(
+            RunActionRecoveryError,
+            match="not in its one invocation",
+        ):
+            capability.preparation_allocation
+        os.write(write_descriptor, b"invalid")
+        os._exit(0)
+    os.close(write_descriptor)
+    assert os.read(read_descriptor, len(b"invalid")) == b"invalid"
+    os.close(read_descriptor)
+    waited_process_id, status = os.waitpid(child_process_id, 0)
+    assert waited_process_id == child_process_id
+    assert os.waitstatus_to_exitcode(status) == 0
+
+
 def test_activation_capability_is_spent_and_clone_fork_invalid(
     publisher_case,
 ) -> None:
@@ -731,27 +838,109 @@ def test_legacy_direct_spawn_interfaces_are_removed() -> None:
     ):
         assert not hasattr(run_action_recovery_module, name)
     assert not hasattr(RunFrontierActionGate, "claim")
+    assert not hasattr(RunFrontierActionGate, "claim_preparation")
+    assert not hasattr(
+        RunActionExecutionEventKind,
+        "PREPARATION_CLAIMED",
+    )
+    assert "preparation_claim" not in RunActionExecutionEvent.__dataclass_fields__
+    assert not hasattr(
+        run_action_recovery_module.RunActionPreparationCapability,
+        "preparation_claim",
+    )
+    for name in ("ALLOCATE_ONCE", "REOPEN_CLAIM"):
+        assert not hasattr(RunActionPreparationMode, name)
+    for name in (
+        "NEW_ALLOCATION",
+        "REOPENED_CLAIM",
+        "ALLOCATED_AFTER_PROVEN_ABSENCE",
+    ):
+        assert not hasattr(RunActionPreparationOrigin, name)
 
 
-def test_claim_crash_recovery_uses_reopen_claim_mode(
+def test_allocation_crash_recovery_reuses_exact_durable_authority(
     publisher_case,
 ) -> None:
     frontier, gate, permit, _payload = _reserved_case(publisher_case)
-    claim_crash = _CrashAfterPreparationAdapter(permit.intent.boundary_identity)
-    coordinator = _recovery_coordinator(gate, claim_crash)
+    allocation_crash = _CrashAfterPreparationAdapter(permit.intent.boundary_identity)
+    coordinator = _recovery_coordinator(gate, allocation_crash)
 
     with pytest.raises(RuntimeError, match="provider preparation"):
         coordinator.recover(frontier)
-    assert gate._action_store.inspect().events_for(permit.intent.operation_id)[
-        -1
-    ].event_kind is (RunActionExecutionEventKind.PREPARATION_CLAIMED)
+    durable_allocation = (
+        gate._action_store.inspect()
+        .events_for(permit.intent.operation_id)[-1]
+        .preparation_allocation
+    )
+    assert (
+        gate._action_store.inspect()
+        .events_for(permit.intent.operation_id)[-1]
+        .event_kind
+        is RunActionExecutionEventKind.PREPARATION_ALLOCATED
+    )
 
-    claim_crash.crash_after_preparation = False
+    allocation_crash.crash_after_preparation = False
     assert coordinator.recover(frontier).is_complete
-    assert claim_crash.prepare_modes == [
-        RunActionPreparationMode.ALLOCATE_ONCE,
-        RunActionPreparationMode.REOPEN_CLAIM,
+    assert allocation_crash.prepare_modes == [
+        RunActionPreparationMode.CREATE_ALLOCATED,
+        RunActionPreparationMode.REOPEN_ALLOCATED,
     ]
+    assert allocation_crash.prepare_allocations == [
+        durable_allocation,
+        durable_allocation,
+    ]
+    assert allocation_crash.prepared_bound_allocations == [
+        durable_allocation,
+        durable_allocation,
+        durable_allocation,
+        durable_allocation,
+    ]
+    assert (
+        allocation_crash.prepare_allocations[0].preparation_allocation_id
+        == allocation_crash.prepare_allocations[1].preparation_allocation_id
+    )
+    assert (
+        allocation_crash.prepare_allocations[0].runtime_volume_authority
+        == allocation_crash.prepare_allocations[1].runtime_volume_authority
+    )
+    assert (
+        allocation_crash.prepare_allocations[
+            0
+        ].runtime_volume_authority.generation_nonce
+        == allocation_crash.prepare_allocations[
+            1
+        ].runtime_volume_authority.generation_nonce
+    )
+    prepared = (
+        gate._action_store.inspect()
+        .events_for(permit.intent.operation_id)[2]
+        .prepared_execution
+    )
+    assert (
+        prepared.runtime_volume_authority == durable_allocation.runtime_volume_authority
+    )
+
+
+def test_preparation_rejects_replacement_allocation_nonce(
+    publisher_case,
+) -> None:
+    frontier, gate, permit, _payload = _reserved_case(publisher_case)
+    adapter = _ReplacementAllocationAdapter(permit.intent.boundary_identity)
+
+    with pytest.raises(RunActionRecoveryError, match="another prepared execution"):
+        _recovery_coordinator(gate, adapter).recover(frontier)
+
+    allocation = (
+        gate._action_store.inspect()
+        .events_for(permit.intent.operation_id)[-1]
+        .preparation_allocation
+    )
+    assert allocation is not None
+    assert adapter.prepare_allocations == [allocation]
+    assert (
+        adapter.replacement_prepared.runtime_volume_authority
+        != allocation.runtime_volume_authority
+    )
 
 
 def test_prepared_crash_recovery_uses_revalidation_mode(
@@ -767,7 +956,7 @@ def test_prepared_crash_recovery_uses_revalidation_mode(
     def crash_after_prepared(_frontier):
         nonlocal security_check_count
         security_check_count += 1
-        if security_check_count == 2:
+        if security_check_count == 3:
             raise RuntimeError("injected death after prepared commit")
         return True
 
@@ -784,19 +973,19 @@ def test_prepared_crash_recovery_uses_revalidation_mode(
     coordinator._security_is_current = lambda _frontier: True
     assert coordinator.recover(frontier).is_complete
     assert prepared_crash.prepare_modes == [
-        RunActionPreparationMode.ALLOCATE_ONCE,
+        RunActionPreparationMode.CREATE_ALLOCATED,
         RunActionPreparationMode.REVALIDATE_PREPARED,
     ]
 
 
-def test_claimed_resource_loss_terminally_closes_without_provider_authority(
+def test_allocated_resource_loss_terminally_closes_without_provider_authority(
     publisher_case,
 ) -> None:
     frontier, gate, permit, _payload = _reserved_case(publisher_case)
     adapter = _NonExactPreparationAdapter(
         permit.intent.boundary_identity,
         RunActionPreparationState.PROVEN_RESOURCE_LOST,
-        {RunActionPreparationMode.ALLOCATE_ONCE},
+        {RunActionPreparationMode.CREATE_ALLOCATED},
     )
 
     report = _recovery_coordinator(gate, adapter).recover(frontier)
@@ -827,7 +1016,7 @@ def test_prepared_resource_loss_interrupts_without_recreation(
     def crash_after_prepared(_frontier):
         nonlocal security_check_count
         security_check_count += 1
-        if security_check_count == 2:
+        if security_check_count == 3:
             raise RuntimeError("injected death after prepared commit")
         return True
 
@@ -851,7 +1040,7 @@ def test_prepared_resource_loss_interrupts_without_recreation(
     )
     assert len(adapter.prepare_calls) == 2
     assert adapter.prepare_modes == [
-        RunActionPreparationMode.ALLOCATE_ONCE,
+        RunActionPreparationMode.CREATE_ALLOCATED,
         RunActionPreparationMode.REVALIDATE_PREPARED,
     ]
     assert (
@@ -868,8 +1057,8 @@ def test_unknown_preparation_remains_retryable_and_request_inaccessible(
         permit.intent.boundary_identity,
         RunActionPreparationState.UNKNOWN,
         {
-            RunActionPreparationMode.ALLOCATE_ONCE,
-            RunActionPreparationMode.REOPEN_CLAIM,
+            RunActionPreparationMode.CREATE_ALLOCATED,
+            RunActionPreparationMode.REOPEN_ALLOCATED,
         },
     )
     coordinator = _recovery_coordinator(gate, adapter)
@@ -880,15 +1069,15 @@ def test_unknown_preparation_remains_retryable_and_request_inaccessible(
     assert not first.is_complete
     assert not second.is_complete
     events = gate._action_store.inspect().events_for(permit.intent.operation_id)
-    assert events[-1].event_kind is RunActionExecutionEventKind.PREPARATION_CLAIMED
+    assert events[-1].event_kind is RunActionExecutionEventKind.PREPARATION_ALLOCATED
     assert adapter.prepare_modes == [
-        RunActionPreparationMode.ALLOCATE_ONCE,
-        RunActionPreparationMode.REOPEN_CLAIM,
+        RunActionPreparationMode.CREATE_ALLOCATED,
+        RunActionPreparationMode.REOPEN_ALLOCATED,
     ]
     assert not adapter.start_calls
 
 
-def test_preparation_envelope_rejects_oversize_before_allocation(
+def test_preparation_envelope_rejects_oversize_before_materialization(
     publisher_case,
 ) -> None:
     frontier, gate, permit, _payload = _reserved_case(publisher_case)
@@ -901,7 +1090,7 @@ def test_preparation_envelope_rejects_oversize_before_allocation(
         _recovery_coordinator(gate, adapter).recover(frontier)
 
     events = gate._action_store.inspect().events_for(permit.intent.operation_id)
-    assert events[-1].event_kind is (RunActionExecutionEventKind.PREPARATION_CLAIMED)
+    assert events[-1].event_kind is (RunActionExecutionEventKind.PREPARATION_ALLOCATED)
     assert not adapter.prepare_calls
     assert not adapter.start_calls
 
@@ -1345,6 +1534,43 @@ def test_security_advance_after_preparation_terminally_invalidates_frontier(
     assert terminal.workspace_after == terminal.reservation.frontier.workspace_before
 
 
+def test_security_advance_during_allocation_fsync_prevents_materialization(
+    publisher_case,
+) -> None:
+    frontier, gate, permit, _payload = _reserved_case(publisher_case)
+    required = frontier.checkpoint.safety_state.security_observation
+    pin = publisher_case["active"].bootstrap_pin
+    advanced = _security_observation(
+        pin,
+        required.checked_subject_ids,
+        generation_offset=(
+            required.generation
+            - pin.launch_manifest.security_observation.generation
+            + 1
+        ),
+    )
+    authority = _AdvancingOnCallSecurityAuthority(
+        required,
+        advanced,
+        advance_on_call=2,
+    )
+    gate._security_authority = authority
+    adapter = _FakeExecutionAdapter(permit.intent.boundary_identity)
+
+    report = _recovery_coordinator(gate, adapter).recover(frontier)
+
+    assert report.is_complete
+    assert authority.call_count == 2
+    assert not adapter.prepare_calls
+    events = gate._action_store.inspect().events_for(permit.intent.operation_id)
+    assert events[1].event_kind is RunActionExecutionEventKind.PREPARATION_ALLOCATED
+    assert events[1].preparation_allocation is not None
+    assert events[-1].event_kind is RunActionExecutionEventKind.INTERRUPTED
+    assert events[-1].terminal_reason is (
+        RunActionTerminalReason.FRONTIER_INVALIDATED_BEFORE_SPAWN
+    )
+
+
 def test_security_advance_during_activation_staging_never_starts_provider(
     publisher_case,
 ) -> None:
@@ -1381,7 +1607,7 @@ def test_security_advance_after_activation_commit_never_starts_provider(
     authority = _AdvancingOnCallSecurityAuthority(
         required,
         advanced,
-        advance_on_call=4,
+        advance_on_call=5,
     )
     gate._security_authority = authority
     adapter = _FakeExecutionAdapter(permit.intent.boundary_identity)
@@ -1389,7 +1615,7 @@ def test_security_advance_after_activation_commit_never_starts_provider(
     report = _recovery_coordinator(gate, adapter).recover(frontier)
 
     assert not report.is_complete
-    assert authority.call_count == 4
+    assert authority.call_count == 5
     assert len(adapter.stage_calls) == 1
     assert not adapter.start_calls
     events = gate._action_store.inspect().events_for(permit.intent.operation_id)

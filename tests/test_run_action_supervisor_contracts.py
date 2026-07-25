@@ -45,6 +45,7 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RunActionKeeperHelperEvidence,
     RunActionMountedKeeperHelperEvidence,
     RunActionNetworkPolicy,
+    RunActionPreparationAllocation,
     RunActionPreparationClaim,
     RunActionPreparedExecution,
     RunActionPreparedFile,
@@ -532,12 +533,15 @@ def _mounts(claim, volume_name):
 def _prepared_execution(
     *,
     claim=None,
+    authority=None,
     container_id="a" * 64,
     inode_offset=0,
 ):
     claim = _claim() if claim is None else claim
     nonce = f"{inode_offset + 1:032x}"
-    authority = _volume_authority(claim, nonce=nonce)
+    authority = (
+        _volume_authority(claim, nonce=nonce) if authority is None else authority
+    )
     sentinel_evidence = RunActionRuntimeVolumeSentinelEvidence.mint(
         runtime_volume_authority_id=authority.runtime_volume_authority_id,
         generation_nonce=authority.generation_nonce,
@@ -1404,6 +1408,64 @@ def test_semantic_claim_changes_with_request_or_execution_policy():
     assert original.preparation_claim_id != changed_policy.preparation_claim_id
 
 
+def test_preparation_allocation_rejects_authority_not_exactly_derived_from_claim():
+    claim = _claim()
+    authority = issue_runtime_volume_authority(claim, "a" * 32)
+    allocation = RunActionPreparationAllocation.mint(
+        preparation_claim=claim,
+        runtime_volume_authority=authority,
+    )
+    assert (
+        RunActionPreparationAllocation.from_json_bytes(allocation.to_json_bytes())
+        == allocation
+    )
+    substituted_authority = _remint_contract(
+        authority,
+        labels=tuple(
+            supervisor_contracts.RunActionContainerLabel(
+                key=label.key,
+                value=(
+                    _fixture_content_id("run-action-reservation", "foreign")
+                    if label.key == "com.kapso.run-action.reservation"
+                    else label.value
+                ),
+            )
+            for label in authority.labels
+        ),
+    )
+
+    with pytest.raises(
+        RunActionSupervisorContractError,
+        match="differs from its exact claim",
+    ):
+        RunActionPreparationAllocation.mint(
+            preparation_claim=claim,
+            runtime_volume_authority=substituted_authority,
+        )
+
+
+def test_runtime_volume_authority_rejects_a_foreign_generation_label():
+    claim = _claim()
+    authority = issue_runtime_volume_authority(claim, "a" * 32)
+    labels = tuple(
+        supervisor_contracts.RunActionContainerLabel(
+            key=label.key,
+            value=(
+                runtime_volume_sentinel_identity("b" * 32)
+                if label.key == "com.kapso.run-action.generation"
+                else label.value
+            ),
+        )
+        for label in authority.labels
+    )
+
+    with pytest.raises(
+        RunActionSupervisorContractError,
+        match="runtime volume authority is invalid",
+    ):
+        _remint_contract(authority, labels=labels)
+
+
 def test_claim_embeds_one_complete_reservation_and_rejects_cross_kind_splicing():
     coding_claim = _claim()
     embedding_spec = _execution_policy(
@@ -1801,7 +1863,10 @@ def test_runtime_volume_binds_exact_docker_inspect_and_statfs_evidence():
     evidence = prepared.runtime_volume_evidence
 
     assert authority.volume_name == preparation_volume_name(prepared.preparation_claim)
-    assert authority.labels == preparation_volume_labels(prepared.preparation_claim)
+    assert authority.labels == preparation_volume_labels(
+        prepared.preparation_claim,
+        authority.generation_nonce,
+    )
     assert authority.driver_options == runtime_volume_driver_options(authority)
     assert "noswap" in authority.driver_options[1]
     assert evidence.observed_scope == "local"

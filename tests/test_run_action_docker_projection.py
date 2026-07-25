@@ -264,7 +264,7 @@ def test_volume_creation_is_one_exact_canonical_tuple(docker_settings):
         "create",
         "--driver",
         "local",
-        *_label_arguments(preparation_volume_labels(claim)),
+        *_label_arguments(preparation_volume_labels(claim, authority.generation_nonce)),
         "--opt",
         "device=tmpfs",
         "--opt",

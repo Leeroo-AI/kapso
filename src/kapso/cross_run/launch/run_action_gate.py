@@ -51,7 +51,7 @@ from kapso.cross_run.launch.run_action_store import (
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
     DockerRunActionExecutionPolicy,
     RunActionActivationRevalidationReceipt,
-    RunActionPreparationClaim,
+    RunActionPreparationAllocation,
     RunActionPreparedExecution,
     RunActionResultCaptureReceipt,
     RunActionTerminalObservation,
@@ -461,21 +461,21 @@ class RunFrontierActionGate:
             )
         return _RunFrontierUseContext(self, permit, request_payload)
 
-    def claim_preparation(
+    def allocate_preparation(
         self,
         lease: RunFrontierUseLease,
         *,
         kind: RunFrontierActionKind,
         execution_policy: DockerRunActionExecutionPolicy,
-    ) -> RunActionPreparationClaim:
-        """Fence the lifecycle-owned policy before any resource allocation."""
+    ) -> RunActionPreparationAllocation:
+        """Durably issue exact occurrence authority before Docker mutation."""
         self._require_live_lease(
             lease,
             kind=kind,
             required_tail=RunActionExecutionEventKind.INTENT_RESERVED,
         )
         self._require_current_security(lease)
-        return lease._session.claim_preparation(execution_policy)
+        return lease._session.allocate_preparation(execution_policy)
 
     def commit_prepared_execution(
         self,
@@ -488,7 +488,7 @@ class RunFrontierActionGate:
         self._require_live_lease(
             lease,
             kind=kind,
-            required_tail=RunActionExecutionEventKind.PREPARATION_CLAIMED,
+            required_tail=RunActionExecutionEventKind.PREPARATION_ALLOCATED,
         )
         return lease._session.commit_prepared_execution(prepared_execution)
 
@@ -645,18 +645,18 @@ class RunFrontierActionGate:
         *,
         reason: RunActionTerminalReason,
     ) -> None:
-        """Close claimed or prepared work before provider authority exists."""
+        """Close allocated or prepared work before provider authority exists."""
         if type(lease) is not RunFrontierUseLease:
             raise RunFrontierActionError(
                 "pre-spawn interruption requires one exact live lease"
             )
         tail_kind = lease._session.events[-1].event_kind
         if tail_kind not in {
-            RunActionExecutionEventKind.PREPARATION_CLAIMED,
+            RunActionExecutionEventKind.PREPARATION_ALLOCATED,
             RunActionExecutionEventKind.EXECUTION_PREPARED,
         }:
             raise RunFrontierActionError(
-                "pre-spawn interruption requires claimed or prepared work"
+                "pre-spawn interruption requires allocated or prepared work"
             )
         self._require_live_lease(
             lease,

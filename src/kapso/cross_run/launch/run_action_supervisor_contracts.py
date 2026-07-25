@@ -720,13 +720,42 @@ class RunActionRuntimeVolumeAuthority(StrictContract):
             "run-action-runtime-volume-sentinel",
             "runtime volume sentinel",
         )
+        label_values = {
+            label.key: label.value
+            for label in self.labels
+            if type(label) is RunActionContainerLabel
+        }
+        expected_label_keys = tuple(
+            sorted(
+                (
+                    f"{_PREPARATION_LABEL_PREFIX}claim",
+                    f"{_PREPARATION_LABEL_PREFIX}generation",
+                    f"{_PREPARATION_LABEL_PREFIX}reservation",
+                    f"{_PREPARATION_LABEL_PREFIX}role",
+                )
+            )
+        )
+        if (
+            any(type(label) is not RunActionContainerLabel for label in self.labels)
+            or tuple(label.key for label in self.labels) != expected_label_keys
+        ):
+            raise RunActionSupervisorContractError(
+                "run action runtime volume authority labels are invalid"
+            )
+        _require_namespaced_content_id(
+            label_values[f"{_PREPARATION_LABEL_PREFIX}reservation"],
+            RunActionReservation.CONTENT_NAMESPACE,
+            "runtime volume reservation label",
+        )
         if (
             self.volume_name
             != _RUNTIME_VOLUME_NAME_PREFIX
             + self.preparation_claim_id.rsplit(":sha256:", 1)[1]
-            or any(type(label) is not RunActionContainerLabel for label in self.labels)
-            or tuple(label.key for label in self.labels)
-            != tuple(sorted({label.key for label in self.labels}))
+            or label_values[f"{_PREPARATION_LABEL_PREFIX}claim"]
+            != self.preparation_claim_id
+            or label_values[f"{_PREPARATION_LABEL_PREFIX}generation"]
+            != self.sentinel_identity
+            or label_values[f"{_PREPARATION_LABEL_PREFIX}role"] != "runtime-volume"
             or self.driver != "local"
             or _GENERATION_NONCE_PATTERN.fullmatch(self.generation_nonce) is None
             or self.sentinel_relative_path != _RUNTIME_VOLUME_SENTINEL_PATH
@@ -749,6 +778,38 @@ class RunActionRuntimeVolumeAuthority(StrictContract):
         ):
             raise RunActionSupervisorContractError(
                 "run action runtime volume authority is invalid"
+            )
+
+
+@dataclass(frozen=True)
+class RunActionPreparationAllocation(StrictContract):
+    """Logical authority for one generation before physical materialization."""
+
+    preparation_allocation_id: str
+    preparation_claim: RunActionPreparationClaim
+    runtime_volume_authority: RunActionRuntimeVolumeAuthority
+
+    CONTENT_NAMESPACE: ClassVar[str] = "run-action-preparation-allocation"
+    IDENTITY_FIELD: ClassVar[str] = "preparation_allocation_id"
+
+    def _validate(self) -> None:
+        expected_authority = (
+            issue_runtime_volume_authority(
+                self.preparation_claim,
+                self.runtime_volume_authority.generation_nonce,
+            )
+            if type(self.preparation_claim) is RunActionPreparationClaim
+            and type(self.runtime_volume_authority) is RunActionRuntimeVolumeAuthority
+            else None
+        )
+        if (
+            type(self.preparation_claim) is not RunActionPreparationClaim
+            or type(self.runtime_volume_authority)
+            is not RunActionRuntimeVolumeAuthority
+            or self.runtime_volume_authority != expected_authority
+        ):
+            raise RunActionSupervisorContractError(
+                "run action preparation allocation differs from its exact claim"
             )
 
 
@@ -1687,7 +1748,8 @@ class RunActionPreparedExecution(StrictContract):
         if (
             authority.preparation_claim_id != claim.preparation_claim_id
             or authority.volume_name != preparation_volume_name(claim)
-            or authority.labels != preparation_volume_labels(claim)
+            or authority.labels
+            != preparation_volume_labels(claim, authority.generation_nonce)
             or authority.owner_user_id != policy.user_id
             or authority.owner_group_id != policy.group_id
             or authority.size_limit_bytes != limits.runtime_volume_size_bytes
@@ -2641,10 +2703,18 @@ def preparation_volume_name(claim: RunActionPreparationClaim) -> str:
 
 def preparation_volume_labels(
     claim: RunActionPreparationClaim,
+    generation_nonce: str,
 ) -> tuple[RunActionContainerLabel, ...]:
-    """Derive the exact labels owned by the claim's runtime volume."""
+    """Derive the generation-bound labels owned by one runtime volume."""
 
-    return _preparation_resource_labels(claim, "runtime-volume")
+    labels = (
+        *_preparation_resource_labels(claim, "runtime-volume"),
+        RunActionContainerLabel(
+            key=f"{_PREPARATION_LABEL_PREFIX}generation",
+            value=runtime_volume_sentinel_identity(generation_nonce),
+        ),
+    )
+    return tuple(sorted(labels, key=lambda label: label.key))
 
 
 def preparation_keeper_container_name(claim: RunActionPreparationClaim) -> str:
@@ -2704,7 +2774,7 @@ def issue_runtime_volume_authority(
     return RunActionRuntimeVolumeAuthority.mint(
         preparation_claim_id=claim.preparation_claim_id,
         volume_name=preparation_volume_name(claim),
-        labels=preparation_volume_labels(claim),
+        labels=preparation_volume_labels(claim, generation_nonce),
         driver="local",
         driver_options=_runtime_volume_driver_options(
             owner_user_id=policy.user_id,
@@ -2973,6 +3043,7 @@ __all__ = [
     "RunActionKeeperHelperEvidence",
     "RunActionMountedKeeperHelperEvidence",
     "RunActionNetworkPolicy",
+    "RunActionPreparationAllocation",
     "RunActionPreparationClaim",
     "RunActionPreparedExecution",
     "RunActionPreparedFile",

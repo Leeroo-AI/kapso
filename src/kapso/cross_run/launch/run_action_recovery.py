@@ -47,7 +47,7 @@ from kapso.cross_run.launch.run_action_store import (
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
     DockerRunActionExecutionPolicy,
     RunActionActivationRevalidationReceipt,
-    RunActionPreparationClaim,
+    RunActionPreparationAllocation,
     RunActionPreparedExecution,
     RunActionResultCaptureReceipt,
     RunActionTerminalObservation,
@@ -138,19 +138,19 @@ def _require_workspace_source_path(path: Path, descriptor: int) -> None:
 
 
 class RunActionPreparationMode(str, Enum):
-    """Whether preparation may allocate or must only prove prior state."""
+    """How an adapter must reconcile one already-durable allocation."""
 
-    ALLOCATE_ONCE = "allocate_once"
-    REOPEN_CLAIM = "reopen_claim"
+    CREATE_ALLOCATED = "create_allocated"
+    REOPEN_ALLOCATED = "reopen_allocated"
     REVALIDATE_PREPARED = "revalidate_prepared"
 
 
 class RunActionPreparationOrigin(str, Enum):
     """How one exact prepared occurrence was obtained."""
 
-    NEW_ALLOCATION = "new_allocation"
-    REOPENED_CLAIM = "reopened_claim"
-    ALLOCATED_AFTER_PROVEN_ABSENCE = "allocated_after_proven_absence"
+    NEWLY_MATERIALIZED = "newly_materialized"
+    REOPENED_ALLOCATION = "reopened_allocation"
+    MATERIALIZED_AFTER_PROVEN_ABSENCE = "materialized_after_proven_absence"
     REVALIDATED_PREPARED = "revalidated_prepared"
 
 
@@ -201,12 +201,12 @@ def _preparation_origin_matches_mode(
     if observation.state is not RunActionPreparationState.EXACT_PREPARED:
         return True
     admitted_origins = {
-        RunActionPreparationMode.ALLOCATE_ONCE: {
-            RunActionPreparationOrigin.NEW_ALLOCATION,
+        RunActionPreparationMode.CREATE_ALLOCATED: {
+            RunActionPreparationOrigin.NEWLY_MATERIALIZED,
         },
-        RunActionPreparationMode.REOPEN_CLAIM: {
-            RunActionPreparationOrigin.REOPENED_CLAIM,
-            RunActionPreparationOrigin.ALLOCATED_AFTER_PROVEN_ABSENCE,
+        RunActionPreparationMode.REOPEN_ALLOCATED: {
+            RunActionPreparationOrigin.REOPENED_ALLOCATION,
+            RunActionPreparationOrigin.MATERIALIZED_AFTER_PROVEN_ABSENCE,
         },
         RunActionPreparationMode.REVALIDATE_PREPARED: {
             RunActionPreparationOrigin.REVALIDATED_PREPARED,
@@ -335,27 +335,33 @@ class RunActionPreparationCapability:
     def __init__(
         self,
         *,
-        preparation_claim: RunActionPreparationClaim,
+        preparation_allocation: RunActionPreparationAllocation,
         mode: RunActionPreparationMode,
         durable_prepared_execution: RunActionPreparedExecution | None,
         workspace_descriptor: int | None,
         workspace_source_path: Path | None,
         _authority: object,
     ) -> None:
+        if type(preparation_allocation) is not RunActionPreparationAllocation:
+            raise RunActionRecoveryError(
+                "run action preparation capability lacks exact authority"
+            )
+        claim = preparation_allocation.preparation_claim
         if (
-            type(preparation_claim) is not RunActionPreparationClaim
-            or type(mode) is not RunActionPreparationMode
+            type(mode) is not RunActionPreparationMode
             or (mode is RunActionPreparationMode.REVALIDATE_PREPARED)
             != (durable_prepared_execution is not None)
             or (
                 durable_prepared_execution is not None
                 and (
                     type(durable_prepared_execution) is not RunActionPreparedExecution
-                    or durable_prepared_execution.preparation_claim != preparation_claim
+                    or durable_prepared_execution.preparation_claim != claim
+                    or durable_prepared_execution.runtime_volume_authority
+                    != preparation_allocation.runtime_volume_authority
                 )
             )
             or (
-                preparation_claim.reservation.intent.workspace_access
+                claim.reservation.intent.workspace_access
                 is RunFrontierWorkspaceAccess.NONE
             )
             != (workspace_descriptor is None)
@@ -374,7 +380,7 @@ class RunActionPreparationCapability:
                 workspace_source_path,
                 workspace_descriptor,
             )
-        self._preparation_claim = preparation_claim
+        self._preparation_allocation = preparation_allocation
         self._mode = mode
         self._durable_prepared_execution = durable_prepared_execution
         self._workspace_source_path = workspace_source_path
@@ -390,9 +396,9 @@ class RunActionPreparationCapability:
             _ISSUED_PREPARATION_CAPABILITIES[id(self)] = self
 
     @property
-    def preparation_claim(self) -> RunActionPreparationClaim:
+    def preparation_allocation(self) -> RunActionPreparationAllocation:
         self._require_active_invocation()
-        return self._preparation_claim
+        return self._preparation_allocation
 
     @property
     def mode(self) -> RunActionPreparationMode:
@@ -843,7 +849,7 @@ class RunActionExecutionAdapter(Protocol):
     def prepared_event_size_bound(
         self,
         *,
-        preparation_claim: RunActionPreparationClaim,
+        preparation_allocation: RunActionPreparationAllocation,
         predecessor_event_id: str,
     ) -> int: ...
 
@@ -1307,7 +1313,7 @@ class RunActionRecoveryCoordinator:
         tail_kind = events[-1].event_kind
         if tail_kind in {
             RunActionExecutionEventKind.INTENT_RESERVED,
-            RunActionExecutionEventKind.PREPARATION_CLAIMED,
+            RunActionExecutionEventKind.PREPARATION_ALLOCATED,
             RunActionExecutionEventKind.EXECUTION_PREPARED,
         }:
             security_is_current = self._security_is_current(frontier)
@@ -1354,27 +1360,46 @@ class RunActionRecoveryCoordinator:
                 reservation,
             )
             if tail_kind is RunActionExecutionEventKind.INTENT_RESERVED:
-                claim = session.claim_preparation(
+                preparation_allocation = session.allocate_preparation(
                     execution_adapter.execution_policy,
                 )
-                preparation_mode = RunActionPreparationMode.ALLOCATE_ONCE
+                preparation_mode = RunActionPreparationMode.CREATE_ALLOCATED
                 durable_prepared_execution = None
-            elif tail_kind is RunActionExecutionEventKind.PREPARATION_CLAIMED:
-                claim = events[-1].preparation_claim
-                preparation_mode = RunActionPreparationMode.REOPEN_CLAIM
+                allocated_workspace_descriptor, allocated_workspace = (
+                    self._inspect_pre_spawn_workspace(
+                        reservation,
+                        descriptors,
+                    )
+                )
+                if (
+                    None
+                    if allocated_workspace is None
+                    else RunActionWorkspaceBinding.from_identity(allocated_workspace)
+                ) != expected_workspace or not self._security_is_current(frontier):
+                    session.interrupt_pre_spawn(
+                        reason=(
+                            RunActionTerminalReason.FRONTIER_INVALIDATED_BEFORE_SPAWN
+                        ),
+                    )
+                    return
+                workspace_descriptor = allocated_workspace_descriptor
+            elif tail_kind is RunActionExecutionEventKind.PREPARATION_ALLOCATED:
+                preparation_allocation = events[-1].preparation_allocation
+                preparation_mode = RunActionPreparationMode.REOPEN_ALLOCATED
                 durable_prepared_execution = None
             else:
                 durable_prepared_execution = events[-1].prepared_execution
-                claim = durable_prepared_execution.preparation_claim
+                preparation_allocation = events[1].preparation_allocation
                 preparation_mode = RunActionPreparationMode.REVALIDATE_PREPARED
+            claim = preparation_allocation.preparation_claim
             prepared_event_size_bound = None
             if durable_prepared_execution is None:
                 prepared_event_size_bound = execution_adapter.prepared_event_size_bound(
-                    preparation_claim=claim,
+                    preparation_allocation=preparation_allocation,
                     predecessor_event_id=session.events[-1].event_id,
                 )
                 repeated_size_bound = execution_adapter.prepared_event_size_bound(
-                    preparation_claim=claim,
+                    preparation_allocation=preparation_allocation,
                     predecessor_event_id=session.events[-1].event_id,
                 )
                 if (
@@ -1388,7 +1413,7 @@ class RunActionRecoveryCoordinator:
                         "run action preparation event envelope is invalid or too large"
                     )
             preparation_capability = RunActionPreparationCapability(
-                preparation_claim=claim,
+                preparation_allocation=preparation_allocation,
                 mode=preparation_mode,
                 durable_prepared_execution=durable_prepared_execution,
                 workspace_descriptor=workspace_descriptor,
@@ -1418,9 +1443,14 @@ class RunActionRecoveryCoordinator:
                 )
                 return
             prepared = preparation.prepared_execution
-            if prepared.preparation_claim != claim or (
-                durable_prepared_execution is not None
-                and prepared != durable_prepared_execution
+            if (
+                prepared.preparation_claim != claim
+                or prepared.runtime_volume_authority
+                != preparation_allocation.runtime_volume_authority
+                or (
+                    durable_prepared_execution is not None
+                    and prepared != durable_prepared_execution
+                )
             ):
                 raise RunActionRecoveryError(
                     "execution adapter returned another prepared execution"
@@ -1431,7 +1461,7 @@ class RunActionRecoveryCoordinator:
                     > prepared_event_size_bound
                 ):
                     raise RunActionRecoveryError(
-                        "prepared run action exceeded its pre-allocation event envelope"
+                        "prepared run action exceeded its pre-materialization event envelope"
                     )
                 session.commit_prepared_execution(prepared)
             confirmed_descriptor, confirmed_workspace = (

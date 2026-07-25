@@ -57,6 +57,7 @@ from kapso.cross_run.launch.run_action_runtime_volume import (
 )
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RunActionCredentialMode,
+    RunActionPreparationAllocation,
     RunActionPreparedExecution,
     RunActionStaticEnvironmentVariable,
     preparation_container_labels,
@@ -270,12 +271,21 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
         helper_evidence = observe_keeper_helper(policy)
         claim = _claim(policy=policy)
         authority = _volume_authority(claim, nonce=_GENERATION_NONCE)
+        allocation = RunActionPreparationAllocation.mint(
+            preparation_claim=claim,
+            runtime_volume_authority=authority,
+        )
+        claim = allocation.preparation_claim
+        authority = allocation.runtime_volume_authority
         main_name = preparation_container_name(claim)
         main_labels = preparation_container_labels(claim)
         keeper_name = preparation_keeper_container_name(claim)
         keeper_labels = preparation_keeper_container_labels(claim)
         volume_name = preparation_volume_name(claim)
-        volume_labels = preparation_volume_labels(claim)
+        volume_labels = preparation_volume_labels(
+            claim,
+            authority.generation_nonce,
+        )
         for name in (main_name, keeper_name):
             assert (
                 _listed_exact(
@@ -306,7 +316,7 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             )
             == ()
         )
-        assert resource_manager.observe(claim).is_absent
+        assert resource_manager.observe(allocation).is_absent
 
         image = runtime.inspect_exact_image(image_authority)
         require_run_action_image(image, policy, settings)
@@ -322,7 +332,7 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             volume_create_arguments(claim, authority, settings)
         )
         assert volume_result.stdout == f"{volume_name}\n".encode("ascii")
-        volume_inventory = resource_manager.observe(claim)
+        volume_inventory = resource_manager.observe(allocation)
         assert volume_inventory.volume_present is True
         assert volume_inventory.keeper_container_id is None
         assert volume_inventory.main_container_id is None
@@ -349,7 +359,7 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
         )
         keeper_id = keeper_result.stdout.decode("ascii").strip()
         assert _CONTAINER_ID_PATTERN.fullmatch(keeper_id) is not None
-        inert_keeper_inventory = resource_manager.observe(claim)
+        inert_keeper_inventory = resource_manager.observe(allocation)
         assert inert_keeper_inventory.volume_present is True
         assert inert_keeper_inventory.keeper_container_id == keeper_id
         assert inert_keeper_inventory.main_container_id is None
@@ -364,7 +374,7 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
         assert inert_keeper.container_id == keeper_id
         started_keeper = runtime.run_control(("container", "start", keeper_id))
         assert started_keeper.stdout == f"{keeper_id}\n".encode("ascii")
-        empty_volume_inventory = resource_manager.observe(claim)
+        empty_volume_inventory = resource_manager.observe(allocation)
         assert empty_volume_inventory.volume_present is True
         assert empty_volume_inventory.keeper_container_id == keeper_id
         assert empty_volume_inventory.main_container_id is None
@@ -413,7 +423,7 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
                 "/kapso/runtime-volume/workspace",
             )
         )
-        keeper_inventory = resource_manager.observe(claim)
+        keeper_inventory = resource_manager.observe(allocation)
         assert keeper_inventory.volume_present is True
         assert keeper_inventory.keeper_container_id == keeper_id
         assert keeper_inventory.main_container_id is None
@@ -437,7 +447,7 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
         main_id = main_result.stdout.decode("ascii").strip()
         assert _CONTAINER_ID_PATTERN.fullmatch(main_id) is not None
 
-        complete_inventory = resource_manager.observe(claim)
+        complete_inventory = resource_manager.observe(allocation)
         assert complete_inventory.volume_present is True
         assert complete_inventory.keeper_container_id == keeper_id
         assert complete_inventory.main_container_id == main_id
@@ -575,8 +585,17 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             layout_claim,
             nonce="b" * 32,
         )
+        layout_allocation = RunActionPreparationAllocation.mint(
+            preparation_claim=layout_claim,
+            runtime_volume_authority=layout_authority,
+        )
+        layout_claim = layout_allocation.preparation_claim
+        layout_authority = layout_allocation.runtime_volume_authority
         layout_volume_name = preparation_volume_name(layout_claim)
-        layout_volume_labels = preparation_volume_labels(layout_claim)
+        layout_volume_labels = preparation_volume_labels(
+            layout_claim,
+            layout_authority.generation_nonce,
+        )
         layout_keeper_name = preparation_keeper_container_name(layout_claim)
         layout_keeper_labels = preparation_keeper_container_labels(layout_claim)
         layout_main_name = preparation_container_name(layout_claim)
@@ -598,7 +617,7 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
         assert layout_volume_result.stdout == (
             f"{layout_volume_name}\n".encode("ascii")
         )
-        layout_volume_inventory = resource_manager.observe(layout_claim)
+        layout_volume_inventory = resource_manager.observe(layout_allocation)
         layout_volume_observation = observe_runtime_volume(
             resource_manager.inspect_volume(layout_volume_inventory),
             layout_claim,
@@ -622,7 +641,7 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
         )
         layout_keeper_id = layout_keeper_result.stdout.decode("ascii").strip()
         runtime.run_control(("container", "start", layout_keeper_id))
-        layout_keeper_inventory = resource_manager.observe(layout_claim)
+        layout_keeper_inventory = resource_manager.observe(layout_allocation)
         layout_keeper_evidence = observe_running_keeper(
             resource_manager.inspect_keeper(layout_keeper_inventory),
             layout_claim,
@@ -660,7 +679,7 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             )
         )
         layout_main_id = layout_main_result.stdout.decode("ascii").strip()
-        layout_complete_inventory = resource_manager.observe(layout_claim)
+        layout_complete_inventory = resource_manager.observe(layout_allocation)
         layout_main_evidence = observe_inert_main_container(
             resource_manager.inspect_main(layout_complete_inventory),
             layout_claim,

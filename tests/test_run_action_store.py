@@ -36,7 +36,9 @@ from kapso.cross_run.launch.run_action_store import (
     RunActionTerminalReason,
 )
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
+    RunActionPreparationAllocation,
     RunActionPreparationClaim,
+    issue_runtime_volume_authority,
 )
 from kapso.cross_run.launch.resume_contracts import RunSafetyBoundary
 from kapso.cross_run.launch.workspace_frontier import (
@@ -83,6 +85,27 @@ def test_reservation_contracts_are_not_reexported_by_action_store():
         assert not hasattr(run_action_store_module, name)
 
 
+def test_store_owns_fresh_preparation_allocation_entropy():
+    claim = _prepared_execution().preparation_claim
+
+    first = run_action_store_module._issue_preparation_allocation(claim)
+    second = run_action_store_module._issue_preparation_allocation(claim)
+
+    assert first.preparation_claim == claim
+    assert second.preparation_claim == claim
+    assert (
+        first.runtime_volume_authority.generation_nonce
+        != second.runtime_volume_authority.generation_nonce
+    )
+    assert first.runtime_volume_authority.labels != (
+        second.runtime_volume_authority.labels
+    )
+    assert not hasattr(
+        run_action_store_module,
+        "issue_fresh_preparation_allocation",
+    )
+
+
 def _open_session(store, reservation):
     return store._session(
         reservation,
@@ -95,12 +118,13 @@ def _prepare_session(session, *, container_id=None, inode_offset=None):
         kind=session.reservation.intent.kind,
         workspace_access=session.reservation.intent.workspace_access,
     )
-    claim = session.claim_preparation(policy)
+    allocation = session.allocate_preparation(policy)
     operation_digest = hashlib.sha256(
         session.reservation.intent.operation_id.encode("utf-8")
     ).hexdigest()
     prepared = _prepared_execution(
-        claim=claim,
+        claim=allocation.preparation_claim,
+        authority=allocation.runtime_volume_authority,
         container_id=operation_digest if container_id is None else container_id,
         inode_offset=(
             int(operation_digest[:8], 16) if inode_offset is None else inode_offset
@@ -136,7 +160,7 @@ def _execution_event(
     event_number,
     predecessor_event_id,
     event_kind,
-    preparation_claim=None,
+    preparation_allocation=None,
     prepared_execution=None,
     spawn_commit=None,
     activation_revalidation_receipt=None,
@@ -148,7 +172,7 @@ def _execution_event(
         predecessor_event_id=predecessor_event_id,
         event_kind=event_kind,
         reservation=reservation,
-        preparation_claim=preparation_claim,
+        preparation_allocation=preparation_allocation,
         prepared_execution=prepared_execution,
         spawn_commit=spawn_commit,
         activation_revalidation_receipt=activation_revalidation_receipt,
@@ -425,7 +449,52 @@ def test_activation_selection_survives_ambiguous_event_publication(
     assert events[-1].activation_revalidation_receipt.spawn_commit == spawn
 
 
-def test_claimed_resource_loss_is_terminal_without_request_authority(
+def test_preparation_allocation_survives_ambiguous_event_publication(
+    publisher_case,
+    monkeypatch,
+) -> None:
+    _frontier, request_payload, reservation, _workspace = _reserved_action(
+        publisher_case,
+        operation_id="ambiguous_allocation_publication_01234567",
+    )
+    store = _open_store(
+        publisher_case["active"],
+        publisher_case["settings"],
+    )
+    publish_event_locked = store._publish_event_locked
+
+    def publish_then_interrupt(store_descriptor, operation_id, event):
+        publish_event_locked(store_descriptor, operation_id, event)
+        if event.event_kind is RunActionExecutionEventKind.PREPARATION_ALLOCATED:
+            raise RuntimeError("injected death after allocation event publication")
+
+    monkeypatch.setattr(
+        store,
+        "_publish_event_locked",
+        publish_then_interrupt,
+    )
+    with pytest.raises(RuntimeError, match="after allocation event"):
+        with _open_session(store, reservation) as session:
+            session.reserve(request_payload)
+            session.allocate_preparation(
+                _execution_policy(
+                    kind=reservation.intent.kind,
+                    workspace_access=reservation.intent.workspace_access,
+                )
+            )
+
+    events = store.inspect().events_for(reservation.intent.operation_id)
+    assert len(events) == 2
+    assert events[-1].event_kind is RunActionExecutionEventKind.PREPARATION_ALLOCATED
+    allocation = events[-1].preparation_allocation
+    assert allocation.preparation_claim.reservation == reservation
+    assert (
+        allocation.runtime_volume_authority.preparation_claim_id
+        == allocation.preparation_claim.preparation_claim_id
+    )
+
+
+def test_allocated_resource_loss_is_terminal_without_request_authority(
     publisher_case,
 ) -> None:
     _frontier, request_payload, reservation, workspace = _reserved_action(
@@ -438,7 +507,7 @@ def test_claimed_resource_loss_is_terminal_without_request_authority(
     )
     with _open_session(store, reservation) as session:
         session.reserve(request_payload)
-        session.claim_preparation(
+        session.allocate_preparation(
             _execution_policy(
                 kind=reservation.intent.kind,
                 workspace_access=reservation.intent.workspace_access,
@@ -529,13 +598,22 @@ def test_action_store_rejects_legacy_and_cross_authority_event_splices(
         reservation=alternate_reservation,
         execution_policy=policy,
     )
+    foreign_allocation = RunActionPreparationAllocation.mint(
+        preparation_claim=foreign_claim,
+        runtime_volume_authority=issue_runtime_volume_authority(
+            foreign_claim,
+            "c" * 32,
+        ),
+    )
     foreign_prepared = _prepared_execution(
         claim=foreign_claim,
+        authority=foreign_allocation.runtime_volume_authority,
         container_id="e" * 64,
         inode_offset=701,
     )
     alternate_prepared = _prepared_execution(
-        claim=durable_events[1].preparation_claim,
+        claim=durable_events[1].preparation_allocation.preparation_claim,
+        authority=(durable_events[1].preparation_allocation.runtime_volume_authority),
         container_id="f" * 64,
         inode_offset=1701,
     )
@@ -546,12 +624,12 @@ def test_action_store_rejects_legacy_and_cross_authority_event_splices(
         event_kind=RunActionExecutionEventKind.SPAWN_COMMITTED,
         spawn_commit=durable_events[3].spawn_commit,
     )
-    spliced_claim = _execution_event(
+    spliced_allocation = _execution_event(
         reservation=reservation,
         event_number=2,
         predecessor_event_id=durable_events[0].event_id,
-        event_kind=RunActionExecutionEventKind.PREPARATION_CLAIMED,
-        preparation_claim=foreign_claim,
+        event_kind=RunActionExecutionEventKind.PREPARATION_ALLOCATED,
+        preparation_allocation=foreign_allocation,
     )
     spliced_prepared = _execution_event(
         reservation=reservation,
@@ -584,10 +662,10 @@ def test_action_store_rejects_legacy_and_cross_authority_event_splices(
 
     invalid_prefixes = (
         ((durable_events[0], legacy_spawn), "changed identity"),
-        ((durable_events[0], spliced_claim), "differs from its reservation"),
+        ((durable_events[0], spliced_allocation), "differs from its reservation"),
         (
             (durable_events[0], durable_events[1], spliced_prepared),
-            "differs from its claim",
+            "differs from its allocation",
         ),
         (
             (
@@ -743,7 +821,7 @@ def test_action_store_rejects_reminted_failed_edit_with_changed_workspace(
         predecessor_event_id=original.predecessor_event_id,
         event_kind=original.event_kind,
         reservation=original.reservation,
-        preparation_claim=None,
+        preparation_allocation=None,
         prepared_execution=None,
         spawn_commit=None,
         activation_revalidation_receipt=None,
@@ -1080,12 +1158,13 @@ def test_action_store_rejects_reused_prepared_container_identity(
             kind=session.reservation.intent.kind,
             workspace_access=session.reservation.intent.workspace_access,
         )
-        claim = session.claim_preparation(policy)
+        allocation = session.allocate_preparation(policy)
         operation_digest = hashlib.sha256(
             session.reservation.intent.operation_id.encode("utf-8")
         ).hexdigest()
         prepared = _prepared_execution(
-            claim=claim,
+            claim=allocation.preparation_claim,
+            authority=allocation.runtime_volume_authority,
             container_id=shared_container_id,
             inode_offset=int(operation_digest[:8], 16),
         )
@@ -1097,6 +1176,7 @@ def test_action_store_rejects_reused_prepared_container_identity(
 
 def test_action_store_rejects_reused_runtime_volume_generation_authority(
     publisher_case,
+    monkeypatch,
 ):
     frontier, request_payload, first, workspace = _reserved_action(
         publisher_case,
@@ -1106,24 +1186,17 @@ def test_action_store_rejects_reused_runtime_volume_generation_authority(
         publisher_case["active"],
         publisher_case["settings"],
     )
-    shared_inode_offset = 4701
     with _open_session(store, first) as session:
         session.reserve(request_payload)
-        _prepare_session(session, inode_offset=shared_inode_offset)
-        spawn = session.commit_spawn(
-            security_observation_id=first.frontier.security_observation_id,
-            boundary_identity=first.intent.boundary_identity,
+        allocation = session.allocate_preparation(
+            _execution_policy(
+                kind=first.intent.kind,
+                workspace_access=first.intent.workspace_access,
+            )
         )
-        result = _record_captured_result(
-            session,
-            spawn,
-            b'{"result":"first slot authority"}',
-        )
-        session.accept_result(
-            result_receipt=result,
-            disposition=RunActionResultDisposition.SUCCEEDED,
-            accepted_result_payload=b'{"accepted":"first slot authority"}',
-            workspace_after=workspace,
+        first_nonce = allocation.runtime_volume_authority.generation_nonce
+        session.interrupt_pre_spawn(
+            reason=RunActionTerminalReason.SUPERVISOR_RESOURCE_LOST_BEFORE_SPAWN,
         )
 
     _frontier, second_payload, second, _workspace = _reserved_action(
@@ -1138,14 +1211,23 @@ def test_action_store_rejects_reused_runtime_volume_generation_authority(
             kind=second.intent.kind,
             workspace_access=second.intent.workspace_access,
         )
-        claim = session.claim_preparation(policy)
-        candidate = _prepared_execution(
-            claim=claim,
-            container_id="c" * 64,
-            inode_offset=shared_inode_offset,
+
+        def allocation_with_reused_nonce(claim):
+            return RunActionPreparationAllocation.mint(
+                preparation_claim=claim,
+                runtime_volume_authority=issue_runtime_volume_authority(
+                    claim,
+                    first_nonce,
+                ),
+            )
+
+        monkeypatch.setattr(
+            run_action_store_module,
+            "_issue_preparation_allocation",
+            allocation_with_reused_nonce,
         )
         with pytest.raises(RunActionStoreError, match="authority was reused"):
-            session.commit_prepared_execution(candidate)
+            session.allocate_preparation(policy)
 
 
 def test_action_store_concurrent_reservation_is_create_once(

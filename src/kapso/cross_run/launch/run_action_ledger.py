@@ -21,7 +21,7 @@ class RunActionExecutionEventKind(str, Enum):
     """Exact phases admitted by one operation journal."""
 
     INTENT_RESERVED = "intent_reserved"
-    PREPARATION_CLAIMED = "preparation_claimed"
+    PREPARATION_ALLOCATED = "preparation_allocated"
     EXECUTION_PREPARED = "execution_prepared"
     SPAWN_COMMITTED = "spawn_committed"
     ACTIVATION_COMMITTED = "activation_committed"
@@ -44,7 +44,7 @@ class RunActionOperationTail(StrictContract):
         admitted_tail_kinds = {
             1: {RunActionExecutionEventKind.INTENT_RESERVED},
             2: {
-                RunActionExecutionEventKind.PREPARATION_CLAIMED,
+                RunActionExecutionEventKind.PREPARATION_ALLOCATED,
                 RunActionExecutionEventKind.CANCELLED,
             },
             3: {

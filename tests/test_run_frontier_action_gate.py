@@ -53,6 +53,10 @@ from kapso.cross_run.launch.run_action_store import (
     RunActionStoreError,
     RunActionTerminalReason,
 )
+from kapso.cross_run.launch.run_action_supervisor_contracts import (
+    RunActionPreparationAllocation,
+    issue_runtime_volume_authority,
+)
 from kapso.cross_run.launch.run_state_publisher import (
     RunStatePublisher,
     RunStatePublisherError,
@@ -326,7 +330,7 @@ def _prepare_action(gate, lease, kind=RunFrontierActionKind.CODING_AGENT):
         kind=kind,
         workspace_access=lease._reservation.intent.workspace_access,
     )
-    claim = gate.claim_preparation(
+    allocation = gate.allocate_preparation(
         lease,
         kind=kind,
         execution_policy=policy,
@@ -335,7 +339,8 @@ def _prepare_action(gate, lease, kind=RunFrontierActionKind.CODING_AGENT):
         lease._reservation.intent.operation_id.encode("utf-8")
     ).hexdigest()
     prepared = _prepared_execution(
-        claim=claim,
+        claim=allocation.preparation_claim,
+        authority=allocation.runtime_volume_authority,
         container_id=operation_digest,
         inode_offset=int(operation_digest[:8], 16),
     )
@@ -356,7 +361,7 @@ def _claim_action(gate, lease, kind=RunFrontierActionKind.CODING_AGENT):
     )
 
 
-def test_gate_terminally_closes_claimed_resource_loss_before_spawn(
+def test_gate_terminally_closes_allocated_resource_loss_before_spawn(
     publisher_case,
 ) -> None:
     _publisher, frontier, _security, gate = _action_case(publisher_case)
@@ -368,7 +373,7 @@ def test_gate_terminally_closes_claimed_resource_loss_before_spawn(
     )
 
     with gate.hold(permit, payload) as lease:
-        gate.claim_preparation(
+        gate.allocate_preparation(
             lease,
             kind=RunFrontierActionKind.CODING_AGENT,
             execution_policy=_execution_policy(
@@ -567,7 +572,7 @@ def test_action_gate_holds_current_frontier_and_claims_once(
         assert lease.safety_state_id == receipt.checkpoint.safety_state.safety_state_id
         assert publisher.require_current(receipt) == receipt.checkpoint
         with pytest.raises(RunFrontierActionError, match="another phase"):
-            gate.claim_preparation(
+            gate.allocate_preparation(
                 lease,
                 kind=RunFrontierActionKind.CODING_AGENT,
                 execution_policy=_execution_policy(
@@ -1447,15 +1452,24 @@ def test_action_gate_rejects_a_reminted_terminal_from_another_safety_boundary(
         frontier=original_reservation.frontier,
         predecessor_ledger=permit._predecessor_ledger,
     )
-    reminted_claim = type(original_events[1].preparation_claim).mint(
+    original_allocation = original_events[1].preparation_allocation
+    reminted_claim = type(original_allocation.preparation_claim).mint(
         reservation=reminted_reservation,
-        execution_policy=original_events[1].preparation_claim.execution_policy,
+        execution_policy=original_allocation.preparation_claim.execution_policy,
+    )
+    reminted_allocation = RunActionPreparationAllocation.mint(
+        preparation_claim=reminted_claim,
+        runtime_volume_authority=issue_runtime_volume_authority(
+            reminted_claim,
+            original_allocation.runtime_volume_authority.generation_nonce,
+        ),
     )
     operation_digest = hashlib.sha256(
         permit.intent.operation_id.encode("utf-8")
     ).hexdigest()
     reminted_prepared = _prepared_execution(
         claim=reminted_claim,
+        authority=reminted_allocation.runtime_volume_authority,
         container_id=original_events[
             2
         ].prepared_execution.inert_container_evidence.container_id,
@@ -1513,8 +1527,8 @@ def test_action_gate_rejects_a_reminted_terminal_from_another_safety_boundary(
             None,
         ),
         (
-            RunActionExecutionEventKind.PREPARATION_CLAIMED,
-            reminted_claim,
+            RunActionExecutionEventKind.PREPARATION_ALLOCATED,
+            reminted_allocation,
             None,
             None,
             None,
@@ -1571,7 +1585,7 @@ def test_action_gate_rejects_a_reminted_terminal_from_another_safety_boundary(
     reminted_events = []
     for event_number, (
         event_kind,
-        preparation_claim,
+        preparation_allocation,
         prepared_execution,
         spawn_commit,
         activation_revalidation_receipt,
@@ -1583,7 +1597,7 @@ def test_action_gate_rejects_a_reminted_terminal_from_another_safety_boundary(
             predecessor_event_id=predecessor_event_id,
             event_kind=event_kind,
             reservation=reminted_reservation,
-            preparation_claim=preparation_claim,
+            preparation_allocation=preparation_allocation,
             prepared_execution=prepared_execution,
             spawn_commit=spawn_commit,
             activation_revalidation_receipt=activation_revalidation_receipt,

@@ -17,6 +17,8 @@ from kapso.cross_run.launch.run_action_docker_resources import (
     DockerRunActionResourceManager,
 )
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
+    RunActionPreparationAllocation,
+    issue_runtime_volume_authority,
     preparation_container_labels,
     preparation_container_name,
     preparation_keeper_container_labels,
@@ -147,7 +149,12 @@ def resource_context(tmp_path, monkeypatch):
         settings=settings,
         process_runner=runner,
     )
-    return DockerRunActionResourceManager(runtime), runner, _claim()
+    claim = _claim()
+    allocation = RunActionPreparationAllocation.mint(
+        preparation_claim=claim,
+        runtime_volume_authority=issue_runtime_volume_authority(claim, "a" * 32),
+    )
+    return DockerRunActionResourceManager(runtime), runner, allocation, claim
 
 
 def _json_line(value):
@@ -184,7 +191,9 @@ def _label_mapping(labels):
     return {label.key: label.value for label in labels}
 
 
-def _install_exact_resources(runner, claim):
+def _install_exact_resources(runner, allocation):
+    claim = allocation.preparation_claim
+    authority = allocation.runtime_volume_authority
     keeper_name = preparation_keeper_container_name(claim)
     main_name = preparation_container_name(claim)
     volume_name = preparation_volume_name(claim)
@@ -202,26 +211,28 @@ def _install_exact_resources(runner, claim):
     }
     runner.volumes[volume_name] = {
         "CreatedAt": "2026-07-25T00:00:00Z",
-        "Labels": _label_mapping(preparation_volume_labels(claim)),
+        "Labels": _label_mapping(
+            preparation_volume_labels(claim, authority.generation_nonce)
+        ),
         "Name": volume_name,
     }
 
 
 def test_inventory_proves_all_three_names_absent_across_two_scans(resource_context):
-    manager, runner, claim = resource_context
+    manager, runner, allocation, _claim = resource_context
 
-    inventory = manager.observe(claim)
+    inventory = manager.observe(allocation)
 
     assert inventory.is_absent
-    assert inventory.preparation_claim == claim
+    assert inventory.preparation_allocation == allocation
     assert runner.lookup_count == 18
 
 
 def test_inventory_rebinds_exact_labels_and_container_ids(resource_context):
-    manager, runner, claim = resource_context
-    _install_exact_resources(runner, claim)
+    manager, runner, allocation, claim = resource_context
+    _install_exact_resources(runner, allocation)
 
-    inventory = manager.observe(claim)
+    inventory = manager.observe(allocation)
 
     assert inventory.volume_present is True
     assert inventory.keeper_container_id == _KEEPER_CONTAINER_ID
@@ -242,8 +253,8 @@ def test_inventory_rebinds_exact_labels_and_container_ids(resource_context):
 
 @pytest.mark.parametrize("resource_kind", ("volume", "keeper", "main"))
 def test_name_owned_by_wrong_labels_is_substitution(resource_context, resource_kind):
-    manager, runner, claim = resource_context
-    _install_exact_resources(runner, claim)
+    manager, runner, allocation, claim = resource_context
+    _install_exact_resources(runner, allocation)
     if resource_kind == "volume":
         runner.volumes[preparation_volume_name(claim)]["Labels"] = {
             "untrusted": "volume"
@@ -257,19 +268,39 @@ def test_name_owned_by_wrong_labels_is_substitution(resource_context, resource_k
         }
 
     with pytest.raises(DockerRunActionResourceError, match="labels are conflicted"):
-        manager.observe(claim)
+        manager.observe(allocation)
+
+
+def test_volume_from_another_generation_of_same_claim_is_substitution(
+    resource_context,
+):
+    manager, runner, allocation, claim = resource_context
+    _install_exact_resources(runner, allocation)
+    other_allocation = RunActionPreparationAllocation.mint(
+        preparation_claim=claim,
+        runtime_volume_authority=issue_runtime_volume_authority(claim, "b" * 32),
+    )
+    runner.volumes[preparation_volume_name(claim)]["Labels"] = _label_mapping(
+        preparation_volume_labels(
+            claim,
+            other_allocation.runtime_volume_authority.generation_nonce,
+        )
+    )
+
+    with pytest.raises(DockerRunActionResourceError, match="labels are conflicted"):
+        manager.observe(allocation)
 
 
 def test_extra_label_is_rejected_after_label_filter_match(resource_context):
-    manager, runner, claim = resource_context
-    _install_exact_resources(runner, claim)
+    manager, runner, allocation, _claim = resource_context
+    _install_exact_resources(runner, allocation)
     runner.containers[_MAIN_CONTAINER_ID]["Config"]["Labels"]["extra"] = "substitution"
 
     with pytest.raises(
         DockerRunActionResourceError,
         match="differs from exact name and labels",
     ):
-        manager.observe(claim)
+        manager.observe(allocation)
 
 
 @pytest.mark.parametrize("resource_kind", ("volume", "keeper", "main"))
@@ -277,11 +308,14 @@ def test_exact_labels_under_another_name_are_conflicted(
     resource_context,
     resource_kind,
 ):
-    manager, runner, claim = resource_context
+    manager, runner, allocation, claim = resource_context
     if resource_kind == "volume":
+        authority = allocation.runtime_volume_authority
         runner.volumes["another-volume"] = {
             "CreatedAt": "2026-07-25T00:00:00Z",
-            "Labels": _label_mapping(preparation_volume_labels(claim)),
+            "Labels": _label_mapping(
+                preparation_volume_labels(claim, authority.generation_nonce)
+            ),
             "Name": "another-volume",
         }
     else:
@@ -300,12 +334,12 @@ def test_exact_labels_under_another_name_are_conflicted(
         }
 
     with pytest.raises(DockerRunActionResourceError, match="labels are conflicted"):
-        manager.observe(claim)
+        manager.observe(allocation)
 
 
 def test_duplicate_role_labels_are_conflicted(resource_context):
-    manager, runner, claim = resource_context
-    _install_exact_resources(runner, claim)
+    manager, runner, allocation, claim = resource_context
+    _install_exact_resources(runner, allocation)
     runner.containers["c" * 64] = {
         "Config": {
             "Labels": _label_mapping(preparation_keeper_container_labels(claim))
@@ -315,7 +349,7 @@ def test_duplicate_role_labels_are_conflicted(resource_context):
     }
 
     with pytest.raises(DockerRunActionResourceError, match="labels are conflicted"):
-        manager.observe(claim)
+        manager.observe(allocation)
 
 
 @pytest.mark.parametrize(
@@ -329,21 +363,24 @@ def test_duplicate_role_labels_are_conflicted(resource_context):
     ),
 )
 def test_malformed_or_ambiguous_lookup_fails_loud(resource_context, payload):
-    manager, runner, claim = resource_context
+    manager, runner, allocation, _claim = resource_context
     runner.next_lookup_stdout = payload
 
     with pytest.raises(DockerRunActionResourceError):
-        manager.observe(claim)
+        manager.observe(allocation)
 
 
 def test_resource_change_between_complete_scans_is_rejected(resource_context):
-    manager, runner, claim = resource_context
+    manager, runner, allocation, claim = resource_context
+    authority = allocation.runtime_volume_authority
     volume_name = preparation_volume_name(claim)
 
     def add_volume():
         runner.volumes[volume_name] = {
             "CreatedAt": "2026-07-25T00:00:00Z",
-            "Labels": _label_mapping(preparation_volume_labels(claim)),
+            "Labels": _label_mapping(
+                preparation_volume_labels(claim, authority.generation_nonce)
+            ),
             "Name": volume_name,
         }
 
@@ -351,12 +388,12 @@ def test_resource_change_between_complete_scans_is_rejected(resource_context):
     runner.lookup_mutation = add_volume
 
     with pytest.raises(DockerRunActionResourceError, match="changed during inventory"):
-        manager.observe(claim)
+        manager.observe(allocation)
 
 
 def test_volume_recreation_between_scans_changes_occurrence_digest(resource_context):
-    manager, runner, claim = resource_context
-    _install_exact_resources(runner, claim)
+    manager, runner, allocation, claim = resource_context
+    _install_exact_resources(runner, allocation)
     volume_name = preparation_volume_name(claim)
 
     def recreate_volume():
@@ -366,13 +403,13 @@ def test_volume_recreation_between_scans_changes_occurrence_digest(resource_cont
     runner.lookup_mutation = recreate_volume
 
     with pytest.raises(DockerRunActionResourceError, match="changed during inventory"):
-        manager.observe(claim)
+        manager.observe(allocation)
 
 
 def test_volume_change_after_rebinding_is_rejected(resource_context):
-    manager, runner, claim = resource_context
-    _install_exact_resources(runner, claim)
-    inventory = manager.observe(claim)
+    manager, runner, allocation, claim = resource_context
+    _install_exact_resources(runner, allocation)
+    inventory = manager.observe(allocation)
     volume_name = preparation_volume_name(claim)
 
     def recreate_volume():
@@ -386,9 +423,9 @@ def test_volume_change_after_rebinding_is_rejected(resource_context):
 
 
 def test_stale_inventory_cannot_be_reused_after_resource_change(resource_context):
-    manager, runner, claim = resource_context
-    _install_exact_resources(runner, claim)
-    inventory = manager.observe(claim)
+    manager, runner, allocation, _claim = resource_context
+    _install_exact_resources(runner, allocation)
+    inventory = manager.observe(allocation)
     del runner.containers[_MAIN_CONTAINER_ID]
 
     with pytest.raises(

@@ -31,6 +31,7 @@ from kapso.cross_run.launch.run_action_reservation_contracts import (
     RunActionWorkspaceBinding,
 )
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
+    RunActionContainerLabel,
     RunActionCredentialMode,
     RunActionPreparationClaim,
 )
@@ -43,6 +44,7 @@ from test_run_action_docker_projection import _policy
 from test_launch_resolver import resolver_case
 from test_run_action_supervisor_contracts import (
     _claim,
+    _fixture_content_id,
     _prepared_execution,
     _remint_contract,
     _volume_authority,
@@ -427,7 +429,17 @@ def test_prepared_volume_aggregate_rejects_claim_policy_authority_splice():
     )
     substituted_authority = _remint_contract(
         observation.runtime_volume_evidence.volume_authority,
-        labels=(),
+        labels=tuple(
+            RunActionContainerLabel(
+                key=label.key,
+                value=(
+                    _fixture_content_id("run-action-reservation", "foreign")
+                    if label.key == "com.kapso.run-action.reservation"
+                    else label.value
+                ),
+            )
+            for label in observation.runtime_volume_evidence.volume_authority.labels
+        ),
     )
     substituted_sentinel = _remint_contract(
         observation.runtime_volume_evidence.sentinel_evidence,
@@ -436,7 +448,7 @@ def test_prepared_volume_aggregate_rejects_claim_policy_authority_splice():
     substituted_evidence = _remint_contract(
         observation.runtime_volume_evidence,
         volume_authority=substituted_authority,
-        observed_labels=(),
+        observed_labels=substituted_authority.labels,
         sentinel_evidence=substituted_sentinel,
     )
     substituted_files = tuple(

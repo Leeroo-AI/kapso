@@ -42,10 +42,12 @@ from kapso.cross_run.launch.run_action_spawn_contracts import (
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
     DockerRunActionExecutionPolicy,
     RunActionActivationRevalidationReceipt,
+    RunActionPreparationAllocation,
     RunActionPreparationClaim,
     RunActionPreparedExecution,
     RunActionResultCaptureReceipt,
     RunActionTerminalObservation,
+    issue_runtime_volume_authority,
     run_action_terminal_result_evidence_matches,
 )
 from kapso.cross_run.launch.workspace import ActiveLaunchWorkspace
@@ -74,7 +76,7 @@ _TERMINAL_EVENT_KINDS = {
 }
 _FUTURE_EVENT_COUNT_BY_TAIL = {
     RunActionExecutionEventKind.INTENT_RESERVED: 6,
-    RunActionExecutionEventKind.PREPARATION_CLAIMED: 5,
+    RunActionExecutionEventKind.PREPARATION_ALLOCATED: 5,
     RunActionExecutionEventKind.EXECUTION_PREPARED: 4,
     RunActionExecutionEventKind.SPAWN_COMMITTED: 3,
     RunActionExecutionEventKind.ACTIVATION_COMMITTED: 2,
@@ -85,7 +87,7 @@ _FUTURE_EVENT_COUNT_BY_TAIL = {
 }
 _FUTURE_RESULT_BLOB_COUNT_BY_TAIL = {
     RunActionExecutionEventKind.INTENT_RESERVED: 2,
-    RunActionExecutionEventKind.PREPARATION_CLAIMED: 2,
+    RunActionExecutionEventKind.PREPARATION_ALLOCATED: 2,
     RunActionExecutionEventKind.EXECUTION_PREPARED: 2,
     RunActionExecutionEventKind.SPAWN_COMMITTED: 2,
     RunActionExecutionEventKind.ACTIVATION_COMMITTED: 2,
@@ -94,6 +96,24 @@ _FUTURE_RESULT_BLOB_COUNT_BY_TAIL = {
     RunActionExecutionEventKind.CANCELLED: 0,
     RunActionExecutionEventKind.INTERRUPTED: 0,
 }
+
+
+def _issue_preparation_allocation(
+    claim: RunActionPreparationClaim,
+) -> RunActionPreparationAllocation:
+    """Mint the sole random occurrence decision inside the durable store boundary."""
+
+    if type(claim) is not RunActionPreparationClaim:
+        raise RunActionStoreError(
+            "preparation allocation requires an exact preparation claim"
+        )
+    return RunActionPreparationAllocation.mint(
+        preparation_claim=claim,
+        runtime_volume_authority=issue_runtime_volume_authority(
+            claim,
+            secrets.token_hex(16),
+        ),
+    )
 
 
 class RunActionStoreError(RunActionContractError):
@@ -225,7 +245,7 @@ class RunActionExecutionEvent(StrictContract):
     predecessor_event_id: str | None
     event_kind: RunActionExecutionEventKind
     reservation: _RunActionReservation
-    preparation_claim: RunActionPreparationClaim | None
+    preparation_allocation: RunActionPreparationAllocation | None
     prepared_execution: RunActionPreparedExecution | None
     spawn_commit: _RunActionSpawnCommit | None
     activation_revalidation_receipt: RunActionActivationRevalidationReceipt | None
@@ -253,7 +273,7 @@ class RunActionExecutionEvent(StrictContract):
                 "run action event predecessor",
             )
         optional_payloads = (
-            (self.preparation_claim, RunActionPreparationClaim),
+            (self.preparation_allocation, RunActionPreparationAllocation),
             (self.prepared_execution, RunActionPreparedExecution),
             (self.spawn_commit, _RunActionSpawnCommit),
             (
@@ -273,7 +293,7 @@ class RunActionExecutionEvent(StrictContract):
                 "run action execution event carries an invalid payload type"
             )
         shape = (
-            self.preparation_claim is not None,
+            self.preparation_allocation is not None,
             self.prepared_execution is not None,
             self.spawn_commit is not None,
             self.activation_revalidation_receipt is not None,
@@ -293,7 +313,7 @@ class RunActionExecutionEvent(StrictContract):
                 False,
                 False,
             ),
-            RunActionExecutionEventKind.PREPARATION_CLAIMED: (
+            RunActionExecutionEventKind.PREPARATION_ALLOCATED: (
                 True,
                 False,
                 False,
@@ -597,11 +617,11 @@ class _RunActionExecutionSession:
         self._events = (event,)
         return event
 
-    def claim_preparation(
+    def allocate_preparation(
         self,
         execution_policy: DockerRunActionExecutionPolicy,
-    ) -> RunActionPreparationClaim:
-        """Durably fence one exact execution policy before resource allocation."""
+    ) -> RunActionPreparationAllocation:
+        """Durably issue the exact occurrence authority before Docker mutation."""
         self._require_tail(RunActionExecutionEventKind.INTENT_RESERVED)
         lifecycle = (
             self.reservation.intent.boundary_identity.execution_lifecycle_identity
@@ -619,19 +639,20 @@ class _RunActionExecutionSession:
             reservation=self.reservation,
             execution_policy=execution_policy,
         )
+        allocation = _issue_preparation_allocation(claim)
         self._append(
             self._event(
-                RunActionExecutionEventKind.PREPARATION_CLAIMED,
-                preparation_claim=claim,
+                RunActionExecutionEventKind.PREPARATION_ALLOCATED,
+                preparation_allocation=allocation,
             )
         )
-        return claim
+        return allocation
 
     def commit_prepared_execution(
         self,
         prepared_execution: RunActionPreparedExecution,
     ) -> RunActionPreparedExecution:
-        """Persist the sole concrete inert occurrence for the durable claim."""
+        """Persist the sole concrete inert occurrence for the durable allocation."""
         self._append(self._prepared_event(prepared_execution))
         return prepared_execution
 
@@ -646,14 +667,16 @@ class _RunActionExecutionSession:
         self,
         prepared_execution: RunActionPreparedExecution,
     ) -> RunActionExecutionEvent:
-        self._require_tail(RunActionExecutionEventKind.PREPARATION_CLAIMED)
-        claim = self._events[-1].preparation_claim
+        self._require_tail(RunActionExecutionEventKind.PREPARATION_ALLOCATED)
+        allocation = self._events[-1].preparation_allocation
         if (
             type(prepared_execution) is not RunActionPreparedExecution
-            or prepared_execution.preparation_claim != claim
+            or prepared_execution.preparation_claim != allocation.preparation_claim
+            or prepared_execution.runtime_volume_authority
+            != allocation.runtime_volume_authority
         ):
             raise RunActionStoreError(
-                "prepared run action execution differs from its durable claim"
+                "prepared run action execution differs from its durable allocation"
             )
         return self._event(
             RunActionExecutionEventKind.EXECUTION_PREPARED,
@@ -907,14 +930,14 @@ class _RunActionExecutionSession:
         *,
         reason: RunActionTerminalReason,
     ) -> None:
-        """Close claimed or prepared work before any provider spend."""
+        """Close allocated or prepared work before any provider spend."""
         self._require_active()
         if self.events[-1].event_kind not in {
-            RunActionExecutionEventKind.PREPARATION_CLAIMED,
+            RunActionExecutionEventKind.PREPARATION_ALLOCATED,
             RunActionExecutionEventKind.EXECUTION_PREPARED,
         }:
             raise RunActionStoreError(
-                "pre-spawn interruption requires claimed or prepared work"
+                "pre-spawn interruption requires allocated or prepared work"
             )
         if reason not in {
             RunActionTerminalReason.SUPERVISOR_RESOURCE_LOST_BEFORE_SPAWN,
@@ -988,7 +1011,7 @@ class _RunActionExecutionSession:
         self,
         event_kind: RunActionExecutionEventKind,
         *,
-        preparation_claim: RunActionPreparationClaim | None = None,
+        preparation_allocation: RunActionPreparationAllocation | None = None,
         prepared_execution: RunActionPreparedExecution | None = None,
         spawn_commit: _RunActionSpawnCommit | None = None,
         activation_revalidation_receipt: (
@@ -1006,7 +1029,7 @@ class _RunActionExecutionSession:
             ),
             event_kind=event_kind,
             reservation=self.reservation,
-            preparation_claim=preparation_claim,
+            preparation_allocation=preparation_allocation,
             prepared_execution=prepared_execution,
             spawn_commit=spawn_commit,
             activation_revalidation_receipt=activation_revalidation_receipt,
@@ -1399,15 +1422,16 @@ class RunActionExecutionStore:
             )
         tails = []
         preparation_claim_ids = set()
+        preparation_allocation_ids = set()
+        allocated_volume_authority_ids = set()
+        allocated_volume_names = set()
+        allocated_generation_nonces = set()
+        allocated_sentinel_identities = set()
         prepared_execution_ids = set()
         prepared_container_ids = set()
         prepared_container_names = set()
         prepared_keeper_container_ids = set()
         prepared_keeper_container_names = set()
-        prepared_volume_authority_ids = set()
-        prepared_volume_names = set()
-        prepared_generation_nonces = set()
-        prepared_sentinel_identities = set()
         prepared_file_ids = set()
         provider_execution_ids = set()
         invocation_nonces = set()
@@ -1424,14 +1448,30 @@ class RunActionExecutionStore:
                     "run action operation filename differs from its reservation"
                 )
             if len(events) >= 2 and events[1].event_kind is (
-                RunActionExecutionEventKind.PREPARATION_CLAIMED
+                RunActionExecutionEventKind.PREPARATION_ALLOCATED
             ):
-                claim_id = events[1].preparation_claim.preparation_claim_id
-                if claim_id in preparation_claim_ids:
+                allocation = events[1].preparation_allocation
+                claim_id = allocation.preparation_claim.preparation_claim_id
+                volume = allocation.runtime_volume_authority
+                if (
+                    claim_id in preparation_claim_ids
+                    or allocation.preparation_allocation_id
+                    in preparation_allocation_ids
+                    or volume.runtime_volume_authority_id
+                    in allocated_volume_authority_ids
+                    or volume.volume_name in allocated_volume_names
+                    or volume.generation_nonce in allocated_generation_nonces
+                    or volume.sentinel_identity in allocated_sentinel_identities
+                ):
                     raise RunActionStoreError(
-                        "run action preparation claim identity was reused"
+                        "run action preparation allocation authority was reused"
                     )
                 preparation_claim_ids.add(claim_id)
+                preparation_allocation_ids.add(allocation.preparation_allocation_id)
+                allocated_volume_authority_ids.add(volume.runtime_volume_authority_id)
+                allocated_volume_names.add(volume.volume_name)
+                allocated_generation_nonces.add(volume.generation_nonce)
+                allocated_sentinel_identities.add(volume.sentinel_identity)
             if (
                 len(events) >= 3
                 and events[2].event_kind
@@ -1452,7 +1492,6 @@ class RunActionExecutionStore:
                 }
                 evidence = prepared.inert_container_evidence
                 keeper = prepared.volume_keeper_evidence
-                volume = prepared.runtime_volume_authority
                 if (
                     prepared.prepared_execution_id in prepared_execution_ids
                     or evidence.container_id in prepared_container_ids
@@ -1463,11 +1502,6 @@ class RunActionExecutionStore:
                     or keeper.container_id in prepared_container_ids
                     or keeper.container_name in prepared_keeper_container_names
                     or keeper.container_name in prepared_container_names
-                    or volume.runtime_volume_authority_id
-                    in prepared_volume_authority_ids
-                    or volume.volume_name in prepared_volume_names
-                    or volume.generation_nonce in prepared_generation_nonces
-                    or volume.sentinel_identity in prepared_sentinel_identities
                     or prepared_file_ids & file_ids
                 ):
                     raise RunActionStoreError(
@@ -1478,10 +1512,6 @@ class RunActionExecutionStore:
                 prepared_container_names.add(evidence.container_name)
                 prepared_keeper_container_ids.add(keeper.container_id)
                 prepared_keeper_container_names.add(keeper.container_name)
-                prepared_volume_authority_ids.add(volume.runtime_volume_authority_id)
-                prepared_volume_names.add(volume.volume_name)
-                prepared_generation_nonces.add(volume.generation_nonce)
-                prepared_sentinel_identities.add(volume.sentinel_identity)
                 prepared_file_ids.update(file_ids)
             if len(events) >= 4 and events[3].event_kind is (
                 RunActionExecutionEventKind.SPAWN_COMMITTED
@@ -1754,6 +1784,11 @@ class RunActionExecutionStore:
         with ExitStack() as registry_descriptors:
             self._lock_registry(store_descriptor, registry_descriptors)
             event_names, _snapshot = self._prepare_store_locked(store_descriptor)
+            self._require_unique_allocation_authority(
+                store_descriptor,
+                event_names,
+                event=event,
+            )
             self._require_unique_prepared_authority(
                 store_descriptor,
                 event_names,
@@ -1780,6 +1815,49 @@ class RunActionExecutionStore:
                 operation_id,
                 event,
             )
+
+    def _require_unique_allocation_authority(
+        self,
+        store_descriptor: int,
+        event_names: tuple[str, ...],
+        *,
+        event: RunActionExecutionEvent,
+    ) -> None:
+        candidate = event.preparation_allocation
+        if candidate is None:
+            return
+        candidate_volume = candidate.runtime_volume_authority
+        for tail in self._snapshot_from_event_names(
+            store_descriptor,
+            event_names,
+        ).operation_tails:
+            events = self._read_operation_events(
+                store_descriptor,
+                tail.operation_id,
+            )
+            if (
+                len(events) < 2
+                or events[1].event_kind
+                is not RunActionExecutionEventKind.PREPARATION_ALLOCATED
+            ):
+                continue
+            existing = events[1].preparation_allocation
+            existing_volume = existing.runtime_volume_authority
+            if (
+                existing.preparation_allocation_id
+                == candidate.preparation_allocation_id
+                or existing.preparation_claim.preparation_claim_id
+                == candidate.preparation_claim.preparation_claim_id
+                or existing_volume.runtime_volume_authority_id
+                == candidate_volume.runtime_volume_authority_id
+                or existing_volume.volume_name == candidate_volume.volume_name
+                or existing_volume.generation_nonce == candidate_volume.generation_nonce
+                or existing_volume.sentinel_identity
+                == candidate_volume.sentinel_identity
+            ):
+                raise RunActionStoreError(
+                    "run action preparation allocation authority was reused"
+                )
 
     def _require_unique_prepared_authority(
         self,
@@ -2421,7 +2499,7 @@ def _validate_event_prefix(events: tuple[RunActionExecutionEvent, ...]) -> None:
     reservation = events[0].reservation
     normal_kinds = (
         RunActionExecutionEventKind.INTENT_RESERVED,
-        RunActionExecutionEventKind.PREPARATION_CLAIMED,
+        RunActionExecutionEventKind.PREPARATION_ALLOCATED,
         RunActionExecutionEventKind.EXECUTION_PREPARED,
         RunActionExecutionEventKind.SPAWN_COMMITTED,
         RunActionExecutionEventKind.ACTIVATION_COMMITTED,
@@ -2455,22 +2533,25 @@ def _validate_event_prefix(events: tuple[RunActionExecutionEvent, ...]) -> None:
             )
         previous_event_id = event.event_id
     if len(events) >= 2 and events[1].event_kind is (
-        RunActionExecutionEventKind.PREPARATION_CLAIMED
+        RunActionExecutionEventKind.PREPARATION_ALLOCATED
     ):
-        claim = events[1].preparation_claim
-        if claim.reservation != reservation:
+        allocation = events[1].preparation_allocation
+        if allocation.preparation_claim.reservation != reservation:
             raise RunActionStoreError(
-                "run action preparation claim differs from its reservation"
+                "run action preparation allocation differs from its reservation"
             )
     if (
         len(events) >= 3
         and events[2].event_kind is RunActionExecutionEventKind.EXECUTION_PREPARED
     ):
-        claim = events[1].preparation_claim
+        allocation = events[1].preparation_allocation
         prepared = events[2].prepared_execution
-        if prepared.preparation_claim != claim:
+        if (
+            prepared.preparation_claim != allocation.preparation_claim
+            or prepared.runtime_volume_authority != allocation.runtime_volume_authority
+        ):
             raise RunActionStoreError(
-                "prepared run action execution differs from its claim"
+                "prepared run action execution differs from its allocation"
             )
     if (
         len(events) >= 4
