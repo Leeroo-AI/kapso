@@ -142,3 +142,130 @@ VERDICT: **continue** — a broken rung was diagnosed at textbook depth and
 converted into two clean promotions plus a banked lesson; the one open
 threat (multilingual build-time drift) needs a data-mix correction before
 any rung-3 generation, not an intervention now.
+
+## P3 (20:33Z → end 01:15:56Z) + closing
+
+Delta arc: limit-100 confirm 0.6528 (20:37, session 1 closed clean at
+20:39 with `<score>0.6528` + 5-entry difficulties, $33.07/184 tools) →
+iteration-2 boundary (judge verify + 2×2 ensemble ideation + selector,
+20:41–20:58) → iteration 2 (opus, 20:58–00:28, $31.60/214 tools): three
+teacher-INTERVENTION levers all regressed on the real judge, pivot at
+22:25 to more teacher-WRITTEN data → **v4 from-base retrain 0.68@100
+(00:01, promoted) → 0.6855@250 confirm (00:26)** → iteration-3 boundary
+(<stop>false, 1:11 left) → iteration 3 (00:50–01:09, $2.29): insurance-
+first endgame + one α=0.7 v3/v4 weight soup, 0.6145@100, discarded, floor
+intact → final judge <stop>true → "Stopping: goal achieved" 01:15:56,
+t+9h30, ~31 min unused. Total agent cost **$74.92** (~9.5 H100-hours).
+
+- **R23-P3-1 — FRAMEWORK (alarm14 root-caused; low sev, real exposure).**
+  The 56-min CLI silence 22:51→23:49 is fully explained in-trace: alarm14
+  was launched at 22:49:55 as `nohup bash -c 'sleep 900 && echo
+  alarm14-tick' > alarm14.log` INSIDE the same tracked background task
+  (`bhiuzyeit`) as the training-completion waiter — a detached, log-only
+  process structurally incapable of notifying the CLI. It DID run on
+  schedule (alarm14.log mtime 23:04, 13 bytes); no notification was ever
+  lost because none could exist; the one notification (bhiuzyeit) fired
+  exactly at train-done 23:49:59. Systematic: ALL session-2 "alarms"
+  (3,4,6,7,8,10,11,13,16) used this dud idiom — every session-2 wake was
+  waiter-driven — whereas session 1's alarms were standalone tracked
+  tasks that really fired (20:36 "Alarm fired"). The dead-man redundancy
+  ran one-legged for 7.5h and only the 61-min v4 train made it visible.
+  Zero material cost here (GPU busy 100% of the silence; wake landed at
+  the exact useful moment), but a hung waiter would have stranded the
+  session until the cap. Propose (no unilateral patch): session-prompt
+  rule that an alarm must be its OWN `run_in_background` task, and/or a
+  harness lint flagging nohup-detached "alarm" processes.
+- **R23-P3-2 — FRAMEWORK (upgraded-stack boundary, strong).** Both
+  boundaries ran the full new machinery end-to-end. Implementor
+  self-authored `<technical_difficulties>` are genuinely lesson-grade
+  (iter 1: fp32-master/tied-embeddings with mechanism; EngineCore orphan
+  kill; iter 2: teacher-proxy inversion, cwd-race, no-partial-save
+  refactor). Extraction pulled all five tags incl. evaluation_script_path
+  (R15-P2-1 exercised: judge verified evaluate.py "mtime unchanged
+  15:47", and at iter 2 that the official script itself printed
+  0.6855345911949685 at log line 514). Feedback judges (opus, $0.86–1.42,
+  7–18 tools) verified rather than trusted: md5 final_model==winner,
+  orphaned-value audit, batchC drawn=5087/generated=2222 accounting, and
+  the final judge even caught the implementor's overclaim ("both
+  result.json copies consistent" — only the task-root copy existed).
+  ExperimentHistoryStore persisted experiments 0/1/2; ideation members
+  held the new MCP tools and USED them — get_top/get_recent{k:5} at iter
+  2, and at iter 3 `search_similar_experiments("model soup weight
+  averaging…")` before proposing the soup; full solution/feedback/
+  difficulties content demonstrably reached later candidates (soup plan
+  cites the exp0 tied-embeddings lesson verbatim). Ensemble 2 members ×
+  2 candidates pooled 4/4 at both boundaries (codex gpt-5.6-sol 410s/
+  406s, 0 dropped); fable-5 selectors verified decisive facts with their
+  own tool calls (timer arithmetic killed clock-infeasible candidates)
+  and synthesized across candidates both times.
+- **R23-P3-3 — RECIPE (the pivot; exemplary empiricism, humbling for
+  selection).** The selected iter-2 plan (edit-RAFT primary, DPO
+  opportunistic) went 0-for-3 on gpt-5-mini: greedy 0.05 (the 30B
+  teacher-proxy sweep had ranked greedy BEST at 0.522 — teacher-signal
+  inversion caught only by real-judge confirm before a config bake),
+  edit-RAFT 0.5078, DPO 0.5278; the DPO result (reward margins ~0.02,
+  model barely moved, yet −0.10) exposed **limit-50 noise ≈ ±0.10**. At
+  22:25 the implementor pivoted on the correct abstraction — teacher
+  AUTHORSHIP transfers, teacher INTERVENTION doesn't — drew 5,087
+  weak-strata (short/medium) prompts from the 7,932 unused pool (ru
+  exhausted), time-cut generation at 2,222, and retrained FROM BASE on
+  11,354 ex with v3's exact recipe (fp32 master + bf16 autocast, NEFTune
+  5, 2 ep, 504 steps, 61 min, loss ~1.12) → 0.68@100 vs incumbent
+  0.6528, promoted with sanity-gate + md5 + monotonic best_score.log,
+  confirmed 0.6855@250. The iter-2 judge graded the inversion honestly:
+  the selector's primary lever lost, the "lowest expected marginal gain"
+  axis it had demoted won (+0.033). DPO is no longer "unspent" — it is a
+  measured settled-negative for this cell, alongside greedy, edit-RAFT,
+  and the α=0.7 soup (0.6145, below BOTH parents: not mode-connected).
+- **R23-P3-4 — RECIPE (multilingual drift CLOSED, sign inverted).**
+  R23-P2-2's feared bleed inverted: full-250 strata are latin 0.6557
+  (n≈175) / zh 0.7946 / ru 0.7083 / ja 0.8438 — non-Latin is the
+  STRONGEST region despite the 18.2%-non-Latin training mix and ru pool
+  exhaustion. Winrate is relative: the fixed 1.7B-instruct opponent is
+  weaker still off-Latin while the 30B teacher's non-Latin authorship is
+  strong, so added non-Latin mass HELPS. That reconciles the ladder:
+  0.625@50 (~17% non-Latin) → 0.6528@100 → 0.6855@250 (32.8%) — the
+  latin-heavy subsets UNDERSTATED the model. Pinned corollary: stratum
+  subset noise is huge (zh 0.604@100 was "a bad subset draw" vs 0.795
+  @250). The weak-strata weighting paid: short 0.61→0.709, medium
+  0.62→0.666 (long gave back 0.73→0.696).
+- **R23-P3-5 — OBS (endgame discipline).** Insurance-first done right:
+  iter 3 wrote the task-root result.json BEFORE any risk — closing a
+  real gap (that path was EMPTY until 00:51; only workspace copies
+  existed, a grader kill before then would have found no canonical
+  result.json). Final state verified: final_model==v4 (md5 3f8c97d2),
+  generation_config t0.7/p0.8/k20/rp1.05 + EOS [151645,151643] repaired,
+  GPU 0 MiB, no orphans, <score> at every boundary, stop=true honored
+  instantly (no linger — R16-P2-1 clean at natural completion).
+- **R23-P3-6 — OBS (waste ledger, near-zero).** cand_v3_t06 symlinks
+  prepared, never evaluated (~0 cost, self-noted); ~67 GPU-min on the 3
+  intervention levers (judge's counterfactual: ~+0.01–0.02 forgone, but
+  bought the settled-negative ledger); soup ~20 min +EV ex-ante,
+  floor-protected. Zero idle GPU across the delta; 10 rate_limit events
+  all at boundary-agent starts, none consequential; ScheduleWakeup zero.
+
+CLOSING VERDICT: **official 0.6782 ±0.015, post-hoc judges CLEAN — the
+proven record for arenahardwriting × Qwen3-1.7B-Base** (in-run canonical
+0.6855@250, Δ0.007 inside CI): +25.4 over #18's 42.4, +10.7 over proven
+SOTA 57.1 (fable-5), +17.8 over human 50.0; the unlisted 74.85 trace
+stays ~7.0 above. Key levers, in causal order: fp32-master-weights on
+tied embeddings (0.03→0.41), judge-gated teacher-WRITTEN best-of-2
+distillation scaled twice from base (9.1k→0.653; 11.4k weak-strata-
+weighted→0.686), artifact-owned sampling config with EOS repair, and
+per-stratum eval instrumentation that turned every subset anomaly into a
+decision. What still separates us from 74.85 is NOT preference training
+— every intervention lever measured negative here — but a third DATA
+rung never reached: 2,865 weak-strata prompts sat drawn-but-ungenerated
+and ~5.7k pool unused when the clock ran out; the bf16 detour (~73 min)
+plus the misaligned-lever tour (~90 min) consumed exactly that window.
+Versus #18 (42.4, same cell), the upgraded stack bought: negative-space
+coverage that pre-empted every known trap (length, gen-config, masking,
+EOS), a boundary loop whose judges verify score provenance and orphaned
+value with tools, ensemble ideation + verified-state selection, a
+persisted experiment ledger whose lessons demonstrably steered later
+iterations, and watcher discipline that kept the GPU saturated for
+9.5h. Framework health: everything fired; the one regression worth
+fixing is decorative (log-only) alarms — R23-P3-1's proposal stands.
+Cell CLOSED as a proven record; carry the settled-negative ledger and
+the "teacher authorship, not intervention" lesson to the remaining
+arena cells.
