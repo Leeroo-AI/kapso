@@ -133,6 +133,76 @@ class RunActionPreparationMode(str, Enum):
     REVALIDATE_PREPARED = "revalidate_prepared"
 
 
+class RunActionPreparationOrigin(str, Enum):
+    """How one exact prepared occurrence was obtained."""
+
+    NEW_ALLOCATION = "new_allocation"
+    REOPENED_CLAIM = "reopened_claim"
+    ALLOCATED_AFTER_PROVEN_ABSENCE = "allocated_after_proven_absence"
+    REVALIDATED_PREPARED = "revalidated_prepared"
+
+
+class RunActionPreparationState(str, Enum):
+    """Exact positive states admitted from preparation reconciliation."""
+
+    EXACT_PREPARED = "exact_prepared"
+    PROVEN_RESOURCE_LOST = "proven_resource_lost"
+    UNKNOWN = "unknown"
+
+
+@dataclass(frozen=True)
+class RunActionPreparationObservation:
+    """Typed preparation result; uncertainty cannot become a terminal claim."""
+
+    state: RunActionPreparationState
+    prepared_execution: RunActionPreparedExecution | None
+    origin: RunActionPreparationOrigin | None
+
+    def __post_init__(self) -> None:
+        if type(self.state) is not RunActionPreparationState:
+            raise RunActionRecoveryError(
+                "run action preparation observation uses an unknown state"
+            )
+        if self.state is RunActionPreparationState.EXACT_PREPARED:
+            if (
+                type(self.prepared_execution) is not RunActionPreparedExecution
+                or type(self.origin) is not RunActionPreparationOrigin
+            ):
+                raise RunActionRecoveryError(
+                    "exact preparation observation lacks its occurrence and origin"
+                )
+        elif self.prepared_execution is not None or self.origin is not None:
+            raise RunActionRecoveryError(
+                "non-exact preparation observation carries an occurrence"
+            )
+
+
+def _preparation_origin_matches_mode(
+    observation: RunActionPreparationObservation,
+    mode: RunActionPreparationMode,
+) -> bool:
+    if (
+        type(observation) is not RunActionPreparationObservation
+        or type(mode) is not RunActionPreparationMode
+    ):
+        return False
+    if observation.state is not RunActionPreparationState.EXACT_PREPARED:
+        return True
+    admitted_origins = {
+        RunActionPreparationMode.ALLOCATE_ONCE: {
+            RunActionPreparationOrigin.NEW_ALLOCATION,
+        },
+        RunActionPreparationMode.REOPEN_CLAIM: {
+            RunActionPreparationOrigin.REOPENED_CLAIM,
+            RunActionPreparationOrigin.ALLOCATED_AFTER_PROVEN_ABSENCE,
+        },
+        RunActionPreparationMode.REVALIDATE_PREPARED: {
+            RunActionPreparationOrigin.REVALIDATED_PREPARED,
+        },
+    }
+    return observation.origin in admitted_origins[mode]
+
+
 class RunActionCommittedSpawnState(str, Enum):
     """Provider facts admitted after a spawn was durably committed."""
 
@@ -299,7 +369,7 @@ class RunActionPreparationCapability:
     def _invoke_once(
         self,
         execution_adapter: "RunActionExecutionAdapter",
-    ) -> RunActionPreparedExecution:
+    ) -> RunActionPreparationObservation:
         with self._begin_invocation():
             return execution_adapter.prepare(self)
 
@@ -556,7 +626,7 @@ class RunActionExecutionAdapter(Protocol):
     def prepare(
         self,
         capability: RunActionPreparationCapability,
-    ) -> RunActionPreparedExecution: ...
+    ) -> RunActionPreparationObservation: ...
 
     def activate_once(
         self,
@@ -998,23 +1068,44 @@ class RunActionRecoveryCoordinator:
             RunActionExecutionEventKind.PREPARATION_CLAIMED,
             RunActionExecutionEventKind.EXECUTION_PREPARED,
         }:
-            if not self._security_is_current(frontier):
+            security_is_current = self._security_is_current(frontier)
+            if not security_is_current:
                 if tail_kind is RunActionExecutionEventKind.INTENT_RESERVED:
                     session.cancel(RunActionTerminalReason.STALE_FRONTIER)
+                else:
+                    session.interrupt_pre_spawn(
+                        reason=(
+                            RunActionTerminalReason.FRONTIER_INVALIDATED_BEFORE_SPAWN
+                        ),
+                    )
                 return
-            workspace_descriptor, observed_workspace = self._inspect_workspace(
-                reservation,
-                descriptors,
-                allow_edit_successor=False,
+            workspace_descriptor, observed_workspace = (
+                self._inspect_pre_spawn_workspace(
+                    reservation,
+                    descriptors,
+                )
+                if tail_kind is not RunActionExecutionEventKind.INTENT_RESERVED
+                else self._inspect_workspace(
+                    reservation,
+                    descriptors,
+                    allow_edit_successor=False,
+                )
             )
             expected_workspace = reservation.frontier.workspace_before
-            if (
+            workspace_is_current = (
                 None
                 if observed_workspace is None
                 else RunActionWorkspaceBinding.from_identity(observed_workspace)
-            ) != expected_workspace:
+            ) == expected_workspace
+            if not workspace_is_current:
                 if tail_kind is RunActionExecutionEventKind.INTENT_RESERVED:
                     session.cancel(RunActionTerminalReason.STALE_FRONTIER)
+                else:
+                    session.interrupt_pre_spawn(
+                        reason=(
+                            RunActionTerminalReason.FRONTIER_INVALIDATED_BEFORE_SPAWN
+                        ),
+                    )
                 return
             execution_adapter = self._resolve_execution_adapter(
                 self._implementation_registry,
@@ -1065,14 +1156,29 @@ class RunActionRecoveryCoordinator:
                 ),
                 _authority=_RUN_ACTION_PREPARATION_AUTHORITY,
             )
-            prepared = preparation_capability._invoke_once(execution_adapter)
-            if (
-                type(prepared) is not RunActionPreparedExecution
-                or prepared.preparation_claim != claim
-                or (
-                    durable_prepared_execution is not None
-                    and prepared != durable_prepared_execution
+            preparation = preparation_capability._invoke_once(execution_adapter)
+            if type(
+                preparation
+            ) is not RunActionPreparationObservation or not _preparation_origin_matches_mode(
+                preparation,
+                preparation_mode,
+            ):
+                raise RunActionRecoveryError(
+                    "execution adapter returned an invalid preparation observation"
                 )
+            if preparation.state is RunActionPreparationState.UNKNOWN:
+                return
+            if preparation.state is RunActionPreparationState.PROVEN_RESOURCE_LOST:
+                session.interrupt_pre_spawn(
+                    reason=(
+                        RunActionTerminalReason.SUPERVISOR_RESOURCE_LOST_BEFORE_SPAWN
+                    ),
+                )
+                return
+            prepared = preparation.prepared_execution
+            if prepared.preparation_claim != claim or (
+                durable_prepared_execution is not None
+                and prepared != durable_prepared_execution
             ):
                 raise RunActionRecoveryError(
                     "execution adapter returned another prepared execution"
@@ -1086,18 +1192,25 @@ class RunActionRecoveryCoordinator:
                         "prepared run action exceeded its pre-allocation event envelope"
                     )
                 session.commit_prepared_execution(prepared)
-            confirmed_descriptor, confirmed_workspace = self._inspect_workspace(
-                reservation,
-                descriptors,
-                allow_edit_successor=False,
+            confirmed_descriptor, confirmed_workspace = (
+                self._inspect_pre_spawn_workspace(
+                    reservation,
+                    descriptors,
+                )
             )
             if (
                 None
                 if confirmed_workspace is None
                 else RunActionWorkspaceBinding.from_identity(confirmed_workspace)
             ) != expected_workspace:
+                session.interrupt_pre_spawn(
+                    reason=RunActionTerminalReason.FRONTIER_INVALIDATED_BEFORE_SPAWN,
+                )
                 return
             if not self._security_is_current(frontier):
+                session.interrupt_pre_spawn(
+                    reason=RunActionTerminalReason.FRONTIER_INVALIDATED_BEFORE_SPAWN,
+                )
                 return
             spawn_commit = session.commit_spawn(
                 security_observation_id=(reservation.frontier.security_observation_id),
@@ -1304,6 +1417,23 @@ class RunActionRecoveryCoordinator:
             descriptor,
             settings=self._publisher._settings,
             expected_commit_sha=expected_commit_sha,
+        )
+        return descriptor, observed
+
+    def _inspect_pre_spawn_workspace(
+        self,
+        reservation: RunActionReservation,
+        descriptors: ExitStack,
+    ) -> tuple[int | None, RunWorkspaceFrontierIdentity | None]:
+        if reservation.intent.workspace_access is RunFrontierWorkspaceAccess.NONE:
+            return None, None
+        descriptor, _identity = self._active_workspace._open_execution_workspace(
+            descriptors
+        )
+        observed = inspect_run_workspace_frontier(
+            descriptor,
+            settings=self._publisher._settings,
+            expected_commit_sha=None,
         )
         return descriptor, observed
 
@@ -1529,6 +1659,9 @@ __all__ = [
     "RunActionInterpretedResult",
     "RunActionPreparationCapability",
     "RunActionPreparationMode",
+    "RunActionPreparationObservation",
+    "RunActionPreparationOrigin",
+    "RunActionPreparationState",
     "RunActionProviderResult",
     "RunActionRecoveredOperation",
     "RunActionRecoveryCoordinator",

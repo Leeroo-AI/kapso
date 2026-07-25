@@ -46,8 +46,14 @@ class RunActionOperationTail(StrictContract):
                 RunActionExecutionEventKind.PREPARATION_CLAIMED,
                 RunActionExecutionEventKind.CANCELLED,
             },
-            3: {RunActionExecutionEventKind.EXECUTION_PREPARED},
-            4: {RunActionExecutionEventKind.SPAWN_COMMITTED},
+            3: {
+                RunActionExecutionEventKind.EXECUTION_PREPARED,
+                RunActionExecutionEventKind.INTERRUPTED,
+            },
+            4: {
+                RunActionExecutionEventKind.SPAWN_COMMITTED,
+                RunActionExecutionEventKind.INTERRUPTED,
+            },
             5: {
                 RunActionExecutionEventKind.RESULT_RECEIVED,
                 RunActionExecutionEventKind.INTERRUPTED,

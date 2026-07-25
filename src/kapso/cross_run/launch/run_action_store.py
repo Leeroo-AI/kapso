@@ -98,6 +98,8 @@ class RunActionTerminalReason(str, Enum):
     """Recovery or pre-spawn reasons that permanently close an operation."""
 
     STALE_FRONTIER = "stale_frontier"
+    SUPERVISOR_RESOURCE_LOST_BEFORE_SPAWN = "supervisor_resource_lost_before_spawn"
+    FRONTIER_INVALIDATED_BEFORE_SPAWN = "frontier_invalidated_before_spawn"
     PROVIDER_INTERRUPTED = "provider_interrupted"
     PROVIDER_FAILED = "provider_failed"
 
@@ -323,14 +325,31 @@ class RunActionExecutionEvent(StrictContract):
             )
         if (
             self.event_kind is RunActionExecutionEventKind.CANCELLED
-            and self.terminal_reason is not RunActionTerminalReason.STALE_FRONTIER
+            and (
+                self.event_number != 2
+                or self.terminal_reason is not RunActionTerminalReason.STALE_FRONTIER
+            )
         ) or (
             self.event_kind is RunActionExecutionEventKind.INTERRUPTED
-            and self.terminal_reason
-            not in {
-                RunActionTerminalReason.PROVIDER_INTERRUPTED,
-                RunActionTerminalReason.PROVIDER_FAILED,
-            }
+            and (
+                (
+                    self.event_number in {3, 4}
+                    and self.terminal_reason
+                    not in {
+                        RunActionTerminalReason.SUPERVISOR_RESOURCE_LOST_BEFORE_SPAWN,
+                        RunActionTerminalReason.FRONTIER_INVALIDATED_BEFORE_SPAWN,
+                    }
+                )
+                or (
+                    self.event_number == 5
+                    and self.terminal_reason
+                    not in {
+                        RunActionTerminalReason.PROVIDER_INTERRUPTED,
+                        RunActionTerminalReason.PROVIDER_FAILED,
+                    }
+                )
+                or self.event_number not in {3, 4, 5}
+            )
         ):
             raise RunActionStoreError(
                 "run action terminal reason differs from its event kind"
@@ -761,6 +780,39 @@ class _RunActionExecutionSession:
             )
         )
 
+    def interrupt_pre_spawn(
+        self,
+        *,
+        reason: RunActionTerminalReason,
+    ) -> None:
+        """Close claimed or prepared work before any provider spend."""
+        self._require_active()
+        if self.events[-1].event_kind not in {
+            RunActionExecutionEventKind.PREPARATION_CLAIMED,
+            RunActionExecutionEventKind.EXECUTION_PREPARED,
+        }:
+            raise RunActionStoreError(
+                "pre-spawn interruption requires claimed or prepared work"
+            )
+        if reason not in {
+            RunActionTerminalReason.SUPERVISOR_RESOURCE_LOST_BEFORE_SPAWN,
+            RunActionTerminalReason.FRONTIER_INVALIDATED_BEFORE_SPAWN,
+        }:
+            raise RunActionStoreError("pre-spawn interruption reason is invalid")
+        after = self.reservation.frontier.workspace_before
+        _require_unchanged_pre_spawn_workspace(
+            self.reservation.intent.workspace_access,
+            self.reservation.frontier.workspace_before,
+            after,
+        )
+        self._append(
+            self._event(
+                RunActionExecutionEventKind.INTERRUPTED,
+                terminal_reason=reason,
+                workspace_after=after,
+            )
+        )
+
     def read_result(self, result_receipt: RunActionResultReceipt) -> bytes:
         self._require_active()
         if type(result_receipt) is not RunActionResultReceipt:
@@ -775,12 +827,20 @@ class _RunActionExecutionSession:
 
     def read_request(self) -> bytes:
         self._require_active()
-        if not self._events or self._events[-1].event_kind not in {
-            RunActionExecutionEventKind.SPAWN_COMMITTED,
-            RunActionExecutionEventKind.RESULT_RECEIVED,
-            RunActionExecutionEventKind.RESULT_ACCEPTED,
-            RunActionExecutionEventKind.INTERRUPTED,
-        }:
+        if (
+            not self._events
+            or self._events[-1].event_kind
+            not in {
+                RunActionExecutionEventKind.SPAWN_COMMITTED,
+                RunActionExecutionEventKind.RESULT_RECEIVED,
+                RunActionExecutionEventKind.RESULT_ACCEPTED,
+                RunActionExecutionEventKind.INTERRUPTED,
+            }
+            or (
+                self._events[-1].event_kind is RunActionExecutionEventKind.INTERRUPTED
+                and len(self._events) < 5
+            )
+        ):
             raise RunActionStoreError(
                 "run action request is unavailable before spawn commitment"
             )
@@ -1243,7 +1303,11 @@ class RunActionExecutionStore:
                         "run action preparation claim identity was reused"
                     )
                 preparation_claim_ids.add(claim_id)
-            if len(events) >= 3:
+            if (
+                len(events) >= 3
+                and events[2].event_kind
+                is RunActionExecutionEventKind.EXECUTION_PREPARED
+            ):
                 prepared = events[2].prepared_execution
                 prepared_files = tuple(
                     prepared_file
@@ -1602,7 +1666,11 @@ class RunActionExecutionStore:
                 store_descriptor,
                 tail.operation_id,
             )
-            if len(events) < 3:
+            if (
+                len(events) < 3
+                or events[2].event_kind
+                is not RunActionExecutionEventKind.EXECUTION_PREPARED
+            ):
                 continue
             existing = events[2].prepared_execution
             existing_files = tuple(
@@ -2190,7 +2258,7 @@ def _validate_event_prefix(events: tuple[RunActionExecutionEvent, ...]) -> None:
         )
     elif events[-1].event_kind is RunActionExecutionEventKind.INTERRUPTED:
         expected_kinds = (
-            *normal_kinds[:4],
+            *normal_kinds[: len(events) - 1],
             RunActionExecutionEventKind.INTERRUPTED,
         )
     else:
@@ -2217,14 +2285,20 @@ def _validate_event_prefix(events: tuple[RunActionExecutionEvent, ...]) -> None:
             raise RunActionStoreError(
                 "run action preparation claim differs from its reservation"
             )
-    if len(events) >= 3:
+    if (
+        len(events) >= 3
+        and events[2].event_kind is RunActionExecutionEventKind.EXECUTION_PREPARED
+    ):
         claim = events[1].preparation_claim
         prepared = events[2].prepared_execution
         if prepared.preparation_claim != claim:
             raise RunActionStoreError(
                 "prepared run action execution differs from its claim"
             )
-    if len(events) >= 4:
+    if (
+        len(events) >= 4
+        and events[3].event_kind is RunActionExecutionEventKind.SPAWN_COMMITTED
+    ):
         prepared = events[2].prepared_execution
         spawn = events[3].spawn_commit
         if (
@@ -2259,11 +2333,32 @@ def _validate_event_prefix(events: tuple[RunActionExecutionEvent, ...]) -> None:
             acceptance.workspace_after,
         )
     elif events[-1].event_kind is RunActionExecutionEventKind.INTERRUPTED:
-        _require_interrupted_workspace(
-            reservation.intent.workspace_access,
-            reservation.frontier.workspace_before,
-            events[-1].workspace_after,
-        )
+        if len(events) < 5:
+            if events[-1].terminal_reason not in {
+                RunActionTerminalReason.SUPERVISOR_RESOURCE_LOST_BEFORE_SPAWN,
+                RunActionTerminalReason.FRONTIER_INVALIDATED_BEFORE_SPAWN,
+            }:
+                raise RunActionStoreError(
+                    "pre-spawn interruption uses a provider terminal reason"
+                )
+            _require_unchanged_pre_spawn_workspace(
+                reservation.intent.workspace_access,
+                reservation.frontier.workspace_before,
+                events[-1].workspace_after,
+            )
+        else:
+            if events[-1].terminal_reason not in {
+                RunActionTerminalReason.PROVIDER_INTERRUPTED,
+                RunActionTerminalReason.PROVIDER_FAILED,
+            }:
+                raise RunActionStoreError(
+                    "provider interruption uses a pre-spawn terminal reason"
+                )
+            _require_interrupted_workspace(
+                reservation.intent.workspace_access,
+                reservation.frontier.workspace_before,
+                events[-1].workspace_after,
+            )
 
 
 def _require_workspace_acceptance(
@@ -2353,6 +2448,23 @@ def _require_interrupted_workspace(
     ):
         raise RunActionStoreError(
             "interrupted edit has an unaccountable workspace frontier"
+        )
+
+
+def _require_unchanged_pre_spawn_workspace(
+    access: RunFrontierWorkspaceAccess,
+    before: _RunActionWorkspaceBinding | None,
+    after: _RunActionWorkspaceBinding | None,
+) -> None:
+    if access is RunFrontierWorkspaceAccess.NONE:
+        if before is not None or after is not None:
+            raise RunActionStoreError(
+                "workspace-free pre-spawn interruption carries workspace authority"
+            )
+        return
+    if before is None or after != before:
+        raise RunActionStoreError(
+            "pre-spawn interruption lacks its exact unchanged workspace"
         )
 
 

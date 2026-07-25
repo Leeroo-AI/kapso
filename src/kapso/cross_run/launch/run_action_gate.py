@@ -604,6 +604,32 @@ class RunFrontierActionGate:
             workspace_after=self._inspect_workspace_after(lease),
         )
 
+    def interrupt_pre_spawn(
+        self,
+        lease: RunFrontierUseLease,
+        *,
+        reason: RunActionTerminalReason,
+    ) -> None:
+        """Close claimed or prepared work before provider authority exists."""
+        if type(lease) is not RunFrontierUseLease:
+            raise RunFrontierActionError(
+                "pre-spawn interruption requires one exact live lease"
+            )
+        tail_kind = lease._session.events[-1].event_kind
+        if tail_kind not in {
+            RunActionExecutionEventKind.PREPARATION_CLAIMED,
+            RunActionExecutionEventKind.EXECUTION_PREPARED,
+        }:
+            raise RunFrontierActionError(
+                "pre-spawn interruption requires claimed or prepared work"
+            )
+        self._require_live_lease(
+            lease,
+            kind=lease._reservation.intent.kind,
+            required_tail=tail_kind,
+        )
+        lease._session.interrupt_pre_spawn(reason=reason)
+
     def _enter(
         self,
         permit: RunFrontierUsePermit,

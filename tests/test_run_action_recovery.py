@@ -33,6 +33,9 @@ from kapso.cross_run.launch.run_action_recovery import (
     RunActionCommittedSpawnState,
     RunActionInterpretedResult,
     RunActionPreparationMode,
+    RunActionPreparationObservation,
+    RunActionPreparationOrigin,
+    RunActionPreparationState,
     RunActionProviderResult,
     RunActionRecoveryError,
     RunActionRecoveryImplementation,
@@ -47,6 +50,7 @@ from kapso.cross_run.launch.run_action_store import (
     RunActionExecutionEvent,
     RunActionResultDisposition,
     RunActionStoreError,
+    RunActionTerminalReason,
 )
 from kapso.cross_run.launch.run_state_publisher import RunStatePublisher
 from kapso.cross_run.launch.workspace import StarterWorkspaceBuilder
@@ -182,9 +186,27 @@ class _FakeExecutionAdapter:
             )
         self.prepare_calls.append(claim.reservation)
         self.prepare_modes.append(mode)
-        if mode is RunActionPreparationMode.REVALIDATE_PREPARED:
-            return durable
-        return self._prepared_for_claim(claim)
+        prepared = (
+            durable
+            if mode is RunActionPreparationMode.REVALIDATE_PREPARED
+            else self._prepared_for_claim(claim)
+        )
+        origin = {
+            RunActionPreparationMode.ALLOCATE_ONCE: (
+                RunActionPreparationOrigin.NEW_ALLOCATION
+            ),
+            RunActionPreparationMode.REOPEN_CLAIM: (
+                RunActionPreparationOrigin.REOPENED_CLAIM
+            ),
+            RunActionPreparationMode.REVALIDATE_PREPARED: (
+                RunActionPreparationOrigin.REVALIDATED_PREPARED
+            ),
+        }[mode]
+        return RunActionPreparationObservation(
+            state=RunActionPreparationState.EXACT_PREPARED,
+            prepared_execution=prepared,
+            origin=origin,
+        )
 
     def activate_once(self, capability):
         self.start_calls.append(capability)
@@ -272,9 +294,9 @@ class _SecurityAdvancingPrepareAdapter(_FakeExecutionAdapter):
         self.advance_security = advance_security
 
     def prepare(self, capability):
-        prepared = super().prepare(capability)
+        observation = super().prepare(capability)
         self.advance_security()
-        return prepared
+        return observation
 
 
 class _CrashAfterPreparationAdapter(_FakeExecutionAdapter):
@@ -283,10 +305,10 @@ class _CrashAfterPreparationAdapter(_FakeExecutionAdapter):
         self.crash_after_preparation = True
 
     def prepare(self, capability):
-        prepared = super().prepare(capability)
+        observation = super().prepare(capability)
         if self.crash_after_preparation:
             raise RuntimeError("injected death after provider preparation")
-        return prepared
+        return observation
 
 
 class _CrashBeforeProviderStartAdapter(_FakeExecutionAdapter):
@@ -311,6 +333,28 @@ class _OversizedPreparationEnvelopeAdapter(_FakeExecutionAdapter):
 
     def prepared_event_size_bound(self, **_arguments):
         return self.oversized_event_size_bytes
+
+
+class _NonExactPreparationAdapter(_FakeExecutionAdapter):
+    def __init__(self, boundary_identity, state, modes) -> None:
+        super().__init__(boundary_identity)
+        self.preparation_state = state
+        self.nonexact_modes = set(modes)
+
+    def prepare(self, capability):
+        mode = capability.mode
+        if mode not in self.nonexact_modes:
+            return super().prepare(capability)
+        claim = capability.preparation_claim
+        if capability.workspace_descriptor is not None:
+            os.fstat(capability.workspace_descriptor)
+        self.prepare_calls.append(claim.reservation)
+        self.prepare_modes.append(mode)
+        return RunActionPreparationObservation(
+            state=self.preparation_state,
+            prepared_execution=None,
+            origin=None,
+        )
 
 
 class _AccessGuardedExecutionAdapter(_FakeExecutionAdapter):
@@ -521,11 +565,18 @@ def test_prepared_crash_recovery_uses_revalidation_mode(
         permit.intent.boundary_identity,
     )
     coordinator = _recovery_coordinator(gate, prepared_crash)
-    security_checks = iter((True, False))
-    coordinator._security_is_current = lambda _frontier: next(security_checks)
+    security_check_count = 0
 
-    report = coordinator.recover(frontier)
-    assert not report.is_complete
+    def crash_after_prepared(_frontier):
+        nonlocal security_check_count
+        security_check_count += 1
+        if security_check_count == 2:
+            raise RuntimeError("injected death after prepared commit")
+        return True
+
+    coordinator._security_is_current = crash_after_prepared
+    with pytest.raises(RuntimeError, match="after prepared commit"):
+        coordinator.recover(frontier)
     assert (
         gate._action_store.inspect()
         .events_for(permit.intent.operation_id)[-1]
@@ -539,6 +590,105 @@ def test_prepared_crash_recovery_uses_revalidation_mode(
         RunActionPreparationMode.ALLOCATE_ONCE,
         RunActionPreparationMode.REVALIDATE_PREPARED,
     ]
+
+
+def test_claimed_resource_loss_terminally_closes_without_provider_authority(
+    publisher_case,
+) -> None:
+    frontier, gate, permit, _payload = _reserved_case(publisher_case)
+    adapter = _NonExactPreparationAdapter(
+        permit.intent.boundary_identity,
+        RunActionPreparationState.PROVEN_RESOURCE_LOST,
+        {RunActionPreparationMode.ALLOCATE_ONCE},
+    )
+
+    report = _recovery_coordinator(gate, adapter).recover(frontier)
+
+    terminal = report.recovered_operations[-1].events[-1]
+    assert report.is_complete
+    assert terminal.event_number == 3
+    assert terminal.event_kind is RunActionExecutionEventKind.INTERRUPTED
+    assert terminal.terminal_reason is (
+        RunActionTerminalReason.SUPERVISOR_RESOURCE_LOST_BEFORE_SPAWN
+    )
+    assert not adapter.start_calls
+    assert not adapter.inspect_calls
+
+
+def test_prepared_resource_loss_interrupts_without_recreation(
+    publisher_case,
+) -> None:
+    frontier, gate, permit, _payload = _reserved_case(publisher_case)
+    adapter = _NonExactPreparationAdapter(
+        permit.intent.boundary_identity,
+        RunActionPreparationState.PROVEN_RESOURCE_LOST,
+        {RunActionPreparationMode.REVALIDATE_PREPARED},
+    )
+    coordinator = _recovery_coordinator(gate, adapter)
+    security_check_count = 0
+
+    def crash_after_prepared(_frontier):
+        nonlocal security_check_count
+        security_check_count += 1
+        if security_check_count == 2:
+            raise RuntimeError("injected death after prepared commit")
+        return True
+
+    coordinator._security_is_current = crash_after_prepared
+    with pytest.raises(RuntimeError, match="after prepared commit"):
+        coordinator.recover(frontier)
+    durable_prepared = (
+        gate._action_store.inspect()
+        .events_for(permit.intent.operation_id)[2]
+        .prepared_execution
+    )
+    coordinator._security_is_current = lambda _frontier: True
+
+    report = coordinator.recover(frontier)
+
+    terminal = report.recovered_operations[-1].events[-1]
+    assert report.is_complete
+    assert terminal.event_number == 4
+    assert terminal.terminal_reason is (
+        RunActionTerminalReason.SUPERVISOR_RESOURCE_LOST_BEFORE_SPAWN
+    )
+    assert len(adapter.prepare_calls) == 2
+    assert adapter.prepare_modes == [
+        RunActionPreparationMode.ALLOCATE_ONCE,
+        RunActionPreparationMode.REVALIDATE_PREPARED,
+    ]
+    assert (
+        report.recovered_operations[-1].events[2].prepared_execution == durable_prepared
+    )
+    assert not adapter.start_calls
+
+
+def test_unknown_preparation_remains_retryable_and_request_inaccessible(
+    publisher_case,
+) -> None:
+    frontier, gate, permit, _payload = _reserved_case(publisher_case)
+    adapter = _NonExactPreparationAdapter(
+        permit.intent.boundary_identity,
+        RunActionPreparationState.UNKNOWN,
+        {
+            RunActionPreparationMode.ALLOCATE_ONCE,
+            RunActionPreparationMode.REOPEN_CLAIM,
+        },
+    )
+    coordinator = _recovery_coordinator(gate, adapter)
+
+    first = coordinator.recover(frontier)
+    second = coordinator.recover(frontier)
+
+    assert not first.is_complete
+    assert not second.is_complete
+    events = gate._action_store.inspect().events_for(permit.intent.operation_id)
+    assert events[-1].event_kind is RunActionExecutionEventKind.PREPARATION_CLAIMED
+    assert adapter.prepare_modes == [
+        RunActionPreparationMode.ALLOCATE_ONCE,
+        RunActionPreparationMode.REOPEN_CLAIM,
+    ]
+    assert not adapter.start_calls
 
 
 def test_preparation_envelope_rejects_oversize_before_allocation(
@@ -955,7 +1105,7 @@ def test_security_advance_cancels_unspawned_reservation(
     assert not adapter.prepare_calls
 
 
-def test_security_advance_after_preparation_leaves_cleanup_required(
+def test_security_advance_after_preparation_terminally_invalidates_frontier(
     publisher_case,
 ) -> None:
     frontier, gate, permit, _payload = _reserved_case(publisher_case)
@@ -966,13 +1116,44 @@ def test_security_advance_after_preparation_leaves_cleanup_required(
 
     report = _recovery_coordinator(gate, adapter).recover(frontier)
 
-    assert not report.is_complete
-    assert report.unresolved_operation_id == permit.intent.operation_id
+    assert report.is_complete
     assert len(adapter.prepare_calls) == 1
     assert not adapter.start_calls
-    assert gate._action_store.inspect().events_for(permit.intent.operation_id)[
-        -1
-    ].event_kind is (RunActionExecutionEventKind.EXECUTION_PREPARED)
+    terminal = gate._action_store.inspect().events_for(permit.intent.operation_id)[-1]
+    assert terminal.event_kind is RunActionExecutionEventKind.INTERRUPTED
+    assert terminal.terminal_reason is (
+        RunActionTerminalReason.FRONTIER_INVALIDATED_BEFORE_SPAWN
+    )
+    assert terminal.workspace_after == terminal.reservation.frontier.workspace_before
+
+
+def test_workspace_advance_after_claim_terminally_invalidates_frontier(
+    publisher_case,
+) -> None:
+    frontier, gate, permit, _payload = _reserved_case(publisher_case)
+    adapter = _CrashAfterPreparationAdapter(permit.intent.boundary_identity)
+    coordinator = _recovery_coordinator(gate, adapter)
+
+    with pytest.raises(RuntimeError, match="provider preparation"):
+        coordinator.recover(frontier)
+    _commit_workspace_edit(
+        publisher_case,
+        "external-frontier.py",
+        "EXTERNAL_FRONTIER = True\n",
+    )
+    adapter.crash_after_preparation = False
+
+    report = coordinator.recover(frontier)
+
+    terminal = report.recovered_operations[-1].events[-1]
+    assert report.is_complete
+    assert terminal.event_kind is RunActionExecutionEventKind.INTERRUPTED
+    assert terminal.terminal_reason is (
+        RunActionTerminalReason.FRONTIER_INVALIDATED_BEFORE_SPAWN
+    )
+    assert terminal.workspace_after == terminal.reservation.frontier.workspace_before
+    assert len(adapter.prepare_calls) == 1
+    assert not adapter.start_calls
 
 
 def test_recovery_rejects_boundary_identity_substitution(

@@ -114,6 +114,8 @@ def _execution_event(
     preparation_claim=None,
     prepared_execution=None,
     spawn_commit=None,
+    terminal_reason=None,
+    workspace_after=None,
 ):
     return RunActionExecutionEvent.mint(
         event_number=event_number,
@@ -125,8 +127,8 @@ def _execution_event(
         spawn_commit=spawn_commit,
         result_receipt=None,
         acceptance=None,
-        terminal_reason=None,
-        workspace_after=None,
+        terminal_reason=terminal_reason,
+        workspace_after=workspace_after,
     )
 
 
@@ -254,6 +256,76 @@ def test_action_store_reopens_complete_request_result_and_terminal_prefix(
         )
 
 
+def test_claimed_resource_loss_is_terminal_without_request_authority(
+    publisher_case,
+) -> None:
+    _frontier, request_payload, reservation, workspace = _reserved_action(
+        publisher_case,
+        operation_id="claimed_resource_loss_0123456789abcdef",
+    )
+    store = _open_store(
+        publisher_case["active"],
+        publisher_case["settings"],
+    )
+    with _open_session(store, reservation) as session:
+        session.reserve(request_payload)
+        session.claim_preparation(
+            _execution_policy(
+                kind=reservation.intent.kind,
+                workspace_access=reservation.intent.workspace_access,
+            )
+        )
+        session.interrupt_pre_spawn(
+            reason=(RunActionTerminalReason.SUPERVISOR_RESOURCE_LOST_BEFORE_SPAWN),
+        )
+        assert len(session.events) == 3
+        terminal = session.events[-1]
+        assert terminal.workspace_after.to_identity() == workspace
+        with pytest.raises(RunActionStoreError, match="unavailable before spawn"):
+            session.read_request()
+
+    reopened = _open_store(
+        publisher_case["active"],
+        publisher_case["settings"],
+    )
+    tail = reopened.snapshot().operation_tails[-1]
+    assert tail.event_count == 3
+    assert tail.tail_kind is RunActionExecutionEventKind.INTERRUPTED
+
+
+def test_prepared_frontier_invalidation_is_terminal_and_cannot_extend(
+    publisher_case,
+) -> None:
+    frontier, request_payload, reservation, _workspace = _reserved_action(
+        publisher_case,
+        operation_id="prepared_frontier_loss_0123456789abcdef",
+    )
+    store = _open_store(
+        publisher_case["active"],
+        publisher_case["settings"],
+    )
+    with _open_session(store, reservation) as session:
+        session.reserve(request_payload)
+        _prepare_session(session)
+        session.interrupt_pre_spawn(
+            reason=RunActionTerminalReason.FRONTIER_INVALIDATED_BEFORE_SPAWN,
+        )
+        assert len(session.events) == 4
+        with pytest.raises(RunActionStoreError, match="requires a"):
+            session.commit_spawn(
+                security_observation_id=(
+                    frontier.checkpoint.safety_state.security_observation.observation_id
+                ),
+                boundary_identity=reservation.intent.boundary_identity,
+            )
+        with pytest.raises(RunActionStoreError, match="unavailable before spawn"):
+            session.read_request()
+
+    assert store.snapshot().operation_tails[-1].tail_kind is (
+        RunActionExecutionEventKind.INTERRUPTED
+    )
+
+
 def test_action_store_rejects_legacy_and_cross_authority_event_splices(
     publisher_case,
 ):
@@ -333,6 +405,13 @@ def test_action_store_rejects_legacy_and_cross_authority_event_splices(
         event_kind=RunActionExecutionEventKind.SPAWN_COMMITTED,
         spawn_commit=durable_events[3].spawn_commit,
     )
+    missing_workspace_interruption = _execution_event(
+        reservation=reservation,
+        event_number=3,
+        predecessor_event_id=durable_events[1].event_id,
+        event_kind=RunActionExecutionEventKind.INTERRUPTED,
+        terminal_reason=(RunActionTerminalReason.SUPERVISOR_RESOURCE_LOST_BEFORE_SPAWN),
+    )
 
     invalid_prefixes = (
         ((durable_events[0], legacy_spawn), "changed identity"),
@@ -349,6 +428,14 @@ def test_action_store_rejects_legacy_and_cross_authority_event_splices(
                 spliced_spawn,
             ),
             "spawn differs from its reservation",
+        ),
+        (
+            (
+                durable_events[0],
+                durable_events[1],
+                missing_workspace_interruption,
+            ),
+            "exact unchanged workspace",
         ),
     )
     for prefix, message in invalid_prefixes:

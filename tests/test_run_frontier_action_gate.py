@@ -51,6 +51,7 @@ from kapso.cross_run.launch.run_action_store import (
     RunActionResultDisposition,
     RunActionResultReceipt,
     RunActionStoreError,
+    RunActionTerminalReason,
 )
 from kapso.cross_run.launch.run_state_publisher import (
     RunStatePublisher,
@@ -348,6 +349,41 @@ def _claim_action(gate, lease, kind=RunFrontierActionKind.CODING_AGENT):
         lease,
         kind=kind,
         boundary_identity=lease._reservation.intent.boundary_identity,
+    )
+
+
+def test_gate_terminally_closes_claimed_resource_loss_before_spawn(
+    publisher_case,
+) -> None:
+    _publisher, frontier, _security, gate = _action_case(publisher_case)
+    payload = b'{"prompt":"claim then lose supervisor resource"}'
+    permit = _issue_ideation_agent(
+        gate,
+        frontier,
+        payload,
+    )
+
+    with gate.hold(permit, payload) as lease:
+        gate.claim_preparation(
+            lease,
+            kind=RunFrontierActionKind.CODING_AGENT,
+            execution_policy=_execution_policy(
+                kind=RunFrontierActionKind.CODING_AGENT,
+                workspace_access=RunFrontierWorkspaceAccess.READ_ONLY,
+            ),
+        )
+        gate.interrupt_pre_spawn(
+            lease,
+            reason=(RunActionTerminalReason.SUPERVISOR_RESOURCE_LOST_BEFORE_SPAWN),
+        )
+        terminal = lease._session.events[-1]
+        assert terminal.event_number == 3
+        assert terminal.workspace_after == permit._reservation.frontier.workspace_before
+        with pytest.raises(RunActionStoreError, match="unavailable before spawn"):
+            lease._session.read_request()
+
+    assert gate._action_store.snapshot().operation_tails[-1].tail_kind is (
+        RunActionExecutionEventKind.INTERRUPTED
     )
 
 

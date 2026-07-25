@@ -433,9 +433,15 @@ INTENT_RESERVED
 ```
 
 `INTENT_RESERVED` may cancel before allocation when its frontier is stale.
-Claimed or prepared work cannot be cancelled until a later cleanup slice can
-prove that the exact inert occurrence was removed; absent that proof, it remains
-unresolved. `SPAWN_COMMITTED` may terminate only as a result or interruption.
+Claimed or prepared work may terminally interrupt before spawn when its frontier
+is invalidated or the supervisor positively proves its resource was lost. This
+terminal records the reservation's exact unchanged workspace binding (or no
+workspace for a workspace-free action) because no request, credential, or start
+authority existed. It is durable before cleanup; cleanup is idempotent,
+nonblocking garbage collection, and an inert orphan has no spawn authority.
+An unknown or temporarily unreachable resource remains unresolved. A persisted
+prepared occurrence is never replaced. `SPAWN_COMMITTED` may terminate only as
+a result or provider interruption.
 Every event repeats the exact reservation and predecessor, while claim, prepared,
 spawn, result, and acceptance payloads bind their immediate durable authority.
 The store rejects skipped/reordered phases, old intent-to-spawn records, identity
@@ -457,6 +463,12 @@ activation capability expose the complete request and a capability-owned
 duplicate workspace descriptor for exactly one execution-adapter invocation.
 Both capabilities burn on success or exception and close their descriptors.
 Request bytes are unreadable from the action session before spawn.
+Preparation returns one typed state: exact prepared with an origin compatible
+with its allocation/reopen/revalidation mode, positively lost, or unknown.
+Claim reopen may allocate only after positive exact absence. Prepared
+revalidation can return only the identical occurrence, positive loss, or
+uncertainty; it cannot allocate. Early interruption is admitted after the claim
+or prepared event without changing the normal six-event success chain.
 
 A committed spawn receives only its durable prepared execution and spawn
 identity: `RESULT_AVAILABLE` records the exact bytes,
