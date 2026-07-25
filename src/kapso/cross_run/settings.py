@@ -1606,6 +1606,7 @@ class LaunchSettings(StrictContract):
     run_action_store_entry_limit: int
     run_action_operation_limit: int
     run_action_event_size_bytes: int
+    run_action_process_snapshot_size_bytes: int
     run_action_request_size_bytes: int
     run_action_result_size_bytes: int
     run_action_store_size_bytes: int
@@ -1788,6 +1789,10 @@ class LaunchSettings(StrictContract):
             (self.run_action_store_entry_limit, "run_action_store_entry_limit"),
             (self.run_action_operation_limit, "run_action_operation_limit"),
             (self.run_action_event_size_bytes, "run_action_event_size_bytes"),
+            (
+                self.run_action_process_snapshot_size_bytes,
+                "run_action_process_snapshot_size_bytes",
+            ),
             (self.run_action_request_size_bytes, "run_action_request_size_bytes"),
             (self.run_action_result_size_bytes, "run_action_result_size_bytes"),
             (self.run_action_store_size_bytes, "run_action_store_size_bytes"),
@@ -1800,6 +1805,13 @@ class LaunchSettings(StrictContract):
         if self.run_action_store_entry_limit <= self.run_action_operation_limit:
             raise CrossRunConfigurationError(
                 "launch action-store entry bound must exceed its operation bound"
+            )
+        if (
+            self.run_action_process_snapshot_size_bytes
+            >= self.run_action_event_size_bytes
+        ):
+            raise CrossRunConfigurationError(
+                "launch process-snapshot bound must fit inside one action event"
             )
         minimum_action_store_entry_limit = (
             self.run_action_operation_limit

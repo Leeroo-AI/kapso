@@ -34,6 +34,7 @@ def test_shipped_cross_run_config_is_strict_and_single_sourced():
     assert settings.to_dict() == raw["cross_run"]
     assert "api_key" not in str(settings.to_dict()).lower()
     assert "oauth_token" not in str(settings.to_dict()).lower()
+    assert settings.launch.run_action_process_snapshot_size_bytes == 1048576
 
 
 def test_execution_journal_bound_contains_its_complete_spawn_authority():
@@ -906,17 +907,31 @@ def test_launch_derived_generation_bound_covers_all_projection_authorities():
         "run_derived_generation_size_bytes",
         "run_derived_state_store_entry_limit",
         "run_derived_state_staging_entry_limit",
+        "run_action_process_snapshot_size_bytes",
         "run_workspace_entry_limit",
         "run_workspace_size_bytes",
         "run_workspace_git_entry_limit",
         "run_workspace_git_metadata_size_bytes",
     ],
 )
-def test_launch_derived_state_bounds_are_positive(field):
+def test_launch_size_and_entry_bounds_are_positive(field):
     raw = copy.deepcopy(load_config(CANONICAL_CONFIG_PATH)["cross_run"])
     raw["launch"][field] = 0
 
     with pytest.raises(CrossRunConfigurationError):
+        CrossRunSettings.from_dict(raw)
+
+
+def test_launch_process_snapshot_must_fit_inside_one_action_event():
+    raw = copy.deepcopy(load_config(CANONICAL_CONFIG_PATH)["cross_run"])
+    raw["launch"]["run_action_process_snapshot_size_bytes"] = raw["launch"][
+        "run_action_event_size_bytes"
+    ]
+
+    with pytest.raises(
+        CrossRunConfigurationError,
+        match="process-snapshot bound",
+    ):
         CrossRunSettings.from_dict(raw)
 
 
