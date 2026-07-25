@@ -24,6 +24,7 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RUN_ACTION_RUNTIME_VOLUME_KEEPER_DESTINATION,
     RunActionCredentialMode,
     RunActionPreparationClaim,
+    RunActionPreparedDeliverySlot,
     RunActionPreparedExecution,
     RunActionPreparedFile,
     RunActionPreparedFileKind,
@@ -171,9 +172,9 @@ class DockerRunActionPreparedVolumeObservation:
 
     preparation_claim: RunActionPreparationClaim
     runtime_volume_evidence: RunActionRuntimeVolumeEvidence
-    input_file: RunActionPreparedFile
+    input_delivery_slot: RunActionPreparedDeliverySlot
     result_file: RunActionPreparedFile
-    credential_file: RunActionPreparedFile | None
+    credential_delivery_slot: RunActionPreparedDeliverySlot | None
     workspace_proof: RunActionPreparedWorkspaceProof | None
     layout_proof: RunActionRuntimeVolumeLayoutProof
 
@@ -183,19 +184,23 @@ class DockerRunActionPreparedVolumeObservation:
             if type(self.runtime_volume_evidence) is RunActionRuntimeVolumeEvidence
             else None
         )
-        prepared_files = tuple(
-            prepared_file
-            for prepared_file in (
-                self.input_file,
-                self.result_file,
-                self.credential_file,
+        delivery_slots = tuple(
+            delivery_slot
+            for delivery_slot in (
+                self.input_delivery_slot,
+                self.credential_delivery_slot,
             )
-            if prepared_file is not None
+            if delivery_slot is not None
         )
-        expected_file_plans = (
-            _expected_file_plans(self.preparation_claim)
+        expected_delivery_slot_plans = (
+            _expected_delivery_slot_plans(self.preparation_claim)
             if type(self.preparation_claim) is RunActionPreparationClaim
             else ()
+        )
+        expected_result_file_plan = (
+            _expected_result_file_plan(self.preparation_claim)
+            if type(self.preparation_claim) is RunActionPreparationClaim
+            else None
         )
         expected_authority = (
             issue_runtime_volume_authority(
@@ -225,11 +230,12 @@ class DockerRunActionPreparedVolumeObservation:
         if (
             type(self.preparation_claim) is not RunActionPreparationClaim
             or type(self.runtime_volume_evidence) is not RunActionRuntimeVolumeEvidence
-            or type(self.input_file) is not RunActionPreparedFile
+            or type(self.input_delivery_slot) is not RunActionPreparedDeliverySlot
             or type(self.result_file) is not RunActionPreparedFile
             or (
-                self.credential_file is not None
-                and type(self.credential_file) is not RunActionPreparedFile
+                self.credential_delivery_slot is not None
+                and type(self.credential_delivery_slot)
+                is not RunActionPreparedDeliverySlot
             )
             or (
                 self.workspace_proof is not None
@@ -237,35 +243,60 @@ class DockerRunActionPreparedVolumeObservation:
             )
             or type(self.layout_proof) is not RunActionRuntimeVolumeLayoutProof
             or authority != expected_authority
-            or len(prepared_files) != len(expected_file_plans)
+            or len(delivery_slots) != len(expected_delivery_slot_plans)
             or any(
                 (
-                    prepared_file.preparation_claim_id
+                    delivery_slot.preparation_claim_id
                     != self.preparation_claim.preparation_claim_id
-                    or prepared_file.runtime_volume_authority_id
+                    or delivery_slot.runtime_volume_authority_id
                     != authority.runtime_volume_authority_id
-                    or prepared_file.generation_nonce != authority.generation_nonce
-                    or prepared_file.kind is not expected_file_plan.kind
-                    or prepared_file.relative_path != expected_file_plan.relative_path
-                    or prepared_file.owner_user_id != authority.owner_user_id
-                    or prepared_file.owner_group_id != authority.owner_group_id
-                    or prepared_file.payload_size_limit_bytes
-                    != expected_file_plan.payload_size_limit_bytes
+                    or delivery_slot.generation_nonce != authority.generation_nonce
+                    or delivery_slot.kind is not expected_delivery_slot_plan.kind
+                    or delivery_slot.directory_relative_path
+                    != expected_delivery_slot_plan.directory_name
+                    or delivery_slot.final_file_name
+                    != expected_delivery_slot_plan.final_file_name
+                    or delivery_slot.owner_user_id != authority.owner_user_id
+                    or delivery_slot.owner_group_id != authority.owner_group_id
+                    or delivery_slot.payload_size_limit_bytes
+                    != expected_delivery_slot_plan.payload_size_limit_bytes
                 )
-                for prepared_file, expected_file_plan in zip(
-                    prepared_files,
-                    expected_file_plans,
+                for delivery_slot, expected_delivery_slot_plan in zip(
+                    delivery_slots,
+                    expected_delivery_slot_plans,
                     strict=True,
                 )
             )
+            or expected_result_file_plan is None
+            or self.result_file.preparation_claim_id
+            != self.preparation_claim.preparation_claim_id
+            or self.result_file.runtime_volume_authority_id
+            != authority.runtime_volume_authority_id
+            or self.result_file.generation_nonce != authority.generation_nonce
+            or self.result_file.kind is not expected_result_file_plan.kind
+            or self.result_file.relative_path != expected_result_file_plan.relative_path
+            or self.result_file.owner_user_id != authority.owner_user_id
+            or self.result_file.owner_group_id != authority.owner_group_id
+            or self.result_file.payload_size_limit_bytes
+            != expected_result_file_plan.payload_size_limit_bytes
             or any(
-                prepared_file.mount_id != self.runtime_volume_evidence.root_mount_id
-                or prepared_file.device != self.runtime_volume_evidence.root_device
-                for prepared_file in prepared_files
+                delivery_slot.mount_id != self.runtime_volume_evidence.root_mount_id
+                or delivery_slot.device != self.runtime_volume_evidence.root_device
+                for delivery_slot in delivery_slots
             )
-            or len({prepared_file.inode for prepared_file in prepared_files})
-            != len(prepared_files)
-            or {prepared_file.inode for prepared_file in prepared_files}
+            or self.result_file.mount_id != self.runtime_volume_evidence.root_mount_id
+            or self.result_file.device != self.runtime_volume_evidence.root_device
+            or len(
+                {
+                    *(delivery_slot.inode for delivery_slot in delivery_slots),
+                    self.result_file.inode,
+                }
+            )
+            != len(delivery_slots) + 1
+            or {
+                *(delivery_slot.inode for delivery_slot in delivery_slots),
+                self.result_file.inode,
+            }
             & {
                 self.runtime_volume_evidence.root_inode,
                 self.runtime_volume_evidence.sentinel_evidence.inode,
@@ -276,12 +307,10 @@ class DockerRunActionPreparedVolumeObservation:
             != self.runtime_volume_evidence.runtime_volume_evidence_id
             or self.layout_proof.generation_nonce != authority.generation_nonce
             or self.layout_proof.directory_relative_paths != expected_directory_names
-            or self.layout_proof.prepared_file_ids
-            != tuple(
-                sorted(
-                    prepared_file.prepared_file_id for prepared_file in prepared_files
-                )
-            )
+            or self.layout_proof.prepared_delivery_slot_ids
+            != tuple(sorted(slot.prepared_delivery_slot_id for slot in delivery_slots))
+            or self.layout_proof.prepared_result_file_id
+            != self.result_file.prepared_file_id
             or self.layout_proof.prepared_workspace_proof_id
             != (
                 None
@@ -291,12 +320,7 @@ class DockerRunActionPreparedVolumeObservation:
             or self.layout_proof.logical_content_size_bytes
             != len(authority.generation_nonce) + workspace_size_bytes
             or self.layout_proof.logical_entry_count
-            != (
-                len(expected_directory_names)
-                + len(prepared_files)
-                + 1
-                + workspace_entry_count
-            )
+            != (len(expected_directory_names) + 2 + workspace_entry_count)
             or self.layout_proof.observed_used_size_bytes
             != self.runtime_volume_evidence.used_size_bytes
             or self.layout_proof.observed_used_inode_count
@@ -465,7 +489,8 @@ class _PreparedLayoutObservation:
     root_inode: int
     sentinel_metadata: os.stat_result
     sentinel_mount_id: int
-    prepared_file_observations: tuple[_ExactRegularFileObservation, ...]
+    delivery_slot_observations: tuple["_ExactDirectoryObservation", ...]
+    result_file_observation: "_ExactRegularFileObservation"
     workspace_frontier: RunWorkspaceFrontierIdentity | None
     filesystem: os.statvfs_result
 
@@ -481,7 +506,21 @@ class _ExactRegularFileObservation:
 
 
 @dataclass(frozen=True)
-class _PreparedFilePlan:
+class _ExactDirectoryObservation:
+    metadata: os.stat_result
+    mount_id: int
+
+
+@dataclass(frozen=True)
+class _PreparedDeliverySlotPlan:
+    kind: RunActionPreparedFileKind
+    directory_name: str
+    final_file_name: str
+    payload_size_limit_bytes: int
+
+
+@dataclass(frozen=True)
+class _PreparedResultFilePlan:
     kind: RunActionPreparedFileKind
     directory_name: str
     file_name: str
@@ -492,7 +531,8 @@ class _PreparedFilePlan:
 @dataclass(frozen=True)
 class _RuntimeVolumeLayoutPlan:
     directory_names: tuple[str, ...]
-    file_plans: tuple[_PreparedFilePlan, ...]
+    delivery_slot_plans: tuple[_PreparedDeliverySlotPlan, ...]
+    result_file_plan: _PreparedResultFilePlan
     workspace_copy_plan: RunWorkspaceCopyPlan | None
     preparation_size_bytes: int
     preparation_inode_count: int
@@ -1023,9 +1063,9 @@ def reobserve_runtime_volume_layout(
     if reopened != DockerRunActionPreparedVolumeObservation(
         preparation_claim=prepared.preparation_claim,
         runtime_volume_evidence=prepared.runtime_volume_evidence,
-        input_file=prepared.input_file,
+        input_delivery_slot=prepared.input_delivery_slot,
         result_file=prepared.result_file,
-        credential_file=prepared.credential_file,
+        credential_delivery_slot=prepared.credential_delivery_slot,
         workspace_proof=prepared.workspace_proof,
         layout_proof=prepared.layout_proof,
     ):
@@ -1065,7 +1105,8 @@ def _plan_runtime_volume_layout(
             expected=workspace_binding.to_identity(),
         )
     directory_names = _expected_directory_names(claim)
-    file_plans = _expected_file_plans(claim)
+    delivery_slot_plans = _expected_delivery_slot_plans(claim)
+    result_file_plan = _expected_result_file_plan(claim)
     block_size = empty_volume.allocation_block_size_bytes
     nonworkspace_directory_count = len(directory_names) - (
         1 if workspace_copy_plan is not None else 0
@@ -1089,18 +1130,21 @@ def _plan_runtime_volume_layout(
     )
     limits = claim.execution_policy.docker_resource_limits
     future_size_bytes = sum(
-        _allocated_size_bytes(file_plan.payload_size_limit_bytes, block_size)
-        for file_plan in file_plans
+        _allocated_size_bytes(payload_limit_bytes, block_size)
+        for payload_limit_bytes in (
+            *(slot_plan.payload_size_limit_bytes for slot_plan in delivery_slot_plans),
+            result_file_plan.payload_size_limit_bytes,
+        )
     ) + _allocated_size_bytes(
         limits.runtime_temporary_reservation_size_bytes,
         block_size,
     )
-    current_inode_count = (
-        1 + nonworkspace_directory_count + workspace_inode_count + len(file_plans) + 1
-    )
+    current_inode_count = 1 + nonworkspace_directory_count + workspace_inode_count + 2
     if (
         current_size_bytes + future_size_bytes >= empty_volume.available_size_bytes
-        or current_inode_count + limits.runtime_temporary_reservation_inode_count
+        or current_inode_count
+        + len(delivery_slot_plans)
+        + limits.runtime_temporary_reservation_inode_count
         >= empty_volume.available_inode_count
     ):
         raise RunActionRuntimeVolumeError(
@@ -1108,7 +1152,8 @@ def _plan_runtime_volume_layout(
         )
     return _RuntimeVolumeLayoutPlan(
         directory_names=directory_names,
-        file_plans=file_plans,
+        delivery_slot_plans=delivery_slot_plans,
+        result_file_plan=result_file_plan,
         workspace_copy_plan=workspace_copy_plan,
         preparation_size_bytes=current_size_bytes,
         preparation_inode_count=current_inode_count,
@@ -1146,12 +1191,11 @@ def _materialize_layout_at_descriptor(
             )
             descriptors.callback(os.close, directory_descriptor)
             directory_descriptors[directory_name] = directory_descriptor
-        for file_plan in plan.file_plans:
-            _create_empty_prepared_file(
-                directory_descriptors[file_plan.directory_name],
-                file_plan.file_name,
-                authority,
-            )
+        _create_empty_prepared_file(
+            directory_descriptors[plan.result_file_plan.directory_name],
+            plan.result_file_plan.file_name,
+            authority,
+        )
         workspace_frontier = None
         if plan.workspace_copy_plan is not None:
             if type(workspace_descriptor) is not int:
@@ -1468,16 +1512,15 @@ def _observe_prepared_layout_at_descriptor(
                 "runtime volume sentinel repeats another layout inode"
             )
         observed_identities.add(sentinel_identity)
-        file_plans = _expected_file_plans(claim)
         expected_children = {
-            "input": ("request.blob",),
+            "input": (),
             "result": ("result.blob",),
             "temporary": (),
             **(
                 {}
                 if claim.execution_policy.credential_policy.mode
                 is RunActionCredentialMode.NONE
-                else {"credential": ("credentials",)}
+                else {"credential": ()}
             ),
         }
         for directory_name, child_names in expected_children.items():
@@ -1487,28 +1530,46 @@ def _observe_prepared_layout_at_descriptor(
                 raise RunActionRuntimeVolumeError(
                     "prepared runtime volume logical directory has extra paths"
                 )
-        prepared_file_observations = []
-        for file_plan in file_plans:
-            file_observation = _open_exact_regular_file(
-                descriptors,
-                directory_descriptors[file_plan.directory_name],
-                file_plan.file_name,
-                expected_payload=b"",
-                expected_mode=_PREPARED_FILE_MODE,
-                authority=authority,
-                root_mount_id=lease.root_mount_id,
-                root_device=lease.root_device,
+        delivery_slot_observations = tuple(
+            _ExactDirectoryObservation(
+                metadata=os.fstat(directory_descriptors[slot_plan.directory_name]),
+                mount_id=read_run_action_descriptor_mount_id(
+                    directory_descriptors[slot_plan.directory_name]
+                ),
             )
-            identity = (
-                file_observation.metadata.st_dev,
-                file_observation.metadata.st_ino,
+            for slot_plan in _expected_delivery_slot_plans(claim)
+        )
+        result_file_plan = _expected_result_file_plan(claim)
+        result_file_observation = _open_exact_regular_file(
+            descriptors,
+            directory_descriptors[result_file_plan.directory_name],
+            result_file_plan.file_name,
+            expected_payload=b"",
+            expected_mode=_PREPARED_FILE_MODE,
+            authority=authority,
+            root_mount_id=lease.root_mount_id,
+            root_device=lease.root_device,
+        )
+        result_identity = (
+            result_file_observation.metadata.st_dev,
+            result_file_observation.metadata.st_ino,
+        )
+        if result_identity in observed_identities:
+            raise RunActionRuntimeVolumeError(
+                "prepared runtime volume result repeats another layout inode"
             )
-            if identity in observed_identities:
+        observed_identities.add(result_identity)
+        for slot_observation in delivery_slot_observations:
+            if (
+                not stat.S_ISDIR(slot_observation.metadata.st_mode)
+                or stat.S_IMODE(slot_observation.metadata.st_mode)
+                != _PREPARED_DIRECTORY_MODE
+                or slot_observation.mount_id != lease.root_mount_id
+                or slot_observation.metadata.st_dev != lease.root_device
+            ):
                 raise RunActionRuntimeVolumeError(
-                    "prepared runtime volume file repeats another layout inode"
+                    "prepared runtime volume delivery slot is unsafe or substituted"
                 )
-            observed_identities.add(identity)
-            prepared_file_observations.append(file_observation)
         observed_workspace_frontier = None
         if workspace_frontier is None:
             if "workspace" in directory_descriptors:
@@ -1543,8 +1604,7 @@ def _observe_prepared_layout_at_descriptor(
         filesystem_after = os.fstatvfs(lease.root_descriptor)
         _require_same_mounted_runtime_volume(lease, keeper)
         _require_same_exact_regular_file(sentinel_observation)
-        for file_observation in prepared_file_observations:
-            _require_same_exact_regular_file(file_observation)
+        _require_same_exact_regular_file(result_file_observation)
         directory_metadata_after = {
             directory_name: _stable_metadata(os.fstat(directory_descriptor))
             for directory_name, directory_descriptor in directory_descriptors.items()
@@ -1566,7 +1626,8 @@ def _observe_prepared_layout_at_descriptor(
         root_inode=lease.root_inode,
         sentinel_metadata=sentinel_observation.metadata,
         sentinel_mount_id=sentinel_observation.mount_id,
-        prepared_file_observations=tuple(prepared_file_observations),
+        delivery_slot_observations=delivery_slot_observations,
+        result_file_observation=result_file_observation,
         workspace_frontier=observed_workspace_frontier,
         filesystem=filesystem_before,
     )
@@ -1687,38 +1748,57 @@ def _mint_prepared_volume_observation(
     empty_entry_count: int,
     empty_size_bytes: int,
 ) -> DockerRunActionPreparedVolumeObservation:
-    file_plans = _expected_file_plans(claim)
-    if len(file_plans) != len(observed.prepared_file_observations):
+    delivery_slot_plans = _expected_delivery_slot_plans(claim)
+    if len(delivery_slot_plans) != len(observed.delivery_slot_observations):
         raise RunActionRuntimeVolumeError(
-            "observed prepared files differ from the layout plan"
+            "observed prepared delivery slots differ from the layout plan"
         )
-    prepared_files = tuple(
-        RunActionPreparedFile.mint(
+    delivery_slots = tuple(
+        RunActionPreparedDeliverySlot.mint(
             preparation_claim_id=claim.preparation_claim_id,
             runtime_volume_authority_id=authority.runtime_volume_authority_id,
             generation_nonce=authority.generation_nonce,
-            kind=file_plan.kind,
-            relative_path=file_plan.relative_path,
-            file_type="regular",
+            kind=slot_plan.kind,
+            directory_relative_path=slot_plan.directory_name,
+            final_file_name=slot_plan.final_file_name,
+            directory_type="directory",
             owner_user_id=authority.owner_user_id,
             owner_group_id=authority.owner_group_id,
-            mode=_PREPARED_FILE_MODE,
-            link_count=1,
-            size_bytes=0,
-            payload_size_limit_bytes=file_plan.payload_size_limit_bytes,
-            mount_id=file_observation.mount_id,
-            device=file_observation.metadata.st_dev,
-            inode=file_observation.metadata.st_ino,
+            mode=_PREPARED_DIRECTORY_MODE,
+            observed_entry_count=0,
+            payload_size_limit_bytes=slot_plan.payload_size_limit_bytes,
+            mount_id=slot_observation.mount_id,
+            device=slot_observation.metadata.st_dev,
+            inode=slot_observation.metadata.st_ino,
         )
-        for file_plan, file_observation in zip(
-            file_plans,
-            observed.prepared_file_observations,
+        for slot_plan, slot_observation in zip(
+            delivery_slot_plans,
+            observed.delivery_slot_observations,
             strict=True,
         )
     )
-    prepared_by_kind = {
-        prepared_file.kind: prepared_file for prepared_file in prepared_files
+    delivery_slot_by_kind = {
+        delivery_slot.kind: delivery_slot for delivery_slot in delivery_slots
     }
+    result_file_plan = _expected_result_file_plan(claim)
+    result_file_observation = observed.result_file_observation
+    result_file = RunActionPreparedFile.mint(
+        preparation_claim_id=claim.preparation_claim_id,
+        runtime_volume_authority_id=authority.runtime_volume_authority_id,
+        generation_nonce=authority.generation_nonce,
+        kind=result_file_plan.kind,
+        relative_path=result_file_plan.relative_path,
+        file_type="regular",
+        owner_user_id=authority.owner_user_id,
+        owner_group_id=authority.owner_group_id,
+        mode=_PREPARED_FILE_MODE,
+        link_count=1,
+        size_bytes=0,
+        payload_size_limit_bytes=result_file_plan.payload_size_limit_bytes,
+        mount_id=result_file_observation.mount_id,
+        device=result_file_observation.metadata.st_dev,
+        inode=result_file_observation.metadata.st_ino,
+    )
     workspace_binding = claim.reservation.frontier.workspace_before
     if (workspace_binding is None) != (observed.workspace_frontier is None) or (
         workspace_binding is not None
@@ -1781,17 +1861,23 @@ def _mint_prepared_volume_observation(
     limits = claim.execution_policy.docker_resource_limits
     required_available_size_bytes = sum(
         _allocated_size_bytes(
-            file_plan.payload_size_limit_bytes,
+            payload_limit_bytes,
             allocation_block_size_bytes,
         )
-        for file_plan in file_plans
+        for payload_limit_bytes in (
+            *(slot_plan.payload_size_limit_bytes for slot_plan in delivery_slot_plans),
+            result_file_plan.payload_size_limit_bytes,
+        )
     ) + _allocated_size_bytes(
         limits.runtime_temporary_reservation_size_bytes,
         allocation_block_size_bytes,
     )
+    required_available_inode_count = (
+        len(delivery_slot_plans) + limits.runtime_temporary_reservation_inode_count
+    )
     if (
         required_available_size_bytes >= available_size_bytes
-        or limits.runtime_temporary_reservation_inode_count >= available_inode_count
+        or required_available_inode_count >= available_inode_count
     ):
         raise RunActionRuntimeVolumeError(
             "prepared runtime volume lacks positive execution headroom"
@@ -1842,9 +1928,13 @@ def _mint_prepared_volume_observation(
         empty_size_bytes=empty_size_bytes,
         empty_entry_count=empty_entry_count,
         directory_relative_paths=expected_directories,
-        prepared_file_ids=tuple(
-            sorted(prepared_file.prepared_file_id for prepared_file in prepared_files)
+        prepared_delivery_slot_ids=tuple(
+            sorted(
+                delivery_slot.prepared_delivery_slot_id
+                for delivery_slot in delivery_slots
+            )
         ),
+        prepared_result_file_id=result_file.prepared_file_id,
         prepared_workspace_proof_id=(
             None
             if workspace_proof is None
@@ -1853,12 +1943,7 @@ def _mint_prepared_volume_observation(
         logical_content_size_bytes=(
             len(authority.generation_nonce) + logical_workspace_size
         ),
-        logical_entry_count=(
-            len(expected_directories)
-            + len(prepared_files)
-            + 1
-            + logical_workspace_entries
-        ),
+        logical_entry_count=(len(expected_directories) + 2 + logical_workspace_entries),
         observed_used_size_bytes=used_size_bytes,
         observed_used_inode_count=used_inode_count,
         unexpected_entry_count=0,
@@ -1866,9 +1951,11 @@ def _mint_prepared_volume_observation(
     return DockerRunActionPreparedVolumeObservation(
         preparation_claim=claim,
         runtime_volume_evidence=volume_evidence,
-        input_file=prepared_by_kind[RunActionPreparedFileKind.INPUT],
-        result_file=prepared_by_kind[RunActionPreparedFileKind.RESULT],
-        credential_file=prepared_by_kind.get(RunActionPreparedFileKind.CREDENTIAL),
+        input_delivery_slot=delivery_slot_by_kind[RunActionPreparedFileKind.INPUT],
+        result_file=result_file,
+        credential_delivery_slot=delivery_slot_by_kind.get(
+            RunActionPreparedFileKind.CREDENTIAL
+        ),
         workspace_proof=workspace_proof,
         layout_proof=layout_proof,
     )
@@ -1897,41 +1984,44 @@ def _expected_directory_names(claim: RunActionPreparationClaim) -> tuple[str, ..
     )
 
 
-def _expected_file_plans(
+def _expected_delivery_slot_plans(
     claim: RunActionPreparationClaim,
-) -> tuple[_PreparedFilePlan, ...]:
+) -> tuple[_PreparedDeliverySlotPlan, ...]:
     credential_policy = claim.execution_policy.credential_policy
     return (
-        _PreparedFilePlan(
+        _PreparedDeliverySlotPlan(
             kind=RunActionPreparedFileKind.INPUT,
             directory_name="input",
-            file_name="request.blob",
-            relative_path="input/request.blob",
+            final_file_name="request.blob",
             payload_size_limit_bytes=claim.reservation.request_blob.size_bytes,
-        ),
-        _PreparedFilePlan(
-            kind=RunActionPreparedFileKind.RESULT,
-            directory_name="result",
-            file_name="result.blob",
-            relative_path="result/result.blob",
-            payload_size_limit_bytes=(
-                claim.execution_policy.supervisor_limits.result_size_bytes
-            ),
         ),
         *(
             ()
             if credential_policy.mode is RunActionCredentialMode.NONE
             else (
-                _PreparedFilePlan(
+                _PreparedDeliverySlotPlan(
                     kind=RunActionPreparedFileKind.CREDENTIAL,
                     directory_name="credential",
-                    file_name="credentials",
-                    relative_path="credential/credentials",
+                    final_file_name="credentials",
                     payload_size_limit_bytes=(
                         credential_policy.maximum_delivery_size_bytes
                     ),
                 ),
             )
+        ),
+    )
+
+
+def _expected_result_file_plan(
+    claim: RunActionPreparationClaim,
+) -> _PreparedResultFilePlan:
+    return _PreparedResultFilePlan(
+        kind=RunActionPreparedFileKind.RESULT,
+        directory_name="result",
+        file_name="result.blob",
+        relative_path="result/result.blob",
+        payload_size_limit_bytes=(
+            claim.execution_policy.supervisor_limits.result_size_bytes
         ),
     )
 

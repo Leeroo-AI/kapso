@@ -491,20 +491,14 @@ def test_descriptor_materializer_publishes_complete_layout_and_sentinel_last(
         authority.generation_nonce.encode("ascii")
     )
     assert stat.S_IMODE((root_path / ".kapso-generation").stat().st_mode) == 0o400
-    assert (root_path / "input" / "request.blob").read_bytes() == b""
+    assert tuple((root_path / "input").iterdir()) == ()
     assert (root_path / "result" / "result.blob").read_bytes() == b""
     assert tuple((root_path / "temporary").iterdir()) == ()
     assert all(
         stat.S_IMODE((root_path / name).stat().st_mode) == 0o700
         for name in ("input", "result", "temporary")
     )
-    assert all(
-        stat.S_IMODE(path.stat().st_mode) == 0o600
-        for path in (
-            root_path / "input" / "request.blob",
-            root_path / "result" / "result.blob",
-        )
-    )
+    assert stat.S_IMODE((root_path / "result" / "result.blob").stat().st_mode) == 0o600
 
 
 @pytest.mark.parametrize(
@@ -626,10 +620,16 @@ def test_layout_plan_requires_strict_peak_and_execution_headroom(
     if resource == "bytes":
         future_size_bytes = sum(
             volume_module._allocated_size_bytes(
-                file_plan.payload_size_limit_bytes,
+                payload_size_limit_bytes,
                 empty.allocation_block_size_bytes,
             )
-            for file_plan in admitted.file_plans
+            for payload_size_limit_bytes in (
+                *(
+                    slot_plan.payload_size_limit_bytes
+                    for slot_plan in admitted.delivery_slot_plans
+                ),
+                admitted.result_file_plan.payload_size_limit_bytes,
+            )
         ) + volume_module._allocated_size_bytes(
             limits.runtime_temporary_reservation_size_bytes,
             empty.allocation_block_size_bytes,
@@ -646,15 +646,32 @@ def test_layout_plan_requires_strict_peak_and_execution_headroom(
             ),
             available_size_bytes=exact_available_size,
         )
+        admitted_boundary = replace(
+            exhausted,
+            effective_block_count=exhausted.effective_block_count + 1,
+            effective_size_bytes=(
+                exhausted.effective_size_bytes + empty.allocation_block_size_bytes
+            ),
+            available_block_count=exhausted.available_block_count + 1,
+            available_size_bytes=(
+                exhausted.available_size_bytes + empty.allocation_block_size_bytes
+            ),
+        )
     else:
         exact_available_inodes = (
             admitted.preparation_inode_count
+            + len(admitted.delivery_slot_plans)
             + limits.runtime_temporary_reservation_inode_count
         )
         exhausted = replace(
             empty,
             effective_inode_limit=exact_available_inodes + 1,
             available_inode_count=exact_available_inodes,
+        )
+        admitted_boundary = replace(
+            exhausted,
+            effective_inode_limit=exhausted.effective_inode_limit + 1,
+            available_inode_count=exhausted.available_inode_count + 1,
         )
 
     with pytest.raises(
@@ -667,6 +684,15 @@ def test_layout_plan_requires_strict_peak_and_execution_headroom(
             workspace_descriptor=None,
             settings=settings.launch,
         )
+    assert (
+        _plan_runtime_volume_layout(
+            claim,
+            admitted_boundary,
+            workspace_descriptor=None,
+            settings=settings.launch,
+        ).preparation_inode_count
+        == admitted.preparation_inode_count
+    )
 
 
 def test_descriptor_materializer_rejects_nonempty_or_second_publication(
@@ -700,9 +726,9 @@ def test_prepared_volume_aggregate_rejects_layout_splices():
     observation = DockerRunActionPreparedVolumeObservation(
         preparation_claim=prepared.preparation_claim,
         runtime_volume_evidence=prepared.runtime_volume_evidence,
-        input_file=prepared.input_file,
+        input_delivery_slot=prepared.input_delivery_slot,
         result_file=prepared.result_file,
-        credential_file=prepared.credential_file,
+        credential_delivery_slot=prepared.credential_delivery_slot,
         workspace_proof=prepared.workspace_proof,
         layout_proof=prepared.layout_proof,
     )
@@ -733,9 +759,9 @@ def test_prepared_volume_aggregate_rejects_same_graph_layout_lies(mutation):
     observation = DockerRunActionPreparedVolumeObservation(
         preparation_claim=prepared.preparation_claim,
         runtime_volume_evidence=prepared.runtime_volume_evidence,
-        input_file=prepared.input_file,
+        input_delivery_slot=prepared.input_delivery_slot,
         result_file=prepared.result_file,
-        credential_file=prepared.credential_file,
+        credential_delivery_slot=prepared.credential_delivery_slot,
         workspace_proof=prepared.workspace_proof,
         layout_proof=prepared.layout_proof,
     )
@@ -760,9 +786,9 @@ def test_prepared_volume_aggregate_rejects_claim_policy_authority_splice():
     observation = DockerRunActionPreparedVolumeObservation(
         preparation_claim=prepared.preparation_claim,
         runtime_volume_evidence=prepared.runtime_volume_evidence,
-        input_file=prepared.input_file,
+        input_delivery_slot=prepared.input_delivery_slot,
         result_file=prepared.result_file,
-        credential_file=prepared.credential_file,
+        credential_delivery_slot=prepared.credential_delivery_slot,
         workspace_proof=prepared.workspace_proof,
         layout_proof=prepared.layout_proof,
     )
@@ -790,19 +816,22 @@ def test_prepared_volume_aggregate_rejects_claim_policy_authority_splice():
         observed_labels=substituted_authority.labels,
         sentinel_evidence=substituted_sentinel,
     )
-    substituted_files = tuple(
+    substituted_delivery_slots = tuple(
         _remint_contract(
-            prepared_file,
+            delivery_slot,
             runtime_volume_authority_id=(
                 substituted_authority.runtime_volume_authority_id
             ),
         )
-        for prepared_file in (
-            observation.input_file,
-            observation.result_file,
-            observation.credential_file,
+        for delivery_slot in (
+            observation.input_delivery_slot,
+            observation.credential_delivery_slot,
         )
-        if prepared_file is not None
+        if delivery_slot is not None
+    )
+    substituted_result_file = _remint_contract(
+        observation.result_file,
+        runtime_volume_authority_id=(substituted_authority.runtime_volume_authority_id),
     )
     substituted_workspace = (
         None
@@ -818,11 +847,13 @@ def test_prepared_volume_aggregate_rejects_claim_policy_authority_splice():
         observation.layout_proof,
         runtime_volume_authority_id=(substituted_authority.runtime_volume_authority_id),
         runtime_volume_evidence_id=(substituted_evidence.runtime_volume_evidence_id),
-        prepared_file_ids=tuple(
+        prepared_delivery_slot_ids=tuple(
             sorted(
-                prepared_file.prepared_file_id for prepared_file in substituted_files
+                delivery_slot.prepared_delivery_slot_id
+                for delivery_slot in substituted_delivery_slots
             )
         ),
+        prepared_result_file_id=substituted_result_file.prepared_file_id,
         prepared_workspace_proof_id=(
             None
             if substituted_workspace is None
@@ -837,10 +868,12 @@ def test_prepared_volume_aggregate_rejects_claim_policy_authority_splice():
         replace(
             observation,
             runtime_volume_evidence=substituted_evidence,
-            input_file=substituted_files[0],
-            result_file=substituted_files[1],
-            credential_file=(
-                None if len(substituted_files) == 2 else substituted_files[2]
+            input_delivery_slot=substituted_delivery_slots[0],
+            result_file=substituted_result_file,
+            credential_delivery_slot=(
+                None
+                if len(substituted_delivery_slots) == 1
+                else substituted_delivery_slots[1]
             ),
             workspace_proof=substituted_workspace,
             layout_proof=substituted_layout,
@@ -856,29 +889,33 @@ def test_prepared_volume_aggregate_rejects_claim_policy_authority_splice():
         {"payload_size_limit_bytes": 1},
     ),
 )
-def test_prepared_volume_aggregate_rejects_file_authority_splices(changes):
+def test_prepared_volume_aggregate_rejects_delivery_slot_authority_splices(changes):
     prepared = _prepared_execution()
     observation = DockerRunActionPreparedVolumeObservation(
         preparation_claim=prepared.preparation_claim,
         runtime_volume_evidence=prepared.runtime_volume_evidence,
-        input_file=prepared.input_file,
+        input_delivery_slot=prepared.input_delivery_slot,
         result_file=prepared.result_file,
-        credential_file=prepared.credential_file,
+        credential_delivery_slot=prepared.credential_delivery_slot,
         workspace_proof=prepared.workspace_proof,
         layout_proof=prepared.layout_proof,
     )
-    substituted_input = _remint_contract(observation.input_file, **changes)
+    substituted_input = _remint_contract(
+        observation.input_delivery_slot,
+        **changes,
+    )
     substituted_layout = _remint_contract(
         observation.layout_proof,
-        prepared_file_ids=tuple(
+        prepared_delivery_slot_ids=tuple(
             sorted(
                 (
-                    substituted_input.prepared_file_id,
-                    observation.result_file.prepared_file_id,
+                    substituted_input.prepared_delivery_slot_id,
                     *(
                         ()
-                        if observation.credential_file is None
-                        else (observation.credential_file.prepared_file_id,)
+                        if observation.credential_delivery_slot is None
+                        else (
+                            observation.credential_delivery_slot.prepared_delivery_slot_id,
+                        )
                     ),
                 )
             )
@@ -891,7 +928,7 @@ def test_prepared_volume_aggregate_rejects_file_authority_splices(changes):
     ):
         replace(
             observation,
-            input_file=substituted_input,
+            input_delivery_slot=substituted_input,
             layout_proof=substituted_layout,
         )
 
@@ -902,9 +939,9 @@ def test_prepared_volume_aggregate_rejects_workspace_authority_splice():
     observation = DockerRunActionPreparedVolumeObservation(
         preparation_claim=prepared.preparation_claim,
         runtime_volume_evidence=prepared.runtime_volume_evidence,
-        input_file=prepared.input_file,
+        input_delivery_slot=prepared.input_delivery_slot,
         result_file=prepared.result_file,
-        credential_file=prepared.credential_file,
+        credential_delivery_slot=prepared.credential_delivery_slot,
         workspace_proof=prepared.workspace_proof,
         layout_proof=prepared.layout_proof,
     )
@@ -1056,7 +1093,4 @@ def test_layout_materialization_copies_complete_workspace_and_git_closure(
         source_frontier.source_entry_count
     )
     assert (root_path / "workspace" / ".git" / "HEAD").is_file()
-    assert (root_path / "credential" / "credentials").read_bytes() == b""
-    assert (
-        stat.S_IMODE((root_path / "credential" / "credentials").stat().st_mode) == 0o600
-    )
+    assert tuple((root_path / "credential").iterdir()) == ()

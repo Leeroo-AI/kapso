@@ -612,10 +612,12 @@ It receives only prefix-disjoint named-volume subpaths for workspace, input,
 result, optional credential delivery, and temporary storage. Input and
 credential mounts are read-only; result and temporary mounts are writable;
 workspace access exactly follows the reservation.
-Input/result/credential files are empty, private, singly linked regular files
-before spawn. The workspace is copied into the same bounded generation and its
-observed tree digest, Git-closure digest, entry count, and byte count must equal
-the durable frontier binding.
+Input and optional credential final names are absent before spawn; their exact
+private parent directories are the durable delivery-slot authority. Only the
+result is a pre-created empty, private, singly linked regular file. The workspace
+is copied into the same bounded generation and its observed tree digest,
+Git-closure digest, entry count, and byte count must equal the durable frontier
+binding.
 
 The deterministic volume, keeper, and main-container names and complete role
 labels derive only from `PreparationClaim`, avoiding a back-edge from Docker
@@ -649,10 +651,11 @@ request bytes and credential leases remain absent. A post-spawn, single-use
 staging capability binds the whole `PreparedExecution`, spawn commit, and either
 exact credential-lease receipts or a no-credentials proof. Only the supervisor
 may consume it to attach the admitted broker network, populate the prepared
-delivery files, and derive an `ActivationRevalidationReceipt` after re-inspecting
-the volume, physical
-generation sentinel, running keeper, copied workspace, delivered
-input/result/credential files, and still-never-started main container. Immutable
+delivery slots, and derive an `ActivationRevalidationReceipt` after re-inspecting
+the volume, physical generation sentinel, running keeper, copied workspace,
+exact prepared delivery-slot directory identities, delivered
+input/credential files, the pre-created result file, and still-never-started
+main container. Immutable
 volume facts must equal preparation; allocated usage and actual available
 blocks/bytes/inodes must form the exact `statfs` capacity relationship, and the
 fresh observation must retain positive result-plus-temporary headroom. Workspace
@@ -727,8 +730,17 @@ Runtime-volume preparation now holds that same keeper/process/root descriptor
 lease from the empty proof through publication and final observation. It
 pre-admits physical workspace and `.git` bytes/inodes, transient staging, every
 future delivery/result/temporary reservation, and requires strict residual
-headroom. Private directories, empty delivery/result files, and the complete
-workspace are built under an unpublished staging directory. A completed
+headroom. Private directories, one empty result file, and the complete workspace
+are built under an unpublished staging directory. Input and optional credential
+directories are persisted as exact empty delivery slots: their final filenames
+do not exist at preparation, so no authoritative writable payload inode can
+contain a torn write. Activation writes a complete payload into an anonymous
+`O_TMPFILE`, validates and fsyncs it, changes it to read-only mode, publishes it
+exactly once with `linkat(AT_EMPTY_PATH)` and no replacement, fsyncs the slot
+directory, and reopens the final name to prove the same inode and content. A
+crash before the link leaves the slot empty; a crash after the link leaves only
+the complete final file. Unsupported filesystems and collisions fail loud; there
+is no named staging or pathname-based fallback. A completed
 read-only sentinel inode moves through a nonce-bound pending name and is
 atomically published with `RENAME_NOREPLACE` only after every final directory is
 in place and staging is gone; that rename is the final namespace mutation.

@@ -693,9 +693,9 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             runtime_volume_authority=layout_authority,
             runtime_volume_evidence=prepared_volume.runtime_volume_evidence,
             volume_keeper_evidence=layout_keeper_evidence,
-            input_file=prepared_volume.input_file,
+            input_delivery_slot=prepared_volume.input_delivery_slot,
             result_file=prepared_volume.result_file,
-            credential_file=prepared_volume.credential_file,
+            credential_delivery_slot=prepared_volume.credential_delivery_slot,
             workspace_proof=prepared_volume.workspace_proof,
             layout_proof=prepared_volume.layout_proof,
             inert_container_evidence=layout_main_evidence,
@@ -707,7 +707,7 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             settings=cross_run_settings.launch,
         )
         assert reopened_volume == prepared_volume
-        assert prepared_volume.credential_file is None
+        assert prepared_volume.credential_delivery_slot is None
         assert prepared_volume.workspace_proof is None
         assert prepared_volume.runtime_volume_evidence.root_inode == (
             layout_empty_volume.root_inode

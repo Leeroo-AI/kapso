@@ -1558,7 +1558,7 @@ class RunActionExecutionStore:
         prepared_container_names = set()
         prepared_keeper_container_ids = set()
         prepared_keeper_container_names = set()
-        prepared_file_ids = set()
+        prepared_payload_authority_ids = set()
         provider_execution_ids = set()
         invocation_nonces = set()
         activation_revalidation_receipt_ids = set()
@@ -1604,17 +1604,16 @@ class RunActionExecutionStore:
                 is RunActionExecutionEventKind.EXECUTION_PREPARED
             ):
                 prepared = events[2].prepared_execution
-                prepared_files = tuple(
-                    prepared_file
-                    for prepared_file in (
-                        prepared.input_file,
-                        prepared.result_file,
-                        prepared.credential_file,
-                    )
-                    if prepared_file is not None
-                )
-                file_ids = {
-                    prepared_file.prepared_file_id for prepared_file in prepared_files
+                payload_authority_ids = {
+                    prepared.input_delivery_slot.prepared_delivery_slot_id,
+                    prepared.result_file.prepared_file_id,
+                    *(
+                        ()
+                        if prepared.credential_delivery_slot is None
+                        else (
+                            prepared.credential_delivery_slot.prepared_delivery_slot_id,
+                        )
+                    ),
                 }
                 evidence = prepared.inert_container_evidence
                 keeper = prepared.volume_keeper_evidence
@@ -1628,7 +1627,7 @@ class RunActionExecutionStore:
                     or keeper.container_id in prepared_container_ids
                     or keeper.container_name in prepared_keeper_container_names
                     or keeper.container_name in prepared_container_names
-                    or prepared_file_ids & file_ids
+                    or prepared_payload_authority_ids & payload_authority_ids
                 ):
                     raise RunActionStoreError(
                         "run action prepared occurrence authority was reused"
@@ -1638,7 +1637,7 @@ class RunActionExecutionStore:
                 prepared_container_names.add(evidence.container_name)
                 prepared_keeper_container_ids.add(keeper.container_id)
                 prepared_keeper_container_names.add(keeper.container_name)
-                prepared_file_ids.update(file_ids)
+                prepared_payload_authority_ids.update(payload_authority_ids)
             if len(events) >= 4 and events[3].event_kind is (
                 RunActionExecutionEventKind.SPAWN_COMMITTED
             ):
@@ -1995,17 +1994,14 @@ class RunActionExecutionStore:
         candidate = event.prepared_execution
         if candidate is None:
             return
-        candidate_files = tuple(
-            prepared_file
-            for prepared_file in (
-                candidate.input_file,
-                candidate.result_file,
-                candidate.credential_file,
-            )
-            if prepared_file is not None
-        )
-        candidate_file_ids = {
-            prepared_file.prepared_file_id for prepared_file in candidate_files
+        candidate_payload_authority_ids = {
+            candidate.input_delivery_slot.prepared_delivery_slot_id,
+            candidate.result_file.prepared_file_id,
+            *(
+                ()
+                if candidate.credential_delivery_slot is None
+                else (candidate.credential_delivery_slot.prepared_delivery_slot_id,)
+            ),
         }
         for tail in self._snapshot_from_event_names(
             store_descriptor,
@@ -2022,15 +2018,15 @@ class RunActionExecutionStore:
             ):
                 continue
             existing = events[2].prepared_execution
-            existing_files = tuple(
-                prepared_file
-                for prepared_file in (
-                    existing.input_file,
-                    existing.result_file,
-                    existing.credential_file,
-                )
-                if prepared_file is not None
-            )
+            existing_payload_authority_ids = {
+                existing.input_delivery_slot.prepared_delivery_slot_id,
+                existing.result_file.prepared_file_id,
+                *(
+                    ()
+                    if existing.credential_delivery_slot is None
+                    else (existing.credential_delivery_slot.prepared_delivery_slot_id,)
+                ),
+            }
             if (
                 existing.prepared_execution_id == candidate.prepared_execution_id
                 or existing.inert_container_evidence.container_id
@@ -2057,8 +2053,7 @@ class RunActionExecutionStore:
                 == candidate.runtime_volume_authority.generation_nonce
                 or existing.runtime_volume_authority.sentinel_identity
                 == candidate.runtime_volume_authority.sentinel_identity
-                or candidate_file_ids
-                & {prepared_file.prepared_file_id for prepared_file in existing_files}
+                or candidate_payload_authority_ids & existing_payload_authority_ids
             ):
                 raise RunActionStoreError(
                     "run action prepared occurrence authority was reused"
