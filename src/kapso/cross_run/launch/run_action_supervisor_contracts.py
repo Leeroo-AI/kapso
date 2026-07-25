@@ -1521,6 +1521,7 @@ class RunActionActivationRevalidationReceipt(StrictContract):
             or type(self.spawn_commit) is not RunActionSpawnCommit
             or self.spawn_commit.reservation_id
             != prepared.preparation_claim.reservation.reservation_id
+            or self.spawn_commit.prepared_execution_id != prepared.prepared_execution_id
             or self.spawn_commit.boundary_identity
             != prepared.preparation_claim.reservation.intent.boundary_identity
             or self.spawn_commit.security_observation_id

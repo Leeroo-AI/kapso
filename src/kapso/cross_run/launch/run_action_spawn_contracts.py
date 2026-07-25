@@ -30,6 +30,7 @@ class RunActionSpawnCommit(StrictContract):
 
     spawn_commit_id: str
     reservation_id: str
+    prepared_execution_id: str
     provider_execution_id: str
     invocation_nonce: str
     security_observation_id: str
@@ -43,6 +44,11 @@ class RunActionSpawnCommit(StrictContract):
             self.reservation_id,
             RunActionReservation.CONTENT_NAMESPACE,
             "run action spawn reservation",
+        )
+        _require_namespaced_id(
+            self.prepared_execution_id,
+            "run-action-prepared-execution",
+            "run action spawn prepared execution",
         )
         require_identifier(
             self.provider_execution_id,
@@ -67,12 +73,14 @@ class RunActionSpawnCommit(StrictContract):
         cls,
         *,
         reservation_id: str,
+        prepared_execution_id: str,
         provider_execution_id: str,
         security_observation_id: str,
         boundary_identity: RunActionBoundaryIdentity,
     ) -> "RunActionSpawnCommit":
         return cls.mint(
             reservation_id=reservation_id,
+            prepared_execution_id=prepared_execution_id,
             provider_execution_id=provider_execution_id,
             invocation_nonce=secrets.token_hex(16),
             security_observation_id=security_observation_id,

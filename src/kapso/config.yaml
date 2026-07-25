@@ -393,7 +393,7 @@ cross_run:
     run_derived_generation_size_bytes: 3221225472
     run_derived_state_store_entry_limit: 10000
     run_derived_state_staging_entry_limit: 64
-    run_action_store_entry_limit: 600000
+    run_action_store_entry_limit: 1000000
     run_action_operation_limit: 100000
     run_action_event_size_bytes: 16777216
     run_action_request_size_bytes: 268435456

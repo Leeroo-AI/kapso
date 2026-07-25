@@ -37,6 +37,9 @@ _PUBLICATION_NORMAL_FIXED_CONTENT_WRITES = 20
 _PUBLICATION_RECOVERY_FIXED_CONTENT_WRITES = 12
 _PUBLICATION_AND_RESOLUTION_FIXED_READS = 96
 _CONTENT_WRITE_REQUEST_POINTS = 5
+_RUN_ACTION_MAXIMUM_EVENT_COUNT = 6
+_RUN_ACTION_MAXIMUM_BLOB_COUNT = 3
+_RUN_ACTION_FIXED_ENTRY_COUNT = 2
 
 
 class CrossRunConfigurationError(ValueError):
@@ -1687,8 +1690,7 @@ class LaunchSettings(StrictContract):
             )
         )
         if any(
-            path.parent != mutable_run_paths[0].parent
-            for path in mutable_run_paths[1:]
+            path.parent != mutable_run_paths[0].parent for path in mutable_run_paths[1:]
         ):
             raise CrossRunConfigurationError(
                 "launch mutable run paths must share one private parent"
@@ -1795,6 +1797,17 @@ class LaunchSettings(StrictContract):
         if self.run_action_store_entry_limit <= self.run_action_operation_limit:
             raise CrossRunConfigurationError(
                 "launch action-store entry bound must exceed its operation bound"
+            )
+        minimum_action_store_entry_limit = (
+            self.run_action_operation_limit
+            * (_RUN_ACTION_MAXIMUM_EVENT_COUNT + _RUN_ACTION_MAXIMUM_BLOB_COUNT)
+            + self.run_action_staging_entry_limit
+            + _RUN_ACTION_FIXED_ENTRY_COUNT
+        )
+        if self.run_action_store_entry_limit < minimum_action_store_entry_limit:
+            raise CrossRunConfigurationError(
+                "launch action-store entry bound cannot represent every configured "
+                "operation and crash-staging entry"
             )
         for value, name in (
             (self.run_workspace_entry_limit, "run_workspace_entry_limit"),

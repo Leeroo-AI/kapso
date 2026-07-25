@@ -496,7 +496,10 @@ def _filesystem_node(*, mount_id, device, inode, generation):
     )
 
 
-def _workspace_walk():
+def _workspace_walk(claim):
+    workspace = claim.reservation.frontier.workspace_before
+    if workspace is None:
+        raise AssertionError("workspace walk requires one workspace binding")
     return RunActionDescriptorWalkObservation.mint(
         root_authority_id=_fixture_content_id(
             "run-action-storage-root-authority",
@@ -512,8 +515,8 @@ def _workspace_walk():
             ),
             _filesystem_node(
                 mount_id=2,
-                device=101,
-                inode=202,
+                device=workspace.workspace_device,
+                inode=workspace.workspace_inode,
                 generation=2,
             ),
         ),
@@ -551,7 +554,7 @@ def _mounts(claim, slots):
             RunActionPreparedMount(
                 kind=RunActionPreparedMountKind.WORKSPACE,
                 prepared_slot_id=None,
-                source_walk=_workspace_walk(),
+                source_walk=_workspace_walk(claim),
                 container_destination=(
                     claim.execution_policy.filesystem_policy.workspace_destination
                 ),
@@ -764,6 +767,7 @@ def test_activation_revalidation_binds_fresh_exact_prepared_observations():
         replace(receipt, spawn_commit=_spawn_commit(foreign_prepared))
     alternate_spawn = RunActionSpawnCommit.mint(
         reservation_id=receipt.spawn_commit.reservation_id,
+        prepared_execution_id=receipt.spawn_commit.prepared_execution_id,
         provider_execution_id=receipt.spawn_commit.provider_execution_id,
         invocation_nonce="2" * 32,
         security_observation_id=receipt.spawn_commit.security_observation_id,
@@ -852,6 +856,7 @@ def _spawn_commit(prepared):
     reservation = prepared.preparation_claim.reservation
     return RunActionSpawnCommit.mint(
         reservation_id=reservation.reservation_id,
+        prepared_execution_id=prepared.prepared_execution_id,
         provider_execution_id=prepared.inert_container_evidence.container_id,
         invocation_nonce="1" * 32,
         security_observation_id=reservation.frontier.security_observation_id,

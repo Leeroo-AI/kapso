@@ -67,11 +67,26 @@ from test_launch_resume_contracts import (
     _subjects,
 )
 from test_run_state_publisher import _publish_genesis, publisher_case
+from test_run_action_supervisor_contracts import (
+    _execution_policy,
+    _prepared_execution,
+)
 
 
 def _boundary_identity(
     kind: RunFrontierActionKind,
+    workspace_access: RunFrontierWorkspaceAccess | None = None,
 ) -> RunActionBoundaryIdentity:
+    if workspace_access is None:
+        workspace_access = (
+            RunFrontierWorkspaceAccess.NONE
+            if kind is RunFrontierActionKind.EMBEDDING
+            else RunFrontierWorkspaceAccess.READ_ONLY
+        )
+    policy = _execution_policy(
+        kind=kind,
+        workspace_access=workspace_access,
+    )
     return RunActionBoundaryIdentity.mint(
         kind=kind,
         execution_lifecycle_identity=RunActionExecutionLifecycleIdentity.mint(
@@ -79,10 +94,7 @@ def _boundary_identity(
             implementation_id=f"test.{kind.value}.execution",
             implementation_version="test.execution.v1",
             recovery_protocol_version="test.recovery.v1",
-            execution_policy_id=content_id(
-                "test-run-action-execution-policy",
-                {"kind": kind.value},
-            ),
+            execution_policy_id=policy.docker_execution_policy_id,
         ),
         result_interpreter_identity=RunActionResultInterpreterIdentity.mint(
             kind=kind,
@@ -243,7 +255,10 @@ def _issue_ideation_agent(gate, receipt, payload=b'{"prompt":"complete"}'):
         operation_id="agent_call_0123456789abcdef0123456789abcdef",
         request_payload=payload,
         workspace_access=RunFrontierWorkspaceAccess.READ_ONLY,
-        boundary_identity=_boundary_identity(RunFrontierActionKind.CODING_AGENT),
+        boundary_identity=_boundary_identity(
+            RunFrontierActionKind.CODING_AGENT,
+            RunFrontierWorkspaceAccess.READ_ONLY,
+        ),
     )
 
 
@@ -260,7 +275,10 @@ def _issue_implementation_agent(
         operation_id=f"implementation_{operation_suffix}_0123456789abcdef",
         request_payload=payload,
         workspace_access=RunFrontierWorkspaceAccess.EDIT_WORKSPACE,
-        boundary_identity=_boundary_identity(RunFrontierActionKind.CODING_AGENT),
+        boundary_identity=_boundary_identity(
+            RunFrontierActionKind.CODING_AGENT,
+            RunFrontierWorkspaceAccess.EDIT_WORKSPACE,
+        ),
     )
 
 
@@ -298,11 +316,37 @@ def _run_git(workspace, *arguments):
     return stdout
 
 
-def _claim_action(gate, lease, kind=RunFrontierActionKind.CODING_AGENT):
-    return gate.claim(
+def _prepare_action(gate, lease, kind=RunFrontierActionKind.CODING_AGENT):
+    policy = _execution_policy(
+        kind=kind,
+        workspace_access=lease._reservation.intent.workspace_access,
+    )
+    claim = gate.claim_preparation(
         lease,
         kind=kind,
-        provider_execution_id=(f"provider_{lease._reservation.intent.operation_id}"),
+        execution_policy=policy,
+    )
+    operation_digest = hashlib.sha256(
+        lease._reservation.intent.operation_id.encode("utf-8")
+    ).hexdigest()
+    prepared = _prepared_execution(
+        claim=claim,
+        container_id=operation_digest,
+        inode_offset=int(operation_digest[:8], 16),
+    )
+    gate.commit_prepared_execution(
+        lease,
+        kind=kind,
+        prepared_execution=prepared,
+    )
+    return prepared
+
+
+def _claim_action(gate, lease, kind=RunFrontierActionKind.CODING_AGENT):
+    _prepare_action(gate, lease, kind)
+    return gate.claim_activation(
+        lease,
+        kind=kind,
         boundary_identity=lease._reservation.intent.boundary_identity,
     )
 
@@ -455,17 +499,19 @@ def test_action_gate_holds_current_frontier_and_claims_once(
         assert lease.run_checkpoint_id == receipt.run_checkpoint_id
         assert lease.safety_state_id == receipt.checkpoint.safety_state.safety_state_id
         assert publisher.require_current(receipt) == receipt.checkpoint
-        with pytest.raises(RunFrontierActionError, match="claimed"):
-            gate.claim(
+        with pytest.raises(RunFrontierActionError, match="another phase"):
+            gate.claim_preparation(
                 lease,
                 kind=RunFrontierActionKind.CODING_AGENT,
-                provider_execution_id="duplicate_execution_0123456789abcdef",
-                boundary_identity=lease._reservation.intent.boundary_identity,
+                execution_policy=_execution_policy(
+                    kind=RunFrontierActionKind.CODING_AGENT,
+                    workspace_access=RunFrontierWorkspaceAccess.READ_ONLY,
+                ),
             )
         _accept_action(gate, lease)
 
     ledger = publisher.action_ledger_snapshot()
-    assert ledger.event_count == 4
+    assert ledger.event_count == 6
     assert ledger.operation_tails[0].tail_kind is (
         RunActionExecutionEventKind.RESULT_ACCEPTED
     )
@@ -475,7 +521,13 @@ def test_action_gate_holds_current_frontier_and_claims_once(
             receipt.checkpoint.safety_state.security_observation.scope_contract_id,
             receipt.checkpoint.safety_state.security_observation.checked_subject_ids,
             receipt.checkpoint.safety_state.security_observation,
-        )
+        ),
+        (
+            receipt.checkpoint.safety_state.security_observation.scope_id,
+            receipt.checkpoint.safety_state.security_observation.scope_contract_id,
+            receipt.checkpoint.safety_state.security_observation.checked_subject_ids,
+            receipt.checkpoint.safety_state.security_observation,
+        ),
     ]
     with pytest.raises(RunFrontierActionError, match="consumed"):
         with gate.hold(permit, payload):
@@ -505,15 +557,21 @@ def test_action_claim_rejects_adapter_substitution_before_security_use(
     )
 
     with gate.hold(permit, payload) as lease:
-        with pytest.raises(RunFrontierActionError, match="claim boundary"):
-            gate.claim(
+        _prepare_action(gate, lease)
+        security_call_count = len(security.calls)
+        with pytest.raises(RunFrontierActionError, match="activation boundary"):
+            gate.claim_activation(
                 lease,
                 kind=RunFrontierActionKind.CODING_AGENT,
-                provider_execution_id="substituted_adapter_0123456789abcdef",
                 boundary_identity=substituted,
             )
-        assert not security.calls
-        _complete_action(gate, lease)
+        assert len(security.calls) == security_call_count
+        gate.claim_activation(
+            lease,
+            kind=RunFrontierActionKind.CODING_AGENT,
+            boundary_identity=lease._reservation.intent.boundary_identity,
+        )
+        _accept_action(gate, lease)
 
 
 def test_action_issue_rejects_boundary_kind_substitution(
@@ -732,7 +790,7 @@ def test_multiple_read_only_actions_form_one_workspace_chain(
         successor_bundle,
     )
 
-    assert successor.projection.action_ledger.event_count == 8
+    assert successor.projection.action_ledger.event_count == 12
 
 
 def test_unresolved_durable_action_blocks_candidate_publication(
@@ -1291,21 +1349,36 @@ def test_action_gate_rejects_a_reminted_terminal_from_another_safety_boundary(
         frontier=original_reservation.frontier,
         predecessor_ledger=permit._predecessor_ledger,
     )
-    original_spawn = original_events[1].spawn_commit
+    reminted_claim = type(original_events[1].preparation_claim).mint(
+        reservation=reminted_reservation,
+        execution_policy=original_events[1].preparation_claim.execution_policy,
+    )
+    operation_digest = hashlib.sha256(
+        permit.intent.operation_id.encode("utf-8")
+    ).hexdigest()
+    reminted_prepared = _prepared_execution(
+        claim=reminted_claim,
+        container_id=original_events[
+            2
+        ].prepared_execution.inert_container_evidence.container_id,
+        inode_offset=int(operation_digest[:8], 16),
+    )
+    original_spawn = original_events[3].spawn_commit
     reminted_spawn = RunActionSpawnCommit.mint(
         reservation_id=reminted_reservation.reservation_id,
+        prepared_execution_id=reminted_prepared.prepared_execution_id,
         provider_execution_id=original_spawn.provider_execution_id,
         invocation_nonce=original_spawn.invocation_nonce,
         security_observation_id=original_spawn.security_observation_id,
         boundary_identity=original_spawn.boundary_identity,
     )
-    original_result = original_events[2].result_receipt
+    original_result = original_events[4].result_receipt
     reminted_result = RunActionResultReceipt.mint(
         spawn_commit_id=reminted_spawn.spawn_commit_id,
         provider_execution_id=original_result.provider_execution_id,
         result_blob=original_result.result_blob,
     )
-    original_acceptance = original_events[3].acceptance
+    original_acceptance = original_events[5].acceptance
     reminted_acceptance = RunActionAcceptance.mint(
         result_receipt_id=reminted_result.result_receipt_id,
         disposition=original_acceptance.disposition,
@@ -1313,11 +1386,43 @@ def test_action_gate_rejects_a_reminted_terminal_from_another_safety_boundary(
         workspace_after=original_acceptance.workspace_after,
     )
     event_payloads = (
-        (RunActionExecutionEventKind.INTENT_RESERVED, None, None, None),
-        (RunActionExecutionEventKind.SPAWN_COMMITTED, reminted_spawn, None, None),
-        (RunActionExecutionEventKind.RESULT_RECEIVED, None, reminted_result, None),
+        (RunActionExecutionEventKind.INTENT_RESERVED, None, None, None, None, None),
+        (
+            RunActionExecutionEventKind.PREPARATION_CLAIMED,
+            reminted_claim,
+            None,
+            None,
+            None,
+            None,
+        ),
+        (
+            RunActionExecutionEventKind.EXECUTION_PREPARED,
+            None,
+            reminted_prepared,
+            None,
+            None,
+            None,
+        ),
+        (
+            RunActionExecutionEventKind.SPAWN_COMMITTED,
+            None,
+            None,
+            reminted_spawn,
+            None,
+            None,
+        ),
+        (
+            RunActionExecutionEventKind.RESULT_RECEIVED,
+            None,
+            None,
+            None,
+            reminted_result,
+            None,
+        ),
         (
             RunActionExecutionEventKind.RESULT_ACCEPTED,
+            None,
+            None,
             None,
             None,
             reminted_acceptance,
@@ -1327,6 +1432,8 @@ def test_action_gate_rejects_a_reminted_terminal_from_another_safety_boundary(
     reminted_events = []
     for event_number, (
         event_kind,
+        preparation_claim,
+        prepared_execution,
         spawn_commit,
         result_receipt,
         acceptance,
@@ -1336,6 +1443,8 @@ def test_action_gate_rejects_a_reminted_terminal_from_another_safety_boundary(
             predecessor_event_id=predecessor_event_id,
             event_kind=event_kind,
             reservation=reminted_reservation,
+            preparation_claim=preparation_claim,
+            prepared_execution=prepared_execution,
             spawn_commit=spawn_commit,
             result_receipt=result_receipt,
             acceptance=acceptance,

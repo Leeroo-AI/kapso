@@ -18,9 +18,9 @@ M9 action adapters, with shared host/runtime authority owned once by top-level
 `cross_run.docker` rather than by either consumer. Boundary-specific production
 adapters and the mechanically constrained supervisor remain, while the
 content-addressed Docker execution-policy, deterministic preparation-claim,
-inert-evidence, and prepared-execution contracts are implemented. OS executor
-activation, explicit E0/S-EMPTY provisioning orchestration, full policy refresh on
-resume, and API/runner activation remain.
+inert-evidence, prepared-execution contracts, and durable six-event action prefix
+are implemented. OS executor activation, explicit E0/S-EMPTY provisioning
+orchestration, full policy refresh on resume, and API/runner activation remain.
 
 ## Objective
 
@@ -296,13 +296,14 @@ expert workspace before the new runtime becomes reachable.
       the current denylist as the exact checkpointed observation; state
       publication retains the exclusive lock.
 - [x] Make the action store authoritative across processes: compare-and-swap each
-      reservation against the exact predecessor ledger, persist spawn/result/
-      acceptance events, hold the receipt-pinned workspace lock, require terminal
-      live state for publication, and derive branch accounting from durable events.
+      reservation against the exact predecessor ledger, persist intent/claim/
+      prepared/spawn/result/acceptance events, hold the receipt-pinned workspace
+      lock, require terminal live state for publication, and derive branch
+      accounting from durable events.
 - [x] Recover one exact final nonterminal prefix without replaying a committed
       spawn; bind recovery to the complete frontier and an issued exact
-      implementation catalog, burn fresh-spawn authority once, and replay terminal
-      accepted bytes without execution or interpretation access.
+      implementation catalog, burn preparation and activation authority once, and
+      replay terminal accepted bytes without execution or interpretation access.
 - [ ] On resume, require the original `BootstrapPin`, workspace tree, read-only
       snapshot package, adapter, checkpoint, IdeaArchive, experiment store, journal,
       and branches to reconcile.
@@ -420,18 +421,51 @@ match the complete current frontier, including all mutable-view digests.
 Terminal operations replay their complete accepted bytes without contacting an
 execution adapter, result interpreter, or provider.
 
-Recovery is an explicit state machine. An unspawned reservation may allocate
-locally, but it receives neither request bytes nor workspace authority; security
-and workspace are checked again immediately before the durable spawn commit, and
-the reservation boundary must still equal the checkpoint safety boundary. Only
-then does a one-shot, same-process/same-thread capability expose the complete
-request and a capability-owned duplicate workspace descriptor for exactly one
-execution-adapter invocation. The capability burns on success or exception and
-closes that descriptor. A committed spawn receives only its durable execution
-identity: `RESULT_AVAILABLE` records the exact bytes, `RUNNING_REATTACHABLE` may
-reattach only under the unchanged security observation, proven quiescence
-interrupts, and `UNKNOWN` remains unresolved. Recovery never routes a committed
-spawn through fresh preparation or start.
+Recovery is an explicit six-event state machine:
+
+```text
+INTENT_RESERVED
+  → PREPARATION_CLAIMED
+  → EXECUTION_PREPARED
+  → SPAWN_COMMITTED
+  → RESULT_RECEIVED
+  → RESULT_ACCEPTED
+```
+
+`INTENT_RESERVED` may cancel before allocation when its frontier is stale.
+Claimed or prepared work cannot be cancelled until a later cleanup slice can
+prove that the exact inert occurrence was removed; absent that proof, it remains
+unresolved. `SPAWN_COMMITTED` may terminate only as a result or interruption.
+Every event repeats the exact reservation and predecessor, while claim, prepared,
+spawn, result, and acceptance payloads bind their immediate durable authority.
+The store rejects skipped/reordered phases, old intent-to-spawn records, identity
+splices, multiple nonterminal operations, and global reuse of claim, prepared,
+container, slot, quota, filesystem, provider, or invocation identities.
+
+Before allocating, recovery durably appends the deterministic claim. A
+same-process/same-thread preparation capability distinguishes first allocation,
+claim reopen, and exact prepared-occurrence revalidation; it carries the live
+workspace descriptor and daemon-visible source path when the policy requires a
+workspace. Before allocation, the exact lifecycle adapter must twice produce the
+same conservative bound for the complete prepared-event encoding; the coordinator
+rejects a nonpositive, nondeterministic, or over-limit envelope. The returned
+prepared event must then fit that declared bound. Prepared evidence is persisted
+before spawn. Security and workspace are checked again immediately before the
+durable spawn commit, and the reservation boundary must still equal the
+checkpoint safety boundary. Only after that commit does a separate single-use
+activation capability expose the complete request and a capability-owned
+duplicate workspace descriptor for exactly one execution-adapter invocation.
+Both capabilities burn on success or exception and close their descriptors.
+Request bytes are unreadable from the action session before spawn.
+
+A committed spawn receives only its durable prepared execution and spawn
+identity: `RESULT_AVAILABLE` records the exact bytes,
+`RUNNING_REATTACHABLE` may reattach only under the unchanged security
+observation, and an exact `INERT_ACTIVATABLE` observation rebuilds activation
+authority for the same prepared execution and spawn after rechecking workspace
+then security. Proven quiescence interrupts, and `UNKNOWN` remains unresolved.
+Recovery never routes committed work through claim or preparation and never
+mints a second activation fence.
 
 ### Durable Docker supervisor boundary
 
@@ -509,11 +543,21 @@ inspection facts.
 Credential records contain policy and slot authority only—never secret bytes or
 host credential paths.
 
-The supervisor store will atomically enforce one
-`PreparationClaim → PreparedExecution` occurrence. Before `SpawnCommit`, it may
-only create or reopen that exact inert resource; request bytes and credential
-leases remain absent. A post-commit, single-use `ActivationGrant` will bind the
-whole `PreparedExecution`, spawn commit, and either exact credential-lease
+The action store now atomically persists one
+`PreparationClaim → PreparedExecution` occurrence before `SpawnCommit`.
+Reservation admission accounts for the complete remaining lifecycle: at most six
+event files and three content blobs per operation, plus the configured crash
+staging allowance and two fixed lock files. Every append and reopen rechecks its
+remaining event/blob headroom, so an accepted intent cannot strand an
+irreversible spawn solely because the store later reaches its configured byte or
+entry bound. This capacity proof is separate from the lifecycle adapter's
+pre-allocation serialization envelope: the former reserves store space, while the
+latter proves that the complete concrete prepared record can occupy one event
+file before any Docker or slot resource is created. Before `SpawnCommit`, the
+production supervisor may only create or reopen that exact inert resource;
+request bytes and credential leases remain absent. A post-commit, single-use
+`ActivationGrant` will bind the whole
+`PreparedExecution`, spawn commit, and either exact credential-lease
 receipts or a no-credentials proof. Only the supervisor may consume it to attach
 the admitted broker network, populate the already-mounted private delivery
 slots, and start the same container once. Immediately before start, it must issue
@@ -537,10 +581,11 @@ observation never refers forward to a capture, while the capture may bind that
 exact predecessor observation.
 
 The lifecycle-owned policy, claim, prepared-slot/walk/quota, closed projection,
-mount, inert-evidence, prepared-execution, and activation-revalidation contracts
-are implemented. The durable claim index,
-mechanically constrained Docker supervisor, activation/result records, action
-store embedding, and production adapters remain the next slices.
+mount, inert-evidence, prepared-execution, activation-revalidation contracts,
+durable claim/prepared index, six-event store embedding, and process-bound
+preparation/activation capabilities are implemented. The mechanically constrained
+Docker/OS supervisor, concrete activation/result receipts, positive cleanup
+authority, and production adapters remain the next slices.
 
 The coordinator owns one process-bound, non-clonable implementation catalog fixed
 at composition; `recover()` accepts no caller-selected implementation. Each
@@ -599,11 +644,13 @@ this path is activated.
 - Reject stopped/completed action frontiers, duplicate operations, cloned permits,
   request changes, invalid boundary/capability combinations, and workspace
   mutation between issuance and consumption.
-- Inject death at reserved, spawn-committed, and raw-result prefixes; prove
-  committed work is never freshly replayed, ambiguous provider state remains
-  unresolved, implementation catalogs and fresh capabilities reject
-  clone/fork/reuse, security movement before commit cancels, and workspace
-  mutation during local interpretation never becomes a terminal event.
+- Inject death at reserved, claimed, prepared, spawn-committed, and raw-result
+  prefixes; prove allocation, claim reopen, and prepared revalidation are
+  distinct, committed work is never freshly replayed, ambiguous provider state
+  remains unresolved, implementation catalogs and single-use capabilities reject
+  clone/fork/reuse, security movement before allocation cancels, security movement
+  after allocation remains cleanup-blocked, and workspace mutation during local
+  interpretation never becomes a terminal event.
 - Prove embeddings receive no workspace capability; prove edits exclude parallel
   edits/readers across processes, poison old permits/publication candidates, and
   become usable only after an exact branch-advance checkpoint successor.

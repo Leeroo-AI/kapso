@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import hashlib
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack
 from dataclasses import replace
@@ -11,7 +12,7 @@ from threading import Barrier, Event
 import pytest
 
 import kapso.cross_run.launch.run_action_store as run_action_store_module
-from kapso.cross_run.canonical import tree_or_blob_digest
+from kapso.cross_run.canonical import content_id, tree_or_blob_digest
 from kapso.cross_run.launch.run_action_contracts import RunActionIntent
 from kapso.cross_run.launch.run_action_gate import (
     bind_run_action_frontier,
@@ -34,6 +35,9 @@ from kapso.cross_run.launch.run_action_store import (
     RunActionStoreError,
     RunActionTerminalReason,
 )
+from kapso.cross_run.launch.run_action_supervisor_contracts import (
+    RunActionPreparationClaim,
+)
 from kapso.cross_run.launch.resume_contracts import RunSafetyBoundary
 from kapso.cross_run.launch.workspace_frontier import (
     inspect_run_workspace_frontier,
@@ -48,6 +52,10 @@ from test_run_frontier_action_gate import (
 )
 from test_launch_resolver import resolver_case
 from test_run_state_publisher import publisher_case
+from test_run_action_supervisor_contracts import (
+    _execution_policy,
+    _prepared_execution,
+)
 
 
 def _open_store(active, settings):
@@ -74,6 +82,51 @@ def _open_session(store, reservation):
     return store._session(
         reservation,
         _authority=_RUN_ACTION_MUTATION_AUTHORITY,
+    )
+
+
+def _prepare_session(session, *, container_id=None, inode_offset=None):
+    policy = _execution_policy(
+        kind=session.reservation.intent.kind,
+        workspace_access=session.reservation.intent.workspace_access,
+    )
+    claim = session.claim_preparation(policy)
+    operation_digest = hashlib.sha256(
+        session.reservation.intent.operation_id.encode("utf-8")
+    ).hexdigest()
+    prepared = _prepared_execution(
+        claim=claim,
+        container_id=operation_digest if container_id is None else container_id,
+        inode_offset=(
+            int(operation_digest[:8], 16) if inode_offset is None else inode_offset
+        ),
+    )
+    session.commit_prepared_execution(prepared)
+    return prepared
+
+
+def _execution_event(
+    *,
+    reservation,
+    event_number,
+    predecessor_event_id,
+    event_kind,
+    preparation_claim=None,
+    prepared_execution=None,
+    spawn_commit=None,
+):
+    return RunActionExecutionEvent.mint(
+        event_number=event_number,
+        predecessor_event_id=predecessor_event_id,
+        event_kind=event_kind,
+        reservation=reservation,
+        preparation_claim=preparation_claim,
+        prepared_execution=prepared_execution,
+        spawn_commit=spawn_commit,
+        result_receipt=None,
+        acceptance=None,
+        terminal_reason=None,
+        workspace_after=None,
     )
 
 
@@ -154,15 +207,17 @@ def test_action_store_reopens_complete_request_result_and_terminal_prefix(
     with _open_session(store, reservation) as session:
         reserved = session.reserve(request_payload)
         assert reserved.event_kind is RunActionExecutionEventKind.INTENT_RESERVED
-        assert session.read_request() == request_payload
+        with pytest.raises(RunActionStoreError, match="unavailable before spawn"):
+            session.read_request()
+        _prepare_session(session)
         spawn = session.commit_spawn(
-            provider_execution_id="codex_cli_invocation_0123456789abcdef",
             security_observation_id=(
                 frontier.checkpoint.safety_state.security_observation.observation_id
             ),
             boundary_identity=session.reservation.intent.boundary_identity,
         )
         assert spawn.boundary_identity == session.reservation.intent.boundary_identity
+        assert session.read_request() == request_payload
         raw_result = b'{"provider_response":"complete"}'
         result = session.record_result(
             spawn_commit=spawn,
@@ -180,7 +235,7 @@ def test_action_store_reopens_complete_request_result_and_terminal_prefix(
         assert acceptance.workspace_after.to_identity() == workspace
 
     snapshot = store.snapshot()
-    assert snapshot.event_count == 4
+    assert snapshot.event_count == 6
     assert snapshot.operation_tails[0].tail_kind is (
         RunActionExecutionEventKind.RESULT_ACCEPTED
     )
@@ -192,11 +247,204 @@ def test_action_store_reopens_complete_request_result_and_terminal_prefix(
     assert reopened.snapshot() == snapshot
     with _open_session(reopened, reservation) as session:
         assert session.read_request() == request_payload
-        assert session.read_result(session.events[2].result_receipt) == raw_result
+        assert session.read_result(session.events[4].result_receipt) == raw_result
         assert (
-            session.read_accepted_result(session.events[3].acceptance)
+            session.read_accepted_result(session.events[5].acceptance)
             == accepted_result
         )
+
+
+def test_action_store_rejects_legacy_and_cross_authority_event_splices(
+    publisher_case,
+):
+    frontier, request_payload, reservation, workspace = _reserved_action(
+        publisher_case,
+        operation_id="splice_target_action_0123456789abcdef",
+    )
+    _frontier, _alternate_payload, alternate_reservation, _workspace = _reserved_action(
+        publisher_case,
+        operation_id="splice_source_action_0123456789abcdef",
+        frontier=frontier,
+        workspace=workspace,
+    )
+    store = _open_store(
+        publisher_case["active"],
+        publisher_case["settings"],
+    )
+    with _open_session(store, reservation) as session:
+        session.reserve(request_payload)
+        durable_prepared = _prepare_session(session)
+        session.commit_spawn(
+            security_observation_id=reservation.frontier.security_observation_id,
+            boundary_identity=reservation.intent.boundary_identity,
+        )
+        durable_events = session.events
+
+    policy = _execution_policy(
+        kind=alternate_reservation.intent.kind,
+        workspace_access=alternate_reservation.intent.workspace_access,
+    )
+    foreign_claim = RunActionPreparationClaim.mint(
+        reservation=alternate_reservation,
+        execution_policy=policy,
+    )
+    foreign_prepared = _prepared_execution(
+        claim=foreign_claim,
+        container_id="e" * 64,
+        inode_offset=701,
+    )
+    alternate_prepared = _prepared_execution(
+        claim=durable_events[1].preparation_claim,
+        container_id="f" * 64,
+        inode_offset=1701,
+    )
+    legacy_spawn = _execution_event(
+        reservation=reservation,
+        event_number=2,
+        predecessor_event_id=durable_events[0].event_id,
+        event_kind=RunActionExecutionEventKind.SPAWN_COMMITTED,
+        spawn_commit=durable_events[3].spawn_commit,
+    )
+    spliced_claim = _execution_event(
+        reservation=reservation,
+        event_number=2,
+        predecessor_event_id=durable_events[0].event_id,
+        event_kind=RunActionExecutionEventKind.PREPARATION_CLAIMED,
+        preparation_claim=foreign_claim,
+    )
+    spliced_prepared = _execution_event(
+        reservation=reservation,
+        event_number=3,
+        predecessor_event_id=durable_events[1].event_id,
+        event_kind=RunActionExecutionEventKind.EXECUTION_PREPARED,
+        prepared_execution=foreign_prepared,
+    )
+    alternate_prepared_event = _execution_event(
+        reservation=reservation,
+        event_number=3,
+        predecessor_event_id=durable_events[1].event_id,
+        event_kind=RunActionExecutionEventKind.EXECUTION_PREPARED,
+        prepared_execution=alternate_prepared,
+    )
+    spliced_spawn = _execution_event(
+        reservation=reservation,
+        event_number=4,
+        predecessor_event_id=alternate_prepared_event.event_id,
+        event_kind=RunActionExecutionEventKind.SPAWN_COMMITTED,
+        spawn_commit=durable_events[3].spawn_commit,
+    )
+
+    invalid_prefixes = (
+        ((durable_events[0], legacy_spawn), "changed identity"),
+        ((durable_events[0], spliced_claim), "differs from its reservation"),
+        (
+            (durable_events[0], durable_events[1], spliced_prepared),
+            "differs from its claim",
+        ),
+        (
+            (
+                durable_events[0],
+                durable_events[1],
+                alternate_prepared_event,
+                spliced_spawn,
+            ),
+            "spawn differs from its reservation",
+        ),
+    )
+    for prefix, message in invalid_prefixes:
+        with pytest.raises(RunActionStoreError, match=message):
+            run_action_store_module._validate_event_prefix(prefix)
+    assert durable_prepared == durable_events[2].prepared_execution
+
+
+def test_action_store_rejects_wrong_spawn_security_before_publication(
+    publisher_case,
+):
+    _frontier, request_payload, reservation, _workspace = _reserved_action(
+        publisher_case,
+        operation_id="wrong_spawn_security_0123456789abcdef",
+    )
+    store = _open_store(
+        publisher_case["active"],
+        publisher_case["settings"],
+    )
+    store_path = (
+        publisher_case["active"].run_root
+        / publisher_case["settings"].run_action_store_path
+    )
+    with _open_session(store, reservation) as session:
+        session.reserve(request_payload)
+        _prepare_session(session)
+        with pytest.raises(RunActionStoreError, match="spawn security"):
+            session.commit_spawn(
+                security_observation_id=content_id(
+                    "security-denylist-observation",
+                    {"wrong": True},
+                ),
+                boundary_identity=reservation.intent.boundary_identity,
+            )
+        assert len(session.events) == 3
+
+    operation_digest = hashlib.sha256(
+        reservation.intent.operation_id.encode("utf-8")
+    ).hexdigest()
+    assert not (store_path / f"operation-{operation_digest}-event-0004.json").exists()
+
+
+@pytest.mark.parametrize("constrained_resource", ("entry", "byte"))
+def test_action_reservation_requires_complete_lifecycle_capacity_without_strands(
+    publisher_case,
+    constrained_resource,
+):
+    _frontier, request_payload, reservation, _workspace = _reserved_action(
+        publisher_case,
+        operation_id=f"{constrained_resource}_capacity_0123456789abcdef",
+    )
+    store = _open_store(
+        publisher_case["active"],
+        publisher_case["settings"],
+    )
+    store_path = (
+        publisher_case["active"].run_root
+        / publisher_case["settings"].run_action_store_path
+    )
+    constrained_settings = replace(publisher_case["settings"])
+    with _open_session(store, reservation) as session:
+        intent_event = session._event(
+            RunActionExecutionEventKind.INTENT_RESERVED,
+        )
+        if constrained_resource == "entry":
+            projected_entry_count = len(tuple(store_path.iterdir())) + 2 + 5 + 2
+            object.__setattr__(
+                constrained_settings,
+                "run_action_store_entry_limit",
+                projected_entry_count - 1,
+            )
+        else:
+            current_size_bytes = sum(
+                path.stat().st_size for path in store_path.iterdir()
+            )
+            projected_size_bytes = (
+                current_size_bytes
+                + len(request_payload)
+                + len(intent_event.to_json_bytes())
+                + 5 * constrained_settings.run_action_event_size_bytes
+                + 2 * constrained_settings.run_action_result_size_bytes
+            )
+            object.__setattr__(
+                constrained_settings,
+                "run_action_store_size_bytes",
+                projected_size_bytes - 1,
+            )
+        object.__setattr__(store, "_settings", constrained_settings)
+        with pytest.raises(RunActionStoreError, match="lacks capacity"):
+            session.reserve(request_payload)
+        assert session.events == ()
+
+    assert {path.name for path in store_path.iterdir()} == {
+        "registry.lock",
+        "workspace.lock",
+    }
 
 
 def test_action_store_rejects_reminted_failed_edit_with_changed_workspace(
@@ -239,6 +487,8 @@ def test_action_store_rejects_reminted_failed_edit_with_changed_workspace(
         predecessor_event_id=original.predecessor_event_id,
         event_kind=original.event_kind,
         reservation=original.reservation,
+        preparation_claim=None,
+        prepared_execution=None,
         spawn_commit=None,
         result_receipt=None,
         acceptance=acceptance,
@@ -251,7 +501,7 @@ def test_action_store_rejects_reminted_failed_edit_with_changed_workspace(
     event_path = (
         publisher_case["active"].run_root
         / publisher_case["settings"].run_action_store_path
-        / f"operation-{operation_digest}-event-0004.json"
+        / f"operation-{operation_digest}-event-0006.json"
     )
     event_path.chmod(0o600)
     event_path.write_bytes(tampered.to_json_bytes())
@@ -363,7 +613,6 @@ def test_action_store_cancel_and_interrupted_prefixes_are_terminal(
             )
         with pytest.raises(RunActionStoreError, match="requires a"):
             session.commit_spawn(
-                provider_execution_id="forbidden_spawn_0123456789abcdef",
                 security_observation_id=(
                     frontier.checkpoint.safety_state.security_observation.observation_id
                 ),
@@ -383,8 +632,8 @@ def test_action_store_cancel_and_interrupted_prefixes_are_terminal(
     )
     with _open_session(store, second_reservation) as session:
         session.reserve(second_payload)
+        _prepare_session(session)
         session.commit_spawn(
-            provider_execution_id="lost_provider_0123456789abcdef",
             security_observation_id=(
                 second_frontier.checkpoint.safety_state.security_observation.observation_id
             ),
@@ -418,8 +667,8 @@ def test_action_store_rejects_request_substitution_and_result_corruption(
         with pytest.raises(RunActionStoreError, match="complete request"):
             session.reserve(request_payload + b" altered")
         session.reserve(request_payload)
+        _prepare_session(session)
         spawn = session.commit_spawn(
-            provider_execution_id="corrupt_result_0123456789abcdef",
             security_observation_id=(reservation.frontier.security_observation_id),
             boundary_identity=session.reservation.intent.boundary_identity,
         )
@@ -529,7 +778,7 @@ def test_action_store_reclaims_unreferenced_final_blobs(
     assert reopened.snapshot().event_count == 0
 
 
-def test_action_store_rejects_reused_provider_execution_identity(
+def test_action_store_rejects_reused_prepared_container_identity(
     publisher_case,
 ):
     frontier, request_payload, first, workspace = _reserved_action(
@@ -540,11 +789,11 @@ def test_action_store_rejects_reused_provider_execution_identity(
         publisher_case["active"],
         publisher_case["settings"],
     )
-    provider_execution_id = "shared_provider_execution_0123456789abcdef"
+    shared_container_id = "d" * 64
     with _open_session(store, first) as session:
         session.reserve(request_payload)
+        _prepare_session(session, container_id=shared_container_id)
         spawn = session.commit_spawn(
-            provider_execution_id=provider_execution_id,
             security_observation_id=(
                 frontier.checkpoint.safety_state.security_observation.observation_id
             ),
@@ -568,14 +817,75 @@ def test_action_store_rejects_reused_provider_execution_identity(
     )
     with _open_session(store, second) as session:
         session.reserve(second_payload)
-        with pytest.raises(RunActionStoreError, match="identity was reused"):
-            session.commit_spawn(
-                provider_execution_id=provider_execution_id,
-                security_observation_id=(
-                    frontier.checkpoint.safety_state.security_observation.observation_id
-                ),
-                boundary_identity=session.reservation.intent.boundary_identity,
+        policy = _execution_policy(
+            kind=session.reservation.intent.kind,
+            workspace_access=session.reservation.intent.workspace_access,
+        )
+        claim = session.claim_preparation(policy)
+        operation_digest = hashlib.sha256(
+            session.reservation.intent.operation_id.encode("utf-8")
+        ).hexdigest()
+        prepared = _prepared_execution(
+            claim=claim,
+            container_id=shared_container_id,
+            inode_offset=int(operation_digest[:8], 16),
+        )
+        with pytest.raises(RunActionStoreError, match="authority was reused"):
+            session.commit_prepared_execution(
+                prepared,
             )
+
+
+def test_action_store_rejects_reused_prepared_filesystem_authority(
+    publisher_case,
+):
+    frontier, request_payload, first, workspace = _reserved_action(
+        publisher_case,
+        operation_id="first_slot_action_0123456789abcdef",
+    )
+    store = _open_store(
+        publisher_case["active"],
+        publisher_case["settings"],
+    )
+    shared_inode_offset = 4701
+    with _open_session(store, first) as session:
+        session.reserve(request_payload)
+        _prepare_session(session, inode_offset=shared_inode_offset)
+        spawn = session.commit_spawn(
+            security_observation_id=first.frontier.security_observation_id,
+            boundary_identity=first.intent.boundary_identity,
+        )
+        result = session.record_result(
+            spawn_commit=spawn,
+            result_payload=b'{"result":"first slot authority"}',
+        )
+        session.accept_result(
+            result_receipt=result,
+            disposition=RunActionResultDisposition.SUCCEEDED,
+            accepted_result_payload=b'{"accepted":"first slot authority"}',
+            workspace_after=workspace,
+        )
+
+    _frontier, second_payload, second, _workspace = _reserved_action(
+        publisher_case,
+        operation_id="second_slot_action_0123456789abcdef",
+        frontier=frontier,
+        workspace=workspace,
+    )
+    with _open_session(store, second) as session:
+        session.reserve(second_payload)
+        policy = _execution_policy(
+            kind=second.intent.kind,
+            workspace_access=second.intent.workspace_access,
+        )
+        claim = session.claim_preparation(policy)
+        candidate = _prepared_execution(
+            claim=claim,
+            container_id="c" * 64,
+            inode_offset=shared_inode_offset,
+        )
+        with pytest.raises(RunActionStoreError, match="authority was reused"):
+            session.commit_prepared_execution(candidate)
 
 
 def test_action_store_concurrent_reservation_is_create_once(

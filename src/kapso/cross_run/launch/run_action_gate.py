@@ -47,6 +47,11 @@ from kapso.cross_run.launch.run_action_store import (
     RunActionStoreInspection,
     RunActionTerminalReason,
 )
+from kapso.cross_run.launch.run_action_supervisor_contracts import (
+    DockerRunActionExecutionPolicy,
+    RunActionPreparationClaim,
+    RunActionPreparedExecution,
+)
 from kapso.cross_run.launch.run_state_publisher import (
     ReconciledRunFrontier,
     RunStatePublisher,
@@ -199,7 +204,6 @@ class RunFrontierUseLease:
     __slots__ = (
         "_active",
         "_authority",
-        "_claimed",
         "_descriptors",
         "_frontier",
         "_gate",
@@ -233,7 +237,6 @@ class RunFrontierUseLease:
             )
         object.__setattr__(self, "_active", True)
         object.__setattr__(self, "_authority", _USE_LEASE_AUTHORITY)
-        object.__setattr__(self, "_claimed", False)
         object.__setattr__(self, "_descriptors", descriptors)
         object.__setattr__(self, "_frontier", frontier)
         object.__setattr__(self, "_gate", gate)
@@ -454,23 +457,69 @@ class RunFrontierActionGate:
             )
         return _RunFrontierUseContext(self, permit, request_payload)
 
-    def claim(
+    def claim_preparation(
         self,
         lease: RunFrontierUseLease,
         *,
         kind: RunFrontierActionKind,
-        provider_execution_id: str,
+        execution_policy: DockerRunActionExecutionPolicy,
+    ) -> RunActionPreparationClaim:
+        """Fence the lifecycle-owned policy before any resource allocation."""
+        self._require_live_lease(
+            lease,
+            kind=kind,
+            required_tail=RunActionExecutionEventKind.INTENT_RESERVED,
+        )
+        self._require_current_security(lease)
+        return lease._session.claim_preparation(execution_policy)
+
+    def commit_prepared_execution(
+        self,
+        lease: RunFrontierUseLease,
+        *,
+        kind: RunFrontierActionKind,
+        prepared_execution: RunActionPreparedExecution,
+    ) -> RunActionPreparedExecution:
+        """Persist the one inert occurrence produced for the durable claim."""
+        self._require_live_lease(
+            lease,
+            kind=kind,
+            required_tail=RunActionExecutionEventKind.PREPARATION_CLAIMED,
+        )
+        return lease._session.commit_prepared_execution(prepared_execution)
+
+    def claim_activation(
+        self,
+        lease: RunFrontierUseLease,
+        *,
+        kind: RunFrontierActionKind,
         boundary_identity: RunActionBoundaryIdentity,
     ) -> int | None:
-        """Durably commit the exact provider invocation before it may spawn."""
-        self._require_live_lease(lease, kind=kind, require_claimed=False)
+        """Commit the exact prepared occurrence before activation authority."""
+        self._require_live_lease(
+            lease,
+            kind=kind,
+            required_tail=RunActionExecutionEventKind.EXECUTION_PREPARED,
+        )
         if (
             type(boundary_identity) is not RunActionBoundaryIdentity
             or boundary_identity != lease._reservation.intent.boundary_identity
         ):
             raise RunFrontierActionError(
-                "run action claim boundary differs from its reservation"
+                "run action activation boundary differs from its reservation"
             )
+        current_security = self._require_current_security(lease)
+        spawn_commit = lease._session.commit_spawn(
+            security_observation_id=current_security.observation_id,
+            boundary_identity=boundary_identity,
+        )
+        object.__setattr__(lease, "_spawn_commit", spawn_commit)
+        return lease._workspace_descriptor
+
+    def _require_current_security(
+        self,
+        lease: RunFrontierUseLease,
+    ) -> SecurityDenylistObservation:
         required_security = lease._security_observation
         current_security = self._security_authority.observe_exact_descendant_of(
             scope_id=required_security.scope_id,
@@ -485,14 +534,7 @@ class RunFrontierActionGate:
             raise RunFrontierActionError(
                 "run safety state must be refreshed before external action"
             )
-        spawn_commit = lease._session.commit_spawn(
-            provider_execution_id=provider_execution_id,
-            security_observation_id=(current_security.observation_id),
-            boundary_identity=boundary_identity,
-        )
-        object.__setattr__(lease, "_claimed", True)
-        object.__setattr__(lease, "_spawn_commit", spawn_commit)
-        return lease._workspace_descriptor
+        return current_security
 
     def record_result(
         self,
@@ -504,7 +546,7 @@ class RunFrontierActionGate:
         self._require_live_lease(
             lease,
             kind=lease._reservation.intent.kind,
-            require_claimed=True,
+            required_tail=RunActionExecutionEventKind.SPAWN_COMMITTED,
         )
         if lease._result_receipt is not None:
             raise RunFrontierActionError("run action result was already recorded")
@@ -527,7 +569,7 @@ class RunFrontierActionGate:
         self._require_live_lease(
             lease,
             kind=lease._reservation.intent.kind,
-            require_claimed=True,
+            required_tail=RunActionExecutionEventKind.RESULT_RECEIVED,
         )
         if result_receipt is not lease._result_receipt:
             raise RunFrontierActionError(
@@ -551,7 +593,7 @@ class RunFrontierActionGate:
         self._require_live_lease(
             lease,
             kind=lease._reservation.intent.kind,
-            require_claimed=True,
+            required_tail=RunActionExecutionEventKind.SPAWN_COMMITTED,
         )
         if lease._result_receipt is not None:
             raise RunFrontierActionError(
@@ -713,9 +755,12 @@ class RunFrontierActionGate:
         lease: RunFrontierUseLease,
         *,
         kind: RunFrontierActionKind,
-        require_claimed: bool,
+        required_tail: RunActionExecutionEventKind,
     ) -> None:
-        if type(lease) is not RunFrontierUseLease:
+        if (
+            type(lease) is not RunFrontierUseLease
+            or type(required_tail) is not RunActionExecutionEventKind
+        ):
             raise RunFrontierActionError(
                 "run action boundary requires one exact live lease"
             )
@@ -728,11 +773,11 @@ class RunFrontierActionGate:
             or not lease._active
             or lease._owner_process_id != os.getpid()
             or lease._reservation.intent.kind is not kind
-            or lease._claimed is not require_claimed
+            or not lease._session.events
+            or lease._session.events[-1].event_kind is not required_tail
         ):
-            state = "claimed" if not require_claimed else "unclaimed"
             raise RunFrontierActionError(
-                f"run frontier use lease is foreign, expired, {state}, or mismatched"
+                "run frontier use lease is foreign, expired, or in another phase"
             )
 
     def _inspect_workspace_after(

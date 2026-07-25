@@ -39,6 +39,11 @@ from kapso.cross_run.launch.run_action_reservation_contracts import (
 from kapso.cross_run.launch.run_action_spawn_contracts import (
     RunActionSpawnCommit as _RunActionSpawnCommit,
 )
+from kapso.cross_run.launch.run_action_supervisor_contracts import (
+    DockerRunActionExecutionPolicy,
+    RunActionPreparationClaim,
+    RunActionPreparedExecution,
+)
 from kapso.cross_run.launch.workspace import ActiveLaunchWorkspace
 from kapso.cross_run.launch.workspace_frontier import RunWorkspaceFrontierIdentity
 from kapso.cross_run.settings import LaunchSettings
@@ -54,10 +59,35 @@ _INPUT_NAME_PATTERN = re.compile(r"^input-(?P<digest>[0-9a-f]{64})[.]blob$")
 _STAGING_NAME_PATTERN = re.compile(
     r"^[.](?P<kind>accepted|event|input|result)-[0-9a-f]{32}[.]tmp$"
 )
-_MAXIMUM_EVENT_COUNT = 4
+_MAXIMUM_EVENT_COUNT = 6
 _RUN_ACTION_STORE_AUTHORITY = object()
 _RUN_ACTION_MUTATION_AUTHORITY = object()
 _RUN_ACTION_RECOVERY_AUTHORITY = object()
+_TERMINAL_EVENT_KINDS = {
+    RunActionExecutionEventKind.RESULT_ACCEPTED,
+    RunActionExecutionEventKind.CANCELLED,
+    RunActionExecutionEventKind.INTERRUPTED,
+}
+_FUTURE_EVENT_COUNT_BY_TAIL = {
+    RunActionExecutionEventKind.INTENT_RESERVED: 5,
+    RunActionExecutionEventKind.PREPARATION_CLAIMED: 4,
+    RunActionExecutionEventKind.EXECUTION_PREPARED: 3,
+    RunActionExecutionEventKind.SPAWN_COMMITTED: 2,
+    RunActionExecutionEventKind.RESULT_RECEIVED: 1,
+    RunActionExecutionEventKind.RESULT_ACCEPTED: 0,
+    RunActionExecutionEventKind.CANCELLED: 0,
+    RunActionExecutionEventKind.INTERRUPTED: 0,
+}
+_FUTURE_RESULT_BLOB_COUNT_BY_TAIL = {
+    RunActionExecutionEventKind.INTENT_RESERVED: 2,
+    RunActionExecutionEventKind.PREPARATION_CLAIMED: 2,
+    RunActionExecutionEventKind.EXECUTION_PREPARED: 2,
+    RunActionExecutionEventKind.SPAWN_COMMITTED: 2,
+    RunActionExecutionEventKind.RESULT_RECEIVED: 1,
+    RunActionExecutionEventKind.RESULT_ACCEPTED: 0,
+    RunActionExecutionEventKind.CANCELLED: 0,
+    RunActionExecutionEventKind.INTERRUPTED: 0,
+}
 
 
 class RunActionStoreError(RunActionContractError):
@@ -162,6 +192,8 @@ class RunActionExecutionEvent(StrictContract):
     predecessor_event_id: str | None
     event_kind: RunActionExecutionEventKind
     reservation: _RunActionReservation
+    preparation_claim: RunActionPreparationClaim | None
+    prepared_execution: RunActionPreparedExecution | None
     spawn_commit: _RunActionSpawnCommit | None
     result_receipt: RunActionResultReceipt | None
     acceptance: RunActionAcceptance | None
@@ -186,7 +218,25 @@ class RunActionExecutionEvent(StrictContract):
                 self.CONTENT_NAMESPACE,
                 "run action event predecessor",
             )
+        optional_payloads = (
+            (self.preparation_claim, RunActionPreparationClaim),
+            (self.prepared_execution, RunActionPreparedExecution),
+            (self.spawn_commit, _RunActionSpawnCommit),
+            (self.result_receipt, RunActionResultReceipt),
+            (self.acceptance, RunActionAcceptance),
+            (self.terminal_reason, RunActionTerminalReason),
+            (self.workspace_after, _RunActionWorkspaceBinding),
+        )
+        if any(
+            payload is not None and type(payload) is not expected_type
+            for payload, expected_type in optional_payloads
+        ):
+            raise RunActionStoreError(
+                "run action execution event carries an invalid payload type"
+            )
         shape = (
+            self.preparation_claim is not None,
+            self.prepared_execution is not None,
             self.spawn_commit is not None,
             self.result_receipt is not None,
             self.acceptance is not None,
@@ -200,8 +250,30 @@ class RunActionExecutionEvent(StrictContract):
                 False,
                 False,
                 False,
+                False,
+                False,
+            ),
+            RunActionExecutionEventKind.PREPARATION_CLAIMED: (
+                True,
+                False,
+                False,
+                False,
+                False,
+                False,
+                False,
+            ),
+            RunActionExecutionEventKind.EXECUTION_PREPARED: (
+                False,
+                True,
+                False,
+                False,
+                False,
+                False,
+                False,
             ),
             RunActionExecutionEventKind.SPAWN_COMMITTED: (
+                False,
+                False,
                 True,
                 False,
                 False,
@@ -210,12 +282,16 @@ class RunActionExecutionEvent(StrictContract):
             ),
             RunActionExecutionEventKind.RESULT_RECEIVED: (
                 False,
+                False,
+                False,
                 True,
                 False,
                 False,
                 False,
             ),
             RunActionExecutionEventKind.RESULT_ACCEPTED: (
+                False,
+                False,
                 False,
                 False,
                 True,
@@ -226,10 +302,14 @@ class RunActionExecutionEvent(StrictContract):
                 False,
                 False,
                 False,
+                False,
+                False,
                 True,
                 False,
             ),
             RunActionExecutionEventKind.INTERRUPTED: (
+                False,
+                False,
                 False,
                 False,
                 False,
@@ -443,24 +523,92 @@ class _RunActionExecutionSession:
         self._events = (event,)
         return event
 
+    def claim_preparation(
+        self,
+        execution_policy: DockerRunActionExecutionPolicy,
+    ) -> RunActionPreparationClaim:
+        """Durably fence one exact execution policy before resource allocation."""
+        self._require_tail(RunActionExecutionEventKind.INTENT_RESERVED)
+        lifecycle = (
+            self.reservation.intent.boundary_identity.execution_lifecycle_identity
+        )
+        if (
+            type(execution_policy) is not DockerRunActionExecutionPolicy
+            or execution_policy.kind is not self.reservation.intent.kind
+            or execution_policy.docker_execution_policy_id
+            != lifecycle.execution_policy_id
+        ):
+            raise RunActionStoreError(
+                "run action preparation policy differs from its lifecycle"
+            )
+        claim = RunActionPreparationClaim.mint(
+            reservation=self.reservation,
+            execution_policy=execution_policy,
+        )
+        self._append(
+            self._event(
+                RunActionExecutionEventKind.PREPARATION_CLAIMED,
+                preparation_claim=claim,
+            )
+        )
+        return claim
+
+    def commit_prepared_execution(
+        self,
+        prepared_execution: RunActionPreparedExecution,
+    ) -> RunActionPreparedExecution:
+        """Persist the sole concrete inert occurrence for the durable claim."""
+        self._append(self._prepared_event(prepared_execution))
+        return prepared_execution
+
+    def _prepared_event_size_bytes(
+        self,
+        prepared_execution: RunActionPreparedExecution,
+    ) -> int:
+        """Measure the exact event that would index one prepared occurrence."""
+        return len(self._prepared_event(prepared_execution).to_json_bytes())
+
+    def _prepared_event(
+        self,
+        prepared_execution: RunActionPreparedExecution,
+    ) -> RunActionExecutionEvent:
+        self._require_tail(RunActionExecutionEventKind.PREPARATION_CLAIMED)
+        claim = self._events[-1].preparation_claim
+        if (
+            type(prepared_execution) is not RunActionPreparedExecution
+            or prepared_execution.preparation_claim != claim
+        ):
+            raise RunActionStoreError(
+                "prepared run action execution differs from its durable claim"
+            )
+        return self._event(
+            RunActionExecutionEventKind.EXECUTION_PREPARED,
+            prepared_execution=prepared_execution,
+        )
+
     def commit_spawn(
         self,
         *,
-        provider_execution_id: str,
         security_observation_id: str,
         boundary_identity: RunActionBoundaryIdentity,
     ) -> _RunActionSpawnCommit:
-        self._require_tail(RunActionExecutionEventKind.INTENT_RESERVED)
+        self._require_tail(RunActionExecutionEventKind.EXECUTION_PREPARED)
         if (
             type(boundary_identity) is not RunActionBoundaryIdentity
             or boundary_identity != self.reservation.intent.boundary_identity
+            or security_observation_id
+            != self.reservation.frontier.security_observation_id
         ):
             raise RunActionStoreError(
-                "run action spawn boundary differs from its reservation"
+                "run action spawn security or boundary differs from its reservation"
             )
+        prepared_execution = self._events[-1].prepared_execution
         spawn_commit = _RunActionSpawnCommit.build(
             reservation_id=self.reservation.reservation_id,
-            provider_execution_id=provider_execution_id,
+            prepared_execution_id=prepared_execution.prepared_execution_id,
+            provider_execution_id=(
+                prepared_execution.inert_container_evidence.container_id
+            ),
             security_observation_id=security_observation_id,
             boundary_identity=boundary_identity,
         )
@@ -627,6 +775,15 @@ class _RunActionExecutionSession:
 
     def read_request(self) -> bytes:
         self._require_active()
+        if not self._events or self._events[-1].event_kind not in {
+            RunActionExecutionEventKind.SPAWN_COMMITTED,
+            RunActionExecutionEventKind.RESULT_RECEIVED,
+            RunActionExecutionEventKind.RESULT_ACCEPTED,
+            RunActionExecutionEventKind.INTERRUPTED,
+        }:
+            raise RunActionStoreError(
+                "run action request is unavailable before spawn commitment"
+            )
         return self._store._read_request(
             self._descriptors,
             self.reservation.request_blob,
@@ -648,6 +805,8 @@ class _RunActionExecutionSession:
         self,
         event_kind: RunActionExecutionEventKind,
         *,
+        preparation_claim: RunActionPreparationClaim | None = None,
+        prepared_execution: RunActionPreparedExecution | None = None,
         spawn_commit: _RunActionSpawnCommit | None = None,
         result_receipt: RunActionResultReceipt | None = None,
         acceptance: RunActionAcceptance | None = None,
@@ -661,6 +820,8 @@ class _RunActionExecutionSession:
             ),
             event_kind=event_kind,
             reservation=self.reservation,
+            preparation_claim=preparation_claim,
+            prepared_execution=prepared_execution,
             spawn_commit=spawn_commit,
             result_receipt=result_receipt,
             acceptance=acceptance,
@@ -1049,6 +1210,14 @@ class RunActionExecutionStore:
                 (int(match.group("number")), name)
             )
         tails = []
+        preparation_claim_ids = set()
+        prepared_execution_ids = set()
+        prepared_container_ids = set()
+        prepared_container_names = set()
+        prepared_slot_ids = set()
+        prepared_quota_scope_ids = set()
+        prepared_claim_root_identities = set()
+        prepared_slot_leaf_identities = set()
         provider_execution_ids = set()
         invocation_nonces = set()
         for operation_digest, numbered_names in sorted(grouped.items()):
@@ -1063,9 +1232,59 @@ class RunActionExecutionStore:
                     "run action operation filename differs from its reservation"
                 )
             if len(events) >= 2 and events[1].event_kind is (
+                RunActionExecutionEventKind.PREPARATION_CLAIMED
+            ):
+                claim_id = events[1].preparation_claim.preparation_claim_id
+                if claim_id in preparation_claim_ids:
+                    raise RunActionStoreError(
+                        "run action preparation claim identity was reused"
+                    )
+                preparation_claim_ids.add(claim_id)
+            if len(events) >= 3:
+                prepared = events[2].prepared_execution
+                slots = tuple(
+                    slot
+                    for slot in (
+                        prepared.input_slot,
+                        prepared.result_slot,
+                        prepared.credential_slot,
+                    )
+                    if slot is not None
+                )
+                slot_ids = {slot.prepared_slot_id for slot in slots}
+                quota_scope_ids = {
+                    slot.quota_observation.exclusive_scope_id for slot in slots
+                }
+                claim_root_identities = {
+                    slot.descriptor_walk.nodes[-2].identity for slot in slots
+                }
+                slot_leaf_identities = {
+                    slot.descriptor_walk.nodes[-1].identity for slot in slots
+                }
+                evidence = prepared.inert_container_evidence
+                if (
+                    prepared.prepared_execution_id in prepared_execution_ids
+                    or evidence.container_id in prepared_container_ids
+                    or evidence.container_name in prepared_container_names
+                    or prepared_slot_ids & slot_ids
+                    or prepared_quota_scope_ids & quota_scope_ids
+                    or prepared_claim_root_identities & claim_root_identities
+                    or prepared_slot_leaf_identities & slot_leaf_identities
+                ):
+                    raise RunActionStoreError(
+                        "run action prepared occurrence authority was reused"
+                    )
+                prepared_execution_ids.add(prepared.prepared_execution_id)
+                prepared_container_ids.add(evidence.container_id)
+                prepared_container_names.add(evidence.container_name)
+                prepared_slot_ids.update(slot_ids)
+                prepared_quota_scope_ids.update(quota_scope_ids)
+                prepared_claim_root_identities.update(claim_root_identities)
+                prepared_slot_leaf_identities.update(slot_leaf_identities)
+            if len(events) >= 4 and events[3].event_kind is (
                 RunActionExecutionEventKind.SPAWN_COMMITTED
             ):
-                spawn = events[1].spawn_commit
+                spawn = events[3].spawn_commit
                 if (
                     spawn.provider_execution_id in provider_execution_ids
                     or spawn.invocation_nonce in invocation_nonces
@@ -1131,7 +1350,18 @@ class RunActionExecutionStore:
                     tail_kind=events[-1].event_kind,
                 )
             )
-        return RunActionLedgerSnapshot.build(tuple(tails))
+        snapshot = RunActionLedgerSnapshot.build(tuple(tails))
+        if (
+            sum(
+                tail.tail_kind not in _TERMINAL_EVENT_KINDS
+                for tail in snapshot.operation_tails
+            )
+            > 1
+        ):
+            raise RunActionStoreError(
+                "run action store has multiple nonterminal operations"
+            )
+        return snapshot
 
     def _reserve(
         self,
@@ -1157,6 +1387,13 @@ class RunActionExecutionStore:
             ):
                 raise RunActionStoreError(
                     "run action store reached its operation limit"
+                )
+            if any(
+                tail.tail_kind not in _TERMINAL_EVENT_KINDS
+                for tail in snapshot.operation_tails
+            ):
+                raise RunActionStoreError(
+                    "run action store already has a nonterminal operation"
                 )
             existing_intent_ids = {
                 self._read_operation_events(
@@ -1204,6 +1441,7 @@ class RunActionExecutionStore:
                     len(event_payload) + (0 if request_exists else len(request_payload))
                 ),
                 additional_entry_count=1 + (0 if request_exists else 1),
+                prospective_tail_kind=event.event_kind,
             )
             self._publish_request_locked(
                 store_descriptor,
@@ -1303,6 +1541,11 @@ class RunActionExecutionStore:
         with ExitStack() as registry_descriptors:
             self._lock_registry(store_descriptor, registry_descriptors)
             event_names, _snapshot = self._prepare_store_locked(store_descriptor)
+            self._require_unique_prepared_authority(
+                store_descriptor,
+                event_names,
+                event=event,
+            )
             self._require_unique_spawn_identity(
                 store_descriptor,
                 event_names,
@@ -1312,12 +1555,81 @@ class RunActionExecutionStore:
                 store_descriptor,
                 additional_size_bytes=len(event.to_json_bytes()),
                 additional_entry_count=1,
+                prospective_tail_kind=event.event_kind,
             )
             self._publish_event_locked(
                 store_descriptor,
                 operation_id,
                 event,
             )
+
+    def _require_unique_prepared_authority(
+        self,
+        store_descriptor: int,
+        event_names: tuple[str, ...],
+        *,
+        event: RunActionExecutionEvent,
+    ) -> None:
+        candidate = event.prepared_execution
+        if candidate is None:
+            return
+        candidate_slots = tuple(
+            slot
+            for slot in (
+                candidate.input_slot,
+                candidate.result_slot,
+                candidate.credential_slot,
+            )
+            if slot is not None
+        )
+        candidate_slot_ids = {slot.prepared_slot_id for slot in candidate_slots}
+        candidate_quota_scope_ids = {
+            slot.quota_observation.exclusive_scope_id for slot in candidate_slots
+        }
+        candidate_claim_root_identities = {
+            slot.descriptor_walk.nodes[-2].identity for slot in candidate_slots
+        }
+        candidate_slot_leaf_identities = {
+            slot.descriptor_walk.nodes[-1].identity for slot in candidate_slots
+        }
+        for tail in self._snapshot_from_event_names(
+            store_descriptor,
+            event_names,
+        ).operation_tails:
+            events = self._read_operation_events(
+                store_descriptor,
+                tail.operation_id,
+            )
+            if len(events) < 3:
+                continue
+            existing = events[2].prepared_execution
+            existing_slots = tuple(
+                slot
+                for slot in (
+                    existing.input_slot,
+                    existing.result_slot,
+                    existing.credential_slot,
+                )
+                if slot is not None
+            )
+            if (
+                existing.prepared_execution_id == candidate.prepared_execution_id
+                or existing.inert_container_evidence.container_id
+                == candidate.inert_container_evidence.container_id
+                or existing.inert_container_evidence.container_name
+                == candidate.inert_container_evidence.container_name
+                or candidate_slot_ids
+                & {slot.prepared_slot_id for slot in existing_slots}
+                or candidate_quota_scope_ids
+                & {slot.quota_observation.exclusive_scope_id for slot in existing_slots}
+                or candidate_claim_root_identities
+                & {slot.descriptor_walk.nodes[-2].identity for slot in existing_slots}
+                or candidate_slot_leaf_identities
+                & {slot.descriptor_walk.nodes[-1].identity for slot in existing_slots}
+            ):
+                raise RunActionStoreError(
+                    "run action prepared occurrence authority was reused"
+                )
 
     def _publish_event_locked(
         self,
@@ -1394,6 +1706,7 @@ class RunActionExecutionStore:
                     + (0 if result_exists else len(result_payload))
                 ),
                 additional_entry_count=1 + (0 if result_exists else 1),
+                prospective_tail_kind=event.event_kind,
             )
             self._publish_result_locked(
                 store_descriptor,
@@ -1426,12 +1739,12 @@ class RunActionExecutionStore:
                 tail.operation_id,
             )
             if (
-                len(events) < 2
-                or events[1].event_kind
+                len(events) < 4
+                or events[3].event_kind
                 is not RunActionExecutionEventKind.SPAWN_COMMITTED
             ):
                 continue
-            spawn = events[1].spawn_commit
+            spawn = events[3].spawn_commit
             if (
                 spawn.provider_execution_id == event.spawn_commit.provider_execution_id
                 or spawn.invocation_nonce == event.spawn_commit.invocation_nonce
@@ -1548,12 +1861,14 @@ class RunActionExecutionStore:
         *,
         additional_size_bytes: int,
         additional_entry_count: int,
+        prospective_tail_kind: RunActionExecutionEventKind,
     ) -> None:
         if (
             type(additional_size_bytes) is not int
             or additional_size_bytes < 0
             or type(additional_entry_count) is not int
-            or additional_entry_count <= 0
+            or additional_entry_count < 0
+            or type(prospective_tail_kind) is not RunActionExecutionEventKind
         ):
             raise RunActionStoreError("run action capacity reservation is invalid")
         entry_count = 0
@@ -1564,9 +1879,21 @@ class RunActionExecutionStore:
                 metadata = entry.stat(follow_symlinks=False)
                 total_size_bytes += metadata.st_size
         if (
-            entry_count + additional_entry_count
+            entry_count
+            + additional_entry_count
+            + _FUTURE_EVENT_COUNT_BY_TAIL[prospective_tail_kind]
+            + _FUTURE_RESULT_BLOB_COUNT_BY_TAIL[prospective_tail_kind]
             > self._settings.run_action_store_entry_limit
-            or total_size_bytes + additional_size_bytes
+            or total_size_bytes
+            + additional_size_bytes
+            + (
+                _FUTURE_EVENT_COUNT_BY_TAIL[prospective_tail_kind]
+                * self._settings.run_action_event_size_bytes
+            )
+            + (
+                _FUTURE_RESULT_BLOB_COUNT_BY_TAIL[prospective_tail_kind]
+                * self._settings.run_action_result_size_bytes
+            )
             > self._settings.run_action_store_size_bytes
         ):
             raise RunActionStoreError(
@@ -1668,6 +1995,21 @@ class RunActionExecutionStore:
             raise RunActionStoreError(
                 "run action cleanup changed the durable event set"
             )
+        nonterminal_tails = tuple(
+            tail
+            for tail in snapshot.operation_tails
+            if tail.tail_kind not in _TERMINAL_EVENT_KINDS
+        )
+        self._require_store_capacity(
+            store_descriptor,
+            additional_size_bytes=0,
+            additional_entry_count=0,
+            prospective_tail_kind=(
+                RunActionExecutionEventKind.RESULT_ACCEPTED
+                if not nonterminal_tails
+                else nonterminal_tails[0].tail_kind
+            ),
+        )
         return cleaned_event_names, snapshot
 
     def _clean_staging(self, store_descriptor: int) -> None:
@@ -1817,61 +2159,81 @@ def _validate_event_prefix(events: tuple[RunActionExecutionEvent, ...]) -> None:
     if not events:
         return
     reservation = events[0].reservation
-    expected_kinds = (
+    normal_kinds = (
         RunActionExecutionEventKind.INTENT_RESERVED,
+        RunActionExecutionEventKind.PREPARATION_CLAIMED,
+        RunActionExecutionEventKind.EXECUTION_PREPARED,
         RunActionExecutionEventKind.SPAWN_COMMITTED,
         RunActionExecutionEventKind.RESULT_RECEIVED,
         RunActionExecutionEventKind.RESULT_ACCEPTED,
     )
+    if events[-1].event_kind is RunActionExecutionEventKind.CANCELLED:
+        expected_kinds = (
+            RunActionExecutionEventKind.INTENT_RESERVED,
+            RunActionExecutionEventKind.CANCELLED,
+        )
+    elif events[-1].event_kind is RunActionExecutionEventKind.INTERRUPTED:
+        expected_kinds = (
+            *normal_kinds[:4],
+            RunActionExecutionEventKind.INTERRUPTED,
+        )
+    else:
+        expected_kinds = normal_kinds[: len(events)]
+    if len(expected_kinds) != len(events):
+        raise RunActionStoreError("run action event chain is not an admitted prefix")
     previous_event_id = None
     for position, event in enumerate(events, start=1):
         if (
             event.event_number != position
             or event.predecessor_event_id != previous_event_id
             or event.reservation != reservation
+            or event.event_kind is not expected_kinds[position - 1]
         ):
             raise RunActionStoreError(
                 "run action event chain changed identity or predecessor"
             )
-        if position == 1:
-            expected_kind = expected_kinds[0]
-        elif events[-1].event_kind is RunActionExecutionEventKind.CANCELLED:
-            expected_kind = RunActionExecutionEventKind.CANCELLED
-        elif events[-1].event_kind is RunActionExecutionEventKind.INTERRUPTED:
-            expected_kind = (
-                expected_kinds[1]
-                if position == 2
-                else RunActionExecutionEventKind.INTERRUPTED
-            )
-        else:
-            expected_kind = expected_kinds[position - 1]
-        if event.event_kind is not expected_kind:
-            raise RunActionStoreError(
-                "run action event chain is not an admitted prefix"
-            )
         previous_event_id = event.event_id
-    if len(events) >= 2:
-        spawn = events[1].spawn_commit
-        if events[1].event_kind is RunActionExecutionEventKind.SPAWN_COMMITTED and (
+    if len(events) >= 2 and events[1].event_kind is (
+        RunActionExecutionEventKind.PREPARATION_CLAIMED
+    ):
+        claim = events[1].preparation_claim
+        if claim.reservation != reservation:
+            raise RunActionStoreError(
+                "run action preparation claim differs from its reservation"
+            )
+    if len(events) >= 3:
+        claim = events[1].preparation_claim
+        prepared = events[2].prepared_execution
+        if prepared.preparation_claim != claim:
+            raise RunActionStoreError(
+                "prepared run action execution differs from its claim"
+            )
+    if len(events) >= 4:
+        prepared = events[2].prepared_execution
+        spawn = events[3].spawn_commit
+        if (
             spawn.reservation_id != reservation.reservation_id
             or spawn.security_observation_id
             != reservation.frontier.security_observation_id
             or spawn.boundary_identity != reservation.intent.boundary_identity
+            or spawn.prepared_execution_id != prepared.prepared_execution_id
+            or spawn.provider_execution_id
+            != prepared.inert_container_evidence.container_id
         ):
             raise RunActionStoreError("run action spawn differs from its reservation")
-    if len(events) >= 3 and events[2].event_kind is (
+    if len(events) >= 5 and events[4].event_kind is (
         RunActionExecutionEventKind.RESULT_RECEIVED
     ):
-        spawn = events[1].spawn_commit
-        result = events[2].result_receipt
+        spawn = events[3].spawn_commit
+        result = events[4].result_receipt
         if (
             result.spawn_commit_id != spawn.spawn_commit_id
             or result.provider_execution_id != spawn.provider_execution_id
         ):
             raise RunActionStoreError("run action result differs from its spawn")
-    if len(events) == 4:
-        result = events[2].result_receipt
-        acceptance = events[3].acceptance
+    if len(events) == 6:
+        result = events[4].result_receipt
+        acceptance = events[5].acceptance
         if acceptance.result_receipt_id != result.result_receipt_id:
             raise RunActionStoreError("run action acceptance differs from its result")
         _require_workspace_acceptance(
