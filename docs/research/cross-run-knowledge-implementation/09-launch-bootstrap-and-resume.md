@@ -18,7 +18,7 @@ M9 action adapters, with shared host/runtime authority owned once by top-level
 `cross_run.docker` rather than by either consumer. Boundary-specific production
 adapters and the mechanically constrained supervisor remain, while the
 content-addressed Docker execution-policy, deterministic preparation-claim,
-inert-evidence, prepared-execution contracts, and durable six-event action prefix
+inert-evidence, prepared-execution contracts, and durable seven-event action prefix
 are implemented. OS executor activation, explicit E0/S-EMPTY provisioning
 orchestration, full policy refresh on resume, and API/runner activation remain.
 
@@ -399,10 +399,11 @@ does not require the initial checkpoint journal or initial writable expert tree:
 the publisher and action-recovery layers own those evolved authorities.
 
 The gate now persists `INTENT_RESERVED` before returning a permit,
-`SPAWN_COMMITTED` before exposing provider/workspace authority, complete raw
-results before interpretation, and complete accepted results with the exact
-post-action workspace. Normal context exit requires a terminal durable prefix;
-exceptional exit deliberately leaves ambiguous spawn or received-result state
+`SPAWN_COMMITTED` before exposing bounded delivery/revalidation authority,
+`ACTIVATION_COMMITTED` before provider-start authority, complete raw results
+before interpretation, and complete accepted results with the exact post-action
+workspace. Normal context exit requires a terminal durable prefix; exceptional
+exit deliberately leaves ambiguous spawn, activation, or received-result state
 for resume. Admission is a ledger compare-and-swap, so reconstructed gates and
 concurrent processes cannot both reserve against the same live floor.
 Mutation entry points are internal and sealed to the gate. Provider execution
@@ -421,13 +422,14 @@ match the complete current frontier, including all mutable-view digests.
 Terminal operations replay their complete accepted bytes without contacting an
 execution adapter, result interpreter, or provider.
 
-Recovery is an explicit six-event state machine:
+Recovery is an explicit seven-event state machine:
 
 ```text
 INTENT_RESERVED
   → PREPARATION_CLAIMED
   → EXECUTION_PREPARED
   → SPAWN_COMMITTED
+  → ACTIVATION_COMMITTED
   → RESULT_RECEIVED
   → RESULT_ACCEPTED
 ```
@@ -440,10 +442,13 @@ workspace for a workspace-free action) because no request, credential, or start
 authority existed. It is durable before cleanup; cleanup is idempotent,
 nonblocking garbage collection, and an inert orphan has no spawn authority.
 An unknown or temporarily unreachable resource remains unresolved. A persisted
-prepared occurrence is never replaced. `SPAWN_COMMITTED` may terminate only as
-a result or provider interruption.
-Every event repeats the exact reservation and predecessor, while claim, prepared,
-spawn, result, and acceptance payloads bind their immediate durable authority.
+prepared occurrence is never replaced. `SPAWN_COMMITTED` means the exact
+occurrence has no selected activation receipt and may only stage an inert
+activation or remain unresolved. `ACTIVATION_COMMITTED` selects the sole receipt
+that may precede start and may terminate only as a result or provider
+interruption. Every event repeats the exact reservation and predecessor, while
+claim, prepared, spawn, activation, result, and acceptance payloads bind their
+immediate durable authority.
 The store rejects skipped/reordered phases, old intent-to-spawn records, identity
 splices, multiple nonterminal operations, and global reuse of claim, prepared,
 container, slot, quota, filesystem, provider, or invocation identities.
@@ -459,25 +464,30 @@ prepared event must then fit that declared bound. Prepared evidence is persisted
 before spawn. Security and workspace are checked again immediately before the
 durable spawn commit, and the reservation boundary must still equal the
 checkpoint safety boundary. Only after that commit does a separate single-use
-activation capability expose the complete request and a capability-owned
-duplicate workspace descriptor for exactly one execution-adapter invocation.
-Both capabilities burn on success or exception and close their descriptors.
+staging capability expose the complete request and a capability-owned duplicate
+workspace descriptor for delivery plus inert revalidation. The adapter declares
+the activation-event envelope twice before delivery; the returned receipt must
+fit it. The coordinator then rechecks workspace and security, durably selects
+that exact receipt as event 5, and rechecks both again. Only a distinct
+process-bound committed-activation capability may then freshly revalidate the
+event-5 receipt byte-for-byte and start once. Both capabilities burn on success
+or exception and close their descriptors.
 Request bytes are unreadable from the action session before spawn.
 Preparation returns one typed state: exact prepared with an origin compatible
 with its allocation/reopen/revalidation mode, positively lost, or unknown.
 Claim reopen may allocate only after positive exact absence. Prepared
 revalidation can return only the identical occurrence, positive loss, or
 uncertainty; it cannot allocate. Early interruption is admitted after the claim
-or prepared event without changing the normal six-event success chain.
+or prepared event without changing the normal seven-event success chain.
 
-A committed spawn receives only its durable prepared execution and spawn
-identity: `RESULT_AVAILABLE` records the exact bytes,
-`RUNNING_REATTACHABLE` may reattach only under the unchanged security
-observation, and an exact `INERT_ACTIVATABLE` observation rebuilds activation
-authority for the same prepared execution and spawn after rechecking workspace
-then security. Proven quiescence interrupts, and `UNKNOWN` remains unresolved.
-Recovery never routes committed work through claim or preparation and never
-mints a second activation fence.
+An event-4 query admits only exact inert or unknown state; running or exited state
+cannot be adopted without durable activation. Exact inert state may restage and
+select event 5. An event-5 query carries its full durable receipt:
+`RESULT_AVAILABLE` records exact bytes, `RUNNING_REATTACHABLE` may reattach only
+under unchanged security, and exact `INERT_ACTIVATABLE` state may freshly
+revalidate the same receipt and start once. Proven quiescence interrupts, and
+`UNKNOWN` remains unresolved. Recovery never routes committed work through claim
+or preparation and never replaces the event-5 selection.
 
 ### Durable Docker supervisor boundary
 
@@ -491,8 +501,10 @@ PreparationClaim
         ↓
 PreparedExecution
         ↓
-SpawnCommit → single-use ActivationGrant
-                      ↓
+SpawnCommit → staging capability → ActivationCommitted
+                                        ↓
+                         committed-start capability
+                                        ↓
              TerminalObservation
                       ↓
              ResultCaptureReceipt
@@ -559,7 +571,7 @@ shape only—never secret bytes or host credential paths.
 
 The action store now atomically persists one
 `PreparationClaim → PreparedExecution` occurrence before `SpawnCommit`.
-Reservation admission accounts for the complete remaining lifecycle: at most six
+Reservation admission accounts for the complete remaining lifecycle: at most seven
 event files and three content blobs per operation, plus the configured crash
 staging allowance and two fixed lock files. Every append and reopen rechecks its
 remaining event/blob headroom, so an accepted intent cannot strand an
@@ -569,13 +581,12 @@ pre-allocation serialization envelope: the former reserves store space, while th
 latter proves that the complete concrete prepared record can occupy one event
 file before any Docker or slot resource is created. Before `SpawnCommit`, the
 production supervisor may only create or reopen that exact inert resource;
-request bytes and credential leases remain absent. A post-commit, single-use
-`ActivationGrant` will bind the whole
-`PreparedExecution`, spawn commit, and either exact credential-lease receipts or
-a no-credentials proof. Only the supervisor may consume it to attach the
-admitted broker network, populate the prepared delivery files, and start the
-same container once. Immediately before start, it must issue a new
-`ActivationRevalidationReceipt` after re-inspecting the volume, physical
+request bytes and credential leases remain absent. A post-spawn, single-use
+staging capability binds the whole `PreparedExecution`, spawn commit, and either
+exact credential-lease receipts or a no-credentials proof. Only the supervisor
+may consume it to attach the admitted broker network, populate the prepared
+delivery files, and derive an `ActivationRevalidationReceipt` after re-inspecting
+the volume, physical
 generation sentinel, running keeper, copied workspace, delivered
 input/result/credential files, and still-never-started main container. Immutable
 volume facts must equal preparation; allocated usage and actual available
@@ -583,17 +594,20 @@ blocks/bytes/inodes must form the exact `statfs` capacity relationship, and the
 fresh observation must retain positive result-plus-temporary headroom. Workspace
 and sentinel observations are distinct activation-time contracts bound to the
 exact spawn commit and their preparation evidence IDs; replaying a preparation
-object is not revalidation.
-The serialized receipt is evidence only: a process-bound single-use lease keeps
-the live resource authority and workspace lock and is the sole authority that
-may synchronously start.
+object is not revalidation. Event 5 durably selects one full receipt with
+create-only publication. Revalidation itself grants no start authority. After
+publication, a new process-bound single-use capability must reobserve the same
+inert occurrence, reproduce the selected receipt exactly, retain the live
+resource authority and workspace lock, and synchronously start once.
 It embeds the exact typed spawn commit and delivery predecessors. Request delivery
 proves the fixed regular-file name, digest, size, owner/group, read-only mode, and
 single link; credential delivery proves the same structural facts plus its opaque
 broker lease authority and size, but stores no credential digest or bytes.
 Every delivery/proof record binds the exact spawn-commit content ID, including its
 invocation nonce; a semantically similar second fence cannot reuse prior delivery.
-Crash or lease loss requires a complete new revalidation. Zero or multiple matching resources,
+A crash before event 5 may stage a new candidate. A crash after event 5 may only
+revalidate the selected receipt; it can neither overwrite nor append a second
+selection. Zero or multiple matching resources,
 missing positive state evidence, substituted mounts/labels/runtime/image, or an
 unexplained exit classify as `UNKNOWN`; they never authorize recreation.
 Pre-commit cleanup is allowed only for the unique exact never-started occurrence
@@ -603,7 +617,7 @@ exact predecessor observation.
 
 The lifecycle-owned policy, claim, bounded-volume/sentinel/workspace, closed
 projection, mount, inert-evidence, prepared-execution, activation-revalidation contracts,
-durable claim/prepared index, six-event store embedding, and process-bound
+durable claim/prepared index, seven-event store embedding, and process-bound
 preparation/activation capabilities and bounded runtime-volume contracts are
 implemented. The shared Docker host authority now also pins its daemon root,
 systemd cgroup driver, and single-sourced static BusyBox helper. The structural
@@ -654,8 +668,20 @@ frontier, sentinel inode/content, keeper process generation, mount, and stable
 `statvfs` accounting. A crash at any point before the durable prepared event,
 including after final sentinel publication, leaves an orphan occurrence that
 claim-only recovery destroys; it is never reconstructed, adopted, or repaired.
-Concrete activation/result receipts, positive cleanup authority, and production
-adapters remain the next slices.
+The result boundary no longer admits provider bytes alone. A provider result now
+carries a terminal main-container observation and a descriptor-capture receipt
+that binds the terminal fence, prepared result file, exact runtime generation,
+fresh physical volume evidence, file metadata, size, and digest. `RESULT_RECEIVED`
+embeds both receipts before the existing atomic blob-to-event publication and
+revalidates their complete prepared/spawn/container/volume/sentinel/file graph;
+durable recovery therefore replays the captured bytes without contacting the
+provider or discarding terminal provenance. Concrete terminal Docker inspection,
+descriptor-bound result capture, a Docker implementation of the staged/event-5/
+committed-start protocol, positive cleanup authority, and production adapters
+remain the next slices. Until that composition lands, the direct gate mutation
+methods are a dormant store-contract surface: no production caller may receive
+Docker start authority from them. M9 activation must route execution only through
+the coordinator's sealed capabilities and delete or privatize that direct surface.
 
 The coordinator owns one process-bound, non-clonable implementation catalog fixed
 at composition; `recover()` accepts no caller-selected implementation. Each

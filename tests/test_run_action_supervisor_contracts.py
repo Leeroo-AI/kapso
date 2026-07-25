@@ -57,9 +57,11 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RunActionRuntimeVolumeEvidence,
     RunActionRuntimeVolumeLayoutProof,
     RunActionRuntimeVolumeSentinelEvidence,
+    RunActionResultCaptureReceipt,
     RunActionStaticEnvironmentVariable,
     RunActionSupervisorContractError,
     RunActionSupervisorLimits,
+    RunActionTerminalObservation,
     RunActionVolumeKeeperEvidence,
     issue_runtime_volume_authority,
     preparation_container_labels,
@@ -420,7 +422,15 @@ def _volume_authority(claim, *, nonce):
     return issue_runtime_volume_authority(claim, nonce)
 
 
-def _prepared_file(claim, authority, kind):
+def _prepared_file(
+    claim,
+    authority,
+    kind,
+    *,
+    mount_id,
+    device,
+    inode,
+):
     limits = {
         RunActionPreparedFileKind.INPUT: claim.reservation.request_blob.size_bytes,
         RunActionPreparedFileKind.RESULT: (
@@ -448,6 +458,9 @@ def _prepared_file(claim, authority, kind):
         link_count=1,
         size_bytes=0,
         payload_size_limit_bytes=limits[kind],
+        mount_id=mount_id,
+        device=device,
+        inode=inode,
     )
 
 
@@ -540,8 +553,25 @@ def _prepared_execution(
         device=500,
         inode=10000 + inode_offset,
     )
-    input_file = _prepared_file(claim, authority, RunActionPreparedFileKind.INPUT)
-    result_file = _prepared_file(claim, authority, RunActionPreparedFileKind.RESULT)
+    file_mount_id = 1000 + inode_offset
+    file_device = 500
+    first_file_inode = 20000 + inode_offset * 3
+    input_file = _prepared_file(
+        claim,
+        authority,
+        RunActionPreparedFileKind.INPUT,
+        mount_id=file_mount_id,
+        device=file_device,
+        inode=first_file_inode,
+    )
+    result_file = _prepared_file(
+        claim,
+        authority,
+        RunActionPreparedFileKind.RESULT,
+        mount_id=file_mount_id,
+        device=file_device,
+        inode=first_file_inode + 1,
+    )
     credential_file = (
         None
         if claim.execution_policy.credential_policy.mode is RunActionCredentialMode.NONE
@@ -549,6 +579,9 @@ def _prepared_execution(
             claim,
             authority,
             RunActionPreparedFileKind.CREDENTIAL,
+            mount_id=file_mount_id,
+            device=file_device,
+            inode=first_file_inode + 2,
         )
     )
     files = tuple(
@@ -869,9 +902,10 @@ def test_activation_revalidation_binds_fresh_exact_prepared_observations():
         reobserved_volume_evidence=reobserved_volume,
         reobserved_keeper_evidence=prepared.volume_keeper_evidence,
         reobserved_container_evidence=prepared.inert_container_evidence,
-        activated_workspace_observation=_activated_workspace_observation(
-            prepared,
-            spawn,
+        activated_workspace_observation=(
+            None
+            if prepared.workspace_proof is None
+            else _activated_workspace_observation(prepared, spawn)
         ),
         activated_sentinel_observation=_activated_sentinel_observation(
             prepared,
@@ -1136,6 +1170,42 @@ def _spawn_commit(prepared, *, invocation_nonce="1" * 32):
     )
 
 
+def test_terminal_observation_and_result_capture_bind_the_physical_result():
+    prepared = _prepared_execution()
+    spawn = _spawn_commit(prepared)
+    payload = b'{"provider":"complete"}'
+    activation = _activation_revalidation_receipt(prepared, spawn)
+    terminal = _terminal_observation(prepared, spawn)
+    capture = _result_capture_receipt(prepared, activation, terminal, payload)
+
+    assert (
+        RunActionTerminalObservation.from_json_bytes(terminal.to_json_bytes())
+        == terminal
+    )
+    assert (
+        RunActionResultCaptureReceipt.from_json_bytes(capture.to_json_bytes())
+        == capture
+    )
+    assert capture.terminal_observation_id == terminal.terminal_observation_id
+    assert (
+        capture.reobserved_volume_evidence.root_inode
+        == prepared.runtime_volume_evidence.root_inode
+    )
+    with pytest.raises(
+        RunActionSupervisorContractError,
+        match="terminal observation is invalid",
+    ):
+        replace(terminal, paused=True)
+    with pytest.raises(
+        RunActionSupervisorContractError,
+        match="result capture receipt is invalid",
+    ):
+        replace(
+            capture,
+            inode=prepared.runtime_volume_evidence.sentinel_evidence.inode,
+        )
+
+
 def _activated_workspace_observation(prepared, spawn):
     workspace = prepared.workspace_proof
     if workspace is None:
@@ -1193,11 +1263,133 @@ def _activated_file_observation(
         file_type=prepared_file.file_type,
         owner_user_id=prepared_file.owner_user_id,
         owner_group_id=prepared_file.owner_group_id,
-        mode=prepared_file.mode,
+        mode=(
+            0o600 if prepared_file.kind is RunActionPreparedFileKind.RESULT else 0o400
+        ),
         link_count=prepared_file.link_count,
+        mount_id=prepared_file.mount_id,
+        device=prepared_file.device,
+        inode=prepared_file.inode,
         size_bytes=size_bytes,
         content_digest=content_digest,
         content_authority_id=content_authority_id,
+    )
+
+
+def _terminal_observation(prepared, spawn):
+    activation_receipt = _activation_revalidation_receipt(prepared, spawn)
+    return RunActionTerminalObservation.mint(
+        prepared_execution_id=prepared.prepared_execution_id,
+        spawn_commit_id=spawn.spawn_commit_id,
+        provider_execution_id=spawn.provider_execution_id,
+        runtime_volume_authority_id=(
+            prepared.runtime_volume_authority.runtime_volume_authority_id
+        ),
+        generation_nonce=prepared.runtime_volume_authority.generation_nonce,
+        activation_revalidation_receipt_id=(
+            activation_receipt.activation_revalidation_receipt_id
+        ),
+        observed_inspect_projection=(
+            prepared.inert_container_evidence.observed_inspect_projection
+        ),
+        complete_inspection_digest=tree_or_blob_digest(b"terminal inspection"),
+        container_status="exited",
+        process_id=0,
+        restart_count=0,
+        paused=False,
+        restarting=False,
+        dead=False,
+        started_at="2026-01-01T00:00:00Z",
+        finished_at="2026-01-01T00:00:01Z",
+        exit_code=0,
+        oom_killed=False,
+        state_error="",
+    )
+
+
+def _result_capture_receipt(prepared, activation, terminal, payload):
+    result_file = prepared.result_file
+    activation_volume = activation.reobserved_volume_evidence
+    result_block_count = (
+        len(payload) + activation_volume.allocation_block_size_bytes - 1
+    ) // activation_volume.allocation_block_size_bytes
+    volume = _volume_with_added_blocks(
+        activation_volume,
+        result_block_count,
+    )
+    return RunActionResultCaptureReceipt.mint(
+        terminal_observation_id=terminal.terminal_observation_id,
+        prepared_file_id=result_file.prepared_file_id,
+        runtime_volume_authority_id=result_file.runtime_volume_authority_id,
+        reobserved_volume_evidence=volume,
+        prepared_sentinel_evidence_id=(
+            volume.sentinel_evidence.runtime_volume_sentinel_evidence_id
+        ),
+        generation_nonce=result_file.generation_nonce,
+        relative_path=result_file.relative_path,
+        file_type=result_file.file_type,
+        owner_user_id=result_file.owner_user_id,
+        owner_group_id=result_file.owner_group_id,
+        mode=result_file.mode,
+        link_count=result_file.link_count,
+        size_bytes=len(payload),
+        content_digest=tree_or_blob_digest(payload),
+        mount_id=volume.root_mount_id,
+        device=volume.root_device,
+        inode=result_file.inode,
+    )
+
+
+def _activation_revalidation_receipt(prepared, spawn):
+    request_blob = prepared.preparation_claim.reservation.request_blob
+    block_size = prepared.runtime_volume_evidence.allocation_block_size_bytes
+    delivered_sizes = [request_blob.size_bytes]
+    credential_observation = None
+    if prepared.credential_file is not None:
+        delivered_sizes.append(32)
+        credential_observation = _activated_file_observation(
+            prepared.credential_file,
+            spawn,
+            size_bytes=32,
+            content_digest=None,
+            content_authority_id="test.credential.lease",
+        )
+    delivered_block_count = sum(
+        (size_bytes + block_size - 1) // block_size for size_bytes in delivered_sizes
+    )
+    return RunActionActivationRevalidationReceipt.mint(
+        prepared_execution=prepared,
+        spawn_commit=spawn,
+        reobserved_volume_evidence=_volume_with_added_blocks(
+            prepared.runtime_volume_evidence,
+            delivered_block_count,
+        ),
+        reobserved_keeper_evidence=prepared.volume_keeper_evidence,
+        reobserved_container_evidence=prepared.inert_container_evidence,
+        activated_workspace_observation=(
+            None
+            if prepared.workspace_proof is None
+            else _activated_workspace_observation(prepared, spawn)
+        ),
+        activated_sentinel_observation=_activated_sentinel_observation(
+            prepared,
+            spawn,
+        ),
+        input_file_observation=_activated_file_observation(
+            prepared.input_file,
+            spawn,
+            size_bytes=request_blob.size_bytes,
+            content_digest=request_blob.digest,
+            content_authority_id=request_blob.request_blob_id,
+        ),
+        result_file_observation=_activated_file_observation(
+            prepared.result_file,
+            spawn,
+            size_bytes=0,
+            content_digest=None,
+            content_authority_id=None,
+        ),
+        credential_file_observation=credential_observation,
     )
 
 
@@ -1704,7 +1896,7 @@ def test_prepared_volume_rejects_keeper_and_layout_evidence_splices():
     )
     with pytest.raises(
         RunActionSupervisorContractError,
-        match="positive byte or inode headroom",
+        match="files differ from their preparation claim",
     ):
         replace(prepared, runtime_volume_evidence=substituted_root_evidence)
 

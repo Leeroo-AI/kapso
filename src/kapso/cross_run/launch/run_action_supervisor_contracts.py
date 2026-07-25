@@ -10,6 +10,7 @@ from typing import ClassVar
 
 from kapso.cross_run.canonical import (
     content_id,
+    parse_utc_timestamp,
     require_content_id,
     require_identifier,
     tree_or_blob_digest,
@@ -960,6 +961,9 @@ class RunActionPreparedFile(StrictContract):
     link_count: int
     size_bytes: int
     payload_size_limit_bytes: int
+    mount_id: int
+    device: int
+    inode: int
 
     CONTENT_NAMESPACE: ClassVar[str] = "run-action-prepared-file"
     IDENTITY_FIELD: ClassVar[str] = "prepared_file_id"
@@ -994,6 +998,10 @@ class RunActionPreparedFile(StrictContract):
             or self.size_bytes != 0
             or type(self.payload_size_limit_bytes) is not int
             or self.payload_size_limit_bytes <= 0
+            or any(
+                type(value) is not int or value <= 0
+                for value in (self.mount_id, self.device, self.inode)
+            )
         ):
             raise RunActionSupervisorContractError(
                 "run action prepared logical file is invalid or nonempty"
@@ -1659,6 +1667,17 @@ class RunActionPreparedExecution(StrictContract):
                 and self.credential_file.payload_size_limit_bytes
                 != claim.execution_policy.credential_policy.maximum_delivery_size_bytes
             )
+            or any(
+                prepared_file.mount_id != self.runtime_volume_evidence.root_mount_id
+                or prepared_file.device != self.runtime_volume_evidence.root_device
+                for prepared_file in files
+            )
+            or len({prepared_file.inode for prepared_file in files}) != len(files)
+            or {prepared_file.inode for prepared_file in files}
+            & {
+                self.runtime_volume_evidence.root_inode,
+                self.runtime_volume_evidence.sentinel_evidence.inode,
+            }
         ):
             raise RunActionSupervisorContractError(
                 "prepared run action files differ from their preparation claim"
@@ -1826,6 +1845,9 @@ class RunActionActivatedFileObservation(StrictContract):
     mode: int
     link_count: int
     size_bytes: int
+    mount_id: int
+    device: int
+    inode: int
     content_digest: str | None
     content_authority_id: str | None
 
@@ -1853,6 +1875,9 @@ class RunActionActivatedFileObservation(StrictContract):
                 self.content_authority_id,
                 "activated file content authority",
             )
+        expected_mode = (
+            0o600 if self.kind is RunActionPreparedFileKind.RESULT else 0o400
+        )
         if (
             _GENERATION_NONCE_PATTERN.fullmatch(self.generation_nonce) is None
             or type(self.kind) is not RunActionPreparedFileKind
@@ -1861,10 +1886,14 @@ class RunActionActivatedFileObservation(StrictContract):
             or self.owner_user_id <= 0
             or type(self.owner_group_id) is not int
             or self.owner_group_id <= 0
-            or self.mode != 0o600
+            or self.mode != expected_mode
             or self.link_count != 1
             or type(self.size_bytes) is not int
             or self.size_bytes < 0
+            or any(
+                type(value) is not int or value <= 0
+                for value in (self.mount_id, self.device, self.inode)
+            )
             or (
                 self.content_digest is not None
                 and _SHA256_DIGEST_PATTERN.fullmatch(self.content_digest) is None
@@ -2154,6 +2183,183 @@ class RunActionActivationRevalidationReceipt(StrictContract):
             )
 
 
+@dataclass(frozen=True)
+class RunActionTerminalObservation(StrictContract):
+    """Stable terminal state of the exact durably spawned main container."""
+
+    terminal_observation_id: str
+    prepared_execution_id: str
+    spawn_commit_id: str
+    provider_execution_id: str
+    runtime_volume_authority_id: str
+    generation_nonce: str
+    activation_revalidation_receipt_id: str
+    observed_inspect_projection: DockerRunActionCreateInspectProjection
+    complete_inspection_digest: str
+    container_status: str
+    process_id: int
+    restart_count: int
+    paused: bool
+    restarting: bool
+    dead: bool
+    started_at: str
+    finished_at: str
+    exit_code: int
+    oom_killed: bool
+    state_error: str
+
+    CONTENT_NAMESPACE: ClassVar[str] = "run-action-terminal-observation"
+    IDENTITY_FIELD: ClassVar[str] = "terminal_observation_id"
+
+    def _validate(self) -> None:
+        _require_namespaced_content_id(
+            self.prepared_execution_id,
+            RunActionPreparedExecution.CONTENT_NAMESPACE,
+            "terminal prepared execution",
+        )
+        _require_namespaced_content_id(
+            self.spawn_commit_id,
+            RunActionSpawnCommit.CONTENT_NAMESPACE,
+            "terminal spawn commit",
+        )
+        require_identifier(
+            self.provider_execution_id,
+            "terminal provider execution",
+        )
+        _require_namespaced_content_id(
+            self.runtime_volume_authority_id,
+            RunActionRuntimeVolumeAuthority.CONTENT_NAMESPACE,
+            "terminal runtime volume",
+        )
+        _require_namespaced_content_id(
+            self.activation_revalidation_receipt_id,
+            RunActionActivationRevalidationReceipt.CONTENT_NAMESPACE,
+            "terminal activation revalidation",
+        )
+        if (
+            type(self.observed_inspect_projection)
+            is not DockerRunActionCreateInspectProjection
+        ):
+            raise RunActionSupervisorContractError(
+                "terminal observation lacks its closed Docker projection"
+            )
+        started_at = parse_utc_timestamp(
+            self.started_at,
+            "run action terminal started_at",
+        )
+        finished_at = parse_utc_timestamp(
+            self.finished_at,
+            "run action terminal finished_at",
+        )
+        if (
+            _GENERATION_NONCE_PATTERN.fullmatch(self.generation_nonce) is None
+            or _SHA256_DIGEST_PATTERN.fullmatch(self.complete_inspection_digest) is None
+            or self.container_status != "exited"
+            or self.process_id != 0
+            or self.restart_count != 0
+            or self.paused is not False
+            or self.restarting is not False
+            or self.dead is not False
+            or self.started_at == _ZERO_DOCKER_TIMESTAMP
+            or self.finished_at == _ZERO_DOCKER_TIMESTAMP
+            or finished_at < started_at
+            or type(self.exit_code) is not int
+            or not 0 <= self.exit_code <= 255
+            or type(self.oom_killed) is not bool
+            or self.state_error != ""
+        ):
+            raise RunActionSupervisorContractError(
+                "run action terminal observation is invalid"
+            )
+
+
+@dataclass(frozen=True)
+class RunActionResultCaptureReceipt(StrictContract):
+    """Descriptor-bound capture of one exact result file after terminal state."""
+
+    result_capture_receipt_id: str
+    terminal_observation_id: str
+    prepared_file_id: str
+    runtime_volume_authority_id: str
+    reobserved_volume_evidence: RunActionRuntimeVolumeEvidence
+    prepared_sentinel_evidence_id: str
+    generation_nonce: str
+    relative_path: str
+    file_type: str
+    owner_user_id: int
+    owner_group_id: int
+    mode: int
+    link_count: int
+    size_bytes: int
+    content_digest: str
+    mount_id: int
+    device: int
+    inode: int
+
+    CONTENT_NAMESPACE: ClassVar[str] = "run-action-result-capture-receipt"
+    IDENTITY_FIELD: ClassVar[str] = "result_capture_receipt_id"
+
+    def _validate(self) -> None:
+        _require_namespaced_content_id(
+            self.terminal_observation_id,
+            RunActionTerminalObservation.CONTENT_NAMESPACE,
+            "result capture terminal observation",
+        )
+        _require_namespaced_content_id(
+            self.prepared_file_id,
+            RunActionPreparedFile.CONTENT_NAMESPACE,
+            "result capture prepared file",
+        )
+        _require_namespaced_content_id(
+            self.runtime_volume_authority_id,
+            RunActionRuntimeVolumeAuthority.CONTENT_NAMESPACE,
+            "result capture runtime volume",
+        )
+        if type(self.reobserved_volume_evidence) is not RunActionRuntimeVolumeEvidence:
+            raise RunActionSupervisorContractError(
+                "result capture lacks its reobserved physical volume"
+            )
+        _require_namespaced_content_id(
+            self.prepared_sentinel_evidence_id,
+            RunActionRuntimeVolumeSentinelEvidence.CONTENT_NAMESPACE,
+            "result capture generation sentinel",
+        )
+        if (
+            _GENERATION_NONCE_PATTERN.fullmatch(self.generation_nonce) is None
+            or self.relative_path != "result/result.blob"
+            or self.file_type != "regular"
+            or type(self.owner_user_id) is not int
+            or self.owner_user_id <= 0
+            or type(self.owner_group_id) is not int
+            or self.owner_group_id <= 0
+            or self.mode != 0o600
+            or self.link_count != 1
+            or type(self.size_bytes) is not int
+            or self.size_bytes <= 0
+            or _SHA256_DIGEST_PATTERN.fullmatch(self.content_digest) is None
+            or self.reobserved_volume_evidence.volume_authority.runtime_volume_authority_id
+            != self.runtime_volume_authority_id
+            or self.reobserved_volume_evidence.volume_authority.generation_nonce
+            != self.generation_nonce
+            or self.reobserved_volume_evidence.sentinel_evidence.runtime_volume_sentinel_evidence_id
+            != self.prepared_sentinel_evidence_id
+            or self.mount_id != self.reobserved_volume_evidence.root_mount_id
+            or self.device != self.reobserved_volume_evidence.root_device
+            or self.inode
+            in {
+                self.reobserved_volume_evidence.root_inode,
+                self.reobserved_volume_evidence.sentinel_evidence.inode,
+            }
+            or any(
+                type(value) is not int or value <= 0
+                for value in (self.mount_id, self.device, self.inode)
+            )
+        ):
+            raise RunActionSupervisorContractError(
+                "run action result capture receipt is invalid"
+            )
+
+
 def _activated_file_matches_prepared(
     observed: RunActionActivatedFileObservation,
     prepared: RunActionPreparedFile | None,
@@ -2173,8 +2379,12 @@ def _activated_file_matches_prepared(
         and observed.file_type == prepared.file_type
         and observed.owner_user_id == prepared.owner_user_id
         and observed.owner_group_id == prepared.owner_group_id
-        and observed.mode == prepared.mode
+        and observed.mode
+        == (0o600 if prepared.kind is RunActionPreparedFileKind.RESULT else 0o400)
         and observed.link_count == prepared.link_count
+        and observed.mount_id == prepared.mount_id
+        and observed.device == prepared.device
+        and observed.inode == prepared.inode
         and observed.size_bytes <= prepared.payload_size_limit_bytes
     )
 
@@ -2237,44 +2447,138 @@ def _reobserved_volume_matches_prepared(
     reobserved: RunActionRuntimeVolumeEvidence,
     prepared: RunActionRuntimeVolumeEvidence,
 ) -> bool:
-    if (
-        type(reobserved) is not RunActionRuntimeVolumeEvidence
-        or type(prepared) is not RunActionRuntimeVolumeEvidence
-    ):
-        return False
     return (
-        reobserved.volume_authority == prepared.volume_authority
-        and reobserved.volume_keeper_evidence_id == prepared.volume_keeper_evidence_id
-        and reobserved.keeper_container_id == prepared.keeper_container_id
-        and reobserved.keeper_process_id == prepared.keeper_process_id
-        and reobserved.keeper_process_start_time_ticks
-        == prepared.keeper_process_start_time_ticks
-        and reobserved.keeper_process_cgroup_path == prepared.keeper_process_cgroup_path
-        and reobserved.root_mount_id == prepared.root_mount_id
-        and reobserved.root_device == prepared.root_device
-        and reobserved.root_inode == prepared.root_inode
-        and reobserved.observed_volume_name == prepared.observed_volume_name
-        and reobserved.observed_labels == prepared.observed_labels
-        and reobserved.observed_scope == prepared.observed_scope
-        and reobserved.observed_driver == prepared.observed_driver
-        and reobserved.observed_driver_options == prepared.observed_driver_options
-        and reobserved.observed_filesystem_type == prepared.observed_filesystem_type
-        and reobserved.observed_mount_flags == prepared.observed_mount_flags
-        and reobserved.observed_owner_user_id == prepared.observed_owner_user_id
-        and reobserved.observed_owner_group_id == prepared.observed_owner_group_id
-        and reobserved.observed_root_mode == prepared.observed_root_mode
-        and reobserved.allocation_block_size_bytes
-        == prepared.allocation_block_size_bytes
-        and reobserved.effective_block_count == prepared.effective_block_count
-        and reobserved.effective_size_bytes == prepared.effective_size_bytes
-        and reobserved.effective_inode_limit == prepared.effective_inode_limit
-        and reobserved.sentinel_evidence == prepared.sentinel_evidence
+        run_action_runtime_volume_occurrence_matches(reobserved, prepared)
         and reobserved.used_size_bytes >= prepared.used_size_bytes
         and reobserved.used_block_count >= prepared.used_block_count
         and reobserved.used_inode_count == prepared.used_inode_count
         and reobserved.available_block_count <= prepared.available_block_count
         and reobserved.available_size_bytes <= prepared.available_size_bytes
         and reobserved.available_inode_count == prepared.available_inode_count
+    )
+
+
+def run_action_runtime_volume_occurrence_matches(
+    observed: RunActionRuntimeVolumeEvidence,
+    prepared: RunActionRuntimeVolumeEvidence,
+) -> bool:
+    """Match immutable physical identity while permitting execution-time usage."""
+
+    if (
+        type(observed) is not RunActionRuntimeVolumeEvidence
+        or type(prepared) is not RunActionRuntimeVolumeEvidence
+    ):
+        return False
+    return (
+        observed.volume_authority == prepared.volume_authority
+        and observed.volume_keeper_evidence_id == prepared.volume_keeper_evidence_id
+        and observed.keeper_container_id == prepared.keeper_container_id
+        and observed.keeper_process_id == prepared.keeper_process_id
+        and observed.keeper_process_start_time_ticks
+        == prepared.keeper_process_start_time_ticks
+        and observed.keeper_process_cgroup_path == prepared.keeper_process_cgroup_path
+        and observed.root_mount_id == prepared.root_mount_id
+        and observed.root_device == prepared.root_device
+        and observed.root_inode == prepared.root_inode
+        and observed.observed_volume_name == prepared.observed_volume_name
+        and observed.observed_labels == prepared.observed_labels
+        and observed.observed_scope == prepared.observed_scope
+        and observed.observed_driver == prepared.observed_driver
+        and observed.observed_driver_options == prepared.observed_driver_options
+        and observed.observed_filesystem_type == prepared.observed_filesystem_type
+        and observed.observed_mount_flags == prepared.observed_mount_flags
+        and observed.observed_owner_user_id == prepared.observed_owner_user_id
+        and observed.observed_owner_group_id == prepared.observed_owner_group_id
+        and observed.observed_root_mode == prepared.observed_root_mode
+        and observed.allocation_block_size_bytes == prepared.allocation_block_size_bytes
+        and observed.effective_block_count == prepared.effective_block_count
+        and observed.effective_size_bytes == prepared.effective_size_bytes
+        and observed.effective_inode_limit == prepared.effective_inode_limit
+        and observed.sentinel_evidence == prepared.sentinel_evidence
+    )
+
+
+def run_action_terminal_result_evidence_matches(
+    terminal: RunActionTerminalObservation,
+    capture: RunActionResultCaptureReceipt,
+    activation: RunActionActivationRevalidationReceipt,
+) -> bool:
+    """Join terminal capture to the one durable pre-start activation receipt."""
+
+    if (
+        type(terminal) is not RunActionTerminalObservation
+        or type(capture) is not RunActionResultCaptureReceipt
+        or type(activation) is not RunActionActivationRevalidationReceipt
+    ):
+        return False
+    prepared = activation.prepared_execution
+    spawn = activation.spawn_commit
+    prepared_result = prepared.result_file
+    activation_volume = activation.reobserved_volume_evidence
+    capture_volume = capture.reobserved_volume_evidence
+    result_allocation_size_bytes = (
+        (capture.size_bytes + capture_volume.allocation_block_size_bytes - 1)
+        // capture_volume.allocation_block_size_bytes
+        * capture_volume.allocation_block_size_bytes
+    )
+    result_allocation_block_count = (
+        result_allocation_size_bytes // capture_volume.allocation_block_size_bytes
+    )
+    return (
+        terminal.activation_revalidation_receipt_id
+        == activation.activation_revalidation_receipt_id
+        and terminal.prepared_execution_id == prepared.prepared_execution_id
+        and terminal.spawn_commit_id == spawn.spawn_commit_id
+        and terminal.provider_execution_id == spawn.provider_execution_id
+        and terminal.runtime_volume_authority_id
+        == prepared.runtime_volume_authority.runtime_volume_authority_id
+        and terminal.generation_nonce
+        == prepared.runtime_volume_authority.generation_nonce
+        and terminal.observed_inspect_projection
+        == prepared.inert_container_evidence.issued_create_projection
+        and capture.terminal_observation_id == terminal.terminal_observation_id
+        and capture.prepared_file_id == prepared_result.prepared_file_id
+        and capture.runtime_volume_authority_id
+        == prepared.runtime_volume_authority.runtime_volume_authority_id
+        and run_action_runtime_volume_occurrence_matches(
+            capture_volume,
+            prepared.runtime_volume_evidence,
+        )
+        and capture.prepared_sentinel_evidence_id
+        == (
+            prepared.runtime_volume_evidence.sentinel_evidence.runtime_volume_sentinel_evidence_id
+        )
+        and capture.generation_nonce
+        == prepared.runtime_volume_authority.generation_nonce
+        and capture.relative_path == prepared_result.relative_path
+        and capture.file_type == prepared_result.file_type
+        and capture.owner_user_id == prepared_result.owner_user_id
+        and capture.owner_group_id == prepared_result.owner_group_id
+        and capture.mode == prepared_result.mode
+        and capture.link_count == prepared_result.link_count
+        and capture.mount_id == prepared_result.mount_id
+        and capture.device == prepared_result.device
+        and capture.inode == prepared_result.inode
+        and capture.size_bytes <= prepared_result.payload_size_limit_bytes
+        and (
+            prepared.preparation_claim.reservation.intent.workspace_access
+            is RunFrontierWorkspaceAccess.EDIT_WORKSPACE
+            or (
+                capture_volume.used_size_bytes
+                >= activation_volume.used_size_bytes + result_allocation_size_bytes
+                and capture_volume.used_block_count
+                >= activation_volume.used_block_count + result_allocation_block_count
+                and capture_volume.used_inode_count
+                >= activation_volume.used_inode_count
+                and capture_volume.available_block_count
+                <= activation_volume.available_block_count
+                - result_allocation_block_count
+                and capture_volume.available_size_bytes
+                <= activation_volume.available_size_bytes - result_allocation_size_bytes
+                and capture_volume.available_inode_count
+                <= activation_volume.available_inode_count
+            )
+        )
     )
 
 
@@ -2681,9 +2985,11 @@ __all__ = [
     "RunActionRuntimeVolumeEvidence",
     "RunActionRuntimeVolumeLayoutProof",
     "RunActionRuntimeVolumeSentinelEvidence",
+    "RunActionResultCaptureReceipt",
     "RunActionStaticEnvironmentVariable",
     "RunActionSupervisorLimits",
     "RunActionSupervisorContractError",
+    "RunActionTerminalObservation",
     "RunActionVolumeKeeperEvidence",
     "preparation_container_labels",
     "preparation_container_name",
@@ -2697,4 +3003,6 @@ __all__ = [
     "runtime_volume_keeper_helper_authority_id",
     "runtime_volume_sentinel_identity",
     "run_action_keeper_process_cgroup_path",
+    "run_action_runtime_volume_occurrence_matches",
+    "run_action_terminal_result_evidence_matches",
 ]

@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import hashlib
 from copy import copy
+from dataclasses import replace
 
 import pytest
 
@@ -30,6 +31,7 @@ from kapso.cross_run.launch.run_action_ledger import (
 from kapso.cross_run.launch.run_action_recovery import (
     _RUN_ACTION_RECOVERY_IMPLEMENTATION_REGISTRY_AUTHORITY,
     RunActionCommittedSpawnObservation,
+    RunActionCommittedSpawnQuery,
     RunActionCommittedSpawnState,
     RunActionInterpretedResult,
     RunActionPreparationMode,
@@ -40,6 +42,9 @@ from kapso.cross_run.launch.run_action_recovery import (
     RunActionRecoveryError,
     RunActionRecoveryImplementation,
     RunActionRecoveryImplementationRegistry,
+    RunActionUnactivatedSpawnQuery,
+    RunActionUnactivatedSpawnObservation,
+    RunActionUnactivatedSpawnState,
 )
 from kapso.cross_run.launch.run_action_reservation_contracts import (
     RunActionFrontierBinding,
@@ -65,12 +70,18 @@ from test_run_frontier_action_gate import (
     _complete_action,
     _issue_ideation_agent,
     _issue_implementation_agent,
+    _record_result,
     _StaticSecurityAuthority,
 )
 from test_run_state_publisher import publisher_case
 from test_run_action_supervisor_contracts import (
+    _activation_revalidation_receipt,
     _execution_policy,
     _prepared_execution,
+    _remint_contract,
+    _result_capture_receipt,
+    _spawn_commit,
+    _terminal_observation,
 )
 
 
@@ -134,6 +145,7 @@ class _FakeExecutionAdapter:
         self.reattach_result = reattach_result
         self.prepare_calls = []
         self.prepare_modes = []
+        self.stage_calls = []
         self.start_calls = []
         self.start_workspace_descriptors = []
         self.inspect_calls = []
@@ -148,6 +160,20 @@ class _FakeExecutionAdapter:
             claim=claim,
             container_id=operation_digest,
             inode_offset=int(operation_digest[:8], 16),
+        )
+
+    @staticmethod
+    def _provider_result(prepared, spawn, activation, payload):
+        terminal = _terminal_observation(prepared, spawn)
+        return RunActionProviderResult(
+            terminal_observation=terminal,
+            result_capture_receipt=_result_capture_receipt(
+                prepared,
+                activation,
+                terminal,
+                payload,
+            ),
+            result_payload=payload,
         )
 
     def prepared_event_size_bound(
@@ -165,6 +191,34 @@ class _FakeExecutionAdapter:
             preparation_claim=None,
             prepared_execution=prepared,
             spawn_commit=None,
+            activation_revalidation_receipt=None,
+            result_receipt=None,
+            acceptance=None,
+            terminal_reason=None,
+            workspace_after=None,
+        )
+        return len(event.to_json_bytes())
+
+    def activation_event_size_bound(
+        self,
+        *,
+        prepared_execution,
+        spawn_commit,
+        predecessor_event_id,
+    ):
+        activation = _activation_revalidation_receipt(
+            prepared_execution,
+            spawn_commit,
+        )
+        event = RunActionExecutionEvent.mint(
+            event_number=5,
+            predecessor_event_id=predecessor_event_id,
+            event_kind=RunActionExecutionEventKind.ACTIVATION_COMMITTED,
+            reservation=prepared_execution.preparation_claim.reservation,
+            preparation_claim=None,
+            prepared_execution=None,
+            spawn_commit=None,
+            activation_revalidation_receipt=activation,
             result_receipt=None,
             acceptance=None,
             terminal_reason=None,
@@ -208,23 +262,48 @@ class _FakeExecutionAdapter:
             origin=origin,
         )
 
-    def activate_once(self, capability):
+    def stage_activation(self, capability):
+        self.stage_calls.append(capability)
+        if self.fail_activation:
+            raise RuntimeError("injected death after durable spawn commit")
+        return _activation_revalidation_receipt(
+            capability.prepared_execution,
+            capability.spawn_commit,
+        )
+
+    def activate_committed_once(self, capability):
         self.start_calls.append(capability)
         workspace_descriptor = capability.workspace_descriptor
         self.start_workspace_descriptors.append(workspace_descriptor)
         if workspace_descriptor is not None:
             os.fstat(workspace_descriptor)
-        if self.fail_activation:
-            raise RuntimeError("injected death after durable spawn commit")
-        return RunActionProviderResult(result_payload=b'{"provider":"fresh-complete"}')
+        activation = capability.activation_revalidation_receipt
+        return self._provider_result(
+            capability.prepared_execution,
+            capability.spawn_commit,
+            activation,
+            b'{"provider":"fresh-complete"}',
+        )
+
+    def inspect_unactivated(self, query):
+        self.inspect_calls.append(query)
+        state = (
+            RunActionUnactivatedSpawnState.INERT_ACTIVATABLE
+            if self.observation_state is RunActionCommittedSpawnState.INERT_ACTIVATABLE
+            else RunActionUnactivatedSpawnState.UNKNOWN
+        )
+        return RunActionUnactivatedSpawnObservation(state=state)
 
     def inspect_committed(self, query):
         self.inspect_calls.append(query)
         if self.observation_state is RunActionCommittedSpawnState.RESULT_AVAILABLE:
             return RunActionCommittedSpawnObservation(
                 state=self.observation_state,
-                result=RunActionProviderResult(
-                    result_payload=b'{"provider":"recovered-complete"}'
+                result=self._provider_result(
+                    query.prepared_execution,
+                    query.spawn_commit,
+                    query.activation_revalidation_receipt,
+                    b'{"provider":"recovered-complete"}',
                 ),
                 reattach_token=None,
             )
@@ -244,8 +323,11 @@ class _FakeExecutionAdapter:
         self.reattach_calls.append((query, observation))
         if not self.reattach_result:
             return None
-        return RunActionProviderResult(
-            result_payload=b'{"provider":"reattached-complete"}'
+        return self._provider_result(
+            query.prepared_execution,
+            query.spawn_commit,
+            query.activation_revalidation_receipt,
+            b'{"provider":"reattached-complete"}',
         )
 
 
@@ -299,6 +381,31 @@ class _SecurityAdvancingPrepareAdapter(_FakeExecutionAdapter):
         return observation
 
 
+class _SecurityAdvancingStageAdapter(_FakeExecutionAdapter):
+    def __init__(self, boundary_identity, advance_security) -> None:
+        super().__init__(boundary_identity)
+        self.advance_security = advance_security
+
+    def stage_activation(self, capability):
+        activation = super().stage_activation(capability)
+        self.advance_security()
+        return activation
+
+
+class _AdvancingOnCallSecurityAuthority:
+    def __init__(self, current, advanced, advance_on_call) -> None:
+        self.current = current
+        self.advanced = advanced
+        self.advance_on_call = advance_on_call
+        self.call_count = 0
+
+    def observe_exact_descendant_of(self, **_arguments):
+        self.call_count += 1
+        return (
+            self.advanced if self.call_count >= self.advance_on_call else self.current
+        )
+
+
 class _CrashAfterPreparationAdapter(_FakeExecutionAdapter):
     def __init__(self, boundary_identity) -> None:
         super().__init__(boundary_identity)
@@ -317,13 +424,13 @@ class _CrashBeforeProviderStartAdapter(_FakeExecutionAdapter):
         self.crash_before_provider_start = True
         self.activation_attempts = []
 
-    def activate_once(self, capability):
+    def activate_committed_once(self, capability):
         self.activation_attempts.append(
             (capability.prepared_execution, capability.spawn_commit)
         )
         if self.crash_before_provider_start:
             raise RuntimeError("injected death before provider start")
-        return super().activate_once(capability)
+        return super().activate_committed_once(capability)
 
 
 class _OversizedPreparationEnvelopeAdapter(_FakeExecutionAdapter):
@@ -332,6 +439,15 @@ class _OversizedPreparationEnvelopeAdapter(_FakeExecutionAdapter):
         self.oversized_event_size_bytes = oversized_event_size_bytes
 
     def prepared_event_size_bound(self, **_arguments):
+        return self.oversized_event_size_bytes
+
+
+class _OversizedActivationEnvelopeAdapter(_FakeExecutionAdapter):
+    def __init__(self, boundary_identity, oversized_event_size_bytes) -> None:
+        super().__init__(boundary_identity)
+        self.oversized_event_size_bytes = oversized_event_size_bytes
+
+    def activation_event_size_bound(self, **_arguments):
         return self.oversized_event_size_bytes
 
 
@@ -362,11 +478,14 @@ class _AccessGuardedExecutionAdapter(_FakeExecutionAdapter):
         {
             "execution_lifecycle_identity",
             "execution_policy",
+            "activation_event_size_bound",
+            "activate_committed_once",
             "inspect_committed",
+            "inspect_unactivated",
             "prepared_event_size_bound",
             "prepare",
             "reattach",
-            "activate_once",
+            "stage_activation",
         }
     )
 
@@ -408,11 +527,11 @@ class _WorkspaceRetainingExecutionAdapter(_FakeExecutionAdapter):
             boundary_identity.result_interpreter_identity
         )
 
-    def activate_once(self, capability):
+    def activate_committed_once(self, capability):
         self.result_interpreter.retained_workspace_descriptor = os.dup(
             capability.workspace_descriptor
         )
-        return super().activate_once(capability)
+        return super().activate_committed_once(capability)
 
 
 def test_recovery_implementation_requires_distinct_lifecycle_and_interpreter() -> None:
@@ -442,12 +561,33 @@ def _leave_spawn_committed(gate, permit, payload) -> None:
             raise RuntimeError("injected death after spawn")
 
 
+def _commit_test_activation(gate, lease):
+    prepared = lease._session.events[2].prepared_execution
+    activation = _activation_revalidation_receipt(
+        prepared,
+        lease._spawn_commit,
+    )
+    gate.commit_activation(
+        lease,
+        activation_revalidation_receipt=activation,
+    )
+    return activation
+
+
+def _leave_activation_committed(gate, permit, payload) -> None:
+    with pytest.raises(RuntimeError, match="after activation"):
+        with gate.hold(permit, payload) as lease:
+            _claim_action(gate, lease)
+            _commit_test_activation(gate, lease)
+            raise RuntimeError("injected death after activation")
+
+
 def _leave_result_received(gate, permit, payload) -> bytes:
     raw_result = b'{"provider":"durable-result"}'
     with pytest.raises(RuntimeError, match="after result"):
         with gate.hold(permit, payload) as lease:
             _claim_action(gate, lease)
-            gate.record_result(lease, result_payload=raw_result)
+            _record_result(gate, lease, raw_result)
             raise RuntimeError("injected death after result")
     return raw_result
 
@@ -464,6 +604,57 @@ def _advance_security(case, gate, frontier) -> None:
             + 1
         ),
     )
+
+
+def test_provider_result_rejects_payload_or_terminal_capture_splices():
+    prepared = _prepared_execution()
+    spawn = _spawn_commit(prepared)
+    activation = _activation_revalidation_receipt(prepared, spawn)
+    result = _FakeExecutionAdapter._provider_result(
+        prepared,
+        spawn,
+        activation,
+        b'{"provider":"complete"}',
+    )
+
+    with pytest.raises(
+        RunActionRecoveryError,
+        match="terminal capture evidence",
+    ):
+        replace(result, result_payload=b'{"provider":"changed"}')
+    foreign_prepared = _prepared_execution(inode_offset=9)
+    foreign_spawn = _spawn_commit(
+        foreign_prepared,
+        invocation_nonce="2" * 32,
+    )
+    foreign_terminal = _terminal_observation(
+        foreign_prepared,
+        foreign_spawn,
+    )
+    with pytest.raises(
+        RunActionRecoveryError,
+        match="terminal capture evidence",
+    ):
+        replace(result, terminal_observation=foreign_terminal)
+
+
+def test_committed_spawn_query_rejects_security_boundary_splice():
+    prepared = _prepared_execution()
+    spawn = _spawn_commit(prepared)
+    security_observation_id = spawn.security_observation_id
+    substituted_security = (
+        f"{security_observation_id.rsplit(':sha256:', 1)[0]}:sha256:" f"{'f' * 64}"
+    )
+    substituted_spawn = _remint_contract(
+        spawn,
+        security_observation_id=substituted_security,
+    )
+
+    with pytest.raises(RunActionRecoveryError, match="exact durable identity"):
+        RunActionUnactivatedSpawnQuery(
+            prepared_execution=prepared,
+            spawn_commit=substituted_spawn,
+        )
 
 
 def test_reserved_action_recovers_through_one_preparation_and_activation(
@@ -501,11 +692,11 @@ def test_activation_capability_is_spent_and_clone_fork_invalid(
     report = _recovery_coordinator(gate, adapter).recover(frontier)
 
     assert report.is_complete
-    capability = adapter.start_calls[0]
+    capability = adapter.stage_calls[0]
     with pytest.raises(RunActionRecoveryError, match="not in its one invocation"):
         capability.request_payload
     with pytest.raises(RunActionRecoveryError, match="not in its one invocation"):
-        adapter.activate_once(capability)
+        adapter.stage_activation(capability)
     assert len(adapter.start_workspace_descriptors) == 1
     cloned = copy(capability)
     with pytest.raises(RunActionRecoveryError, match="not in its one invocation"):
@@ -524,12 +715,18 @@ def test_activation_capability_is_spent_and_clone_fork_invalid(
     waited_process_id, status = os.waitpid(child_process_id, 0)
     assert waited_process_id == child_process_id
     assert os.waitstatus_to_exitcode(status) == 0
+    committed_capability = adapter.start_calls[0]
+    with pytest.raises(RunActionRecoveryError, match="one invocation"):
+        committed_capability.activation_event
+    with pytest.raises(RunActionRecoveryError, match="one invocation"):
+        adapter.activate_committed_once(committed_capability)
 
 
 def test_legacy_direct_spawn_interfaces_are_removed() -> None:
     for name in (
         "RunActionPreparedSpawn",
         "RunActionFreshSpawnCapability",
+        "activate_once",
         "prepare_fresh",
     ):
         assert not hasattr(run_action_recovery_module, name)
@@ -709,6 +906,24 @@ def test_preparation_envelope_rejects_oversize_before_allocation(
     assert not adapter.start_calls
 
 
+def test_activation_envelope_rejects_oversize_before_delivery(
+    publisher_case,
+) -> None:
+    frontier, gate, permit, _payload = _reserved_case(publisher_case)
+    adapter = _OversizedActivationEnvelopeAdapter(
+        permit.intent.boundary_identity,
+        publisher_case["settings"].run_action_event_size_bytes + 1,
+    )
+
+    with pytest.raises(RunActionRecoveryError, match="activation event envelope"):
+        _recovery_coordinator(gate, adapter).recover(frontier)
+
+    events = gate._action_store.inspect().events_for(permit.intent.operation_id)
+    assert events[-1].event_kind is RunActionExecutionEventKind.SPAWN_COMMITTED
+    assert not adapter.stage_calls
+    assert not adapter.start_calls
+
+
 def test_committed_inert_recovery_activates_same_spawn_without_repreparing(
     publisher_case,
 ) -> None:
@@ -723,7 +938,7 @@ def test_committed_inert_recovery_activates_same_spawn_without_repreparing(
 
     durable_prefix = gate._action_store.inspect().events_for(permit.intent.operation_id)
     assert durable_prefix[-1].event_kind is (
-        RunActionExecutionEventKind.SPAWN_COMMITTED
+        RunActionExecutionEventKind.ACTIVATION_COMMITTED
     )
     durable_prepared = durable_prefix[2].prepared_execution
     durable_spawn = durable_prefix[3].spawn_commit
@@ -742,7 +957,7 @@ def test_committed_inert_recovery_activates_same_spawn_without_repreparing(
     ]
     assert len(adapter.inspect_calls) == 1
     terminal_events = report.recovered_operations[-1].events
-    assert terminal_events[:4] == durable_prefix
+    assert terminal_events[:5] == durable_prefix
 
 
 def test_failed_edit_recovery_terminates_with_unchanged_workspace(
@@ -802,7 +1017,7 @@ def test_committed_spawn_is_queried_and_never_reactivated(
     expected_terminal,
 ) -> None:
     frontier, gate, permit, payload = _reserved_case(publisher_case)
-    _leave_spawn_committed(gate, permit, payload)
+    _leave_activation_committed(gate, permit, payload)
     adapter = _FakeExecutionAdapter(
         permit.intent.boundary_identity,
         observation_state=state,
@@ -836,6 +1051,7 @@ def test_quiescent_edit_recovers_only_one_clean_direct_successor(
     with pytest.raises(RuntimeError, match="after clean edit"):
         with gate.hold(permit, payload) as lease:
             _claim_action(gate, lease)
+            _commit_test_activation(gate, lease)
             commit_sha = _commit_workspace_edit(
                 publisher_case,
                 "recovered.py",
@@ -876,6 +1092,7 @@ def test_ambiguous_edit_workspace_remains_nonterminal(
     with pytest.raises(RuntimeError, match="after ambiguous edit"):
         with gate.hold(permit, payload) as lease:
             _claim_action(gate, lease)
+            _commit_test_activation(gate, lease)
             if workspace_state == "dirty":
                 (publisher_case["active"].workspace / "uncommitted.py").write_text(
                     "DIRTY = True\n", encoding="utf-8"
@@ -937,7 +1154,7 @@ def test_reattachment_without_a_result_remains_unresolved(
     publisher_case,
 ) -> None:
     frontier, gate, permit, payload = _reserved_case(publisher_case)
-    _leave_spawn_committed(gate, permit, payload)
+    _leave_activation_committed(gate, permit, payload)
     adapter = _FakeExecutionAdapter(
         permit.intent.boundary_identity,
         observation_state=(RunActionCommittedSpawnState.RUNNING_REATTACHABLE),
@@ -955,7 +1172,7 @@ def test_security_advance_prevents_committed_spawn_reattachment(
     publisher_case,
 ) -> None:
     frontier, gate, permit, payload = _reserved_case(publisher_case)
-    _leave_spawn_committed(gate, permit, payload)
+    _leave_activation_committed(gate, permit, payload)
     _advance_security(publisher_case, gate, frontier)
     adapter = _FakeExecutionAdapter(
         permit.intent.boundary_identity,
@@ -1067,7 +1284,7 @@ def test_terminal_replay_reads_accepted_bytes_without_implementation_use(
     assert not adapter.result_interpreter.interpret_calls
 
 
-def test_activation_crash_is_reopened_only_as_committed_work(
+def test_activation_staging_crash_reopens_only_as_unactivated_spawn(
     publisher_case,
 ) -> None:
     frontier, gate, permit, _payload = _reserved_case(publisher_case)
@@ -1080,9 +1297,10 @@ def test_activation_crash_is_reopened_only_as_committed_work(
     with pytest.raises(RuntimeError, match="durable spawn"):
         coordinator.recover(frontier)
 
-    assert len(crashing.start_calls) == 1
+    assert len(crashing.stage_calls) == 1
+    assert not crashing.start_calls
     crashing.fail_activation = False
-    crashing.observation_state = RunActionCommittedSpawnState.RESULT_AVAILABLE
+    crashing.observation_state = RunActionCommittedSpawnState.INERT_ACTIVATABLE
     report = coordinator.recover(frontier)
     assert report.is_complete
     assert len(crashing.start_calls) == 1
@@ -1125,6 +1343,57 @@ def test_security_advance_after_preparation_terminally_invalidates_frontier(
         RunActionTerminalReason.FRONTIER_INVALIDATED_BEFORE_SPAWN
     )
     assert terminal.workspace_after == terminal.reservation.frontier.workspace_before
+
+
+def test_security_advance_during_activation_staging_never_starts_provider(
+    publisher_case,
+) -> None:
+    frontier, gate, permit, _payload = _reserved_case(publisher_case)
+    adapter = _SecurityAdvancingStageAdapter(
+        permit.intent.boundary_identity,
+        lambda: _advance_security(publisher_case, gate, frontier),
+    )
+
+    report = _recovery_coordinator(gate, adapter).recover(frontier)
+
+    assert not report.is_complete
+    assert len(adapter.stage_calls) == 1
+    assert not adapter.start_calls
+    events = gate._action_store.inspect().events_for(permit.intent.operation_id)
+    assert events[-1].event_kind is RunActionExecutionEventKind.SPAWN_COMMITTED
+
+
+def test_security_advance_after_activation_commit_never_starts_provider(
+    publisher_case,
+) -> None:
+    frontier, gate, permit, _payload = _reserved_case(publisher_case)
+    required = frontier.checkpoint.safety_state.security_observation
+    pin = publisher_case["active"].bootstrap_pin
+    advanced = _security_observation(
+        pin,
+        required.checked_subject_ids,
+        generation_offset=(
+            required.generation
+            - pin.launch_manifest.security_observation.generation
+            + 1
+        ),
+    )
+    authority = _AdvancingOnCallSecurityAuthority(
+        required,
+        advanced,
+        advance_on_call=4,
+    )
+    gate._security_authority = authority
+    adapter = _FakeExecutionAdapter(permit.intent.boundary_identity)
+
+    report = _recovery_coordinator(gate, adapter).recover(frontier)
+
+    assert not report.is_complete
+    assert authority.call_count == 4
+    assert len(adapter.stage_calls) == 1
+    assert not adapter.start_calls
+    events = gate._action_store.inspect().events_for(permit.intent.operation_id)
+    assert events[-1].event_kind is (RunActionExecutionEventKind.ACTIVATION_COMMITTED)
 
 
 def test_workspace_advance_after_claim_terminally_invalidates_frontier(

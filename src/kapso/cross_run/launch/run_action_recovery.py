@@ -46,8 +46,12 @@ from kapso.cross_run.launch.run_action_store import (
 )
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
     DockerRunActionExecutionPolicy,
+    RunActionActivationRevalidationReceipt,
     RunActionPreparationClaim,
     RunActionPreparedExecution,
+    RunActionResultCaptureReceipt,
+    RunActionTerminalObservation,
+    run_action_terminal_result_evidence_matches,
 )
 from kapso.cross_run.launch.run_state_publisher import (
     ReconciledRunFrontier,
@@ -66,6 +70,7 @@ _RUN_ACTION_RECOVERY_COORDINATOR_AUTHORITY = object()
 _RUN_ACTION_RECOVERY_IMPLEMENTATION_REGISTRY_AUTHORITY = object()
 _RUN_ACTION_PREPARATION_AUTHORITY = object()
 _RUN_ACTION_ACTIVATION_AUTHORITY = object()
+_RUN_ACTION_COMMITTED_ACTIVATION_AUTHORITY = object()
 _ISSUED_RECOVERY_COORDINATORS: WeakValueDictionary[int, object] = WeakValueDictionary()
 _ISSUED_RECOVERY_IMPLEMENTATION_REGISTRIES: WeakValueDictionary[int, object] = (
     WeakValueDictionary()
@@ -79,10 +84,14 @@ _ISSUED_PREPARATION_CAPABILITIES: WeakValueDictionary[int, object] = (
 _ISSUED_ACTIVATION_CAPABILITIES: WeakValueDictionary[int, object] = (
     WeakValueDictionary()
 )
+_ISSUED_COMMITTED_ACTIVATION_CAPABILITIES: WeakValueDictionary[int, object] = (
+    WeakValueDictionary()
+)
 _RECOVERY_COORDINATOR_LOCK = Lock()
 _RECOVERY_IMPLEMENTATION_REGISTRY_LOCK = Lock()
 _PREPARATION_CAPABILITY_LOCK = Lock()
 _ACTIVATION_CAPABILITY_LOCK = Lock()
+_COMMITTED_ACTIVATION_CAPABILITY_LOCK = Lock()
 _TERMINAL_KINDS = {
     RunActionExecutionEventKind.RESULT_ACCEPTED,
     RunActionExecutionEventKind.CANCELLED,
@@ -90,8 +99,11 @@ _TERMINAL_KINDS = {
 }
 _EXECUTION_ADAPTER_METHOD_NAMES = (
     "prepared_event_size_bound",
+    "activation_event_size_bound",
     "prepare",
-    "activate_once",
+    "stage_activation",
+    "activate_committed_once",
+    "inspect_unactivated",
     "inspect_committed",
     "reattach",
 )
@@ -203,8 +215,28 @@ def _preparation_origin_matches_mode(
     return observation.origin in admitted_origins[mode]
 
 
+class RunActionUnactivatedSpawnState(str, Enum):
+    """Facts admitted before one durable activation receipt is selected."""
+
+    INERT_ACTIVATABLE = "inert_activatable"
+    UNKNOWN = "unknown"
+
+
+@dataclass(frozen=True)
+class RunActionUnactivatedSpawnObservation:
+    """Closed observation that can never adopt an unauthorized provider start."""
+
+    state: RunActionUnactivatedSpawnState
+
+    def __post_init__(self) -> None:
+        if type(self.state) is not RunActionUnactivatedSpawnState:
+            raise RunActionRecoveryError(
+                "unactivated-spawn observation uses an unknown state"
+            )
+
+
 class RunActionCommittedSpawnState(str, Enum):
-    """Provider facts admitted after a spawn was durably committed."""
+    """Provider facts admitted after activation was durably selected."""
 
     INERT_ACTIVATABLE = "inert_activatable"
     RESULT_AVAILABLE = "result_available"
@@ -215,14 +247,30 @@ class RunActionCommittedSpawnState(str, Enum):
 
 @dataclass(frozen=True)
 class RunActionProviderResult:
-    """Complete raw bytes returned by one exact provider execution."""
+    """Complete captured bytes and physical evidence from one provider execution."""
 
+    terminal_observation: RunActionTerminalObservation
+    result_capture_receipt: RunActionResultCaptureReceipt
     result_payload: bytes
 
     def __post_init__(self) -> None:
-        if type(self.result_payload) is not bytes or not self.result_payload:
+        if (
+            type(self.terminal_observation) is not RunActionTerminalObservation
+            or type(self.result_capture_receipt) is not RunActionResultCaptureReceipt
+            or self.result_capture_receipt.terminal_observation_id
+            != self.terminal_observation.terminal_observation_id
+            or self.result_capture_receipt.runtime_volume_authority_id
+            != self.terminal_observation.runtime_volume_authority_id
+            or self.result_capture_receipt.generation_nonce
+            != self.terminal_observation.generation_nonce
+            or type(self.result_payload) is not bytes
+            or not self.result_payload
+            or self.result_capture_receipt.size_bytes != len(self.result_payload)
+            or self.result_capture_receipt.content_digest
+            != tree_or_blob_digest(self.result_payload)
+        ):
             raise RunActionRecoveryError(
-                "recovered provider result must be complete non-empty bytes"
+                "recovered provider result lacks exact terminal capture evidence"
             )
 
 
@@ -436,7 +484,7 @@ class _RunActionPreparationInvocation:
 
 
 class RunActionActivationCapability:
-    """Single-use post-commit authority for the exact prepared occurrence."""
+    """Single-use delivery and inert-revalidation authority before event 5."""
 
     def __init__(
         self,
@@ -460,6 +508,8 @@ class RunActionActivationCapability:
             or spawn_commit.provider_execution_id
             != prepared_execution.inert_container_evidence.container_id
             or spawn_commit.boundary_identity != reservation.intent.boundary_identity
+            or spawn_commit.security_observation_id
+            != reservation.frontier.security_observation_id
             or type(request_payload) is not bytes
             or not request_payload
             or tree_or_blob_digest(request_payload) != reservation.request_blob.digest
@@ -512,9 +562,9 @@ class RunActionActivationCapability:
     def _invoke_once(
         self,
         execution_adapter: "RunActionExecutionAdapter",
-    ) -> RunActionProviderResult:
+    ) -> RunActionActivationRevalidationReceipt:
         with self._begin_invocation():
-            return execution_adapter.activate_once(self)
+            return execution_adapter.stage_activation(self)
 
     def _begin_invocation(self) -> "_RunActionActivationInvocation":
         with _ACTIVATION_CAPABILITY_LOCK:
@@ -578,9 +628,151 @@ class _RunActionActivationInvocation:
         return False
 
 
+class RunActionCommittedActivationCapability:
+    """Single-use authority to revalidate and start the durable event-5 choice."""
+
+    def __init__(
+        self,
+        *,
+        activation_event: RunActionExecutionEvent,
+        workspace_descriptor: int | None,
+        _authority: object,
+    ) -> None:
+        if (
+            type(activation_event) is not RunActionExecutionEvent
+            or activation_event.event_number != 5
+            or activation_event.event_kind
+            is not RunActionExecutionEventKind.ACTIVATION_COMMITTED
+            or type(activation_event.activation_revalidation_receipt)
+            is not RunActionActivationRevalidationReceipt
+        ):
+            raise RunActionRecoveryError(
+                "committed activation requires one exact durable event"
+            )
+        activation = activation_event.activation_revalidation_receipt
+        reservation = activation.prepared_execution.preparation_claim.reservation
+        if (
+            activation_event.reservation != reservation
+            or (reservation.intent.workspace_access is RunFrontierWorkspaceAccess.NONE)
+            != (workspace_descriptor is None)
+            or (
+                workspace_descriptor is not None
+                and (type(workspace_descriptor) is not int or workspace_descriptor < 0)
+            )
+            or _authority is not _RUN_ACTION_COMMITTED_ACTIVATION_AUTHORITY
+        ):
+            raise RunActionRecoveryError(
+                "committed activation capability lacks exact authority"
+            )
+        self._activation_event = activation_event
+        self._workspace_descriptor = (
+            None if workspace_descriptor is None else os.dup(workspace_descriptor)
+        )
+        if self._workspace_descriptor is not None:
+            os.set_inheritable(self._workspace_descriptor, False)
+        self._owner_process_id = os.getpid()
+        self._invoking_thread_id = None
+        self._state = "ready"
+        with _COMMITTED_ACTIVATION_CAPABILITY_LOCK:
+            _ISSUED_COMMITTED_ACTIVATION_CAPABILITIES[id(self)] = self
+
+    @property
+    def activation_event(self) -> RunActionExecutionEvent:
+        self._require_active_invocation()
+        return self._activation_event
+
+    @property
+    def activation_revalidation_receipt(
+        self,
+    ) -> RunActionActivationRevalidationReceipt:
+        self._require_active_invocation()
+        return self._activation_event.activation_revalidation_receipt
+
+    @property
+    def prepared_execution(self) -> RunActionPreparedExecution:
+        return self.activation_revalidation_receipt.prepared_execution
+
+    @property
+    def spawn_commit(self) -> RunActionSpawnCommit:
+        return self.activation_revalidation_receipt.spawn_commit
+
+    @property
+    def workspace_descriptor(self) -> int | None:
+        self._require_active_invocation()
+        return self._workspace_descriptor
+
+    def _invoke_once(
+        self,
+        execution_adapter: "RunActionExecutionAdapter",
+    ) -> RunActionProviderResult:
+        with self._begin_invocation():
+            return execution_adapter.activate_committed_once(self)
+
+    def _begin_invocation(self) -> "_RunActionCommittedActivationInvocation":
+        with _COMMITTED_ACTIVATION_CAPABILITY_LOCK:
+            issued = _ISSUED_COMMITTED_ACTIVATION_CAPABILITIES.get(id(self))
+            if (
+                issued is not self
+                or self._owner_process_id != os.getpid()
+                or self._state != "ready"
+            ):
+                raise RunActionRecoveryError(
+                    "committed activation capability is spent, cloned, or foreign"
+                )
+            self._state = "invoking"
+            self._invoking_thread_id = get_ident()
+        return _RunActionCommittedActivationInvocation(self)
+
+    def _require_active_invocation(self) -> None:
+        with _COMMITTED_ACTIVATION_CAPABILITY_LOCK:
+            issued = _ISSUED_COMMITTED_ACTIVATION_CAPABILITIES.get(id(self))
+            if (
+                issued is not self
+                or self._owner_process_id != os.getpid()
+                or self._state != "invoking"
+                or self._invoking_thread_id != get_ident()
+            ):
+                raise RunActionRecoveryError(
+                    "committed activation capability is not in its one invocation"
+                )
+
+    def _finish_invocation(self) -> None:
+        with _COMMITTED_ACTIVATION_CAPABILITY_LOCK:
+            issued = _ISSUED_COMMITTED_ACTIVATION_CAPABILITIES.get(id(self))
+            if (
+                issued is not self
+                or self._owner_process_id != os.getpid()
+                or self._state != "invoking"
+                or self._invoking_thread_id != get_ident()
+            ):
+                raise RunActionRecoveryError(
+                    "committed activation capability invocation changed"
+                )
+            self._state = "spent"
+            self._invoking_thread_id = None
+            _ISSUED_COMMITTED_ACTIVATION_CAPABILITIES.pop(id(self))
+        if self._workspace_descriptor is not None:
+            os.close(self._workspace_descriptor)
+            self._workspace_descriptor = None
+
+
+class _RunActionCommittedActivationInvocation:
+    """Burn one committed activation capability on every callback exit."""
+
+    def __init__(self, capability: RunActionCommittedActivationCapability) -> None:
+        self._capability = capability
+
+    def __enter__(self) -> RunActionCommittedActivationCapability:
+        return self._capability
+
+    def __exit__(self, exception_type, exception, traceback) -> bool:
+        self._capability._finish_invocation()
+        return False
+
+
 @dataclass(frozen=True)
-class RunActionCommittedSpawnQuery:
-    """Read-only execution identity with no request or fresh-spawn authority."""
+class RunActionUnactivatedSpawnQuery:
+    """Read-only identity for a spawn that has no durable activation receipt."""
 
     prepared_execution: RunActionPreparedExecution
     spawn_commit: RunActionSpawnCommit
@@ -600,9 +792,41 @@ class RunActionCommittedSpawnQuery:
             != self.prepared_execution.inert_container_evidence.container_id
             or self.spawn_commit.boundary_identity
             != reservation.intent.boundary_identity
+            or self.spawn_commit.security_observation_id
+            != reservation.frontier.security_observation_id
         ):
             raise RunActionRecoveryError(
                 "committed run action query lacks exact durable identity"
+            )
+
+    @property
+    def reservation(self) -> RunActionReservation:
+        return self.prepared_execution.preparation_claim.reservation
+
+
+@dataclass(frozen=True)
+class RunActionCommittedSpawnQuery:
+    """Read-only identity for one durably selected activation occurrence."""
+
+    prepared_execution: RunActionPreparedExecution
+    spawn_commit: RunActionSpawnCommit
+    activation_revalidation_receipt: RunActionActivationRevalidationReceipt
+
+    def __post_init__(self) -> None:
+        unactivated = RunActionUnactivatedSpawnQuery(
+            prepared_execution=self.prepared_execution,
+            spawn_commit=self.spawn_commit,
+        )
+        if (
+            type(self.activation_revalidation_receipt)
+            is not RunActionActivationRevalidationReceipt
+            or self.activation_revalidation_receipt.prepared_execution
+            != unactivated.prepared_execution
+            or self.activation_revalidation_receipt.spawn_commit
+            != unactivated.spawn_commit
+        ):
+            raise RunActionRecoveryError(
+                "committed run action query lacks its durable activation"
             )
 
     @property
@@ -623,15 +847,33 @@ class RunActionExecutionAdapter(Protocol):
         predecessor_event_id: str,
     ) -> int: ...
 
+    def activation_event_size_bound(
+        self,
+        *,
+        prepared_execution: RunActionPreparedExecution,
+        spawn_commit: RunActionSpawnCommit,
+        predecessor_event_id: str,
+    ) -> int: ...
+
     def prepare(
         self,
         capability: RunActionPreparationCapability,
     ) -> RunActionPreparationObservation: ...
 
-    def activate_once(
+    def stage_activation(
         self,
         capability: RunActionActivationCapability,
+    ) -> RunActionActivationRevalidationReceipt: ...
+
+    def activate_committed_once(
+        self,
+        capability: RunActionCommittedActivationCapability,
     ) -> RunActionProviderResult: ...
+
+    def inspect_unactivated(
+        self,
+        query: RunActionUnactivatedSpawnQuery,
+    ) -> RunActionUnactivatedSpawnObservation: ...
 
     def inspect_committed(
         self,
@@ -1216,17 +1458,13 @@ class RunActionRecoveryCoordinator:
                 security_observation_id=(reservation.frontier.security_observation_id),
                 boundary_identity=reservation.intent.boundary_identity,
             )
-            capability = RunActionActivationCapability(
-                prepared_execution=prepared,
-                spawn_commit=spawn_commit,
-                request_payload=session.read_request(),
-                workspace_descriptor=confirmed_descriptor,
-                _authority=_RUN_ACTION_ACTIVATION_AUTHORITY,
-            )
-            result = capability._invoke_once(execution_adapter)
-            self._record_and_interpret(
+            self._stage_and_activate(
                 session,
-                result,
+                execution_adapter,
+                prepared,
+                spawn_commit,
+                confirmed_descriptor,
+                frontier,
                 descriptors,
             )
             return
@@ -1237,16 +1475,16 @@ class RunActionRecoveryCoordinator:
             )
             prepared_execution = events[2].prepared_execution
             spawn_commit = events[-1].spawn_commit
-            query = RunActionCommittedSpawnQuery(
+            query = RunActionUnactivatedSpawnQuery(
                 prepared_execution=prepared_execution,
                 spawn_commit=spawn_commit,
             )
-            observation = execution_adapter.inspect_committed(query)
-            if type(observation) is not RunActionCommittedSpawnObservation:
+            observation = execution_adapter.inspect_unactivated(query)
+            if type(observation) is not RunActionUnactivatedSpawnObservation:
                 raise RunActionRecoveryError(
-                    "execution adapter returned an invalid committed-spawn observation"
+                    "execution adapter returned an invalid unactivated-spawn observation"
                 )
-            if observation.state is RunActionCommittedSpawnState.INERT_ACTIVATABLE:
+            if observation.state is RunActionUnactivatedSpawnState.INERT_ACTIVATABLE:
                 workspace_descriptor, observed_workspace = self._inspect_workspace(
                     reservation,
                     descriptors,
@@ -1261,17 +1499,39 @@ class RunActionRecoveryCoordinator:
                     return
                 if not self._security_is_current(frontier):
                     return
-                capability = RunActionActivationCapability(
-                    prepared_execution=prepared_execution,
-                    spawn_commit=spawn_commit,
-                    request_payload=session.read_request(),
-                    workspace_descriptor=workspace_descriptor,
-                    _authority=_RUN_ACTION_ACTIVATION_AUTHORITY,
-                )
-                result = capability._invoke_once(execution_adapter)
-                self._record_and_interpret(
+                self._stage_and_activate(
                     session,
-                    result,
+                    execution_adapter,
+                    prepared_execution,
+                    spawn_commit,
+                    workspace_descriptor,
+                    frontier,
+                    descriptors,
+                )
+            return
+        if tail_kind is RunActionExecutionEventKind.ACTIVATION_COMMITTED:
+            execution_adapter = self._resolve_execution_adapter(
+                self._implementation_registry,
+                reservation,
+            )
+            prepared_execution = events[2].prepared_execution
+            spawn_commit = events[3].spawn_commit
+            activation = events[4].activation_revalidation_receipt
+            query = RunActionCommittedSpawnQuery(
+                prepared_execution=prepared_execution,
+                spawn_commit=spawn_commit,
+                activation_revalidation_receipt=activation,
+            )
+            observation = execution_adapter.inspect_committed(query)
+            if type(observation) is not RunActionCommittedSpawnObservation:
+                raise RunActionRecoveryError(
+                    "execution adapter returned an invalid committed-spawn observation"
+                )
+            if observation.state is RunActionCommittedSpawnState.INERT_ACTIVATABLE:
+                self._activate_committed(
+                    session,
+                    execution_adapter,
+                    frontier,
                     descriptors,
                 )
             elif observation.state is RunActionCommittedSpawnState.RESULT_AVAILABLE:
@@ -1315,6 +1575,114 @@ class RunActionRecoveryCoordinator:
             "run action recovery received a terminal operation"
         )
 
+    def _stage_and_activate(
+        self,
+        session,
+        execution_adapter: RunActionExecutionAdapter,
+        prepared_execution: RunActionPreparedExecution,
+        spawn_commit: RunActionSpawnCommit,
+        workspace_descriptor: int | None,
+        frontier: ReconciledRunFrontier,
+        descriptors: ExitStack,
+    ) -> RunActionAcceptance | None:
+        predecessor_event_id = session.events[-1].event_id
+        activation_event_size_bound = execution_adapter.activation_event_size_bound(
+            prepared_execution=prepared_execution,
+            spawn_commit=spawn_commit,
+            predecessor_event_id=predecessor_event_id,
+        )
+        repeated_size_bound = execution_adapter.activation_event_size_bound(
+            prepared_execution=prepared_execution,
+            spawn_commit=spawn_commit,
+            predecessor_event_id=predecessor_event_id,
+        )
+        if (
+            type(activation_event_size_bound) is not int
+            or activation_event_size_bound <= 0
+            or repeated_size_bound != activation_event_size_bound
+            or activation_event_size_bound
+            > self._publisher._settings.run_action_event_size_bytes
+        ):
+            raise RunActionRecoveryError(
+                "run action activation event envelope is invalid or too large"
+            )
+        capability = RunActionActivationCapability(
+            prepared_execution=prepared_execution,
+            spawn_commit=spawn_commit,
+            request_payload=session.read_request(),
+            workspace_descriptor=workspace_descriptor,
+            _authority=_RUN_ACTION_ACTIVATION_AUTHORITY,
+        )
+        activation = capability._invoke_once(execution_adapter)
+        if (
+            type(activation) is not RunActionActivationRevalidationReceipt
+            or activation.prepared_execution != prepared_execution
+            or activation.spawn_commit != spawn_commit
+            or session.activation_event_size_bytes(activation)
+            > activation_event_size_bound
+        ):
+            raise RunActionRecoveryError(
+                "execution adapter returned another or oversized activation"
+            )
+        _post_stage_descriptor, observed_workspace = self._inspect_workspace(
+            session.reservation,
+            descriptors,
+            allow_edit_successor=False,
+        )
+        expected_workspace = session.reservation.frontier.workspace_before
+        if (
+            None
+            if observed_workspace is None
+            else RunActionWorkspaceBinding.from_identity(observed_workspace)
+        ) != expected_workspace or not self._security_is_current(frontier):
+            return None
+        session.commit_activation(activation)
+        return self._activate_committed(
+            session,
+            execution_adapter,
+            frontier,
+            descriptors,
+        )
+
+    def _activate_committed(
+        self,
+        session,
+        execution_adapter: RunActionExecutionAdapter,
+        frontier: ReconciledRunFrontier,
+        descriptors: ExitStack,
+    ) -> RunActionAcceptance | None:
+        activation_event = session.events[-1]
+        if (
+            activation_event.event_kind
+            is not RunActionExecutionEventKind.ACTIVATION_COMMITTED
+        ):
+            raise RunActionRecoveryError(
+                "provider start requires the durable activation tail"
+            )
+        workspace_descriptor, observed_workspace = self._inspect_workspace(
+            session.reservation,
+            descriptors,
+            allow_edit_successor=False,
+        )
+        expected_workspace = session.reservation.frontier.workspace_before
+        if (
+            None
+            if observed_workspace is None
+            else RunActionWorkspaceBinding.from_identity(observed_workspace)
+        ) != expected_workspace or not self._security_is_current(frontier):
+            return None
+        capability = RunActionCommittedActivationCapability(
+            activation_event=activation_event,
+            workspace_descriptor=workspace_descriptor,
+            _authority=_RUN_ACTION_COMMITTED_ACTIVATION_AUTHORITY,
+        )
+        result = capability._invoke_once(execution_adapter)
+        return self._record_and_interpret(
+            session,
+            result,
+            descriptors,
+        )
+
     def _record_and_interpret(
         self,
         session,
@@ -1325,9 +1693,20 @@ class RunActionRecoveryCoordinator:
             raise RunActionRecoveryError(
                 "execution adapter returned an invalid provider result"
             )
-        spawn_commit = session.events[-1].spawn_commit
+        spawn_commit = session.events[3].spawn_commit
+        activation = session.events[4].activation_revalidation_receipt
+        if not run_action_terminal_result_evidence_matches(
+            result.terminal_observation,
+            result.result_capture_receipt,
+            activation,
+        ):
+            raise RunActionRecoveryError(
+                "execution adapter result differs from durable activation"
+            )
         session.record_result(
             spawn_commit=spawn_commit,
+            terminal_observation=result.terminal_observation,
+            result_capture_receipt=result.result_capture_receipt,
             result_payload=result.result_payload,
         )
         return self._interpret_received(session, descriptors)
@@ -1652,9 +2031,13 @@ class RunActionRecoveryCoordinator:
 
 __all__ = [
     "RunActionActivationCapability",
+    "RunActionCommittedActivationCapability",
     "RunActionCommittedSpawnObservation",
     "RunActionCommittedSpawnQuery",
     "RunActionCommittedSpawnState",
+    "RunActionUnactivatedSpawnObservation",
+    "RunActionUnactivatedSpawnQuery",
+    "RunActionUnactivatedSpawnState",
     "RunActionExecutionAdapter",
     "RunActionInterpretedResult",
     "RunActionPreparationCapability",

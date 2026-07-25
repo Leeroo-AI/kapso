@@ -41,6 +41,7 @@ from kapso.cross_run.launch.run_action_reservation_contracts import (
 from kapso.cross_run.launch.run_action_store import (
     _RUN_ACTION_MUTATION_AUTHORITY,
     RunActionAcceptance,
+    RunActionExecutionEvent,
     _RunActionExecutionSession,
     RunActionResultDisposition,
     RunActionResultReceipt,
@@ -49,8 +50,11 @@ from kapso.cross_run.launch.run_action_store import (
 )
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
     DockerRunActionExecutionPolicy,
+    RunActionActivationRevalidationReceipt,
     RunActionPreparationClaim,
     RunActionPreparedExecution,
+    RunActionResultCaptureReceipt,
+    RunActionTerminalObservation,
 )
 from kapso.cross_run.launch.run_state_publisher import (
     ReconciledRunFrontier,
@@ -536,22 +540,42 @@ class RunFrontierActionGate:
             )
         return current_security
 
+    def commit_activation(
+        self,
+        lease: RunFrontierUseLease,
+        *,
+        activation_revalidation_receipt: RunActionActivationRevalidationReceipt,
+    ) -> RunActionExecutionEvent:
+        """Durably select the sole receipt that may authorize provider start."""
+
+        self._require_live_lease(
+            lease,
+            kind=lease._reservation.intent.kind,
+            required_tail=RunActionExecutionEventKind.SPAWN_COMMITTED,
+        )
+        self._require_current_security(lease)
+        return lease._session.commit_activation(activation_revalidation_receipt)
+
     def record_result(
         self,
         lease: RunFrontierUseLease,
         *,
+        terminal_observation: RunActionTerminalObservation,
+        result_capture_receipt: RunActionResultCaptureReceipt,
         result_payload: bytes,
     ) -> RunActionResultReceipt:
         """Persist complete provider output before adapter interpretation."""
         self._require_live_lease(
             lease,
             kind=lease._reservation.intent.kind,
-            required_tail=RunActionExecutionEventKind.SPAWN_COMMITTED,
+            required_tail=RunActionExecutionEventKind.ACTIVATION_COMMITTED,
         )
         if lease._result_receipt is not None:
             raise RunFrontierActionError("run action result was already recorded")
         receipt = lease._session.record_result(
             spawn_commit=lease._spawn_commit,
+            terminal_observation=terminal_observation,
+            result_capture_receipt=result_capture_receipt,
             result_payload=result_payload,
         )
         object.__setattr__(lease, "_result_receipt", receipt)
@@ -590,11 +614,22 @@ class RunFrontierActionGate:
         reason: RunActionTerminalReason,
     ) -> None:
         """Close a committed spawn whose complete result cannot be recovered."""
+        if type(lease) is not RunFrontierUseLease:
+            raise RunFrontierActionError(
+                "run action interruption requires one exact live lease"
+            )
         self._require_live_lease(
             lease,
             kind=lease._reservation.intent.kind,
-            required_tail=RunActionExecutionEventKind.SPAWN_COMMITTED,
+            required_tail=lease._session.events[-1].event_kind,
         )
+        if lease._session.events[-1].event_kind not in {
+            RunActionExecutionEventKind.SPAWN_COMMITTED,
+            RunActionExecutionEventKind.ACTIVATION_COMMITTED,
+        }:
+            raise RunFrontierActionError(
+                "provider interruption requires committed spawn or activation"
+            )
         if lease._result_receipt is not None:
             raise RunFrontierActionError(
                 "received run action result cannot be marked interrupted"

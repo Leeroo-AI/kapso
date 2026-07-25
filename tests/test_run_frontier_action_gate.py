@@ -69,8 +69,12 @@ from test_launch_resume_contracts import (
 )
 from test_run_state_publisher import _publish_genesis, publisher_case
 from test_run_action_supervisor_contracts import (
+    _activation_revalidation_receipt,
     _execution_policy,
     _prepared_execution,
+    _remint_contract,
+    _result_capture_receipt,
+    _terminal_observation,
 )
 
 
@@ -387,10 +391,37 @@ def test_gate_terminally_closes_claimed_resource_loss_before_spawn(
     )
 
 
-def _accept_action(gate, lease):
-    result = gate.record_result(
+def _record_result(gate, lease, payload):
+    prepared = lease._session.events[2].prepared_execution
+    activation = _activation_revalidation_receipt(prepared, lease._spawn_commit)
+    if (
+        lease._session.events[-1].event_kind
+        is RunActionExecutionEventKind.SPAWN_COMMITTED
+    ):
+        gate.commit_activation(
+            lease,
+            activation_revalidation_receipt=activation,
+        )
+    terminal = _terminal_observation(prepared, lease._spawn_commit)
+    capture = _result_capture_receipt(
+        prepared,
+        activation,
+        terminal,
+        payload,
+    )
+    return gate.record_result(
         lease,
-        result_payload=b'{"provider_result":"complete"}',
+        terminal_observation=terminal,
+        result_capture_receipt=capture,
+        result_payload=payload,
+    )
+
+
+def _accept_action(gate, lease):
+    result = _record_result(
+        gate,
+        lease,
+        b'{"provider_result":"complete"}',
     )
     return gate.accept_result(
         lease,
@@ -547,24 +578,17 @@ def test_action_gate_holds_current_frontier_and_claims_once(
         _accept_action(gate, lease)
 
     ledger = publisher.action_ledger_snapshot()
-    assert ledger.event_count == 6
+    assert ledger.event_count == 7
     assert ledger.operation_tails[0].tail_kind is (
         RunActionExecutionEventKind.RESULT_ACCEPTED
     )
-    assert security.calls == [
-        (
-            receipt.checkpoint.safety_state.security_observation.scope_id,
-            receipt.checkpoint.safety_state.security_observation.scope_contract_id,
-            receipt.checkpoint.safety_state.security_observation.checked_subject_ids,
-            receipt.checkpoint.safety_state.security_observation,
-        ),
-        (
-            receipt.checkpoint.safety_state.security_observation.scope_id,
-            receipt.checkpoint.safety_state.security_observation.scope_contract_id,
-            receipt.checkpoint.safety_state.security_observation.checked_subject_ids,
-            receipt.checkpoint.safety_state.security_observation,
-        ),
-    ]
+    expected_security_call = (
+        receipt.checkpoint.safety_state.security_observation.scope_id,
+        receipt.checkpoint.safety_state.security_observation.scope_contract_id,
+        receipt.checkpoint.safety_state.security_observation.checked_subject_ids,
+        receipt.checkpoint.safety_state.security_observation,
+    )
+    assert security.calls == [expected_security_call] * 3
     with pytest.raises(RunFrontierActionError, match="consumed"):
         with gate.hold(permit, payload):
             raise AssertionError("consumed permit entered")
@@ -700,6 +724,42 @@ def test_action_gate_requires_exact_current_security_observation(
             raise AssertionError("failed security permit was replayed")
 
 
+def test_action_gate_rechecks_security_at_activation_commit(
+    publisher_case,
+) -> None:
+    _publisher, receipt, security, gate = _action_case(publisher_case)
+    current = receipt.checkpoint.safety_state.security_observation
+    payload = b'{"prompt":"security changes during activation staging"}'
+    permit = _issue_ideation_agent(gate, receipt, payload)
+
+    with pytest.raises(RunFrontierActionError, match="must be refreshed"):
+        with gate.hold(permit, payload) as lease:
+            _claim_action(gate, lease)
+            prepared = lease._session.events[2].prepared_execution
+            activation = _activation_revalidation_receipt(
+                prepared,
+                lease._spawn_commit,
+            )
+            security.observation = _security_observation(
+                publisher_case["active"].bootstrap_pin,
+                current.checked_subject_ids,
+                generation_offset=(
+                    current.generation
+                    - publisher_case[
+                        "active"
+                    ].bootstrap_pin.launch_manifest.security_observation.generation
+                    + 1
+                ),
+            )
+            gate.commit_activation(
+                lease,
+                activation_revalidation_receipt=activation,
+            )
+
+    events = gate._action_store.inspect().events_for(permit.intent.operation_id)
+    assert events[-1].event_kind is RunActionExecutionEventKind.SPAWN_COMMITTED
+
+
 def test_action_gate_rejects_wrong_checkpoint_boundary(
     publisher_case,
 ) -> None:
@@ -826,7 +886,7 @@ def test_multiple_read_only_actions_form_one_workspace_chain(
         successor_bundle,
     )
 
-    assert successor.projection.action_ledger.event_count == 12
+    assert successor.projection.action_ledger.event_count == 14
 
 
 def test_unresolved_durable_action_blocks_candidate_publication(
@@ -1306,9 +1366,10 @@ def test_failed_workspace_edit_accepts_only_the_unchanged_frontier(
 
     with gate.hold(permit, payload) as lease:
         _claim_action(gate, lease)
-        result = gate.record_result(
+        result = _record_result(
+            gate,
             lease,
-            result_payload=b'{"provider_result":"failed"}',
+            b'{"provider_result":"failed"}',
         )
         acceptance = gate.accept_result(
             lease,
@@ -1346,9 +1407,10 @@ def test_failed_workspace_edit_rejects_a_committed_successor(
                 "failed-edit.txt",
                 "must not be accepted\n",
             )
-            result = gate.record_result(
+            result = _record_result(
+                gate,
                 lease,
-                result_payload=b'{"provider_result":"failed"}',
+                b'{"provider_result":"failed"}',
             )
             gate.accept_result(
                 lease,
@@ -1408,13 +1470,32 @@ def test_action_gate_rejects_a_reminted_terminal_from_another_safety_boundary(
         security_observation_id=original_spawn.security_observation_id,
         boundary_identity=original_spawn.boundary_identity,
     )
-    original_result = original_events[4].result_receipt
+    reminted_activation = _activation_revalidation_receipt(
+        reminted_prepared,
+        reminted_spawn,
+    )
+    original_result = original_events[5].result_receipt
+    reminted_terminal = _terminal_observation(
+        reminted_prepared,
+        reminted_spawn,
+    )
+    reminted_capture = _result_capture_receipt(
+        reminted_prepared,
+        reminted_activation,
+        reminted_terminal,
+        b'{"provider_result":"complete"}',
+    )
     reminted_result = RunActionResultReceipt.mint(
         spawn_commit_id=reminted_spawn.spawn_commit_id,
-        provider_execution_id=original_result.provider_execution_id,
+        provider_execution_id=reminted_spawn.provider_execution_id,
+        activation_revalidation_receipt_id=(
+            reminted_activation.activation_revalidation_receipt_id
+        ),
+        terminal_observation=reminted_terminal,
+        result_capture_receipt=reminted_capture,
         result_blob=original_result.result_blob,
     )
-    original_acceptance = original_events[5].acceptance
+    original_acceptance = original_events[6].acceptance
     reminted_acceptance = RunActionAcceptance.mint(
         result_receipt_id=reminted_result.result_receipt_id,
         disposition=original_acceptance.disposition,
@@ -1422,10 +1503,19 @@ def test_action_gate_rejects_a_reminted_terminal_from_another_safety_boundary(
         workspace_after=original_acceptance.workspace_after,
     )
     event_payloads = (
-        (RunActionExecutionEventKind.INTENT_RESERVED, None, None, None, None, None),
+        (
+            RunActionExecutionEventKind.INTENT_RESERVED,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        ),
         (
             RunActionExecutionEventKind.PREPARATION_CLAIMED,
             reminted_claim,
+            None,
             None,
             None,
             None,
@@ -1438,6 +1528,7 @@ def test_action_gate_rejects_a_reminted_terminal_from_another_safety_boundary(
             None,
             None,
             None,
+            None,
         ),
         (
             RunActionExecutionEventKind.SPAWN_COMMITTED,
@@ -1446,9 +1537,20 @@ def test_action_gate_rejects_a_reminted_terminal_from_another_safety_boundary(
             reminted_spawn,
             None,
             None,
+            None,
+        ),
+        (
+            RunActionExecutionEventKind.ACTIVATION_COMMITTED,
+            None,
+            None,
+            None,
+            reminted_activation,
+            None,
+            None,
         ),
         (
             RunActionExecutionEventKind.RESULT_RECEIVED,
+            None,
             None,
             None,
             None,
@@ -1457,6 +1559,7 @@ def test_action_gate_rejects_a_reminted_terminal_from_another_safety_boundary(
         ),
         (
             RunActionExecutionEventKind.RESULT_ACCEPTED,
+            None,
             None,
             None,
             None,
@@ -1471,6 +1574,7 @@ def test_action_gate_rejects_a_reminted_terminal_from_another_safety_boundary(
         preparation_claim,
         prepared_execution,
         spawn_commit,
+        activation_revalidation_receipt,
         result_receipt,
         acceptance,
     ) in enumerate(event_payloads, start=1):
@@ -1482,6 +1586,7 @@ def test_action_gate_rejects_a_reminted_terminal_from_another_safety_boundary(
             preparation_claim=preparation_claim,
             prepared_execution=prepared_execution,
             spawn_commit=spawn_commit,
+            activation_revalidation_receipt=activation_revalidation_receipt,
             result_receipt=result_receipt,
             acceptance=acceptance,
             terminal_reason=None,

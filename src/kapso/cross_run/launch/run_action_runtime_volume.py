@@ -166,6 +166,18 @@ class DockerRunActionPreparedVolumeObservation:
                     strict=True,
                 )
             )
+            or any(
+                prepared_file.mount_id != self.runtime_volume_evidence.root_mount_id
+                or prepared_file.device != self.runtime_volume_evidence.root_device
+                for prepared_file in prepared_files
+            )
+            or len({prepared_file.inode for prepared_file in prepared_files})
+            != len(prepared_files)
+            or {prepared_file.inode for prepared_file in prepared_files}
+            & {
+                self.runtime_volume_evidence.root_inode,
+                self.runtime_volume_evidence.sentinel_evidence.inode,
+            }
             or self.layout_proof.runtime_volume_authority_id
             != authority.runtime_volume_authority_id
             or self.layout_proof.runtime_volume_evidence_id
@@ -361,6 +373,7 @@ class _PreparedLayoutObservation:
     root_inode: int
     sentinel_metadata: os.stat_result
     sentinel_mount_id: int
+    prepared_file_observations: tuple[_ExactRegularFileObservation, ...]
     workspace_frontier: RunWorkspaceFrontierIdentity | None
     filesystem: os.statvfs_result
 
@@ -1274,6 +1287,7 @@ def _observe_prepared_layout_at_descriptor(
         root_inode=lease.root_inode,
         sentinel_metadata=sentinel_observation.metadata,
         sentinel_mount_id=sentinel_observation.mount_id,
+        prepared_file_observations=tuple(prepared_file_observations),
         workspace_frontier=observed_workspace_frontier,
         filesystem=filesystem_before,
     )
@@ -1395,6 +1409,10 @@ def _mint_prepared_volume_observation(
     empty_size_bytes: int,
 ) -> DockerRunActionPreparedVolumeObservation:
     file_plans = _expected_file_plans(claim)
+    if len(file_plans) != len(observed.prepared_file_observations):
+        raise RunActionRuntimeVolumeError(
+            "observed prepared files differ from the layout plan"
+        )
     prepared_files = tuple(
         RunActionPreparedFile.mint(
             preparation_claim_id=claim.preparation_claim_id,
@@ -1409,8 +1427,15 @@ def _mint_prepared_volume_observation(
             link_count=1,
             size_bytes=0,
             payload_size_limit_bytes=file_plan.payload_size_limit_bytes,
+            mount_id=file_observation.mount_id,
+            device=file_observation.metadata.st_dev,
+            inode=file_observation.metadata.st_ino,
         )
-        for file_plan in file_plans
+        for file_plan, file_observation in zip(
+            file_plans,
+            observed.prepared_file_observations,
+            strict=True,
+        )
     )
     prepared_by_kind = {
         prepared_file.kind: prepared_file for prepared_file in prepared_files

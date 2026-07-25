@@ -53,8 +53,13 @@ from test_run_frontier_action_gate import (
 from test_launch_resolver import resolver_case
 from test_run_state_publisher import publisher_case
 from test_run_action_supervisor_contracts import (
+    _activation_revalidation_receipt,
     _execution_policy,
     _prepared_execution,
+    _remint_contract,
+    _result_capture_receipt,
+    _spawn_commit,
+    _terminal_observation,
 )
 
 
@@ -105,6 +110,26 @@ def _prepare_session(session, *, container_id=None, inode_offset=None):
     return prepared
 
 
+def _record_captured_result(session, spawn, payload):
+    prepared = session.events[2].prepared_execution
+    activation = _activation_revalidation_receipt(prepared, spawn)
+    if session.events[-1].event_kind is RunActionExecutionEventKind.SPAWN_COMMITTED:
+        session.commit_activation(activation)
+    terminal = _terminal_observation(prepared, spawn)
+    capture = _result_capture_receipt(
+        prepared,
+        activation,
+        terminal,
+        payload,
+    )
+    return session.record_result(
+        spawn_commit=spawn,
+        terminal_observation=terminal,
+        result_capture_receipt=capture,
+        result_payload=payload,
+    )
+
+
 def _execution_event(
     *,
     reservation,
@@ -114,6 +139,7 @@ def _execution_event(
     preparation_claim=None,
     prepared_execution=None,
     spawn_commit=None,
+    activation_revalidation_receipt=None,
     terminal_reason=None,
     workspace_after=None,
 ):
@@ -125,6 +151,7 @@ def _execution_event(
         preparation_claim=preparation_claim,
         prepared_execution=prepared_execution,
         spawn_commit=spawn_commit,
+        activation_revalidation_receipt=activation_revalidation_receipt,
         result_receipt=None,
         acceptance=None,
         terminal_reason=terminal_reason,
@@ -221,10 +248,7 @@ def test_action_store_reopens_complete_request_result_and_terminal_prefix(
         assert spawn.boundary_identity == session.reservation.intent.boundary_identity
         assert session.read_request() == request_payload
         raw_result = b'{"provider_response":"complete"}'
-        result = session.record_result(
-            spawn_commit=spawn,
-            result_payload=raw_result,
-        )
+        result = _record_captured_result(session, spawn, raw_result)
         assert session.read_result(result) == raw_result
         accepted_result = b'{"proposal":"complete"}'
         acceptance = session.accept_result(
@@ -237,7 +261,7 @@ def test_action_store_reopens_complete_request_result_and_terminal_prefix(
         assert acceptance.workspace_after.to_identity() == workspace
 
     snapshot = store.snapshot()
-    assert snapshot.event_count == 6
+    assert snapshot.event_count == 7
     assert snapshot.operation_tails[0].tail_kind is (
         RunActionExecutionEventKind.RESULT_ACCEPTED
     )
@@ -249,11 +273,156 @@ def test_action_store_reopens_complete_request_result_and_terminal_prefix(
     assert reopened.snapshot() == snapshot
     with _open_session(reopened, reservation) as session:
         assert session.read_request() == request_payload
-        assert session.read_result(session.events[4].result_receipt) == raw_result
+        assert session.read_result(session.events[5].result_receipt) == raw_result
         assert (
-            session.read_accepted_result(session.events[5].acceptance)
+            session.read_accepted_result(session.events[6].acceptance)
             == accepted_result
         )
+
+
+def test_action_store_rejects_terminal_and_capture_occurrence_splices(
+    publisher_case,
+):
+    frontier, request_payload, reservation, _workspace = _reserved_action(
+        publisher_case,
+        operation_id="terminal_capture_splice_0123456789abcdef",
+    )
+    store = _open_store(
+        publisher_case["active"],
+        publisher_case["settings"],
+    )
+    with _open_session(store, reservation) as session:
+        session.reserve(request_payload)
+        prepared = _prepare_session(session)
+        spawn = session.commit_spawn(
+            security_observation_id=(
+                frontier.checkpoint.safety_state.security_observation.observation_id
+            ),
+            boundary_identity=session.reservation.intent.boundary_identity,
+        )
+        payload = b'{"provider_response":"complete"}'
+        activation = _activation_revalidation_receipt(prepared, spawn)
+        session.commit_activation(activation)
+        foreign_prepared = _prepared_execution(
+            claim=prepared.preparation_claim,
+            inode_offset=8181,
+        )
+        foreign_spawn = _spawn_commit(
+            foreign_prepared,
+            invocation_nonce="2" * 32,
+        )
+        foreign_activation = _activation_revalidation_receipt(
+            foreign_prepared,
+            foreign_spawn,
+        )
+        foreign_terminal = _terminal_observation(
+            foreign_prepared,
+            foreign_spawn,
+        )
+        foreign_capture = _result_capture_receipt(
+            foreign_prepared,
+            foreign_activation,
+            foreign_terminal,
+            payload,
+        )
+        with pytest.raises(
+            RunActionStoreError,
+            match="result differs from its durable spawn",
+        ):
+            session.record_result(
+                spawn_commit=spawn,
+                terminal_observation=foreign_terminal,
+                result_capture_receipt=foreign_capture,
+                result_payload=payload,
+            )
+
+        terminal = _terminal_observation(prepared, spawn)
+        capture = _result_capture_receipt(
+            prepared,
+            activation,
+            terminal,
+            payload,
+        )
+        substituted_volume = _remint_contract(
+            prepared.runtime_volume_evidence,
+            root_inode=prepared.runtime_volume_evidence.root_inode + 1,
+        )
+        substituted_capture = _remint_contract(
+            capture,
+            reobserved_volume_evidence=substituted_volume,
+        )
+        with pytest.raises(RunActionStoreError, match="result differs from its spawn"):
+            session.record_result(
+                spawn_commit=spawn,
+                terminal_observation=terminal,
+                result_capture_receipt=substituted_capture,
+                result_payload=payload,
+            )
+        backwards_usage_capture = _remint_contract(
+            capture,
+            reobserved_volume_evidence=activation.reobserved_volume_evidence,
+        )
+        with pytest.raises(RunActionStoreError, match="result differs from its spawn"):
+            session.record_result(
+                spawn_commit=spawn,
+                terminal_observation=terminal,
+                result_capture_receipt=backwards_usage_capture,
+                result_payload=payload,
+            )
+        substituted_result_inode = _remint_contract(
+            capture,
+            inode=capture.inode + 1,
+        )
+        with pytest.raises(RunActionStoreError, match="result differs from its spawn"):
+            session.record_result(
+                spawn_commit=spawn,
+                terminal_observation=terminal,
+                result_capture_receipt=substituted_result_inode,
+                result_payload=payload,
+            )
+
+
+def test_activation_selection_survives_ambiguous_event_publication(
+    publisher_case,
+    monkeypatch,
+) -> None:
+    frontier, request_payload, reservation, _workspace = _reserved_action(
+        publisher_case,
+        operation_id="ambiguous_activation_publication_01234567",
+    )
+    store = _open_store(
+        publisher_case["active"],
+        publisher_case["settings"],
+    )
+    publish_event_locked = store._publish_event_locked
+
+    def publish_then_interrupt(store_descriptor, operation_id, event):
+        publish_event_locked(store_descriptor, operation_id, event)
+        if event.event_kind is RunActionExecutionEventKind.ACTIVATION_COMMITTED:
+            raise RuntimeError("injected death after activation event publication")
+
+    monkeypatch.setattr(
+        store,
+        "_publish_event_locked",
+        publish_then_interrupt,
+    )
+    with pytest.raises(RuntimeError, match="after activation event"):
+        with _open_session(store, reservation) as session:
+            session.reserve(request_payload)
+            prepared = _prepare_session(session)
+            spawn = session.commit_spawn(
+                security_observation_id=(
+                    frontier.checkpoint.safety_state.security_observation.observation_id
+                ),
+                boundary_identity=reservation.intent.boundary_identity,
+            )
+            session.commit_activation(_activation_revalidation_receipt(prepared, spawn))
+
+    events = store.inspect().events_for(reservation.intent.operation_id)
+    assert len(events) == 5
+    assert events[-1].event_kind is (RunActionExecutionEventKind.ACTIVATION_COMMITTED)
+    assert events[-1].activation_revalidation_receipt.prepared_execution == prepared
+    assert events[-1].activation_revalidation_receipt.spawn_commit == spawn
 
 
 def test_claimed_resource_loss_is_terminal_without_request_authority(
@@ -577,6 +746,7 @@ def test_action_store_rejects_reminted_failed_edit_with_changed_workspace(
         preparation_claim=None,
         prepared_execution=None,
         spawn_commit=None,
+        activation_revalidation_receipt=None,
         result_receipt=None,
         acceptance=acceptance,
         terminal_reason=None,
@@ -588,7 +758,7 @@ def test_action_store_rejects_reminted_failed_edit_with_changed_workspace(
     event_path = (
         publisher_case["active"].run_root
         / publisher_case["settings"].run_action_store_path
-        / f"operation-{operation_digest}-event-0006.json"
+        / f"operation-{operation_digest}-event-0007.json"
     )
     event_path.chmod(0o600)
     event_path.write_bytes(tampered.to_json_bytes())
@@ -759,9 +929,10 @@ def test_action_store_rejects_request_substitution_and_result_corruption(
             security_observation_id=(reservation.frontier.security_observation_id),
             boundary_identity=session.reservation.intent.boundary_identity,
         )
-        result = session.record_result(
-            spawn_commit=spawn,
-            result_payload=b'{"result":"durable"}',
+        result = _record_captured_result(
+            session,
+            spawn,
+            b'{"result":"durable"}',
         )
     result_path = (
         publisher_case["active"].run_root
@@ -886,9 +1057,10 @@ def test_action_store_rejects_reused_prepared_container_identity(
             ),
             boundary_identity=session.reservation.intent.boundary_identity,
         )
-        result = session.record_result(
-            spawn_commit=spawn,
-            result_payload=b'{"result":"first"}',
+        result = _record_captured_result(
+            session,
+            spawn,
+            b'{"result":"first"}',
         )
         session.accept_result(
             result_receipt=result,
@@ -942,9 +1114,10 @@ def test_action_store_rejects_reused_runtime_volume_generation_authority(
             security_observation_id=first.frontier.security_observation_id,
             boundary_identity=first.intent.boundary_identity,
         )
-        result = session.record_result(
-            spawn_commit=spawn,
-            result_payload=b'{"result":"first slot authority"}',
+        result = _record_captured_result(
+            session,
+            spawn,
+            b'{"result":"first slot authority"}',
         )
         session.accept_result(
             result_receipt=result,

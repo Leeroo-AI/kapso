@@ -41,8 +41,12 @@ from kapso.cross_run.launch.run_action_spawn_contracts import (
 )
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
     DockerRunActionExecutionPolicy,
+    RunActionActivationRevalidationReceipt,
     RunActionPreparationClaim,
     RunActionPreparedExecution,
+    RunActionResultCaptureReceipt,
+    RunActionTerminalObservation,
+    run_action_terminal_result_evidence_matches,
 )
 from kapso.cross_run.launch.workspace import ActiveLaunchWorkspace
 from kapso.cross_run.launch.workspace_frontier import RunWorkspaceFrontierIdentity
@@ -59,7 +63,7 @@ _INPUT_NAME_PATTERN = re.compile(r"^input-(?P<digest>[0-9a-f]{64})[.]blob$")
 _STAGING_NAME_PATTERN = re.compile(
     r"^[.](?P<kind>accepted|event|input|result)-[0-9a-f]{32}[.]tmp$"
 )
-_MAXIMUM_EVENT_COUNT = 6
+_MAXIMUM_EVENT_COUNT = 7
 _RUN_ACTION_STORE_AUTHORITY = object()
 _RUN_ACTION_MUTATION_AUTHORITY = object()
 _RUN_ACTION_RECOVERY_AUTHORITY = object()
@@ -69,10 +73,11 @@ _TERMINAL_EVENT_KINDS = {
     RunActionExecutionEventKind.INTERRUPTED,
 }
 _FUTURE_EVENT_COUNT_BY_TAIL = {
-    RunActionExecutionEventKind.INTENT_RESERVED: 5,
-    RunActionExecutionEventKind.PREPARATION_CLAIMED: 4,
-    RunActionExecutionEventKind.EXECUTION_PREPARED: 3,
-    RunActionExecutionEventKind.SPAWN_COMMITTED: 2,
+    RunActionExecutionEventKind.INTENT_RESERVED: 6,
+    RunActionExecutionEventKind.PREPARATION_CLAIMED: 5,
+    RunActionExecutionEventKind.EXECUTION_PREPARED: 4,
+    RunActionExecutionEventKind.SPAWN_COMMITTED: 3,
+    RunActionExecutionEventKind.ACTIVATION_COMMITTED: 2,
     RunActionExecutionEventKind.RESULT_RECEIVED: 1,
     RunActionExecutionEventKind.RESULT_ACCEPTED: 0,
     RunActionExecutionEventKind.CANCELLED: 0,
@@ -83,6 +88,7 @@ _FUTURE_RESULT_BLOB_COUNT_BY_TAIL = {
     RunActionExecutionEventKind.PREPARATION_CLAIMED: 2,
     RunActionExecutionEventKind.EXECUTION_PREPARED: 2,
     RunActionExecutionEventKind.SPAWN_COMMITTED: 2,
+    RunActionExecutionEventKind.ACTIVATION_COMMITTED: 2,
     RunActionExecutionEventKind.RESULT_RECEIVED: 1,
     RunActionExecutionEventKind.RESULT_ACCEPTED: 0,
     RunActionExecutionEventKind.CANCELLED: 0,
@@ -134,6 +140,9 @@ class RunActionResultReceipt(StrictContract):
     result_receipt_id: str
     spawn_commit_id: str
     provider_execution_id: str
+    activation_revalidation_receipt_id: str
+    terminal_observation: RunActionTerminalObservation
+    result_capture_receipt: RunActionResultCaptureReceipt
     result_blob: RunActionResultBlob
 
     CONTENT_NAMESPACE: ClassVar[str] = "run-action-result-receipt"
@@ -149,9 +158,31 @@ class RunActionResultReceipt(StrictContract):
             self.provider_execution_id,
             "run action result provider execution ID",
         )
-        if type(self.result_blob) is not RunActionResultBlob:
+        _require_namespaced_id(
+            self.activation_revalidation_receipt_id,
+            RunActionActivationRevalidationReceipt.CONTENT_NAMESPACE,
+            "run action result activation revalidation",
+        )
+        if (
+            type(self.terminal_observation) is not RunActionTerminalObservation
+            or type(self.result_capture_receipt) is not RunActionResultCaptureReceipt
+            or self.terminal_observation.spawn_commit_id != self.spawn_commit_id
+            or self.terminal_observation.provider_execution_id
+            != self.provider_execution_id
+            or self.terminal_observation.activation_revalidation_receipt_id
+            != self.activation_revalidation_receipt_id
+            or self.result_capture_receipt.terminal_observation_id
+            != self.terminal_observation.terminal_observation_id
+            or self.result_capture_receipt.runtime_volume_authority_id
+            != self.terminal_observation.runtime_volume_authority_id
+            or self.result_capture_receipt.generation_nonce
+            != self.terminal_observation.generation_nonce
+            or type(self.result_blob) is not RunActionResultBlob
+            or self.result_capture_receipt.size_bytes != self.result_blob.size_bytes
+            or self.result_capture_receipt.content_digest != self.result_blob.digest
+        ):
             raise RunActionStoreError(
-                "run action result receipt requires one result blob"
+                "run action result receipt lacks exact terminal capture evidence"
             )
 
 
@@ -197,6 +228,7 @@ class RunActionExecutionEvent(StrictContract):
     preparation_claim: RunActionPreparationClaim | None
     prepared_execution: RunActionPreparedExecution | None
     spawn_commit: _RunActionSpawnCommit | None
+    activation_revalidation_receipt: RunActionActivationRevalidationReceipt | None
     result_receipt: RunActionResultReceipt | None
     acceptance: RunActionAcceptance | None
     terminal_reason: RunActionTerminalReason | None
@@ -224,6 +256,10 @@ class RunActionExecutionEvent(StrictContract):
             (self.preparation_claim, RunActionPreparationClaim),
             (self.prepared_execution, RunActionPreparedExecution),
             (self.spawn_commit, _RunActionSpawnCommit),
+            (
+                self.activation_revalidation_receipt,
+                RunActionActivationRevalidationReceipt,
+            ),
             (self.result_receipt, RunActionResultReceipt),
             (self.acceptance, RunActionAcceptance),
             (self.terminal_reason, RunActionTerminalReason),
@@ -240,6 +276,7 @@ class RunActionExecutionEvent(StrictContract):
             self.preparation_claim is not None,
             self.prepared_execution is not None,
             self.spawn_commit is not None,
+            self.activation_revalidation_receipt is not None,
             self.result_receipt is not None,
             self.acceptance is not None,
             self.terminal_reason is not None,
@@ -247,6 +284,7 @@ class RunActionExecutionEvent(StrictContract):
         )
         expected = {
             RunActionExecutionEventKind.INTENT_RESERVED: (
+                False,
                 False,
                 False,
                 False,
@@ -263,10 +301,12 @@ class RunActionExecutionEvent(StrictContract):
                 False,
                 False,
                 False,
+                False,
             ),
             RunActionExecutionEventKind.EXECUTION_PREPARED: (
                 False,
                 True,
+                False,
                 False,
                 False,
                 False,
@@ -281,8 +321,20 @@ class RunActionExecutionEvent(StrictContract):
                 False,
                 False,
                 False,
+                False,
+            ),
+            RunActionExecutionEventKind.ACTIVATION_COMMITTED: (
+                False,
+                False,
+                False,
+                True,
+                False,
+                False,
+                False,
+                False,
             ),
             RunActionExecutionEventKind.RESULT_RECEIVED: (
+                False,
                 False,
                 False,
                 False,
@@ -292,6 +344,7 @@ class RunActionExecutionEvent(StrictContract):
                 False,
             ),
             RunActionExecutionEventKind.RESULT_ACCEPTED: (
+                False,
                 False,
                 False,
                 False,
@@ -306,10 +359,12 @@ class RunActionExecutionEvent(StrictContract):
                 False,
                 False,
                 False,
+                False,
                 True,
                 False,
             ),
             RunActionExecutionEventKind.INTERRUPTED: (
+                False,
                 False,
                 False,
                 False,
@@ -341,14 +396,14 @@ class RunActionExecutionEvent(StrictContract):
                     }
                 )
                 or (
-                    self.event_number == 5
+                    self.event_number in {5, 6}
                     and self.terminal_reason
                     not in {
                         RunActionTerminalReason.PROVIDER_INTERRUPTED,
                         RunActionTerminalReason.PROVIDER_FAILED,
                     }
                 )
-                or self.event_number not in {3, 4, 5}
+                or self.event_number not in {3, 4, 5, 6}
             )
         ):
             raise RunActionStoreError(
@@ -638,17 +693,70 @@ class _RunActionExecutionSession:
         self._append(event)
         return spawn_commit
 
+    def activation_event_size_bytes(
+        self,
+        activation_revalidation_receipt: RunActionActivationRevalidationReceipt,
+    ) -> int:
+        """Measure the exact durable activation selection before publication."""
+
+        return len(
+            self._activation_event(activation_revalidation_receipt).to_json_bytes()
+        )
+
+    def commit_activation(
+        self,
+        activation_revalidation_receipt: RunActionActivationRevalidationReceipt,
+    ) -> RunActionExecutionEvent:
+        """Select the sole revalidation receipt that may precede provider start."""
+
+        event = self._activation_event(activation_revalidation_receipt)
+        self._append(event)
+        return event
+
+    def _activation_event(
+        self,
+        activation_revalidation_receipt: RunActionActivationRevalidationReceipt,
+    ) -> RunActionExecutionEvent:
+        self._require_tail(RunActionExecutionEventKind.SPAWN_COMMITTED)
+        prepared_execution = self._events[2].prepared_execution
+        spawn_commit = self._events[3].spawn_commit
+        if (
+            type(activation_revalidation_receipt)
+            is not RunActionActivationRevalidationReceipt
+            or activation_revalidation_receipt.prepared_execution != prepared_execution
+            or activation_revalidation_receipt.spawn_commit != spawn_commit
+        ):
+            raise RunActionStoreError(
+                "run action activation differs from its durable spawn"
+            )
+        return self._event(
+            RunActionExecutionEventKind.ACTIVATION_COMMITTED,
+            activation_revalidation_receipt=activation_revalidation_receipt,
+        )
+
     def record_result(
         self,
         *,
         spawn_commit: _RunActionSpawnCommit,
+        terminal_observation: RunActionTerminalObservation,
+        result_capture_receipt: RunActionResultCaptureReceipt,
         result_payload: bytes,
     ) -> RunActionResultReceipt:
-        self._require_tail(RunActionExecutionEventKind.SPAWN_COMMITTED)
-        durable_spawn = self._events[-1].spawn_commit
+        self._require_tail(RunActionExecutionEventKind.ACTIVATION_COMMITTED)
+        durable_spawn = self._events[3].spawn_commit
+        durable_activation = self._events[4].activation_revalidation_receipt
         if (
             type(spawn_commit) is not _RunActionSpawnCommit
             or spawn_commit != durable_spawn
+            or type(terminal_observation) is not RunActionTerminalObservation
+            or type(result_capture_receipt) is not RunActionResultCaptureReceipt
+            or terminal_observation.spawn_commit_id != spawn_commit.spawn_commit_id
+            or terminal_observation.provider_execution_id
+            != spawn_commit.provider_execution_id
+            or result_capture_receipt.terminal_observation_id
+            != terminal_observation.terminal_observation_id
+            or terminal_observation.activation_revalidation_receipt_id
+            != durable_activation.activation_revalidation_receipt_id
         ):
             raise RunActionStoreError(
                 "run action result differs from its durable spawn"
@@ -664,12 +772,18 @@ class _RunActionExecutionSession:
         result_receipt = RunActionResultReceipt.mint(
             spawn_commit_id=spawn_commit.spawn_commit_id,
             provider_execution_id=spawn_commit.provider_execution_id,
+            activation_revalidation_receipt_id=(
+                durable_activation.activation_revalidation_receipt_id
+            ),
+            terminal_observation=terminal_observation,
+            result_capture_receipt=result_capture_receipt,
             result_blob=result_blob,
         )
         event = self._event(
             RunActionExecutionEventKind.RESULT_RECEIVED,
             result_receipt=result_receipt,
         )
+        _validate_event_prefix((*self._events, event))
         self._store._publish_result_event(
             self._descriptors,
             operation_id=self.reservation.intent.operation_id,
@@ -726,6 +840,7 @@ class _RunActionExecutionSession:
             RunActionExecutionEventKind.RESULT_ACCEPTED,
             acceptance=acceptance,
         )
+        _validate_event_prefix((*self._events, event))
         self._store._publish_result_event(
             self._descriptors,
             operation_id=self.reservation.intent.operation_id,
@@ -756,7 +871,14 @@ class _RunActionExecutionSession:
         reason: RunActionTerminalReason,
         workspace_after: RunWorkspaceFrontierIdentity | None,
     ) -> None:
-        self._require_tail(RunActionExecutionEventKind.SPAWN_COMMITTED)
+        self._require_active()
+        if self.events[-1].event_kind not in {
+            RunActionExecutionEventKind.SPAWN_COMMITTED,
+            RunActionExecutionEventKind.ACTIVATION_COMMITTED,
+        }:
+            raise RunActionStoreError(
+                "provider interruption requires committed spawn or activation"
+            )
         if reason not in {
             RunActionTerminalReason.PROVIDER_INTERRUPTED,
             RunActionTerminalReason.PROVIDER_FAILED,
@@ -832,6 +954,7 @@ class _RunActionExecutionSession:
             or self._events[-1].event_kind
             not in {
                 RunActionExecutionEventKind.SPAWN_COMMITTED,
+                RunActionExecutionEventKind.ACTIVATION_COMMITTED,
                 RunActionExecutionEventKind.RESULT_RECEIVED,
                 RunActionExecutionEventKind.RESULT_ACCEPTED,
                 RunActionExecutionEventKind.INTERRUPTED,
@@ -868,6 +991,9 @@ class _RunActionExecutionSession:
         preparation_claim: RunActionPreparationClaim | None = None,
         prepared_execution: RunActionPreparedExecution | None = None,
         spawn_commit: _RunActionSpawnCommit | None = None,
+        activation_revalidation_receipt: (
+            RunActionActivationRevalidationReceipt | None
+        ) = None,
         result_receipt: RunActionResultReceipt | None = None,
         acceptance: RunActionAcceptance | None = None,
         terminal_reason: RunActionTerminalReason | None = None,
@@ -883,6 +1009,7 @@ class _RunActionExecutionSession:
             preparation_claim=preparation_claim,
             prepared_execution=prepared_execution,
             spawn_commit=spawn_commit,
+            activation_revalidation_receipt=activation_revalidation_receipt,
             result_receipt=result_receipt,
             acceptance=acceptance,
             terminal_reason=terminal_reason,
@@ -890,6 +1017,7 @@ class _RunActionExecutionSession:
         )
 
     def _append(self, event: RunActionExecutionEvent) -> None:
+        _validate_event_prefix((*self._events, event))
         self._store._publish_event(
             self._descriptors,
             self.reservation.intent.operation_id,
@@ -1283,6 +1411,7 @@ class RunActionExecutionStore:
         prepared_file_ids = set()
         provider_execution_ids = set()
         invocation_nonces = set()
+        activation_revalidation_receipt_ids = set()
         for operation_digest, numbered_names in sorted(grouped.items()):
             events = self._read_named_events(
                 store_descriptor,
@@ -1367,6 +1496,17 @@ class RunActionExecutionStore:
                     )
                 provider_execution_ids.add(spawn.provider_execution_id)
                 invocation_nonces.add(spawn.invocation_nonce)
+            if len(events) >= 5 and events[4].event_kind is (
+                RunActionExecutionEventKind.ACTIVATION_COMMITTED
+            ):
+                activation_id = events[
+                    4
+                ].activation_revalidation_receipt.activation_revalidation_receipt_id
+                if activation_id in activation_revalidation_receipt_ids:
+                    raise RunActionStoreError(
+                        "run action activation receipt identity was reused"
+                    )
+                activation_revalidation_receipt_ids.add(activation_id)
             request_payload = _read_file(
                 store_descriptor,
                 (
@@ -1624,6 +1764,11 @@ class RunActionExecutionStore:
                 event_names,
                 event=event,
             )
+            self._require_unique_activation_identity(
+                store_descriptor,
+                event_names,
+                event=event,
+            )
             self._require_store_capacity(
                 store_descriptor,
                 additional_size_bytes=len(event.to_json_bytes()),
@@ -1735,6 +1880,37 @@ class RunActionExecutionStore:
             maximum_size_bytes=self._settings.run_action_event_size_bytes,
             name="run action event",
         )
+
+    def _require_unique_activation_identity(
+        self,
+        store_descriptor: int,
+        event_names: tuple[str, ...],
+        *,
+        event: RunActionExecutionEvent,
+    ) -> None:
+        candidate = event.activation_revalidation_receipt
+        if candidate is None:
+            return
+        for tail in self._snapshot_from_event_names(
+            store_descriptor,
+            event_names,
+        ).operation_tails:
+            events = self._read_operation_events(
+                store_descriptor,
+                tail.operation_id,
+            )
+            if (
+                len(events) >= 5
+                and events[4].event_kind
+                is RunActionExecutionEventKind.ACTIVATION_COMMITTED
+                and events[
+                    4
+                ].activation_revalidation_receipt.activation_revalidation_receipt_id
+                == candidate.activation_revalidation_receipt_id
+            ):
+                raise RunActionStoreError(
+                    "run action activation receipt identity was reused"
+                )
 
     def _publish_result_event(
         self,
@@ -2248,6 +2424,7 @@ def _validate_event_prefix(events: tuple[RunActionExecutionEvent, ...]) -> None:
         RunActionExecutionEventKind.PREPARATION_CLAIMED,
         RunActionExecutionEventKind.EXECUTION_PREPARED,
         RunActionExecutionEventKind.SPAWN_COMMITTED,
+        RunActionExecutionEventKind.ACTIVATION_COMMITTED,
         RunActionExecutionEventKind.RESULT_RECEIVED,
         RunActionExecutionEventKind.RESULT_ACCEPTED,
     )
@@ -2312,18 +2489,49 @@ def _validate_event_prefix(events: tuple[RunActionExecutionEvent, ...]) -> None:
         ):
             raise RunActionStoreError("run action spawn differs from its reservation")
     if len(events) >= 5 and events[4].event_kind is (
+        RunActionExecutionEventKind.ACTIVATION_COMMITTED
+    ):
+        prepared = events[2].prepared_execution
+        spawn = events[3].spawn_commit
+        activation = events[4].activation_revalidation_receipt
+        if (
+            activation.prepared_execution != prepared
+            or activation.spawn_commit != spawn
+        ):
+            raise RunActionStoreError("run action activation differs from its spawn")
+    if len(events) >= 6 and events[5].event_kind is (
         RunActionExecutionEventKind.RESULT_RECEIVED
     ):
+        prepared = events[2].prepared_execution
         spawn = events[3].spawn_commit
-        result = events[4].result_receipt
+        activation = events[4].activation_revalidation_receipt
+        result = events[5].result_receipt
         if (
             result.spawn_commit_id != spawn.spawn_commit_id
             or result.provider_execution_id != spawn.provider_execution_id
+            or result.activation_revalidation_receipt_id
+            != activation.activation_revalidation_receipt_id
+            or result.terminal_observation.prepared_execution_id
+            != prepared.prepared_execution_id
+            or result.terminal_observation.spawn_commit_id != spawn.spawn_commit_id
+            or result.terminal_observation.provider_execution_id
+            != spawn.provider_execution_id
+            or result.terminal_observation.runtime_volume_authority_id
+            != prepared.runtime_volume_authority.runtime_volume_authority_id
+            or result.terminal_observation.generation_nonce
+            != prepared.runtime_volume_authority.generation_nonce
+            or result.terminal_observation.observed_inspect_projection
+            != prepared.inert_container_evidence.issued_create_projection
+            or not run_action_terminal_result_evidence_matches(
+                result.terminal_observation,
+                result.result_capture_receipt,
+                activation,
+            )
         ):
             raise RunActionStoreError("run action result differs from its spawn")
-    if len(events) == 6:
-        result = events[4].result_receipt
-        acceptance = events[5].acceptance
+    if len(events) == 7:
+        result = events[5].result_receipt
+        acceptance = events[6].acceptance
         if acceptance.result_receipt_id != result.result_receipt_id:
             raise RunActionStoreError("run action acceptance differs from its result")
         _require_workspace_acceptance(
