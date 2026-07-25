@@ -99,6 +99,9 @@ _CANONICAL_CONFIG_PATH = "src/kapso/config.yaml"
 _BARRIER_POLL_INTERVAL_SECONDS = CrossRunSettings.from_dict(
     load_config(_CANONICAL_CONFIG_PATH)["cross_run"]
 ).docker.run_action_barrier_poll_interval_seconds
+_RUN_ACTION_RELEASE_RECEIPT_SIZE_BYTES = CrossRunSettings.from_dict(
+    load_config(_CANONICAL_CONFIG_PATH)["cross_run"]
+).launch.run_action_release_receipt_size_bytes
 
 
 def _fixture_content_id(namespace: str, label: str) -> str:
@@ -153,7 +156,7 @@ def _credential_policy(mode=RunActionCredentialMode.SUPERVISOR_FILE):
         principal_id="test.provider.principal",
         audience_id="test.provider.audience",
         scope_ids=("test.provider.invoke",),
-        maximum_lease_seconds=300,
+        maximum_lease_seconds=900,
         maximum_delivery_size_bytes=4096,
     )
 
@@ -336,6 +339,7 @@ def _execution_policy(
             execution_timeout_seconds=600,
             termination_grace_seconds=30,
             result_size_bytes=268435456,
+            release_receipt_size_bytes=_RUN_ACTION_RELEASE_RECEIPT_SIZE_BYTES,
         ),
     )
 
@@ -346,6 +350,7 @@ def _claim(
     boundary=None,
     request_digest=None,
     request_payload=None,
+    security_observation_id=None,
 ):
     policy = _execution_policy() if policy is None else policy
     boundary = (
@@ -419,9 +424,10 @@ def _claim(
         bootstrap_pin_id=_fixture_content_id("bootstrap-pin", "pin"),
         run_checkpoint_id=_fixture_content_id("run-checkpoint", "checkpoint"),
         safety_state_id=_fixture_content_id("run-safety-state", "safety"),
-        security_observation_id=_fixture_content_id(
-            "security-denylist-observation",
-            "security",
+        security_observation_id=(
+            _fixture_content_id("security-denylist-observation", "security")
+            if security_observation_id is None
+            else security_observation_id
         ),
         generation_id=_fixture_content_id(
             "run-derived-state-generation",
@@ -2916,6 +2922,7 @@ def test_prepared_execution_requires_strict_byte_and_inode_headroom():
             prepared.input_delivery_slot.payload_size_limit_bytes,
             prepared.result_file.payload_size_limit_bytes,
             prepared.credential_delivery_slot.payload_size_limit_bytes,
+            prepared.preparation_claim.execution_policy.supervisor_limits.release_receipt_size_bytes,
         )
     )
     exact_byte_cap = (

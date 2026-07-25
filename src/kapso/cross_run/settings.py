@@ -1606,6 +1606,7 @@ class LaunchSettings(StrictContract):
     run_action_store_entry_limit: int
     run_action_operation_limit: int
     run_action_event_size_bytes: int
+    run_action_release_receipt_size_bytes: int
     run_action_process_snapshot_size_bytes: int
     run_action_request_size_bytes: int
     run_action_result_size_bytes: int
@@ -1790,6 +1791,10 @@ class LaunchSettings(StrictContract):
             (self.run_action_operation_limit, "run_action_operation_limit"),
             (self.run_action_event_size_bytes, "run_action_event_size_bytes"),
             (
+                self.run_action_release_receipt_size_bytes,
+                "run_action_release_receipt_size_bytes",
+            ),
+            (
                 self.run_action_process_snapshot_size_bytes,
                 "run_action_process_snapshot_size_bytes",
             ),
@@ -1812,6 +1817,20 @@ class LaunchSettings(StrictContract):
         ):
             raise CrossRunConfigurationError(
                 "launch process-snapshot bound must fit inside one action event"
+            )
+        if (
+            self.run_action_process_snapshot_size_bytes
+            >= self.run_action_release_receipt_size_bytes
+        ):
+            raise CrossRunConfigurationError(
+                "launch process-snapshot bound must fit inside one release receipt"
+            )
+        if (
+            self.run_action_release_receipt_size_bytes
+            >= self.run_action_event_size_bytes
+        ):
+            raise CrossRunConfigurationError(
+                "launch release-receipt bound must leave action-event envelope space"
             )
         minimum_action_store_entry_limit = (
             self.run_action_operation_limit

@@ -329,6 +329,13 @@ class _FakeExecutionAdapter:
         )
         return len(event.to_json_bytes())
 
+    def release_receipt_size_bound(self, *, reservation):
+        assert (
+            reservation.intent.boundary_identity.execution_lifecycle_identity
+            == self.execution_lifecycle_identity
+        )
+        return self.execution_policy.supervisor_limits.release_receipt_size_bytes
+
     def prepare(self, capability):
         self.preparation_capabilities.append(capability)
         allocation = capability.preparation_allocation
@@ -689,6 +696,24 @@ class _OversizedActivationEnvelopeAdapter(_FakeExecutionAdapter):
         return self.oversized_event_size_bytes
 
 
+class _InvalidReleaseEnvelopeAdapter(_FakeExecutionAdapter):
+    def __init__(self, boundary_identity, release_receipt_size_bound) -> None:
+        super().__init__(boundary_identity)
+        self.invalid_release_receipt_size_bound = release_receipt_size_bound
+
+    def release_receipt_size_bound(self, **_arguments):
+        return self.invalid_release_receipt_size_bound
+
+
+class _ActivationCrowdingReleaseEnvelopeAdapter(_FakeExecutionAdapter):
+    def __init__(self, boundary_identity, activation_event_size_bound) -> None:
+        super().__init__(boundary_identity)
+        self.crowding_activation_event_size_bound = activation_event_size_bound
+
+    def activation_event_size_bound(self, **_arguments):
+        return self.crowding_activation_event_size_bound
+
+
 class _NonExactPreparationAdapter(_FakeExecutionAdapter):
     def __init__(self, boundary_identity, state, modes) -> None:
         super().__init__(boundary_identity)
@@ -746,6 +771,7 @@ class _AccessGuardedExecutionAdapter(_FakeExecutionAdapter):
             "inspect_committed",
             "inspect_unactivated",
             "prepared_event_size_bound",
+            "release_receipt_size_bound",
             "prepare",
             "stage_activation",
         }
@@ -1521,6 +1547,58 @@ def test_activation_envelope_rejects_oversize_before_delivery(
     )
 
     with pytest.raises(RunActionRecoveryError, match="activation event envelope"):
+        _recovery_coordinator(gate, adapter).recover(frontier)
+
+    events = gate._action_store.inspect().events_for(reservation.intent.operation_id)
+    assert events[-1].event_kind is RunActionExecutionEventKind.SPAWN_COMMITTED
+    assert not adapter.stage_calls
+    assert not adapter.continuation_calls
+
+
+@pytest.mark.parametrize("case", ("oversized", "snapshot_equal"))
+def test_release_receipt_envelope_rejects_before_allocation(
+    publisher_case,
+    case,
+) -> None:
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
+    settings = publisher_case["settings"]
+    invalid_bound = (
+        settings.run_action_release_receipt_size_bytes + 1
+        if case == "oversized"
+        else settings.run_action_process_snapshot_size_bytes
+    )
+    adapter = _InvalidReleaseEnvelopeAdapter(
+        reservation.intent.boundary_identity,
+        invalid_bound,
+    )
+
+    with pytest.raises(RunActionRecoveryError, match="release-receipt envelope"):
+        _recovery_coordinator(gate, adapter).recover(frontier)
+
+    events = gate._action_store.inspect().events_for(reservation.intent.operation_id)
+    assert events[-1].event_kind is RunActionExecutionEventKind.INTENT_RESERVED
+    assert not adapter.prepare_calls
+    assert not adapter.stage_calls
+    assert not adapter.continuation_calls
+
+
+def test_activation_bound_must_leave_resolved_release_envelope(
+    publisher_case,
+) -> None:
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
+    settings = publisher_case["settings"]
+    adapter = _ActivationCrowdingReleaseEnvelopeAdapter(
+        reservation.intent.boundary_identity,
+        (
+            settings.run_action_release_receipt_size_bytes
+            - settings.run_action_process_snapshot_size_bytes
+        ),
+    )
+
+    with pytest.raises(
+        RunActionRecoveryError,
+        match="cannot fit the release-receipt envelope",
+    ):
         _recovery_coordinator(gate, adapter).recover(frontier)
 
     events = gate._action_store.inspect().events_for(reservation.intent.operation_id)

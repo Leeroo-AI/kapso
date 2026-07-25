@@ -402,6 +402,7 @@ cross_run:
     run_action_store_entry_limit: 1100066
     run_action_operation_limit: 100000
     run_action_event_size_bytes: 16777216
+    run_action_release_receipt_size_bytes: 8388608
     run_action_process_snapshot_size_bytes: 1048576
     run_action_request_size_bytes: 268435456
     run_action_result_size_bytes: 268435456

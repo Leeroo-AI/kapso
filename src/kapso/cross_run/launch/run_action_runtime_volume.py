@@ -2322,14 +2322,8 @@ def _plan_runtime_volume_layout(
         )
     )
     limits = claim.execution_policy.docker_resource_limits
-    future_size_bytes = sum(
-        _allocated_size_bytes(payload_limit_bytes, block_size)
-        for payload_limit_bytes in (
-            *(slot_plan.payload_size_limit_bytes for slot_plan in delivery_slot_plans),
-            result_file_plan.payload_size_limit_bytes,
-        )
-    ) + _allocated_size_bytes(
-        limits.runtime_temporary_reservation_size_bytes,
+    future_size_bytes = _required_execution_headroom_size_bytes(
+        claim,
         block_size,
     )
     current_inode_count = 1 + nonworkspace_directory_count + workspace_inode_count + 2
@@ -3114,17 +3108,8 @@ def _mint_prepared_volume_observation(
         available_inode_count,
     ) = _filesystem_capacity(filesystem)
     limits = claim.execution_policy.docker_resource_limits
-    required_available_size_bytes = sum(
-        _allocated_size_bytes(
-            payload_limit_bytes,
-            allocation_block_size_bytes,
-        )
-        for payload_limit_bytes in (
-            *(slot_plan.payload_size_limit_bytes for slot_plan in delivery_slot_plans),
-            result_file_plan.payload_size_limit_bytes,
-        )
-    ) + _allocated_size_bytes(
-        limits.runtime_temporary_reservation_size_bytes,
+    required_available_size_bytes = _required_execution_headroom_size_bytes(
+        claim,
         allocation_block_size_bytes,
     )
     required_available_inode_count = (
@@ -3327,6 +3312,25 @@ def _expected_result_file_plan(
         payload_size_limit_bytes=(
             claim.execution_policy.supervisor_limits.result_size_bytes
         ),
+    )
+
+
+def _required_execution_headroom_size_bytes(
+    claim: RunActionPreparationClaim,
+    allocation_block_size_bytes: int,
+) -> int:
+    limits = claim.execution_policy
+    return sum(
+        _allocated_size_bytes(payload_size_bytes, allocation_block_size_bytes)
+        for payload_size_bytes in (
+            *(
+                slot.payload_size_limit_bytes
+                for slot in _expected_delivery_slot_plans(claim)
+            ),
+            limits.supervisor_limits.result_size_bytes,
+            limits.docker_resource_limits.runtime_temporary_reservation_size_bytes,
+            limits.supervisor_limits.release_receipt_size_bytes,
+        )
     )
 
 

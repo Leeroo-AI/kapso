@@ -163,6 +163,11 @@ class _LiveBlockedWorkloadAdapter:
     def activation_event_size_bound(self, **_arguments):
         raise AssertionError("durable event 5 must not replay activation")
 
+    def release_receipt_size_bound(self, *, reservation):
+        if reservation != self._preparation_allocation.preparation_claim.reservation:
+            raise AssertionError("release bound differs from durable reservation")
+        return self.execution_policy.supervisor_limits.release_receipt_size_bytes
+
     def prepare(self, _capability):
         raise AssertionError("durable event 5 must not replay preparation")
 

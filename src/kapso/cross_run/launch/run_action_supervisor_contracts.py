@@ -341,6 +341,7 @@ class RunActionSupervisorLimits(StrictContract):
     execution_timeout_seconds: int
     termination_grace_seconds: int
     result_size_bytes: int
+    release_receipt_size_bytes: int
 
     CONTENT_NAMESPACE: ClassVar[str] = "run-action-supervisor-limits"
     IDENTITY_FIELD: ClassVar[str] = "supervisor_limits_id"
@@ -350,6 +351,7 @@ class RunActionSupervisorLimits(StrictContract):
             self.execution_timeout_seconds,
             self.termination_grace_seconds,
             self.result_size_bytes,
+            self.release_receipt_size_bytes,
         )
         if (
             any(type(value) is not int or value <= 0 for value in values)
@@ -703,6 +705,17 @@ class DockerRunActionExecutionPolicy(StrictContract):
         ):
             raise RunActionSupervisorContractError(
                 "run action credential destination differs from credential policy"
+            )
+        if (
+            self.credential_policy.mode is RunActionCredentialMode.SUPERVISOR_FILE
+            and self.credential_policy.maximum_lease_seconds
+            < (
+                self.supervisor_limits.execution_timeout_seconds
+                + self.supervisor_limits.termination_grace_seconds
+            )
+        ):
+            raise RunActionSupervisorContractError(
+                "run action credential lease cannot span containment"
             )
 
 
@@ -2244,6 +2257,10 @@ class RunActionPreparedExecution(StrictContract):
                 limits.runtime_temporary_reservation_size_bytes,
                 evidence.allocation_block_size_bytes,
             )
+            + _allocated_size(
+                claim.execution_policy.supervisor_limits.release_receipt_size_bytes,
+                evidence.allocation_block_size_bytes,
+            )
         )
         required_available_inode_count = (
             len(delivery_slots) + limits.runtime_temporary_reservation_inode_count + 1
@@ -3230,12 +3247,19 @@ def run_action_activated_volume_evidence_matches(
     }
     limits = prepared.preparation_claim.execution_policy.docker_resource_limits
     block_size = reobserved_volume_evidence.allocation_block_size_bytes
-    remaining_requirement_bytes = _allocated_size(
-        prepared.result_file.payload_size_limit_bytes,
-        block_size,
-    ) + _allocated_size(
-        limits.runtime_temporary_reservation_size_bytes,
-        block_size,
+    remaining_requirement_bytes = (
+        _allocated_size(
+            prepared.result_file.payload_size_limit_bytes,
+            block_size,
+        )
+        + _allocated_size(
+            limits.runtime_temporary_reservation_size_bytes,
+            block_size,
+        )
+        + _allocated_size(
+            prepared.preparation_claim.execution_policy.supervisor_limits.release_receipt_size_bytes,
+            block_size,
+        )
     )
     return (
         spawn_commit.reservation_id == reservation.reservation_id

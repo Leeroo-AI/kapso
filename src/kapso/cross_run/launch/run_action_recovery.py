@@ -109,6 +109,7 @@ _TERMINAL_KINDS = {
 _EXECUTION_ADAPTER_METHOD_NAMES = (
     "prepared_event_size_bound",
     "activation_event_size_bound",
+    "release_receipt_size_bound",
     "prepare",
     "stage_activation",
     "inspect_unactivated",
@@ -925,6 +926,12 @@ class RunActionExecutionAdapter(Protocol):
         predecessor_event_id: str,
     ) -> int: ...
 
+    def release_receipt_size_bound(
+        self,
+        *,
+        reservation: RunActionReservation,
+    ) -> int: ...
+
     def prepare(
         self,
         capability: RunActionPreparationCapability,
@@ -1455,6 +1462,10 @@ class RunActionRecoveryCoordinator:
                 self._implementation_registry,
                 reservation,
             )
+            release_receipt_size_bound = self._release_receipt_size_bound(
+                execution_adapter,
+                reservation,
+            )
             if tail_kind is RunActionExecutionEventKind.INTENT_RESERVED:
                 preparation_allocation = session.allocate_preparation(
                     execution_adapter.execution_policy,
@@ -1580,6 +1591,13 @@ class RunActionRecoveryCoordinator:
                     reason=RunActionTerminalReason.FRONTIER_INVALIDATED_BEFORE_SPAWN,
                 )
                 return
+            if release_receipt_size_bound != self._release_receipt_size_bound(
+                execution_adapter,
+                reservation,
+            ):
+                raise RunActionRecoveryError(
+                    "run action release-receipt envelope changed before spawn"
+                )
             spawn_commit = session.commit_spawn(
                 security_observation_id=(reservation.frontier.security_observation_id),
                 boundary_identity=reservation.intent.boundary_identity,
@@ -1698,6 +1716,19 @@ class RunActionRecoveryCoordinator:
         ):
             raise RunActionRecoveryError(
                 "run action activation event envelope is invalid or too large"
+            )
+        release_receipt_size_bound = self._release_receipt_size_bound(
+            execution_adapter,
+            session.reservation,
+        )
+        if (
+            activation_event_size_bound
+            + self._publisher._settings.run_action_process_snapshot_size_bytes
+            >= release_receipt_size_bound
+        ):
+            raise RunActionRecoveryError(
+                "run action activation and resolved evidence cannot fit "
+                "the release-receipt envelope"
             )
         capability = RunActionActivationCapability(
             prepared_execution=prepared_execution,
@@ -2321,6 +2352,35 @@ class RunActionRecoveryCoordinator:
                 "run action recovery security authority returned another type"
             )
         return current == required
+
+    def _release_receipt_size_bound(
+        self,
+        execution_adapter: RunActionExecutionAdapter,
+        reservation: RunActionReservation,
+    ) -> int:
+        policy_bound = (
+            execution_adapter.execution_policy.supervisor_limits.release_receipt_size_bytes
+        )
+        configured_bound = (
+            self._publisher._settings.run_action_release_receipt_size_bytes
+        )
+        first = execution_adapter.release_receipt_size_bound(
+            reservation=reservation,
+        )
+        second = execution_adapter.release_receipt_size_bound(
+            reservation=reservation,
+        )
+        if (
+            type(first) is not int
+            or first <= self._publisher._settings.run_action_process_snapshot_size_bytes
+            or second != first
+            or policy_bound != configured_bound
+            or first > policy_bound
+        ):
+            raise RunActionRecoveryError(
+                "run action release-receipt envelope is invalid or too large"
+            )
+        return first
 
     def _require_owner_process(self) -> None:
         with _RECOVERY_COORDINATOR_LOCK:

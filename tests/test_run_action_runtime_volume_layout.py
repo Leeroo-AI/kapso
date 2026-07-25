@@ -1140,10 +1140,15 @@ def test_layout_plan_requires_strict_peak_and_execution_headroom(
                     for slot_plan in admitted.delivery_slot_plans
                 ),
                 admitted.result_file_plan.payload_size_limit_bytes,
+                limits.runtime_temporary_reservation_size_bytes,
+                claim.execution_policy.supervisor_limits.release_receipt_size_bytes,
             )
-        ) + volume_module._allocated_size_bytes(
-            limits.runtime_temporary_reservation_size_bytes,
-            empty.allocation_block_size_bytes,
+        )
+        assert future_size_bytes == (
+            volume_module._required_execution_headroom_size_bytes(
+                claim,
+                empty.allocation_block_size_bytes,
+            )
         )
         exact_available_size = admitted.preparation_size_bytes + future_size_bytes
         exhausted = replace(

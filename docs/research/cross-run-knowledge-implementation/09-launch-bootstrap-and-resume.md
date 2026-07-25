@@ -806,6 +806,20 @@ closed Docker semantics while treating changes limited to enumerated
 nonauthoritative raw fields as new audit observations rather than new container
 occurrences. The process-snapshot bound comes only from `LaunchSettings`; executable
 authority uses its independent configured content digest and static-ELF proof.
+The release authority contracts now join the complete resolved graph to the
+actual typed durable event 5, bind the exact denylist observation and a
+credential-validity interval that spans containment without exceeding broker
+policy, and derive same-boot execution and containment deadlines from one
+authorization instant. The independently configured canonical receipt bound
+strictly contains the process-snapshot bound and leaves event-envelope space;
+it is carried in the supervisor policy and reserved in both pre-mutation and
+post-materialization tmpfs capacity proofs. Before allocation, the sealed
+lifecycle adapter must repeat one deterministic conservative release-envelope
+bound. Recovery joins it to the canonical policy/config cap before spawn and
+requires the actual activation-event bound plus the complete process-snapshot
+bound to fit strictly before delivery or event 5.
+The release link, adoption, and event-6 embedding remain the next physical
+transition.
 Volume,
 never-started keeper, running keeper, and never-started main inspections now
 require complete nested raw schemas and normalize only enumerated daemon
