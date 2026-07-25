@@ -105,6 +105,12 @@ if [ ! -f agents/kapso/solve.sh ]; then
     mkdir -p agents/kapso
     cp /opt/kapso-src/benchmarks/posttrain/ptb_adapter/agents/kapso/solve.sh agents/kapso/solve.sh
 fi
+# Upstream pins the contamination judge to gpt-5.1-codex, DEPRECATED by
+# OpenAI ~2026-07-2x: the judge dies through 5 retries and no verdict files
+# are written (runs 23/24 shipped scores with NO contamination verdicts).
+# Re-pin to a model proven working in this container+ChatGPT auth. Remove
+# once upstream bumps the pin.
+sed -i 's/gpt-5\.1-codex/gpt-5.6-sol/' src/run_task.sh
 # Claude Max subscription: run_task.sh copies this file into the job home and
 # solve.sh exports it as CLAUDE_CODE_OAUTH_TOKEN. Codex ChatGPT login: the
 # harness copies agents/<agent>/auth.json to the job's ~/.codex/auth.json —
