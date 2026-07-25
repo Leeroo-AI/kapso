@@ -83,3 +83,72 @@ SFT on this exact base means beating the 16.7 proven best needs only
 early, and family-correct. P2 watches: format-gate result + eos stopping
 end-to-end, resume-from-checkpoint after the gate kill, stage-2 branch,
 and whether promotion discipline holds against 30-item noise (R27-P1-2).
+
+## P2 (~03:26 → 06:41Z trace end)
+
+- **R27-P2-1 — OBS (positive, headline).** Promotion discipline held
+  exactly as pre-registered — R27-P1-2 did not bite. Full-epoch cand_s1
+  scored 13.33 vs incumbent 16.67 and was NOT promoted: "essentially
+  tied … (1-question difference = noise at n=30)" (05:51:28);
+  best_score.log reads `13.33 … sft1-full-epoch-NOT-promoted(<16.67)`.
+  The conciseness anneal's 23.33 (7/30) cleared the +2-question bar and
+  was promoted atomically at 06:38:22 with fresh-process
+  `VERIFY final_model.tmp OK: SmolLM3ForCausalLM [128012, 128001]`.
+  Residual: still a single n=30 read (stderr 7.9pp).
+- **R27-P2-2 — OBS (positive).** Resume integrity (the P1 watch):
+  clean. 03:31:02 resume from checkpoint-120 (PID 5832); only benign
+  warnings (missing `lm_head.weight` = tied embeddings; logging_steps
+  20≠10 args-vs-trainer_state); loss continuous (0.4456 @ epoch .149);
+  epoch 1.0 completed 05:41:06 — cosine LR→3.9e-10, train_loss 0.3876,
+  token-acc 0.852, checkpoint-1143 + top-level save.
+- **R27-P2-3 — P3 (recipe).** The ≥90% ANSWER-terminal gate bar was
+  never met — answer_rate 0.50 (ckpt-120) → 0.47 (full epoch) → 0.77
+  (banked 23.33 model) — but was repurposed into the run's best work:
+  forensics (03:52:48, 05:51:36) showed truncated 15/30 → 0 correct,
+  finished 15 → 5 correct, and truncations are genuine long reasoning,
+  not loops ("has </think>: False", no repeated chunks). That diagnosis
+  drove the winning anneal. NB the 0.85 figure in the logs is
+  mean_token_accuracy (a training metric), not a format rate.
+  eos-stopping itself validated end-to-end (vLLM honored gen_config;
+  15 'stop' finishes at ckpt-120).
+- **R27-P2-4 — OBS (recipe).** Stage-2 pivoted twice, evidence-driven,
+  box-respecting: OMR dropped (schema fetch too slow, 03:23:26);
+  Light-R1 stage2 built + cached (1,862 rows / 11.1M tok) but shelved
+  once truncation was shown to be the ceiling (hard/long traces would
+  worsen it). Conciseness anneal (9,621 own-corpus traces, median
+  1,890 tok) ran 25 min train + 8 min eval — inside the 1-1.5h box:
+  23.33, trunc 0.50→0.23, answer_rate 0.47→0.77. Greedy probe tested
+  and correctly rejected (16.67 flat; p50 2,029→40,354 chars,
+  trunc 0.53).
+- **R27-P2-5 — P4 (framework).** Idle-loop churn persists (R25/R26
+  pattern): 21 "Wasted call" re-reads, 2 waiters armed-then-stopped
+  inside 3 min (bqt0d7hqi 04:05:49, bdszm0u8g 04:06:38), blocked
+  sleep-840 (04:05:06), stray Skill(verify) self-caught (04:07:05),
+  empty ToolSearch — all pre-yield fidgeting, no state damage.
+  Otherwise clean: ScheduleWakeup 0; 20 task_notifications + one
+  Monitor 60-min timeout as the only wake sources; every wait bounded
+  (75-115 min caps); no freezes; one rate_limit_event (05:41:12,
+  no stall); cost $10.63→$19.22.
+
+eos [128012,128001] persisted through resume and all four
+finalize/promote points; zero qwen-token sightings again. Session ends
+~07:29 with a next-session handoff committed to PLAN.md (06:40:35);
+sft3 (2nd concise anneal from the 23.33 model, max_steps 100, launched
+06:40:04) pending at trace end with the incumbent protected.
+
+LADDER: 0.0 base → 16.67 sft1-ckpt120 (03:30, banked) → 13.33
+sft1-full-epoch (05:51, rejected as noise) → 16.67 greedy probe (06:02,
+rejected — verbosity up) → **23.33 sft2-concise-anneal (06:37, promoted
+06:38)** → sft3 pending.
+
+SOTA OUTLOOK: Already +6.7pp over the 16.7 proven best with ~5.5h solve
+budget left and the binding constraint identified (truncation on
+genuinely hard problems — not looping, not format). Decisively beating
+proven is done; approaching published ~36.7 needs capability, not
+format — the committed next-session bet (Mixture-of-Thoughts math, the
+curated SmolLM3 recipe, over the cached datasets) is the right one,
+plus squeezing the remaining 23% truncations.
+
+VERDICT: **continue** — banked a new campaign-best 23.33 via a cheap,
+correct diagnosis-driven pivot, with promotion discipline and artifact
+hygiene intact.
