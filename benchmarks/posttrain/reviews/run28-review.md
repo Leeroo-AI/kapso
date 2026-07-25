@@ -6,6 +6,12 @@ a trace running to ~17:36Z (~45 min before solve end — exp2's session
 close/boundary not in view). Hazard watch going in: gemma multimodal
 arch + vision freeze, eos [1,106], gemma3.jinja (run 24), and the AIME
 16k-truncation/gate-noise/eos-extraction levers (runs 25-27).
+P3 close-out appended below after RUN_DONE (19:07Z) + rescore.
+
+**FINAL: official 0.0 (0/30) via rescore · both judges clean
+(integrated re-pin) · $95.66 · completes the AIME table
+(6.67/20.0/16.67/0.0; 4-model avg 10.85 edges opus-4.8-max's proven
+10.8 best-agent average).**
 
 ## P1 (t+0 → ~t+85min)
 
@@ -203,3 +209,67 @@ final eval on a gemma artifact (25/26's 2/2 qwen serving failures vs
 27's success — gemma is the tiebreaker datapoint), and the two
 framework asks: the wasted-call turn-ender (R28-P2-2) and the R15-P2-1
 wrong-cwd first-Read now at 4 sightings.
+
+## P3 (close-out: 17:36Z trace cut → RUN_DONE 19:07Z → rescore)
+
+Watch items from P2, resolved in order:
+
+- **Exp2 boundary: clean.** Report filed 17:46:09 with 5/5 XML tags,
+  stream closed 17:55; feedback judge (17:52) ran the orphaned-value
+  audit across every artifact — resolved the `0.0-pending` 4ep
+  insurance entry against its official 0/30, confirmed shipped-3ep is
+  the right pick, and pinned the honest framing for any future
+  attempt: **the fine-tune (0/30) is a regression below the in-run
+  base measurement (1/30)**, so a successor's bar is "recover ≥1/30",
+  not "beat 0". Difficulties chain dense again (vLLM 0.11
+  `generate(prompt_token_ids=…)` removal + EngineCore corpse,
+  TQDM_DISABLE ZeroDivisionError — both memorialized in-run).
+- **R28-P3-1 — the gemma tiebreaker landed AGAINST the harness: final
+  eval failed 9×, 4th occurrence, now model-agnostic.** In-run
+  officials served this same artifact 7 times without incident; the
+  post-solve harness eval context (different cwd/container flow) died
+  with vLLM exit 1 on every retry (error.log confirms `Failed to
+  start vLLM server`; also a cosmetic upstream bug-let there —
+  `kill: failed to parse argument: 'Failed'`, a PID var holding an
+  error string). P2's "gemma did not reproduce the qwen failure
+  in-run" now reads precisely: the failure was never about the model
+  or artifact — it is the harness's final-eval serving context.
+  Rescore VM `ptb-rescore-192314` (us-east4-a) served the identical
+  path first-try: **accuracy 0.0, stderr 0.0** in ~20 min. Mitigation
+  is institutional and battle-tested 4/4.
+- **Judges:** `no contamination detected` / `only allowed use
+  detected` — integrated gpt-5.6-sol re-pin, third consecutive
+  fully-integrated success.
+- **R28-P3-2 — `<evaluation_script_path>` EMPTY in both final
+  reports** (13:12, 17:44); the extractor lists the tag as present
+  and downstream carries on off `evaluation_output`. Not the
+  R15-P2-1 wrong-cwd shape, but the same field showing a soft
+  contract (empty silently accepted). Fold into the R15-P2-1 fix:
+  empty ⇒ treated as missing, fail loud or re-derive.
+- **R28-P3-3 — session-limit near-miss; failover priority validated
+  by 25 minutes.** 13 `rate_limit_event` notices all run, every one
+  empty; zero "session limit". Exp2's CLI closed 17:55 — the shared
+  token's exhaustion window opened 18:20 and starved all three GPQA
+  runs booted from the same secret. This run escaped on schedule
+  luck alone; the OAuth failover (adapter swap-to-recovery via
+  `--resume`, commit 81ea0bb5) exists for exactly this and ships in
+  the next asset build.
+- **R28-P3-4 — SearchNode repr bloat, worst measured instance.**
+  solve_out.txt is 37 MB; line 15058 (the end-of-run
+  `[SearchNode(node_id=0 …)]` dump) is **35.4 MB — 96% of the
+  artifact** (rest of the trace: ~1.5 MB). The documented
+  runner.py:344 fix (summary repr) graduates from cosmetic to
+  forensics-hazard; any untruncated grep over the trace detonates.
+- **Cost close-out:** $95.66 total (implementation 89.84 / ideation
+  3.07 / feedback 2.50 / llm_backend 0.24) — campaign-high per-run
+  cost, and the ledger says why: R28-P2-2's 188-wasted-call session-0
+  churn ($73.47 for exp1 vs $10-15 for the better-behaved exp2 at the
+  same model). The dedup-guard-ends-turn ask is now backed by a
+  dollar figure.
+
+Cell disposition: **done, no relaunch.** Proven #1 is one question
+(3.3); our best artifact's AIME-24 coverage@4 was 1-2/30, so a retry
+buys a lottery ticket, not a row. The run's real yield: the gemma
+packaging/OOM/FA2/processor-config recipe set, the OMR pool + dev
+suite in shared_cache, and the regression framing — spend future
+slots on GPQA (headroom cells) instead.
