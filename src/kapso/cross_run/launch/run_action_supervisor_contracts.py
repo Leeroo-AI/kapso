@@ -2267,6 +2267,46 @@ def preparation_main_mounts(
     return _expected_prepared_mounts(claim, authority.volume_name)
 
 
+def issue_runtime_volume_authority(
+    claim: RunActionPreparationClaim,
+    generation_nonce: str,
+) -> RunActionRuntimeVolumeAuthority:
+    """Issue one host-local generation under a deterministic preparation claim."""
+
+    if type(claim) is not RunActionPreparationClaim:
+        raise RunActionSupervisorContractError(
+            "runtime volume authority requires an exact preparation claim"
+        )
+    sentinel_identity = runtime_volume_sentinel_identity(generation_nonce)
+    policy = claim.execution_policy
+    limits = policy.docker_resource_limits
+    return RunActionRuntimeVolumeAuthority.mint(
+        preparation_claim_id=claim.preparation_claim_id,
+        volume_name=preparation_volume_name(claim),
+        labels=preparation_volume_labels(claim),
+        driver="local",
+        driver_options=_runtime_volume_driver_options(
+            owner_user_id=policy.user_id,
+            owner_group_id=policy.group_id,
+            root_mode=0o700,
+            size_limit_bytes=limits.runtime_volume_size_bytes,
+            inode_limit=limits.runtime_volume_inode_limit,
+        ),
+        generation_nonce=generation_nonce,
+        sentinel_relative_path=".kapso-generation",
+        sentinel_identity=sentinel_identity,
+        owner_user_id=policy.user_id,
+        owner_group_id=policy.group_id,
+        root_mode=0o700,
+        size_limit_bytes=limits.runtime_volume_size_bytes,
+        inode_limit=limits.runtime_volume_inode_limit,
+        nosuid=True,
+        nodev=True,
+        noswap=True,
+        execution_allowed=True,
+    )
+
+
 def runtime_volume_sentinel_identity(generation_nonce: str) -> str:
     """Bind one unguessable volume generation to its in-volume sentinel."""
 
@@ -2320,17 +2360,34 @@ def runtime_volume_driver_options(
         raise RunActionSupervisorContractError(
             "runtime volume options require exact authority"
         )
+    return _runtime_volume_driver_options(
+        owner_user_id=authority.owner_user_id,
+        owner_group_id=authority.owner_group_id,
+        root_mode=authority.root_mode,
+        size_limit_bytes=authority.size_limit_bytes,
+        inode_limit=authority.inode_limit,
+    )
+
+
+def _runtime_volume_driver_options(
+    *,
+    owner_user_id: int,
+    owner_group_id: int,
+    root_mode: int,
+    size_limit_bytes: int,
+    inode_limit: int,
+) -> tuple[str, ...]:
     return tuple(
         sorted(
             (
                 "device=tmpfs",
                 (
                     "o=nodev,nosuid,noswap,"
-                    f"size={authority.size_limit_bytes},"
-                    f"nr_inodes={authority.inode_limit},"
-                    f"mode={authority.root_mode:04o},"
-                    f"uid={authority.owner_user_id},"
-                    f"gid={authority.owner_group_id}"
+                    f"size={size_limit_bytes},"
+                    f"nr_inodes={inode_limit},"
+                    f"mode={root_mode:04o},"
+                    f"uid={owner_user_id},"
+                    f"gid={owner_group_id}"
                 ),
                 "type=tmpfs",
             )
@@ -2518,6 +2575,7 @@ __all__ = [
     "preparation_main_mounts",
     "preparation_volume_labels",
     "preparation_volume_name",
+    "issue_runtime_volume_authority",
     "runtime_volume_driver_options",
     "runtime_volume_keeper_helper_authority_id",
     "runtime_volume_sentinel_identity",

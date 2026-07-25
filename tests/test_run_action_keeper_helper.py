@@ -9,6 +9,8 @@ from kapso.cross_run.launch.run_action_keeper_helper import (
     RunActionKeeperHelperError,
 )
 
+_CONTAINER_ID = "a" * 64
+
 
 def test_static_elf_program_table_is_admitted():
     helper_module._require_static_elf(_minimal_elf64(1))
@@ -34,6 +36,41 @@ def test_elf_dynamic_or_interpreter_program_header_is_rejected(program_type):
 def test_malformed_elf_fails_loud(payload):
     with pytest.raises(RunActionKeeperHelperError):
         helper_module._require_static_elf(payload)
+
+
+def test_container_cgroup_payload_is_parsed_exactly():
+    payload = f"0::/kapso.slice/docker-{_CONTAINER_ID}.scope\n".encode("ascii")
+
+    assert (
+        helper_module._parse_run_action_process_cgroup_path(
+            payload,
+            _CONTAINER_ID,
+        )
+        == f"/kapso.slice/docker-{_CONTAINER_ID}.scope"
+    )
+
+
+@pytest.mark.parametrize(
+    "payload",
+    (
+        b"",
+        f"1::/kapso.slice/docker-{_CONTAINER_ID}.scope\n".encode("ascii"),
+        f"0::relative/docker-{_CONTAINER_ID}.scope\n".encode("ascii"),
+        f"0::/kapso.slice/docker-{'b' * 64}.scope\n".encode("ascii"),
+        (
+            f"0::/kapso.slice/docker-{_CONTAINER_ID}.scope\n"
+            f"0::/other.slice/docker-{_CONTAINER_ID}.scope\n"
+        ).encode("ascii"),
+        f"0::/kapso.slice/docker-{_CONTAINER_ID}.scope".encode("ascii"),
+        f"0::/kapso.slice/../docker-{_CONTAINER_ID}.scope\n".encode("ascii"),
+    ),
+)
+def test_container_cgroup_payload_rejects_ambiguous_identity(payload):
+    with pytest.raises(RunActionKeeperHelperError):
+        helper_module._parse_run_action_process_cgroup_path(
+            payload,
+            _CONTAINER_ID,
+        )
 
 
 def _minimal_elf64(program_type):

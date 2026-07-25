@@ -6,6 +6,7 @@ import os
 import re
 import stat
 import struct
+from contextlib import ExitStack
 from pathlib import Path, PurePosixPath
 
 from kapso.cross_run.canonical import tree_or_blob_digest
@@ -100,7 +101,7 @@ def observe_mounted_keeper_helper(
         raise RunActionKeeperHelperError(
             "mounted keeper helper requires exact source and process identities"
         )
-    process_cgroup_path_before = _read_process_cgroup_path(
+    process_cgroup_path_before = read_run_action_process_cgroup_path(
         process_id,
         container_id,
     )
@@ -112,7 +113,7 @@ def observe_mounted_keeper_helper(
         mounted_path,
         source_evidence.executable_digest,
     )
-    process_cgroup_path_after = _read_process_cgroup_path(
+    process_cgroup_path_after = read_run_action_process_cgroup_path(
         process_id,
         container_id,
     )
@@ -148,11 +149,11 @@ def _observe_helper_path(
     )
     with os.fdopen(descriptor, "rb") as handle:
         metadata_before = os.fstat(handle.fileno())
-        mount_id_before = _read_descriptor_mount_id(handle.fileno())
+        mount_id_before = read_run_action_descriptor_mount_id(handle.fileno())
         _require_helper_metadata(metadata_before)
         payload = handle.read()
         metadata_after = os.fstat(handle.fileno())
-        mount_id_after = _read_descriptor_mount_id(handle.fileno())
+        mount_id_after = read_run_action_descriptor_mount_id(handle.fileno())
     if (
         _stable_metadata(metadata_before) != _stable_metadata(metadata_after)
         or mount_id_before != mount_id_after
@@ -166,13 +167,61 @@ def _observe_helper_path(
     return metadata_before, mount_id_before
 
 
-def _read_process_cgroup_path(process_id: int, container_id: str) -> str:
+def read_run_action_process_cgroup_path(
+    process_id: int,
+    container_id: str,
+) -> str:
+    """Read one unified cgroup path bound to an exact Docker container."""
+
+    process_descriptor = os.open(
+        f"/proc/{process_id}",
+        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+    )
+    with ExitStack() as descriptors:
+        descriptors.callback(os.close, process_descriptor)
+        return read_run_action_process_cgroup_path_from_descriptor(
+            process_descriptor,
+            container_id,
+        )
+
+
+def read_run_action_process_cgroup_path_from_descriptor(
+    process_descriptor: int,
+    container_id: str,
+) -> str:
+    """Read one container cgroup through an already-open proc process directory."""
+
+    if (
+        type(process_descriptor) is not int
+        or process_descriptor < 0
+        or type(container_id) is not str
+        or _CONTAINER_ID_PATTERN.fullmatch(container_id) is None
+    ):
+        raise RunActionKeeperHelperError(
+            "keeper cgroup read requires exact process and container identities"
+        )
     descriptor = os.open(
-        f"/proc/{process_id}/cgroup",
+        "cgroup",
         os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
+        dir_fd=process_descriptor,
     )
     with os.fdopen(descriptor, "rb") as handle:
         payload = handle.read()
+    return _parse_run_action_process_cgroup_path(payload, container_id)
+
+
+def _parse_run_action_process_cgroup_path(
+    payload: bytes,
+    container_id: str,
+) -> str:
+    if (
+        type(payload) is not bytes
+        or type(container_id) is not str
+        or _CONTAINER_ID_PATTERN.fullmatch(container_id) is None
+    ):
+        raise RunActionKeeperHelperError(
+            "keeper cgroup parse requires exact payload and container identities"
+        )
     lines = payload.splitlines()
     if (
         len(lines) != 1
@@ -215,7 +264,9 @@ def _require_helper_metadata(metadata: os.stat_result) -> None:
         )
 
 
-def _read_descriptor_mount_id(descriptor: int) -> int:
+def read_run_action_descriptor_mount_id(descriptor: int) -> int:
+    """Read the kernel mount identity for one already-open descriptor."""
+
     fdinfo_descriptor = os.open(
         f"/proc/self/fdinfo/{descriptor}",
         os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
@@ -329,4 +380,7 @@ __all__ = [
     "RunActionKeeperHelperError",
     "observe_keeper_helper",
     "observe_mounted_keeper_helper",
+    "read_run_action_descriptor_mount_id",
+    "read_run_action_process_cgroup_path",
+    "read_run_action_process_cgroup_path_from_descriptor",
 ]

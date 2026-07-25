@@ -620,6 +620,12 @@ Docker 29.1.3 runs with a
 digest-pulled loopback OCI image. The race-safe name/label resource manager,
 now has a twice-stable name-only, name-plus-label, and label-only inventory with
 inspect-by-ID container rebinding and full-inspection volume occurrence digests.
+After the keeper starts, the supervisor now opens one descriptor-bound
+`/proc/<pid>` process generation and resolves its cgroup, root, mountinfo, and
+stat records relative to that lease. Before the first volume mutation it requires
+the exact issued tmpfs mount/device/options/owner/mode, stable block and inode
+capacity accounting, a live non-zombie keeper generation, and zero root entries;
+the real Docker lifecycle proves this boundary before creating any layout path.
 Allocation/reopen reconciliation, concrete activation/result receipts, positive
 cleanup authority, and production adapters remain the next slices.
 

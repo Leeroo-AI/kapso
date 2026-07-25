@@ -46,6 +46,9 @@ from kapso.cross_run.launch.run_action_keeper_helper import (
     RunActionKeeperHelperError,
     observe_keeper_helper,
 )
+from kapso.cross_run.launch.run_action_runtime_volume import (
+    observe_empty_runtime_volume,
+)
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RunActionStaticEnvironmentVariable,
     preparation_container_labels,
@@ -352,6 +355,40 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
         assert inert_keeper.container_id == keeper_id
         started_keeper = runtime.run_control(("container", "start", keeper_id))
         assert started_keeper.stdout == f"{keeper_id}\n".encode("ascii")
+        empty_volume_inventory = resource_manager.observe(claim)
+        assert empty_volume_inventory.volume_present is True
+        assert empty_volume_inventory.keeper_container_id == keeper_id
+        assert empty_volume_inventory.main_container_id is None
+        empty_volume_keeper = observe_running_keeper(
+            resource_manager.inspect_keeper(empty_volume_inventory),
+            claim,
+            authority,
+            volume_observation,
+            helper_evidence,
+            settings,
+        )
+        empty_volume = observe_empty_runtime_volume(
+            authority,
+            volume_observation,
+            empty_volume_keeper,
+        )
+        assert empty_volume.keeper_container_id == keeper_id
+        assert empty_volume.filesystem_type == "tmpfs"
+        assert empty_volume.observed_mount_flags == (
+            "nodev",
+            "nosuid",
+            "noswap",
+        )
+        assert empty_volume.empty_entry_count == 0
+        assert empty_volume.empty_size_bytes == 0
+        assert (
+            empty_volume.used_size_bytes + empty_volume.available_size_bytes
+            == empty_volume.effective_size_bytes
+        )
+        assert (
+            empty_volume.used_inode_count + empty_volume.available_inode_count
+            == empty_volume.effective_inode_limit
+        )
         runtime.run_control(
             (
                 "container",

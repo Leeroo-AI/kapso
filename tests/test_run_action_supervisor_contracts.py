@@ -61,6 +61,7 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RunActionSupervisorContractError,
     RunActionSupervisorLimits,
     RunActionVolumeKeeperEvidence,
+    issue_runtime_volume_authority,
     preparation_container_labels,
     preparation_container_name,
     preparation_keeper_container_labels,
@@ -415,42 +416,7 @@ def _claim(
 
 
 def _volume_authority(claim, *, nonce):
-    limits = claim.execution_policy.docker_resource_limits
-    user_id = claim.execution_policy.user_id
-    group_id = claim.execution_policy.group_id
-    options = tuple(
-        sorted(
-            (
-                "device=tmpfs",
-                (
-                    "o=nodev,nosuid,noswap,"
-                    f"size={limits.runtime_volume_size_bytes},"
-                    f"nr_inodes={limits.runtime_volume_inode_limit},"
-                    f"mode=0700,uid={user_id},gid={group_id}"
-                ),
-                "type=tmpfs",
-            )
-        )
-    )
-    return RunActionRuntimeVolumeAuthority.mint(
-        preparation_claim_id=claim.preparation_claim_id,
-        volume_name=preparation_volume_name(claim),
-        labels=preparation_volume_labels(claim),
-        driver="local",
-        driver_options=options,
-        generation_nonce=nonce,
-        sentinel_relative_path=".kapso-generation",
-        sentinel_identity=runtime_volume_sentinel_identity(nonce),
-        owner_user_id=user_id,
-        owner_group_id=group_id,
-        root_mode=0o700,
-        size_limit_bytes=limits.runtime_volume_size_bytes,
-        inode_limit=limits.runtime_volume_inode_limit,
-        nosuid=True,
-        nodev=True,
-        noswap=True,
-        execution_allowed=True,
-    )
+    return issue_runtime_volume_authority(claim, nonce)
 
 
 def _prepared_file(claim, authority, kind):
