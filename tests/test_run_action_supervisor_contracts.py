@@ -80,6 +80,7 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
     runtime_volume_sentinel_identity,
     run_action_activated_volume_evidence_matches,
     run_action_keeper_process_cgroup_path,
+    run_action_terminal_result_evidence_matches,
 )
 from kapso.cross_run.launch.resume_contracts import RunSafetyBoundary
 
@@ -1514,6 +1515,11 @@ def test_terminal_observation_and_result_capture_bind_the_physical_result():
     terminal = _terminal_observation(prepared, spawn)
     capture = _result_capture_receipt(prepared, activation, terminal, payload)
 
+    assert run_action_terminal_result_evidence_matches(
+        terminal,
+        capture,
+        activation,
+    )
     assert (
         RunActionTerminalObservation.from_json_bytes(terminal.to_json_bytes())
         == terminal
@@ -1523,6 +1529,10 @@ def test_terminal_observation_and_result_capture_bind_the_physical_result():
         == capture
     )
     assert capture.terminal_observation_id == terminal.terminal_observation_id
+    assert capture.prepared_parent_authority_id == (
+        prepared.result_directory.prepared_runtime_directory_id
+    )
+    assert capture.parent_inode == prepared.result_directory.inode
     assert (
         capture.reobserved_volume_evidence.root_inode
         == prepared.runtime_volume_evidence.root_inode
@@ -1540,6 +1550,26 @@ def test_terminal_observation_and_result_capture_bind_the_physical_result():
             capture,
             inode=prepared.runtime_volume_evidence.sentinel_evidence.inode,
         )
+    with pytest.raises(
+        RunActionSupervisorContractError,
+        match="result capture receipt is invalid",
+    ):
+        replace(capture, parent_inode=capture.inode)
+    assert not run_action_terminal_result_evidence_matches(
+        _remint_contract(terminal, exit_code=1),
+        capture,
+        activation,
+    )
+    assert not run_action_terminal_result_evidence_matches(
+        _remint_contract(terminal, oom_killed=True),
+        capture,
+        activation,
+    )
+    assert not run_action_terminal_result_evidence_matches(
+        terminal,
+        _remint_contract(capture, parent_inode=capture.parent_inode + 1),
+        activation,
+    )
 
 
 def _activated_workspace_observation(prepared, spawn):
@@ -1710,7 +1740,13 @@ def _result_capture_receipt(prepared, activation, terminal, payload):
     )
     return RunActionResultCaptureReceipt.mint(
         terminal_observation_id=terminal.terminal_observation_id,
+        prepared_parent_authority_id=(
+            prepared.result_directory.prepared_runtime_directory_id
+        ),
         prepared_file_id=result_file.prepared_file_id,
+        parent_mount_id=prepared.result_directory.mount_id,
+        parent_device=prepared.result_directory.device,
+        parent_inode=prepared.result_directory.inode,
         runtime_volume_authority_id=result_file.runtime_volume_authority_id,
         reobserved_volume_evidence=volume,
         prepared_sentinel_evidence_id=(

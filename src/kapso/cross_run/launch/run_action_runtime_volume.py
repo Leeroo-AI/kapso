@@ -99,7 +99,8 @@ class RunActionResultWorkspaceLease:
         keeper: RunActionVolumeKeeperEvidence,
         sentinel_observation: "_ExactRegularFileObservation",
         workspace_descriptor: int,
-        workspace_identity: tuple[int, int],
+        workspace_proof: RunActionPreparedWorkspaceProof,
+        workspace_metadata_identity: tuple[int, ...],
         _authority: object,
     ) -> None:
         if (
@@ -109,8 +110,10 @@ class RunActionResultWorkspaceLease:
             or type(sentinel_observation) is not _ExactRegularFileObservation
             or type(workspace_descriptor) is not int
             or workspace_descriptor < 0
-            or type(workspace_identity) is not tuple
-            or len(workspace_identity) != 2
+            or type(workspace_proof) is not RunActionPreparedWorkspaceProof
+            or type(workspace_metadata_identity) is not tuple
+            or workspace_metadata_identity
+            != _stable_metadata(os.fstat(workspace_descriptor))
             or _authority is not _RESULT_WORKSPACE_LEASE_AUTHORITY
         ):
             raise RunActionRuntimeVolumeError(
@@ -121,7 +124,8 @@ class RunActionResultWorkspaceLease:
         self._keeper = keeper
         self._sentinel_observation = sentinel_observation
         self._workspace_descriptor = workspace_descriptor
-        self._workspace_identity = workspace_identity
+        self._workspace_proof = workspace_proof
+        self._workspace_metadata_identity = workspace_metadata_identity
         self._owner_process_id = os.getpid()
         self._closed = False
         self.require_current()
@@ -141,23 +145,49 @@ class RunActionResultWorkspaceLease:
             self._keeper,
         )
         _require_same_exact_regular_file(self._sentinel_observation)
-        opened = os.fstat(self._workspace_descriptor)
-        current = os.stat(
-            "workspace",
-            dir_fd=self._mounted_volume.root_descriptor,
-            follow_symlinks=False,
+        opened_before = os.fstat(self._workspace_descriptor)
+        opened_mount_id = read_run_action_descriptor_mount_id(
+            self._workspace_descriptor
         )
+        with ExitStack() as descriptors:
+            current_descriptor = os.open(
+                self._workspace_proof.volume_subpath,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                dir_fd=self._mounted_volume.root_descriptor,
+            )
+            descriptors.callback(os.close, current_descriptor)
+            current_before = os.fstat(current_descriptor)
+            current_mount_id = read_run_action_descriptor_mount_id(current_descriptor)
+            path_before = os.stat(
+                self._workspace_proof.volume_subpath,
+                dir_fd=self._mounted_volume.root_descriptor,
+                follow_symlinks=False,
+            )
+            opened_after = os.fstat(self._workspace_descriptor)
+            current_after = os.fstat(current_descriptor)
+            path_after = os.stat(
+                self._workspace_proof.volume_subpath,
+                dir_fd=self._mounted_volume.root_descriptor,
+                follow_symlinks=False,
+            )
+        expected_metadata = self._workspace_metadata_identity
         if (
-            not stat.S_ISDIR(opened.st_mode)
-            or not stat.S_ISDIR(current.st_mode)
-            or opened.st_uid != os.geteuid()
-            or current.st_uid != os.geteuid()
-            or stat.S_IMODE(opened.st_mode) != _PREPARED_DIRECTORY_MODE
-            or stat.S_IMODE(current.st_mode) != _PREPARED_DIRECTORY_MODE
-            or read_run_action_descriptor_mount_id(self._workspace_descriptor)
-            != self._mounted_volume.root_mount_id
-            or (opened.st_dev, opened.st_ino) != self._workspace_identity
-            or (current.st_dev, current.st_ino) != self._workspace_identity
+            not _result_workspace_matches_prepared(
+                opened_before,
+                opened_mount_id,
+                self._workspace_proof,
+            )
+            or not _result_workspace_matches_prepared(
+                current_before,
+                current_mount_id,
+                self._workspace_proof,
+            )
+            or _stable_metadata(opened_before) != expected_metadata
+            or _stable_metadata(opened_after) != expected_metadata
+            or _stable_metadata(current_before) != expected_metadata
+            or _stable_metadata(current_after) != expected_metadata
+            or _stable_metadata(path_before) != expected_metadata
+            or _stable_metadata(path_after) != expected_metadata
         ):
             raise RunActionRuntimeVolumeError(
                 "result workspace lease changed physical generation"
@@ -818,6 +848,32 @@ def open_run_action_result_workspace(
         raise RunActionRuntimeVolumeError(
             "result workspace lease requires exact edit execution evidence"
         )
+    result_parent = prepared.result_directory
+    result_file = prepared.result_file
+    prepared_sentinel = prepared.runtime_volume_evidence.sentinel_evidence
+    if (
+        result_capture_receipt.prepared_parent_authority_id
+        != result_parent.prepared_runtime_directory_id
+        or result_capture_receipt.prepared_file_id != result_file.prepared_file_id
+        or result_capture_receipt.parent_mount_id != result_parent.mount_id
+        or result_capture_receipt.parent_device != result_parent.device
+        or result_capture_receipt.parent_inode != result_parent.inode
+        or result_capture_receipt.prepared_sentinel_evidence_id
+        != prepared_sentinel.runtime_volume_sentinel_evidence_id
+        or result_capture_receipt.generation_nonce != result_file.generation_nonce
+        or result_capture_receipt.relative_path != result_file.relative_path
+        or result_capture_receipt.file_type != result_file.file_type
+        or result_capture_receipt.owner_user_id != result_file.owner_user_id
+        or result_capture_receipt.owner_group_id != result_file.owner_group_id
+        or result_capture_receipt.mode != result_file.mode
+        or result_capture_receipt.link_count != result_file.link_count
+        or result_capture_receipt.mount_id != result_file.mount_id
+        or result_capture_receipt.device != result_file.device
+        or result_capture_receipt.inode != result_file.inode
+    ):
+        raise RunActionRuntimeVolumeError(
+            "result workspace lease differs from prepared result capture"
+        )
     keeper = prepared.volume_keeper_evidence
     captured_volume = result_capture_receipt.reobserved_volume_evidence
     _require_result_volume_occurrence(prepared, captured_volume)
@@ -854,19 +910,14 @@ def open_run_action_result_workspace(
         )
         descriptors.callback(os.close, workspace_descriptor)
         workspace_metadata = os.fstat(workspace_descriptor)
-        if (
-            not stat.S_ISDIR(workspace_metadata.st_mode)
-            or workspace_metadata.st_uid
-            != prepared.runtime_volume_authority.owner_user_id
-            or workspace_metadata.st_gid
-            != prepared.runtime_volume_authority.owner_group_id
-            or stat.S_IMODE(workspace_metadata.st_mode) != _PREPARED_DIRECTORY_MODE
-            or workspace_metadata.st_dev != mounted_volume.root_device
-            or read_run_action_descriptor_mount_id(workspace_descriptor)
-            != mounted_volume.root_mount_id
+        workspace_mount_id = read_run_action_descriptor_mount_id(workspace_descriptor)
+        if not _result_workspace_matches_prepared(
+            workspace_metadata,
+            workspace_mount_id,
+            prepared.workspace_proof,
         ):
             raise RunActionRuntimeVolumeError(
-                "captured result workspace directory is unsafe or substituted"
+                "captured result workspace differs from prepared proof"
             )
         lease = RunActionResultWorkspaceLease(
             descriptors=descriptors,
@@ -874,11 +925,31 @@ def open_run_action_result_workspace(
             keeper=keeper,
             sentinel_observation=sentinel_observation,
             workspace_descriptor=workspace_descriptor,
-            workspace_identity=(workspace_metadata.st_dev, workspace_metadata.st_ino),
+            workspace_proof=prepared.workspace_proof,
+            workspace_metadata_identity=_stable_metadata(workspace_metadata),
             _authority=_RESULT_WORKSPACE_LEASE_AUTHORITY,
         )
         lease._descriptors = descriptors.pop_all()
     return lease
+
+
+def _result_workspace_matches_prepared(
+    metadata: os.stat_result,
+    mount_id: int,
+    prepared: RunActionPreparedWorkspaceProof,
+) -> bool:
+    return (
+        type(metadata) is os.stat_result
+        and type(mount_id) is int
+        and type(prepared) is RunActionPreparedWorkspaceProof
+        and stat.S_ISDIR(metadata.st_mode)
+        and metadata.st_uid == prepared.owner_user_id
+        and metadata.st_gid == prepared.owner_group_id
+        and stat.S_IMODE(metadata.st_mode) == prepared.root_mode
+        and mount_id == prepared.mount_id
+        and metadata.st_dev == prepared.device
+        and metadata.st_ino == prepared.inode
+    )
 
 
 def _require_result_sentinel_observation(

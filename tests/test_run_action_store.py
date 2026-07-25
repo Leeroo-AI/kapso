@@ -503,6 +503,24 @@ def test_action_store_rejects_terminal_and_capture_occurrence_splices(
             terminal,
             payload,
         )
+        for unsuccessful_terminal in (
+            _remint_contract(terminal, exit_code=1),
+            _remint_contract(terminal, oom_killed=True),
+        ):
+            unsuccessful_capture = _remint_contract(
+                capture,
+                terminal_observation_id=(unsuccessful_terminal.terminal_observation_id),
+            )
+            with pytest.raises(
+                RunActionStoreError,
+                match="result differs from its spawn",
+            ):
+                session.record_result(
+                    spawn_commit=spawn,
+                    terminal_observation=unsuccessful_terminal,
+                    result_capture_receipt=unsuccessful_capture,
+                    result_payload=payload,
+                )
         substituted_volume = _remint_contract(
             prepared.runtime_volume_evidence,
             root_inode=prepared.runtime_volume_evidence.root_inode + 1,
@@ -538,6 +556,17 @@ def test_action_store_rejects_terminal_and_capture_occurrence_splices(
                 spawn_commit=spawn,
                 terminal_observation=terminal,
                 result_capture_receipt=substituted_result_inode,
+                result_payload=payload,
+            )
+        substituted_result_parent = _remint_contract(
+            capture,
+            parent_inode=capture.parent_inode + 1,
+        )
+        with pytest.raises(RunActionStoreError, match="result differs from its spawn"):
+            session.record_result(
+                spawn_commit=spawn,
+                terminal_observation=terminal,
+                result_capture_receipt=substituted_result_parent,
                 result_payload=payload,
             )
 

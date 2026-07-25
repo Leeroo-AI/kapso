@@ -2622,7 +2622,11 @@ class RunActionResultCaptureReceipt(StrictContract):
 
     result_capture_receipt_id: str
     terminal_observation_id: str
+    prepared_parent_authority_id: str
     prepared_file_id: str
+    parent_mount_id: int
+    parent_device: int
+    parent_inode: int
     runtime_volume_authority_id: str
     reobserved_volume_evidence: RunActionRuntimeVolumeEvidence
     prepared_sentinel_evidence_id: str
@@ -2647,6 +2651,11 @@ class RunActionResultCaptureReceipt(StrictContract):
             self.terminal_observation_id,
             RunActionTerminalObservation.CONTENT_NAMESPACE,
             "result capture terminal observation",
+        )
+        _require_namespaced_content_id(
+            self.prepared_parent_authority_id,
+            RunActionPreparedRuntimeDirectory.CONTENT_NAMESPACE,
+            "result capture prepared parent directory",
         )
         _require_namespaced_content_id(
             self.prepared_file_id,
@@ -2686,6 +2695,14 @@ class RunActionResultCaptureReceipt(StrictContract):
             != self.generation_nonce
             or self.reobserved_volume_evidence.sentinel_evidence.runtime_volume_sentinel_evidence_id
             != self.prepared_sentinel_evidence_id
+            or self.parent_mount_id != self.mount_id
+            or self.parent_device != self.device
+            or self.parent_inode
+            in {
+                self.inode,
+                self.reobserved_volume_evidence.root_inode,
+                self.reobserved_volume_evidence.sentinel_evidence.inode,
+            }
             or self.mount_id != self.reobserved_volume_evidence.root_mount_id
             or self.device != self.reobserved_volume_evidence.root_device
             or self.inode
@@ -2695,7 +2712,14 @@ class RunActionResultCaptureReceipt(StrictContract):
             }
             or any(
                 type(value) is not int or value <= 0
-                for value in (self.mount_id, self.device, self.inode)
+                for value in (
+                    self.parent_mount_id,
+                    self.parent_device,
+                    self.parent_inode,
+                    self.mount_id,
+                    self.device,
+                    self.inode,
+                )
             )
         ):
             raise RunActionSupervisorContractError(
@@ -3117,6 +3141,8 @@ def run_action_terminal_result_evidence_matches(
     return (
         terminal.activation_revalidation_receipt_id
         == activation.activation_revalidation_receipt_id
+        and terminal.exit_code == 0
+        and terminal.oom_killed is False
         and terminal.prepared_execution_id == prepared.prepared_execution_id
         and terminal.spawn_commit_id == spawn.spawn_commit_id
         and terminal.provider_execution_id == spawn.provider_execution_id
@@ -3127,7 +3153,14 @@ def run_action_terminal_result_evidence_matches(
         and terminal.observed_inspect_projection
         == prepared.inert_container_evidence.issued_create_projection
         and capture.terminal_observation_id == terminal.terminal_observation_id
+        and capture.prepared_parent_authority_id
+        == prepared.result_directory.prepared_runtime_directory_id
         and capture.prepared_file_id == prepared_result.prepared_file_id
+        and capture.prepared_parent_authority_id
+        == prepared_result.prepared_parent_directory_id
+        and capture.parent_mount_id == prepared.result_directory.mount_id
+        and capture.parent_device == prepared.result_directory.device
+        and capture.parent_inode == prepared.result_directory.inode
         and capture.runtime_volume_authority_id
         == prepared.runtime_volume_authority.runtime_volume_authority_id
         and run_action_runtime_volume_occurrence_matches(

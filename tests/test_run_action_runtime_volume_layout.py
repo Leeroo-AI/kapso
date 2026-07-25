@@ -147,7 +147,16 @@ def test_terminal_workspace_source_requires_exact_prepared_volume_occurrence():
         )
 
 
-@pytest.mark.parametrize("mutation", ("remove", "substitute"))
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "remove",
+        "substitute",
+        "workspace_timestamp",
+        "workspace_path",
+        "workspace_gid_observation",
+    ),
+)
 def test_result_workspace_lease_retains_exact_event_6_sentinel(
     tmp_path,
     monkeypatch,
@@ -248,23 +257,79 @@ def test_result_workspace_lease_retains_exact_event_6_sentinel(
         "_require_same_mounted_runtime_volume",
         lambda _mounted, _keeper: None,
     )
+    workspace_proof = _remint_contract(
+        prepared.workspace_proof,
+        owner_user_id=workspace_metadata.st_uid,
+        owner_group_id=workspace_metadata.st_gid,
+        root_mode=stat.S_IMODE(workspace_metadata.st_mode),
+        mount_id=root_mount_id,
+        device=workspace_metadata.st_dev,
+        inode=workspace_metadata.st_ino,
+    )
+    workspace_metadata_identity = volume_module._stable_metadata(workspace_metadata)
+    with pytest.raises(
+        RunActionRuntimeVolumeError,
+        match="lacks exact physical authority",
+    ):
+        volume_module.RunActionResultWorkspaceLease(
+            descriptors=descriptors,
+            mounted_volume=mounted_volume,
+            keeper=keeper,
+            sentinel_observation=sentinel_observation,
+            workspace_descriptor=workspace_descriptor,
+            workspace_proof=workspace_proof,
+            workspace_metadata_identity=(
+                *workspace_metadata_identity[:-1],
+                workspace_metadata_identity[-1] + 1,
+            ),
+            _authority=volume_module._RESULT_WORKSPACE_LEASE_AUTHORITY,
+        )
     lease = volume_module.RunActionResultWorkspaceLease(
         descriptors=descriptors,
         mounted_volume=mounted_volume,
         keeper=keeper,
         sentinel_observation=sentinel_observation,
         workspace_descriptor=workspace_descriptor,
-        workspace_identity=(workspace_metadata.st_dev, workspace_metadata.st_ino),
+        workspace_proof=workspace_proof,
+        workspace_metadata_identity=workspace_metadata_identity,
         _authority=volume_module._RESULT_WORKSPACE_LEASE_AUTHORITY,
     )
 
-    sentinel_path.unlink()
-    if mutation == "substitute":
-        sentinel_path.write_bytes(sentinel_payload)
-        sentinel_path.chmod(0o400)
+    if mutation in {"remove", "substitute"}:
+        sentinel_path.unlink()
+        if mutation == "substitute":
+            sentinel_path.write_bytes(sentinel_payload)
+            sentinel_path.chmod(0o400)
+            expected_error = RunActionRuntimeVolumeError
+        else:
+            expected_error = FileNotFoundError
+    elif mutation == "workspace_timestamp":
+        os.utime(
+            workspace_path,
+            ns=(
+                workspace_metadata.st_atime_ns,
+                workspace_metadata.st_mtime_ns + 1,
+            ),
+        )
+        expected_error = RunActionRuntimeVolumeError
+    elif mutation == "workspace_path":
+        detached_workspace_path = root_path / "detached-workspace"
+        workspace_path.rename(detached_workspace_path)
+        workspace_path.mkdir(mode=0o700)
         expected_error = RunActionRuntimeVolumeError
     else:
-        expected_error = FileNotFoundError
+        original_fstat = os.fstat
+
+        def fstat_with_substituted_group(descriptor):
+            observed = original_fstat(descriptor)
+            if descriptor != workspace_descriptor:
+                return observed
+            values = list(observed)
+            values[5] = observed.st_gid + 1
+            return os.stat_result(values)
+
+        monkeypatch.setattr(volume_module.os, "fstat", fstat_with_substituted_group)
+        expected_error = RunActionRuntimeVolumeError
     with pytest.raises(expected_error):
         lease.require_current()
     lease.close()
@@ -336,8 +401,84 @@ def test_open_result_workspace_joins_live_sentinel_and_retains_its_path(
         prepared_sentinel_evidence_id=(
             sentinel_evidence.runtime_volume_sentinel_evidence_id
         ),
+        parent_mount_id=root_mount_id,
+        parent_device=root_metadata.st_dev,
         mount_id=root_mount_id,
         device=root_metadata.st_dev,
+    )
+    workspace_metadata = (root_path / "workspace").stat(follow_symlinks=False)
+    physical_input = _remint_contract(
+        prepared.input_delivery_slot,
+        mount_id=root_mount_id,
+        device=root_metadata.st_dev,
+    )
+    physical_result_directory = _remint_contract(
+        prepared.result_directory,
+        mount_id=root_mount_id,
+        device=root_metadata.st_dev,
+    )
+    physical_temporary_directory = _remint_contract(
+        prepared.temporary_directory,
+        mount_id=root_mount_id,
+        device=root_metadata.st_dev,
+    )
+    physical_result_file = _remint_contract(
+        prepared.result_file,
+        prepared_parent_directory_id=(
+            physical_result_directory.prepared_runtime_directory_id
+        ),
+        mount_id=root_mount_id,
+        device=root_metadata.st_dev,
+    )
+    physical_workspace = _remint_contract(
+        prepared.workspace_proof,
+        owner_user_id=workspace_metadata.st_uid,
+        owner_group_id=workspace_metadata.st_gid,
+        root_mode=stat.S_IMODE(workspace_metadata.st_mode),
+        mount_id=root_mount_id,
+        device=workspace_metadata.st_dev,
+        inode=workspace_metadata.st_ino,
+    )
+    physical_prepared_volume = _remint_contract(
+        prepared.runtime_volume_evidence,
+        root_mount_id=root_mount_id,
+        root_device=root_metadata.st_dev,
+        root_inode=root_metadata.st_ino,
+        sentinel_evidence=sentinel_evidence,
+    )
+    physical_layout = _remint_contract(
+        prepared.layout_proof,
+        runtime_volume_evidence_id=(
+            physical_prepared_volume.runtime_volume_evidence_id
+        ),
+        prepared_delivery_slot_ids=(physical_input.prepared_delivery_slot_id,),
+        prepared_runtime_directory_ids=tuple(
+            sorted(
+                (
+                    physical_result_directory.prepared_runtime_directory_id,
+                    physical_temporary_directory.prepared_runtime_directory_id,
+                )
+            )
+        ),
+        prepared_result_file_id=physical_result_file.prepared_file_id,
+        prepared_workspace_proof_id=(physical_workspace.prepared_workspace_proof_id),
+    )
+    physical_prepared = _remint_contract(
+        prepared,
+        runtime_volume_evidence=physical_prepared_volume,
+        input_delivery_slot=physical_input,
+        result_directory=physical_result_directory,
+        temporary_directory=physical_temporary_directory,
+        result_file=physical_result_file,
+        workspace_proof=physical_workspace,
+        layout_proof=physical_layout,
+    )
+    physical_capture = _remint_contract(
+        exact_capture,
+        prepared_parent_authority_id=(
+            physical_result_directory.prepared_runtime_directory_id
+        ),
+        prepared_file_id=physical_result_file.prepared_file_id,
     )
 
     opened_roots = []
@@ -363,11 +504,6 @@ def test_open_result_workspace_joins_live_sentinel_and_retains_its_path(
 
     monkeypatch.setattr(
         volume_module,
-        "_require_result_volume_occurrence",
-        lambda _prepared, _captured: None,
-    )
-    monkeypatch.setattr(
-        volume_module,
         "_open_mounted_runtime_volume",
         open_test_volume,
     )
@@ -376,42 +512,71 @@ def test_open_result_workspace_joins_live_sentinel_and_retains_its_path(
         "_require_same_mounted_runtime_volume",
         lambda _mounted, _keeper: None,
     )
-    substituted_sentinel = RunActionRuntimeVolumeSentinelEvidence.mint(
-        runtime_volume_authority_id=authority.runtime_volume_authority_id,
-        generation_nonce=authority.generation_nonce,
-        relative_path=".kapso-generation",
-        file_type="regular",
-        owner_user_id=sentinel_metadata.st_uid,
-        owner_group_id=sentinel_metadata.st_gid,
-        mode=stat.S_IMODE(sentinel_metadata.st_mode),
-        link_count=sentinel_metadata.st_nlink,
-        size_bytes=sentinel_metadata.st_size,
-        content_digest=volume_module.tree_or_blob_digest(sentinel_payload),
-        mount_id=root_mount_id,
-        device=root_metadata.st_dev,
-        inode=sentinel_metadata.st_ino + 1,
+    substituted_capture_parent = _remint_contract(
+        physical_capture,
+        parent_inode=physical_capture.parent_inode + 1,
     )
-    substituted_volume = _remint_contract(
-        captured_volume,
-        sentinel_evidence=substituted_sentinel,
+    with pytest.raises(
+        RunActionRuntimeVolumeError,
+        match="differs from prepared result capture",
+    ):
+        volume_module.open_run_action_result_workspace(
+            physical_prepared,
+            substituted_capture_parent,
+        )
+    assert opened_roots == []
+    substituted_workspace = _remint_contract(
+        physical_prepared.workspace_proof,
+        inode=max(
+            (
+                physical_prepared.runtime_volume_evidence.root_inode,
+                physical_prepared.runtime_volume_evidence.sentinel_evidence.inode,
+                physical_prepared.input_delivery_slot.inode,
+                physical_prepared.result_directory.inode,
+                physical_prepared.temporary_directory.inode,
+                physical_prepared.result_file.inode,
+                physical_prepared.workspace_proof.inode,
+            )
+        )
+        + 1,
     )
-    substituted_capture = _remint_contract(
-        exact_capture,
-        reobserved_volume_evidence=substituted_volume,
-        prepared_sentinel_evidence_id=(
-            substituted_sentinel.runtime_volume_sentinel_evidence_id
-        ),
+    substituted_layout = _remint_contract(
+        physical_prepared.layout_proof,
+        prepared_workspace_proof_id=(substituted_workspace.prepared_workspace_proof_id),
     )
+    substituted_prepared = _remint_contract(
+        physical_prepared,
+        workspace_proof=substituted_workspace,
+        layout_proof=substituted_layout,
+    )
+    with pytest.raises(
+        RunActionRuntimeVolumeError,
+        match="workspace differs from prepared proof",
+    ):
+        volume_module.open_run_action_result_workspace(
+            substituted_prepared,
+            physical_capture,
+        )
+    with pytest.raises(OSError):
+        os.fstat(opened_roots[-1])
+    retained_sentinel_path = root_path / ".kapso-generation.retained"
+    os.link(sentinel_path, retained_sentinel_path)
+    sentinel_path.unlink()
+    sentinel_path.write_bytes(sentinel_payload)
+    sentinel_path.chmod(0o400)
     with pytest.raises(
         RunActionRuntimeVolumeError,
         match="sentinel was substituted",
     ):
         volume_module.open_run_action_result_workspace(
-            prepared,
-            substituted_capture,
+            physical_prepared,
+            physical_capture,
         )
     with pytest.raises(OSError):
         os.fstat(opened_roots[-1])
+    sentinel_path.unlink()
+    os.link(retained_sentinel_path, sentinel_path)
+    retained_sentinel_path.unlink()
 
     original_require_current = (
         volume_module.RunActionResultWorkspaceLease.require_current
@@ -427,8 +592,8 @@ def test_open_result_workspace_joins_live_sentinel_and_retains_its_path(
     )
     with pytest.raises(RuntimeError, match="lease construction race"):
         volume_module.open_run_action_result_workspace(
-            prepared,
-            exact_capture,
+            physical_prepared,
+            physical_capture,
         )
     with pytest.raises(OSError):
         os.fstat(opened_roots[-1])
@@ -439,8 +604,8 @@ def test_open_result_workspace_joins_live_sentinel_and_retains_its_path(
     )
 
     lease = volume_module.open_run_action_result_workspace(
-        prepared,
-        exact_capture,
+        physical_prepared,
+        physical_capture,
     )
     sentinel_path.unlink()
     sentinel_path.write_bytes(sentinel_payload)
