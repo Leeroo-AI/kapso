@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import stat
 from contextlib import ExitStack
 from dataclasses import dataclass
@@ -14,7 +15,6 @@ from weakref import WeakKeyDictionary, WeakValueDictionary
 
 from kapso.cross_run.canonical import (
     require_content_id,
-    require_identifier,
     tree_or_blob_digest,
 )
 from kapso.cross_run.launch.checkpoint_contracts import RunCheckpointStatus
@@ -70,7 +70,7 @@ _RUN_ACTION_RECOVERY_COORDINATOR_AUTHORITY = object()
 _RUN_ACTION_RECOVERY_IMPLEMENTATION_REGISTRY_AUTHORITY = object()
 _RUN_ACTION_PREPARATION_AUTHORITY = object()
 _RUN_ACTION_ACTIVATION_AUTHORITY = object()
-_RUN_ACTION_COMMITTED_ACTIVATION_AUTHORITY = object()
+_RUN_ACTION_COMMITTED_CONTINUATION_AUTHORITY = object()
 _ISSUED_RECOVERY_COORDINATORS: WeakValueDictionary[int, object] = WeakValueDictionary()
 _ISSUED_RECOVERY_IMPLEMENTATION_REGISTRIES: WeakValueDictionary[int, object] = (
     WeakValueDictionary()
@@ -84,14 +84,14 @@ _ISSUED_PREPARATION_CAPABILITIES: WeakValueDictionary[int, object] = (
 _ISSUED_ACTIVATION_CAPABILITIES: WeakValueDictionary[int, object] = (
     WeakValueDictionary()
 )
-_ISSUED_COMMITTED_ACTIVATION_CAPABILITIES: WeakValueDictionary[int, object] = (
+_ISSUED_COMMITTED_CONTINUATION_CAPABILITIES: WeakValueDictionary[int, object] = (
     WeakValueDictionary()
 )
 _RECOVERY_COORDINATOR_LOCK = Lock()
 _RECOVERY_IMPLEMENTATION_REGISTRY_LOCK = Lock()
 _PREPARATION_CAPABILITY_LOCK = Lock()
 _ACTIVATION_CAPABILITY_LOCK = Lock()
-_COMMITTED_ACTIVATION_CAPABILITY_LOCK = Lock()
+_COMMITTED_CONTINUATION_CAPABILITY_LOCK = Lock()
 _TERMINAL_KINDS = {
     RunActionExecutionEventKind.RESULT_ACCEPTED,
     RunActionExecutionEventKind.CANCELLED,
@@ -102,12 +102,12 @@ _EXECUTION_ADAPTER_METHOD_NAMES = (
     "activation_event_size_bound",
     "prepare",
     "stage_activation",
-    "activate_committed_once",
     "inspect_unactivated",
     "inspect_committed",
-    "reattach",
+    "continue_committed_once",
 )
 _RESULT_INTERPRETER_METHOD_NAMES = ("interpret",)
+_SHA256_DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
 class RunActionRecoveryError(RuntimeError):
@@ -238,10 +238,10 @@ class RunActionUnactivatedSpawnObservation:
 class RunActionCommittedSpawnState(str, Enum):
     """Provider facts admitted after activation was durably selected."""
 
-    INERT_ACTIVATABLE = "inert_activatable"
-    RESULT_AVAILABLE = "result_available"
-    RUNNING_REATTACHABLE = "running_reattachable"
-    PROVEN_QUIESCENT_WITHOUT_RESULT = "proven_quiescent_without_result"
+    INERT_CONTINUABLE = "inert_continuable"
+    RUNNING_CONTINUABLE = "running_continuable"
+    TERMINAL_CONTINUABLE = "terminal_continuable"
+    QUIESCENT_RECHECKABLE = "quiescent_recheckable"
     UNKNOWN = "unknown"
 
 
@@ -292,40 +292,61 @@ class RunActionInterpretedResult:
 
 @dataclass(frozen=True)
 class RunActionCommittedSpawnObservation:
-    """Read-only provider observation that cannot authorize a fresh spawn."""
+    """Read-only provider state whose token can seal one exact continuation."""
 
     state: RunActionCommittedSpawnState
-    result: RunActionProviderResult | None
-    reattach_token: str | None
+    observation_token: str | None
 
     def __post_init__(self) -> None:
         if type(self.state) is not RunActionCommittedSpawnState:
             raise RunActionRecoveryError(
                 "committed-spawn observation uses an unknown state"
             )
-        expected_shape = {
-            RunActionCommittedSpawnState.INERT_ACTIVATABLE: (False, False),
-            RunActionCommittedSpawnState.RESULT_AVAILABLE: (True, False),
-            RunActionCommittedSpawnState.RUNNING_REATTACHABLE: (False, True),
-            RunActionCommittedSpawnState.PROVEN_QUIESCENT_WITHOUT_RESULT: (
-                False,
-                False,
-            ),
-            RunActionCommittedSpawnState.UNKNOWN: (False, False),
-        }[self.state]
-        if (
-            self.result is not None,
-            self.reattach_token is not None,
-        ) != expected_shape or (
-            self.result is not None and type(self.result) is not RunActionProviderResult
-        ):
+        continuable = self.state in {
+            RunActionCommittedSpawnState.INERT_CONTINUABLE,
+            RunActionCommittedSpawnState.RUNNING_CONTINUABLE,
+            RunActionCommittedSpawnState.TERMINAL_CONTINUABLE,
+            RunActionCommittedSpawnState.QUIESCENT_RECHECKABLE,
+        }
+        if continuable != (self.observation_token is not None):
             raise RunActionRecoveryError(
                 "committed-spawn observation payload differs from its state"
             )
-        if self.reattach_token is not None:
-            require_identifier(
-                self.reattach_token,
-                "run action reattach token",
+        if self.observation_token is not None:
+            if (
+                type(self.observation_token) is not str
+                or _SHA256_DIGEST_PATTERN.fullmatch(self.observation_token) is None
+            ):
+                raise RunActionRecoveryError(
+                    "run action committed observation token is invalid"
+                )
+
+
+class RunActionContinuationState(str, Enum):
+    """Outcome of consuming one exact committed-observation capability."""
+
+    PENDING = "pending"
+    RESULT_CAPTURED = "result_captured"
+    PROVEN_QUIESCENT_WITHOUT_RESULT = "proven_quiescent_without_result"
+
+
+@dataclass(frozen=True)
+class RunActionContinuationOutcome:
+    """Typed continuation outcome; pending work carries no provider bytes."""
+
+    state: RunActionContinuationState
+    result: RunActionProviderResult | None
+
+    def __post_init__(self) -> None:
+        if type(self.state) is not RunActionContinuationState or (
+            self.state is RunActionContinuationState.RESULT_CAPTURED
+        ) != (self.result is not None):
+            raise RunActionRecoveryError(
+                "run action continuation outcome differs from its state"
+            )
+        if self.result is not None and type(self.result) is not RunActionProviderResult:
+            raise RunActionRecoveryError(
+                "run action continuation outcome carries an invalid result"
             )
 
 
@@ -634,16 +655,21 @@ class _RunActionActivationInvocation:
         return False
 
 
-class RunActionCommittedActivationCapability:
-    """Single-use authority to revalidate and start the durable event-5 choice."""
+class RunActionCommittedContinuationCapability:
+    """Single-use authority for one exact observed event-5 continuation."""
 
     def __init__(
         self,
         *,
-        activation_event: RunActionExecutionEvent,
-        workspace_descriptor: int | None,
+        query: "RunActionCommittedSpawnQuery",
+        observation: RunActionCommittedSpawnObservation,
         _authority: object,
     ) -> None:
+        if type(query) is not RunActionCommittedSpawnQuery:
+            raise RunActionRecoveryError(
+                "committed continuation capability lacks its exact query"
+            )
+        activation_event = query.activation_event
         if (
             type(activation_event) is not RunActionExecutionEvent
             or activation_event.event_number != 5
@@ -659,40 +685,43 @@ class RunActionCommittedActivationCapability:
         reservation = activation.prepared_execution.preparation_claim.reservation
         if (
             activation_event.reservation != reservation
-            or (reservation.intent.workspace_access is RunFrontierWorkspaceAccess.NONE)
-            != (workspace_descriptor is None)
-            or (
-                workspace_descriptor is not None
-                and (type(workspace_descriptor) is not int or workspace_descriptor < 0)
-            )
-            or _authority is not _RUN_ACTION_COMMITTED_ACTIVATION_AUTHORITY
+            or type(observation) is not RunActionCommittedSpawnObservation
+            or observation.state
+            not in {
+                RunActionCommittedSpawnState.INERT_CONTINUABLE,
+                RunActionCommittedSpawnState.RUNNING_CONTINUABLE,
+                RunActionCommittedSpawnState.TERMINAL_CONTINUABLE,
+                RunActionCommittedSpawnState.QUIESCENT_RECHECKABLE,
+            }
+            or _authority is not _RUN_ACTION_COMMITTED_CONTINUATION_AUTHORITY
         ):
             raise RunActionRecoveryError(
-                "committed activation capability lacks exact authority"
+                "committed continuation capability lacks exact authority"
             )
-        self._activation_event = activation_event
-        self._workspace_descriptor = (
-            None if workspace_descriptor is None else os.dup(workspace_descriptor)
-        )
-        if self._workspace_descriptor is not None:
-            os.set_inheritable(self._workspace_descriptor, False)
+        self._query = query
+        self._observation = observation
         self._owner_process_id = os.getpid()
         self._invoking_thread_id = None
         self._state = "ready"
-        with _COMMITTED_ACTIVATION_CAPABILITY_LOCK:
-            _ISSUED_COMMITTED_ACTIVATION_CAPABILITIES[id(self)] = self
+        with _COMMITTED_CONTINUATION_CAPABILITY_LOCK:
+            _ISSUED_COMMITTED_CONTINUATION_CAPABILITIES[id(self)] = self
 
     @property
     def activation_event(self) -> RunActionExecutionEvent:
         self._require_active_invocation()
-        return self._activation_event
+        return self._query.activation_event
+
+    @property
+    def query(self) -> "RunActionCommittedSpawnQuery":
+        self._require_active_invocation()
+        return self._query
 
     @property
     def activation_revalidation_receipt(
         self,
     ) -> RunActionActivationRevalidationReceipt:
         self._require_active_invocation()
-        return self._activation_event.activation_revalidation_receipt
+        return self._query.activation_revalidation_receipt
 
     @property
     def prepared_execution(self) -> RunActionPreparedExecution:
@@ -703,35 +732,35 @@ class RunActionCommittedActivationCapability:
         return self.activation_revalidation_receipt.spawn_commit
 
     @property
-    def workspace_descriptor(self) -> int | None:
+    def observation(self) -> RunActionCommittedSpawnObservation:
         self._require_active_invocation()
-        return self._workspace_descriptor
+        return self._observation
 
     def _invoke_once(
         self,
         execution_adapter: "RunActionExecutionAdapter",
-    ) -> RunActionProviderResult:
+    ) -> RunActionContinuationOutcome:
         with self._begin_invocation():
-            return execution_adapter.activate_committed_once(self)
+            return execution_adapter.continue_committed_once(self)
 
-    def _begin_invocation(self) -> "_RunActionCommittedActivationInvocation":
-        with _COMMITTED_ACTIVATION_CAPABILITY_LOCK:
-            issued = _ISSUED_COMMITTED_ACTIVATION_CAPABILITIES.get(id(self))
+    def _begin_invocation(self) -> "_RunActionCommittedContinuationInvocation":
+        with _COMMITTED_CONTINUATION_CAPABILITY_LOCK:
+            issued = _ISSUED_COMMITTED_CONTINUATION_CAPABILITIES.get(id(self))
             if (
                 issued is not self
                 or self._owner_process_id != os.getpid()
                 or self._state != "ready"
             ):
                 raise RunActionRecoveryError(
-                    "committed activation capability is spent, cloned, or foreign"
+                    "committed continuation capability is spent, cloned, or foreign"
                 )
             self._state = "invoking"
             self._invoking_thread_id = get_ident()
-        return _RunActionCommittedActivationInvocation(self)
+        return _RunActionCommittedContinuationInvocation(self)
 
     def _require_active_invocation(self) -> None:
-        with _COMMITTED_ACTIVATION_CAPABILITY_LOCK:
-            issued = _ISSUED_COMMITTED_ACTIVATION_CAPABILITIES.get(id(self))
+        with _COMMITTED_CONTINUATION_CAPABILITY_LOCK:
+            issued = _ISSUED_COMMITTED_CONTINUATION_CAPABILITIES.get(id(self))
             if (
                 issued is not self
                 or self._owner_process_id != os.getpid()
@@ -739,12 +768,12 @@ class RunActionCommittedActivationCapability:
                 or self._invoking_thread_id != get_ident()
             ):
                 raise RunActionRecoveryError(
-                    "committed activation capability is not in its one invocation"
+                    "committed continuation capability is not in its one invocation"
                 )
 
     def _finish_invocation(self) -> None:
-        with _COMMITTED_ACTIVATION_CAPABILITY_LOCK:
-            issued = _ISSUED_COMMITTED_ACTIVATION_CAPABILITIES.get(id(self))
+        with _COMMITTED_CONTINUATION_CAPABILITY_LOCK:
+            issued = _ISSUED_COMMITTED_CONTINUATION_CAPABILITIES.get(id(self))
             if (
                 issued is not self
                 or self._owner_process_id != os.getpid()
@@ -752,23 +781,20 @@ class RunActionCommittedActivationCapability:
                 or self._invoking_thread_id != get_ident()
             ):
                 raise RunActionRecoveryError(
-                    "committed activation capability invocation changed"
+                    "committed continuation capability invocation changed"
                 )
             self._state = "spent"
             self._invoking_thread_id = None
-            _ISSUED_COMMITTED_ACTIVATION_CAPABILITIES.pop(id(self))
-        if self._workspace_descriptor is not None:
-            os.close(self._workspace_descriptor)
-            self._workspace_descriptor = None
+            _ISSUED_COMMITTED_CONTINUATION_CAPABILITIES.pop(id(self))
 
 
-class _RunActionCommittedActivationInvocation:
-    """Burn one committed activation capability on every callback exit."""
+class _RunActionCommittedContinuationInvocation:
+    """Burn one committed continuation capability on every callback exit."""
 
-    def __init__(self, capability: RunActionCommittedActivationCapability) -> None:
+    def __init__(self, capability: RunActionCommittedContinuationCapability) -> None:
         self._capability = capability
 
-    def __enter__(self) -> RunActionCommittedActivationCapability:
+    def __enter__(self) -> RunActionCommittedContinuationCapability:
         return self._capability
 
     def __exit__(self, exception_type, exception, traceback) -> bool:
@@ -814,18 +840,33 @@ class RunActionUnactivatedSpawnQuery:
 class RunActionCommittedSpawnQuery:
     """Read-only identity for one durably selected activation occurrence."""
 
-    prepared_execution: RunActionPreparedExecution
-    spawn_commit: RunActionSpawnCommit
-    activation_revalidation_receipt: RunActionActivationRevalidationReceipt
+    preparation_allocation: RunActionPreparationAllocation
+    activation_event: RunActionExecutionEvent
 
     def __post_init__(self) -> None:
+        if (
+            type(self.preparation_allocation) is not RunActionPreparationAllocation
+            or type(self.activation_event) is not RunActionExecutionEvent
+            or self.activation_event.event_number != 5
+            or self.activation_event.event_kind
+            is not RunActionExecutionEventKind.ACTIVATION_COMMITTED
+            or type(self.activation_event.activation_revalidation_receipt)
+            is not RunActionActivationRevalidationReceipt
+        ):
+            raise RunActionRecoveryError(
+                "committed run action query lacks its durable activation"
+            )
         unactivated = RunActionUnactivatedSpawnQuery(
             prepared_execution=self.prepared_execution,
             spawn_commit=self.spawn_commit,
         )
         if (
-            type(self.activation_revalidation_receipt)
-            is not RunActionActivationRevalidationReceipt
+            self.activation_event.reservation
+            != self.preparation_allocation.preparation_claim.reservation
+            or self.prepared_execution.preparation_claim
+            != self.preparation_allocation.preparation_claim
+            or self.prepared_execution.runtime_volume_authority
+            != self.preparation_allocation.runtime_volume_authority
             or self.activation_revalidation_receipt.prepared_execution
             != unactivated.prepared_execution
             or self.activation_revalidation_receipt.spawn_commit
@@ -836,8 +877,22 @@ class RunActionCommittedSpawnQuery:
             )
 
     @property
+    def prepared_execution(self) -> RunActionPreparedExecution:
+        return self.activation_revalidation_receipt.prepared_execution
+
+    @property
+    def spawn_commit(self) -> RunActionSpawnCommit:
+        return self.activation_revalidation_receipt.spawn_commit
+
+    @property
+    def activation_revalidation_receipt(
+        self,
+    ) -> RunActionActivationRevalidationReceipt:
+        return self.activation_event.activation_revalidation_receipt
+
+    @property
     def reservation(self) -> RunActionReservation:
-        return self.prepared_execution.preparation_claim.reservation
+        return self.preparation_allocation.preparation_claim.reservation
 
 
 class RunActionExecutionAdapter(Protocol):
@@ -871,11 +926,6 @@ class RunActionExecutionAdapter(Protocol):
         capability: RunActionActivationCapability,
     ) -> RunActionActivationRevalidationReceipt: ...
 
-    def activate_committed_once(
-        self,
-        capability: RunActionCommittedActivationCapability,
-    ) -> RunActionProviderResult: ...
-
     def inspect_unactivated(
         self,
         query: RunActionUnactivatedSpawnQuery,
@@ -886,11 +936,10 @@ class RunActionExecutionAdapter(Protocol):
         query: RunActionCommittedSpawnQuery,
     ) -> RunActionCommittedSpawnObservation: ...
 
-    def reattach(
+    def continue_committed_once(
         self,
-        query: RunActionCommittedSpawnQuery,
-        observation: RunActionCommittedSpawnObservation,
-    ) -> RunActionProviderResult | None: ...
+        capability: RunActionCommittedContinuationCapability,
+    ) -> RunActionContinuationOutcome: ...
 
 
 class RunActionResultInterpreter(Protocol):
@@ -1544,56 +1593,12 @@ class RunActionRecoveryCoordinator:
                 self._implementation_registry,
                 reservation,
             )
-            prepared_execution = events[2].prepared_execution
-            spawn_commit = events[3].spawn_commit
-            activation = events[4].activation_revalidation_receipt
-            query = RunActionCommittedSpawnQuery(
-                prepared_execution=prepared_execution,
-                spawn_commit=spawn_commit,
-                activation_revalidation_receipt=activation,
+            self._recover_committed(
+                session,
+                execution_adapter,
+                frontier,
+                descriptors,
             )
-            observation = execution_adapter.inspect_committed(query)
-            if type(observation) is not RunActionCommittedSpawnObservation:
-                raise RunActionRecoveryError(
-                    "execution adapter returned an invalid committed-spawn observation"
-                )
-            if observation.state is RunActionCommittedSpawnState.INERT_ACTIVATABLE:
-                self._activate_committed(
-                    session,
-                    execution_adapter,
-                    frontier,
-                    descriptors,
-                )
-            elif observation.state is RunActionCommittedSpawnState.RESULT_AVAILABLE:
-                self._record_and_interpret(
-                    session,
-                    observation.result,
-                    descriptors,
-                )
-            elif (
-                observation.state is RunActionCommittedSpawnState.RUNNING_REATTACHABLE
-                and self._security_is_current(frontier)
-            ):
-                result = execution_adapter.reattach(query, observation)
-                if result is not None:
-                    self._record_and_interpret(
-                        session,
-                        result,
-                        descriptors,
-                    )
-            elif (
-                observation.state
-                is RunActionCommittedSpawnState.PROVEN_QUIESCENT_WITHOUT_RESULT
-            ):
-                _descriptor, workspace = self._inspect_workspace(
-                    reservation,
-                    descriptors,
-                    allow_edit_successor=True,
-                )
-                session.interrupt(
-                    reason=RunActionTerminalReason.PROVIDER_INTERRUPTED,
-                    workspace_after=workspace,
-                )
             return
         if tail_kind is RunActionExecutionEventKind.RESULT_RECEIVED:
             self._interpret_received(
@@ -1667,14 +1672,14 @@ class RunActionRecoveryCoordinator:
         ) != expected_workspace or not self._security_is_current(frontier):
             return None
         session.commit_activation(activation)
-        return self._activate_committed(
+        return self._recover_committed(
             session,
             execution_adapter,
             frontier,
             descriptors,
         )
 
-    def _activate_committed(
+    def _recover_committed(
         self,
         session,
         execution_adapter: RunActionExecutionAdapter,
@@ -1687,31 +1692,113 @@ class RunActionRecoveryCoordinator:
             is not RunActionExecutionEventKind.ACTIVATION_COMMITTED
         ):
             raise RunActionRecoveryError(
-                "provider start requires the durable activation tail"
+                "provider continuation requires the durable activation tail"
             )
-        workspace_descriptor, observed_workspace = self._inspect_workspace(
+        query = RunActionCommittedSpawnQuery(
+            preparation_allocation=session.events[1].preparation_allocation,
+            activation_event=activation_event,
+        )
+        observation = execution_adapter.inspect_committed(query)
+        if type(observation) is not RunActionCommittedSpawnObservation:
+            raise RunActionRecoveryError(
+                "execution adapter returned an invalid committed-spawn observation"
+            )
+        if observation.state is RunActionCommittedSpawnState.UNKNOWN:
+            return None
+        self._require_unchanged_host_workspace(
             session.reservation,
+            descriptors,
+            "host workspace changed before committed provider continuation",
+        )
+        if observation.state in {
+            RunActionCommittedSpawnState.INERT_CONTINUABLE,
+            RunActionCommittedSpawnState.RUNNING_CONTINUABLE,
+        } and not self._security_is_current(frontier):
+            return None
+        capability = RunActionCommittedContinuationCapability(
+            query=query,
+            observation=observation,
+            _authority=_RUN_ACTION_COMMITTED_CONTINUATION_AUTHORITY,
+        )
+        outcome = capability._invoke_once(execution_adapter)
+        if type(
+            outcome
+        ) is not RunActionContinuationOutcome or not self._continuation_outcome_allowed(
+            observation, outcome
+        ):
+            raise RunActionRecoveryError(
+                "execution adapter returned an invalid committed continuation"
+            )
+        terminal_workspace = self._require_unchanged_host_workspace(
+            session.reservation,
+            descriptors,
+            "host workspace changed during committed provider continuation",
+        )
+        if outcome.state is RunActionContinuationState.PENDING:
+            return None
+        if outcome.state is RunActionContinuationState.RESULT_CAPTURED:
+            return self._record_and_interpret(
+                session,
+                outcome.result,
+                descriptors,
+            )
+        session.interrupt(
+            reason=RunActionTerminalReason.PROVIDER_INTERRUPTED,
+            workspace_after=terminal_workspace,
+        )
+        return None
+
+    @staticmethod
+    def _continuation_outcome_allowed(
+        observation: RunActionCommittedSpawnObservation,
+        outcome: RunActionContinuationOutcome,
+    ) -> bool:
+        if (
+            type(observation) is not RunActionCommittedSpawnObservation
+            or type(outcome) is not RunActionContinuationOutcome
+        ):
+            return False
+        admitted = {
+            RunActionCommittedSpawnState.INERT_CONTINUABLE: {
+                RunActionContinuationState.PENDING,
+                RunActionContinuationState.RESULT_CAPTURED,
+                RunActionContinuationState.PROVEN_QUIESCENT_WITHOUT_RESULT,
+            },
+            RunActionCommittedSpawnState.RUNNING_CONTINUABLE: {
+                RunActionContinuationState.PENDING,
+                RunActionContinuationState.RESULT_CAPTURED,
+                RunActionContinuationState.PROVEN_QUIESCENT_WITHOUT_RESULT,
+            },
+            RunActionCommittedSpawnState.TERMINAL_CONTINUABLE: {
+                RunActionContinuationState.RESULT_CAPTURED,
+            },
+            RunActionCommittedSpawnState.QUIESCENT_RECHECKABLE: {
+                RunActionContinuationState.RESULT_CAPTURED,
+                RunActionContinuationState.PROVEN_QUIESCENT_WITHOUT_RESULT,
+            },
+            RunActionCommittedSpawnState.UNKNOWN: set(),
+        }
+        return outcome.state in admitted[observation.state]
+
+    def _require_unchanged_host_workspace(
+        self,
+        reservation: RunActionReservation,
+        descriptors: ExitStack,
+        message: str,
+    ) -> RunWorkspaceFrontierIdentity | None:
+        _workspace_descriptor, observed_workspace = self._inspect_workspace(
+            reservation,
             descriptors,
             allow_edit_successor=False,
         )
-        expected_workspace = session.reservation.frontier.workspace_before
+        expected_workspace = reservation.frontier.workspace_before
         if (
             None
             if observed_workspace is None
             else RunActionWorkspaceBinding.from_identity(observed_workspace)
-        ) != expected_workspace or not self._security_is_current(frontier):
-            return None
-        capability = RunActionCommittedActivationCapability(
-            activation_event=activation_event,
-            workspace_descriptor=workspace_descriptor,
-            _authority=_RUN_ACTION_COMMITTED_ACTIVATION_AUTHORITY,
-        )
-        result = capability._invoke_once(execution_adapter)
-        return self._record_and_interpret(
-            session,
-            result,
-            descriptors,
-        )
+        ) != expected_workspace:
+            raise RunActionRecoveryError(message)
+        return observed_workspace
 
     def _record_and_interpret(
         self,
@@ -2061,10 +2148,12 @@ class RunActionRecoveryCoordinator:
 
 __all__ = [
     "RunActionActivationCapability",
-    "RunActionCommittedActivationCapability",
+    "RunActionCommittedContinuationCapability",
     "RunActionCommittedSpawnObservation",
     "RunActionCommittedSpawnQuery",
     "RunActionCommittedSpawnState",
+    "RunActionContinuationOutcome",
+    "RunActionContinuationState",
     "RunActionUnactivatedSpawnObservation",
     "RunActionUnactivatedSpawnQuery",
     "RunActionUnactivatedSpawnState",

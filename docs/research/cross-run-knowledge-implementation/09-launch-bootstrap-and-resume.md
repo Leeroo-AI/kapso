@@ -473,11 +473,13 @@ checkpoint safety boundary. Only after that commit does a separate single-use
 staging capability expose the complete request and a capability-owned duplicate
 workspace descriptor for delivery plus inert revalidation. The adapter declares
 the activation-event envelope twice before delivery; the returned receipt must
-fit it. The coordinator then rechecks workspace and security, durably selects
-that exact receipt as event 5, and rechecks both again. Only a distinct
-process-bound committed-activation capability may then freshly revalidate the
-event-5 receipt byte-for-byte and start once. Both capabilities burn on success
-or exception and close their descriptors.
+fit it. The coordinator then rechecks workspace and security and durably selects
+that exact receipt as event 5. Read-only inspection follows every fresh or
+recovered event-5 selection. Only a distinct process-bound continuation
+capability bound to that inspection may start, wait, capture, or reprove
+quiescence. The staging capability burns on every exit and closes its owned
+workspace descriptor; the descriptor-free continuation capability also burns on
+every exit.
 Request bytes are unreadable from the action session before spawn.
 Preparation returns one typed state: exact prepared with an origin compatible
 with its create/reopen/revalidation mode, positively lost, or unknown.
@@ -491,12 +493,21 @@ or prepared event without changing the normal seven-event success chain.
 
 An event-4 query admits only exact inert or unknown state; running or exited state
 cannot be adopted without durable activation. Exact inert state may restage and
-select event 5. An event-5 query carries its full durable receipt:
-`RESULT_AVAILABLE` records exact bytes, `RUNNING_REATTACHABLE` may reattach only
-under unchanged security, and exact `INERT_ACTIVATABLE` state may freshly
-revalidate the same receipt and start once. Proven quiescence interrupts, and
-`UNKNOWN` remains unresolved. Recovery never routes committed work through claim
-or preparation and never replaces the event-5 selection.
+select event 5. Every event-5 path now uses the same token-sealed continuation
+protocol. Read-only inspection returns only `INERT_CONTINUABLE`,
+`RUNNING_CONTINUABLE`, `TERMINAL_CONTINUABLE`, `QUIESCENT_RECHECKABLE`, or
+`UNKNOWN`, plus one exact observation digest for states that may continue. It
+cannot return result bytes or terminalize an operation. A distinct
+same-process/same-thread single-use capability binds the complete event-2
+allocation, event-5 activation event, and exact observation object. Its sole
+`continue_committed_once` call must revalidate that observation before it may
+start, wait, capture, or positively reprove quiescence. Pending work leaves event
+5 unchanged; a captured result is checked against the complete activation
+evidence before event 6; only a sealed positive quiescence outcome may interrupt.
+`UNKNOWN` receives no capability. Immediate post-event-5 execution and restart
+therefore share one path, and a failed continuation is retried only after a new
+inspection. Recovery never routes committed work through allocation or
+preparation and never replaces the event-5 selection.
 
 ### Durable Docker supervisor boundary
 
@@ -512,7 +523,7 @@ PreparedExecution
         ↓
 SpawnCommit → staging capability → ActivationCommitted
                                         ↓
-                         committed-start capability
+                  inspection token → continuation capability
                                         ↓
              TerminalObservation
                       ↓
@@ -692,9 +703,9 @@ embeds both receipts before the existing atomic blob-to-event publication and
 revalidates their complete prepared/spawn/container/volume/sentinel/file graph;
 durable recovery therefore replays the captured bytes without contacting the
 provider or discarding terminal provenance. Concrete terminal Docker inspection,
-descriptor-bound result capture, a Docker implementation of the staged/event-5/
-committed-start protocol, positive cleanup authority, and production adapters
-remain the next slices. Until that composition lands, the direct gate mutation
+descriptor-bound result capture, a Docker implementation of the token-sealed
+continuation protocol, positive cleanup authority, and production adapters remain
+the next slices. Until that composition lands, the direct gate mutation
 methods are a dormant store-contract surface: no production caller may receive
 Docker start authority from them. M9 activation must route execution only through
 the coordinator's sealed capabilities and delete or privatize that direct surface.
@@ -703,7 +714,8 @@ The coordinator owns one process-bound, non-clonable implementation catalog fixe
 at composition; `recover()` accepts no caller-selected implementation. Each
 catalog entry exact-object binds one execution adapter and one result interpreter
 to the two identities in its durable boundary. Execution adapters own only
-prepare/start/inspect/reattach. Result interpreters receive only the complete
+prepare, stage, read-only inspection, and token-sealed continuation. Result
+interpreters receive only the complete
 request and raw-result bytes: no workspace binding, descriptor, provider object,
 or execution method. A `RESULT_RECEIVED` tail resolves and invokes only the
 interpreter. Interpretation is repeated to detect nondeterminism, while the
