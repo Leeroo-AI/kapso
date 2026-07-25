@@ -75,6 +75,7 @@ _PREPARED_DIRECTORY_MODE = 0o700
 _PREPARED_FILE_MODE = 0o600
 _SENTINEL_MODE = 0o400
 _RESULT_WORKSPACE_LEASE_AUTHORITY = object()
+_BARRIER_CONTROL_LEASE_AUTHORITY = object()
 _SIZE_MULTIPLIERS = {
     "": 1,
     "k": 1024,
@@ -86,6 +87,99 @@ _SIZE_MULTIPLIERS = {
 
 class RunActionRuntimeVolumeError(RuntimeError):
     """The mounted runtime volume differs from its issued tmpfs authority."""
+
+
+class RunActionBarrierControlLease:
+    """Process-bound lease for the exact empty pre-release control directory."""
+
+    def __init__(
+        self,
+        *,
+        descriptors: ExitStack,
+        mounted_volume: "_MountedRuntimeVolumeLease",
+        prepared: RunActionPreparedExecution,
+        sentinel_observation: "_ExactRegularFileObservation",
+        control_descriptor: int,
+        control_metadata_identity: tuple[int, ...],
+        _authority: object,
+    ) -> None:
+        if (
+            type(descriptors) is not ExitStack
+            or type(mounted_volume) is not _MountedRuntimeVolumeLease
+            or type(prepared) is not RunActionPreparedExecution
+            or type(sentinel_observation) is not _ExactRegularFileObservation
+            or type(control_descriptor) is not int
+            or control_descriptor < 0
+            or type(control_metadata_identity) is not tuple
+            or control_metadata_identity
+            != _stable_metadata(os.fstat(control_descriptor))
+            or _authority is not _BARRIER_CONTROL_LEASE_AUTHORITY
+        ):
+            raise RunActionRuntimeVolumeError(
+                "barrier control lease lacks exact physical authority"
+            )
+        self._descriptors = descriptors
+        self._mounted_volume = mounted_volume
+        self._prepared = prepared
+        self._sentinel_observation = sentinel_observation
+        self._control_descriptor = control_descriptor
+        self._control_metadata_identity = control_metadata_identity
+        self._owner_process_id = os.getpid()
+        self._closed = False
+        self.require_release_absent()
+
+    @property
+    def control_descriptor(self) -> int:
+        self.require_release_absent()
+        return self._control_descriptor
+
+    @property
+    def prepared_execution(self) -> RunActionPreparedExecution:
+        self.require_release_absent()
+        return self._prepared
+
+    def require_release_absent(self) -> None:
+        if self._owner_process_id != os.getpid() or self._closed:
+            raise RunActionRuntimeVolumeError(
+                "barrier control lease is closed or belongs to another process"
+            )
+        prepared_volume = self._prepared.runtime_volume_evidence
+        _require_same_mounted_runtime_volume(
+            self._mounted_volume,
+            self._prepared.volume_keeper_evidence,
+        )
+        _require_same_exact_regular_file(self._sentinel_observation)
+        control_metadata = os.fstat(self._control_descriptor)
+        if (
+            self._mounted_volume.root_mount_id != prepared_volume.root_mount_id
+            or self._mounted_volume.root_device != prepared_volume.root_device
+            or self._mounted_volume.root_inode != prepared_volume.root_inode
+            or _stable_metadata(control_metadata) != self._control_metadata_identity
+        ):
+            raise RunActionRuntimeVolumeError(
+                "barrier control lease changed physical generation"
+            )
+        _require_exact_activation_directory(
+            self._prepared.control_directory,
+            self._mounted_volume.root_descriptor,
+            self._control_descriptor,
+            expected_entries=(),
+        )
+
+    def __enter__(self) -> "RunActionBarrierControlLease":
+        self.require_release_absent()
+        return self
+
+    def __exit__(self, *_arguments: object) -> None:
+        self.close()
+
+    def close(self) -> None:
+        if self._owner_process_id != os.getpid() or self._closed:
+            raise RunActionRuntimeVolumeError(
+                "barrier control lease is already closed or foreign"
+            )
+        self._closed = True
+        self._descriptors.close()
 
 
 class RunActionResultWorkspaceLease:
@@ -839,6 +933,71 @@ def _require_same_mounted_runtime_volume(
         )
 
 
+def open_run_action_barrier_control(
+    prepared: RunActionPreparedExecution,
+) -> RunActionBarrierControlLease:
+    """Retain the exact empty control directory through pre-release proof."""
+
+    if type(prepared) is not RunActionPreparedExecution:
+        raise RunActionRuntimeVolumeError(
+            "barrier control lease requires exact prepared execution"
+        )
+    keeper = prepared.volume_keeper_evidence
+    prepared_volume = prepared.runtime_volume_evidence
+    authority = prepared.runtime_volume_authority
+    with ExitStack() as descriptors:
+        mounted_volume = _open_mounted_runtime_volume(descriptors, keeper)
+        if (
+            mounted_volume.root_mount_id != prepared_volume.root_mount_id
+            or mounted_volume.root_device != prepared_volume.root_device
+            or mounted_volume.root_inode != prepared_volume.root_inode
+        ):
+            raise RunActionRuntimeVolumeError(
+                "barrier control runtime volume was substituted"
+            )
+        sentinel_observation = _open_exact_regular_file(
+            descriptors,
+            mounted_volume.root_descriptor,
+            _SENTINEL_NAME,
+            expected_payload=authority.generation_nonce.encode("ascii"),
+            expected_mode=_SENTINEL_MODE,
+            authority=authority,
+            root_mount_id=mounted_volume.root_mount_id,
+            root_device=mounted_volume.root_device,
+        )
+        _require_exact_sentinel_observation(
+            sentinel_observation,
+            prepared_volume.sentinel_evidence,
+        )
+        control_descriptor = _open_activation_subpath_directory(
+            descriptors,
+            mounted_volume,
+            authority,
+            prepared.control_directory.directory_relative_path,
+            prepared.control_directory.mount_id,
+            prepared.control_directory.device,
+            prepared.control_directory.inode,
+        )
+        control_metadata_identity = _stable_metadata(os.fstat(control_descriptor))
+        _require_exact_activation_directory(
+            prepared.control_directory,
+            mounted_volume.root_descriptor,
+            control_descriptor,
+            expected_entries=(),
+        )
+        lease = RunActionBarrierControlLease(
+            descriptors=descriptors,
+            mounted_volume=mounted_volume,
+            prepared=prepared,
+            sentinel_observation=sentinel_observation,
+            control_descriptor=control_descriptor,
+            control_metadata_identity=control_metadata_identity,
+            _authority=_BARRIER_CONTROL_LEASE_AUTHORITY,
+        )
+        lease._descriptors = descriptors.pop_all()
+    return lease
+
+
 def open_run_action_result_workspace(
     prepared: RunActionPreparedExecution,
     result_capture_receipt: RunActionResultCaptureReceipt,
@@ -908,7 +1067,7 @@ def open_run_action_result_workspace(
             root_mount_id=mounted_volume.root_mount_id,
             root_device=mounted_volume.root_device,
         )
-        _require_result_sentinel_observation(
+        _require_exact_sentinel_observation(
             sentinel_observation,
             captured_volume.sentinel_evidence,
         )
@@ -961,7 +1120,7 @@ def _result_workspace_matches_prepared(
     )
 
 
-def _require_result_sentinel_observation(
+def _require_exact_sentinel_observation(
     observed: _ExactRegularFileObservation,
     expected: RunActionRuntimeVolumeSentinelEvidence,
 ) -> None:
@@ -969,9 +1128,7 @@ def _require_result_sentinel_observation(
         type(observed) is not _ExactRegularFileObservation
         or type(expected) is not RunActionRuntimeVolumeSentinelEvidence
     ):
-        raise RunActionRuntimeVolumeError(
-            "captured result workspace sentinel was substituted"
-        )
+        raise RunActionRuntimeVolumeError("runtime volume sentinel was substituted")
     metadata = observed.metadata
     if (
         expected.relative_path,
@@ -998,9 +1155,7 @@ def _require_result_sentinel_observation(
         metadata.st_dev,
         metadata.st_ino,
     ):
-        raise RunActionRuntimeVolumeError(
-            "captured result workspace sentinel was substituted"
-        )
+        raise RunActionRuntimeVolumeError("runtime volume sentinel was substituted")
 
 
 def _require_result_volume_occurrence(
@@ -1486,7 +1641,7 @@ def deliver_and_reobserve_runtime_volume_activation(
             root_mount_id=lease.root_mount_id,
             root_device=lease.root_device,
         )
-        _require_result_sentinel_observation(
+        _require_exact_sentinel_observation(
             sentinel_observation,
             prepared_volume.sentinel_evidence,
         )
@@ -3383,11 +3538,13 @@ __all__ = [
     "DockerRunActionActivatedVolumeObservation",
     "DockerRunActionEmptyVolumeObservation",
     "DockerRunActionPreparedVolumeObservation",
+    "RunActionBarrierControlLease",
     "RunActionResultWorkspaceLease",
     "RunActionRuntimeVolumeError",
     "deliver_and_reobserve_runtime_volume_activation",
     "materialize_runtime_volume_layout",
     "observe_empty_runtime_volume",
+    "open_run_action_barrier_control",
     "open_run_action_result_workspace",
     "reobserve_runtime_volume_layout",
 ]

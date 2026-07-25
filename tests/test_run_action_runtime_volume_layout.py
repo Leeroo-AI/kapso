@@ -60,6 +60,160 @@ _CANONICAL_CONFIG_PATH = "src/kapso/config.yaml"
 _GENERATION_NONCE = "9" * 32
 
 
+@pytest.mark.parametrize(
+    "mutation",
+    ("entry", "path", "sentinel"),
+)
+def test_barrier_control_lease_retains_exact_empty_generation(
+    layout_context,
+    tmp_path,
+    monkeypatch,
+    mutation,
+):
+    settings, _claim_without_workspace, _authority, _empty = layout_context
+    prepared, root_path, root_mount_id, root_metadata = _physical_barrier_control_case(
+        tmp_path, settings
+    )
+    opened_roots = []
+
+    def open_test_volume(descriptors, keeper):
+        root = os.open(
+            root_path,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+        )
+        opened_roots.append(root)
+        descriptors.callback(os.close, root)
+        return volume_module._MountedRuntimeVolumeLease(
+            process_descriptor=root,
+            root_descriptor=root,
+            keeper_container_id=keeper.container_id,
+            keeper_process_id=keeper.process_id,
+            process_start_time_ticks=keeper.process_start_time_ticks,
+            process_cgroup_path=keeper.mounted_helper_evidence.process_cgroup_path,
+            root_mount_id=root_mount_id,
+            root_device=root_metadata.st_dev,
+            root_inode=root_metadata.st_ino,
+        )
+
+    monkeypatch.setattr(
+        volume_module,
+        "_open_mounted_runtime_volume",
+        open_test_volume,
+    )
+    monkeypatch.setattr(
+        volume_module,
+        "_require_same_mounted_runtime_volume",
+        lambda _mounted, _keeper: None,
+    )
+    lease = volume_module.open_run_action_barrier_control(prepared)
+    control_descriptor = lease.control_descriptor
+    assert os.listdir(control_descriptor) == []
+
+    if mutation == "entry":
+        (root_path / "control" / "unexpected").write_bytes(b"not a release")
+    elif mutation == "path":
+        (root_path / "control").rename(root_path / "detached-control")
+        (root_path / "control").mkdir(mode=0o700)
+    else:
+        sentinel_path = root_path / ".kapso-generation"
+        sentinel_path.unlink()
+        sentinel_path.write_bytes(
+            prepared.runtime_volume_authority.generation_nonce.encode("ascii")
+        )
+        sentinel_path.chmod(0o400)
+
+    with pytest.raises(RunActionRuntimeVolumeError):
+        lease.require_release_absent()
+    lease.close()
+    with pytest.raises(RunActionRuntimeVolumeError, match="closed"):
+        lease.require_release_absent()
+    with pytest.raises(OSError):
+        os.fstat(control_descriptor)
+    with pytest.raises(OSError):
+        os.fstat(opened_roots[-1])
+
+
+def test_barrier_control_lease_rejects_substituted_prepared_inode(
+    layout_context,
+    tmp_path,
+    monkeypatch,
+):
+    settings, _claim_without_workspace, _authority, _empty = layout_context
+    prepared, root_path, root_mount_id, root_metadata = _physical_barrier_control_case(
+        tmp_path, settings
+    )
+    control = _remint_contract(
+        prepared.control_directory,
+        inode=max(
+            (
+                prepared.runtime_volume_evidence.root_inode,
+                prepared.runtime_volume_evidence.sentinel_evidence.inode,
+                prepared.input_delivery_slot.inode,
+                prepared.result_directory.inode,
+                prepared.temporary_directory.inode,
+                prepared.result_file.inode,
+            )
+        )
+        + 1,
+    )
+    layout = _remint_contract(
+        prepared.layout_proof,
+        prepared_runtime_directory_ids=tuple(
+            sorted(
+                (
+                    control.prepared_runtime_directory_id,
+                    prepared.result_directory.prepared_runtime_directory_id,
+                    prepared.temporary_directory.prepared_runtime_directory_id,
+                )
+            )
+        ),
+    )
+    substituted = _remint_contract(
+        prepared,
+        control_directory=control,
+        layout_proof=layout,
+    )
+    opened_roots = []
+
+    def open_test_volume(descriptors, keeper):
+        root = os.open(
+            root_path,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+        )
+        opened_roots.append(root)
+        descriptors.callback(os.close, root)
+        return volume_module._MountedRuntimeVolumeLease(
+            process_descriptor=root,
+            root_descriptor=root,
+            keeper_container_id=keeper.container_id,
+            keeper_process_id=keeper.process_id,
+            process_start_time_ticks=keeper.process_start_time_ticks,
+            process_cgroup_path=keeper.mounted_helper_evidence.process_cgroup_path,
+            root_mount_id=root_mount_id,
+            root_device=root_metadata.st_dev,
+            root_inode=root_metadata.st_ino,
+        )
+
+    monkeypatch.setattr(
+        volume_module,
+        "_open_mounted_runtime_volume",
+        open_test_volume,
+    )
+    monkeypatch.setattr(
+        volume_module,
+        "_require_same_mounted_runtime_volume",
+        lambda _mounted, _keeper: None,
+    )
+
+    with pytest.raises(
+        RunActionRuntimeVolumeError,
+        match="subpath is unsafe or substituted",
+    ):
+        volume_module.open_run_action_barrier_control(substituted)
+    with pytest.raises(OSError):
+        os.fstat(opened_roots[-1])
+
+
 def test_substituted_spawn_is_rejected_before_any_delivery_publication(
     tmp_path,
     monkeypatch,
@@ -214,7 +368,7 @@ def test_result_workspace_lease_retains_exact_event_6_sentinel(
         device=sentinel_metadata.st_dev,
         inode=sentinel_metadata.st_ino,
     )
-    volume_module._require_result_sentinel_observation(
+    volume_module._require_exact_sentinel_observation(
         sentinel_observation,
         sentinel_evidence,
     )
@@ -237,7 +391,7 @@ def test_result_workspace_lease_retains_exact_event_6_sentinel(
         RunActionRuntimeVolumeError,
         match="sentinel was substituted",
     ):
-        volume_module._require_result_sentinel_observation(
+        volume_module._require_exact_sentinel_observation(
             sentinel_observation,
             substituted_evidence,
         )
@@ -624,6 +778,114 @@ def test_open_result_workspace_joins_live_sentinel_and_retains_its_path(
     ):
         lease.require_current()
     lease.close()
+
+
+def _physical_barrier_control_case(tmp_path, settings):
+    policy = _policy(
+        settings.docker,
+        workspace_access=RunFrontierWorkspaceAccess.NONE,
+        credential_mode=RunActionCredentialMode.NONE,
+    )
+    prepared = _prepared_execution(claim=_claim(policy=policy))
+    authority = prepared.runtime_volume_authority
+    root_path = tmp_path / "barrier-control-volume"
+    root_path.mkdir(mode=0o700)
+    control_path = root_path / "control"
+    control_path.mkdir(mode=0o700)
+    sentinel_payload = authority.generation_nonce.encode("ascii")
+    sentinel_path = root_path / ".kapso-generation"
+    sentinel_path.write_bytes(sentinel_payload)
+    sentinel_path.chmod(0o400)
+    with ExitStack() as descriptors:
+        root_descriptor = os.open(
+            root_path,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+        )
+        descriptors.callback(os.close, root_descriptor)
+        root_metadata = os.fstat(root_descriptor)
+        root_mount_id = read_run_action_descriptor_mount_id(root_descriptor)
+        control_metadata = control_path.stat(follow_symlinks=False)
+        sentinel_metadata = sentinel_path.stat(follow_symlinks=False)
+    sentinel_evidence = RunActionRuntimeVolumeSentinelEvidence.mint(
+        runtime_volume_authority_id=authority.runtime_volume_authority_id,
+        generation_nonce=authority.generation_nonce,
+        relative_path=".kapso-generation",
+        file_type="regular",
+        owner_user_id=sentinel_metadata.st_uid,
+        owner_group_id=sentinel_metadata.st_gid,
+        mode=stat.S_IMODE(sentinel_metadata.st_mode),
+        link_count=sentinel_metadata.st_nlink,
+        size_bytes=sentinel_metadata.st_size,
+        content_digest=volume_module.tree_or_blob_digest(sentinel_payload),
+        mount_id=root_mount_id,
+        device=root_metadata.st_dev,
+        inode=sentinel_metadata.st_ino,
+    )
+    physical_volume = _remint_contract(
+        prepared.runtime_volume_evidence,
+        root_mount_id=root_mount_id,
+        root_device=root_metadata.st_dev,
+        root_inode=root_metadata.st_ino,
+        sentinel_evidence=sentinel_evidence,
+    )
+    physical_input = _remint_contract(
+        prepared.input_delivery_slot,
+        mount_id=root_mount_id,
+        device=root_metadata.st_dev,
+    )
+    physical_control = _remint_contract(
+        prepared.control_directory,
+        owner_user_id=control_metadata.st_uid,
+        owner_group_id=control_metadata.st_gid,
+        mode=stat.S_IMODE(control_metadata.st_mode),
+        mount_id=root_mount_id,
+        device=control_metadata.st_dev,
+        inode=control_metadata.st_ino,
+    )
+    physical_result_directory = _remint_contract(
+        prepared.result_directory,
+        mount_id=root_mount_id,
+        device=root_metadata.st_dev,
+    )
+    physical_temporary = _remint_contract(
+        prepared.temporary_directory,
+        mount_id=root_mount_id,
+        device=root_metadata.st_dev,
+    )
+    physical_result_file = _remint_contract(
+        prepared.result_file,
+        prepared_parent_directory_id=(
+            physical_result_directory.prepared_runtime_directory_id
+        ),
+        mount_id=root_mount_id,
+        device=root_metadata.st_dev,
+    )
+    physical_layout = _remint_contract(
+        prepared.layout_proof,
+        runtime_volume_evidence_id=physical_volume.runtime_volume_evidence_id,
+        prepared_delivery_slot_ids=(physical_input.prepared_delivery_slot_id,),
+        prepared_runtime_directory_ids=tuple(
+            sorted(
+                (
+                    physical_control.prepared_runtime_directory_id,
+                    physical_result_directory.prepared_runtime_directory_id,
+                    physical_temporary.prepared_runtime_directory_id,
+                )
+            )
+        ),
+        prepared_result_file_id=physical_result_file.prepared_file_id,
+    )
+    physical_prepared = _remint_contract(
+        prepared,
+        runtime_volume_evidence=physical_volume,
+        input_delivery_slot=physical_input,
+        control_directory=physical_control,
+        result_directory=physical_result_directory,
+        temporary_directory=physical_temporary,
+        result_file=physical_result_file,
+        layout_proof=physical_layout,
+    )
+    return physical_prepared, root_path, root_mount_id, root_metadata
 
 
 @pytest.fixture(scope="module")

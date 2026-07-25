@@ -852,6 +852,11 @@ still empty both before and after payload delivery. Real-Docker validation start
 the wrapper, waits two configured poll intervals, and proves the target's
 first-write marker and a shell-metacharacter argument marker remain absent while
 `control/release` is absent and the result remains empty.
+The post-start boundary can now reopen that exact generation through the keeper
+as a process-bound `RunActionBarrierControlLease`: it retains the mounted root,
+sentinel, and control descriptors; reproves their original physical identities;
+and requires the control namespace to remain exactly empty until release
+publication consumes the descriptor.
 Read-only reopen is available only from a durable `PreparedExecution` and
 reproves the exact root topology, child topology, file shapes, workspace/Git
 frontier, sentinel inode/content, keeper process generation, mount, and stable
