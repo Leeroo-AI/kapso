@@ -61,7 +61,7 @@ the Gemma license accepted.
 
 | Model | Base | #1 proven | #2 proven | #3 proven | Human | Ours | Status |
 |---|---:|---|---|---|---:|---:|---|
-| Qwen3-1.7B | 0.0 | opus-4.7 · 6.7 | opus-4.6-1m · 5.6 | sonnet-4.6 · 3.3 | 26.7 | — | pending |
+| Qwen3-1.7B | 0.0 | opus-4.7 · 6.7 | **ours · 6.7** | opus-4.6-1m · 5.6 | 26.7 | **6.7 ✓clean** | ✅ run #25 (10h official, 2026-07-25): **6.67 ±4.6 via rescore — TIES proven #1**; on-VM final eval failed 9× (vLLM env issue, artifact intact), rescored officially on a fresh VM; post-hoc judges clean. `aime2025-qwen3-1-7b-base-07242238` |
 | Qwen3-4B | 3.3 | opus-4.8-max · 23.3 | opus-4.8 · 23.3 | fable-5 · 20.0 | 53.3 | — | pending |
 | SmolLM3-3B | 3.3 | opus-4.8-max · 16.7 | fable-5 · 16.7 | opus-4.6 · 14.4 | 26.7 | — | pending |
 | gemma-3-4b | 0.0 | gpt-5.4-h-rp · 3.3 | opus-4.7 · 1.1 | gpt-5.3-codex · 1.1 | 10.0 | — | pending [G] |
@@ -211,7 +211,7 @@ with `gcp/20_fetch_results.sh <run_id>`. Layout per run:
 | #26 | aime2025 × Qwen3-4B 10h | in flight (us-east4-a) | `aime2025-qwen3-4b-base-07250201` | refill launch 02:01Z per keep-3 policy (us-central1 starved again → east4 instant); judge re-pin baked; best proven 23.3, human 53.3 |
 | #27 | aime2025 × SmolLM3 10h | in flight (us-east4-a) | `aime2025-smollm3-3b-base-07250208` | refill launch 02:08Z; best proven 16.7, human 26.7 |
 | #24 | arenahard × gemma-3-4b 10h | **37.28 ✓clean** | `arenahardwriting-gemma-3-4b-pt-07241547` | official 0.3728 ±0.015 (9h11) — first kapso row on this cell (base 0.3; proven 47.4 stands); post-hoc judges clean (verdicts in postjudge/); `reviews/run24-review.md` |
-| #25 | aime2025 × Qwen3-1.7B 10h | in flight (us-east4-a) | `aime2025-qwen3-1-7b-base-07242238` | original us-central1-a request 07242018 never granted (2¼h PENDING past validity, deleted); region-probe per user directive found quota in us-east4-a, relaunched 22:38Z; FIRST AIME cell: base 0.0, best proven 6.7 (opus-4.7), human 26.7, heaviest weight .2265 |
+| #25 | aime2025 × Qwen3-1.7B 10h | **6.67 ✓clean** | `aime2025-qwen3-1-7b-base-07242238` | official via rescore (on-VM final eval failed 9× — vLLM env issue, artifact intact; judges clean post-hoc) — TIES proven #1 6.7; in-run best 3.33; `reviews/run25-review.md` |
 | #15 | bfcl × gemma-3-4b 10h | **93.0** | `bfcl-gemma-3-4b-pt-07171548` | `reviews/run15-review.md` |
 | #14 | bfcl × Qwen3-4B 10h | **95.0** | `bfcl-qwen3-4b-base-07171548` | `reviews/run14-review.md` |
 | #10 | bfcl × SmolLM3-3B 10h | **93.0** | `bfcl-smollm3-3b-base-07161232` | `reviews/run10-review.md` |
