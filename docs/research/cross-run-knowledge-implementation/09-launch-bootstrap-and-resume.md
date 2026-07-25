@@ -366,6 +366,18 @@ successor records exactly one authorized `RunBranchAdvance` to that commit.
 Reconstructed gates and publishers derive this state from durable event prefixes
 rather than process-local memory.
 
+Successful edit promotion uses immutable whole-workspace generations, not an
+in-place file transaction. The public workspace pathname is stable, but its leaf
+inode is dynamic; its ancestors, the run root, the workspace lock, and a private
+same-filesystem promotion-staging root remain receipt-pinned. Before event 7, the
+coordinator copies and fully reconciles the isolated result into that staging
+root without changing the public workspace. Event 7 binds the staged clean direct
+successor. Recovery then admits exactly `(public=predecessor, stage=successor)` or
+`(public=successor, stage=predecessor)` and performs at most one atomic
+`RENAME_EXCHANGE`. Event 8 follows only after both parents are fsynced and the
+public successor is fully re-inspected. No per-path write-ahead log or mutable
+selector exists.
+
 A live authenticated denylist descendant must equal the observation already
 checkpointed in the safety state; any advance requires a durable safety-state
 successor before work can begin. Security-blocked state cannot act.

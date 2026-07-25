@@ -1580,6 +1580,7 @@ class LaunchSettings(StrictContract):
     run_derived_state_store_path: str
     run_derived_state_staging_path: str
     run_action_store_path: str
+    run_action_workspace_staging_path: str
     run_action_ledger_path: str
     run_runtime_lock_path: str
     launch_manifest_size_bytes: int
@@ -1677,6 +1678,7 @@ class LaunchSettings(StrictContract):
                 "run_derived_state_store_path",
                 "run_derived_state_staging_path",
                 "run_action_store_path",
+                "run_action_workspace_staging_path",
                 "run_action_ledger_path",
                 "run_runtime_lock_path",
             )

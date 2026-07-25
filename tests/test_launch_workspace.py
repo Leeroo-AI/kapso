@@ -2,10 +2,12 @@ import os
 import shutil
 import stat
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import ExitStack
 from dataclasses import replace
 
 import pytest
 
+import kapso.cross_run.launch.workspace as workspace_module
 from kapso.cross_run.canonical import tree_or_blob_digest
 from kapso.cross_run.contracts import ContractValidationError
 from kapso.cross_run.git_command import BoundedGitCommand
@@ -71,6 +73,9 @@ def test_builder_atomically_publishes_self_contained_launch(resolver_case, tmp_p
     derived_state_staging = (
         prepared.run_root / receipt.layout.run_derived_state_staging_relative_path
     )
+    action_workspace_staging = (
+        prepared.run_root / receipt.layout.run_action_workspace_staging_relative_path
+    )
     assert (
         checkpoint_journal.stat().st_dev,
         checkpoint_journal.stat().st_ino,
@@ -89,6 +94,18 @@ def test_builder_atomically_publishes_self_contained_launch(resolver_case, tmp_p
         assert directory.is_dir()
         assert stat.S_IMODE(directory.stat(follow_symlinks=False).st_mode) == 0o700
         assert tuple(directory.iterdir()) == ()
+    assert (
+        action_workspace_staging.stat(follow_symlinks=False).st_dev,
+        action_workspace_staging.stat(follow_symlinks=False).st_ino,
+    ) == (
+        receipt.run_action_workspace_staging_device,
+        receipt.run_action_workspace_staging_inode,
+    )
+    assert (
+        stat.S_IMODE(action_workspace_staging.stat(follow_symlinks=False).st_mode)
+        == 0o700
+    )
+    assert tuple(action_workspace_staging.iterdir()) == ()
     for projection_path in (
         receipt.layout.run_idea_archive_relative_path,
         receipt.layout.run_experiment_history_relative_path,
@@ -225,7 +242,56 @@ def test_builder_accepts_valid_nested_shared_layout_ancestors(
     assert prepared.knowledge_snapshot == (
         prepared.run_root / launch.knowledge_snapshot_path
     )
-    prepared.activate()
+    active = prepared.activate()
+    materialized = prepared.run_root / "materialized"
+    replacement = tmp_path / "replacement-materialized"
+    shutil.copytree(materialized, replacement)
+    materialized.rename(tmp_path / "retired-materialized")
+    replacement.rename(materialized)
+
+    with pytest.raises(LaunchWorkspaceError, match="directories changed"):
+        active.require_control_authority()
+    active.close()
+
+
+def test_nested_layout_reopens_after_workspace_leaf_replacement(
+    resolver_case,
+    tmp_path,
+):
+    settings = resolver_case["resolver"]._settings
+    launch = replace(
+        settings.launch,
+        workspace_path="materialized/workspace",
+        immutable_root_path="materialized/readonly",
+        knowledge_snapshot_path="materialized/readonly/knowledge",
+        task_adapter_path="materialized/readonly/task_adapter",
+        starting_artifacts_path="materialized/readonly/starting_artifacts",
+    )
+    nested_settings = replace(settings, launch=launch)
+    resolved = resolver_case["resolver"].resolve(resolver_case["request"])
+    prepared = StarterWorkspaceBuilder(nested_settings).build(
+        resolved,
+        (tmp_path / "run").absolute(),
+        run_id="nested-run",
+        campaign_id="campaign-1",
+    )
+    active = prepared.activate()
+    replacement = tmp_path / "replacement-workspace"
+    retired = tmp_path / "retired-workspace"
+    shutil.copytree(active.workspace, replacement)
+    active.workspace.rename(retired)
+    replacement.rename(active.workspace)
+
+    with ExitStack() as descriptors:
+        descriptor, identity = active._open_execution_workspace(descriptors)
+        active._require_execution_workspace(descriptor, identity)
+    active.close()
+
+    resumed = StarterWorkspaceBuilder(nested_settings).reopen(prepared.run_root)
+    with ExitStack() as descriptors:
+        descriptor, identity = resumed._open_execution_workspace(descriptors)
+        resumed._require_execution_workspace(descriptor, identity)
+    resumed.close()
 
 
 def test_builder_consumes_resolver_authority_once_under_concurrency(
@@ -662,6 +728,105 @@ def test_prepared_workspace_consumption_has_terminal_byte_check(
         prepared.activate()
 
 
+def test_active_workspace_admits_only_the_current_replaceable_leaf(
+    resolver_case,
+    tmp_path,
+):
+    prepared = _build(resolver_case, (tmp_path / "run").absolute())
+    active = prepared.activate()
+    replacement = (tmp_path / "replacement-workspace").absolute()
+    retired = (tmp_path / "retired-workspace").absolute()
+    shutil.copytree(active.workspace, replacement)
+
+    with ExitStack() as staging_descriptors:
+        _staging_descriptor, staging_identity = (
+            active._open_run_action_workspace_staging(staging_descriptors)
+        )
+        receipt = active.bootstrap_pin.installation_receipt
+        assert staging_identity == (
+            receipt.run_action_workspace_staging_device,
+            receipt.run_action_workspace_staging_inode,
+        )
+
+    with ExitStack() as stale_descriptors:
+        stale_descriptor, stale_identity = active._open_execution_workspace(
+            stale_descriptors
+        )
+        active.workspace.rename(retired)
+        replacement.rename(active.workspace)
+
+        active.require_control_authority()
+        with ExitStack() as current_descriptors:
+            current_descriptor, current_identity = active._open_execution_workspace(
+                current_descriptors
+            )
+            assert current_identity != stale_identity
+            active._require_execution_workspace(
+                current_descriptor,
+                current_identity,
+            )
+        with pytest.raises(LaunchWorkspaceError, match="no longer public"):
+            active._require_execution_workspace(
+                stale_descriptor,
+                stale_identity,
+            )
+    active.close()
+
+
+def test_active_workspace_rejects_leaf_outside_promotion_filesystem(
+    resolver_case,
+    tmp_path,
+    monkeypatch,
+):
+    prepared = _build(resolver_case, (tmp_path / "run").absolute())
+    active = prepared.activate()
+    workspace_identity = (
+        active.workspace.stat(follow_symlinks=False).st_dev,
+        active.workspace.stat(follow_symlinks=False).st_ino,
+    )
+    original = workspace_module._require_owner_private_directory
+
+    def substitute_workspace_device(descriptor, name):
+        identity = original(descriptor, name)
+        return (
+            (identity[0] + 1, identity[1])
+            if identity == workspace_identity
+            else identity
+        )
+
+    monkeypatch.setattr(
+        workspace_module,
+        "_require_owner_private_directory",
+        substitute_workspace_device,
+    )
+    with ExitStack() as descriptors:
+        with pytest.raises(
+            LaunchWorkspaceError,
+            match="outside the workspace-promotion filesystem",
+        ):
+            active._open_execution_workspace(descriptors)
+    active.close()
+
+
+def test_reopen_rejects_workspace_staging_root_substitution(
+    resolver_case,
+    tmp_path,
+):
+    settings = resolver_case["resolver"]._settings
+    prepared = _build(resolver_case, (tmp_path / "run").absolute())
+    layout = prepared.bootstrap_pin.installation_receipt.layout
+    active = prepared.activate()
+    active.close()
+    workspace_staging = (
+        prepared.run_root / layout.run_action_workspace_staging_relative_path
+    )
+    workspace_staging.rename(tmp_path / "original-workspace-staging")
+    workspace_staging.mkdir(mode=0o700)
+
+    with pytest.raises(LaunchWorkspaceError, match="workspace staging root differs"):
+        StarterWorkspaceBuilder(settings).reopen(prepared.run_root)
+
+
 def test_reopen_rejects_external_component_aliases_and_extra_root_state(
     resolver_case,
     tmp_path,
@@ -823,6 +988,27 @@ def test_published_envelope_rejects_legacy_run_action_lock(
     target.chmod(0o600)
 
     with pytest.raises(LaunchWorkspaceError, match="action store entry"):
+        prepared._builder_verifier._verify_outer_run_root_closure(
+            prepared.run_root,
+            layout,
+            prepared._published_root_identity,
+        )
+
+
+def test_published_envelope_requires_empty_action_workspace_staging(
+    resolver_case,
+    tmp_path,
+):
+    prepared = _build(resolver_case, (tmp_path / "run").absolute())
+    layout = prepared.bootstrap_pin.installation_receipt.layout
+    target = (
+        prepared.run_root
+        / layout.run_action_workspace_staging_relative_path
+        / "unexpected"
+    )
+    target.mkdir(mode=0o700)
+
+    with pytest.raises(LaunchWorkspaceError, match="staging root is not empty"):
         prepared._builder_verifier._verify_outer_run_root_closure(
             prepared.run_root,
             layout,

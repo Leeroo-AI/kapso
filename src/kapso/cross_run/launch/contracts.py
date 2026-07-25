@@ -1186,6 +1186,7 @@ class LaunchWorkspaceLayout(StrictContract):
     run_derived_state_store_relative_path: str
     run_derived_state_staging_relative_path: str
     run_action_store_relative_path: str
+    run_action_workspace_staging_relative_path: str
     run_action_ledger_relative_path: str
     run_runtime_lock_relative_path: str
 
@@ -1282,6 +1283,10 @@ class LaunchWorkspaceLayout(StrictContract):
                 "launch run_action_store_relative_path",
             ),
             _require_relative_path(
+                self.run_action_workspace_staging_relative_path,
+                "launch run_action_workspace_staging_relative_path",
+            ),
+            _require_relative_path(
                 self.run_action_ledger_relative_path,
                 "launch run_action_ledger_relative_path",
             ),
@@ -1357,6 +1362,8 @@ class WorkspaceInstallationReceipt(StrictContract):
     run_checkpoint_lock_inode: int
     run_action_store_device: int
     run_action_store_inode: int
+    run_action_workspace_staging_device: int
+    run_action_workspace_staging_inode: int
     run_action_registry_lock_device: int
     run_action_registry_lock_inode: int
     run_action_workspace_lock_device: int
@@ -1405,6 +1412,14 @@ class WorkspaceInstallationReceipt(StrictContract):
             (self.run_checkpoint_lock_inode, "run checkpoint lock inode"),
             (self.run_action_store_device, "run action store device"),
             (self.run_action_store_inode, "run action store inode"),
+            (
+                self.run_action_workspace_staging_device,
+                "run action workspace staging device",
+            ),
+            (
+                self.run_action_workspace_staging_inode,
+                "run action workspace staging inode",
+            ),
             (
                 self.run_action_registry_lock_device,
                 "run action registry lock device",

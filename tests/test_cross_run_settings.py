@@ -808,6 +808,10 @@ def test_github_commit_identity_rejects_git_header_injection(field, value):
             "run_derived_state_staging_path",
             ".kapso/idea_archive.json/staging",
         ),
+        (
+            "run_action_workspace_staging_path",
+            ".kapso/run_action_store",
+        ),
         ("workspace_git_branch", "../unsafe"),
     ],
 )

@@ -382,6 +382,7 @@ cross_run:
     run_derived_state_store_path: ".kapso/run_derived_state_objects"
     run_derived_state_staging_path: ".kapso/run_derived_state_staging"
     run_action_store_path: ".kapso/run_action_store"
+    run_action_workspace_staging_path: ".kapso/run_action_workspace_staging"
     run_action_ledger_path: ".kapso/action_ledger.json"
     run_runtime_lock_path: ".kapso/run_runtime.lock"
     launch_manifest_size_bytes: 33554432

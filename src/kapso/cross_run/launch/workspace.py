@@ -106,6 +106,7 @@ def _required_layout_directory_paths(
         PurePosixPath(layout.run_derived_state_store_relative_path),
         PurePosixPath(layout.run_derived_state_staging_relative_path),
         PurePosixPath(layout.run_action_store_relative_path),
+        PurePosixPath(layout.run_action_workspace_staging_relative_path),
         *(
             PurePosixPath(relative_path)
             for relative_path in layout.starting_artifact_roots.values()
@@ -129,6 +130,27 @@ def _required_layout_directory_paths(
         )
     required.update(directory_roots)
     return tuple(sorted(required, key=lambda path: (len(path.parts), path.as_posix())))
+
+
+def _pinned_layout_directory_paths(
+    layout: LaunchWorkspaceLayout,
+) -> tuple[PurePosixPath, ...]:
+    workspace_leaf = PurePosixPath(layout.workspace_relative_path)
+    return tuple(
+        path
+        for path in _required_layout_directory_paths(layout)
+        if path != workspace_leaf
+    )
+
+
+def _pinned_layout_directory_identities(
+    layout: LaunchWorkspaceLayout,
+    identities: Mapping[str, tuple[int, int]],
+) -> dict[str, tuple[int, int]]:
+    return {
+        path.as_posix(): identities[path.as_posix()]
+        for path in _pinned_layout_directory_paths(layout)
+    }
 
 
 def _require_inode_identity(
@@ -202,6 +224,33 @@ def _open_layout_directories(
         opened[path.as_posix()] = descriptor
         identities[path.as_posix()] = identity
     return opened, identities
+
+
+def _require_owner_private_directory(
+    descriptor: int,
+    name: str,
+) -> tuple[int, int]:
+    metadata = os.fstat(descriptor)
+    if (
+        not stat.S_ISDIR(metadata.st_mode)
+        or metadata.st_uid != os.geteuid()
+        or stat.S_IMODE(metadata.st_mode) != 0o700
+    ):
+        raise LaunchWorkspaceError(f"{name} is unsafe")
+    return metadata.st_dev, metadata.st_ino
+
+
+def _require_workspace_generation_directory(
+    descriptor: int,
+    receipt: WorkspaceInstallationReceipt,
+    name: str,
+) -> tuple[int, int]:
+    identity = _require_owner_private_directory(descriptor, name)
+    if identity[0] != receipt.run_action_workspace_staging_device:
+        raise LaunchWorkspaceError(
+            f"{name} is outside the workspace-promotion filesystem"
+        )
+    return identity
 
 
 def _open_layout_file(
@@ -384,7 +433,7 @@ class PreparedLaunchWorkspace:
             "prepared root identity",
         )
         expected_directory_paths = {
-            path.as_posix() for path in _required_layout_directory_paths(layout)
+            path.as_posix() for path in _pinned_layout_directory_paths(layout)
         }
         expected_control_paths = {
             layout.launch_manifest_relative_path,
@@ -493,7 +542,16 @@ class PreparedLaunchWorkspace:
                 layout,
                 descriptors,
             )
-            if identities != dict(self._pinned_directory_identities):
+            workspace_descriptor = opened[layout.workspace_relative_path]
+            _require_workspace_generation_directory(
+                workspace_descriptor,
+                self.bootstrap_pin.installation_receipt,
+                "prepared execution workspace",
+            )
+            if _pinned_layout_directory_identities(
+                layout,
+                identities,
+            ) != dict(self._pinned_directory_identities):
                 raise LaunchWorkspaceError(
                     "prepared launch directories changed after publication"
                 )
@@ -539,7 +597,15 @@ def _require_workspace_closure(
             layout,
             descriptors,
         )
-        if identities != dict(closure.pinned_directory_identities):
+        _require_workspace_generation_directory(
+            opened[layout.workspace_relative_path],
+            closure.bootstrap_pin.installation_receipt,
+            "active execution workspace",
+        )
+        if _pinned_layout_directory_identities(
+            layout,
+            identities,
+        ) != dict(closure.pinned_directory_identities):
             raise LaunchWorkspaceError(
                 "active launch directories changed after verification"
             )
@@ -685,16 +751,17 @@ class ActiveLaunchWorkspace:
             )
         return descriptor
 
-    def _open_execution_workspace(
+    def _open_workspace_path(
         self,
         descriptors: ExitStack,
     ) -> tuple[int, tuple[int, int]]:
-        """Open the pinned writable workspace without following public paths."""
+        """Open the current workspace through pinned ancestors."""
         root_descriptor = self._open_run_root(descriptors)
         current_descriptor = root_descriptor
         current_path = PurePosixPath(".")
         layout = self.bootstrap_pin.installation_receipt.layout
-        for component in PurePosixPath(layout.workspace_relative_path).parts:
+        workspace_parts = PurePosixPath(layout.workspace_relative_path).parts
+        for position, component in enumerate(workspace_parts):
             child_descriptor = os.open(
                 component,
                 os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
@@ -707,23 +774,52 @@ class ActiveLaunchWorkspace:
                 else current_path / component
             )
             metadata = os.fstat(child_descriptor)
-            expected_identity = self._closure.pinned_directory_identities.get(
-                current_path.as_posix()
-            )
-            if (
-                not stat.S_ISDIR(metadata.st_mode)
-                or metadata.st_uid != os.geteuid()
-                or expected_identity is None
-                or (metadata.st_dev, metadata.st_ino) != expected_identity
-            ):
+            if not stat.S_ISDIR(metadata.st_mode) or metadata.st_uid != os.geteuid():
                 raise LaunchWorkspaceError(
                     "execution workspace path changed after launch"
                 )
+            if position == len(workspace_parts) - 1:
+                _require_workspace_generation_directory(
+                    child_descriptor,
+                    self.bootstrap_pin.installation_receipt,
+                    "execution workspace",
+                )
+            else:
+                expected_identity = self._closure.pinned_directory_identities.get(
+                    current_path.as_posix()
+                )
+                if (
+                    expected_identity is None
+                    or (
+                        metadata.st_dev,
+                        metadata.st_ino,
+                    )
+                    != expected_identity
+                ):
+                    raise LaunchWorkspaceError(
+                        "execution workspace ancestor changed after launch"
+                    )
             current_descriptor = child_descriptor
         identity = StarterWorkspaceBuilder._directory_identity(
             current_descriptor,
         )
+        return current_descriptor, identity
+
+    def _open_execution_workspace(
+        self,
+        descriptors: ExitStack,
+    ) -> tuple[int, tuple[int, int]]:
+        """Open the current replaceable workspace generation by descriptor."""
+        current_descriptor, identity = self._open_workspace_path(descriptors)
         self.require_control_authority()
+        with ExitStack() as verification_descriptors:
+            _verified_descriptor, verified_identity = self._open_workspace_path(
+                verification_descriptors
+            )
+            if verified_identity != identity:
+                raise LaunchWorkspaceError(
+                    "execution workspace changed while acquiring authority"
+                )
         return current_descriptor, identity
 
     def _open_run_action_store(
@@ -753,12 +849,47 @@ class ActiveLaunchWorkspace:
         self.require_control_authority()
         return descriptor, identity
 
+    def _open_run_action_workspace_staging(
+        self,
+        descriptors: ExitStack,
+    ) -> tuple[int, tuple[int, int]]:
+        """Open the receipt-pinned workspace-promotion staging root."""
+        root_descriptor = self._open_run_root(descriptors)
+        opened, identities = _open_layout_directories(
+            root_descriptor,
+            self.bootstrap_pin.installation_receipt.layout,
+            descriptors,
+        )
+        relative_path = (
+            self.bootstrap_pin.installation_receipt.layout.run_action_workspace_staging_relative_path
+        )
+        descriptor = opened[relative_path]
+        identity = identities[relative_path]
+        receipt = self.bootstrap_pin.installation_receipt
+        if (
+            identity
+            != (
+                receipt.run_action_workspace_staging_device,
+                receipt.run_action_workspace_staging_inode,
+            )
+            or _require_owner_private_directory(
+                descriptor,
+                "active run action workspace staging root",
+            )
+            != identity
+        ):
+            raise LaunchWorkspaceError(
+                "active run action workspace staging root differs from its receipt"
+            )
+        self.require_control_authority()
+        return descriptor, identity
+
     def _require_execution_workspace(
         self,
         descriptor: int,
         identity: tuple[int, int],
     ) -> None:
-        """Reprove the pinned workspace while an execution lease still holds it."""
+        """Reprove that an execution lease still names the public workspace."""
         _require_inode_identity(identity, "active execution workspace")
         metadata = os.fstat(descriptor)
         if (
@@ -766,14 +897,15 @@ class ActiveLaunchWorkspace:
             or (metadata.st_dev, metadata.st_ino) != identity
         ):
             raise LaunchWorkspaceError("active execution workspace changed during use")
-        expected = self._closure.pinned_directory_identities[
-            self.bootstrap_pin.installation_receipt.layout.workspace_relative_path
-        ]
-        if identity != expected:
-            raise LaunchWorkspaceError(
-                "active execution workspace differs from its launch"
-            )
         self.require_control_authority()
+        with ExitStack() as descriptors:
+            _current_descriptor, current_identity = self._open_workspace_path(
+                descriptors
+            )
+            if current_identity != identity:
+                raise LaunchWorkspaceError(
+                    "active execution workspace is no longer public"
+                )
 
 
 def _issue_active_workspace(active: ActiveLaunchWorkspace) -> None:
@@ -1137,6 +1269,11 @@ class StarterWorkspaceBuilder:
             action_store_path = staging / layout.run_action_store_relative_path
             action_store_path.mkdir(parents=True, mode=0o700)
             action_store_path.chmod(0o700)
+            action_workspace_staging_path = (
+                staging / layout.run_action_workspace_staging_relative_path
+            )
+            action_workspace_staging_path.mkdir(parents=True, mode=0o700)
+            action_workspace_staging_path.chmod(0o700)
             action_registry_lock_path = action_store_path / "registry.lock"
             action_workspace_lock_path = action_store_path / "workspace.lock"
             self._write_plain_file(
@@ -1154,6 +1291,9 @@ class StarterWorkspaceBuilder:
             )
             checkpoint_lock_metadata = checkpoint_lock_path.stat(follow_symlinks=False)
             action_store_metadata = action_store_path.stat(follow_symlinks=False)
+            action_workspace_staging_metadata = action_workspace_staging_path.stat(
+                follow_symlinks=False
+            )
             action_registry_lock_metadata = action_registry_lock_path.stat(
                 follow_symlinks=False
             )
@@ -1197,6 +1337,12 @@ class StarterWorkspaceBuilder:
                 run_checkpoint_lock_inode=checkpoint_lock_metadata.st_ino,
                 run_action_store_device=action_store_metadata.st_dev,
                 run_action_store_inode=action_store_metadata.st_ino,
+                run_action_workspace_staging_device=(
+                    action_workspace_staging_metadata.st_dev
+                ),
+                run_action_workspace_staging_inode=(
+                    action_workspace_staging_metadata.st_ino
+                ),
                 run_action_registry_lock_device=(action_registry_lock_metadata.st_dev),
                 run_action_registry_lock_inode=(action_registry_lock_metadata.st_ino),
                 run_action_workspace_lock_device=(
@@ -1332,6 +1478,9 @@ class StarterWorkspaceBuilder:
                 launch.run_derived_state_staging_path
             ),
             run_action_store_relative_path=launch.run_action_store_path,
+            run_action_workspace_staging_relative_path=(
+                launch.run_action_workspace_staging_path
+            ),
             run_action_ledger_relative_path=launch.run_action_ledger_path,
             run_runtime_lock_relative_path=launch.run_runtime_lock_path,
         )
@@ -2509,6 +2658,28 @@ class StarterWorkspaceBuilder:
                 raise LaunchWorkspaceError(
                     "published run action store differs from its authority"
                 )
+            action_workspace_staging_descriptor = opened_directories[
+                layout.run_action_workspace_staging_relative_path
+            ]
+            action_workspace_staging_identity = directory_identities[
+                layout.run_action_workspace_staging_relative_path
+            ]
+            if (
+                action_workspace_staging_identity
+                != (
+                    receipt.run_action_workspace_staging_device,
+                    receipt.run_action_workspace_staging_inode,
+                )
+                or _require_owner_private_directory(
+                    action_workspace_staging_descriptor,
+                    "published run action workspace staging root",
+                )
+                != action_workspace_staging_identity
+            ):
+                raise LaunchWorkspaceError(
+                    "published run action workspace staging root differs "
+                    "from its authority"
+                )
             action_store_descriptor = opened_directories[
                 layout.run_action_store_relative_path
             ]
@@ -2558,6 +2729,11 @@ class StarterWorkspaceBuilder:
                     )
             workspace_root = self._descriptor_path(
                 opened_directories[layout.workspace_relative_path]
+            )
+            _require_workspace_generation_directory(
+                opened_directories[layout.workspace_relative_path],
+                receipt,
+                "published execution workspace",
             )
             knowledge_root = self._descriptor_path(
                 opened_directories[layout.knowledge_snapshot_relative_path]
@@ -2680,7 +2856,10 @@ class StarterWorkspaceBuilder:
                 bootstrap_pin=pin,
                 _builder_authority=_WORKSPACE_BUILDER_AUTHORITY,
                 _published_root_identity=observed_root_identity,
-                _pinned_directory_identities=directory_identities,
+                _pinned_directory_identities=_pinned_layout_directory_identities(
+                    layout,
+                    directory_identities,
+                ),
                 _pinned_control_file_identities={
                     layout.launch_manifest_relative_path: manifest_identity,
                     layout.bootstrap_pin_relative_path: pin_identity,
@@ -2749,6 +2928,9 @@ class StarterWorkspaceBuilder:
             layout.run_derived_state_staging_relative_path
         )
         action_store = PurePosixPath(layout.run_action_store_relative_path)
+        action_workspace_staging = PurePosixPath(
+            layout.run_action_workspace_staging_relative_path
+        )
         control_directories = {
             parent
             for control_file in (
@@ -2768,6 +2950,7 @@ class StarterWorkspaceBuilder:
                 derived_state_store,
                 derived_state_staging,
                 action_store,
+                action_workspace_staging,
             }
         )
         envelope_directories = component_ancestors | control_directories
@@ -2797,6 +2980,7 @@ class StarterWorkspaceBuilder:
                     derived_state_store,
                     derived_state_staging,
                     action_store,
+                    action_workspace_staging,
                 }
                 if (
                     not stat.S_ISDIR(metadata.st_mode)
@@ -2932,6 +3116,10 @@ class StarterWorkspaceBuilder:
                         "published derived-state staging entry is unsafe"
                     )
                 continue
+            if action_workspace_staging in relative_path.parents:
+                raise LaunchWorkspaceError(
+                    "published run action workspace staging root is not empty"
+                )
             if action_store in relative_path.parents:
                 action_store_entry_count += 1
                 is_fixed_lock = relative_path.name in {
