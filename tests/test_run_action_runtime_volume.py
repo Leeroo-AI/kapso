@@ -8,10 +8,12 @@ from dataclasses import replace
 import pytest
 
 from kapso.core.config import load_config
+from kapso.cross_run.launch import run_action_runtime_volume as volume_module
 from kapso.cross_run.launch.run_action_docker_inspect import (
     observe_runtime_volume,
 )
 from kapso.cross_run.launch.run_action_supervisor_helper import (
+    RunActionProcessStatObservation,
     RunActionSupervisorHelperError,
     read_run_action_process_stat_from_descriptor,
 )
@@ -29,7 +31,7 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
 from kapso.cross_run.settings import CrossRunSettings
 from test_run_action_docker_inspect import _volume_raw
 from test_run_action_docker_projection import _policy
-from test_run_action_supervisor_contracts import _claim
+from test_run_action_supervisor_contracts import _claim, _prepared_execution
 
 _CANONICAL_CONFIG_PATH = "src/kapso/config.yaml"
 _KEEPER_CONTAINER_ID = "a" * 64
@@ -262,6 +264,100 @@ def test_runtime_volume_process_lease_parses_one_live_generation(tmp_path):
                 process_descriptor,
                 process_id,
             )
+
+
+@pytest.mark.parametrize(
+    ("rebound", "process_states"),
+    (
+        (False, ("S", "R")),
+        (True, ("S", "S")),
+    ),
+)
+def test_mounted_volume_lease_reopens_current_process_root(
+    tmp_path,
+    monkeypatch,
+    rebound,
+    process_states,
+):
+    keeper = _prepared_execution().volume_keeper_evidence
+    process_path = tmp_path / "process"
+    process_path.mkdir()
+    process_root_path = tmp_path / "process-root"
+    current_root_path = process_root_path / "kapso" / "runtime-volume"
+    current_root_path.mkdir(parents=True)
+    retained_root_path = current_root_path
+    if rebound:
+        retained_root_path = tmp_path / "retained"
+        retained_root_path.mkdir()
+    (process_path / "root").symlink_to(process_root_path)
+    with ExitStack() as descriptors:
+        process_descriptor = os.open(
+            process_path,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+        )
+        descriptors.callback(os.close, process_descriptor)
+        retained_root_descriptor = os.open(
+            retained_root_path,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+        )
+        descriptors.callback(os.close, retained_root_descriptor)
+        retained_metadata = os.fstat(retained_root_descriptor)
+        retained_mount_id = volume_module.read_run_action_descriptor_mount_id(
+            retained_root_descriptor
+        )
+        lease = volume_module._MountedRuntimeVolumeLease(
+            process_descriptor=process_descriptor,
+            root_descriptor=retained_root_descriptor,
+            keeper_container_id=keeper.container_id,
+            keeper_process_id=keeper.process_id,
+            process_start_time_ticks=keeper.process_start_time_ticks,
+            process_cgroup_path=(keeper.mounted_helper_evidence.process_cgroup_path),
+            root_mount_id=retained_mount_id,
+            root_device=retained_metadata.st_dev,
+            root_inode=retained_metadata.st_ino,
+        )
+        observed_process_states = iter(process_states)
+
+        def observe_process_stat(_descriptor, _process_id):
+            return RunActionProcessStatObservation(
+                process_id=keeper.process_id,
+                state=next(observed_process_states),
+                parent_process_id=0,
+                start_time_ticks=keeper.process_start_time_ticks,
+            )
+
+        monkeypatch.setattr(
+            volume_module,
+            "read_run_action_process_stat_from_descriptor",
+            observe_process_stat,
+        )
+        monkeypatch.setattr(
+            volume_module,
+            "read_run_action_process_cgroup_path_from_descriptor",
+            lambda _descriptor, _container_id: (
+                keeper.mounted_helper_evidence.process_cgroup_path
+            ),
+        )
+        mount_info = object()
+        monkeypatch.setattr(
+            volume_module,
+            "_read_mount_info",
+            lambda _descriptor, _mount_id, _destination: mount_info,
+        )
+        monkeypatch.setattr(
+            volume_module,
+            "_require_mount_authority",
+            lambda _mount_info, _metadata, _authority: None,
+        )
+
+        if rebound:
+            with pytest.raises(
+                RunActionRuntimeVolumeError,
+                match="changed process or physical root",
+            ):
+                volume_module._require_same_mounted_runtime_volume(lease, keeper)
+        else:
+            volume_module._require_same_mounted_runtime_volume(lease, keeper)
 
 
 def test_empty_volume_observation_closes_identity_and_capacity_accounting(

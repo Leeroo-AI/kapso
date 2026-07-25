@@ -106,8 +106,22 @@ def test_barrier_control_lease_retains_exact_empty_generation(
         lambda _mounted, _keeper: None,
     )
     lease = volume_module.open_run_action_barrier_control(prepared)
-    control_descriptor = lease.control_descriptor
+    assert "control_descriptor" not in type(lease).__dict__
+    control_descriptor = lease._control_descriptor
     assert os.listdir(control_descriptor) == []
+    owner_process_id = os.getpid()
+    monkeypatch.setattr(
+        volume_module.os,
+        "getpid",
+        lambda: owner_process_id + 1,
+    )
+    with pytest.raises(
+        RunActionRuntimeVolumeError,
+        match="belongs to another process",
+    ):
+        lease.require_release_absent()
+    monkeypatch.setattr(volume_module.os, "getpid", lambda: owner_process_id)
+    lease.require_release_absent()
 
     if mutation == "entry":
         (root_path / "control" / "unexpected").write_bytes(b"not a release")

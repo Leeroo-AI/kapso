@@ -129,11 +129,6 @@ class RunActionBarrierControlLease:
         self.require_release_absent()
 
     @property
-    def control_descriptor(self) -> int:
-        self.require_release_absent()
-        return self._control_descriptor
-
-    @property
     def prepared_execution(self) -> RunActionPreparedExecution:
         self.require_release_absent()
         return self._prepared
@@ -903,30 +898,92 @@ def _require_same_mounted_runtime_volume(
         raise RunActionRuntimeVolumeError(
             "runtime volume lease changed process or physical root"
         )
-    root_metadata = os.fstat(lease.root_descriptor)
+    authority = keeper.issued_create_projection.volume_authority
+    process_stat_before = read_run_action_process_stat_from_descriptor(
+        lease.process_descriptor,
+        lease.keeper_process_id,
+    )
+    process_cgroup_before = read_run_action_process_cgroup_path_from_descriptor(
+        lease.process_descriptor,
+        lease.keeper_container_id,
+    )
+    retained_root_before = os.fstat(lease.root_descriptor)
+    retained_mount_id_before = read_run_action_descriptor_mount_id(
+        lease.root_descriptor
+    )
+    with ExitStack() as descriptors:
+        process_root_descriptor = os.open(
+            "root",
+            os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC,
+            dir_fd=lease.process_descriptor,
+        )
+        descriptors.callback(os.close, process_root_descriptor)
+        current_root_descriptor = os.open(
+            RUN_ACTION_RUNTIME_VOLUME_KEEPER_DESTINATION.removeprefix("/"),
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+            dir_fd=process_root_descriptor,
+        )
+        descriptors.callback(os.close, current_root_descriptor)
+        current_root_before = os.fstat(current_root_descriptor)
+        current_mount_id_before = read_run_action_descriptor_mount_id(
+            current_root_descriptor
+        )
+        mount_info_before = _read_mount_info(
+            lease.process_descriptor,
+            current_mount_id_before,
+            RUN_ACTION_RUNTIME_VOLUME_KEEPER_DESTINATION,
+        )
+        _require_mount_authority(
+            mount_info_before,
+            current_root_before,
+            authority,
+        )
+        current_root_after = os.fstat(current_root_descriptor)
+        current_mount_id_after = read_run_action_descriptor_mount_id(
+            current_root_descriptor
+        )
+        mount_info_after = _read_mount_info(
+            lease.process_descriptor,
+            current_mount_id_after,
+            RUN_ACTION_RUNTIME_VOLUME_KEEPER_DESTINATION,
+        )
+    retained_root_after = os.fstat(lease.root_descriptor)
+    retained_mount_id_after = read_run_action_descriptor_mount_id(lease.root_descriptor)
+    process_cgroup_after = read_run_action_process_cgroup_path_from_descriptor(
+        lease.process_descriptor,
+        lease.keeper_container_id,
+    )
+    process_stat_after = read_run_action_process_stat_from_descriptor(
+        lease.process_descriptor,
+        lease.keeper_process_id,
+    )
     if (
         keeper.container_id != lease.keeper_container_id
         or keeper.process_id != lease.keeper_process_id
         or keeper.process_start_time_ticks != lease.process_start_time_ticks
-        or read_run_action_process_stat_from_descriptor(
-            lease.process_descriptor,
-            lease.keeper_process_id,
-        ).start_time_ticks
-        != lease.process_start_time_ticks
-        or read_run_action_process_cgroup_path_from_descriptor(
-            lease.process_descriptor,
-            lease.keeper_container_id,
-        )
-        != lease.process_cgroup_path
+        or process_stat_before.start_time_ticks != lease.process_start_time_ticks
+        or process_stat_after.process_id != process_stat_before.process_id
+        or process_stat_after.parent_process_id != process_stat_before.parent_process_id
+        or process_stat_after.start_time_ticks != process_stat_before.start_time_ticks
+        or process_cgroup_before != lease.process_cgroup_path
+        or process_cgroup_after != process_cgroup_before
         or lease.process_cgroup_path
         != run_action_keeper_process_cgroup_path(
             keeper.issued_create_projection.execution_policy,
             keeper.container_id,
         )
-        or read_run_action_descriptor_mount_id(lease.root_descriptor)
-        != lease.root_mount_id
-        or root_metadata.st_dev != lease.root_device
-        or root_metadata.st_ino != lease.root_inode
+        or retained_mount_id_before != lease.root_mount_id
+        or retained_mount_id_after != retained_mount_id_before
+        or current_mount_id_before != lease.root_mount_id
+        or current_mount_id_after != current_mount_id_before
+        or mount_info_after != mount_info_before
+        or _stable_metadata(retained_root_before)
+        != _stable_metadata(retained_root_after)
+        or _stable_metadata(current_root_before) != _stable_metadata(current_root_after)
+        or retained_root_before.st_dev != lease.root_device
+        or retained_root_before.st_ino != lease.root_inode
+        or current_root_before.st_dev != lease.root_device
+        or current_root_before.st_ino != lease.root_inode
     ):
         raise RunActionRuntimeVolumeError(
             "runtime volume lease changed process or physical root"

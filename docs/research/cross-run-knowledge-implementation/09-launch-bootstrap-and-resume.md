@@ -859,8 +859,9 @@ first-write marker and a shell-metacharacter argument marker remain absent while
 The post-start boundary can now reopen that exact generation through the keeper
 as a process-bound `RunActionBarrierControlLease`: it retains the mounted root,
 sentinel, and control descriptors; reproves their original physical identities;
-and requires the control namespace to remain exactly empty until release
-publication consumes the descriptor.
+reopens the keeper's current mount path on every use; and requires the control
+namespace to remain exactly empty. The raw descriptor is not public: release
+publication must consume the process-bound lease through a guarded operation.
 Read-only reopen is available only from a durable `PreparedExecution` and
 reproves the exact root topology, child topology, file shapes, workspace/Git
 frontier, sentinel inode/content, keeper process generation, mount, and stable
