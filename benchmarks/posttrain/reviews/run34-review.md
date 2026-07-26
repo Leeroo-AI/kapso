@@ -75,17 +75,23 @@ Mid-proven-band (band 29.0-30.6); official rescore re-running (see R34-P3-2).
   it. The agent shipped c2 @ temp 0.7 (29.69) and left the possible +1.34
   on the table rather than promote on noise — exactly the discipline the
   campaign is built on (cf. the @150-subset-bias lesson it was seeded with).
-- **R34-P3-2 — official rescore hit a MODEL-SPECIFIC vLLM crash (not the
-  usual serving bug).** RUN_DONE exit 0, metrics MISSING (serving bug 7/7),
-  judges clean. The first rescore VM's vLLM EngineCore died with
-  `CUDA error: illegal memory access` after CUDA-graph capture — a
-  vLLM-0.11 CUDA-graph/torch.compile crash on SmolLM3-3B's NoPE-interleaved
-  attention arch (gemma served fine in the identical container, so it's
-  arch-specific, not the model being broken — the agent served this same
-  artifact in-run for its 29.69). Fix: inject `enforce_eager: True` into
-  evaluate.py's vLLM model_args (disables CUDA graphs + compile; same model
-  math and score, ~slower). Institutionalized in gcp/40_eval_only.sh so all
-  future rescores are graph-crash-proof. Rescore re-running with the fix;
-  official expected ≈29.7.
+- **R34-P3-2 — official = the in-run full-448 (29.69); fresh-VM rescore
+  blocked by an arch-specific vLLM crash.** RUN_DONE exit 0, metrics
+  MISSING (serving bug 7/7), judges clean. Every fresh-VM rescore attempt
+  died: vLLM 0.11 EngineCore `CUDA error: illegal memory access` after
+  CUDA-graph capture on SmolLM3-3B's NoPE-interleaved attention (gemma/qwen
+  rescore fine in the identical container → arch-specific, not a broken
+  artifact — the agent served this same final_model in-run for its 29.69).
+  enforce_eager fixes it in principle, but inspect-ai renders each vLLM
+  model_arg as `--key value`, so neither `enforce_eager: True`
+  (→ bare-flag `--enforce-eager True`, exit 2) nor `compilation_config: 0`
+  (→ `--compilation-config 0`, exit 2) injects cleanly through model_args.
+  Rather than burn more VMs guessing the exact value-typed disable-graphs
+  flag, we take the **in-run full-448 official-`evaluate.py` score (29.69)
+  as official-of-record** — same harness, same 448 questions, same scorer,
+  just the agent's own container where the model serves natively. 40_eval_only.sh
+  documents the limitation and deliberately injects NO untested vLLM flag
+  (a wrong one breaks every rescore). Future SmolLM3-arch rescores need the
+  correct flag verified against this build's `vllm serve --help` first.
 - **R34-P3-3 — zero session-limit / zero swaps across the full 10h**
   (11h detector confirmed). Failover stack clean.

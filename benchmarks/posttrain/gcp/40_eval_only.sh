@@ -71,15 +71,17 @@ set -x
 git clone --depth 1 "$PTB_REPO" /opt/ptb
 cd /opt/ptb
 
-# vLLM 0.11 hits a CUDA-graph "illegal memory access" EngineCore crash on some
-# fine-tuned arches (SmolLM3-3B's NoPE-interleaved attention — gpqamain rescore
-# 2026-07-26 died this way while gemma served fine in the same container).
-# enforce_eager disables CUDA graphs + torch.compile: same model math and score,
-# just no graph capture — the robust choice for a one-shot official rescore.
-# inspect-ai forwards model_args to vLLM's LLM(), so inject it there.
-sed -i "s/'gpu_memory_utilization': args.gpu_memory_utilization,/'gpu_memory_utilization': args.gpu_memory_utilization, 'enforce_eager': True,/" \
-    "src/eval/tasks/$EVAL/evaluate.py"
-grep -q "enforce_eager" "src/eval/tasks/$EVAL/evaluate.py" && echo "enforce_eager injected" || echo "WARN: enforce_eager inject missed"
+# KNOWN LIMITATION (2026-07-26): vLLM 0.11 in vllm_debug.sif hits a CUDA-graph
+# "illegal memory access" EngineCore crash on SmolLM3-3B's NoPE-interleaved
+# attention (gemma/qwen serve fine in the same container). enforce_eager would
+# fix it, but inspect-ai renders each model_arg as `--key value` to `vllm serve`,
+# so neither `enforce_eager: True` (-> bare-flag `--enforce-eager True`, exit 2)
+# nor `compilation_config: 0` (-> `--compilation-config 0`, exit 2) injects
+# cleanly. Until the exact value-typed disable-graphs flag is verified against
+# this build's `vllm serve --help`, SmolLM3-arch cells fall back to their in-run
+# full-448 official-evaluate.py score (valid provenance; the model serves in the
+# agent's own container). Do NOT inject an untested vLLM flag here — a wrong one
+# breaks EVERY rescore.
 
 MODEL_DIR=/opt/ptb/rescore_final_model
 mkdir -p "$MODEL_DIR"
