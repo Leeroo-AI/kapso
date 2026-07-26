@@ -29,9 +29,12 @@ contracts, terminal event-6 persistence/replay, the closed semantic control
 topology, and exact crash adoption of a published timeout directive are
 implemented. Physical timeout publication now performs the sole durable
 `RELEASED → TIMED_OUT` transition and forces fresh adoption without carrying any
-signal authority. Docker TERM/KILL containment and its provider-termination
-evidence, cleanup, OS executor activation, explicit E0/S-EMPTY provisioning
-orchestration, full policy refresh on resume, and API/runner activation remain.
+signal authority. Exact at-least-once Docker TERM/KILL containment now preserves
+the original absolute deadline, and a trusted terminal leaf registers the
+existing timeout termination evidence graph. Natural terminal-failure and
+empty-result classification, cleanup, OS executor activation, explicit
+E0/S-EMPTY provisioning orchestration, full policy refresh on resume, and
+API/runner activation remain.
 
 ## Objective
 
@@ -730,7 +733,8 @@ workload released + release present
         ↓ at/after deadline while still running, link exact timeout directive
 timeout published + release/timeout present
         ↓ fresh TIMED_OUT adoption
-        ↓ later TERM/KILL containment under the original absolute grace deadline
+        ↓ TERM before, or KILL at/after, the original absolute grace deadline
+        ↓ fresh recovery after every signal attempt
 terminal + release present
         ↓ terminal observation and descriptor result capture
 ```
@@ -1060,11 +1064,45 @@ one-shot for its capability. No path in this publisher can stop, kill, remove,
 or otherwise mutate a provider resource.
 
 Docker containment, terminal-failure/empty-result evidence, positive
-pre-release-loss inspection, cleanup, and production adapters are not yet wired.
-Ordinary already-timed-out adapters therefore remain pending rather than
-fabricating termination. No production caller can receive Docker start authority
-from the reservation gate; M9 activation must continue to route every
-post-reservation transition through the coordinator's sealed capabilities.
+timeout containment is now a second trusted physical leaf. It accepts only a
+fresh `TIMED_OUT + RUNNING_CONTINUABLE` capability and managers whose read and
+mutation projections were issued by the same exact pinned Docker runtime.
+The retained timeout topology, boot identity, resource graph, volume, and exact
+container occurrence are rechecked before mutation. A final coordinator-owned
+BOOTTIME sample linearizes the choice: strictly before the original containment
+deadline it dispatches `docker container kill --signal SIGTERM <full-id>`; at or
+after the deadline it dispatches `SIGKILL`. It never uses Docker's relative
+`stop --timeout` clock and never resets grace on recovery.
+
+Signal delivery is deliberately at-least-once. A crash can occur after Docker
+accepts a signal but before local continuation, so fresh recovery may repeat TERM
+before the same deadline or KILL afterward. No local record can prove exactly-once
+delivery across that boundary. Consequently signal attempts are transient
+containment evidence, not fields in the durable provider-termination receipt.
+The durable timeout authority remains the no-replace timeout inode plus a fresh
+exact terminal observation.
+
+After every command, a closed running-or-terminal parser requires a stable exact
+occurrence. A failed or indeterminate command is admissible only when two exact
+terminal observations prove the natural-exit race; a still-running, missing, or
+substituted occurrence fails loud. The same closed parser admits a stable
+terminal that appears before the signal, without fabricating a signal attempt.
+In every case the running capability returns only registered `PENDING`; a fresh
+coordinator inspection must mint terminal authority. The trusted timeout
+termination leaf then reinspects the retained `TIMED_OUT` occurrence, registers
+the exact `TIMEOUT` receipt, and lets existing event-6 persistence/replay proceed
+without further signals. A timed-out running adapter can no longer return a
+proof-free `PENDING` forever.
+
+The BOOTTIME sample is the logical TERM-versus-KILL decision point. A synchronous
+Docker CLI cannot promise daemon delivery at an exact nanosecond; the enforceable
+contract is that recovery always uses the original never-reset decision deadline.
+
+Natural terminal-failure/empty-result evidence, positive pre-release-loss
+inspection, cleanup, and production adapters are not yet wired. No production
+caller can receive Docker start authority from the reservation gate; M9
+activation must continue to route every post-reservation transition through the
+coordinator's sealed capabilities.
 
 The timeout payload envelope is now single-sourced before physical publication
 lands. Launch configuration and the durable supervisor policy carry the same
@@ -1223,6 +1261,20 @@ this path is activated.
   `RELEASED` and admit exact result capture or typed natural failure even when
   recovery resumes after the execution deadline. If `TIMED_OUT` is already
   durable, require timeout precedence and reject ordinary result capture.
+- Under a retained `TIMED_OUT` topology, select TERM immediately before the
+  original containment deadline and KILL exactly at or after it. Reissue both on
+  fresh crash recovery without resetting grace. Admit a command failure only
+  after a stable exact terminal race; reject a still-running failure, split
+  read/mutation runtimes, forked or relabeled authority, malformed success,
+  changed topology/boot/inventory, and proof-free timed-out `PENDING`.
+- Reinspect a terminal timed-out occurrence, register the exact timeout receipt,
+  persist event 6, and replay it without containment implementation access or a
+  second signal.
+- In real Docker, carry the same event-5 occurrence through physical release and
+  timeout inodes, fresh recovery, exact-deadline SIGKILL, exit 137, terminal
+  reinspection, timeout-receipt registration, and durable event 6. Independently
+  require the closed signal authority to produce init-mediated SIGTERM exit 143
+  and SIGKILL exit 137 with exact full-ID stdout and no leaked resources.
 - Verify expert repo is writable only inside the run workspace and snapshot/adapter
   roots remain read-only.
 - Verify old `initial_repo` and checkpoint paths are absent after activation.

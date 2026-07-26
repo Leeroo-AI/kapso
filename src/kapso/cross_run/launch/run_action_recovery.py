@@ -25,6 +25,11 @@ from kapso.cross_run.launch.run_action_contracts import (
     RunActionResultInterpreterIdentity,
     RunFrontierWorkspaceAccess,
 )
+from kapso.cross_run.launch.run_action_containment_contracts import (
+    RunActionTimeoutContainmentResult,
+    RunActionTimeoutContainmentSignal,
+    RunActionTimeoutContainmentState,
+)
 from kapso.cross_run.launch.run_action_control_topology import (
     RunActionControlDirectoryTopology,
 )
@@ -92,6 +97,7 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
 )
 from kapso.cross_run.launch.run_action_termination_contracts import (
     provider_termination_matches_durable_activation,
+    run_action_running_container_occurrence_matches,
     run_action_timeout_directive_evidence_matches,
     run_action_timeout_publication_evidence_matches,
     RunActionProviderTerminationReason,
@@ -124,6 +130,7 @@ _RUN_ACTION_ACTIVATION_AUTHORITY = object()
 _RUN_ACTION_COMMITTED_CONTINUATION_AUTHORITY = object()
 _RUN_ACTION_RELEASE_PUBLISHER_AUTHORITY = object()
 _RUN_ACTION_TIMEOUT_PUBLISHER_AUTHORITY = object()
+_RUN_ACTION_TIMEOUT_CONTAINMENT_AUTHORITY = object()
 _RUN_ACTION_TERMINAL_INSPECTION_AUTHORITY = object()
 _RUN_ACTION_RESULT_CAPTURE_AUTHORITY = object()
 _RUN_ACTION_PROVIDER_TERMINATION_AUTHORITY = object()
@@ -862,6 +869,10 @@ class RunActionCommittedContinuationCapability:
             else "ready"
         )
         self._timeout_directive_publication = query.timeout_directive_publication
+        self._timeout_containment_state = "ready"
+        self._timeout_containment_result: RunActionTimeoutContainmentResult | None = (
+            None
+        )
         self._terminal_inspection_state = "ready"
         self._terminal_observation: RunActionTerminalObservation | None = None
         self._result_capture_state = "ready"
@@ -940,6 +951,8 @@ class RunActionCommittedContinuationCapability:
                 or self._release_publication_state != "ready"
                 or self._timeout_publication_state != "ready"
                 or self._timeout_directive_publication is not None
+                or self._timeout_containment_state != "ready"
+                or self._timeout_containment_result is not None
                 or self._provider_termination_state != "ready"
                 or self._provider_termination_receipt is not None
                 or self._observation.state
@@ -995,6 +1008,8 @@ class RunActionCommittedContinuationCapability:
                 or self._release_publication_state != "ready"
                 or self._timeout_publication_state != "ready"
                 or self._timeout_directive_publication is not None
+                or self._timeout_containment_state != "ready"
+                or self._timeout_containment_result is not None
                 or self._terminal_inspection_state != "ready"
                 or self._terminal_observation is not None
                 or self._result_capture_state != "ready"
@@ -1044,6 +1059,58 @@ class RunActionCommittedContinuationCapability:
             capability=self,
             observed_before_boottime_nanoseconds=observed_before,
             _authority=_RUN_ACTION_TIMEOUT_PUBLISHER_AUTHORITY,
+        )
+
+    def _begin_timeout_containment(
+        self,
+        control_inspection: RunActionTimeoutInspectionLease,
+        *,
+        _authority: object,
+    ) -> "_RunActionTimeoutContainmentAuthorization":
+        """Open one trusted at-least-once signal attempt for a timed-out run."""
+
+        with _COMMITTED_CONTINUATION_CAPABILITY_LOCK:
+            query = self._query
+            adoption = query.workload_release_adoption
+            publication = query.timeout_directive_publication
+            if (
+                _ISSUED_COMMITTED_CONTINUATION_CAPABILITIES.get(id(self)) is not self
+                or type(_ISSUED_COMMITTED_CONTINUATION_RELEASE_AUTHORITIES.get(self))
+                is not _RunActionIssuedReleaseAuthorities
+                or self._owner_process_id != os.getpid()
+                or self._state != "invoking"
+                or self._invoking_thread_id != get_ident()
+                or self._observation.state
+                is not RunActionCommittedSpawnState.RUNNING_CONTINUABLE
+                or self._release_publication_state != "ready"
+                or self._timeout_publication_state != "complete"
+                or self._timeout_directive_publication != publication
+                or type(publication) is not RunActionTimeoutDirectivePublicationReceipt
+                or self._timeout_containment_state != "ready"
+                or self._timeout_containment_result is not None
+                or self._terminal_inspection_state != "ready"
+                or self._terminal_observation is not None
+                or self._result_capture_state != "ready"
+                or self._captured_result is not None
+                or self._provider_termination_state != "ready"
+                or self._provider_termination_receipt is not None
+                or query.control_directory_topology
+                is not RunActionControlDirectoryTopology.TIMED_OUT
+                or type(adoption) is not RunActionWorkloadReleaseAdoption
+                or type(control_inspection) is not RunActionTimeoutInspectionLease
+                or control_inspection.topology
+                is not RunActionControlDirectoryTopology.TIMED_OUT
+                or control_inspection.workload_release_adoption != adoption
+                or control_inspection.timeout_directive_publication != publication
+                or _authority is not _RUN_ACTION_TIMEOUT_CONTAINMENT_AUTHORITY
+            ):
+                raise RunActionRecoveryError(
+                    "timeout containment lacks exact live timed-out authority"
+                )
+            self._timeout_containment_state = "preparing"
+        return _RunActionTimeoutContainmentAuthorization(
+            capability=self,
+            _authority=_RUN_ACTION_TIMEOUT_CONTAINMENT_AUTHORITY,
         )
 
     def _take_terminal_inspection_authority(
@@ -1455,6 +1522,8 @@ class RunActionCommittedContinuationCapability:
                         RunActionContinuationState.PROVIDER_TERMINATED,
                     }
                     or self._terminal_inspection_state != "complete"
+                    or self._timeout_containment_state != "ready"
+                    or self._timeout_containment_result is not None
                     or type(self._terminal_observation)
                     is not RunActionTerminalObservation
                     or (
@@ -1516,6 +1585,8 @@ class RunActionCommittedContinuationCapability:
                     self._release_publication_state != "ready"
                     or self._timeout_publication_state != "ready"
                     or self._timeout_directive_publication is not None
+                    or self._timeout_containment_state != "ready"
+                    or self._timeout_containment_result is not None
                     or self._terminal_observation is not None
                     or self._captured_result is not None
                     or (
@@ -1563,6 +1634,8 @@ class RunActionCommittedContinuationCapability:
                     and self._timeout_directive_publication is None
                     and self._query.workload_release_adoption is None
                     and self._query.timeout_directive_publication is None
+                    and self._timeout_containment_state == "ready"
+                    and self._timeout_containment_result is None
                 )
                 released_pending = (
                     topology is RunActionControlDirectoryTopology.RELEASED
@@ -1577,6 +1650,8 @@ class RunActionCommittedContinuationCapability:
                     and type(self._query.workload_release_adoption)
                     is RunActionWorkloadReleaseAdoption
                     and self._query.timeout_directive_publication is None
+                    and self._timeout_containment_state == "ready"
+                    and self._timeout_containment_result is None
                 )
                 released_timeout_published = (
                     topology is RunActionControlDirectoryTopology.RELEASED
@@ -1588,6 +1663,8 @@ class RunActionCommittedContinuationCapability:
                     and outcome.timeout_directive_publication
                     == self._timeout_directive_publication
                     and self._query.timeout_directive_publication is None
+                    and self._timeout_containment_state == "ready"
+                    and self._timeout_containment_result is None
                 )
                 timed_out_pending = (
                     topology is RunActionControlDirectoryTopology.TIMED_OUT
@@ -1598,6 +1675,9 @@ class RunActionCommittedContinuationCapability:
                     == self._query.timeout_directive_publication
                     and type(self._timeout_directive_publication)
                     is RunActionTimeoutDirectivePublicationReceipt
+                    and self._timeout_containment_state == "complete"
+                    and type(self._timeout_containment_result)
+                    is RunActionTimeoutContainmentResult
                 )
                 if (
                     self._terminal_inspection_state != "ready"
@@ -1620,6 +1700,8 @@ class RunActionCommittedContinuationCapability:
                 outcome.state is not RunActionContinuationState.PENDING
                 or self._timeout_publication_state != "ready"
                 or self._timeout_directive_publication is not None
+                or self._timeout_containment_state != "ready"
+                or self._timeout_containment_result is not None
                 or self._terminal_inspection_state != "ready"
                 or self._terminal_observation is not None
                 or self._result_capture_state != "ready"
@@ -1661,6 +1743,11 @@ class RunActionCommittedContinuationCapability:
                     "authorizing",
                     "published_awaiting_adoption",
                 }
+                or self._timeout_containment_state
+                in {
+                    "preparing",
+                    "authorizing",
+                }
             ):
                 raise RunActionRecoveryError(
                     "committed continuation capability is not in its one invocation"
@@ -1682,6 +1769,7 @@ class RunActionCommittedContinuationCapability:
             self._invoking_thread_id = None
             self._release_publication_state = "spent"
             self._timeout_publication_state = "spent"
+            self._timeout_containment_state = "spent"
             self._terminal_inspection_state = "spent"
             self._result_capture_state = "spent"
             self._provider_termination_state = "spent"
@@ -2202,6 +2290,233 @@ class _RunActionTimeoutPublicationAuthorization:
                 )
             if capability._timeout_publication_state != "complete":
                 capability._timeout_publication_state = "spent"
+            self._closed = True
+        return False
+
+
+class _RunActionTimeoutContainmentAuthorization:
+    """Containment-private authority for one exact at-least-once signal."""
+
+    def __init__(
+        self,
+        *,
+        capability: RunActionCommittedContinuationCapability,
+        _authority: object,
+    ) -> None:
+        if (
+            type(capability) is not RunActionCommittedContinuationCapability
+            or capability._timeout_containment_state != "preparing"
+            or _authority is not _RUN_ACTION_TIMEOUT_CONTAINMENT_AUTHORITY
+        ):
+            raise RunActionRecoveryError(
+                "timeout containment authorization lacks issuance authority"
+            )
+        self._capability = capability
+        self._owner_process_id = os.getpid()
+        self._owner_thread_id = get_ident()
+        self._signal: RunActionTimeoutContainmentSignal | None = None
+        self._selected_at_boottime_nanoseconds: int | None = None
+        self._closed = False
+
+    def _select_signal(
+        self,
+        running_observation: RunActionBarrierRunningContainerObservation,
+        host_boot_id: str,
+        *,
+        _authority: object,
+    ) -> tuple[RunActionTimeoutContainmentSignal, int]:
+        """Choose TERM or KILL from the original absolute deadline."""
+
+        self._require_state("preparing", _authority)
+        capability = self._capability
+        query = capability._query
+        publication = query.timeout_directive_publication
+        adoption = query.workload_release_adoption
+        if (
+            self._signal is not None
+            or self._selected_at_boottime_nanoseconds is not None
+            or type(publication) is not RunActionTimeoutDirectivePublicationReceipt
+            or type(adoption) is not RunActionWorkloadReleaseAdoption
+            or type(running_observation)
+            is not RunActionBarrierRunningContainerObservation
+            or running_observation.complete_inspection_digest
+            != capability._observation.observation_token
+            or not run_action_running_container_occurrence_matches(
+                running_observation,
+                publication.timeout_directive.running_container_observation,
+            )
+            or host_boot_id != publication.timeout_directive.host_boot_id
+        ):
+            raise RunActionRecoveryError(
+                "timeout containment lost its exact running occurrence"
+            )
+        authorities = _ISSUED_COMMITTED_CONTINUATION_RELEASE_AUTHORITIES.get(capability)
+        if type(authorities) is not _RunActionIssuedReleaseAuthorities:
+            raise RunActionRecoveryError(
+                "timeout containment lost its coordinator-issued clock"
+            )
+        selected_at = _read_positive_release_clock(
+            authorities.clock.boottime_nanoseconds(),
+            "timeout containment signal selection",
+        )
+        directive = publication.timeout_directive
+        if selected_at < directive.observed_after_boottime_nanoseconds:
+            raise RunActionRecoveryError(
+                "timeout containment signal-selection clock regressed"
+            )
+        signal = (
+            RunActionTimeoutContainmentSignal.KILL
+            if selected_at >= directive.containment_deadline_boottime_nanoseconds
+            else RunActionTimeoutContainmentSignal.TERMINATE
+        )
+        with _COMMITTED_CONTINUATION_CAPABILITY_LOCK:
+            if (
+                capability._timeout_containment_state != "preparing"
+                or capability._timeout_containment_result is not None
+            ):
+                raise RunActionRecoveryError(
+                    "timeout containment authority changed before signal selection"
+                )
+            capability._timeout_containment_state = "authorizing"
+        self._signal = signal
+        self._selected_at_boottime_nanoseconds = selected_at
+        return signal, selected_at
+
+    def _complete(
+        self,
+        result: RunActionTimeoutContainmentResult,
+        *,
+        _authority: object,
+    ) -> None:
+        """Register the exact stable occurrence observed after the command."""
+
+        expected_state = "authorizing" if self._signal is not None else "preparing"
+        self._require_state(expected_state, _authority)
+        capability = self._capability
+        query = capability._query
+        adoption = query.workload_release_adoption
+        publication = query.timeout_directive_publication
+        if (
+            type(result) is not RunActionTimeoutContainmentResult
+            or result.signal is not self._signal
+            or result.selected_at_boottime_nanoseconds
+            != self._selected_at_boottime_nanoseconds
+            or (
+                self._signal is None
+                and (
+                    result.state is not RunActionTimeoutContainmentState.TERMINAL
+                    or result.signal_dispatch_confirmed
+                )
+            )
+            or type(adoption) is not RunActionWorkloadReleaseAdoption
+            or type(publication) is not RunActionTimeoutDirectivePublicationReceipt
+            or not self._post_signal_occurrence_matches(
+                result,
+                query,
+                adoption,
+                publication,
+            )
+        ):
+            raise RunActionRecoveryError(
+                "timeout containment result differs from its signal authority"
+            )
+        with _COMMITTED_CONTINUATION_CAPABILITY_LOCK:
+            if (
+                capability._timeout_containment_state != expected_state
+                or capability._timeout_containment_result is not None
+            ):
+                raise RunActionRecoveryError(
+                    "timeout containment result changed before registration"
+                )
+            capability._timeout_containment_result = result
+            capability._timeout_containment_state = "complete"
+
+    @staticmethod
+    def _post_signal_occurrence_matches(
+        result: RunActionTimeoutContainmentResult,
+        query: "RunActionCommittedSpawnQuery",
+        adoption: RunActionWorkloadReleaseAdoption,
+        publication: RunActionTimeoutDirectivePublicationReceipt,
+    ) -> bool:
+        if result.state is RunActionTimeoutContainmentState.RUNNING:
+            running = result.running_observation
+            return type(
+                running
+            ) is RunActionBarrierRunningContainerObservation and run_action_running_container_occurrence_matches(
+                running,
+                publication.timeout_directive.running_container_observation,
+            )
+        terminal = result.terminal_observation
+        prepared = query.prepared_execution
+        spawn = query.spawn_commit
+        released_running = (
+            adoption.workload_release_receipt.resolved_workload_observation.running_container_observation
+        )
+        return (
+            type(terminal) is RunActionTerminalObservation
+            and terminal.activation_revalidation_receipt_id
+            == query.activation_revalidation_receipt.activation_revalidation_receipt_id
+            and terminal.workload_release_adoption_id
+            == adoption.workload_release_adoption_id
+            and terminal.prepared_execution_id == prepared.prepared_execution_id
+            and terminal.spawn_commit_id == spawn.spawn_commit_id
+            and terminal.provider_execution_id == spawn.provider_execution_id
+            and terminal.runtime_volume_authority_id
+            == prepared.runtime_volume_authority.runtime_volume_authority_id
+            and terminal.generation_nonce
+            == prepared.runtime_volume_authority.generation_nonce
+            and terminal.observed_inspect_projection
+            == prepared.inert_container_evidence.issued_create_projection
+            and terminal.started_at == released_running.started_at
+        )
+
+    def _require_state(self, expected_state: str, _authority: object) -> None:
+        capability = self._capability
+        with _COMMITTED_CONTINUATION_CAPABILITY_LOCK:
+            if (
+                self._closed
+                or self._owner_process_id != os.getpid()
+                or self._owner_thread_id != get_ident()
+                or _ISSUED_COMMITTED_CONTINUATION_CAPABILITIES.get(id(capability))
+                is not capability
+                or capability._owner_process_id != os.getpid()
+                or capability._state != "invoking"
+                or capability._invoking_thread_id != get_ident()
+                or capability._timeout_containment_state != expected_state
+                or _authority is not _RUN_ACTION_TIMEOUT_CONTAINMENT_AUTHORITY
+            ):
+                raise RunActionRecoveryError(
+                    "timeout containment authorization is spent, inactive, or foreign"
+                )
+
+    def __enter__(self) -> "_RunActionTimeoutContainmentAuthorization":
+        self._require_state(
+            "preparing",
+            _RUN_ACTION_TIMEOUT_CONTAINMENT_AUTHORITY,
+        )
+        return self
+
+    def __exit__(self, exception_type, exception, traceback) -> bool:
+        capability = self._capability
+        with _COMMITTED_CONTINUATION_CAPABILITY_LOCK:
+            if (
+                self._closed
+                or self._owner_process_id != os.getpid()
+                or self._owner_thread_id != get_ident()
+                or capability._state != "invoking"
+                or capability._invoking_thread_id != get_ident()
+                or capability._timeout_containment_state
+                not in {
+                    "preparing",
+                    "authorizing",
+                    "complete",
+                }
+            ):
+                raise RunActionRecoveryError(
+                    "timeout containment authorization close changed"
+                )
+            if capability._timeout_containment_state != "complete":
+                capability._timeout_containment_state = "spent"
             self._closed = True
         return False
 

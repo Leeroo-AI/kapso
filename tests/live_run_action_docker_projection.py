@@ -46,6 +46,10 @@ from kapso.cross_run.launch.run_action_control_topology import (
 from kapso.cross_run.launch.run_action_barrier_contracts import (
     RunActionResolvedMountKind,
 )
+from kapso.cross_run.launch.run_action_clock import _SystemRunActionClock
+from kapso.cross_run.launch.run_action_containment_contracts import (
+    RunActionTimeoutContainmentSignal,
+)
 from kapso.cross_run.launch.run_action_recovery import (
     RunActionCommittedSpawnObservation,
     RunActionCommittedSpawnState,
@@ -71,6 +75,16 @@ from kapso.cross_run.launch.run_action_release_publisher import (
 from kapso.cross_run.launch.run_action_terminal_inspection import (
     inspect_run_action_terminal,
     reinspect_run_action_terminal,
+)
+from kapso.cross_run.launch.run_action_timeout_containment import (
+    contain_run_action_timeout_once,
+    DockerRunActionContainmentManager,
+)
+from kapso.cross_run.launch.run_action_timeout_publisher import (
+    publish_run_action_timeout_once,
+)
+from kapso.cross_run.launch.run_action_timeout_termination import (
+    capture_run_action_timeout_termination,
 )
 from kapso.cross_run.launch.run_action_store import (
     _RUN_ACTION_RECOVERY_AUTHORITY,
@@ -404,6 +418,167 @@ class _LiveTerminalWorkloadAdapter:
         )
 
 
+class _LiveTimeoutWorkloadAdapter:
+    def __init__(
+        self,
+        *,
+        boundary_identity,
+        execution_policy,
+        resource_manager,
+        containment_manager,
+        preparation_allocation,
+        command,
+        volume_observation,
+        helper_evidence,
+        init_source_evidence,
+        docker_settings,
+        launch_settings,
+    ) -> None:
+        self.execution_lifecycle_identity = (
+            boundary_identity.execution_lifecycle_identity
+        )
+        self.execution_policy = execution_policy
+        self.result_interpreter = _UnusedLiveResultInterpreter(
+            boundary_identity.result_interpreter_identity
+        )
+        self._resource_manager = resource_manager
+        self._containment_manager = containment_manager
+        self._preparation_allocation = preparation_allocation
+        self._command = command
+        self._volume_observation = volume_observation
+        self._helper_evidence = helper_evidence
+        self._init_source_evidence = init_source_evidence
+        self._docker_settings = docker_settings
+        self._launch_settings = launch_settings
+        self._observation_state = None
+        self.timeout_publication = None
+        self.containment_result = None
+        self.termination_receipt = None
+
+    def prepared_event_size_bound(self, **_arguments):
+        raise AssertionError("durable event 5 must not replay preparation")
+
+    def activation_event_size_bound(self, **_arguments):
+        raise AssertionError("durable event 5 must not replay activation")
+
+    def release_receipt_size_bound(self, *, reservation):
+        if reservation != self._preparation_allocation.preparation_claim.reservation:
+            raise AssertionError("timeout bound differs from durable reservation")
+        return self.execution_policy.supervisor_limits.release_receipt_size_bytes
+
+    def prepare(self, _capability):
+        raise AssertionError("durable event 5 must not replay preparation")
+
+    def stage_activation(self, _capability):
+        raise AssertionError("durable event 5 must not replay activation")
+
+    def inspect_unactivated(self, _query):
+        raise AssertionError("durable event 5 is already activated")
+
+    def inspect_committed(self, query):
+        if query.preparation_allocation != self._preparation_allocation:
+            raise AssertionError("timeout live query differs from exact allocation")
+        inventory = self._resource_manager.observe(self._preparation_allocation)
+        raw_main = self._resource_manager.inspect_main(inventory)
+        state = raw_main.get("State")
+        if not isinstance(state, dict) or type(state.get("Running")) is not bool:
+            raise AssertionError("timeout live container state is malformed")
+        if state["Running"]:
+            running = observe_running_barrier_main_container(
+                raw_main,
+                self._preparation_allocation.preparation_claim,
+                self._preparation_allocation.runtime_volume_authority,
+                self._volume_observation,
+                self._command,
+                self._helper_evidence,
+                self._init_source_evidence,
+                self._docker_settings,
+            )
+            self._observation_state = RunActionCommittedSpawnState.RUNNING_CONTINUABLE
+            return RunActionCommittedSpawnObservation(
+                state=self._observation_state,
+                observation_token=running.complete_inspection_digest,
+            )
+        terminal = inspect_run_action_terminal(
+            query=query,
+            resource_manager=self._resource_manager,
+            command=self._command,
+            helper_evidence=self._helper_evidence,
+            init_source_evidence=self._init_source_evidence,
+            docker_settings=self._docker_settings,
+            launch_settings=self._launch_settings,
+        )
+        self._observation_state = RunActionCommittedSpawnState.TERMINAL_CONTINUABLE
+        return RunActionCommittedSpawnObservation(
+            state=self._observation_state,
+            observation_token=terminal.complete_inspection_digest,
+        )
+
+    def continue_committed_once(self, capability):
+        topology = capability.query.control_directory_topology
+        if (
+            self._observation_state is RunActionCommittedSpawnState.RUNNING_CONTINUABLE
+            and topology is RunActionControlDirectoryTopology.RELEASED
+        ):
+            self.timeout_publication = publish_run_action_timeout_once(
+                capability=capability,
+                resource_manager=self._resource_manager,
+                command=self._command,
+                helper_evidence=self._helper_evidence,
+                init_source_evidence=self._init_source_evidence,
+                docker_settings=self._docker_settings,
+                launch_settings=self._launch_settings,
+            )
+            if self.timeout_publication is None:
+                raise AssertionError("live timeout publication was not due")
+            return RunActionContinuationOutcome(
+                state=RunActionContinuationState.TIMEOUT_PUBLISHED,
+                result=None,
+                provider_termination_receipt=None,
+                timeout_directive_publication=self.timeout_publication,
+            )
+        if (
+            self._observation_state is RunActionCommittedSpawnState.RUNNING_CONTINUABLE
+            and topology is RunActionControlDirectoryTopology.TIMED_OUT
+        ):
+            self.containment_result = contain_run_action_timeout_once(
+                capability=capability,
+                resource_manager=self._resource_manager,
+                containment_manager=self._containment_manager,
+                command=self._command,
+                helper_evidence=self._helper_evidence,
+                init_source_evidence=self._init_source_evidence,
+                docker_settings=self._docker_settings,
+                launch_settings=self._launch_settings,
+            )
+            return RunActionContinuationOutcome(
+                state=RunActionContinuationState.PENDING,
+                result=None,
+                provider_termination_receipt=None,
+                timeout_directive_publication=None,
+            )
+        if (
+            self._observation_state is RunActionCommittedSpawnState.TERMINAL_CONTINUABLE
+            and topology is RunActionControlDirectoryTopology.TIMED_OUT
+        ):
+            self.termination_receipt = capture_run_action_timeout_termination(
+                capability=capability,
+                resource_manager=self._resource_manager,
+                command=self._command,
+                helper_evidence=self._helper_evidence,
+                init_source_evidence=self._init_source_evidence,
+                docker_settings=self._docker_settings,
+                launch_settings=self._launch_settings,
+            )
+            return RunActionContinuationOutcome(
+                state=RunActionContinuationState.PROVIDER_TERMINATED,
+                result=None,
+                provider_termination_receipt=self.termination_receipt,
+                timeout_directive_publication=None,
+            )
+        raise AssertionError("live timeout adapter received another continuation state")
+
+
 def _remove_owned_container(
     settings,
     docker_config_root: Path,
@@ -521,10 +696,12 @@ def _listed_exact(
     return tuple(line.decode("ascii") for line in result.stdout.splitlines())
 
 
+@pytest.mark.parametrize("terminal_path", ("result", "timeout"))
 def test_real_docker_accepts_only_the_issued_run_action_projection(
     tmp_path: Path,
     publisher_case,
     monkeypatch,
+    terminal_path,
 ) -> None:
     monkeypatch.setattr(subprocess, "run", _ORIGINAL_SUBPROCESS_RUN)
     tmp_path.chmod(0o700)
@@ -578,20 +755,25 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             architecture="amd64",
             architecture_variant=None,
         )
+        target_command = (
+            'printf \'{"live":"captured"}\''
+            " > /kapso/result/result.blob"
+            " && printf started > /kapso/tmp/target-started"
+            " && grep -Fqx 'complete request' /kapso/input/request.blob"
+            " && grep -Fqx 'credential bytes'"
+            " /kapso/credentials/credentials"
+            " && test -d /kapso/workspace/.git"
+        )
+        if terminal_path == "timeout":
+            target_command += (
+                " && exec /bin/busybox sleep " f"{2 * settings.command_timeout_seconds}"
+            )
         command = DockerRunActionCommand.build(
             entrypoint="/bin/busybox",
             arguments=(
                 "sh",
                 "-c",
-                (
-                    'printf \'{"live":"captured"}\''
-                    " > /kapso/result/result.blob"
-                    " && printf started > /kapso/tmp/target-started"
-                    " && grep -Fqx 'complete request' /kapso/input/request.blob"
-                    " && grep -Fqx 'credential bytes'"
-                    " /kapso/credentials/credentials"
-                    " && test -d /kapso/workspace/.git"
-                ),
+                target_command,
                 "target; printf injected > /kapso/tmp/barrier-injection",
             ),
         )
@@ -1423,6 +1605,81 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             )
         )
         assert release_payload.stdout == adapter.release_receipt.to_json_bytes()
+        if terminal_path == "timeout":
+            timeout_adapter = _LiveTimeoutWorkloadAdapter(
+                boundary_identity=boundary_identity,
+                execution_policy=layout_policy,
+                resource_manager=resource_manager,
+                containment_manager=DockerRunActionContainmentManager(runtime),
+                preparation_allocation=layout_allocation,
+                command=command,
+                volume_observation=layout_volume_observation,
+                helper_evidence=helper_evidence,
+                init_source_evidence=init_source_evidence,
+                docker_settings=settings,
+                launch_settings=cross_run_settings.launch,
+            )
+            publication_coordinator = _recovery_coordinator(
+                action_gate,
+                timeout_adapter,
+            )
+            assert type(publication_coordinator._release_clock) is (
+                _SystemRunActionClock
+            )
+            publication_coordinator._release_clock.boottime_nanoseconds = (
+                lambda: adapter.release_receipt.execution_deadline_boottime_nanoseconds
+            )
+            publication_report = publication_coordinator.recover(action_frontier)
+            assert not publication_report.is_complete
+            assert timeout_adapter.timeout_publication is not None
+            assert (
+                timeout_adapter.timeout_publication.timeout_directive.execution_deadline_boottime_nanoseconds
+                == adapter.release_receipt.execution_deadline_boottime_nanoseconds
+            )
+            containment_coordinator = _recovery_coordinator(
+                action_gate,
+                timeout_adapter,
+            )
+            containment_coordinator._release_clock.boottime_nanoseconds = (
+                lambda: adapter.release_receipt.containment_deadline_boottime_nanoseconds
+            )
+            containment_report = containment_coordinator.recover(action_frontier)
+            assert not containment_report.is_complete
+            assert timeout_adapter.containment_result is not None
+            assert (
+                timeout_adapter.containment_result.signal
+                is RunActionTimeoutContainmentSignal.KILL
+            )
+            assert timeout_adapter.containment_result.signal_dispatch_confirmed
+            wait_result = runtime.run_control(("container", "wait", layout_main_id))
+            assert wait_result.stdout == b"137\n"
+
+            termination_report = _recovery_coordinator(
+                action_gate,
+                timeout_adapter,
+            ).recover(action_frontier)
+            assert termination_report.is_complete
+            assert timeout_adapter.termination_receipt is not None
+            assert (
+                timeout_adapter.termination_receipt.timeout_directive_publication
+                == timeout_adapter.timeout_publication
+            )
+            timeout_events = action_gate._action_store.inspect().events_for(
+                layout_reservation.intent.operation_id
+            )
+            assert len(timeout_events) == 6
+            assert timeout_events[-1].event_kind is (
+                RunActionExecutionEventKind.PROVIDER_TERMINATED
+            )
+            assert (
+                timeout_events[-1].provider_termination_receipt
+                == timeout_adapter.termination_receipt
+            )
+            assert tree_or_blob_digest(busybox_bytes) == (
+                settings.helper_executable_digest
+            )
+            return
+
         wait_result = runtime.run_control(("container", "wait", layout_main_id))
         assert wait_result.stdout == b"0\n"
         runtime.run_control(

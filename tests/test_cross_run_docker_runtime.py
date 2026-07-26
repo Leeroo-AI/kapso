@@ -218,6 +218,57 @@ def test_runtime_executes_privately_pinned_cli_with_no_inherited_environment(
     assert (docker_config_path / "config.json").read_bytes() == b'{"auths":{}}\n'
 
 
+def test_containment_authority_has_only_closed_term_kill_surface(
+    tmp_path,
+    monkeypatch,
+    provider_settings,
+):
+    runtime, runner = _make_runtime(
+        tmp_path,
+        provider_settings,
+        additional_outputs=(
+            {"stdout": _json_line(_version(provider_settings))},
+            {"stdout": _json_line(_info(provider_settings))},
+        ),
+    )
+    authority = runtime.issue_containment_authority()
+    request_count = len(runner.requests)
+
+    assert authority.settings == provider_settings
+    assert not hasattr(authority, "run_control")
+    assert not hasattr(authority, "run_bounded")
+    with pytest.raises(
+        PinnedDockerRuntimeError,
+        match="closed authority",
+    ):
+        authority._signal_container_once(
+            container_id="a" * 64,
+            signal_name="SIGHUP",
+            _authority=runtime_module._DOCKER_CONTAINMENT_SIGNAL_AUTHORITY,
+        )
+    with pytest.raises(
+        PinnedDockerRuntimeError,
+        match="closed authority",
+    ):
+        authority._signal_container_once(
+            container_id="short-id",
+            signal_name="SIGKILL",
+            _authority=runtime_module._DOCKER_CONTAINMENT_SIGNAL_AUTHORITY,
+        )
+    assert len(runner.requests) == request_count
+    owner_process_id = authority._owner_process_id
+    monkeypatch.setattr(
+        runtime_module.os,
+        "getpid",
+        lambda: owner_process_id + 1,
+    )
+    with pytest.raises(
+        PinnedDockerRuntimeError,
+        match="unissued or foreign",
+    ):
+        authority.settings
+
+
 def test_independent_process_runtimes_serialize_authority_publication(
     tmp_path,
     monkeypatch,

@@ -803,7 +803,7 @@ def test_final_running_substitution_prevents_the_irreversible_link(monkeypatch):
     assert case.shared["link_count"] == 0
 
 
-def test_already_timed_out_running_occurrence_remains_pending_for_containment():
+def test_already_timed_out_running_occurrence_rejects_noop_pending():
     docker_settings = _configured_settings()[0]
     query = _inspection_context(docker_settings, timed_out=True)[0]
     release = query.workload_release_adoption.workload_release_receipt
@@ -832,8 +832,11 @@ def test_already_timed_out_running_occurrence_remains_pending_for_containment():
                 timeout_directive_publication=None,
             )
 
-    outcome = capability._invoke_once(_PendingContainmentAdapter())
-    assert outcome.state is RunActionContinuationState.PENDING
+    with pytest.raises(
+        RunActionRecoveryError,
+        match="nonterminal continuation consumed terminal outcome authority",
+    ):
+        capability._invoke_once(_PendingContainmentAdapter())
 
 
 def test_timeout_outcome_cannot_substitute_the_registered_publication(monkeypatch):

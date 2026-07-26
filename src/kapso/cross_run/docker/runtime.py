@@ -32,6 +32,7 @@ _PINNED_DOCKER_FILENAME_PREFIX = "docker-"
 _EMPTY_DOCKER_CONFIG = b'{"auths":{}}\n'
 _DOCKER_HOST_PREFIX = "unix://"
 _DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
+_CONTAINER_ID_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 _PLATFORM_IDENTIFIER_PATTERN = re.compile(r"^[a-z0-9]+(?:[._-][a-z0-9]+)*$")
 _REGISTRY_HOST_LABEL_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$")
 _REPOSITORY_COMPONENT_PATTERN = re.compile(r"^[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*$")
@@ -40,6 +41,12 @@ _DOCKER_OBSERVATION_AUTHORITIES: WeakKeyDictionary[
     PinnedDockerObservationAuthority, PinnedDockerRuntime
 ] = WeakKeyDictionary()
 _DOCKER_OBSERVATION_AUTHORITY_LOCK = Lock()
+_DOCKER_CONTAINMENT_AUTHORITY_ISSUANCE = object()
+_DOCKER_CONTAINMENT_SIGNAL_AUTHORITY = object()
+_DOCKER_CONTAINMENT_AUTHORITIES: WeakKeyDictionary[
+    PinnedDockerContainmentAuthority, PinnedDockerRuntime
+] = WeakKeyDictionary()
+_DOCKER_CONTAINMENT_AUTHORITY_LOCK = Lock()
 
 
 class PinnedDockerRuntimeError(RuntimeError):
@@ -77,6 +84,58 @@ class PinnedDockerObservationAuthority:
 
     def run_json_control(self, arguments: tuple[str, ...]) -> Mapping[str, Any]:
         return _parse_single_json_object(self.run_control(arguments).stdout)
+
+
+class PinnedDockerContainmentAuthority:
+    """Issued Docker authority limited to TERM/KILL of one caller-bound ID."""
+
+    def __init__(self, *, _authority: object) -> None:
+        if _authority is not _DOCKER_CONTAINMENT_AUTHORITY_ISSUANCE:
+            raise PinnedDockerRuntimeError(
+                "Docker containment authority lacks issuance authority"
+            )
+        self._owner_process_id = os.getpid()
+
+    def require_live_authority(self) -> None:
+        _docker_containment_runtime(self).require_live_authority()
+
+    @property
+    def settings(self) -> DockerRuntimeSettings:
+        """Return the immutable settings of the issuing pinned runtime."""
+
+        return _docker_containment_runtime(self).settings
+
+    def _signal_container_once(
+        self,
+        *,
+        container_id: str,
+        signal_name: str,
+        _authority: object,
+    ) -> BoundedProcessResult:
+        if (
+            type(container_id) is not str
+            or _CONTAINER_ID_PATTERN.fullmatch(container_id) is None
+            or signal_name not in {"SIGTERM", "SIGKILL"}
+            or _authority is not _DOCKER_CONTAINMENT_SIGNAL_AUTHORITY
+        ):
+            raise PinnedDockerRuntimeError(
+                "Docker containment signal lacks exact closed authority"
+            )
+        runtime = _docker_containment_runtime(self)
+        settings = runtime.settings
+        return runtime.run_bounded(
+            (
+                "container",
+                "kill",
+                "--signal",
+                signal_name,
+                container_id,
+            ),
+            timeout_seconds=settings.command_timeout_seconds,
+            cleanup_timeout_seconds=settings.cleanup_timeout_seconds,
+            stdout_byte_limit=settings.command_output_byte_limit,
+            stderr_byte_limit=settings.command_output_byte_limit,
+        )
 
 
 @dataclass(frozen=True)
@@ -224,6 +283,21 @@ class PinnedDockerRuntime:
             _DOCKER_OBSERVATION_AUTHORITIES[authority] = self
         return authority
 
+    def issue_containment_authority(self) -> PinnedDockerContainmentAuthority:
+        """Issue a projection limited to exact container TERM/KILL signals."""
+
+        self.require_live_authority()
+        authority = PinnedDockerContainmentAuthority(
+            _authority=_DOCKER_CONTAINMENT_AUTHORITY_ISSUANCE
+        )
+        with _DOCKER_CONTAINMENT_AUTHORITY_LOCK:
+            if _DOCKER_CONTAINMENT_AUTHORITIES.get(authority) is not None:
+                raise PinnedDockerRuntimeError(
+                    "Docker containment authority identity is already issued"
+                )
+            _DOCKER_CONTAINMENT_AUTHORITIES[authority] = self
+        return authority
+
     def inspect_exact_image(
         self,
         authority: DockerImageAuthority,
@@ -331,6 +405,33 @@ def _docker_observation_runtime(
             "Docker observation authority is unissued or foreign"
         )
     return runtime
+
+
+def _docker_containment_runtime(
+    authority: PinnedDockerContainmentAuthority,
+) -> PinnedDockerRuntime:
+    with _DOCKER_CONTAINMENT_AUTHORITY_LOCK:
+        runtime = _DOCKER_CONTAINMENT_AUTHORITIES.get(authority)
+    if (
+        type(authority) is not PinnedDockerContainmentAuthority
+        or authority._owner_process_id != os.getpid()
+        or type(runtime) is not PinnedDockerRuntime
+    ):
+        raise PinnedDockerRuntimeError(
+            "Docker containment authority is unissued or foreign"
+        )
+    return runtime
+
+
+def _docker_authorities_share_runtime(
+    observation_authority: PinnedDockerObservationAuthority,
+    containment_authority: PinnedDockerContainmentAuthority,
+) -> bool:
+    """Join read and mutation projections without exposing their runtime."""
+
+    return _docker_observation_runtime(
+        observation_authority
+    ) is _docker_containment_runtime(containment_authority)
 
 
 def _require_docker_observation_arguments(arguments: tuple[str, ...]) -> None:
