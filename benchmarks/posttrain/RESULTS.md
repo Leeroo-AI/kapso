@@ -71,6 +71,8 @@ the Gemma license accepted.
 
 ### Arena Hard Writing (weight .0904)
 
+Figure: `arenahard_board.png` (aggregate + all four cells, site-styled).
+
 | Model | Base | #1 proven | #2 proven | #3 proven | Human | Ours | Status |
 |---|---:|---|---|---|---:|---:|---|
 | Qwen3-1.7B | 0.9 | **ours · 67.8** | fable-5 · 57.1 | opus-4.8 · 45.0 | 50.0 | **67.8 ✓clean** | ✅ run #18 (10h official, 2026-07-19): **42.40 ±1.6, both judges clean** — 4th-tier row despite a 3h mid-run hang (dead ScheduleWakeup timer, reviews/run18-review.md); teacher-distill v1 17.06 → v2 34.6 → 42.4. `arenahardwriting-qwen3-1-7b-base-0718134` |
