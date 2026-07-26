@@ -51,10 +51,11 @@ any leaderboard agent has actually achieved in a 10h run.
 
 For every cell (benchmark × base model): its base score, the top-3 proven
 agent results from the leaderboard, human (official instruct), then ours and
-status. Campaign aggregate if submitted today: **16.52** (base 7.53 + gsm8k net
-+0.95 + bfcl net +1.80 + arena net +4.16 + aime net +2.08: AIME table complete
-at 6.67 / 20.0 / 16.67 / 0.0 — our 4-model AIME average 10.85 now edges the
-best proven agent average, opus-4.8-max's 10.8).
+status. Campaign aggregate if submitted today: **18.03** (base 7.53 + gsm8k net
++0.95 + bfcl net +1.80 + arena net +4.16 + aime net +2.08 + gpqa net +1.51 so
+far: AIME table complete at 6.67/20.0/16.67/0.0 — our 4-model AIME average
+10.85 edges the best proven agent average, opus-4.8-max's 10.8; GPQA 2 of 4
+booked at 32.1/22.3, SmolLM3 + gemma cells in flight).
 Cells needing unlocks are marked: [J] = judge-scored,
 needs `openai-api-key` secret; [G] = gated model, needs HF `hf-token` with
 the Gemma license accepted.
@@ -112,8 +113,8 @@ strict parity claim to maintainers.
 
 | Model | Base | #1 proven | #2 proven | #3 proven | Human | Ours | Status |
 |---|---:|---|---|---|---:|---:|---|
-| Qwen3-1.7B | 14.1 | gpt-5.2-codex · 29.5 | gpt-5.5-xh-rp · 29.5 | gpt-5.4-high · 29.4 | 35.5 | — | pending |
-| Qwen3-4B | 13.4 | gpt-5.4-h-rp · 34.1 | gpt-5.5-xhigh · 34.0 | gpt-5.5-xh-rp · 33.9 | 44.6 | — | pending |
+| Qwen3-1.7B | 14.1 | gpt-5.2-codex · 29.5 | gpt-5.5-xh-rp · 29.5 | gpt-5.4-high · 29.4 | 35.5 | **22.3 ✓clean** | ✅ run #33 (10h official, 2026-07-26): **22.32 ±2.0 via rescore, judges clean** — +8.2 over base, below the 29.5 proven band; in-run champion read 28.67 @150 but the first-150 subset proved a BIASED estimator of the full 448 (see review); 529-killed iter-1 recovered in 4 min; endgame champion-defense exemplary. `gpqamain-qwen3-1-7b-base-07252105` |
+| Qwen3-4B | 13.4 | gpt-5.4-h-rp · 34.1 | gpt-5.5-xhigh · 34.0 | gpt-5.5-xh-rp · 33.9 | 44.6 | **32.1 ✓clean** | ✅ run #32 (10h official, 2026-07-26): **32.14 ±2.2 via rescore, judges clean** — 4th-tier row 1.8 under proven #1 (within ~1σ of the 33.9-34.1 band), +18.7 over base; teacher distillation + rep_penalty 1.1 (the AIME decode lever generalized); agent's own full-448 confirm read 33.48. `gpqamain-qwen3-4b-base-07252103` |
 | SmolLM3-3B | 4.9 | gpt-5.5-xh-rp · 30.6 | glm-5.2 · 29.8 | gpt-5.4-high · 29.0 | 33.3 | — | pending |
 | gemma-3-4b | 1.6 | gpt-5.4-high · 29.5 | opus-4.7 · 28.7 | opus-4.8 · 28.7 | 31.5 | — | pending [G] |
 
@@ -211,8 +212,8 @@ with `gcp/20_fetch_results.sh <run_id>`. Layout per run:
 | #22 | arenahard × gemma-3-4b 10h | ABORTED @t+25m | `arenahardwriting-gemma-3-4b-pt-07241440` | killed 15:0xZ (same); its first attempt 07241426 died on the transient host-python preflight, boot now hardened (2703dc24) |
 | #23 | arenahard × Qwen3-1.7B 10h | **67.82 ✓clean** | `arenahardwriting-qwen3-1-7b-base-0724154` | official 0.6782 ±0.015 (9h29) — **CELL RECORD: +10.7 over fable-5's proven 57.1, +17.8 over human**; post-hoc judges clean ('no contamination detected' / 'only allowed use detected', gpt-5.6-sol replicating the exact harness stage after upstream's gpt-5.1-codex deprecation; verdicts in postjudge/); `reviews/run23-review.md` |
 | #26 | aime2025 × Qwen3-4B 10h | **20.0 ✓clean** | `aime2025-qwen3-4b-base-07250201` | official via rescore (on-VM final eval failed 9× — qwen-AIME serving pattern 2/2; judges clean integrated) — 1 shy of proven #1; in-run pooled ≈24; `reviews/run26-review.md` |
-| #33 | gpqamain × Qwen3-1.7B 10h | in flight (us-east4-a) | `gpqamain-qwen3-1-7b-base-07252105` | failover-stack relaunch of the #30 cell (3-token oauth verified on-VM); iter-1 killed by Anthropic 529 at t+48m, boundary machinery recovered in 4 min; `reviews/run33-review.md` |
-| #32 | gpqamain × Qwen3-4B 10h | in flight (us-east4-a) | `gpqamain-qwen3-4b-base-07252103` | failover-stack relaunch of the #29 cell; base measured 8.67% (below-random format hazard confirmed), 24% model promoted by t+2.5h; `reviews/run32-review.md` |
+| #33 | gpqamain × Qwen3-1.7B 10h | **22.32 ✓clean** | `gpqamain-qwen3-1-7b-base-07252105` | official via rescore (final-eval fail 6/6 + first rescore attempt died on GATED gpqa dataset — hf-token fix 88fe3914); @150-subset bias exposed (28.67 in-run vs 22.32 full); 529-kill recovered in 4 min; `reviews/run33-review.md` |
+| #32 | gpqamain × Qwen3-4B 10h | **32.14 ✓clean** | `gpqamain-qwen3-4b-base-07252103` | official via rescore — 1.8 under proven #1 34.1 (within ~1σ); iter-1 16.0-below-random recovered to 33.48 full-448 in-run (teacher distill + rp 1.1); failover-stack debut, zero limit events; `reviews/run32-review.md` |
 | #31 | gpqamain × SmolLM3 10h | STOPPED @t+~35m | `gpqamain-smollm3-3b-base-07251809` | GPQA queue #3 (launched 18:09Z); stopped 2026-07-25 ~18:4xZ with #29/#30 — user call: implement OAuth failover first; trace archived (GCS + scratchpad stopped_runs_archive) for later study |
 | #30 | gpqamain × Qwen3-1.7B 10h | STOPPED @t+~6.5h | `gpqamain-qwen3-1-7b-base-07251202` | GPQA queue #2 (launched 12:02Z); starved by the shared-token session limit ~18:20→20:10Z, stopped ~18:4xZ for the failover build; trace archived for later study |
 | #27 | aime2025 × SmolLM3 10h | **16.67 ✓clean** | `aime2025-smollm3-3b-base-07250208` | official (9h18) TIES proven #1; first fully-integrated judge re-pin test PASSED; `reviews/run27-review.md` |

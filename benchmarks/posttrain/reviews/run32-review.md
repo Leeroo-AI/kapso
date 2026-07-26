@@ -67,3 +67,41 @@ run's central hazard.
   cross-run via the difficulties chain, applied without a wasted restart.
 - Training healthy at cut: step 150/509, loss 0.83→0.53, token-acc
   0.79→0.83; ~3.5h session time left.
+
+## P3 (close-out: RUN_DONE 06:49Z → rescore 07:4xZ)
+
+**FINAL: official 32.14 ±2.2 via rescore · both judges clean · 2
+iterations (0.16 → 0.335).** 4th-tier row: 1.8 under proven #1
+gpt-5.4-h-rp 34.1, within ~1σ of the 33.9-34.1 top-3 band; +18.7 over
+base 13.4.
+
+- **Recipe that recovered the run**: teacher distillation (traces
+  registered to shared cache for future GPQA runs) + **rep_penalty 1.1 —
+  the AIME decode lever generalizing across benchmarks**: 2ep model was
+  28.67 pure-greedy with 15.3% parse failures; rp 1.1 lifted it to 37.33
+  @150. Ladder: 28.0 (3.5h) → nothink_big regression 16.0 (−12, ~90
+  GPU-min burned) → 35.33 → **37.33 @150 → 0.3348 full-448 confirm**.
+- **R32-P3-1 — the @150 subset is a BIASED estimator, not just noisy.**
+  37.33 @150 → 33.48 full-448 → 32.14 official (fresh serve). The first-
+  150-in-stable-order slice ran 4-5 points hot on this artifact (#33
+  confirms independently: 28.67 @150 → 22.32 full). The agent's unprompted
+  full-448 freeze-time confirm (~14 GPU-min) is what kept the banked
+  number honest — institutionalized in PRIOR_RUN_INSIGHTS: spend one
+  full-set eval before freeze, promote on that.
+- **R32-P3-2 — feedback-judge forensics quality.** Provenance verified
+  (evaluate.py/templates mtimes untouched), orphaned-value audit CLEAN
+  (best artifact shipped; teacher_sft_big 35.33 and 1ep-rp11 35.33 both
+  lower; rp1.2 eval never completed), counterfactual ledger priced the
+  nothink_big detour + late teacher start at "the 35+ plateau landed 2-3h
+  late". Score banked at the robust 0.335, with an explicit n≥300
+  promotion gate for any successor.
+- **Final-eval serving failure 5/6** (with #33's 6/6): RUN_DONE exit 0,
+  metrics.json missing, judges fine. **First rescore attempt ALSO failed
+  — new gap: `Idavidrein/gpqa` is a GATED HF dataset and the rescore VM
+  had no HF auth** (AIME/GSM8K are ungated — 4/4 luck, not robustness).
+  Fixed in 88fe3914 (hf-token → $HF_HOME/token, mirroring run VMs);
+  second attempt returned metrics cleanly.
+- Failover stack debut: zero session-limit events across 9h46 (fresh
+  main token); swap machinery present but unexercised. fd-level
+  streaming I/O ran the full campaign day without artifacts.
+

@@ -63,3 +63,39 @@ live at ~03:24.
 - 1.7B currently OUTSCORES the 4B run (0.2867 vs 0.16 at n=150) — the
   smaller model's run banked the format+distill recipe cleanly while 4B
   burned iter-1 on subset-noise promotions.
+
+## P3 (close-out: RUN_DONE 06:59Z → rescore 07:5xZ)
+
+**FINAL: official 22.32 ±2.0 via rescore · both judges clean · 4 nodes
+(None → 0.2867 → 0.2767 → None).** +8.2 over base 14.1; well under the
+29.5/29.5/29.4 proven band — but the shipped artifact was defended
+flawlessly, and the gap decomposes into two measurable causes.
+
+- **R33-P3-1 — the @150 subset bias is the headline gap.** In-run
+  champion read 28.67 @150; official full-448 = 22.32. Unlike #32, this
+  run NEVER ran a full-448 confirm — every eval was --limit 150 — so the
+  bank carried the subset's optimism to the end. Cross-run evidence now
+  2/2 (#32: 37.33@150 → 32.14 official). Lesson institutionalized in
+  PRIOR_RUN_INSIGHTS (full-set confirm before freeze). At 22.3 vs a
+  hypothetical honest ~23-25 bank the ARTIFACT was still the right ship;
+  what was lost is decision quality (iter-3's 0.2767 "loss" vs 0.2867
+  was inside the subset's own bias band — a full-448 A/B might have
+  re-banked).
+- **R33-P3-2 — endgame champion defense, best specimen yet.** The final
+  gambit candidate was caught catastrophically broken MID-EVAL via
+  partial-log preview at 80/150 (accuracy 0.0125, parse 0.29, 74%
+  truncated, p50 completion 54,556 chars of repetition); eval aborted,
+  champion verified (md5 e1f06d96 + fresh-process load + greedy
+  genconfig intact), best_score.log floor untouched, GPU swept to 0 MiB,
+  closed with 22 min spare. The negative result was committed to docs.
+- **R33-P3-3 — 529-kill recovery (P1) held up end-to-end**: the
+  externally-killed iter-1 cost 48 min + $0.82 total; its replacement
+  banked the champion. Boundary machinery 2-for-2 under provider
+  outages.
+- Watcher discipline: layered completion + startup-check + dead-man
+  watchers on the last eval (bqf9tk4ji/ba4y27rzi/btz9wesz1), zero dud
+  fires, notification-driven waits throughout.
+- Same infra notes as #32: final-eval serving failure (6/6), first
+  rescore attempt died on the gated-gpqa auth gap (fixed 88fe3914),
+  zero session-limit events, failover unexercised.
+

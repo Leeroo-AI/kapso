@@ -52,6 +52,13 @@ PRIOR_RUN_INSIGHTS = """
   model with an aggressive late experiment and submitting it, format drift
   between training and eval, and idling after 2-3 hours instead of using the
   full budget.
+- When the benchmark evaluates a fixed SUBSET during iterations (e.g.
+  --limit N takes the FIRST N samples in stable order) but the official
+  score runs the FULL set, the subset is a biased estimator, not just a
+  noisy one: measured on GPQA-main, @150 reads ran ~1-6 points above the
+  full-448 score on the same artifact. Before the freeze, spend one eval on
+  the full set (it is often cheap relative to its decision value) and
+  promote/report on that number.
 """
 
 
