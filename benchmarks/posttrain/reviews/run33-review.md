@@ -39,3 +39,27 @@ relaunched the same selected plan with added resilience discipline.**
   boundary (base-model-only, no GPQA in training, no evaluate.py edits,
   'qwen' in artifact paths for jinja routing).
 - Zero session-limit events; failover not yet exercised.
+
+## P2 (t+2.7h → t+6.5h)
+
+Headline: **iteration 2 (the relaunched plan) shipped a real result:
+0.2867 (43/150) vs base 0.1867 — +10pp, ABOVE the 25% random floor, within
+~2pts of the proven ~30.5 band.** Boundary audit md5-verified final_model
+== champion `qwen3_distill_c` and confirmed 0.2867 is the max across every
+candidate metric file (a=0.16/0.12, b=…). Verdict CONTINUE; iteration 3
+live at ~03:24.
+
+- **R33-P2-1 — OBS (measured-claims contract catches a bad assumption
+  live).** Iter-3's inherited plan ASSUMED OpenScienceReasoning-2 is
+  "exactly four A-D choices"; recon measured rows carry options A-J —
+  only **30.2% are clean 4-choice** with consistent answers. Plan updated
+  before any training spend. This is the Coverage/MEASURED-vs-ASSUMED
+  machinery (816500d1) paying for itself at the exact failure point it
+  was designed for.
+- **R33-P2-2 — OBS (iter-3 shape).** Decode-fix first (champion copy +
+  generation_config temp/rp verified by live reads), paired larger-n
+  confirm gate before any re-bank (AIME pooled-gate lesson generalized),
+  consolidate by T−45.
+- 1.7B currently OUTSCORES the 4B run (0.2867 vs 0.16 at n=150) — the
+  smaller model's run banked the format+distill recipe cleanly while 4B
+  burned iter-1 on subset-noise promotions.

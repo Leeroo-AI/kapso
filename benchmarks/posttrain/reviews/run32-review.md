@@ -45,3 +45,25 @@ State at cut: 24% model promoted (≈3× base, 1 pt under random floor — the
 format fix landed, knowledge lift is next); curating a relaxed-cap
 short-trace corpus (~35k examples; tight cap had dropped 26.5k valid) and
 auditing non-ASCII garbage leakage in completions.
+
+## P2 (t+2.7h → t+6.5h)
+
+Headline: **iteration 1's 24-28% promotions did NOT hold at n=150 — the
+official iteration score landed at 16.0% (below random), and the boundary
+audit caught the gap honestly** ("No mis-promotion: final_model=Exp4=16.0
+@150 IS the best banked artifact; Exp3=14.67 worse; the 24.0/28.0 in
+best_score.log were smaller-n reads"). The subset-vs-150 noise trap (AIME's
+n=30 lesson at GPQA scale: ±4pts 1σ at n=150, worse on subsets) is now this
+run's central hazard.
+
+- **R32-P2-1 — OBS (iter-2 boundary quality).** Ideation harvested the dead
+  session's workspace facts/risks explicitly (prev session's jsonl files
+  lived on ephemeral /tmp — flagged as a risk), and the new plan front-loads
+  a bankable Phase A (1 epoch over a 24k mix, kill-gates included).
+- **R32-P2-2 — OBS (buffered-log lesson applied).** At 03:25 the training
+  log went silent ~9 min; the agent checked GPU (97%/629W = training alive),
+  identified Python block-buffering as the cause, and switched to
+  trainer_state.json for ground truth — run 28's difficulty #3, learned
+  cross-run via the difficulties chain, applied without a wasted restart.
+- Training healthy at cut: step 150/509, loss 0.83→0.53, token-acc
+  0.79→0.83; ~3.5h session time left.
