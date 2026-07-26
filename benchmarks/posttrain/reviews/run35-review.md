@@ -31,3 +31,40 @@ after the lesson was written into PRIOR_RUN_INSIGHTS.**
   start of the campaign.
 - State at cut: Stage-B full FT at 54% (~30 min left), decoding-config
   write + @150 eval queued on completion.
+
+## P2 (t+2.7h → t+6.3h)
+
+Headline: **iter-1 banked 0.2634 (26.34% full-448) — ABOVE the 25% random
+floor and within ~2-3 pts of the proven band (28.7-29.5), on the
+weakest-base cell of the whole GPQA table (base 1.6).** gemma is
+OUTSCORING the SmolLM3 run head-to-head (26.3 vs 16.7) — the inverse of
+the arena/AIME ordering: the science-MCQ register plus gemma's stronger
+base knowledge clears the parse wall that pins the smaller model.
+
+- **R35-P2-1 — OBS (subset-bias discipline, maximal).** 253 in-trace
+  "full-448" references — the most thorough adoption of the @150-bias
+  lesson yet; every promotion decision routed through the full set.
+  Endgame plan is explicit: "sanitize generation_config → verify GPU
+  free → @150 gate (parse/length/score) → full-448 → promote if >".
+- **R35-P2-2 — OBS (iter-2 conduct).** Full-FT continuing; training
+  healthy (~4.5-5 s/step, loss ~0.85-0.88, cosine LR), checkpoint-150
+  saved as kill-early safety net, save-fix verified via a dedicated
+  checkpoint watcher. Completion ETA ~15:15Z.
+- **R35-P2-3 — OBS (watcher discipline, still cleanest).** Layered
+  completion + checkpoint + bounded dead-man watchers; genuine
+  turn-ending waits throughout; no dud fires.
+- No session-limit events; failover idle.
+
+## Framework note (both runs, P2)
+
+FREEZE WARNING false-alarm: the finish watcher flagged both traces
+"static ~50-60 min" at ~14:25Z while both were in fact mid-training and
+healthy (pulled traces carried 14:26-14:27Z thinking lines; GCS caught
+up to ~1 MB by 14:30). Cause: GPQA training-wait windows go legitimately
+quiet (agent awaiting a completion notification, minimal stdout) and the
+5-min rsync uploads in bursts, so the 50-min freeze threshold trips on a
+healthy quiet stretch. Watcher-tuning item (raise the GPQA freeze
+threshold or gate on VM-status + GPU-util instead of trace bytes); no run
+impact. Also worth banking for the eventual `knowledge/gpqamain.md`:
+both runs' full-448 discipline confirms the @150-subset-bias lesson
+(written from #33) transferred cleanly to the next model generation.
