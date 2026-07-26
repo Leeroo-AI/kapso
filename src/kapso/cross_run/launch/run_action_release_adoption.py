@@ -34,6 +34,7 @@ from kapso.cross_run.settings import LaunchSettings
 _RELEASE_FILE_NAME = "release"
 _RELEASE_FILE_MODE = 0o400
 _RUN_ACTION_TIMEOUT_ADOPTION_AUTHORITY = object()
+_RUN_ACTION_TIMEOUT_PUBLICATION_DESCRIPTOR_AUTHORITY = object()
 
 
 class RunActionReleaseAdoptionError(RuntimeError):
@@ -169,6 +170,37 @@ class RunActionReleaseInspectionLease:
         os.set_inheritable(descriptor, False)
         self.require_current()
         return descriptor
+
+    def _duplicate_timeout_publication_descriptors(
+        self,
+        *,
+        descriptors: ExitStack,
+        _authority: object,
+    ) -> tuple[int, int]:
+        """Duplicate one retained RELEASED control and release occurrence."""
+
+        self.require_current()
+        if (
+            self._topology is not RunActionControlDirectoryTopology.RELEASED
+            or type(self._release_descriptor) is not int
+            or type(descriptors) is not ExitStack
+            or _authority is not _RUN_ACTION_TIMEOUT_PUBLICATION_DESCRIPTOR_AUTHORITY
+        ):
+            raise RunActionReleaseAdoptionError(
+                "timeout publication lacks exact retained release descriptors"
+            )
+        control_descriptor = os.dup(self._control_lease._control_descriptor)
+        descriptors.callback(os.close, control_descriptor)
+        os.set_inheritable(control_descriptor, False)
+        release_descriptor = os.dup(self._release_descriptor)
+        descriptors.callback(os.close, release_descriptor)
+        os.set_inheritable(release_descriptor, False)
+        if control_descriptor == release_descriptor:
+            raise RunActionReleaseAdoptionError(
+                "timeout publication descriptors are not distinct"
+            )
+        self.require_current()
+        return control_descriptor, release_descriptor
 
     def __enter__(self) -> "RunActionReleaseInspectionLease":
         self.require_current()

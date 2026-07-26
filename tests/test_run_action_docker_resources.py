@@ -6,6 +6,7 @@ from dataclasses import replace
 import pytest
 
 import kapso.cross_run.docker.runtime as runtime_module
+import kapso.cross_run.launch.run_action_docker_resources as resources_module
 from kapso.core.config import load_config
 from kapso.cross_run.canonical import tree_or_blob_digest
 from kapso.cross_run.docker.runtime import (
@@ -226,6 +227,48 @@ def test_inventory_proves_all_three_names_absent_across_two_scans(resource_conte
     assert inventory.is_absent
     assert inventory.preparation_allocation == allocation
     assert runner.lookup_count == 18
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    (
+        ("container", "stop", _MAIN_CONTAINER_ID),
+        ("container", "kill", _MAIN_CONTAINER_ID),
+        ("volume", "rm", "provider-volume"),
+    ),
+)
+def test_resource_manager_retains_only_read_only_docker_authority(
+    resource_context,
+    arguments,
+):
+    manager, runner, _allocation, _claim = resource_context
+    request_count = len(runner.requests)
+    observation_authority = resources_module._run_action_observation_authority(manager)
+
+    assert manager.runtime_settings == runner.settings
+    assert not hasattr(manager, "runtime")
+    assert not hasattr(manager, "_runtime")
+    assert not hasattr(manager, "_observation_authority")
+    assert not hasattr(observation_authority, "run_bounded")
+    with pytest.raises(
+        PinnedDockerRuntimeError,
+        match="cannot execute provider mutations",
+    ):
+        observation_authority.run_control(arguments)
+    assert len(runner.requests) == request_count
+
+
+def test_resource_manager_runtime_binding_cannot_be_relabelled(resource_context):
+    manager, runner, allocation, _claim = resource_context
+    foreign_settings = replace(
+        runner.settings,
+        runtime_socket_path="/run/foreign-docker.sock",
+    )
+    manager._runtime_settings = foreign_settings
+    manager._observation_authority = object()
+
+    assert manager.runtime_settings == runner.settings
+    assert manager.observe(allocation).is_absent
 
 
 def test_inventory_rebinds_exact_labels_and_container_ids(resource_context):

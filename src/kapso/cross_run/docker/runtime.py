@@ -10,8 +10,10 @@ import stat
 from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
+from threading import Lock
 from types import MappingProxyType
 from typing import Any, ClassVar, Mapping, Protocol
+from weakref import WeakKeyDictionary
 
 from kapso.cross_run.canonical import tree_or_blob_digest
 from kapso.cross_run.contracts import StrictContract
@@ -33,6 +35,11 @@ _DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 _PLATFORM_IDENTIFIER_PATTERN = re.compile(r"^[a-z0-9]+(?:[._-][a-z0-9]+)*$")
 _REGISTRY_HOST_LABEL_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$")
 _REPOSITORY_COMPONENT_PATTERN = re.compile(r"^[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*$")
+_DOCKER_OBSERVATION_AUTHORITY_ISSUANCE = object()
+_DOCKER_OBSERVATION_AUTHORITIES: WeakKeyDictionary[
+    PinnedDockerObservationAuthority, PinnedDockerRuntime
+] = WeakKeyDictionary()
+_DOCKER_OBSERVATION_AUTHORITY_LOCK = Lock()
 
 
 class PinnedDockerRuntimeError(RuntimeError):
@@ -43,6 +50,33 @@ class PinnedDockerProcessRunner(Protocol):
     """The bounded host-process primitive used by the Docker runtime."""
 
     def run(self, request: BoundedProcessRequest) -> BoundedProcessResult: ...
+
+
+class PinnedDockerObservationAuthority:
+    """Issued read-only Docker authority with no provider mutation surface."""
+
+    def __init__(self, *, _authority: object) -> None:
+        if _authority is not _DOCKER_OBSERVATION_AUTHORITY_ISSUANCE:
+            raise PinnedDockerRuntimeError(
+                "Docker observation authority lacks issuance authority"
+            )
+        self._owner_process_id = os.getpid()
+
+    def require_live_authority(self) -> None:
+        _docker_observation_runtime(self).require_live_authority()
+
+    @property
+    def settings(self) -> DockerRuntimeSettings:
+        """Return the immutable settings of the issuing pinned runtime."""
+
+        return _docker_observation_runtime(self).settings
+
+    def run_control(self, arguments: tuple[str, ...]) -> BoundedProcessResult:
+        _require_docker_observation_arguments(arguments)
+        return _docker_observation_runtime(self).run_control(arguments)
+
+    def run_json_control(self, arguments: tuple[str, ...]) -> Mapping[str, Any]:
+        return _parse_single_json_object(self.run_control(arguments).stdout)
 
 
 @dataclass(frozen=True)
@@ -175,6 +209,21 @@ class PinnedDockerRuntime:
         info = self.run_json_control(("info", "--format", "{{json .}}"))
         _require_daemon_authority(version, info, self._settings)
 
+    def issue_observation_authority(self) -> PinnedDockerObservationAuthority:
+        """Issue a read-only projection that cannot execute Docker mutations."""
+
+        self.require_live_authority()
+        authority = PinnedDockerObservationAuthority(
+            _authority=_DOCKER_OBSERVATION_AUTHORITY_ISSUANCE
+        )
+        with _DOCKER_OBSERVATION_AUTHORITY_LOCK:
+            if _DOCKER_OBSERVATION_AUTHORITIES.get(authority) is not None:
+                raise PinnedDockerRuntimeError(
+                    "Docker observation authority identity is already issued"
+                )
+            _DOCKER_OBSERVATION_AUTHORITIES[authority] = self
+        return authority
+
     def inspect_exact_image(
         self,
         authority: DockerImageAuthority,
@@ -266,6 +315,72 @@ class PinnedDockerRuntime:
         if read_verified_private_executable(self._docker_path) != self._docker_digest:
             raise PinnedDockerRuntimeError("pinned Docker executable changed")
         _require_runtime_socket(Path(self._settings.runtime_socket_path))
+
+
+def _docker_observation_runtime(
+    authority: PinnedDockerObservationAuthority,
+) -> PinnedDockerRuntime:
+    with _DOCKER_OBSERVATION_AUTHORITY_LOCK:
+        runtime = _DOCKER_OBSERVATION_AUTHORITIES.get(authority)
+    if (
+        type(authority) is not PinnedDockerObservationAuthority
+        or authority._owner_process_id != os.getpid()
+        or type(runtime) is not PinnedDockerRuntime
+    ):
+        raise PinnedDockerRuntimeError(
+            "Docker observation authority is unissued or foreign"
+        )
+    return runtime
+
+
+def _require_docker_observation_arguments(arguments: tuple[str, ...]) -> None:
+    if (
+        not isinstance(arguments, tuple)
+        or not arguments
+        or any(
+            not isinstance(argument, str) or not argument or "\x00" in argument
+            for argument in arguments
+        )
+    ):
+        raise PinnedDockerRuntimeError(
+            "Docker observation command has malformed arguments"
+        )
+    if _is_docker_list_observation(arguments) or _is_docker_inspect_observation(
+        arguments
+    ):
+        return
+    raise PinnedDockerRuntimeError(
+        "Docker observation authority cannot execute provider mutations"
+    )
+
+
+def _is_docker_list_observation(arguments: tuple[str, ...]) -> bool:
+    if arguments[:2] == ("container", "ls"):
+        fixed_prefix = ("container", "ls", "--all", "--no-trunc")
+        expected_format = "{{json .ID}}"
+    elif arguments[:2] == ("volume", "ls"):
+        fixed_prefix = ("volume", "ls")
+        expected_format = "{{json .Name}}"
+    else:
+        return False
+    if (
+        arguments[: len(fixed_prefix)] != fixed_prefix
+        or len(arguments) < len(fixed_prefix) + 2
+        or arguments[-2:] != ("--format", expected_format)
+    ):
+        return False
+    filters = arguments[len(fixed_prefix) : -2]
+    return len(filters) % 2 == 0 and all(
+        filters[position] == "--filter" for position in range(0, len(filters), 2)
+    )
+
+
+def _is_docker_inspect_observation(arguments: tuple[str, ...]) -> bool:
+    return (
+        len(arguments) == 5
+        and arguments[0] in {"container", "volume"}
+        and arguments[1:4] == ("inspect", "--format", "{{json .}}")
+    )
 
 
 def read_verified_root_executable(path: Path, expected_digest: str) -> bytes:

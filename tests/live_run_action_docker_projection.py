@@ -300,6 +300,7 @@ class _LiveBlockedWorkloadAdapter:
             state=RunActionContinuationState.PENDING,
             result=None,
             provider_termination_receipt=None,
+            timeout_directive_publication=None,
         )
 
 
@@ -399,6 +400,7 @@ class _LiveTerminalWorkloadAdapter:
             state=RunActionContinuationState.RESULT_CAPTURED,
             result=self.captured_result,
             provider_termination_receipt=None,
+            timeout_directive_publication=None,
         )
 
 

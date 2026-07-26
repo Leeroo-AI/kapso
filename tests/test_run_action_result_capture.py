@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+from dataclasses import replace
 
 import pytest
 
@@ -76,6 +77,7 @@ def _capture_case(
     )
     manager, remaining_main_payloads = _patch_physical_inspection(
         monkeypatch,
+        docker_settings=docker_settings,
         inventory=inventory,
         volume_raw=_volume_raw(
             query.prepared_execution.runtime_volume_authority,
@@ -155,6 +157,44 @@ def _reinspect_terminal(
     )
 
 
+def test_result_capture_rejects_settings_from_another_runtime(monkeypatch):
+    (
+        capability,
+        _query,
+        manager,
+        _raw,
+        command,
+        helper,
+        init,
+        docker_settings,
+        launch_settings,
+        outer_release,
+        remaining_main_payloads,
+    ) = _capture_case(monkeypatch, ())
+    foreign_settings = replace(
+        docker_settings,
+        runtime_socket_path="/run/foreign-docker.sock",
+    )
+
+    with pytest.raises(
+        result_capture.RunActionResultCaptureError,
+        match="configured authority",
+    ):
+        result_capture.capture_run_action_terminal_result(
+            capability=capability,
+            resource_manager=manager,
+            command=command,
+            helper_evidence=helper,
+            init_source_evidence=init,
+            docker_settings=foreign_settings,
+            launch_settings=launch_settings,
+        )
+
+    assert outer_release.current_checks == 0
+    assert not outer_release.closed
+    assert len(remaining_main_payloads) == 2
+
+
 def test_trusted_result_capture_registers_the_exact_provider_result(monkeypatch):
     deadline = _inspection_context(_configured_settings()[0])[
         0
@@ -225,6 +265,7 @@ def test_trusted_result_capture_registers_the_exact_provider_result(monkeypatch)
                 state=RunActionContinuationState.RESULT_CAPTURED,
                 result=self.result,
                 provider_termination_receipt=None,
+                timeout_directive_publication=None,
             )
 
     adapter = _TrustedCaptureAdapter()
@@ -282,6 +323,7 @@ def test_fabricated_result_cannot_bypass_the_trusted_capture_leaf(monkeypatch):
                 state=RunActionContinuationState.RESULT_CAPTURED,
                 result=result,
                 provider_termination_receipt=None,
+                timeout_directive_publication=None,
             )
 
     with pytest.raises(
@@ -347,6 +389,7 @@ def test_nonterminal_observation_cannot_return_a_fabricated_result(
                 state=RunActionContinuationState.RESULT_CAPTURED,
                 result=forged_result,
                 provider_termination_receipt=None,
+                timeout_directive_publication=None,
             )
 
     with pytest.raises(
@@ -422,6 +465,7 @@ def test_adapter_cannot_discard_a_trusted_capture(monkeypatch, capture_outcome):
                     state=RunActionContinuationState.PENDING,
                     result=None,
                     provider_termination_receipt=None,
+                    timeout_directive_publication=None,
                 )
             substituted = RunActionProviderResult(
                 terminal_observation=terminal,
@@ -437,6 +481,7 @@ def test_adapter_cannot_discard_a_trusted_capture(monkeypatch, capture_outcome):
                 state=RunActionContinuationState.RESULT_CAPTURED,
                 result=substituted,
                 provider_termination_receipt=None,
+                timeout_directive_publication=None,
             )
 
     with pytest.raises(
@@ -446,7 +491,7 @@ def test_adapter_cannot_discard_a_trusted_capture(monkeypatch, capture_outcome):
         capability._invoke_once(_DiscardingAdapter())
 
 
-def test_result_capture_must_start_by_the_original_execution_deadline(monkeypatch):
+def test_released_terminal_result_capture_wins_at_the_execution_deadline(monkeypatch):
     query = _inspection_context(_configured_settings()[0])[0]
     deadline = (
         query.workload_release_adoption.workload_release_receipt.execution_deadline_boottime_nanoseconds
@@ -463,7 +508,7 @@ def test_result_capture_must_start_by_the_original_execution_deadline(monkeypatc
         launch_settings,
         _outer_release,
         _remaining_main_payloads,
-    ) = _capture_case(monkeypatch, (deadline + 1,))
+    ) = _capture_case(monkeypatch, (deadline,))
     payload = b'{"captured":"deadline"}'
 
     class _DeadlineAdapter:
@@ -509,10 +554,13 @@ def test_result_capture_must_start_by_the_original_execution_deadline(monkeypatc
                 state=RunActionContinuationState.RESULT_CAPTURED,
                 result=result,
                 provider_termination_receipt=None,
+                timeout_directive_publication=None,
             )
 
-    with pytest.raises(RunActionRecoveryError, match="started outside"):
-        capability._invoke_once(_DeadlineAdapter())
+    outcome = capability._invoke_once(_DeadlineAdapter())
+
+    assert outcome.state is RunActionContinuationState.RESULT_CAPTURED
+    assert outcome.result.result_payload == payload
 
 
 def test_timed_out_topology_cannot_consume_result_capture_authority():
@@ -556,6 +604,7 @@ def test_timed_out_topology_cannot_consume_result_capture_authority():
                 state=RunActionContinuationState.PENDING,
                 result=None,
                 provider_termination_receipt=None,
+                timeout_directive_publication=None,
             )
 
     capability._invoke_once(_TimedOutAdapter())

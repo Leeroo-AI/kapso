@@ -191,11 +191,11 @@ class _RunActionFrozenControlFileCandidate:
         self._state = "authorizing"
         return self._payload
 
-    def _link_authorized_once(
+    def _prepare_authorized_link_once(
         self,
         *,
         _authority: object,
-    ) -> _RunActionLinkedControlFileEvidence:
+    ) -> None:
         self._require_issued("authorizing", _authority)
         if (
             self._require_control_topology(self._spec.before) != self._parent_identity
@@ -206,6 +206,14 @@ class _RunActionFrozenControlFileCandidate:
             raise RunActionControlCandidateError(
                 "control candidate changed before its irreversible link"
             )
+        self._state = "link_ready"
+
+    def _link_prepared_once(
+        self,
+        *,
+        _authority: object,
+    ) -> _RunActionLinkedControlFileEvidence:
+        self._require_issued("link_ready", _authority)
         self._state = "linking"
         link_run_action_anonymous_file_no_replace(
             self._anonymous_descriptor,

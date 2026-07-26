@@ -27,9 +27,11 @@ Docker inspection, and adopted-release result authority are implemented.
 Descriptor-bound result capture, the closed typed-termination evidence
 contracts, terminal event-6 persistence/replay, the closed semantic control
 topology, and exact crash adoption of a published timeout directive are
-implemented. Physical timeout publication and provider termination, cleanup, OS
-executor activation, explicit E0/S-EMPTY provisioning orchestration, full policy
-refresh on resume, and API/runner activation remain.
+implemented. Physical timeout publication now performs the sole durable
+`RELEASED → TIMED_OUT` transition and forces fresh adoption without carrying any
+signal authority. Docker TERM/KILL containment and its provider-termination
+evidence, cleanup, OS executor activation, explicit E0/S-EMPTY provisioning
+orchestration, full policy refresh on resume, and API/runner activation remain.
 
 ## Objective
 
@@ -725,7 +727,10 @@ barrier running + release absent
         ↓ prove /proc/<init-pid>/root and mountinfo
         ↓ link exact release record
 workload released + release present
-        ↓ wait / stop / kill under one absolute deadline
+        ↓ at/after deadline while still running, link exact timeout directive
+timeout published + release/timeout present
+        ↓ fresh TIMED_OUT adoption
+        ↓ later TERM/KILL containment under the original absolute grace deadline
 terminal + release present
         ↓ terminal observation and descriptor result capture
 ```
@@ -969,17 +974,21 @@ configured result bound is checked against the policy and the complete payload
 is read through EOF. A zero-byte original inode now remains exact descriptor
 evidence for `EMPTY_RESULT`, while `RunActionProviderResult` and durable result
 authority remain strictly nonempty. Capture authority can be taken only after
-the trusted terminal is observed and no later than the original release
-execution deadline. Once authorized, bounded descriptor I/O may cross that
-deadline; host I/O latency cannot change provider success. The capability
-registers the exact `RunActionProviderResult`: a fabricated result, a substituted
-equal-shape capture, or returning `PENDING` after consuming capture authority is
-rejected.
+the trusted terminal is observed under an exact retained `RELEASED` topology.
+That natural terminal is the linearization fact: if no timeout file was durably
+published first, result capture or typed natural-failure classification may
+complete after the nominal execution deadline. Host scheduling or descriptor I/O
+latency therefore cannot strand a terminal occurrence between success and
+timeout. The capability registers the exact `RunActionProviderResult`: a
+fabricated result, a substituted equal-shape capture, or returning `PENDING`
+after consuming capture authority is rejected.
 
 Typed provider termination now has one closed immutable evidence graph. Timeout
-requires a fresh running-container observation sampled after the release-derived
-deadline and a descriptor-read, no-replace `control/timeout` publication;
-publication outranks every later exit fact. Without that authority, OOM,
+requires a fresh running-container observation sampled at or after the
+release-derived deadline and a descriptor-read, no-replace `control/timeout`
+publication. A durable `TIMED_OUT` topology outranks every later exit fact; a
+natural terminal observed while topology remains `RELEASED` outranks an
+unpublished timeout attempt. Without durable timeout authority, OOM,
 nonzero exit, and descriptor-proved empty result are mutually exclusive failed
 outcomes. The only pre-release interruption is a stable, same-boot proof that
 the exact volume and keeper remain, the main alone is absent, and release is
@@ -997,9 +1006,10 @@ invoking an adapter or interpreter.
 Recovery now has a sealed registration boundary for that receipt. A dedicated
 pre-release-main-loss observation state cannot be confused with inert, running,
 terminal, or unknown Docker state. One process/thread-bound continuation
-capability admits exactly `PENDING`, its privately captured result, or its
-privately registered termination receipt. Result capture and termination
-registration consume each other's authority, and a returned but unregistered or
+capability admits exactly `PENDING`, its privately registered
+`TIMEOUT_PUBLISHED` transition, its privately captured result, or its privately
+registered termination receipt. Result capture and termination registration
+consume each other's authority, and a returned but unregistered or
 cross-occurrence receipt is rejected. Released termination must reproduce the
 retained trusted terminal and release adoption; timeout additionally must
 reproduce the exact adopted timeout publication; pre-release loss must reproduce
@@ -1016,13 +1026,45 @@ or interpreter use.
 The reader and recovery seam deliberately do not publish a missing timeout.
 They adopt only a canonical, owner/mode/link/mount/device/inode-exact
 `control/timeout` file under a retained release/control sandwich; malformed or
-spliced visible state fails loud. The normal physical producer remains later:
-timeout publication, Docker containment, terminal-failure/empty-result evidence,
-positive pre-release-loss inspection, cleanup, and production adapters are not
-yet wired. Ordinary adapters therefore remain pending rather than fabricating
-termination. No production caller can receive Docker start authority from the
-reservation gate; M9 activation must continue to route every post-reservation
-transition through the coordinator's sealed capabilities.
+spliced visible state fails loud.
+
+The physical producer is now wired as a separate, signal-free transition.
+`publish_run_action_timeout_once` accepts only the active
+`RUNNING_CONTINUABLE` capability and exact pinned Docker/config inputs. The
+coordinator-owned BOOTTIME clock owns timeout eligibility: publication may begin
+exactly at the execution deadline or on any later same-boot recovery while the
+same container occurrence is still running. Publication after the original
+containment deadline is required for offline liveness; the subsequent containment
+phase keeps that deadline absolute and therefore proceeds directly to KILL. A
+retained `RELEASED` inspection sandwiches two fresh running observations,
+host-boot identity, and the exact Docker inventory.
+The publisher freezes a canonical directive in an anonymous inode, repeats the
+running/inventory/boot/control checks, and uses the shared closed control-file
+candidate for the only legal `RELEASED → TIMED_OUT` no-replace link. The
+candidate completes all fallible pre-link inode and topology validation before
+the final BOOTTIME sample; the immediately following operation is the no-replace
+link. The publisher receives only an issued read-only Docker observation
+authority, never provider signal or mutation authority. Every trusted physical
+leaf also requires the manager's immutable runtime settings to equal the supplied
+Docker settings, so observations issued by a different daemon, socket, or pinned
+runtime cannot be reinterpreted under a substituted projection.
+
+The pre-link lease is intentionally invalid after that link. It is closed before
+a fresh descriptor adoption reconstructs the exact timeout publication, and the
+capability registers only that retained adoption. The callback returns the typed
+`TIMEOUT_PUBLISHED` outcome; the recovery coordinator independently reopens and
+re-adopts the same `TIMED_OUT` occurrence before returning unresolved. A crash
+before the link leaves `RELEASED`; any crash after the link leaves a canonical
+`TIMED_OUT` occurrence that wins on the next recovery. A not-due probe is
+one-shot for its capability. No path in this publisher can stop, kill, remove,
+or otherwise mutate a provider resource.
+
+Docker containment, terminal-failure/empty-result evidence, positive
+pre-release-loss inspection, cleanup, and production adapters are not yet wired.
+Ordinary already-timed-out adapters therefore remain pending rather than
+fabricating termination. No production caller can receive Docker start authority
+from the reservation gate; M9 activation must continue to route every
+post-reservation transition through the coordinator's sealed capabilities.
 
 The timeout payload envelope is now single-sourced before physical publication
 lands. Launch configuration and the durable supervisor policy carry the same
@@ -1167,6 +1209,20 @@ this path is activated.
   publication receipt without republishing, carry it through the committed query
   and sealed terminal capability, persist timeout event 6 under a retained
   `TIMED_OUT` fence, and replay without implementation access.
+- Publish a timeout at the exact execution-deadline boundary through a real
+  anonymous inode and no-replace link, close the invalidated `RELEASED` lease,
+  freshly descriptor-adopt the exact `TIMED_OUT` occurrence, and independently
+  re-adopt it in recovery. Repeat after the containment deadline and preserve
+  the original absolute deadline for immediate KILL. Reject final-running
+  substitution, a regressing final authorization clock, release/control
+  replacement, missing or substituted coordinator adoption, and every Docker
+  stop/kill/remove command through the publisher's read-only observation
+  authority. Reject a Docker manager paired with settings from any other pinned
+  runtime before provider observation or clock consumption.
+- If the main becomes terminal before a durable timeout link, preserve
+  `RELEASED` and admit exact result capture or typed natural failure even when
+  recovery resumes after the execution deadline. If `TIMED_OUT` is already
+  durable, require timeout precedence and reject ordinary result capture.
 - Verify expert repo is writable only inside the run workspace and snapshot/adapter
   roots remain read-only.
 - Verify old `initial_repo` and checkpoint paths are absent after activation.

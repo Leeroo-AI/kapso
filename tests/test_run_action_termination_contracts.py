@@ -25,6 +25,9 @@ from kapso.cross_run.launch.run_action_termination_contracts import (
     RunActionTerminationContractError,
     RunActionTimeoutDirective,
     RunActionTimeoutDirectivePublicationReceipt,
+    run_action_running_container_occurrence_matches,
+    run_action_timeout_directive_evidence_matches,
+    run_action_timeout_publication_evidence_matches,
 )
 from test_run_action_result_authority import _result_graph
 from test_run_action_supervisor_contracts import (
@@ -341,6 +344,121 @@ def test_timeout_directive_requires_a_post_deadline_boottime_sandwich():
                 directive.observed_before_boottime_nanoseconds - 1
             ),
         )
+
+
+def test_timeout_directive_may_be_published_after_the_containment_deadline():
+    receipt = _termination_graph(RunActionProviderTerminationReason.TIMEOUT)
+    publication = receipt.timeout_directive_publication
+    directive = publication.timeout_directive
+    late_directive = _remint(
+        directive,
+        observed_before_boottime_nanoseconds=(
+            directive.containment_deadline_boottime_nanoseconds + 1
+        ),
+        observed_after_boottime_nanoseconds=(
+            directive.containment_deadline_boottime_nanoseconds + 2
+        ),
+    )
+    late_publication = _publication_with_directive(
+        publication,
+        late_directive,
+    )
+
+    assert run_action_timeout_directive_evidence_matches(
+        late_directive,
+        receipt.activation_event_id,
+        receipt.activation_revalidation_receipt,
+        receipt.workload_release_adoption,
+    )
+    assert run_action_timeout_publication_evidence_matches(
+        late_publication,
+        receipt.activation_event_id,
+        receipt.activation_revalidation_receipt,
+        receipt.workload_release_adoption,
+    )
+
+
+def test_running_occurrence_matcher_ignores_fresh_inspection_identity_only():
+    receipt = _termination_graph(RunActionProviderTerminationReason.TIMEOUT)
+    directive = receipt.timeout_directive_publication.timeout_directive
+    released = (
+        receipt.workload_release_adoption.workload_release_receipt.resolved_workload_observation.running_container_observation
+    )
+
+    assert directive.running_container_observation != released
+    assert run_action_running_container_occurrence_matches(
+        directive.running_container_observation,
+        released,
+    )
+    assert not run_action_running_container_occurrence_matches(
+        _remint_contract(
+            directive.running_container_observation,
+            init_process_id=directive.running_container_observation.init_process_id + 1,
+        ),
+        released,
+    )
+    assert not run_action_running_container_occurrence_matches(object(), released)
+
+
+def test_timeout_semantic_and_physical_matchers_compose_exactly():
+    receipt = _termination_graph(RunActionProviderTerminationReason.TIMEOUT)
+    publication = receipt.timeout_directive_publication
+    activation = receipt.activation_revalidation_receipt
+    adoption = receipt.workload_release_adoption
+    activation_event_id = receipt.activation_event_id
+
+    assert run_action_timeout_directive_evidence_matches(
+        publication.timeout_directive,
+        activation_event_id,
+        activation,
+        adoption,
+    )
+    assert run_action_timeout_publication_evidence_matches(
+        publication,
+        activation_event_id,
+        activation,
+        adoption,
+    )
+    wrong_running = _remint_contract(
+        publication.timeout_directive.running_container_observation,
+        started_at="2026-07-25T01:02:02.123456789Z",
+    )
+    wrong_directive = _remint(
+        publication.timeout_directive,
+        running_container_observation=wrong_running,
+    )
+    wrong_semantic_publication = _publication_with_directive(
+        publication,
+        wrong_directive,
+    )
+    assert not run_action_timeout_directive_evidence_matches(
+        wrong_directive,
+        activation_event_id,
+        activation,
+        adoption,
+    )
+    assert not run_action_timeout_publication_evidence_matches(
+        wrong_semantic_publication,
+        activation_event_id,
+        activation,
+        adoption,
+    )
+    physically_spliced = _remint(
+        publication,
+        release_inode=publication.release_inode + 2,
+    )
+    assert run_action_timeout_directive_evidence_matches(
+        physically_spliced.timeout_directive,
+        activation_event_id,
+        activation,
+        adoption,
+    )
+    assert not run_action_timeout_publication_evidence_matches(
+        physically_spliced,
+        activation_event_id,
+        activation,
+        adoption,
+    )
 
 
 def test_non_timeout_failures_reject_timeout_and_unrelated_capture_evidence():

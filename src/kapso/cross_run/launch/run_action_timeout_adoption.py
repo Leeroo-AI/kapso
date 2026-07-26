@@ -13,6 +13,7 @@ from kapso.cross_run.launch.run_action_control_topology import (
 )
 from kapso.cross_run.launch.run_action_release_adoption import (
     _RUN_ACTION_TIMEOUT_ADOPTION_AUTHORITY,
+    _RUN_ACTION_TIMEOUT_PUBLICATION_DESCRIPTOR_AUTHORITY,
     open_run_action_release_inspection,
     RunActionReleaseInspectionLease,
 )
@@ -33,6 +34,7 @@ from kapso.cross_run.settings import LaunchSettings
 _TIMEOUT_FILE_NAME = "timeout"
 _TIMEOUT_FILE_MODE = 0o400
 _TIMEOUT_INSPECTION_AUTHORITY = object()
+_RUN_ACTION_TIMEOUT_PUBLICATION_AUTHORITY = object()
 
 
 class RunActionTimeoutAdoptionError(RuntimeError):
@@ -190,6 +192,35 @@ class RunActionTimeoutInspectionLease:
                 "retained timeout publication is no longer exact"
             )
         self._release_inspection.require_current()
+
+    def _duplicate_timeout_publication_descriptors(
+        self,
+        *,
+        descriptors: ExitStack,
+        _authority: object,
+    ) -> tuple[int, int]:
+        """Duplicate the retained released control and predecessor descriptors."""
+
+        self.require_current()
+        if (
+            self._topology is not RunActionControlDirectoryTopology.RELEASED
+            or self._timeout_directive_publication is not None
+            or type(self._release_inspection._adoption)
+            is not RunActionWorkloadReleaseAdoption
+            or type(descriptors) is not ExitStack
+            or _authority is not _RUN_ACTION_TIMEOUT_PUBLICATION_AUTHORITY
+        ):
+            raise RunActionTimeoutAdoptionError(
+                "timeout publication lacks one exact retained release"
+            )
+        duplicated_control, duplicated_release = (
+            self._release_inspection._duplicate_timeout_publication_descriptors(
+                descriptors=descriptors,
+                _authority=_RUN_ACTION_TIMEOUT_PUBLICATION_DESCRIPTOR_AUTHORITY,
+            )
+        )
+        self.require_current()
+        return duplicated_control, duplicated_release
 
     def __enter__(self) -> "RunActionTimeoutInspectionLease":
         self.require_current()

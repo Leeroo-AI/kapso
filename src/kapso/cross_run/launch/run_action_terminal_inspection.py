@@ -127,6 +127,7 @@ def _inspect_exact_terminal(
         or type(init_source_evidence) is not RunActionDockerInitSourceEvidence
         or type(docker_settings) is not DockerRuntimeSettings
         or type(launch_settings) is not LaunchSettings
+        or resource_manager.runtime_settings != docker_settings
     ):
         raise RunActionTerminalInspectionError(
             "terminal inspection inputs lack exact configured authority"

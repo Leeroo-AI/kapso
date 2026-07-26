@@ -98,7 +98,10 @@ def test_closed_transition_publishes_one_exact_durable_inode(
             )
             == payload
         )
-        evidence = candidate._link_authorized_once(
+        candidate._prepare_authorized_link_once(
+            _authority=_CONTROL_FILE_CANDIDATE_PUBLICATION_AUTHORITY,
+        )
+        evidence = candidate._link_prepared_once(
             _authority=_CONTROL_FILE_CANDIDATE_PUBLICATION_AUTHORITY,
         )
         final_path = control / final_file_name
@@ -193,6 +196,64 @@ def test_timeout_candidate_detects_release_path_replacement(tmp_path):
             )
 
 
+def test_prepared_timeout_link_rejects_release_replacement_after_begin(tmp_path):
+    control = tmp_path / "control"
+    control.mkdir(mode=0o700)
+    _write_release(control)
+    replacement = tmp_path / "replacement"
+    replacement.write_bytes(b'{"release":"retained"}')
+    replacement.chmod(0o400)
+    payload = b'{"timeout":"candidate"}'
+    with ExitStack() as opened:
+        candidate = _candidate(
+            opened,
+            control,
+            _RunActionControlFileTransition.TIMEOUT,
+            payload,
+        )
+        candidate._begin_publication(
+            payload,
+            _authority=_CONTROL_FILE_CANDIDATE_PUBLICATION_AUTHORITY,
+        )
+        replacement.replace(control / "release")
+
+        with pytest.raises(
+            RunActionControlCandidateError,
+            match="predecessor release",
+        ):
+            candidate._prepare_authorized_link_once(
+                _authority=_CONTROL_FILE_CANDIDATE_PUBLICATION_AUTHORITY,
+            )
+        assert not (control / "timeout").exists()
+
+
+def test_prepared_release_link_rejects_topology_replacement_after_begin(tmp_path):
+    control = tmp_path / "control"
+    control.mkdir(mode=0o700)
+    payload = b'{"release":"candidate"}'
+    with ExitStack() as opened:
+        candidate = _candidate(
+            opened,
+            control,
+            _RunActionControlFileTransition.RELEASE,
+            payload,
+        )
+        candidate._begin_publication(
+            payload,
+            _authority=_CONTROL_FILE_CANDIDATE_PUBLICATION_AUTHORITY,
+        )
+        (control / "foreign").write_bytes(b"foreign")
+
+        with pytest.raises(
+            RunActionControlCandidateError,
+            match="topology",
+        ):
+            candidate._prepare_authorized_link_once(
+                _authority=_CONTROL_FILE_CANDIDATE_PUBLICATION_AUTHORITY,
+            )
+        assert not (control / "release").exists()
+
+
 def test_candidate_is_owner_thread_bound_and_single_use(tmp_path):
     control = tmp_path / "control"
     control.mkdir(mode=0o700)
@@ -225,14 +286,17 @@ def test_candidate_is_owner_thread_bound_and_single_use(tmp_path):
             payload,
             _authority=_CONTROL_FILE_CANDIDATE_PUBLICATION_AUTHORITY,
         )
-        candidate._link_authorized_once(
+        candidate._prepare_authorized_link_once(
+            _authority=_CONTROL_FILE_CANDIDATE_PUBLICATION_AUTHORITY,
+        )
+        candidate._link_prepared_once(
             _authority=_CONTROL_FILE_CANDIDATE_PUBLICATION_AUTHORITY,
         )
         with pytest.raises(
             RunActionControlCandidateError,
             match="unissued, spent, or foreign",
         ):
-            candidate._link_authorized_once(
+            candidate._link_prepared_once(
                 _authority=_CONTROL_FILE_CANDIDATE_PUBLICATION_AUTHORITY,
             )
 
@@ -253,6 +317,9 @@ def test_link_is_no_replace_and_never_overwrites_a_racing_path(
         )
         candidate._begin_publication(
             payload,
+            _authority=_CONTROL_FILE_CANDIDATE_PUBLICATION_AUTHORITY,
+        )
+        candidate._prepare_authorized_link_once(
             _authority=_CONTROL_FILE_CANDIDATE_PUBLICATION_AUTHORITY,
         )
         racing_payload = b"racing release"
@@ -276,7 +343,7 @@ def test_link_is_no_replace_and_never_overwrites_a_racing_path(
             race_before_link,
         )
         with pytest.raises(FileExistsError):
-            candidate._link_authorized_once(
+            candidate._link_prepared_once(
                 _authority=_CONTROL_FILE_CANDIDATE_PUBLICATION_AUTHORITY,
             )
         assert (control / "release").read_bytes() == racing_payload
@@ -311,7 +378,10 @@ def test_publication_fsyncs_anonymous_linked_and_control_inodes(
             payload,
             _authority=_CONTROL_FILE_CANDIDATE_PUBLICATION_AUTHORITY,
         )
-        candidate._link_authorized_once(
+        candidate._prepare_authorized_link_once(
+            _authority=_CONTROL_FILE_CANDIDATE_PUBLICATION_AUTHORITY,
+        )
+        candidate._link_prepared_once(
             _authority=_CONTROL_FILE_CANDIDATE_PUBLICATION_AUTHORITY,
         )
 

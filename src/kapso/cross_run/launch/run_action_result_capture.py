@@ -61,6 +61,7 @@ def capture_run_action_terminal_result(
         or type(init_source_evidence) is not RunActionDockerInitSourceEvidence
         or type(docker_settings) is not DockerRuntimeSettings
         or type(launch_settings) is not LaunchSettings
+        or resource_manager.runtime_settings != docker_settings
     ):
         raise RunActionResultCaptureError(
             "result capture inputs lack exact configured authority"

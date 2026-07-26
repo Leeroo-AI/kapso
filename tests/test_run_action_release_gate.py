@@ -149,6 +149,7 @@ class _ReleaseAdapter:
             state=RunActionContinuationState.PENDING,
             result=None,
             provider_termination_receipt=None,
+            timeout_directive_publication=None,
         )
 
 

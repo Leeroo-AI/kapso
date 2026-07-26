@@ -539,26 +539,39 @@ def _released_terminal_evidence_matches(
     )
 
 
-def run_action_timeout_publication_evidence_matches(
-    publication: RunActionTimeoutDirectivePublicationReceipt,
+def run_action_running_container_occurrence_matches(
+    observed: RunActionBarrierRunningContainerObservation,
+    expected: RunActionBarrierRunningContainerObservation,
+) -> bool:
+    """Match two fresh observations of one exact running occurrence."""
+
+    return (
+        type(observed) is RunActionBarrierRunningContainerObservation
+        and type(expected) is RunActionBarrierRunningContainerObservation
+        and observed.container_id == expected.container_id
+        and observed.observed_inspect_projection == expected.observed_inspect_projection
+        and observed.init_process_id == expected.init_process_id
+        and observed.started_at == expected.started_at
+    )
+
+
+def run_action_timeout_directive_evidence_matches(
+    directive: RunActionTimeoutDirective,
     activation_event_id: str,
     activation: RunActionActivationRevalidationReceipt,
     adoption: RunActionWorkloadReleaseAdoption,
 ) -> bool:
-    """Join one adopted timeout inode to its exact activation and release."""
+    """Join one timeout directive to its exact event-5 release occurrence."""
 
     if (
-        type(publication) is not RunActionTimeoutDirectivePublicationReceipt
+        type(directive) is not RunActionTimeoutDirective
         or type(activation_event_id) is not str
         or type(activation) is not RunActionActivationRevalidationReceipt
         or type(adoption) is not RunActionWorkloadReleaseAdoption
     ):
         return False
-    directive = publication.timeout_directive
     release = adoption.workload_release_receipt
     prepared = activation.prepared_execution
-    control = prepared.control_directory
-    authority = prepared.runtime_volume_authority
     released_running = (
         release.resolved_workload_observation.running_container_observation
     )
@@ -578,17 +591,43 @@ def run_action_timeout_publication_evidence_matches(
         == release.containment_deadline_boottime_nanoseconds
         and directive.observed_before_boottime_nanoseconds
         >= release.execution_deadline_boottime_nanoseconds
-        and directive.observed_after_boottime_nanoseconds
-        <= release.containment_deadline_boottime_nanoseconds
         and timeout_running.container_id
         == activation.spawn_commit.provider_execution_id
-        and timeout_running.container_id == released_running.container_id
         and timeout_running.observed_inspect_projection
         == prepared.inert_container_evidence.issued_create_projection
-        and timeout_running.observed_inspect_projection
-        == released_running.observed_inspect_projection
-        and timeout_running.init_process_id == released_running.init_process_id
-        and timeout_running.started_at == released_running.started_at
+        and run_action_running_container_occurrence_matches(
+            timeout_running,
+            released_running,
+        )
+    )
+
+
+def run_action_timeout_publication_evidence_matches(
+    publication: RunActionTimeoutDirectivePublicationReceipt,
+    activation_event_id: str,
+    activation: RunActionActivationRevalidationReceipt,
+    adoption: RunActionWorkloadReleaseAdoption,
+) -> bool:
+    """Join one adopted timeout inode to its exact activation and release."""
+
+    if (
+        type(publication) is not RunActionTimeoutDirectivePublicationReceipt
+        or type(activation_event_id) is not str
+        or type(activation) is not RunActionActivationRevalidationReceipt
+        or type(adoption) is not RunActionWorkloadReleaseAdoption
+    ):
+        return False
+    directive = publication.timeout_directive
+    prepared = activation.prepared_execution
+    control = prepared.control_directory
+    authority = prepared.runtime_volume_authority
+    return (
+        run_action_timeout_directive_evidence_matches(
+            directive,
+            activation_event_id,
+            activation,
+            adoption,
+        )
         and publication.workload_release_adoption_id
         == adoption.workload_release_adoption_id
         and publication.prepared_control_directory_id
@@ -636,5 +675,7 @@ __all__ = [
     "RunActionTimeoutDirective",
     "RunActionTimeoutDirectivePublicationReceipt",
     "provider_termination_matches_durable_activation",
+    "run_action_running_container_occurrence_matches",
+    "run_action_timeout_directive_evidence_matches",
     "run_action_timeout_publication_evidence_matches",
 ]

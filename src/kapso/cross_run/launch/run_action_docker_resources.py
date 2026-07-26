@@ -5,10 +5,15 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
+from threading import Lock
 from typing import Any, Mapping
+from weakref import WeakKeyDictionary
 
 from kapso.cross_run.canonical import canonical_json_bytes, tree_or_blob_digest
-from kapso.cross_run.docker.runtime import PinnedDockerRuntime
+from kapso.cross_run.docker.runtime import (
+    PinnedDockerObservationAuthority,
+    PinnedDockerRuntime,
+)
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RunActionContainerLabel,
     RunActionPreparationAllocation,
@@ -19,10 +24,15 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
     preparation_volume_labels,
     preparation_volume_name,
 )
+from kapso.cross_run.settings import DockerRuntimeSettings
 
 _CONTAINER_ID_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 _DOCKER_RESOURCE_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 _SHA256_DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
+_RUN_ACTION_RESOURCE_MANAGER_LOCK = Lock()
+_RUN_ACTION_RESOURCE_MANAGER_AUTHORITIES: WeakKeyDictionary[
+    DockerRunActionResourceManager, PinnedDockerObservationAuthority
+] = WeakKeyDictionary()
 
 
 class DockerRunActionResourceError(RuntimeError):
@@ -93,11 +103,19 @@ class DockerRunActionResourceManager:
             raise DockerRunActionResourceError(
                 "Docker run-action resources require the pinned runtime"
             )
-        self._runtime = runtime
+        observation_authority = runtime.issue_observation_authority()
+        with _RUN_ACTION_RESOURCE_MANAGER_LOCK:
+            if _RUN_ACTION_RESOURCE_MANAGER_AUTHORITIES.get(self) is not None:
+                raise DockerRunActionResourceError(
+                    "Docker run-action resource manager is already issued"
+                )
+            _RUN_ACTION_RESOURCE_MANAGER_AUTHORITIES[self] = observation_authority
 
     @property
-    def runtime(self) -> PinnedDockerRuntime:
-        return self._runtime
+    def runtime_settings(self) -> DockerRuntimeSettings:
+        """Return the immutable settings joined to this observation authority."""
+
+        return _run_action_observation_authority(self).settings
 
     def observe(
         self,
@@ -109,7 +127,7 @@ class DockerRunActionResourceManager:
             raise DockerRunActionResourceError(
                 "Docker run-action inventory requires an exact preparation allocation"
             )
-        self._runtime.require_live_authority()
+        _run_action_observation_authority(self).require_live_authority()
         first = self._scan_once(allocation)
         second = self._scan_once(allocation)
         if first != second:
@@ -274,7 +292,9 @@ class DockerRunActionResourceManager:
         _append_label_filters(arguments, labels)
         arguments.extend(("--format", "{{json .ID}}"))
         return _parse_json_string_lines(
-            self._runtime.run_control(tuple(arguments)).stdout,
+            _run_action_observation_authority(self)
+            .run_control(tuple(arguments))
+            .stdout,
             _CONTAINER_ID_PATTERN,
             "Docker run-action container lookup",
         )
@@ -293,7 +313,9 @@ class DockerRunActionResourceManager:
         _append_label_filters(arguments, labels)
         arguments.extend(("--format", "{{json .Name}}"))
         return _parse_json_string_lines(
-            self._runtime.run_control(tuple(arguments)).stdout,
+            _run_action_observation_authority(self)
+            .run_control(tuple(arguments))
+            .stdout,
             (
                 re.compile(re.escape(name))
                 if name is not None
@@ -308,7 +330,7 @@ class DockerRunActionResourceManager:
         name: str,
         labels: tuple[RunActionContainerLabel, ...],
     ) -> Mapping[str, Any]:
-        payload = self._runtime.run_json_control(
+        payload = _run_action_observation_authority(self).run_json_control(
             ("container", "inspect", "--format", "{{json .}}", container_id)
         )
         config = payload.get("Config")
@@ -328,7 +350,7 @@ class DockerRunActionResourceManager:
         name: str,
         labels: tuple[RunActionContainerLabel, ...],
     ) -> Mapping[str, Any]:
-        payload = self._runtime.run_json_control(
+        payload = _run_action_observation_authority(self).run_json_control(
             ("volume", "inspect", "--format", "{{json .}}", name)
         )
         if payload.get("Name") != name or payload.get("Labels") != _label_mapping(
@@ -338,6 +360,21 @@ class DockerRunActionResourceManager:
                 "Docker run-action volume differs from exact name and labels"
             )
         return payload
+
+
+def _run_action_observation_authority(
+    manager: DockerRunActionResourceManager,
+) -> PinnedDockerObservationAuthority:
+    with _RUN_ACTION_RESOURCE_MANAGER_LOCK:
+        authority = _RUN_ACTION_RESOURCE_MANAGER_AUTHORITIES.get(manager)
+    if (
+        type(manager) is not DockerRunActionResourceManager
+        or type(authority) is not PinnedDockerObservationAuthority
+    ):
+        raise DockerRunActionResourceError(
+            "Docker run-action resource manager is unissued or foreign"
+        )
+    return authority
 
 
 def _append_label_filters(

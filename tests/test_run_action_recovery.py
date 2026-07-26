@@ -39,6 +39,7 @@ from kapso.cross_run.launch.run_action_ledger import (
 )
 from kapso.cross_run.launch.run_action_recovery import (
     _RUN_ACTION_RECOVERY_IMPLEMENTATION_REGISTRY_AUTHORITY,
+    RunActionCommittedContinuationCapability,
     RunActionCommittedSpawnObservation,
     RunActionCommittedSpawnQuery,
     RunActionCommittedSpawnState,
@@ -494,6 +495,7 @@ class _FakeExecutionAdapter:
                 state=RunActionContinuationState.PENDING,
                 result=None,
                 provider_termination_receipt=None,
+                timeout_directive_publication=None,
             )
         raise AssertionError(
             "terminal fake must use the trusted terminal and result-capture leaves"
@@ -686,6 +688,7 @@ class _PendingContinuationAdapter(_FakeExecutionAdapter):
             state=RunActionContinuationState.PENDING,
             result=None,
             provider_termination_receipt=None,
+            timeout_directive_publication=None,
         )
 
 
@@ -750,6 +753,7 @@ class _TrustedPreReleaseTerminationAdapter(_FakeExecutionAdapter):
             state=RunActionContinuationState.PROVIDER_TERMINATED,
             result=None,
             provider_termination_receipt=self.termination_receipt,
+            timeout_directive_publication=None,
         )
 
 
@@ -822,6 +826,7 @@ class _TrustedReleasedTerminationAdapter(_FakeExecutionAdapter):
             state=RunActionContinuationState.PROVIDER_TERMINATED,
             result=None,
             provider_termination_receipt=self.termination_receipt,
+            timeout_directive_publication=None,
         )
 
 
@@ -895,6 +900,7 @@ class _TrustedTimeoutTerminationAdapter(_FakeExecutionAdapter):
             state=RunActionContinuationState.PROVIDER_TERMINATED,
             result=None,
             provider_termination_receipt=self.termination_receipt,
+            timeout_directive_publication=None,
         )
 
 
@@ -917,6 +923,7 @@ class _AdoptionAwarePendingAdapter(_FakeExecutionAdapter):
             state=RunActionContinuationState.PENDING,
             result=None,
             provider_termination_receipt=None,
+            timeout_directive_publication=None,
         )
 
 
@@ -1622,6 +1629,7 @@ def test_recovery_contract_has_no_proof_free_terminal_states() -> None:
     }
     assert set(RunActionContinuationState) == {
         RunActionContinuationState.PENDING,
+        RunActionContinuationState.TIMEOUT_PUBLISHED,
         RunActionContinuationState.RESULT_CAPTURED,
         RunActionContinuationState.PROVIDER_TERMINATED,
     }
@@ -2685,6 +2693,147 @@ def test_published_release_is_adopted_after_security_advance(
     assert not report.is_complete
     assert adapter.observed_release_adoption == adoption
     assert len(adapter.continuation_calls) == 1
+
+
+def test_timeout_outcome_is_independently_readopted_before_recovery_returns(
+    publisher_case,
+    monkeypatch,
+) -> None:
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
+    _append_activation_committed(gate, reservation)
+    activation_event = gate._action_store.inspect().events_for(
+        reservation.intent.operation_id
+    )[4]
+    adoption = _release_adoption_for_event(
+        activation_event,
+        gate._security_authority.observation,
+    )
+    publication = _timeout_publication(
+        activation_event.activation_revalidation_receipt,
+        adoption,
+    )
+    inspections = []
+
+    def inspect_transition(**_arguments):
+        inspection = (
+            _PresentReleaseInspection(adoption)
+            if not inspections
+            else _TimedOutReleaseInspection(adoption, publication)
+        )
+        inspections.append(inspection)
+        return inspection
+
+    monkeypatch.setattr(
+        run_action_recovery_module,
+        "open_run_action_timeout_inspection",
+        inspect_transition,
+    )
+    monkeypatch.setattr(
+        RunActionCommittedContinuationCapability,
+        "_invoke_once",
+        lambda _capability, _adapter: RunActionContinuationOutcome(
+            state=RunActionContinuationState.TIMEOUT_PUBLISHED,
+            result=None,
+            provider_termination_receipt=None,
+            timeout_directive_publication=publication,
+        ),
+    )
+    adapter = _AdoptionAwarePendingAdapter(
+        reservation.intent.boundary_identity,
+        observation_state=RunActionCommittedSpawnState.RUNNING_CONTINUABLE,
+    )
+
+    report = _recovery_coordinator(gate, adapter).recover(frontier)
+
+    assert not report.is_complete
+    assert len(inspections) == 2
+    assert inspections[0].topology is RunActionControlDirectoryTopology.RELEASED
+    assert inspections[1].topology is RunActionControlDirectoryTopology.TIMED_OUT
+    assert (
+        gate._action_store.inspect()
+        .events_for(reservation.intent.operation_id)[-1]
+        .event_kind
+        is RunActionExecutionEventKind.ACTIVATION_COMMITTED
+    )
+
+
+@pytest.mark.parametrize(
+    "fresh_adoption",
+    (
+        "still_released",
+        "substituted_publication",
+    ),
+)
+def test_timeout_outcome_rejects_missing_or_substituted_fresh_adoption(
+    publisher_case,
+    monkeypatch,
+    fresh_adoption,
+) -> None:
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
+    _append_activation_committed(gate, reservation)
+    activation_event = gate._action_store.inspect().events_for(
+        reservation.intent.operation_id
+    )[4]
+    adoption = _release_adoption_for_event(
+        activation_event,
+        gate._security_authority.observation,
+    )
+    publication = _timeout_publication(
+        activation_event.activation_revalidation_receipt,
+        adoption,
+    )
+    substituted_publication = _remint_contract(
+        publication,
+        timeout_inode=publication.timeout_inode + 1,
+    )
+    inspections = []
+
+    def inspect_transition(**_arguments):
+        if not inspections:
+            inspection = _PresentReleaseInspection(adoption)
+        elif fresh_adoption == "still_released":
+            inspection = _PresentReleaseInspection(adoption)
+        else:
+            inspection = _TimedOutReleaseInspection(
+                adoption,
+                substituted_publication,
+            )
+        inspections.append(inspection)
+        return inspection
+
+    monkeypatch.setattr(
+        run_action_recovery_module,
+        "open_run_action_timeout_inspection",
+        inspect_transition,
+    )
+    monkeypatch.setattr(
+        RunActionCommittedContinuationCapability,
+        "_invoke_once",
+        lambda _capability, _adapter: RunActionContinuationOutcome(
+            state=RunActionContinuationState.TIMEOUT_PUBLISHED,
+            result=None,
+            provider_termination_receipt=None,
+            timeout_directive_publication=publication,
+        ),
+    )
+    adapter = _AdoptionAwarePendingAdapter(
+        reservation.intent.boundary_identity,
+        observation_state=RunActionCommittedSpawnState.RUNNING_CONTINUABLE,
+    )
+
+    with pytest.raises(
+        RunActionRecoveryError,
+        match="differs from fresh recovery adoption",
+    ):
+        _recovery_coordinator(gate, adapter).recover(frontier)
+
+    assert len(inspections) == 2
+    assert (
+        gate._action_store.inspect()
+        .events_for(reservation.intent.operation_id)[-1]
+        .event_kind
+        is RunActionExecutionEventKind.ACTIVATION_COMMITTED
+    )
 
 
 def test_workspace_mutation_during_continuation_never_records_result(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+from dataclasses import replace
 
 import pytest
 
@@ -122,6 +123,7 @@ def _configured_settings():
 def _patch_physical_inspection(
     monkeypatch,
     *,
+    docker_settings,
     inventory,
     volume_raw,
     main_inspections,
@@ -130,6 +132,11 @@ def _patch_physical_inspection(
 ):
     main_payloads = list(main_inspections)
     manager = object.__new__(DockerRunActionResourceManager)
+    monkeypatch.setattr(
+        DockerRunActionResourceManager,
+        "runtime_settings",
+        property(lambda _self: docker_settings),
+    )
     monkeypatch.setattr(
         DockerRunActionResourceManager,
         "observe",
@@ -182,6 +189,7 @@ def test_terminal_inspection_retains_exact_control_and_two_equal_snapshots(
     )
     manager, remaining_payloads = _patch_physical_inspection(
         monkeypatch,
+        docker_settings=docker_settings,
         inventory=inventory,
         volume_raw=_volume_raw(
             query.prepared_execution.runtime_volume_authority,
@@ -210,6 +218,50 @@ def test_terminal_inspection_retains_exact_control_and_two_equal_snapshots(
     assert control_inspection.closed
 
 
+def test_terminal_inspection_rejects_settings_from_another_runtime(monkeypatch):
+    docker_settings, launch_settings = _configured_settings()
+    query, inventory, raw, command, helper, init = _inspection_context(docker_settings)
+    adoption = query.workload_release_adoption
+    control_inspection = _ControlInspection(
+        RunActionControlDirectoryTopology.RELEASED,
+        adoption,
+    )
+    manager, remaining_payloads = _patch_physical_inspection(
+        monkeypatch,
+        docker_settings=docker_settings,
+        inventory=inventory,
+        volume_raw=_volume_raw(
+            query.prepared_execution.runtime_volume_authority,
+            docker_settings,
+        ),
+        main_inspections=(copy.deepcopy(raw), copy.deepcopy(raw)),
+        control_inspection=control_inspection,
+        host_boot_id=adoption.workload_release_receipt.host_boot_id,
+    )
+    foreign_settings = replace(
+        docker_settings,
+        runtime_socket_path="/run/foreign-docker.sock",
+    )
+
+    with pytest.raises(
+        terminal_inspection.RunActionTerminalInspectionError,
+        match="configured authority",
+    ):
+        terminal_inspection.inspect_run_action_terminal(
+            query=query,
+            resource_manager=manager,
+            command=command,
+            helper_evidence=helper,
+            init_source_evidence=init,
+            docker_settings=foreign_settings,
+            launch_settings=launch_settings,
+        )
+
+    assert len(remaining_payloads) == 2
+    assert control_inspection.current_checks == 0
+    assert not control_inspection.closed
+
+
 def test_terminal_inspection_rejects_absent_release_or_changing_terminal(
     monkeypatch,
 ):
@@ -219,6 +271,7 @@ def test_terminal_inspection_rejects_absent_release_or_changing_terminal(
     absent = _ControlInspection(RunActionControlDirectoryTopology.EMPTY, None)
     manager, _remaining_payloads = _patch_physical_inspection(
         monkeypatch,
+        docker_settings=docker_settings,
         inventory=inventory,
         volume_raw=_volume_raw(
             query.prepared_execution.runtime_volume_authority,
@@ -249,6 +302,7 @@ def test_terminal_inspection_rejects_absent_release_or_changing_terminal(
     )
     manager, _remaining_payloads = _patch_physical_inspection(
         monkeypatch,
+        docker_settings=docker_settings,
         inventory=inventory,
         volume_raw=_volume_raw(
             query.prepared_execution.runtime_volume_authority,
@@ -287,6 +341,7 @@ def test_terminal_inspection_rejects_timeout_publication_downgrade(monkeypatch):
     )
     manager, _remaining_payloads = _patch_physical_inspection(
         monkeypatch,
+        docker_settings=docker_settings,
         inventory=inventory,
         volume_raw=_volume_raw(
             query.prepared_execution.runtime_volume_authority,
@@ -324,6 +379,7 @@ def test_terminal_reinspection_consumes_one_capability_and_seals_the_digest(
     )
     manager, remaining_payloads = _patch_physical_inspection(
         monkeypatch,
+        docker_settings=docker_settings,
         inventory=inventory,
         volume_raw=_volume_raw(
             query.prepared_execution.runtime_volume_authority,
@@ -384,6 +440,7 @@ def test_terminal_reinspection_consumes_one_capability_and_seals_the_digest(
                 state=RunActionContinuationState.PENDING,
                 result=None,
                 provider_termination_receipt=None,
+                timeout_directive_publication=None,
             )
 
     adapter = _TerminalReinspectionAdapter()
@@ -427,6 +484,7 @@ def test_terminal_continuation_rejects_an_adapter_that_skips_trusted_reinspectio
                 state=RunActionContinuationState.PENDING,
                 result=None,
                 provider_termination_receipt=None,
+                timeout_directive_publication=None,
             )
 
     with pytest.raises(

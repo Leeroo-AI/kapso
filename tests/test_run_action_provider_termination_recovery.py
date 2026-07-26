@@ -124,6 +124,7 @@ def test_registered_released_termination_is_the_only_admitted_receipt():
                 state=RunActionContinuationState.PROVIDER_TERMINATED,
                 result=None,
                 provider_termination_receipt=receipt,
+                timeout_directive_publication=None,
             )
 
     outcome = capability._invoke_once(_TrustedTerminationAdapter())
@@ -181,6 +182,7 @@ def test_provider_termination_registration_excludes_result_capture():
                 state=RunActionContinuationState.PROVIDER_TERMINATED,
                 result=None,
                 provider_termination_receipt=receipt,
+                timeout_directive_publication=None,
             )
 
     outcome = capability._invoke_once(_ExclusiveTerminationAdapter())
@@ -199,6 +201,7 @@ def test_fabricated_receipt_cannot_bypass_private_registration():
                 state=RunActionContinuationState.PROVIDER_TERMINATED,
                 result=None,
                 provider_termination_receipt=receipt,
+                timeout_directive_publication=None,
             )
 
     with pytest.raises(
@@ -220,6 +223,7 @@ def test_registered_termination_cannot_be_discarded_as_pending():
                 state=RunActionContinuationState.PENDING,
                 result=None,
                 provider_termination_receipt=None,
+                timeout_directive_publication=None,
             )
 
     with pytest.raises(
@@ -294,6 +298,7 @@ def test_pre_release_loss_registration_requires_the_exact_observation_token():
                 state=RunActionContinuationState.PROVIDER_TERMINATED,
                 result=None,
                 provider_termination_receipt=receipt,
+                timeout_directive_publication=None,
             )
 
     outcome = capability._invoke_once(_TrustedLossAdapter())
@@ -321,6 +326,7 @@ def test_result_and_termination_are_an_exact_outcome_xor():
             state=RunActionContinuationState.RESULT_CAPTURED,
             result=result,
             provider_termination_receipt=termination,
+            timeout_directive_publication=None,
         )
 
 
@@ -338,22 +344,34 @@ def test_observation_and_outcome_matrix_is_closed():
         result_payload=payload,
     )
     termination = _termination_graph(RunActionProviderTerminationReason.OOM)
+    timeout_publication = _termination_graph(
+        RunActionProviderTerminationReason.TIMEOUT
+    ).timeout_directive_publication
     outcomes = {
         RunActionContinuationState.PENDING: RunActionContinuationOutcome(
             state=RunActionContinuationState.PENDING,
             result=None,
             provider_termination_receipt=None,
+            timeout_directive_publication=None,
         ),
         RunActionContinuationState.RESULT_CAPTURED: RunActionContinuationOutcome(
             state=RunActionContinuationState.RESULT_CAPTURED,
             result=result,
             provider_termination_receipt=None,
+            timeout_directive_publication=None,
+        ),
+        RunActionContinuationState.TIMEOUT_PUBLISHED: RunActionContinuationOutcome(
+            state=RunActionContinuationState.TIMEOUT_PUBLISHED,
+            result=None,
+            provider_termination_receipt=None,
+            timeout_directive_publication=timeout_publication,
         ),
         RunActionContinuationState.PROVIDER_TERMINATED: (
             RunActionContinuationOutcome(
                 state=RunActionContinuationState.PROVIDER_TERMINATED,
                 result=None,
                 provider_termination_receipt=termination,
+                timeout_directive_publication=None,
             )
         ),
     }
@@ -375,10 +393,13 @@ def test_observation_and_outcome_matrix_is_closed():
         },
         RunActionCommittedSpawnState.RUNNING_CONTINUABLE: {
             RunActionContinuationState.PENDING,
+            RunActionContinuationState.TIMEOUT_PUBLISHED,
         },
-        RunActionCommittedSpawnState.TERMINAL_CONTINUABLE: set(
-            RunActionContinuationState
-        ),
+        RunActionCommittedSpawnState.TERMINAL_CONTINUABLE: {
+            RunActionContinuationState.PENDING,
+            RunActionContinuationState.RESULT_CAPTURED,
+            RunActionContinuationState.PROVIDER_TERMINATED,
+        },
         RunActionCommittedSpawnState.PRE_RELEASE_MAIN_LOSS_CONTINUABLE: {
             RunActionContinuationState.PENDING,
             RunActionContinuationState.PROVIDER_TERMINATED,

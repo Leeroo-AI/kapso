@@ -170,6 +170,7 @@ class RunActionBlockedWorkloadLease:
             or type(init_source_evidence) is not RunActionDockerInitSourceEvidence
             or type(docker_settings) is not DockerRuntimeSettings
             or type(launch_settings) is not LaunchSettings
+            or resource_manager.runtime_settings != docker_settings
             or type(proc_root_descriptor) is not int
             or proc_root_descriptor < 0
             or not stat.S_ISDIR(os.fstat(proc_root_descriptor).st_mode)
@@ -451,6 +452,7 @@ def open_run_action_blocked_workload(
         or type(init_source_evidence) is not RunActionDockerInitSourceEvidence
         or type(docker_settings) is not DockerRuntimeSettings
         or type(launch_settings) is not LaunchSettings
+        or resource_manager.runtime_settings != docker_settings
     ):
         raise RunActionResolvedWorkloadError(
             "blocked workload resolution requires exact positive inputs"
