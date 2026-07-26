@@ -68,3 +68,40 @@ threshold or gate on VM-status + GPU-util instead of trace bytes); no run
 impact. Also worth banking for the eventual `knowledge/gpqamain.md`:
 both runs' full-448 discipline confirms the @150-subset-bias lesson
 (written from #33) transferred cleanly to the next model generation.
+
+## P3 (close-out: RUN_DONE 18:22Z → rescore)
+
+**FINAL: official 29.02% ±2.1 via rescore · both judges clean · 3 iterations
+(0.2634 → 0.2772 → 0.3036 in-run).** Mid-proven-band (ties #2/#3 at 28.7,
+0.5 under #1's 29.5), +27.4 over base 1.6, 2.5 under human 31.5 — a clean,
+solid row on the WEAKEST base of the GPQA table.
+
+- **R35-P3-1 — model soup as the final lever (campaign-first on GPQA).**
+  iter-3 built `soup_BC` = uniform 0.5·Stage-B + 0.5·Stage-C, two same-init
+  full-FTs differing only in a training-data letter-shuffle (Stage-B 27.72
+  5-run mean with 41% residual A-bias; Stage-C 26.34 letter-shuffle-
+  debiased). The zero-training average read 30.36 full-448 in-run (parse
+  97.5%, A-bias dropped, median 230 tok), md5-verified a genuine average
+  (all three shard md5s differ). Promoted over the 29.5 bar with a 32-min
+  buffer. Fresh-serve official 29.02 sits inside Stage-B's own 5-run
+  envelope (25.89-30.80) — the soup's in-run 30.36 was a high draw, 29.02
+  the honest mean-ish value; no anomaly, ±2pp serve/seed variance.
+- **R35-P3-2 — feedback-judge quality (iter-3 boundary).** "FIRST ACTION —
+  PRESERVE, DO NOT REGRESS": measured the true ~44-min iter-3 budget (not
+  the stale 9h59m context clock), diagnosed the ~28% concise plateau as
+  knowledge-bound (correct — GPQA is a knowledge benchmark, a 4B ceiling),
+  orphaned-value audit clean. A prior salvage attempt (continue-training
+  Stage-B on reasoning traces) was correctly rejected: @150 = 22.0%, parse
+  66.7%, A-bias back — "degraded the clean concise output," NOPROMOTE.
+- **R35-P3-3 — serving failure 7/7, rescore clean.** RUN_DONE exit 0,
+  metrics.json MISSING (the model-agnostic post-solve serving bug, now 7
+  for 7), judges present. Rescore on a fresh VM served the identical
+  artifact first-try (gemma has no CUDA-graph issue — cf. R34-P3 where
+  SmolLM3 did). Official 29.02.
+- **R35-P3-4 — zero session-limit / zero swaps across the full 10h** (the
+  11h detector confirmed independently). Failover stack rode clean; the
+  main token had headroom (81% weekly / 44% 5h at the pre-launch probe).
+- Subset-bias discipline stayed maximal to the end (253 full-448 refs);
+  every promotion routed through the full set. This is the transferred
+  @150-bias lesson (written from #33) paying off — banked for
+  `knowledge/gpqamain.md`.

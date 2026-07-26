@@ -51,11 +51,12 @@ any leaderboard agent has actually achieved in a 10h run.
 
 For every cell (benchmark × base model): its base score, the top-3 proven
 agent results from the leaderboard, human (official instruct), then ours and
-status. Campaign aggregate if submitted today: **18.03** (base 7.53 + gsm8k net
-+0.95 + bfcl net +1.80 + arena net +4.16 + aime net +2.08 + gpqa net +1.51 so
-far: AIME table complete at 6.67/20.0/16.67/0.0 — our 4-model AIME average
-10.85 edges the best proven agent average, opus-4.8-max's 10.8; GPQA 2 of 4
-booked at 32.1/22.3, SmolLM3 + gemma cells in flight).
+status. Campaign aggregate if submitted today: **≈20.96** (base 7.53 + gsm8k net
++0.95 + bfcl net +1.80 + arena net +4.16 + aime net +2.08 + gpqa net +4.44:
+AIME table complete at 6.67/20.0/16.67/0.0; GPQA 3 of 4 officially booked at
+32.1/22.3/29.0 with SmolLM3 rescore-pending (~29.7 in-run) — our 4-model GPQA
+average ≈28.3 vs base 8.5 is the campaign's biggest single weighted gain
+(.2246 × +19.8). Finalize the number when SmolLM3's official lands.
 Cells needing unlocks are marked: [J] = judge-scored,
 needs `openai-api-key` secret; [G] = gated model, needs HF `hf-token` with
 the Gemma license accepted.
@@ -117,8 +118,8 @@ strict parity claim to maintainers.
 |---|---:|---|---|---|---:|---:|---|
 | Qwen3-1.7B | 14.1 | gpt-5.2-codex · 29.5 | gpt-5.5-xh-rp · 29.5 | gpt-5.4-high · 29.4 | 35.5 | **22.3 ✓clean** | ✅ run #33 (10h official, 2026-07-26): **22.32 ±2.0 via rescore, judges clean** — +8.2 over base, below the 29.5 proven band; in-run champion read 28.67 @150 but the first-150 subset proved a BIASED estimator of the full 448 (see review); 529-killed iter-1 recovered in 4 min; endgame champion-defense exemplary. `gpqamain-qwen3-1-7b-base-07252105` |
 | Qwen3-4B | 13.4 | gpt-5.4-h-rp · 34.1 | gpt-5.5-xhigh · 34.0 | gpt-5.5-xh-rp · 33.9 | 44.6 | **32.1 ✓clean** | ✅ run #32 (10h official, 2026-07-26): **32.14 ±2.2 via rescore, judges clean** — 4th-tier row 1.8 under proven #1 (within ~1σ of the 33.9-34.1 band), +18.7 over base; teacher distillation + rep_penalty 1.1 (the AIME decode lever generalized); agent's own full-448 confirm read 33.48. `gpqamain-qwen3-4b-base-07252103` |
-| SmolLM3-3B | 4.9 | gpt-5.5-xh-rp · 30.6 | glm-5.2 · 29.8 | gpt-5.4-high · 29.0 | 33.3 | — | pending |
-| gemma-3-4b | 1.6 | gpt-5.4-high · 29.5 | opus-4.7 · 28.7 | opus-4.8 · 28.7 | 31.5 | — | pending [G] |
+| SmolLM3-3B | 4.9 | gpt-5.5-xh-rp · 30.6 | glm-5.2 · 29.8 | gpt-5.4-high · 29.0 | 33.3 | rescore-pending | 🔄 run #34 (10h official, 2026-07-26): in-run shipped **29.69 full-448** (mid-proven-band); big recovery from iter-1's 16.67 parse-wall floor via R1-0528 science-MCQ SFT with anchored `ANSWER: X` tails. Official rescore re-running with `enforce_eager` (vLLM CUDA-graph crash on SmolLM3 arch); `gpqamain-smollm3-3b-base-07260818` |
+| gemma-3-4b | 1.6 | gpt-5.4-high · 29.5 | opus-4.7 · 28.7 | opus-4.8 · 28.7 | 31.5 | **29.0 ✓clean** | ✅ run #35 (10h official, 2026-07-26): **29.02 ±2.1 via rescore, judges clean** — mid-proven-band (ties #2/#3, 0.5 under #1), +27.4 over base 1.6, 2.5 under human, on the WEAKEST base of the table; monotone 26.34→27.72→30.36 in-run, final lever a zero-train model soup (0.5·StageB + 0.5·StageC, md5-verified). `gpqamain-gemma-3-4b-pt-07260822` |
 
 ### GSM8K (weight .0936)
 
@@ -214,8 +215,8 @@ with `gcp/20_fetch_results.sh <run_id>`. Layout per run:
 | #22 | arenahard × gemma-3-4b 10h | ABORTED @t+25m | `arenahardwriting-gemma-3-4b-pt-07241440` | killed 15:0xZ (same); its first attempt 07241426 died on the transient host-python preflight, boot now hardened (2703dc24) |
 | #23 | arenahard × Qwen3-1.7B 10h | **67.82 ✓clean** | `arenahardwriting-qwen3-1-7b-base-0724154` | official 0.6782 ±0.015 (9h29) — **CELL RECORD: +10.7 over fable-5's proven 57.1, +17.8 over human**; post-hoc judges clean ('no contamination detected' / 'only allowed use detected', gpt-5.6-sol replicating the exact harness stage after upstream's gpt-5.1-codex deprecation; verdicts in postjudge/); `reviews/run23-review.md` |
 | #26 | aime2025 × Qwen3-4B 10h | **20.0 ✓clean** | `aime2025-qwen3-4b-base-07250201` | official via rescore (on-VM final eval failed 9× — qwen-AIME serving pattern 2/2; judges clean integrated) — 1 shy of proven #1; in-run pooled ≈24; `reviews/run26-review.md` |
-| #35 | gpqamain × gemma-3-4b 10h | in flight (us-east4-a) | `gpqamain-gemma-3-4b-pt-07260822` | GPQA queue #4 (launched 08:22Z 07-26); subset-bias lesson visibly adopted at ideation; `reviews/run35-review.md` |
-| #34 | gpqamain × SmolLM3 10h | in flight (us-east4-a) | `gpqamain-smollm3-3b-base-07260818` | GPQA queue #3 relaunch (launched 08:18Z 07-26); base ~5.9%/parse 20-30% — worst format floor yet; `reviews/run34-review.md` |
+| #35 | gpqamain × gemma-3-4b 10h | **29.02 ✓clean** | `gpqamain-gemma-3-4b-pt-07260822` | official via rescore (7/7 serving-fail; judges clean) — mid-proven-band on the weakest base; model-soup final lever; `reviews/run35-review.md` |
+| #34 | gpqamain × SmolLM3 10h | rescore-pending | `gpqamain-smollm3-3b-base-07260818` | in-run 29.69 full-448 (mid-band, recovered from 16.67 parse floor); rescore re-run w/ enforce_eager (SmolLM3 vLLM CUDA-graph crash); `reviews/run34-review.md` |
 | #33 | gpqamain × Qwen3-1.7B 10h | **22.32 ✓clean** | `gpqamain-qwen3-1-7b-base-07252105` | official via rescore (final-eval fail 6/6 + first rescore attempt died on GATED gpqa dataset — hf-token fix 88fe3914); @150-subset bias exposed (28.67 in-run vs 22.32 full); 529-kill recovered in 4 min; `reviews/run33-review.md` |
 | #32 | gpqamain × Qwen3-4B 10h | **32.14 ✓clean** | `gpqamain-qwen3-4b-base-07252103` | official via rescore — 1.8 under proven #1 34.1 (within ~1σ); iter-1 16.0-below-random recovered to 33.48 full-448 in-run (teacher distill + rp 1.1); failover-stack debut, zero limit events; `reviews/run32-review.md` |
 | #31 | gpqamain × SmolLM3 10h | STOPPED @t+~35m | `gpqamain-smollm3-3b-base-07251809` | GPQA queue #3 (launched 18:09Z); stopped 2026-07-25 ~18:4xZ with #29/#30 — user call: implement OAuth failover first; trace archived (GCS + scratchpad stopped_runs_archive) for later study |

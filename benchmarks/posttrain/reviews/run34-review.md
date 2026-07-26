@@ -59,3 +59,33 @@ hardest small-base format cell of the campaign.
 - State at cut: iter-2 training queued behind the bank eval; GPU-free
   window used to pre-write the candidate-prep + gate/confirm/promote
   helpers.
+
+## P3 (close-out: RUN_DONE 18:22Z → rescore, in progress)
+
+**In-run shipped: 29.69% full-448 (iter-2 c2, temp 0.7)** — a large recovery
+from iter-1's 16.67 parse-wall floor. 3 iterations (0.1667 → 0.2969 → None).
+Mid-proven-band (band 29.0-30.6); official rescore re-running (see R34-P3-2).
+
+- **R34-P3-1 — iter-3 conduct: two honest NOPROMOTEs.** (a) c3 ablation
+  (teacher + anchors, NO native R1 traces) scored 27.46 — dropping native
+  traces HURT, so NOPROMOTE, and the ablation is itself the evidence that
+  native R1 reasoning traces carry the lift. (b) A greedy (temp 0.0) config
+  test on the winning c2 weights read 31.03 — **+1.34pp over the banked
+  29.69, but inside the ±2.2pp full-448 noise floor**, so the gate refused
+  it. The agent shipped c2 @ temp 0.7 (29.69) and left the possible +1.34
+  on the table rather than promote on noise — exactly the discipline the
+  campaign is built on (cf. the @150-subset-bias lesson it was seeded with).
+- **R34-P3-2 — official rescore hit a MODEL-SPECIFIC vLLM crash (not the
+  usual serving bug).** RUN_DONE exit 0, metrics MISSING (serving bug 7/7),
+  judges clean. The first rescore VM's vLLM EngineCore died with
+  `CUDA error: illegal memory access` after CUDA-graph capture — a
+  vLLM-0.11 CUDA-graph/torch.compile crash on SmolLM3-3B's NoPE-interleaved
+  attention arch (gemma served fine in the identical container, so it's
+  arch-specific, not the model being broken — the agent served this same
+  artifact in-run for its 29.69). Fix: inject `enforce_eager: True` into
+  evaluate.py's vLLM model_args (disables CUDA graphs + compile; same model
+  math and score, ~slower). Institutionalized in gcp/40_eval_only.sh so all
+  future rescores are graph-crash-proof. Rescore re-running with the fix;
+  official expected ≈29.7.
+- **R34-P3-3 — zero session-limit / zero swaps across the full 10h**
+  (11h detector confirmed). Failover stack clean.

@@ -71,6 +71,16 @@ set -x
 git clone --depth 1 "$PTB_REPO" /opt/ptb
 cd /opt/ptb
 
+# vLLM 0.11 hits a CUDA-graph "illegal memory access" EngineCore crash on some
+# fine-tuned arches (SmolLM3-3B's NoPE-interleaved attention — gpqamain rescore
+# 2026-07-26 died this way while gemma served fine in the same container).
+# enforce_eager disables CUDA graphs + torch.compile: same model math and score,
+# just no graph capture — the robust choice for a one-shot official rescore.
+# inspect-ai forwards model_args to vLLM's LLM(), so inject it there.
+sed -i "s/'gpu_memory_utilization': args.gpu_memory_utilization,/'gpu_memory_utilization': args.gpu_memory_utilization, 'enforce_eager': True,/" \
+    "src/eval/tasks/$EVAL/evaluate.py"
+grep -q "enforce_eager" "src/eval/tasks/$EVAL/evaluate.py" && echo "enforce_eager injected" || echo "WARN: enforce_eager inject missed"
+
 MODEL_DIR=/opt/ptb/rescore_final_model
 mkdir -p "$MODEL_DIR"
 # gsutil's ** only matches OBJECTS; anchor on config.json and take its dir.
