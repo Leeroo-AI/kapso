@@ -29,7 +29,7 @@ class RunActionExecutionEventKind(str, Enum):
     RESULT_DECIDED = "result_decided"
     RESULT_ACCEPTED = "result_accepted"
     CANCELLED = "cancelled"
-    INTERRUPTED = "interrupted"
+    FRONTIER_INVALIDATED = "frontier_invalidated"
 
 
 @dataclass(frozen=True)
@@ -50,20 +50,14 @@ class RunActionOperationTail(StrictContract):
             },
             3: {
                 RunActionExecutionEventKind.EXECUTION_PREPARED,
-                RunActionExecutionEventKind.INTERRUPTED,
+                RunActionExecutionEventKind.FRONTIER_INVALIDATED,
             },
             4: {
                 RunActionExecutionEventKind.SPAWN_COMMITTED,
-                RunActionExecutionEventKind.INTERRUPTED,
+                RunActionExecutionEventKind.FRONTIER_INVALIDATED,
             },
-            5: {
-                RunActionExecutionEventKind.ACTIVATION_COMMITTED,
-                RunActionExecutionEventKind.INTERRUPTED,
-            },
-            6: {
-                RunActionExecutionEventKind.RESULT_RECEIVED,
-                RunActionExecutionEventKind.INTERRUPTED,
-            },
+            5: {RunActionExecutionEventKind.ACTIVATION_COMMITTED},
+            6: {RunActionExecutionEventKind.RESULT_RECEIVED},
             7: {RunActionExecutionEventKind.RESULT_DECIDED},
             8: {RunActionExecutionEventKind.RESULT_ACCEPTED},
         }
@@ -151,7 +145,7 @@ class RunActionLedgerSnapshot(StrictContract):
         terminal_kinds = {
             RunActionExecutionEventKind.RESULT_ACCEPTED,
             RunActionExecutionEventKind.CANCELLED,
-            RunActionExecutionEventKind.INTERRUPTED,
+            RunActionExecutionEventKind.FRONTIER_INVALIDATED,
         }
         for previous in predecessor.operation_tails:
             current = current_by_operation.get(previous.operation_id)

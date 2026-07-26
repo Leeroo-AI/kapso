@@ -36,7 +36,6 @@ from kapso.cross_run.launch.run_action_store import (
     RunActionResultDecision,
     RunActionResultDisposition,
     RunActionStoreError,
-    RunActionTerminalReason,
 )
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RunActionPreparationAllocation,
@@ -209,7 +208,6 @@ def _execution_event(
     result_receipt=None,
     result_decision=None,
     acceptance=None,
-    terminal_reason=None,
     workspace_after=None,
 ):
     return RunActionExecutionEvent.mint(
@@ -224,7 +222,6 @@ def _execution_event(
         result_receipt=result_receipt,
         result_decision=result_decision,
         acceptance=acceptance,
-        terminal_reason=terminal_reason,
         workspace_after=workspace_after,
     )
 
@@ -767,7 +764,7 @@ def test_result_decision_blob_and_event_recover_as_one_durable_boundary(
     assert len(accepted_blobs) == int(decision_event_committed)
 
 
-def test_allocated_resource_loss_is_terminal_without_request_authority(
+def test_allocated_frontier_invalidation_is_terminal_without_request_authority(
     publisher_case,
 ) -> None:
     _frontier, request_payload, reservation, workspace = _reserved_action(
@@ -786,9 +783,7 @@ def test_allocated_resource_loss_is_terminal_without_request_authority(
                 workspace_access=reservation.intent.workspace_access,
             )
         )
-        session.interrupt_pre_spawn(
-            reason=(RunActionTerminalReason.SUPERVISOR_RESOURCE_LOST_BEFORE_SPAWN),
-        )
+        session.invalidate_frontier()
         assert len(session.events) == 3
         terminal = session.events[-1]
         assert terminal.workspace_after.to_identity() == workspace
@@ -801,7 +796,7 @@ def test_allocated_resource_loss_is_terminal_without_request_authority(
     )
     tail = reopened.snapshot().operation_tails[-1]
     assert tail.event_count == 3
-    assert tail.tail_kind is RunActionExecutionEventKind.INTERRUPTED
+    assert tail.tail_kind is RunActionExecutionEventKind.FRONTIER_INVALIDATED
 
 
 def test_prepared_frontier_invalidation_is_terminal_and_cannot_extend(
@@ -818,9 +813,7 @@ def test_prepared_frontier_invalidation_is_terminal_and_cannot_extend(
     _reserve_action(store, reservation, request_payload)
     with _open_session(store, reservation) as session:
         _prepare_session(session)
-        session.interrupt_pre_spawn(
-            reason=RunActionTerminalReason.FRONTIER_INVALIDATED_BEFORE_SPAWN,
-        )
+        session.invalidate_frontier()
         assert len(session.events) == 4
         with pytest.raises(RunActionStoreError, match="requires a"):
             session.commit_spawn(
@@ -833,7 +826,7 @@ def test_prepared_frontier_invalidation_is_terminal_and_cannot_extend(
             session.read_request()
 
     assert store.snapshot().operation_tails[-1].tail_kind is (
-        RunActionExecutionEventKind.INTERRUPTED
+        RunActionExecutionEventKind.FRONTIER_INVALIDATED
     )
 
 
@@ -925,12 +918,11 @@ def test_action_store_rejects_legacy_and_cross_authority_event_splices(
         event_kind=RunActionExecutionEventKind.SPAWN_COMMITTED,
         spawn_commit=durable_events[3].spawn_commit,
     )
-    missing_workspace_interruption = _execution_event(
+    missing_workspace_invalidation = _execution_event(
         reservation=reservation,
         event_number=3,
         predecessor_event_id=durable_events[1].event_id,
-        event_kind=RunActionExecutionEventKind.INTERRUPTED,
-        terminal_reason=(RunActionTerminalReason.SUPERVISOR_RESOURCE_LOST_BEFORE_SPAWN),
+        event_kind=RunActionExecutionEventKind.FRONTIER_INVALIDATED,
     )
 
     invalid_prefixes = (
@@ -953,7 +945,7 @@ def test_action_store_rejects_legacy_and_cross_authority_event_splices(
             (
                 durable_events[0],
                 durable_events[1],
-                missing_workspace_interruption,
+                missing_workspace_invalidation,
             ),
             "exact unchanged workspace",
         ),
@@ -1135,7 +1127,6 @@ def test_action_store_rejects_reminted_failed_edit_with_changed_workspace(
         result_receipt=None,
         result_decision=None,
         acceptance=acceptance,
-        terminal_reason=None,
         workspace_after=None,
     )
     operation_digest = tree_or_blob_digest(
@@ -1392,7 +1383,7 @@ def test_action_store_durably_rejects_duplicate_operation(
     assert store.snapshot().event_count == 1
 
 
-def test_action_store_cancel_and_interrupted_prefixes_are_terminal(
+def test_action_store_cancel_and_frontier_invalidation_are_terminal(
     publisher_case,
 ):
     frontier, request_payload, reservation, workspace = _reserved_action(
@@ -1405,11 +1396,11 @@ def test_action_store_cancel_and_interrupted_prefixes_are_terminal(
     )
     _reserve_action(store, reservation, request_payload)
     with _open_session(store, reservation) as session:
-        session.cancel(RunActionTerminalReason.STALE_FRONTIER)
-        with pytest.raises(RunActionStoreError, match="terminal reason"):
+        session.cancel()
+        with pytest.raises(RunActionStoreError, match="terminal kind"):
             replace(
                 session.events[-1],
-                terminal_reason=RunActionTerminalReason.PROVIDER_FAILED,
+                event_kind=RunActionExecutionEventKind.FRONTIER_INVALIDATED,
             )
         with pytest.raises(RunActionStoreError, match="requires a"):
             session.commit_spawn(
@@ -1432,23 +1423,19 @@ def test_action_store_cancel_and_interrupted_prefixes_are_terminal(
     )
     _reserve_action(store, second_reservation, second_payload)
     with _open_session(store, second_reservation) as session:
-        _prepare_session(session)
-        session.commit_spawn(
-            security_observation_id=(
-                second_frontier.checkpoint.safety_state.security_observation.observation_id
-            ),
-            boundary_identity=session.reservation.intent.boundary_identity,
+        session.allocate_preparation(
+            _execution_policy(
+                kind=second_reservation.intent.kind,
+                workspace_access=second_reservation.intent.workspace_access,
+            )
         )
-        session.interrupt(
-            reason=RunActionTerminalReason.PROVIDER_INTERRUPTED,
-            workspace_after=second_workspace,
-        )
+        session.invalidate_frontier()
     tails = {tail.operation_id: tail for tail in store.snapshot().operation_tails}
     assert tails[reservation.intent.operation_id].tail_kind is (
         RunActionExecutionEventKind.CANCELLED
     )
     assert tails[second_reservation.intent.operation_id].tail_kind is (
-        RunActionExecutionEventKind.INTERRUPTED
+        RunActionExecutionEventKind.FRONTIER_INVALIDATED
     )
     assert workspace == second_workspace
 
@@ -1680,9 +1667,7 @@ def test_action_store_rejects_reused_runtime_volume_generation_authority(
             )
         )
         first_nonce = allocation.runtime_volume_authority.generation_nonce
-        session.interrupt_pre_spawn(
-            reason=RunActionTerminalReason.SUPERVISOR_RESOURCE_LOST_BEFORE_SPAWN,
-        )
+        session.invalidate_frontier()
 
     _frontier, second_payload, second, _workspace = _reserved_action(
         publisher_case,

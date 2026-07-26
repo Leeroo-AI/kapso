@@ -71,7 +71,6 @@ from kapso.cross_run.launch.run_action_store import (
     RunActionResultDecision,
     RunActionResultDisposition,
     RunActionStoreInspection,
-    RunActionTerminalReason,
 )
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
     DockerRunActionExecutionPolicy,
@@ -136,7 +135,7 @@ _COMMITTED_CONTINUATION_CAPABILITY_LOCK = Lock()
 _TERMINAL_KINDS = {
     RunActionExecutionEventKind.RESULT_ACCEPTED,
     RunActionExecutionEventKind.CANCELLED,
-    RunActionExecutionEventKind.INTERRUPTED,
+    RunActionExecutionEventKind.FRONTIER_INVALIDATED,
 }
 _EXECUTION_ADAPTER_METHOD_NAMES = (
     "prepared_event_size_bound",
@@ -229,7 +228,6 @@ class RunActionPreparationState(str, Enum):
     """Exact positive states admitted from preparation reconciliation."""
 
     EXACT_PREPARED = "exact_prepared"
-    PROVEN_RESOURCE_LOST = "proven_resource_lost"
     UNKNOWN = "unknown"
 
 
@@ -312,7 +310,6 @@ class RunActionCommittedSpawnState(str, Enum):
     INERT_CONTINUABLE = "inert_continuable"
     RUNNING_CONTINUABLE = "running_continuable"
     TERMINAL_CONTINUABLE = "terminal_continuable"
-    QUIESCENT_RECHECKABLE = "quiescent_recheckable"
     UNKNOWN = "unknown"
 
 
@@ -377,7 +374,6 @@ class RunActionCommittedSpawnObservation:
             RunActionCommittedSpawnState.INERT_CONTINUABLE,
             RunActionCommittedSpawnState.RUNNING_CONTINUABLE,
             RunActionCommittedSpawnState.TERMINAL_CONTINUABLE,
-            RunActionCommittedSpawnState.QUIESCENT_RECHECKABLE,
         }
         if continuable != (self.observation_token is not None):
             raise RunActionRecoveryError(
@@ -398,7 +394,6 @@ class RunActionContinuationState(str, Enum):
 
     PENDING = "pending"
     RESULT_CAPTURED = "result_captured"
-    PROVEN_QUIESCENT_WITHOUT_RESULT = "proven_quiescent_without_result"
 
 
 @dataclass(frozen=True)
@@ -766,7 +761,6 @@ class RunActionCommittedContinuationCapability:
                 RunActionCommittedSpawnState.INERT_CONTINUABLE,
                 RunActionCommittedSpawnState.RUNNING_CONTINUABLE,
                 RunActionCommittedSpawnState.TERMINAL_CONTINUABLE,
-                RunActionCommittedSpawnState.QUIESCENT_RECHECKABLE,
             }
             or type(required_security_observation) is not SecurityDenylistObservation
             or required_security_observation.observation_id
@@ -2192,16 +2186,6 @@ class RunActionRecoveryCoordinator:
             RunActionExecutionEventKind.EXECUTION_PREPARED,
         }:
             security_is_current = self._security_is_current(frontier)
-            if not security_is_current:
-                if tail_kind is RunActionExecutionEventKind.INTENT_RESERVED:
-                    session.cancel(RunActionTerminalReason.STALE_FRONTIER)
-                else:
-                    session.interrupt_pre_spawn(
-                        reason=(
-                            RunActionTerminalReason.FRONTIER_INVALIDATED_BEFORE_SPAWN
-                        ),
-                    )
-                return
             workspace_descriptor, observed_workspace = (
                 self._inspect_pre_spawn_workspace(
                     reservation,
@@ -2221,13 +2205,13 @@ class RunActionRecoveryCoordinator:
             ) == expected_workspace
             if not workspace_is_current:
                 if tail_kind is RunActionExecutionEventKind.INTENT_RESERVED:
-                    session.cancel(RunActionTerminalReason.STALE_FRONTIER)
+                    session.cancel()
+                return
+            if not security_is_current:
+                if tail_kind is RunActionExecutionEventKind.INTENT_RESERVED:
+                    session.cancel()
                 else:
-                    session.interrupt_pre_spawn(
-                        reason=(
-                            RunActionTerminalReason.FRONTIER_INVALIDATED_BEFORE_SPAWN
-                        ),
-                    )
+                    session.invalidate_frontier()
                 return
             execution_adapter = self._resolve_execution_adapter(
                 self._implementation_registry,
@@ -2253,12 +2237,10 @@ class RunActionRecoveryCoordinator:
                     None
                     if allocated_workspace is None
                     else RunActionWorkspaceBinding.from_identity(allocated_workspace)
-                ) != expected_workspace or not self._security_is_current(frontier):
-                    session.interrupt_pre_spawn(
-                        reason=(
-                            RunActionTerminalReason.FRONTIER_INVALIDATED_BEFORE_SPAWN
-                        ),
-                    )
+                ) != expected_workspace:
+                    return
+                if not self._security_is_current(frontier):
+                    session.invalidate_frontier()
                     return
                 workspace_descriptor = allocated_workspace_descriptor
             elif tail_kind is RunActionExecutionEventKind.PREPARATION_ALLOCATED:
@@ -2313,13 +2295,6 @@ class RunActionRecoveryCoordinator:
                 )
             if preparation.state is RunActionPreparationState.UNKNOWN:
                 return
-            if preparation.state is RunActionPreparationState.PROVEN_RESOURCE_LOST:
-                session.interrupt_pre_spawn(
-                    reason=(
-                        RunActionTerminalReason.SUPERVISOR_RESOURCE_LOST_BEFORE_SPAWN
-                    ),
-                )
-                return
             prepared = preparation.prepared_execution
             if (
                 prepared.preparation_claim != claim
@@ -2353,14 +2328,9 @@ class RunActionRecoveryCoordinator:
                 if confirmed_workspace is None
                 else RunActionWorkspaceBinding.from_identity(confirmed_workspace)
             ) != expected_workspace:
-                session.interrupt_pre_spawn(
-                    reason=RunActionTerminalReason.FRONTIER_INVALIDATED_BEFORE_SPAWN,
-                )
                 return
             if not self._security_is_current(frontier):
-                session.interrupt_pre_spawn(
-                    reason=RunActionTerminalReason.FRONTIER_INVALIDATED_BEFORE_SPAWN,
-                )
+                session.invalidate_frontier()
                 return
             if release_receipt_size_bound != self._release_receipt_size_bound(
                 execution_adapter,
@@ -2611,7 +2581,7 @@ class RunActionRecoveryCoordinator:
             raise RunActionRecoveryError(
                 "execution adapter returned an invalid committed continuation"
             )
-        terminal_workspace = self._require_unchanged_host_workspace(
+        self._require_unchanged_host_workspace(
             session.reservation,
             descriptors,
             "host workspace changed during committed provider continuation",
@@ -2630,23 +2600,9 @@ class RunActionRecoveryCoordinator:
                 descriptors,
                 workspace_lock_descriptor,
             )
-        with open_run_action_release_inspection(
-            activation_event=activation_event,
-            launch_settings=self._publisher._settings,
-        ) as final_release_inspection:
-            if (
-                workload_release_adoption is not None
-                or final_release_inspection.presence
-                is not RunActionReleasePresence.ABSENT
-            ):
-                raise RunActionRecoveryError(
-                    "released workload cannot use evidence-free interruption"
-                )
-        session.interrupt(
-            reason=RunActionTerminalReason.PROVIDER_INTERRUPTED,
-            workspace_after=terminal_workspace,
+        raise RunActionRecoveryError(
+            "execution adapter returned an unknown committed continuation"
         )
-        return None
 
     @staticmethod
     def _continuation_outcome_allowed(
@@ -2661,18 +2617,13 @@ class RunActionRecoveryCoordinator:
         admitted = {
             RunActionCommittedSpawnState.INERT_CONTINUABLE: {
                 RunActionContinuationState.PENDING,
-                RunActionContinuationState.PROVEN_QUIESCENT_WITHOUT_RESULT,
             },
             RunActionCommittedSpawnState.RUNNING_CONTINUABLE: {
                 RunActionContinuationState.PENDING,
-                RunActionContinuationState.PROVEN_QUIESCENT_WITHOUT_RESULT,
             },
             RunActionCommittedSpawnState.TERMINAL_CONTINUABLE: {
                 RunActionContinuationState.PENDING,
                 RunActionContinuationState.RESULT_CAPTURED,
-            },
-            RunActionCommittedSpawnState.QUIESCENT_RECHECKABLE: {
-                RunActionContinuationState.PROVEN_QUIESCENT_WITHOUT_RESULT,
             },
             RunActionCommittedSpawnState.UNKNOWN: set(),
         }

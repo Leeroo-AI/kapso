@@ -646,7 +646,6 @@ def test_direct_gate_lifecycle_is_absent() -> None:
         "commit_activation",
         "record_result",
         "accept_result",
-        "interrupt",
-        "interrupt_pre_spawn",
+        "invalidate_frontier",
     ):
         assert not hasattr(RunFrontierActionGate, name)

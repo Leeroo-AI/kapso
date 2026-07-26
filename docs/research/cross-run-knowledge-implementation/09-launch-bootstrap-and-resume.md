@@ -488,14 +488,16 @@ INTENT_RESERVED
 ```
 
 `INTENT_RESERVED` may cancel before logical allocation when its frontier is stale.
-Allocated or prepared work may terminally interrupt before spawn when its frontier
-is invalidated or the supervisor positively proves its resource was lost. This
+Allocated or prepared work may close as `FRONTIER_INVALIDATED` before spawn only
+after the reserved workspace is re-proved unchanged and another frontier
+authority is stale. A workspace mismatch itself remains unresolved: this event
+cannot claim that an unbound external successor is the action's result. The
 terminal records the reservation's exact unchanged workspace binding (or no
 workspace for a workspace-free action) because no request, credential, or start
-authority existed. It is durable before cleanup; cleanup is idempotent,
-nonblocking garbage collection, and an inert orphan has no spawn authority.
-An unknown or temporarily unreachable resource remains unresolved. A persisted
-prepared occurrence is never replaced. `SPAWN_COMMITTED` means the exact
+authority existed. Physical resource loss is not a terminal fact: an absent,
+unknown, or temporarily unreachable occurrence remains unresolved until
+preparation can return complete exact evidence. A persisted prepared occurrence
+is never replaced. `SPAWN_COMMITTED` means the exact
 occurrence has no selected activation receipt and may only stage an inert
 activation or remain unresolved. `ACTIVATION_COMMITTED` selects the sole receipt
 that may precede start and may terminate only as a result or provider
@@ -531,34 +533,34 @@ the activation-event envelope twice before delivery; the returned receipt must
 fit it. The coordinator then rechecks workspace and security and durably selects
 that exact receipt as event 5. Read-only inspection follows every fresh or
 recovered event-5 selection. Only a distinct process-bound continuation
-capability bound to that inspection may start, wait, capture, or reprove
-quiescence. The staging capability burns on every exit and closes its owned
+capability bound to that inspection may start, wait, or capture. The staging
+capability burns on every exit and closes its owned
 workspace descriptor; the descriptor-free continuation capability also burns on
 every exit.
 Request bytes are unreadable from the action session before spawn.
 Preparation returns one typed state: exact prepared with an origin compatible
-with its create/reopen/revalidation mode, positively lost, or unknown.
+with its create/reopen/revalidation mode, or unknown.
 Allocation reopen may physically materialize only after positive total absence,
 or may re-open only the completely reobserved event-2 occurrence. Prepared
-revalidation can return only the identical occurrence, positive loss, or
-uncertainty; it cannot allocate. Partial, substituted, or ambiguous event-2
-resources remain unresolved and never receive replacement authority. Early
-interruption is admitted after the allocation
-or prepared event without changing the normal eight-event success chain.
+revalidation can return only the identical occurrence or uncertainty; it cannot
+allocate. Partial, substituted, absent, or ambiguous event-2 resources remain
+unresolved and never receive replacement authority. Administrative frontier
+invalidation may close the allocation or prepared prefix only after re-proving
+its workspace unchanged, without changing the normal eight-event success chain.
 
 An event-4 query admits only exact inert or unknown state; running or exited state
 cannot be adopted without durable activation. Exact inert state may restage and
 select event 5. Every event-5 path now uses the same token-sealed continuation
 protocol. Read-only inspection returns only `INERT_CONTINUABLE`,
-`RUNNING_CONTINUABLE`, `TERMINAL_CONTINUABLE`, `QUIESCENT_RECHECKABLE`, or
-`UNKNOWN`, plus one exact observation digest for states that may continue. It
-cannot return result bytes or terminalize an operation. A distinct
+`RUNNING_CONTINUABLE`, `TERMINAL_CONTINUABLE`, or `UNKNOWN`, plus one exact
+observation digest for states that may continue. It cannot return result bytes
+or terminalize an operation. A distinct
 same-process/same-thread single-use capability binds the complete event-2
 allocation, event-5 activation event, and exact observation object. Its sole
 `continue_committed_once` call must revalidate that observation before it may
-start, wait, capture, or positively reprove quiescence. Pending work leaves event
-5 unchanged; a captured result is checked against the complete activation
-evidence before event 6; only a sealed positive quiescence outcome may interrupt.
+start, wait, or capture. Pending work leaves event 5 unchanged; a captured result
+is checked against the complete activation evidence before event 6. No
+proof-only quiescence or resource-loss state may terminalize the operation.
 `UNKNOWN` receives no capability. Immediate post-event-5 execution and restart
 therefore share one path, and a failed continuation is retried only after a new
 inspection. Recovery never routes committed work through allocation or
@@ -746,27 +748,29 @@ the runtime volume.
 
 Security and credential freshness gate only transitions that could newly publish
 release. Once release exists, stale security must not abandon a running process:
-wait, deadline enforcement, containment, terminal capture, and positive
-quiescence remain authorized. A recovered wait uses the receipt's same-boot
-absolute deadline; it never receives a fresh timeout. Zero or multiple matching
-resources, substituted mounts/labels/runtime/image, PID reuse, an unproved
-wrapper, or an unexplained disappearance classify as `UNKNOWN`; they never
-authorize recreation. A present but invalid release file fails loud as corrupt,
-also without recreation. A typed terminal-failure or resource-loss receipt, not a
-proof-free enum, is required before interruption.
+wait, deadline enforcement, containment, terminal inspection, and typed
+termination-receipt registration remain authorized. A recovered wait uses the
+receipt's same-boot absolute deadline; it never receives a fresh timeout. Zero or
+multiple matching resources, substituted mounts/labels/runtime/image, PID reuse,
+an unproved wrapper, or an unexplained disappearance classify as `UNKNOWN`; they
+never authorize recreation. A present but invalid release file fails loud as
+corrupt, also without recreation. A typed terminal-failure or resource-loss
+receipt, not a proof-free enum, is required before interruption.
 
 Provider completion has three evidence-bearing outcomes. `RESULT_CAPTURED`
 requires exit zero, no OOM, the original bounded result inode, and the exact
 prepared result-parent authority. `PROVIDER_TERMINATED` carries a
 content-addressed receipt whose disposition is `FAILED` for provider failures
-or `INTERRUPTED` for supervisor containment and whose reason names timeout, OOM,
-empty result, barrier exit, security/credential containment, or positive
-pre-release loss. It embeds either exact terminal-plus-empty-result evidence or
-a narrowly pre-release resource-loss observation and includes the full workload
-release receipt when release occurred. Any wrong/unstable/oversized result inode,
-released resource disappearance, or mixed Docker inventory remains `UNKNOWN`;
-it is never mislabeled as a provider failure. Event 6 stores the complete result
-or termination evidence before cleanup.
+or `INTERRUPTED` for supervisor containment. That receipt disposition is not the
+deleted overloaded execution-event kind: the ledger event remains
+`PROVIDER_TERMINATED`. Its reason names timeout, OOM, empty result, barrier exit,
+security/credential containment, or positive pre-release loss. It embeds either
+exact terminal-plus-empty-result evidence or a narrowly pre-release
+resource-loss observation and includes the full workload release receipt when
+release occurred. Any wrong/unstable/oversized result inode, released resource
+disappearance, or mixed Docker inventory remains `UNKNOWN`; it is never
+mislabeled as a provider failure. Event 6 stores the complete result or
+termination evidence before cleanup.
 
 Pre-commit cleanup is allowed only for the unique exact never-started occurrence
 when no spawn commit exists. Terminal observation precedes result capture: the
@@ -969,6 +973,17 @@ Positive termination and cleanup authority and production adapters remain the
 next slices. No production caller can receive Docker start authority from the
 reservation gate; M9 activation must continue to route every post-reservation
 transition through the coordinator's sealed capabilities.
+
+The recovery surface is now fail-closed ahead of typed termination. The
+proof-only `PROVEN_RESOURCE_LOST`, `QUIESCENT_RECHECKABLE`, and
+`PROVEN_QUIESCENT_WITHOUT_RESULT` states are deleted, as are the overloaded
+provider `INTERRUPTED` reasons and store mutation. Cancellation is expressed by
+its event kind, and a distinct `FRONTIER_INVALIDATED` event can close only an
+allocated or prepared pre-spawn prefix after its unchanged workspace is
+re-proved. A workspace mismatch remains unresolved. After durable event 5, the
+only admitted outcomes are `PENDING` or a privately registered
+descriptor-captured result; ambiguity cannot become terminal until the next
+slice supplies a complete registered termination receipt.
 
 The coordinator owns one process-bound, non-clonable implementation catalog fixed
 at composition; `recover()` accepts no caller-selected implementation. Each

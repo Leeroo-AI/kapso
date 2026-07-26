@@ -177,7 +177,6 @@ def _activation_event(resolved, *, predecessor_label="event-four"):
         result_receipt=None,
         result_decision=None,
         acceptance=None,
-        terminal_reason=None,
         workspace_after=None,
     )
 

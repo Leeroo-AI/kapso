@@ -273,7 +273,7 @@ class RunFrontierActionGate:
         terminal_kinds = {
             RunActionExecutionEventKind.RESULT_ACCEPTED,
             RunActionExecutionEventKind.CANCELLED,
-            RunActionExecutionEventKind.INTERRUPTED,
+            RunActionExecutionEventKind.FRONTIER_INVALIDATED,
         }
         if any(
             tail.tail_kind not in terminal_kinds

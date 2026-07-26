@@ -65,7 +65,6 @@ from kapso.cross_run.launch.run_action_store import (
     RunActionExecutionEvent,
     RunActionResultDisposition,
     RunActionStoreError,
-    RunActionTerminalReason,
 )
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
     issue_runtime_volume_authority,
@@ -350,7 +349,6 @@ class _FakeExecutionAdapter:
             result_receipt=None,
             result_decision=None,
             acceptance=None,
-            terminal_reason=None,
             workspace_after=None,
         )
         return len(event.to_json_bytes())
@@ -378,7 +376,6 @@ class _FakeExecutionAdapter:
             result_receipt=None,
             result_decision=None,
             acceptance=None,
-            terminal_reason=None,
             workspace_after=None,
         )
         return len(event.to_json_bytes())
@@ -440,14 +437,6 @@ class _FakeExecutionAdapter:
 
     def continue_committed_once(self, capability):
         self.continuation_calls.append(capability)
-        if (
-            capability.observation.state
-            is RunActionCommittedSpawnState.QUIESCENT_RECHECKABLE
-        ):
-            return RunActionContinuationOutcome(
-                state=(RunActionContinuationState.PROVEN_QUIESCENT_WITHOUT_RESULT),
-                result=None,
-            )
         if capability.observation.state in {
             RunActionCommittedSpawnState.INERT_CONTINUABLE,
             RunActionCommittedSpawnState.RUNNING_CONTINUABLE,
@@ -666,23 +655,6 @@ class _AdoptionAwarePendingAdapter(_FakeExecutionAdapter):
         self.continuation_calls.append(capability)
         return RunActionContinuationOutcome(
             state=RunActionContinuationState.PENDING,
-            result=None,
-        )
-
-
-class _ReleaseStateChangingQuiescentAdapter(_FakeExecutionAdapter):
-    def __init__(self, boundary_identity, change_release_state) -> None:
-        super().__init__(
-            boundary_identity,
-            observation_state=RunActionCommittedSpawnState.RUNNING_CONTINUABLE,
-        )
-        self._change_release_state = change_release_state
-
-    def continue_committed_once(self, capability):
-        self.continuation_calls.append(capability)
-        self._change_release_state()
-        return RunActionContinuationOutcome(
-            state=RunActionContinuationState.PROVEN_QUIESCENT_WITHOUT_RESULT,
             result=None,
         )
 
@@ -1277,21 +1249,21 @@ def test_committed_continuation_reuses_exact_inspection_seal(
     assert adapter.token_revalidated
 
 
-def test_quiescent_continuation_rejects_invalid_pending_outcome(
-    publisher_case,
-) -> None:
-    frontier, gate, reservation, payload = _reserved_case(publisher_case)
-    _append_activation_committed(gate, reservation)
-    adapter = _PendingContinuationAdapter(
-        reservation.intent.boundary_identity,
-        observation_state=RunActionCommittedSpawnState.QUIESCENT_RECHECKABLE,
-    )
-
-    with pytest.raises(RunActionRecoveryError, match="invalid committed continuation"):
-        _recovery_coordinator(gate, adapter).recover(frontier)
-
-    events = gate._action_store.inspect().events_for(reservation.intent.operation_id)
-    assert events[-1].event_kind is RunActionExecutionEventKind.ACTIVATION_COMMITTED
+def test_recovery_contract_has_no_proof_free_terminal_states() -> None:
+    assert set(RunActionPreparationState) == {
+        RunActionPreparationState.EXACT_PREPARED,
+        RunActionPreparationState.UNKNOWN,
+    }
+    assert set(RunActionCommittedSpawnState) == {
+        RunActionCommittedSpawnState.INERT_CONTINUABLE,
+        RunActionCommittedSpawnState.RUNNING_CONTINUABLE,
+        RunActionCommittedSpawnState.TERMINAL_CONTINUABLE,
+        RunActionCommittedSpawnState.UNKNOWN,
+    }
+    assert set(RunActionContinuationState) == {
+        RunActionContinuationState.PENDING,
+        RunActionContinuationState.RESULT_CAPTURED,
+    }
 
 
 def test_terminal_continuation_cannot_skip_trusted_reinspection(
@@ -1494,77 +1466,6 @@ def test_prepared_crash_recovery_uses_revalidation_mode(
         RunActionPreparationMode.CREATE_ALLOCATED,
         RunActionPreparationMode.REVALIDATE_PREPARED,
     ]
-
-
-def test_allocated_resource_loss_terminally_closes_without_provider_authority(
-    publisher_case,
-) -> None:
-    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
-    adapter = _NonExactPreparationAdapter(
-        reservation.intent.boundary_identity,
-        RunActionPreparationState.PROVEN_RESOURCE_LOST,
-        {RunActionPreparationMode.CREATE_ALLOCATED},
-    )
-
-    report = _recovery_coordinator(gate, adapter).recover(frontier)
-
-    terminal = report.recovered_operations[-1].events[-1]
-    assert report.is_complete
-    assert terminal.event_number == 3
-    assert terminal.event_kind is RunActionExecutionEventKind.INTERRUPTED
-    assert terminal.terminal_reason is (
-        RunActionTerminalReason.SUPERVISOR_RESOURCE_LOST_BEFORE_SPAWN
-    )
-    assert not adapter.continuation_calls
-    assert not adapter.inspect_calls
-
-
-def test_prepared_resource_loss_interrupts_without_recreation(
-    publisher_case,
-) -> None:
-    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
-    adapter = _NonExactPreparationAdapter(
-        reservation.intent.boundary_identity,
-        RunActionPreparationState.PROVEN_RESOURCE_LOST,
-        {RunActionPreparationMode.REVALIDATE_PREPARED},
-    )
-    coordinator = _recovery_coordinator(gate, adapter)
-    security_check_count = 0
-
-    def crash_after_prepared(_frontier):
-        nonlocal security_check_count
-        security_check_count += 1
-        if security_check_count == 3:
-            raise RuntimeError("injected death after prepared commit")
-        return True
-
-    coordinator._security_is_current = crash_after_prepared
-    with pytest.raises(RuntimeError, match="after prepared commit"):
-        coordinator.recover(frontier)
-    durable_prepared = (
-        gate._action_store.inspect()
-        .events_for(reservation.intent.operation_id)[2]
-        .prepared_execution
-    )
-    coordinator._security_is_current = lambda _frontier: True
-
-    report = coordinator.recover(frontier)
-
-    terminal = report.recovered_operations[-1].events[-1]
-    assert report.is_complete
-    assert terminal.event_number == 4
-    assert terminal.terminal_reason is (
-        RunActionTerminalReason.SUPERVISOR_RESOURCE_LOST_BEFORE_SPAWN
-    )
-    assert len(adapter.prepare_calls) == 2
-    assert adapter.prepare_modes == [
-        RunActionPreparationMode.CREATE_ALLOCATED,
-        RunActionPreparationMode.REVALIDATE_PREPARED,
-    ]
-    assert (
-        report.recovered_operations[-1].events[2].prepared_execution == durable_prepared
-    )
-    assert not adapter.continuation_calls
 
 
 def test_unknown_preparation_remains_retryable_and_request_inaccessible(
@@ -2216,46 +2117,28 @@ def test_projected_event_8_cleanup_precedes_new_pending_edit_after_restart(
     active.close()
 
 
-@pytest.mark.parametrize(
-    ("state", "expected_complete", "expected_terminal"),
-    (
-        (
-            RunActionCommittedSpawnState.RUNNING_CONTINUABLE,
-            False,
-            RunActionExecutionEventKind.ACTIVATION_COMMITTED,
-        ),
-        (
-            RunActionCommittedSpawnState.QUIESCENT_RECHECKABLE,
-            True,
-            RunActionExecutionEventKind.INTERRUPTED,
-        ),
-    ),
-)
-def test_committed_spawn_is_queried_and_never_reactivated(
+def test_running_committed_spawn_is_queried_and_never_reactivated(
     publisher_case,
-    state,
-    expected_complete,
-    expected_terminal,
 ) -> None:
     frontier, gate, reservation, payload = _reserved_case(publisher_case)
     _append_activation_committed(gate, reservation)
     adapter = _FakeExecutionAdapter(
         reservation.intent.boundary_identity,
-        observation_state=state,
+        observation_state=RunActionCommittedSpawnState.RUNNING_CONTINUABLE,
     )
 
     report = _recovery_coordinator(gate, adapter).recover(frontier)
 
-    assert report.is_complete is expected_complete
+    assert not report.is_complete
     assert not adapter.prepare_calls
     assert len(adapter.inspect_calls) == 1
     assert not hasattr(adapter.inspect_calls[0], "request_payload")
     assert len(adapter.continuation_calls) == 1
     events = gate._action_store.inspect().events_for(reservation.intent.operation_id)
-    assert events[-1].event_kind is expected_terminal
+    assert events[-1].event_kind is RunActionExecutionEventKind.ACTIVATION_COMMITTED
 
 
-def test_quiescent_edit_rejects_a_host_workspace_successor(
+def test_running_edit_rejects_a_host_workspace_successor(
     publisher_case,
 ) -> None:
     _publisher, frontier, _security, gate = _action_case(
@@ -2277,7 +2160,7 @@ def test_quiescent_edit_rejects_a_host_workspace_successor(
     )
     adapter = _FakeExecutionAdapter(
         reservation.intent.boundary_identity,
-        observation_state=(RunActionCommittedSpawnState.QUIESCENT_RECHECKABLE),
+        observation_state=(RunActionCommittedSpawnState.RUNNING_CONTINUABLE),
     )
 
     with pytest.raises(
@@ -2323,7 +2206,7 @@ def test_ambiguous_edit_workspace_remains_nonterminal(
         )
     adapter = _FakeExecutionAdapter(
         reservation.intent.boundary_identity,
-        observation_state=(RunActionCommittedSpawnState.QUIESCENT_RECHECKABLE),
+        observation_state=(RunActionCommittedSpawnState.RUNNING_CONTINUABLE),
     )
     with pytest.raises(RunWorkspaceFrontierError):
         _recovery_coordinator(gate, adapter).recover(frontier)
@@ -2419,100 +2302,6 @@ def test_published_release_is_adopted_after_security_advance(
     assert not report.is_complete
     assert adapter.observed_release_adoption == adoption
     assert len(adapter.continuation_calls) == 1
-
-
-def test_release_published_during_callback_cannot_be_recorded_as_quiescent(
-    publisher_case,
-    monkeypatch,
-) -> None:
-    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
-    _append_activation_committed(gate, reservation)
-    activation_event = gate._action_store.inspect().events_for(
-        reservation.intent.operation_id
-    )[4]
-    adoption = _release_adoption_for_event(
-        activation_event,
-        frontier.checkpoint.safety_state.security_observation,
-    )
-    release_state = {"present": False}
-
-    def inspect_release(**_arguments):
-        return (
-            _PresentReleaseInspection(adoption)
-            if release_state["present"]
-            else _AbsentReleaseInspection()
-        )
-
-    monkeypatch.setattr(
-        run_action_recovery_module,
-        "open_run_action_release_inspection",
-        inspect_release,
-    )
-    adapter = _ReleaseStateChangingQuiescentAdapter(
-        reservation.intent.boundary_identity,
-        lambda: release_state.__setitem__("present", True),
-    )
-
-    with pytest.raises(
-        RunActionRecoveryError,
-        match="released workload cannot use evidence-free interruption",
-    ):
-        _recovery_coordinator(gate, adapter).recover(frontier)
-
-    assert len(adapter.continuation_calls) == 1
-    assert (
-        gate._action_store.inspect()
-        .events_for(reservation.intent.operation_id)[-1]
-        .event_kind
-        is RunActionExecutionEventKind.ACTIVATION_COMMITTED
-    )
-
-
-def test_adopted_release_cannot_disappear_then_be_recorded_as_quiescent(
-    publisher_case,
-    monkeypatch,
-) -> None:
-    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
-    _append_activation_committed(gate, reservation)
-    activation_event = gate._action_store.inspect().events_for(
-        reservation.intent.operation_id
-    )[4]
-    adoption = _release_adoption_for_event(
-        activation_event,
-        frontier.checkpoint.safety_state.security_observation,
-    )
-    release_state = {"present": True}
-
-    def inspect_release(**_arguments):
-        return (
-            _PresentReleaseInspection(adoption)
-            if release_state["present"]
-            else _AbsentReleaseInspection()
-        )
-
-    monkeypatch.setattr(
-        run_action_recovery_module,
-        "open_run_action_release_inspection",
-        inspect_release,
-    )
-    adapter = _ReleaseStateChangingQuiescentAdapter(
-        reservation.intent.boundary_identity,
-        lambda: release_state.__setitem__("present", False),
-    )
-
-    with pytest.raises(
-        RunActionRecoveryError,
-        match="released workload cannot use evidence-free interruption",
-    ):
-        _recovery_coordinator(gate, adapter).recover(frontier)
-
-    assert len(adapter.continuation_calls) == 1
-    assert (
-        gate._action_store.inspect()
-        .events_for(reservation.intent.operation_id)[-1]
-        .event_kind
-        is RunActionExecutionEventKind.ACTIVATION_COMMITTED
-    )
 
 
 def test_workspace_mutation_during_continuation_never_records_result(
@@ -2764,10 +2553,7 @@ def test_security_advance_after_preparation_terminally_invalidates_frontier(
     terminal = gate._action_store.inspect().events_for(reservation.intent.operation_id)[
         -1
     ]
-    assert terminal.event_kind is RunActionExecutionEventKind.INTERRUPTED
-    assert terminal.terminal_reason is (
-        RunActionTerminalReason.FRONTIER_INVALIDATED_BEFORE_SPAWN
-    )
+    assert terminal.event_kind is RunActionExecutionEventKind.FRONTIER_INVALIDATED
     assert terminal.workspace_after == terminal.reservation.frontier.workspace_before
 
 
@@ -2802,10 +2588,7 @@ def test_security_advance_during_allocation_fsync_prevents_materialization(
     events = gate._action_store.inspect().events_for(reservation.intent.operation_id)
     assert events[1].event_kind is RunActionExecutionEventKind.PREPARATION_ALLOCATED
     assert events[1].preparation_allocation is not None
-    assert events[-1].event_kind is RunActionExecutionEventKind.INTERRUPTED
-    assert events[-1].terminal_reason is (
-        RunActionTerminalReason.FRONTIER_INVALIDATED_BEFORE_SPAWN
-    )
+    assert events[-1].event_kind is RunActionExecutionEventKind.FRONTIER_INVALIDATED
 
 
 def test_security_advance_during_activation_staging_never_starts_provider(
@@ -2859,31 +2642,38 @@ def test_security_advance_after_activation_commit_never_starts_provider(
     assert events[-1].event_kind is (RunActionExecutionEventKind.ACTIVATION_COMMITTED)
 
 
-def test_workspace_advance_after_claim_terminally_invalidates_frontier(
+def test_workspace_advance_after_preparation_remains_unresolved(
     publisher_case,
 ) -> None:
     frontier, gate, reservation, _payload = _reserved_case(publisher_case)
-    adapter = _CrashAfterPreparationAdapter(reservation.intent.boundary_identity)
+    adapter = _FakeExecutionAdapter(reservation.intent.boundary_identity)
     coordinator = _recovery_coordinator(gate, adapter)
+    security_check_count = 0
 
-    with pytest.raises(RuntimeError, match="provider preparation"):
+    def crash_after_prepared(_frontier):
+        nonlocal security_check_count
+        security_check_count += 1
+        if security_check_count == 3:
+            raise RuntimeError("injected death after prepared commit")
+        return True
+
+    coordinator._security_is_current = crash_after_prepared
+    with pytest.raises(RuntimeError, match="after prepared commit"):
         coordinator.recover(frontier)
     _commit_workspace_edit(
         publisher_case,
         "external-frontier.py",
         "EXTERNAL_FRONTIER = True\n",
     )
-    adapter.crash_after_preparation = False
+    coordinator._security_is_current = lambda _frontier: True
 
     report = coordinator.recover(frontier)
 
-    terminal = report.recovered_operations[-1].events[-1]
-    assert report.is_complete
-    assert terminal.event_kind is RunActionExecutionEventKind.INTERRUPTED
-    assert terminal.terminal_reason is (
-        RunActionTerminalReason.FRONTIER_INVALIDATED_BEFORE_SPAWN
-    )
-    assert terminal.workspace_after == terminal.reservation.frontier.workspace_before
+    tail = gate._action_store.inspect().events_for(reservation.intent.operation_id)[-1]
+    assert not report.is_complete
+    assert report.unresolved_operation_id == reservation.intent.operation_id
+    assert tail.event_kind is RunActionExecutionEventKind.EXECUTION_PREPARED
+    assert tail.workspace_after is None
     assert len(adapter.prepare_calls) == 1
     assert not adapter.continuation_calls
 

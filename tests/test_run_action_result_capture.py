@@ -267,7 +267,6 @@ def test_fabricated_result_cannot_bypass_the_trusted_capture_leaf(monkeypatch):
     (
         RunActionCommittedSpawnState.INERT_CONTINUABLE,
         RunActionCommittedSpawnState.RUNNING_CONTINUABLE,
-        RunActionCommittedSpawnState.QUIESCENT_RECHECKABLE,
     ),
 )
 def test_nonterminal_observation_cannot_return_a_fabricated_result(
