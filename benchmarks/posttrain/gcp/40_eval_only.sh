@@ -58,6 +58,16 @@ mkdir -p /mnt/hfcache
 mount /dev/disk/by-id/google-hfcache /mnt/hfcache
 export HF_HOME=/mnt/hfcache/huggingface
 
+# Gated eval datasets (gpqamain: Idavidrein/gpqa) need HF auth exactly like
+# the run VMs get it — huggingface_hub reads $HF_HOME/token. (xtrace off:
+# secret value; AIME/GSM8K are ungated, which is why this was never hit
+# before the first GPQA rescore.)
+set +x
+HF_TOKEN="$(gcloud secrets versions access latest --secret=hf-token 2>/dev/null || true)"
+[ -n "$HF_TOKEN" ] && printf '%s' "$HF_TOKEN" > "$HF_HOME/token"
+echo "hf token present: $([ -n "$HF_TOKEN" ] && echo yes || echo no)"
+set -x
+
 git clone --depth 1 "$PTB_REPO" /opt/ptb
 cd /opt/ptb
 
