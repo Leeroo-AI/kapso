@@ -51,6 +51,9 @@ from kapso.cross_run.launch.run_action_release_contracts import (
     RunActionWorkloadReleaseAdoption,
     RunActionWorkloadReleaseReceipt,
 )
+from kapso.cross_run.launch.run_action_result_authority import (
+    run_action_terminal_result_evidence_matches,
+)
 from kapso.cross_run.launch.run_action_reservation_contracts import (
     RunActionReservation,
     RunActionViewBinding,
@@ -78,7 +81,6 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RunActionPreparedExecution,
     RunActionResultCaptureReceipt,
     RunActionTerminalObservation,
-    run_action_terminal_result_evidence_matches,
 )
 from kapso.cross_run.launch.run_action_workspace_promotion import (
     _RUN_ACTION_WORKSPACE_PROMOTION_AUTHORITY,
@@ -104,6 +106,7 @@ _RUN_ACTION_PREPARATION_AUTHORITY = object()
 _RUN_ACTION_ACTIVATION_AUTHORITY = object()
 _RUN_ACTION_COMMITTED_CONTINUATION_AUTHORITY = object()
 _RUN_ACTION_RELEASE_PUBLISHER_AUTHORITY = object()
+_RUN_ACTION_TERMINAL_INSPECTION_AUTHORITY = object()
 _ISSUED_RECOVERY_COORDINATORS: WeakValueDictionary[int, object] = WeakValueDictionary()
 _ISSUED_RECOVERY_IMPLEMENTATION_REGISTRIES: WeakValueDictionary[int, object] = (
     WeakValueDictionary()
@@ -785,6 +788,8 @@ class RunActionCommittedContinuationCapability:
         self._invoking_thread_id = None
         self._state = "ready"
         self._release_publication_state = "ready"
+        self._terminal_inspection_state = "ready"
+        self._terminal_observation: RunActionTerminalObservation | None = None
         with _COMMITTED_CONTINUATION_CAPABILITY_LOCK:
             _ISSUED_COMMITTED_CONTINUATION_CAPABILITIES[id(self)] = self
             _ISSUED_COMMITTED_CONTINUATION_RELEASE_AUTHORITIES[self] = (
@@ -878,12 +883,139 @@ class RunActionCommittedContinuationCapability:
             _authority=_RUN_ACTION_RELEASE_PUBLISHER_AUTHORITY,
         )
 
+    def _take_terminal_inspection_authority(
+        self,
+        *,
+        _authority: object,
+    ) -> tuple["RunActionCommittedSpawnQuery", str]:
+        """Consume the trusted terminal leaf's sole sealed reinspection."""
+
+        with _COMMITTED_CONTINUATION_CAPABILITY_LOCK:
+            issued = _ISSUED_COMMITTED_CONTINUATION_CAPABILITIES.get(id(self))
+            observation_token = self._observation.observation_token
+            if (
+                issued is not self
+                or self._owner_process_id != os.getpid()
+                or self._state != "invoking"
+                or self._invoking_thread_id != get_ident()
+                or self._terminal_inspection_state != "ready"
+                or self._observation.state
+                is not RunActionCommittedSpawnState.TERMINAL_CONTINUABLE
+                or type(observation_token) is not str
+                or self._query.workload_release_adoption is None
+                or _authority is not _RUN_ACTION_TERMINAL_INSPECTION_AUTHORITY
+            ):
+                raise RunActionRecoveryError(
+                    "terminal reinspection lacks exact live continuation authority"
+                )
+            self._terminal_inspection_state = "inspecting"
+        return self._query, observation_token
+
+    def _complete_terminal_inspection(
+        self,
+        terminal_observation: RunActionTerminalObservation,
+        *,
+        _authority: object,
+    ) -> None:
+        """Register the trusted terminal leaf's exact completed observation."""
+
+        with _COMMITTED_CONTINUATION_CAPABILITY_LOCK:
+            issued = _ISSUED_COMMITTED_CONTINUATION_CAPABILITIES.get(id(self))
+            query = self._query
+            adoption = query.workload_release_adoption
+            activation = query.activation_revalidation_receipt
+            prepared = query.prepared_execution
+            spawn = query.spawn_commit
+            if (
+                issued is not self
+                or self._owner_process_id != os.getpid()
+                or self._state != "invoking"
+                or self._invoking_thread_id != get_ident()
+                or self._terminal_inspection_state != "inspecting"
+                or self._terminal_observation is not None
+                or self._observation.state
+                is not RunActionCommittedSpawnState.TERMINAL_CONTINUABLE
+                or adoption is None
+                or type(terminal_observation) is not RunActionTerminalObservation
+                or terminal_observation.complete_inspection_digest
+                != self._observation.observation_token
+                or terminal_observation.activation_revalidation_receipt_id
+                != activation.activation_revalidation_receipt_id
+                or terminal_observation.workload_release_adoption_id
+                != adoption.workload_release_adoption_id
+                or terminal_observation.prepared_execution_id
+                != prepared.prepared_execution_id
+                or terminal_observation.spawn_commit_id != spawn.spawn_commit_id
+                or terminal_observation.provider_execution_id
+                != spawn.provider_execution_id
+                or terminal_observation.runtime_volume_authority_id
+                != prepared.runtime_volume_authority.runtime_volume_authority_id
+                or terminal_observation.generation_nonce
+                != prepared.runtime_volume_authority.generation_nonce
+                or terminal_observation.observed_inspect_projection
+                != prepared.inert_container_evidence.issued_create_projection
+                or _authority is not _RUN_ACTION_TERMINAL_INSPECTION_AUTHORITY
+            ):
+                raise RunActionRecoveryError(
+                    "terminal reinspection completion lacks exact live authority"
+                )
+            self._terminal_observation = terminal_observation
+            self._terminal_inspection_state = "complete"
+
     def _invoke_once(
         self,
         execution_adapter: "RunActionExecutionAdapter",
     ) -> RunActionContinuationOutcome:
         with self._begin_invocation():
-            return execution_adapter.continue_committed_once(self)
+            outcome = execution_adapter.continue_committed_once(self)
+            self._require_terminal_outcome_authority(outcome)
+            return outcome
+
+    def _require_terminal_outcome_authority(
+        self,
+        outcome: RunActionContinuationOutcome,
+    ) -> None:
+        """Bind terminal continuation outcomes to the trusted terminal leaf."""
+
+        with _COMMITTED_CONTINUATION_CAPABILITY_LOCK:
+            issued = _ISSUED_COMMITTED_CONTINUATION_CAPABILITIES.get(id(self))
+            if (
+                issued is not self
+                or self._owner_process_id != os.getpid()
+                or self._state != "invoking"
+                or self._invoking_thread_id != get_ident()
+                or type(outcome) is not RunActionContinuationOutcome
+            ):
+                raise RunActionRecoveryError(
+                    "execution adapter returned an invalid committed continuation"
+                )
+            if (
+                self._observation.state
+                is RunActionCommittedSpawnState.TERMINAL_CONTINUABLE
+            ):
+                if (
+                    self._terminal_inspection_state != "complete"
+                    or type(self._terminal_observation)
+                    is not RunActionTerminalObservation
+                    or (
+                        outcome.state is RunActionContinuationState.RESULT_CAPTURED
+                        and (
+                            type(outcome.result) is not RunActionProviderResult
+                            or outcome.result.terminal_observation
+                            != self._terminal_observation
+                        )
+                    )
+                ):
+                    raise RunActionRecoveryError(
+                        "terminal continuation lacks its trusted reinspection"
+                    )
+            elif (
+                self._terminal_inspection_state != "ready"
+                or self._terminal_observation is not None
+            ):
+                raise RunActionRecoveryError(
+                    "nonterminal continuation consumed terminal authority"
+                )
 
     def _begin_invocation(self) -> "_RunActionCommittedContinuationInvocation":
         with _COMMITTED_CONTINUATION_CAPABILITY_LOCK:
@@ -929,6 +1061,7 @@ class RunActionCommittedContinuationCapability:
             self._state = "spent"
             self._invoking_thread_id = None
             self._release_publication_state = "spent"
+            self._terminal_inspection_state = "spent"
             _ISSUED_COMMITTED_CONTINUATION_CAPABILITIES.pop(id(self))
             _ISSUED_COMMITTED_CONTINUATION_RELEASE_AUTHORITIES.pop(self, None)
 
@@ -2420,6 +2553,7 @@ class RunActionRecoveryCoordinator:
                 RunActionContinuationState.PROVEN_QUIESCENT_WITHOUT_RESULT,
             },
             RunActionCommittedSpawnState.TERMINAL_CONTINUABLE: {
+                RunActionContinuationState.PENDING,
                 RunActionContinuationState.RESULT_CAPTURED,
             },
             RunActionCommittedSpawnState.QUIESCENT_RECHECKABLE: {
@@ -2467,6 +2601,7 @@ class RunActionRecoveryCoordinator:
             result.terminal_observation,
             result.result_capture_receipt,
             activation,
+            workload_release_adoption,
         ):
             raise RunActionRecoveryError(
                 "execution adapter result differs from durable activation"

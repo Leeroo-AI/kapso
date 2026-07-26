@@ -172,7 +172,15 @@ def _record_captured_result(session, spawn, payload, security_observation):
     activation = _activation_revalidation_receipt(prepared, spawn)
     if session.events[-1].event_kind is RunActionExecutionEventKind.SPAWN_COMMITTED:
         session.commit_activation(activation)
-    terminal = _terminal_observation(prepared, spawn)
+    workload_release_adoption = _release_adoption_for_event(
+        session.events[4],
+        security_observation,
+    )
+    terminal = _terminal_observation(
+        prepared,
+        spawn,
+        workload_release_adoption,
+    )
     capture = _result_capture_receipt(
         prepared,
         activation,
@@ -181,10 +189,7 @@ def _record_captured_result(session, spawn, payload, security_observation):
     )
     return session.record_result(
         spawn_commit=spawn,
-        workload_release_adoption=_release_adoption_for_event(
-            session.events[4],
-            security_observation,
-        ),
+        workload_release_adoption=workload_release_adoption,
         terminal_observation=terminal,
         result_capture_receipt=capture,
         result_payload=payload,
@@ -512,7 +517,11 @@ def test_action_store_rejects_terminal_and_capture_occurrence_splices(
                 result_payload=payload,
             )
 
-        terminal = _terminal_observation(prepared, spawn)
+        terminal = _terminal_observation(
+            prepared,
+            spawn,
+            workload_release_adoption,
+        )
         capture = _result_capture_receipt(
             prepared,
             activation,

@@ -35,6 +35,9 @@ from kapso.cross_run.launch.run_action_ledger import (
 from kapso.cross_run.launch.run_action_release_contracts import (
     RunActionWorkloadReleaseAdoption,
 )
+from kapso.cross_run.launch.run_action_result_authority import (
+    run_action_terminal_result_evidence_matches,
+)
 from kapso.cross_run.launch.run_action_reservation_contracts import (
     RunActionRequestBlob as _RunActionRequestBlob,
     RunActionReservation as _RunActionReservation,
@@ -52,7 +55,6 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RunActionResultCaptureReceipt,
     RunActionTerminalObservation,
     issue_runtime_volume_authority,
-    run_action_terminal_result_evidence_matches,
 )
 from kapso.cross_run.launch.run_action_workspace_promotion import (
     RunActionWorkspacePromotion,
@@ -205,6 +207,8 @@ class RunActionResultReceipt(StrictContract):
             != self.provider_execution_id
             or self.terminal_observation.activation_revalidation_receipt_id
             != self.activation_revalidation_receipt_id
+            or self.terminal_observation.workload_release_adoption_id
+            != self.workload_release_adoption.workload_release_adoption_id
             or self.result_capture_receipt.terminal_observation_id
             != self.terminal_observation.terminal_observation_id
             or self.result_capture_receipt.runtime_volume_authority_id
@@ -823,6 +827,8 @@ class _RunActionExecutionSession:
             != terminal_observation.terminal_observation_id
             or terminal_observation.activation_revalidation_receipt_id
             != durable_activation.activation_revalidation_receipt_id
+            or terminal_observation.workload_release_adoption_id
+            != workload_release_adoption.workload_release_adoption_id
         ):
             raise RunActionStoreError(
                 "run action result differs from its durable spawn"
@@ -2775,6 +2781,7 @@ def _validate_event_prefix(events: tuple[RunActionExecutionEvent, ...]) -> None:
                 result.terminal_observation,
                 result.result_capture_receipt,
                 activation,
+                result.workload_release_adoption,
             )
         ):
             raise RunActionStoreError("run action result differs from its spawn")

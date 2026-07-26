@@ -90,7 +90,6 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
     runtime_volume_sentinel_identity,
     run_action_activated_volume_evidence_matches,
     run_action_keeper_process_cgroup_path,
-    run_action_terminal_result_evidence_matches,
 )
 from kapso.cross_run.launch.resume_contracts import RunSafetyBoundary
 from kapso.cross_run.settings import CrossRunSettings
@@ -1624,11 +1623,6 @@ def test_terminal_observation_and_result_capture_bind_the_physical_result():
     terminal = _terminal_observation(prepared, spawn)
     capture = _result_capture_receipt(prepared, activation, terminal, payload)
 
-    assert run_action_terminal_result_evidence_matches(
-        terminal,
-        capture,
-        activation,
-    )
     assert (
         RunActionTerminalObservation.from_json_bytes(terminal.to_json_bytes())
         == terminal
@@ -1664,21 +1658,6 @@ def test_terminal_observation_and_result_capture_bind_the_physical_result():
         match="result capture receipt is invalid",
     ):
         replace(capture, parent_inode=capture.inode)
-    assert not run_action_terminal_result_evidence_matches(
-        _remint_contract(terminal, exit_code=1),
-        capture,
-        activation,
-    )
-    assert not run_action_terminal_result_evidence_matches(
-        _remint_contract(terminal, oom_killed=True),
-        capture,
-        activation,
-    )
-    assert not run_action_terminal_result_evidence_matches(
-        terminal,
-        _remint_contract(capture, parent_inode=capture.parent_inode + 1),
-        activation,
-    )
 
 
 def _activated_workspace_observation(prepared, spawn):
@@ -1814,8 +1793,21 @@ def _activated_file_observation(
     )
 
 
-def _terminal_observation(prepared, spawn):
+def _terminal_observation(prepared, spawn, workload_release_adoption=None):
     activation_receipt = _activation_revalidation_receipt(prepared, spawn)
+    workload_release_adoption_id = (
+        content_id(
+            "run-action-workload-release-adoption",
+            {"fixture": "terminal release adoption"},
+        )
+        if workload_release_adoption is None
+        else workload_release_adoption.workload_release_adoption_id
+    )
+    started_at = (
+        "2026-01-01T00:00:00Z"
+        if workload_release_adoption is None
+        else workload_release_adoption.workload_release_receipt.resolved_workload_observation.running_container_observation.started_at
+    )
     return RunActionTerminalObservation.mint(
         prepared_execution_id=prepared.prepared_execution_id,
         spawn_commit_id=spawn.spawn_commit_id,
@@ -1827,6 +1819,7 @@ def _terminal_observation(prepared, spawn):
         activation_revalidation_receipt_id=(
             activation_receipt.activation_revalidation_receipt_id
         ),
+        workload_release_adoption_id=workload_release_adoption_id,
         observed_inspect_projection=(
             prepared.inert_container_evidence.observed_inspect_projection
         ),
@@ -1837,8 +1830,8 @@ def _terminal_observation(prepared, spawn):
         paused=False,
         restarting=False,
         dead=False,
-        started_at="2026-01-01T00:00:00Z",
-        finished_at="2026-01-01T00:00:01Z",
+        started_at=started_at,
+        finished_at="2026-07-25T01:02:04.123456789Z",
         exit_code=0,
         oom_killed=False,
         state_error="",

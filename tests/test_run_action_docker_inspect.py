@@ -21,6 +21,7 @@ from kapso.cross_run.launch.run_action_docker_inspect import (
     observe_running_barrier_main_container,
     observe_running_keeper,
     observe_runtime_volume,
+    observe_terminal_main_container,
 )
 from kapso.cross_run.launch.run_action_docker_projection import (
     DockerRunActionCommand,
@@ -44,8 +45,18 @@ from test_run_action_docker_projection import (
     _policy,
 )
 from test_run_action_supervisor_contracts import (
+    _activation_revalidation_receipt,
     _claim,
+    _prepared_execution,
+    _remint_contract,
+    _spawn_commit,
     _volume_authority,
+)
+from test_run_action_barrier_contracts import _resolved_graph
+from test_run_action_release_contracts import (
+    _activation_event,
+    _release_adoption_for_event,
+    _security_observation as _release_security_observation,
 )
 
 _CANONICAL_CONFIG_PATH = "src/kapso/config.yaml"
@@ -375,6 +386,111 @@ def _running_main_raw(
     return raw
 
 
+def _terminal_context(docker_settings):
+    command = DockerRunActionCommand.build(
+        entrypoint="/bin/tool",
+        arguments=("default",),
+    )
+    policy = _policy(
+        docker_settings,
+        command_template_id=command.command_template_id,
+    )
+    security_observation = _release_security_observation()
+    claim = _claim(
+        policy=policy,
+        security_observation_id=security_observation.observation_id,
+    )
+    authority = _volume_authority(claim, nonce=_GENERATION_NONCE)
+    prepared = _prepared_execution(
+        claim=claim,
+        authority=authority,
+        container_id=_MAIN_CONTAINER_ID,
+    )
+    projection = prepared.inert_container_evidence.issued_create_projection
+    helper = projection.supervisor_helper_evidence
+    init = projection.docker_init_source_evidence
+    issued = issued_main_projection(
+        claim,
+        authority,
+        command,
+        helper,
+        init,
+        docker_settings,
+    )
+    inert = _remint_contract(
+        prepared.inert_container_evidence,
+        issued_create_projection=issued,
+        observed_inspect_projection=issued,
+    )
+    prepared = _remint_contract(
+        prepared,
+        inert_container_evidence=inert,
+    )
+    volume = observe_runtime_volume(
+        _volume_raw(authority, docker_settings),
+        claim,
+        authority,
+        docker_settings,
+    )
+    spawn = _spawn_commit(prepared)
+    activation = _activation_revalidation_receipt(prepared, spawn)
+    activation_event = _activation_event(
+        _resolved_graph(prepared=prepared, activation=activation)
+    )
+    adoption = _release_adoption_for_event(
+        activation_event,
+        security_observation,
+    )
+    return prepared, activation, adoption, volume, command, helper, init
+
+
+def _terminal_main_raw(
+    prepared,
+    adoption,
+    volume,
+    command,
+    docker_settings,
+    *,
+    exit_code=0,
+    oom_killed=False,
+):
+    claim = prepared.preparation_claim
+    authority = prepared.runtime_volume_authority
+    raw = _running_main_raw(
+        claim,
+        authority,
+        volume,
+        command,
+        docker_settings,
+    )
+    raw["HostConfig"] = docker_inspect._expected_host_config(
+        claim,
+        mounts=docker_inspect._main_host_config_mounts(
+            claim,
+            preparation_main_mounts(claim, authority),
+        ),
+        lifecycle=docker_inspect._DockerContainerLifecycle.EXITED_MAIN,
+    )
+    raw["NetworkSettings"] = _none_network(running=False)
+    raw["NetworkSettings"]["Networks"]["none"]["NetworkID"] = "1" * 64
+    raw["State"] = {
+        "Dead": False,
+        "Error": "",
+        "ExitCode": exit_code,
+        "FinishedAt": "2026-07-25T01:02:04.123456789Z",
+        "OOMKilled": oom_killed,
+        "Paused": False,
+        "Pid": 0,
+        "Restarting": False,
+        "Running": False,
+        "StartedAt": (
+            adoption.workload_release_receipt.resolved_workload_observation.running_container_observation.started_at
+        ),
+        "Status": "exited",
+    }
+    return raw
+
+
 def test_volume_inspection_is_closed_and_normalized(docker_settings):
     claim, authority, volume_raw, volume, _command, _helper, _init = _context(
         docker_settings
@@ -475,6 +591,218 @@ def test_running_main_inspection_is_closed_without_process_or_mount_claims(
         match="must be an integer",
     ):
         replace(observation, restart_count=False)
+
+
+@pytest.mark.parametrize(
+    ("exit_code", "oom_killed"),
+    ((0, False), (17, False), (137, True)),
+)
+def test_terminal_main_inspection_binds_the_adopted_released_occurrence(
+    docker_settings,
+    exit_code,
+    oom_killed,
+):
+    (
+        prepared,
+        activation,
+        adoption,
+        volume,
+        command,
+        helper,
+        init,
+    ) = _terminal_context(docker_settings)
+    raw = _terminal_main_raw(
+        prepared,
+        adoption,
+        volume,
+        command,
+        docker_settings,
+        exit_code=exit_code,
+        oom_killed=oom_killed,
+    )
+
+    terminal = observe_terminal_main_container(
+        raw,
+        activation,
+        adoption,
+        volume,
+        command,
+        helper,
+        init,
+        docker_settings,
+        inspection_size_limit_bytes=len(canonical_json_bytes(raw)),
+    )
+
+    assert terminal.provider_execution_id == _MAIN_CONTAINER_ID
+    assert (
+        terminal.workload_release_adoption_id == adoption.workload_release_adoption_id
+    )
+    assert terminal.started_at == raw["State"]["StartedAt"]
+    assert terminal.finished_at == raw["State"]["FinishedAt"]
+    assert terminal.exit_code == exit_code
+    assert terminal.oom_killed is oom_killed
+    _normalized, normalized_payload, raw_size_bytes = (
+        docker_inspect._snapshot_container_inspection(
+            raw,
+            "test terminal inspection",
+        )
+    )
+    assert raw_size_bytes == len(canonical_json_bytes(raw))
+    assert terminal.complete_inspection_digest == tree_or_blob_digest(
+        normalized_payload
+    )
+    reordered = copy.deepcopy(raw)
+    reordered["Config"]["Env"].reverse()
+    reordered["HostConfig"]["Mounts"].reverse()
+    reordered["Mounts"].reverse()
+    assert (
+        observe_terminal_main_container(
+            reordered,
+            activation,
+            adoption,
+            volume,
+            command,
+            helper,
+            init,
+            docker_settings,
+            inspection_size_limit_bytes=len(canonical_json_bytes(reordered)),
+        )
+        == terminal
+    )
+
+
+@pytest.mark.parametrize(
+    ("path", "value"),
+    (
+        (("RestartCount",), 1),
+        (("State", "Pid"), 7),
+        (("State", "Running"), True),
+        (("State", "Paused"), True),
+        (("State", "Restarting"), True),
+        (("State", "Dead"), True),
+        (("State", "StartedAt"), "0001-01-01T00:00:00Z"),
+        (("State", "FinishedAt"), "0001-01-01T00:00:00Z"),
+        (("State", "Error"), "runtime failure"),
+        (("NetworkSettings", "Networks", "none", "NetworkID"), ""),
+    ),
+)
+def test_terminal_main_inspection_rejects_unsafe_lifecycle_mutations(
+    docker_settings,
+    path,
+    value,
+):
+    (
+        prepared,
+        activation,
+        adoption,
+        volume,
+        command,
+        helper,
+        init,
+    ) = _terminal_context(docker_settings)
+    raw = _terminal_main_raw(
+        prepared,
+        adoption,
+        volume,
+        command,
+        docker_settings,
+    )
+    target = raw
+    for component in path[:-1]:
+        target = target[component]
+    target[path[-1]] = value
+
+    with pytest.raises(
+        (DockerRunActionInspectionError, ContractValidationError),
+    ):
+        observe_terminal_main_container(
+            raw,
+            activation,
+            adoption,
+            volume,
+            command,
+            helper,
+            init,
+            docker_settings,
+            inspection_size_limit_bytes=len(canonical_json_bytes(raw)),
+        )
+
+
+def test_terminal_main_inspection_rejects_foreign_release_and_oversized_snapshot(
+    docker_settings,
+):
+    (
+        prepared,
+        activation,
+        adoption,
+        volume,
+        command,
+        helper,
+        init,
+    ) = _terminal_context(docker_settings)
+    raw = _terminal_main_raw(
+        prepared,
+        adoption,
+        volume,
+        command,
+        docker_settings,
+    )
+    foreign_security = _release_security_observation()
+    foreign_prepared = _prepared_execution(
+        claim=_claim(
+            security_observation_id=foreign_security.observation_id,
+        ),
+        inode_offset=9,
+    )
+    foreign_spawn = _spawn_commit(
+        foreign_prepared,
+        invocation_nonce="2" * 32,
+    )
+    foreign_activation = _activation_revalidation_receipt(
+        foreign_prepared,
+        foreign_spawn,
+    )
+    foreign_event = _activation_event(
+        _resolved_graph(
+            prepared=foreign_prepared,
+            activation=foreign_activation,
+        )
+    )
+    foreign_adoption = _release_adoption_for_event(
+        foreign_event,
+        foreign_security,
+    )
+
+    with pytest.raises(
+        DockerRunActionInspectionError,
+        match="released occurrence",
+    ):
+        observe_terminal_main_container(
+            raw,
+            activation,
+            foreign_adoption,
+            volume,
+            command,
+            helper,
+            init,
+            docker_settings,
+            inspection_size_limit_bytes=len(canonical_json_bytes(raw)),
+        )
+    with pytest.raises(
+        DockerRunActionInspectionError,
+        match="configured bound",
+    ):
+        observe_terminal_main_container(
+            raw,
+            activation,
+            adoption,
+            volume,
+            command,
+            helper,
+            init,
+            docker_settings,
+            inspection_size_limit_bytes=len(canonical_json_bytes(raw)) - 1,
+        )
 
 
 def test_keeper_inspection_equals_issued_projection(docker_settings):

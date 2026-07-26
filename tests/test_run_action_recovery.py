@@ -287,6 +287,7 @@ class _FakeExecutionAdapter:
         self.stage_calls = []
         self.continuation_calls = []
         self.inspect_calls = []
+        self.security_observation = None
 
     @staticmethod
     def _prepared_for_allocation(allocation):
@@ -308,8 +309,18 @@ class _FakeExecutionAdapter:
         )
 
     @staticmethod
-    def _provider_result(prepared, spawn, activation, payload):
-        terminal = _terminal_observation(prepared, spawn)
+    def _provider_result(
+        prepared,
+        spawn,
+        activation,
+        payload,
+        workload_release_adoption=None,
+    ):
+        terminal = _terminal_observation(
+            prepared,
+            spawn,
+            workload_release_adoption,
+        )
         return RunActionProviderResult(
             terminal_observation=terminal,
             result_capture_receipt=_result_capture_receipt(
@@ -467,6 +478,14 @@ class _FakeExecutionAdapter:
                 capability.spawn_commit,
                 activation,
                 payload,
+                (
+                    capability.workload_release_adoption
+                    if capability.workload_release_adoption is not None
+                    else _release_adoption_for_event(
+                        capability.activation_event,
+                        self.security_observation,
+                    )
+                ),
             ),
         )
 
@@ -539,6 +558,8 @@ def _recovery_registry(
 
 
 def _recovery_coordinator(gate, *execution_adapters):
+    for execution_adapter in execution_adapters:
+        execution_adapter.security_observation = gate._security_authority.observation
     return gate.recovery_coordinator(_recovery_registry(*execution_adapters))
 
 
@@ -648,7 +669,7 @@ class _TokenSealingExecutionAdapter(_FakeExecutionAdapter):
         return super().continue_committed_once(capability)
 
 
-class _InvalidContinuationOutcomeAdapter(_FakeExecutionAdapter):
+class _PendingContinuationAdapter(_FakeExecutionAdapter):
     def continue_committed_once(self, capability):
         self.continuation_calls.append(capability)
         return RunActionContinuationOutcome(
@@ -701,6 +722,12 @@ class _AdvancingOnCallSecurityAuthority:
         self.advanced = advanced
         self.advance_on_call = advance_on_call
         self.call_count = 0
+
+    @property
+    def observation(self):
+        return (
+            self.advanced if self.call_count >= self.advance_on_call else self.current
+        )
 
     def observe_exact_descendant_of(self, **_arguments):
         self.call_count += 1
@@ -953,18 +980,20 @@ def _append_result_received(gate, reservation) -> bytes:
     ) as session:
         prepared = session.events[2].prepared_execution
         spawn = session.events[3].spawn_commit
+        workload_release_adoption = _release_adoption_for_event(
+            session.events[4],
+            gate._security_authority.observation,
+        )
         result = _FakeExecutionAdapter._provider_result(
             prepared,
             spawn,
             activation,
             raw_result,
+            workload_release_adoption,
         )
         session.record_result(
             spawn_commit=spawn,
-            workload_release_adoption=_release_adoption_for_event(
-                session.events[4],
-                gate._security_authority.observation,
-            ),
+            workload_release_adoption=workload_release_adoption,
             terminal_observation=result.terminal_observation,
             result_capture_receipt=result.result_capture_receipt,
             result_payload=result.result_payload,
@@ -1277,25 +1306,37 @@ def test_committed_continuation_reuses_exact_inspection_seal(
     assert adapter.token_revalidated
 
 
-@pytest.mark.parametrize(
-    "observation_state",
-    (
-        RunActionCommittedSpawnState.TERMINAL_CONTINUABLE,
-        RunActionCommittedSpawnState.QUIESCENT_RECHECKABLE,
-    ),
-)
-def test_committed_continuation_rejects_invalid_pending_outcome(
+def test_quiescent_continuation_rejects_invalid_pending_outcome(
     publisher_case,
-    observation_state,
 ) -> None:
     frontier, gate, reservation, payload = _reserved_case(publisher_case)
     _append_activation_committed(gate, reservation)
-    adapter = _InvalidContinuationOutcomeAdapter(
+    adapter = _PendingContinuationAdapter(
         reservation.intent.boundary_identity,
-        observation_state=observation_state,
+        observation_state=RunActionCommittedSpawnState.QUIESCENT_RECHECKABLE,
     )
 
     with pytest.raises(RunActionRecoveryError, match="invalid committed continuation"):
+        _recovery_coordinator(gate, adapter).recover(frontier)
+
+    events = gate._action_store.inspect().events_for(reservation.intent.operation_id)
+    assert events[-1].event_kind is RunActionExecutionEventKind.ACTIVATION_COMMITTED
+
+
+def test_terminal_continuation_cannot_skip_trusted_reinspection(
+    publisher_case,
+) -> None:
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
+    _append_activation_committed(gate, reservation)
+    adapter = _PendingContinuationAdapter(
+        reservation.intent.boundary_identity,
+        observation_state=RunActionCommittedSpawnState.TERMINAL_CONTINUABLE,
+    )
+
+    with pytest.raises(
+        RunActionRecoveryError,
+        match="terminal continuation lacks its trusted reinspection",
+    ):
         _recovery_coordinator(gate, adapter).recover(frontier)
 
     events = gate._action_store.inspect().events_for(reservation.intent.operation_id)
@@ -2212,11 +2253,6 @@ def test_projected_event_8_cleanup_precedes_new_pending_edit_after_restart(
 @pytest.mark.parametrize(
     ("state", "expected_continuation_calls", "expected_terminal"),
     (
-        (
-            RunActionCommittedSpawnState.TERMINAL_CONTINUABLE,
-            1,
-            RunActionExecutionEventKind.RESULT_ACCEPTED,
-        ),
         (
             RunActionCommittedSpawnState.RUNNING_CONTINUABLE,
             1,

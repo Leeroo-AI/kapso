@@ -25,6 +25,9 @@ from kapso.cross_run.launch.run_action_docker_projection import (
     main_barrier_command,
     volume_create_arguments,
 )
+from kapso.cross_run.launch.run_action_release_contracts import (
+    RunActionWorkloadReleaseAdoption,
+)
 from kapso.cross_run.launch.run_action_supervisor_helper import (
     observe_mounted_keeper_helper,
 )
@@ -34,6 +37,7 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RUN_ACTION_BARRIER_PROTOCOL_VERSION,
     RUN_ACTION_RUNTIME_VOLUME_KEEPER_DESTINATION,
     RUN_ACTION_SUPERVISOR_HELPER_DESTINATION,
+    RunActionActivationRevalidationReceipt,
     RunActionContainerLabel,
     RunActionDockerInitSourceEvidence,
     RunActionInertContainerEvidence,
@@ -42,6 +46,7 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RunActionPreparedMount,
     RunActionPreparedMountAccess,
     RunActionRuntimeVolumeAuthority,
+    RunActionTerminalObservation,
     RunActionVolumeKeeperEvidence,
     preparation_container_labels,
     preparation_container_name,
@@ -159,6 +164,7 @@ class _DockerContainerLifecycle(str, Enum):
     INERT_KEEPER = "inert_keeper"
     RUNNING_KEEPER = "running_keeper"
     RUNNING_MAIN = "running_main"
+    EXITED_MAIN = "exited_main"
 
 
 def observe_runtime_volume(
@@ -328,14 +334,9 @@ def observe_running_barrier_main_container(
         settings,
     )
     _require_volume_observation(volume, authority, settings)
-    supplied = _require_mapping(
+    raw, complete_inspection_payload, _raw_size_bytes = _snapshot_container_inspection(
         raw_inspection,
         "Docker running main inspection",
-    )
-    complete_inspection_payload = canonical_json_bytes(supplied)
-    raw = _require_mapping(
-        parse_json_bytes(complete_inspection_payload),
-        "Docker running main inspection snapshot",
     )
     labels = preparation_container_labels(claim)
     mounts = preparation_main_mounts(claim, authority)
@@ -366,6 +367,109 @@ def observe_running_barrier_main_container(
         paused=state["Paused"],
         restarting=state["Restarting"],
         dead=state["Dead"],
+        oom_killed=state["OOMKilled"],
+        state_error=state["Error"],
+    )
+
+
+def observe_terminal_main_container(
+    raw_inspection: Mapping[str, Any],
+    activation: RunActionActivationRevalidationReceipt,
+    workload_release_adoption: RunActionWorkloadReleaseAdoption,
+    volume: DockerRunActionVolumeObservation,
+    command: DockerRunActionCommand,
+    helper_evidence: RunActionSupervisorHelperEvidence,
+    init_source_evidence: RunActionDockerInitSourceEvidence,
+    settings: DockerRuntimeSettings,
+    *,
+    inspection_size_limit_bytes: int,
+) -> RunActionTerminalObservation:
+    """Parse one exact exited main and bind it to its adopted event-5 release."""
+
+    if (
+        type(activation) is not RunActionActivationRevalidationReceipt
+        or type(workload_release_adoption) is not RunActionWorkloadReleaseAdoption
+        or type(inspection_size_limit_bytes) is not int
+        or inspection_size_limit_bytes <= 0
+    ):
+        raise DockerRunActionInspectionError(
+            "Docker terminal inspection lacks exact activation authority"
+        )
+    prepared = activation.prepared_execution
+    claim = prepared.preparation_claim
+    authority = prepared.runtime_volume_authority
+    issued = issued_main_projection(
+        claim,
+        authority,
+        command,
+        helper_evidence,
+        init_source_evidence,
+        settings,
+    )
+    _require_volume_observation(volume, authority, settings)
+    raw, complete_inspection_payload, raw_size_bytes = _snapshot_container_inspection(
+        raw_inspection,
+        "Docker terminal main inspection",
+    )
+    if raw_size_bytes > inspection_size_limit_bytes:
+        raise DockerRunActionInspectionError(
+            "Docker terminal main inspection exceeds its configured bound"
+        )
+    labels = preparation_container_labels(claim)
+    mounts = preparation_main_mounts(claim, authority)
+    barrier_executable, barrier_arguments = main_barrier_command(command, settings)
+    container_id = _require_common_container(
+        raw,
+        claim=claim,
+        labels=labels,
+        container_name=preparation_container_name(claim),
+        command_executable=barrier_executable,
+        command_arguments=barrier_arguments,
+        working_directory=claim.execution_policy.filesystem_policy.working_directory,
+        host_config_mounts=_main_host_config_mounts(claim, mounts),
+        top_level_mounts=_main_top_level_mounts(claim, mounts, volume),
+        settings=settings,
+        lifecycle=_DockerContainerLifecycle.EXITED_MAIN,
+    )
+    release_receipt = workload_release_adoption.workload_release_receipt
+    released = release_receipt.resolved_workload_observation
+    if (
+        release_receipt.resolved_workload_observation.activation_revalidation_receipt
+        != activation
+        or container_id != activation.spawn_commit.provider_execution_id
+        or container_id != prepared.inert_container_evidence.container_id
+        or container_id != released.running_container_observation.container_id
+        or raw["State"]["StartedAt"]
+        != released.running_container_observation.started_at
+        or issued != prepared.inert_container_evidence.issued_create_projection
+    ):
+        raise DockerRunActionInspectionError(
+            "Docker terminal main differs from its adopted released occurrence"
+        )
+    state = raw["State"]
+    return RunActionTerminalObservation.mint(
+        prepared_execution_id=prepared.prepared_execution_id,
+        spawn_commit_id=activation.spawn_commit.spawn_commit_id,
+        provider_execution_id=activation.spawn_commit.provider_execution_id,
+        runtime_volume_authority_id=authority.runtime_volume_authority_id,
+        generation_nonce=authority.generation_nonce,
+        activation_revalidation_receipt_id=(
+            activation.activation_revalidation_receipt_id
+        ),
+        workload_release_adoption_id=(
+            workload_release_adoption.workload_release_adoption_id
+        ),
+        observed_inspect_projection=issued,
+        complete_inspection_digest=tree_or_blob_digest(complete_inspection_payload),
+        container_status=state["Status"],
+        process_id=state["Pid"],
+        restart_count=raw["RestartCount"],
+        paused=state["Paused"],
+        restarting=state["Restarting"],
+        dead=state["Dead"],
+        started_at=state["StartedAt"],
+        finished_at=state["FinishedAt"],
+        exit_code=state["ExitCode"],
         oom_killed=state["OOMKilled"],
         state_error=state["Error"],
     )
@@ -559,11 +663,12 @@ def _require_common_container(
     )
     _require_exact_fields(state, "container_state", "Docker container State")
     _require_graph_driver(graph_driver, container_id, settings)
-    running = lifecycle in {
+    is_running = lifecycle in {
         _DockerContainerLifecycle.RUNNING_KEEPER,
         _DockerContainerLifecycle.RUNNING_MAIN,
     }
-    _require_network(network_settings, running=running)
+    has_started = is_running or lifecycle is _DockerContainerLifecycle.EXITED_MAIN
+    _require_network(network_settings, lifecycle=lifecycle)
     expected_config = _expected_container_config(
         claim,
         labels=labels,
@@ -599,7 +704,7 @@ def _require_common_container(
     expected_daemon_paths = _daemon_managed_paths(
         container_id,
         settings,
-        running=running,
+        has_started=has_started,
     )
     expected_root_fields = {
         "AppArmorProfile": policy.sandbox_spec.apparmor_profile_id,
@@ -686,9 +791,10 @@ def _expected_host_config(
     policy = claim.execution_policy
     limits = policy.docker_resource_limits
     sandbox = policy.sandbox_spec
-    running = lifecycle in {
+    has_started = lifecycle in {
         _DockerContainerLifecycle.RUNNING_KEEPER,
         _DockerContainerLifecycle.RUNNING_MAIN,
+        _DockerContainerLifecycle.EXITED_MAIN,
     }
     return {
         "AutoRemove": False,
@@ -738,7 +844,7 @@ def _expected_host_config(
         "Mounts": mounts,
         "NanoCpus": 0,
         "NetworkMode": "none",
-        "OomKillDisable": None if running else False,
+        "OomKillDisable": None if has_started else False,
         "OomScoreAdj": limits.oom_score_adjustment,
         "PidMode": "",
         "PidsLimit": limits.process_limit,
@@ -956,8 +1062,10 @@ def _require_storage_path(
 def _require_network(
     network_settings: Mapping[str, Any],
     *,
-    running: bool,
+    lifecycle: _DockerContainerLifecycle,
 ) -> None:
+    if type(lifecycle) is not _DockerContainerLifecycle:
+        raise DockerRunActionInspectionError("Docker network lifecycle mode is invalid")
     _require_exact_fields(
         network_settings,
         "network_settings",
@@ -995,7 +1103,10 @@ def _require_network(
         raise DockerRunActionInspectionError(
             "Docker none network exposes unexpected addressing or ports"
         )
-    if running:
+    if lifecycle in {
+        _DockerContainerLifecycle.RUNNING_KEEPER,
+        _DockerContainerLifecycle.RUNNING_MAIN,
+    }:
         sandbox_id = network_settings["SandboxID"]
         if (
             not isinstance(sandbox_id, str)
@@ -1009,6 +1120,17 @@ def _require_network(
         ):
             raise DockerRunActionInspectionError(
                 "Docker keeper none-network identity is malformed"
+            )
+    elif lifecycle is _DockerContainerLifecycle.EXITED_MAIN:
+        if (
+            network_settings["SandboxID"] != ""
+            or network_settings["SandboxKey"] != ""
+            or network["EndpointID"] != ""
+            or not isinstance(network["NetworkID"], str)
+            or _CONTAINER_ID_PATTERN.fullmatch(network["NetworkID"]) is None
+        ):
+            raise DockerRunActionInspectionError(
+                "Docker exited container network residue is malformed"
             )
     elif (
         network_settings["SandboxID"] != ""
@@ -1112,6 +1234,41 @@ def _normalized_environment(value: Any) -> list[str]:
     return sorted(value)
 
 
+def _snapshot_container_inspection(
+    raw_inspection: Mapping[str, Any],
+    name: str,
+) -> tuple[Mapping[str, Any], bytes, int]:
+    supplied = _require_mapping(raw_inspection, name)
+    raw_payload = canonical_json_bytes(supplied)
+    raw = _require_mapping(
+        parse_json_bytes(raw_payload),
+        f"{name} snapshot",
+    )
+    normalized = dict(raw)
+    config = dict(_require_mapping(raw["Config"], f"{name} Config"))
+    config["Env"] = _normalized_environment(config["Env"])
+    normalized["Config"] = config
+    host_config = dict(_require_mapping(raw["HostConfig"], f"{name} HostConfig"))
+    host_config["Mounts"] = _normalized_mounts(
+        host_config["Mounts"],
+        host_config=True,
+    )
+    normalized["HostConfig"] = host_config
+    normalized["Mounts"] = _normalized_mounts(
+        raw["Mounts"],
+        host_config=False,
+    )
+    normalized_payload = canonical_json_bytes(normalized)
+    return (
+        _require_mapping(
+            parse_json_bytes(normalized_payload),
+            f"{name} normalized snapshot",
+        ),
+        normalized_payload,
+        len(raw_payload),
+    )
+
+
 def _require_container_state(
     state: Mapping[str, Any],
     *,
@@ -1124,9 +1281,6 @@ def _require_container_state(
     expected_common = {
         "Dead": False,
         "Error": "",
-        "ExitCode": 0,
-        "FinishedAt": _ZERO_DOCKER_TIMESTAMP,
-        "OOMKilled": False,
         "Paused": False,
         "Restarting": False,
     }
@@ -1142,7 +1296,10 @@ def _require_container_state(
         _DockerContainerLifecycle.RUNNING_MAIN,
     }:
         if (
-            state["Running"] is not True
+            state["ExitCode"] != 0
+            or state["FinishedAt"] != _ZERO_DOCKER_TIMESTAMP
+            or state["OOMKilled"] is not False
+            or state["Running"] is not True
             or state["Status"] != "running"
             or type(state["Pid"]) is not int
             or state["Pid"] <= 0
@@ -1152,12 +1309,32 @@ def _require_container_state(
             raise DockerRunActionInspectionError(
                 "Docker container is not one stable running process"
             )
+    elif lifecycle is _DockerContainerLifecycle.EXITED_MAIN:
+        if (
+            state["Running"] is not False
+            or state["Status"] != "exited"
+            or type(state["Pid"]) is not int
+            or state["Pid"] != 0
+            or not _is_utc_timestamp(state["StartedAt"])
+            or state["StartedAt"] == _ZERO_DOCKER_TIMESTAMP
+            or not _is_utc_timestamp(state["FinishedAt"])
+            or state["FinishedAt"] == _ZERO_DOCKER_TIMESTAMP
+            or type(state["ExitCode"]) is not int
+            or not 0 <= state["ExitCode"] <= 255
+            or type(state["OOMKilled"]) is not bool
+        ):
+            raise DockerRunActionInspectionError(
+                "Docker container is not one stable exited process"
+            )
     elif (
         state["Running"] is not False
         or state["Status"] != "created"
         or type(state["Pid"]) is not int
         or state["Pid"] != 0
         or state["StartedAt"] != _ZERO_DOCKER_TIMESTAMP
+        or state["FinishedAt"] != _ZERO_DOCKER_TIMESTAMP
+        or state["ExitCode"] != 0
+        or state["OOMKilled"] is not False
     ):
         raise DockerRunActionInspectionError(
             "Docker container is not inert and never-started"
@@ -1168,9 +1345,9 @@ def _daemon_managed_paths(
     container_id: str,
     settings: DockerRuntimeSettings,
     *,
-    running: bool,
+    has_started: bool,
 ) -> dict[str, str]:
-    if not running:
+    if not has_started:
         return {
             "HostnamePath": "",
             "HostsPath": "",
@@ -1382,4 +1559,5 @@ __all__ = [
     "observe_running_barrier_main_container",
     "observe_running_keeper",
     "observe_runtime_volume",
+    "observe_terminal_main_container",
 ]

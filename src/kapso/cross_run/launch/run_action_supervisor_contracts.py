@@ -10,7 +10,6 @@ from typing import ClassVar
 
 from kapso.cross_run.canonical import (
     content_id,
-    parse_utc_timestamp,
     require_content_id,
     require_identifier,
     tree_or_blob_digest,
@@ -29,6 +28,11 @@ from kapso.cross_run.launch.run_action_spawn_contracts import RunActionSpawnComm
 
 _SHA256_DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 _DOCKER_CONTAINER_ID_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+_DOCKER_TIMESTAMP_PATTERN = re.compile(
+    r"^(?P<year>[0-9]{4})-(?P<month>[0-9]{2})-(?P<day>[0-9]{2})T"
+    r"(?P<hour>[0-9]{2}):(?P<minute>[0-9]{2}):(?P<second>[0-9]{2})"
+    r"(?:[.](?P<fraction>[0-9]{1,9}))?Z$"
+)
 _GENERATION_NONCE_PATTERN = re.compile(r"^[0-9a-f]{32}$")
 _ENVIRONMENT_KEY_PATTERN = re.compile(r"^[A-Z_][A-Z0-9_]*$")
 _SECRET_ENVIRONMENT_KEY_PATTERN = re.compile(
@@ -2725,6 +2729,7 @@ class RunActionTerminalObservation(StrictContract):
     runtime_volume_authority_id: str
     generation_nonce: str
     activation_revalidation_receipt_id: str
+    workload_release_adoption_id: str
     observed_inspect_projection: DockerRunActionCreateInspectProjection
     complete_inspection_digest: str
     container_status: str
@@ -2767,6 +2772,11 @@ class RunActionTerminalObservation(StrictContract):
             RunActionActivationRevalidationReceipt.CONTENT_NAMESPACE,
             "terminal activation revalidation",
         )
+        _require_namespaced_content_id(
+            self.workload_release_adoption_id,
+            "run-action-workload-release-adoption",
+            "terminal workload release adoption",
+        )
         if (
             type(self.observed_inspect_projection)
             is not DockerRunActionCreateInspectProjection
@@ -2774,14 +2784,8 @@ class RunActionTerminalObservation(StrictContract):
             raise RunActionSupervisorContractError(
                 "terminal observation lacks its closed Docker projection"
             )
-        started_at = parse_utc_timestamp(
-            self.started_at,
-            "run action terminal started_at",
-        )
-        finished_at = parse_utc_timestamp(
-            self.finished_at,
-            "run action terminal finished_at",
-        )
+        started_at = _docker_timestamp_order_key(self.started_at)
+        finished_at = _docker_timestamp_order_key(self.finished_at)
         if (
             _GENERATION_NONCE_PATTERN.fullmatch(self.generation_nonce) is None
             or _SHA256_DIGEST_PATTERN.fullmatch(self.complete_inspection_digest) is None
@@ -2793,6 +2797,8 @@ class RunActionTerminalObservation(StrictContract):
             or self.dead is not False
             or self.started_at == _ZERO_DOCKER_TIMESTAMP
             or self.finished_at == _ZERO_DOCKER_TIMESTAMP
+            or started_at is None
+            or finished_at is None
             or finished_at < started_at
             or type(self.exit_code) is not int
             or not 0 <= self.exit_code <= 255
@@ -3377,99 +3383,6 @@ def run_action_runtime_volume_occurrence_matches(
     )
 
 
-def run_action_terminal_result_evidence_matches(
-    terminal: RunActionTerminalObservation,
-    capture: RunActionResultCaptureReceipt,
-    activation: RunActionActivationRevalidationReceipt,
-) -> bool:
-    """Join terminal capture to the one durable pre-start activation receipt."""
-
-    if (
-        type(terminal) is not RunActionTerminalObservation
-        or type(capture) is not RunActionResultCaptureReceipt
-        or type(activation) is not RunActionActivationRevalidationReceipt
-    ):
-        return False
-    prepared = activation.prepared_execution
-    spawn = activation.spawn_commit
-    prepared_result = prepared.result_file
-    activation_volume = activation.reobserved_volume_evidence
-    capture_volume = capture.reobserved_volume_evidence
-    result_allocation_size_bytes = (
-        (capture.size_bytes + capture_volume.allocation_block_size_bytes - 1)
-        // capture_volume.allocation_block_size_bytes
-        * capture_volume.allocation_block_size_bytes
-    )
-    result_allocation_block_count = (
-        result_allocation_size_bytes // capture_volume.allocation_block_size_bytes
-    )
-    return (
-        terminal.activation_revalidation_receipt_id
-        == activation.activation_revalidation_receipt_id
-        and terminal.exit_code == 0
-        and terminal.oom_killed is False
-        and terminal.prepared_execution_id == prepared.prepared_execution_id
-        and terminal.spawn_commit_id == spawn.spawn_commit_id
-        and terminal.provider_execution_id == spawn.provider_execution_id
-        and terminal.runtime_volume_authority_id
-        == prepared.runtime_volume_authority.runtime_volume_authority_id
-        and terminal.generation_nonce
-        == prepared.runtime_volume_authority.generation_nonce
-        and terminal.observed_inspect_projection
-        == prepared.inert_container_evidence.issued_create_projection
-        and capture.terminal_observation_id == terminal.terminal_observation_id
-        and capture.prepared_parent_authority_id
-        == prepared.result_directory.prepared_runtime_directory_id
-        and capture.prepared_file_id == prepared_result.prepared_file_id
-        and capture.prepared_parent_authority_id
-        == prepared_result.prepared_parent_directory_id
-        and capture.parent_mount_id == prepared.result_directory.mount_id
-        and capture.parent_device == prepared.result_directory.device
-        and capture.parent_inode == prepared.result_directory.inode
-        and capture.runtime_volume_authority_id
-        == prepared.runtime_volume_authority.runtime_volume_authority_id
-        and run_action_runtime_volume_occurrence_matches(
-            capture_volume,
-            prepared.runtime_volume_evidence,
-        )
-        and capture.prepared_sentinel_evidence_id
-        == (
-            prepared.runtime_volume_evidence.sentinel_evidence.runtime_volume_sentinel_evidence_id
-        )
-        and capture.generation_nonce
-        == prepared.runtime_volume_authority.generation_nonce
-        and capture.relative_path == prepared_result.relative_path
-        and capture.file_type == prepared_result.file_type
-        and capture.owner_user_id == prepared_result.owner_user_id
-        and capture.owner_group_id == prepared_result.owner_group_id
-        and capture.mode == prepared_result.mode
-        and capture.link_count == prepared_result.link_count
-        and capture.mount_id == prepared_result.mount_id
-        and capture.device == prepared_result.device
-        and capture.inode == prepared_result.inode
-        and capture.size_bytes <= prepared_result.payload_size_limit_bytes
-        and (
-            prepared.preparation_claim.reservation.intent.workspace_access
-            is RunFrontierWorkspaceAccess.EDIT_WORKSPACE
-            or (
-                capture_volume.used_size_bytes
-                >= activation_volume.used_size_bytes + result_allocation_size_bytes
-                and capture_volume.used_block_count
-                >= activation_volume.used_block_count + result_allocation_block_count
-                and capture_volume.used_inode_count
-                >= activation_volume.used_inode_count
-                and capture_volume.available_block_count
-                <= activation_volume.available_block_count
-                - result_allocation_block_count
-                and capture_volume.available_size_bytes
-                <= activation_volume.available_size_bytes - result_allocation_size_bytes
-                and capture_volume.available_inode_count
-                <= activation_volume.available_inode_count
-            )
-        )
-    )
-
-
 def preparation_container_name(claim: RunActionPreparationClaim) -> str:
     """Derive the sole Docker name from the semantic preparation claim."""
 
@@ -3880,6 +3793,46 @@ def _require_namespaced_content_id(
         raise RunActionSupervisorContractError(f"{name} uses another namespace")
 
 
+def _docker_timestamp_order_key(value: object) -> tuple[int, ...] | None:
+    if not isinstance(value, str):
+        return None
+    match = _DOCKER_TIMESTAMP_PATTERN.fullmatch(value)
+    if match is None:
+        return None
+    parts = tuple(
+        int(match.group(name))
+        for name in ("year", "month", "day", "hour", "minute", "second")
+    )
+    year, month, day, hour, minute, second = parts
+    leap_year = year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)
+    month_lengths = (
+        31,
+        29 if leap_year else 28,
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    )
+    if (
+        year <= 0
+        or not 1 <= month <= 12
+        or not 1 <= day <= month_lengths[month - 1]
+        or not 0 <= hour <= 23
+        or not 0 <= minute <= 59
+        or not 0 <= second <= 59
+    ):
+        return None
+    fraction = match.group("fraction")
+    nanosecond = int(fraction.ljust(9, "0")) if fraction is not None else 0
+    return (*parts, nanosecond)
+
+
 __all__ = [
     "DockerRunActionCreateInspectProjection",
     "DockerRunActionExecutionPolicy",
@@ -3947,5 +3900,4 @@ __all__ = [
     "run_action_activated_volume_evidence_matches",
     "run_action_docker_init_authority_id",
     "run_action_runtime_volume_occurrence_matches",
-    "run_action_terminal_result_evidence_matches",
 ]

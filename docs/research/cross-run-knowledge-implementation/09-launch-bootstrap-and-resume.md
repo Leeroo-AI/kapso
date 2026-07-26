@@ -23,8 +23,10 @@ are implemented. Every Docker volume-subpath now has preparation-time physical
 authority, and post-spawn request/credential delivery plus pre-start volume
 reobservation are crash-atomic and descriptor-bound. Full event-5 receipt
 assembly, committed-container reinspection and token-sealed start, terminal
-capture, OS executor activation, explicit E0/S-EMPTY provisioning orchestration,
-full policy refresh on resume, and API/runner activation remain.
+Docker inspection, and adopted-release result authority are implemented.
+Descriptor-bound result capture, typed termination and cleanup, OS executor
+activation, explicit E0/S-EMPTY provisioning orchestration, full policy refresh
+on resume, and API/runner activation remain.
 
 ## Objective
 
@@ -939,12 +941,22 @@ and revalidates their complete prepared/spawn/container/volume/sentinel/file gra
 durable recovery therefore replays the captured bytes without contacting the
 provider or discarding terminal provenance. Pure interpretation then publishes
 the accepted bytes and `RESULT_DECIDED` atomically; terminal acceptance carries
-no duplicate result blob. Concrete terminal Docker inspection,
-descriptor-bound result capture, a Docker implementation of the token-sealed
-continuation protocol, positive cleanup authority, and production adapters remain
-the next slices. No production caller can receive Docker start authority from the
-reservation gate; M9 activation must continue to route every post-reservation
-transition through the coordinator's sealed capabilities.
+no duplicate result blob. Concrete terminal Docker inspection, including exact
+Docker 29.1.3 exited-state normalization, is now implemented. The trusted
+terminal leaf retains and revalidates the adopted release inode, same host boot,
+exact three-resource inventory, and two complete typed terminal snapshots. Its
+semantic digest normalizes only the three explicitly order-nonauthoritative
+Docker lists, and its capability-bound path must reproduce the read-only
+inspection token exactly once. The continuation capability retains that exact
+trusted terminal: a terminal adapter cannot return even `PENDING` without
+completing the leaf, and `RESULT_CAPTURED` must carry the retained observation
+unchanged. Exit zero, nonzero, and OOM remain typed terminal facts; only the
+adopted-release result join admits zero/no-OOM capture from the same released
+container and start timestamp. Descriptor-bound result capture, positive cleanup
+authority, and production adapters remain the next slices. No production caller
+can receive Docker start authority from the reservation gate; M9 activation must
+continue to route every post-reservation transition through the coordinator's
+sealed capabilities.
 
 The coordinator owns one process-bound, non-clonable implementation catalog fixed
 at composition; `recover()` accepts no caller-selected implementation. Each
@@ -1052,6 +1064,10 @@ this path is activated.
   capability, resolve and revalidate the blocked workload twice, and prove the
   release, target command, and result remain absent while the ledger stays at
   five events.
+- After the released target exits, reopen event 5, descriptor-adopt the same
+  release, parse the exact exited Docker occurrence twice, consume one sealed
+  terminal reinspection capability, and prove the ledger remains at event 5
+  without result reads or cleanup.
 - Verify expert repo is writable only inside the run workspace and snapshot/adapter
   roots remain read-only.
 - Verify old `initial_repo` and checkpoint paths are absent after activation.

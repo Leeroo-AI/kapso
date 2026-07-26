@@ -62,6 +62,10 @@ from kapso.cross_run.launch.run_action_release_adoption import (
 from kapso.cross_run.launch.run_action_release_publisher import (
     publish_run_action_workload_release_once,
 )
+from kapso.cross_run.launch.run_action_terminal_inspection import (
+    inspect_run_action_terminal,
+    reinspect_run_action_terminal,
+)
 from kapso.cross_run.launch.run_action_store import _RUN_ACTION_RECOVERY_AUTHORITY
 from kapso.cross_run.launch.run_action_reservation_contracts import (
     RunActionWorkspaceBinding,
@@ -266,6 +270,94 @@ class _LiveBlockedWorkloadAdapter:
             )
         if self.release_receipt is None:
             raise AssertionError("live blocked workload lost release authorization")
+        return RunActionContinuationOutcome(
+            state=RunActionContinuationState.PENDING,
+            result=None,
+        )
+
+
+class _LiveTerminalWorkloadAdapter:
+    def __init__(
+        self,
+        *,
+        boundary_identity,
+        execution_policy,
+        resource_manager,
+        preparation_allocation,
+        command,
+        helper_evidence,
+        init_source_evidence,
+        docker_settings,
+        launch_settings,
+    ) -> None:
+        self.execution_lifecycle_identity = (
+            boundary_identity.execution_lifecycle_identity
+        )
+        self.execution_policy = execution_policy
+        self.result_interpreter = _UnusedLiveResultInterpreter(
+            boundary_identity.result_interpreter_identity
+        )
+        self._resource_manager = resource_manager
+        self._preparation_allocation = preparation_allocation
+        self._command = command
+        self._helper_evidence = helper_evidence
+        self._init_source_evidence = init_source_evidence
+        self._docker_settings = docker_settings
+        self._launch_settings = launch_settings
+        self.terminal_observation = None
+        self.reinspected_terminal_observation = None
+
+    def prepared_event_size_bound(self, **_arguments):
+        raise AssertionError("durable event 5 must not replay preparation")
+
+    def activation_event_size_bound(self, **_arguments):
+        raise AssertionError("durable event 5 must not replay activation")
+
+    def release_receipt_size_bound(self, *, reservation):
+        if reservation != self._preparation_allocation.preparation_claim.reservation:
+            raise AssertionError("terminal bound differs from durable reservation")
+        return self.execution_policy.supervisor_limits.release_receipt_size_bytes
+
+    def prepare(self, _capability):
+        raise AssertionError("durable event 5 must not replay preparation")
+
+    def stage_activation(self, _capability):
+        raise AssertionError("durable event 5 must not replay activation")
+
+    def inspect_unactivated(self, _query):
+        raise AssertionError("durable event 5 is already activated")
+
+    def inspect_committed(self, query):
+        if query.preparation_allocation != self._preparation_allocation:
+            raise AssertionError("terminal live query differs from exact allocation")
+        self.terminal_observation = inspect_run_action_terminal(
+            query=query,
+            resource_manager=self._resource_manager,
+            command=self._command,
+            helper_evidence=self._helper_evidence,
+            init_source_evidence=self._init_source_evidence,
+            docker_settings=self._docker_settings,
+            launch_settings=self._launch_settings,
+        )
+        return RunActionCommittedSpawnObservation(
+            state=RunActionCommittedSpawnState.TERMINAL_CONTINUABLE,
+            observation_token=(self.terminal_observation.complete_inspection_digest),
+        )
+
+    def continue_committed_once(self, capability):
+        if self.terminal_observation is None:
+            raise AssertionError("terminal observation was not sealed")
+        self.reinspected_terminal_observation = reinspect_run_action_terminal(
+            capability=capability,
+            resource_manager=self._resource_manager,
+            command=self._command,
+            helper_evidence=self._helper_evidence,
+            init_source_evidence=self._init_source_evidence,
+            docker_settings=self._docker_settings,
+            launch_settings=self._launch_settings,
+        )
+        if self.reinspected_terminal_observation != self.terminal_observation:
+            raise AssertionError("terminal reinspection changed its occurrence")
         return RunActionContinuationOutcome(
             state=RunActionContinuationState.PENDING,
             result=None,
@@ -1307,6 +1399,52 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
                 "-e",
                 "/kapso/runtime-volume/result/barrier-injection",
             )
+        )
+        terminal_adapter = _LiveTerminalWorkloadAdapter(
+            boundary_identity=boundary_identity,
+            execution_policy=layout_policy,
+            resource_manager=resource_manager,
+            preparation_allocation=layout_allocation,
+            command=command,
+            helper_evidence=helper_evidence,
+            init_source_evidence=init_source_evidence,
+            docker_settings=settings,
+            launch_settings=cross_run_settings.launch,
+        )
+        terminal_report = _recovery_coordinator(
+            action_gate,
+            terminal_adapter,
+        ).recover(action_frontier)
+        assert not terminal_report.is_complete
+        assert terminal_report.unresolved_operation_id == (
+            layout_reservation.intent.operation_id
+        )
+        assert terminal_adapter.terminal_observation is not None
+        assert (
+            terminal_adapter.reinspected_terminal_observation
+            == terminal_adapter.terminal_observation
+        )
+        assert terminal_adapter.terminal_observation.provider_execution_id == (
+            layout_main_id
+        )
+        assert terminal_adapter.terminal_observation.started_at == (
+            adapter.release_receipt.resolved_workload_observation.running_container_observation.started_at
+        )
+        with open_run_action_release_inspection(
+            activation_event=activation_event,
+            launch_settings=cross_run_settings.launch,
+        ) as terminal_release_inspection:
+            assert (
+                terminal_adapter.terminal_observation.workload_release_adoption_id
+                == terminal_release_inspection.adoption.workload_release_adoption_id
+            )
+        assert (
+            len(
+                action_gate._action_store.inspect().events_for(
+                    layout_reservation.intent.operation_id
+                )
+            )
+            == 5
         )
 
         runtime.run_control(("container", "rm", "--force", "--volumes", layout_main_id))
