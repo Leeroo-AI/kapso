@@ -340,6 +340,7 @@ class RunActionSupervisorLimits(StrictContract):
     supervisor_limits_id: str
     execution_timeout_seconds: int
     termination_grace_seconds: int
+    release_commit_timeout_seconds: int
     result_size_bytes: int
     release_receipt_size_bytes: int
 
@@ -350,12 +351,14 @@ class RunActionSupervisorLimits(StrictContract):
         values = (
             self.execution_timeout_seconds,
             self.termination_grace_seconds,
+            self.release_commit_timeout_seconds,
             self.result_size_bytes,
             self.release_receipt_size_bytes,
         )
         if (
             any(type(value) is not int or value <= 0 for value in values)
             or self.termination_grace_seconds >= self.execution_timeout_seconds
+            or self.release_commit_timeout_seconds >= self.execution_timeout_seconds
         ):
             raise RunActionSupervisorContractError(
                 "run action supervisor limits are invalid"

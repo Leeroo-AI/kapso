@@ -747,10 +747,11 @@ release. Once release exists, stale security must not abandon a running process:
 wait, deadline enforcement, containment, terminal capture, and positive
 quiescence remain authorized. A recovered wait uses the receipt's same-boot
 absolute deadline; it never receives a fresh timeout. Zero or multiple matching
-resources, substituted mounts/labels/runtime/image, an invalid release file, PID
-reuse, an unproved wrapper, or an unexplained disappearance classify as
-`UNKNOWN`; they never authorize recreation. A typed terminal-failure or
-resource-loss receipt, not a proof-free enum, is required before interruption.
+resources, substituted mounts/labels/runtime/image, PID reuse, an unproved
+wrapper, or an unexplained disappearance classify as `UNKNOWN`; they never
+authorize recreation. A present but invalid release file fails loud as corrupt,
+also without recreation. A typed terminal-failure or resource-loss receipt, not a
+proof-free enum, is required before interruption.
 
 Provider completion has three evidence-bearing outcomes. `RESULT_CAPTURED`
 requires exit zero, no OOM, the original bounded result inode, and the exact
@@ -818,10 +819,34 @@ lifecycle adapter must repeat one deterministic conservative release-envelope
 bound. Recovery joins it to the canonical policy/config cap before spawn and
 requires the actual activation-event bound plus the complete process-snapshot
 bound to fit strictly before delivery or event 5.
-The release link, adoption, and event-6 embedding remain the next physical
-transition.
-Volume,
-never-started keeper, running keeper, and never-started main inspections now
+The committed continuation's release security, broker-validity authority, and
+system clock live in a private coordinator-issued registry, never in
+adapter-supplied publication arguments. Only the trusted leaf publisher may open
+them, and only while the owner process/thread is inside the exact
+`RUNNING_CONTINUABLE` callback. Publication also requires the exact registered
+`RunActionBlockedWorkloadLease`; an ordinary or same-token reminted resolved graph
+has no authority. The publisher serializes and fsyncs one exact receipt into a
+registered anonymous inode. The final gate accepts only that frozen candidate,
+derives its receipt, deadline, and inode internally, performs the second broker
+validity observation, then queries the checkpointed denylist scope, contract,
+subjects, and ancestor. An exact result samples coordinator-owned BOOTTIME and
+invokes that candidate's fixed no-replace link; there is no caller-supplied
+callback, clock, receipt label, path, or inode tuple. Denial, malformed output,
+expiry, exception, callback return, or link failure burns both authorities. The
+configured, policy-bound commit window begins before receipt construction, so
+preparation latency consumes rather than extends the budget.
+
+Before every event-5 continuation, the coordinator reopens the exact
+keeper-mounted control directory and classifies it as empty, exactly
+`control/release`, or corrupt. Empty permits the normal fresh authorization.
+The sole canonical `0400` release file is full-EOF parsed, joined to the actual
+typed event 5, descriptor/path revalidated, fsynced, and adopted without repeating
+an already-irreversible security decision. Any other topology or byte/identity
+state fails loud and cannot republish. Result event 6 embeds the content-addressed
+adoption, including the complete receipt and linked parent/file identity, with
+the terminal observation and capture receipt. Recovery at event 6 therefore no
+longer depends on Docker or the runtime volume.
+Volume, never-started keeper, running keeper, and never-started main inspections now
 require complete nested raw schemas and normalize only enumerated daemon
 identities and ordering; issued and observed projections are equal in repeated
 Docker 29.1.3 runs with a
@@ -888,13 +913,14 @@ resolved-mount authority. Activation proves the prepared control inode is still
 empty both before and after payload delivery. Real-Docker validation starts the
 wrapper, parses that running observation, waits two configured poll intervals,
 and proves the target's first-write marker and a shell-metacharacter argument
-marker remain absent while `control/release` is absent and the result remains
-empty.
+marker remain absent while `control/release` is absent. It then publishes and
+descriptor-adopts the exact receipt, proves the target runs with positional
+arguments rather than shell interpolation, and observes exit without a restart.
 The post-start boundary can now reopen that exact generation through the keeper
-as a process-bound `RunActionBarrierControlLease`: it retains the mounted root,
+as a process-bound `RunActionControlDirectoryLease`: it retains the mounted root,
 sentinel, and control descriptors; reproves their original physical identities;
-reopens the keeper's current mount path on every use; and requires the control
-namespace to remain exactly empty. The raw descriptor is not public: release
+reopens the keeper's current mount path on every use; and admits only the exact
+empty or sole-release namespace. The raw descriptor is not public: release
 publication must consume the process-bound lease through a guarded operation.
 Read-only reopen is available only from a durable `PreparedExecution` and
 reproves the exact root topology, child topology, file shapes, workspace/Git
@@ -903,12 +929,13 @@ frontier, sentinel inode/content, keeper process generation, mount, and stable
 only after proven total absence or may adopt only a completely reobserved exact
 occurrence. Partial or ambiguous resources remain unresolved until positive
 terminal cleanup exists; no path mints replacement allocation authority.
-The result boundary no longer admits provider bytes alone. A provider result now
-carries a terminal main-container observation and a descriptor-capture receipt
+The result boundary no longer admits provider bytes alone. Result event 6 now
+carries the release adoption, terminal main-container observation, and
+descriptor-capture receipt
 that binds the terminal fence, prepared result file, exact runtime generation,
 fresh physical volume evidence, file metadata, size, and digest. `RESULT_RECEIVED`
-embeds both receipts before the existing atomic blob-to-event publication and
-revalidates their complete prepared/spawn/container/volume/sentinel/file graph;
+embeds all three authorities before the existing atomic blob-to-event publication
+and revalidates their complete prepared/spawn/container/volume/sentinel/file graph;
 durable recovery therefore replays the captured bytes without contacting the
 provider or discarding terminal provenance. Pure interpretation then publishes
 the accepted bytes and `RESULT_DECIDED` atomically; terminal acceptance carries

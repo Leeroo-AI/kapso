@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
-import ctypes
 import os
 import stat
 from contextlib import ExitStack
 from dataclasses import dataclass
 
 from kapso.cross_run.canonical import tree_or_blob_digest
+from kapso.cross_run.launch.run_action_atomic_publication import (
+    link_run_action_anonymous_file_no_replace,
+    open_run_action_anonymous_file,
+    require_run_action_descriptor_payload,
+    write_run_action_full_payload,
+)
 from kapso.cross_run.launch.run_action_supervisor_helper import (
     read_run_action_descriptor_mount_id,
 )
@@ -19,20 +24,7 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
 
 _ANONYMOUS_FILE_MODE = 0o600
 _DELIVERED_FILE_MODE = 0o400
-_AT_EMPTY_PATH = 0x1000
 _DELIVERED_FILE_LEASE_AUTHORITY = object()
-
-_LIBC = ctypes.CDLL(None, use_errno=True)
-_LINK_AT = getattr(_LIBC, "linkat", None)
-if _LINK_AT is not None:
-    _LINK_AT.argtypes = (
-        ctypes.c_int,
-        ctypes.c_char_p,
-        ctypes.c_int,
-        ctypes.c_char_p,
-        ctypes.c_int,
-    )
-    _LINK_AT.restype = ctypes.c_int
 
 
 class RunActionActivationDeliveryError(RuntimeError):
@@ -221,18 +213,10 @@ def _publish_anonymous_delivery(
     slot_directory_descriptor: int,
     payload: bytes,
 ) -> RunActionDeliveredFileLease:
-    if not hasattr(os, "O_TMPFILE"):
-        raise RunActionActivationDeliveryError("anonymous delivery requires O_TMPFILE")
-    if _LINK_AT is None:
-        raise RunActionActivationDeliveryError(
-            "anonymous delivery requires linkat with AT_EMPTY_PATH"
-        )
     with ExitStack() as descriptors:
-        descriptor = os.open(
-            ".",
-            os.O_TMPFILE | os.O_RDWR | os.O_CLOEXEC,
+        descriptor = open_run_action_anonymous_file(
+            slot_directory_descriptor,
             _ANONYMOUS_FILE_MODE,
-            dir_fd=slot_directory_descriptor,
         )
         descriptors.callback(os.close, descriptor)
         initial_metadata = os.fstat(descriptor)
@@ -245,8 +229,8 @@ def _publish_anonymous_delivery(
                 slot.owner_user_id,
                 slot.owner_group_id,
             )
-        _write_full_payload(descriptor, payload)
-        _require_descriptor_payload(descriptor, payload)
+        write_run_action_full_payload(descriptor, payload)
+        require_run_action_descriptor_payload(descriptor, payload)
         os.fchmod(descriptor, _DELIVERED_FILE_MODE)
         os.fsync(descriptor)
         anonymous_file_state = _require_exact_anonymous_file(
@@ -254,7 +238,7 @@ def _publish_anonymous_delivery(
             descriptor,
             payload,
         )
-        _link_anonymous_file(
+        link_run_action_anonymous_file_no_replace(
             descriptor,
             slot_directory_descriptor,
             slot.final_file_name,
@@ -466,7 +450,7 @@ def _require_exact_anonymous_file(
 ) -> _ExactPublishedFile:
     metadata_before = os.fstat(descriptor)
     mount_id_before = read_run_action_descriptor_mount_id(descriptor)
-    _require_descriptor_payload(descriptor, payload)
+    require_run_action_descriptor_payload(descriptor, payload)
     metadata_after = os.fstat(descriptor)
     mount_id_after = read_run_action_descriptor_mount_id(descriptor)
     if (
@@ -527,7 +511,7 @@ def _observe_exact_published_descriptor(
 ) -> _ExactPublishedFile:
     metadata_before = os.fstat(descriptor)
     mount_id_before = read_run_action_descriptor_mount_id(descriptor)
-    _require_descriptor_payload(descriptor, payload)
+    require_run_action_descriptor_payload(descriptor, payload)
     metadata_after = os.fstat(descriptor)
     mount_id_after = read_run_action_descriptor_mount_id(descriptor)
     if (
@@ -551,63 +535,6 @@ def _observe_exact_published_descriptor(
         metadata=metadata_after,
         mount_id=mount_id_after,
     )
-
-
-def _write_full_payload(descriptor: int, payload: bytes) -> None:
-    written_size = 0
-    while written_size < len(payload):
-        written = os.write(descriptor, payload[written_size:])
-        if (
-            type(written) is not int
-            or written <= 0
-            or written > len(payload) - written_size
-        ):
-            raise RunActionActivationDeliveryError(
-                "anonymous delivery write made no valid progress"
-            )
-        written_size += written
-
-
-def _require_descriptor_payload(descriptor: int, expected_payload: bytes) -> None:
-    os.lseek(descriptor, 0, os.SEEK_SET)
-    chunks = []
-    remaining = len(expected_payload) + 1
-    while remaining > 0:
-        chunk = os.read(descriptor, remaining)
-        if not chunk:
-            break
-        chunks.append(chunk)
-        remaining -= len(chunk)
-    if b"".join(chunks) != expected_payload:
-        raise RunActionActivationDeliveryError(
-            "delivery file bytes differ from the complete bounded payload"
-        )
-
-
-def _link_anonymous_file(
-    anonymous_descriptor: int,
-    slot_directory_descriptor: int,
-    final_file_name: str,
-) -> None:
-    if _LINK_AT is None:
-        raise RunActionActivationDeliveryError(
-            "anonymous delivery requires linkat with AT_EMPTY_PATH"
-        )
-    ctypes.set_errno(0)
-    result = _LINK_AT(
-        anonymous_descriptor,
-        b"",
-        slot_directory_descriptor,
-        os.fsencode(final_file_name),
-        _AT_EMPTY_PATH,
-    )
-    if result != 0:
-        error_number = ctypes.get_errno()
-        raise OSError(
-            error_number,
-            os.strerror(error_number),
-            final_file_name,
-        )
 
 
 def _require_same_published_file(

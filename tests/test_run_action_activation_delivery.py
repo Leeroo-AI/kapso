@@ -15,10 +15,14 @@ from pathlib import Path
 import pytest
 
 import kapso.cross_run.launch.run_action_activation_delivery as activation_delivery
+import kapso.cross_run.launch.run_action_atomic_publication as atomic_publication
 from kapso.cross_run.canonical import content_id, tree_or_blob_digest
 from kapso.cross_run.launch.run_action_activation_delivery import (
     RunActionActivationDeliveryError,
     publish_or_adopt_run_action_delivery,
+)
+from kapso.cross_run.launch.run_action_atomic_publication import (
+    RunActionAtomicPublicationError,
 )
 from kapso.cross_run.launch.run_action_supervisor_helper import (
     read_run_action_descriptor_mount_id,
@@ -233,7 +237,7 @@ def test_adoption_rejects_wrong_payload(prepared_slot):
     )
 
     with pytest.raises(
-        RunActionActivationDeliveryError,
+        RunActionAtomicPublicationError,
         match="bytes differ",
     ):
         publish_or_adopt_run_action_delivery(
@@ -512,7 +516,7 @@ def test_no_progress_write_fails_and_anonymous_inode_disappears(
     monkeypatch.setattr(activation_delivery.os, "write", no_progress_write)
 
     with pytest.raises(
-        RunActionActivationDeliveryError,
+        RunActionAtomicPublicationError,
         match="no valid progress",
     ):
         publish_or_adopt_run_action_delivery(
@@ -537,7 +541,7 @@ def test_link_failure_leaves_no_named_or_anonymous_delivery(
 
     monkeypatch.setattr(
         activation_delivery,
-        "_link_anonymous_file",
+        "link_run_action_anonymous_file_no_replace",
         fail_before_link,
     )
 
@@ -556,7 +560,7 @@ def test_eexist_collision_is_not_replaced_or_adopted_in_the_same_call(
     prepared_slot,
     monkeypatch,
 ):
-    original_link = activation_delivery._link_anonymous_file
+    original_link = activation_delivery.link_run_action_anonymous_file_no_replace
 
     def collide_then_link(
         anonymous_descriptor,
@@ -576,7 +580,7 @@ def test_eexist_collision_is_not_replaced_or_adopted_in_the_same_call(
 
     monkeypatch.setattr(
         activation_delivery,
-        "_link_anonymous_file",
+        "link_run_action_anonymous_file_no_replace",
         collide_then_link,
     )
 
@@ -607,7 +611,7 @@ def test_concurrent_publishers_have_one_atomic_winner(
         dir_fd=prepared_slot.slot_descriptor,
     )
     barrier = threading.Barrier(2)
-    original_link = activation_delivery._link_anonymous_file
+    original_link = activation_delivery.link_run_action_anonymous_file_no_replace
 
     def synchronized_link(
         anonymous_descriptor,
@@ -623,7 +627,7 @@ def test_concurrent_publishers_have_one_atomic_winner(
 
     monkeypatch.setattr(
         activation_delivery,
-        "_link_anonymous_file",
+        "link_run_action_anonymous_file_no_replace",
         synchronized_link,
     )
     with ExitStack() as resources:
@@ -722,10 +726,10 @@ def test_missing_linkat_support_fails_before_mutation(
     prepared_slot,
     monkeypatch,
 ):
-    monkeypatch.setattr(activation_delivery, "_LINK_AT", None)
+    monkeypatch.setattr(atomic_publication, "_LINK_AT", None)
 
     with pytest.raises(
-        RunActionActivationDeliveryError,
+        RunActionAtomicPublicationError,
         match="requires linkat",
     ):
         publish_or_adopt_run_action_delivery(

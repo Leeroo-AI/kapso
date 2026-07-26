@@ -89,8 +89,8 @@ class RunActionRuntimeVolumeError(RuntimeError):
     """The mounted runtime volume differs from its issued tmpfs authority."""
 
 
-class RunActionBarrierControlLease:
-    """Process-bound lease for the exact empty pre-release control directory."""
+class RunActionControlDirectoryLease:
+    """Process-bound lease for an exact absent-or-published release directory."""
 
     def __init__(
         self,
@@ -101,6 +101,7 @@ class RunActionBarrierControlLease:
         sentinel_observation: "_ExactRegularFileObservation",
         control_descriptor: int,
         control_metadata_identity: tuple[int, ...],
+        release_present: bool,
         _authority: object,
     ) -> None:
         if (
@@ -113,6 +114,7 @@ class RunActionBarrierControlLease:
             or type(control_metadata_identity) is not tuple
             or control_metadata_identity
             != _stable_metadata(os.fstat(control_descriptor))
+            or type(release_present) is not bool
             or _authority is not _BARRIER_CONTROL_LEASE_AUTHORITY
         ):
             raise RunActionRuntimeVolumeError(
@@ -124,16 +126,22 @@ class RunActionBarrierControlLease:
         self._sentinel_observation = sentinel_observation
         self._control_descriptor = control_descriptor
         self._control_metadata_identity = control_metadata_identity
+        self._release_present = release_present
         self._owner_process_id = os.getpid()
         self._closed = False
-        self.require_release_absent()
+        self.require_current()
 
     @property
     def prepared_execution(self) -> RunActionPreparedExecution:
-        self.require_release_absent()
+        self.require_current()
         return self._prepared
 
-    def require_release_absent(self) -> None:
+    @property
+    def release_present(self) -> bool:
+        self.require_current()
+        return self._release_present
+
+    def require_current(self) -> None:
         if self._owner_process_id != os.getpid() or self._closed:
             raise RunActionRuntimeVolumeError(
                 "barrier control lease is closed or belongs to another process"
@@ -158,11 +166,11 @@ class RunActionBarrierControlLease:
             self._prepared.control_directory,
             self._mounted_volume.root_descriptor,
             self._control_descriptor,
-            expected_entries=(),
+            expected_entries=(("release",) if self._release_present else ()),
         )
 
-    def __enter__(self) -> "RunActionBarrierControlLease":
-        self.require_release_absent()
+    def __enter__(self) -> "RunActionControlDirectoryLease":
+        self.require_current()
         return self
 
     def __exit__(self, *_arguments: object) -> None:
@@ -990,10 +998,10 @@ def _require_same_mounted_runtime_volume(
         )
 
 
-def open_run_action_barrier_control(
+def open_run_action_control_directory(
     prepared: RunActionPreparedExecution,
-) -> RunActionBarrierControlLease:
-    """Retain the exact empty control directory through pre-release proof."""
+) -> RunActionControlDirectoryLease:
+    """Retain and classify one exact event-5 control directory."""
 
     if type(prepared) is not RunActionPreparedExecution:
         raise RunActionRuntimeVolumeError(
@@ -1040,15 +1048,38 @@ def open_run_action_barrier_control(
             prepared.control_directory,
             mounted_volume.root_descriptor,
             control_descriptor,
-            expected_entries=(),
+            expected_entries=None,
         )
-        lease = RunActionBarrierControlLease(
+        entries_before = tuple(sorted(os.listdir(control_descriptor)))
+        _require_exact_activation_directory(
+            prepared.control_directory,
+            mounted_volume.root_descriptor,
+            control_descriptor,
+            expected_entries=None,
+        )
+        entries_after = tuple(sorted(os.listdir(control_descriptor)))
+        if entries_after != entries_before or entries_before not in {
+            (),
+            ("release",),
+        }:
+            raise RunActionRuntimeVolumeError(
+                "barrier control directory has an invalid release topology"
+            )
+        release_present = entries_before == ("release",)
+        _require_exact_activation_directory(
+            prepared.control_directory,
+            mounted_volume.root_descriptor,
+            control_descriptor,
+            expected_entries=entries_before,
+        )
+        lease = RunActionControlDirectoryLease(
             descriptors=descriptors,
             mounted_volume=mounted_volume,
             prepared=prepared,
             sentinel_observation=sentinel_observation,
             control_descriptor=control_descriptor,
             control_metadata_identity=control_metadata_identity,
+            release_present=release_present,
             _authority=_BARRIER_CONTROL_LEASE_AUTHORITY,
         )
         lease._descriptors = descriptors.pop_all()
@@ -3599,13 +3630,13 @@ __all__ = [
     "DockerRunActionActivatedVolumeObservation",
     "DockerRunActionEmptyVolumeObservation",
     "DockerRunActionPreparedVolumeObservation",
-    "RunActionBarrierControlLease",
+    "RunActionControlDirectoryLease",
     "RunActionResultWorkspaceLease",
     "RunActionRuntimeVolumeError",
     "deliver_and_reobserve_runtime_volume_activation",
     "materialize_runtime_volume_layout",
     "observe_empty_runtime_volume",
-    "open_run_action_barrier_control",
+    "open_run_action_control_directory",
     "open_run_action_result_workspace",
     "reobserve_runtime_volume_layout",
 ]

@@ -96,6 +96,7 @@ from test_run_frontier_action_gate import (
     _StaticSecurityAuthority,
 )
 from test_run_state_publisher import publisher_case
+from test_run_action_release_contracts import _release_adoption_for_event
 from test_run_action_supervisor_contracts import (
     _activation_revalidation_receipt,
     _execution_policy,
@@ -105,6 +106,50 @@ from test_run_action_supervisor_contracts import (
     _spawn_commit,
     _terminal_observation,
 )
+
+
+class _AbsentReleaseInspection:
+    presence = run_action_recovery_module.RunActionReleasePresence.ABSENT
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exception_type, exception, traceback):
+        return False
+
+
+class _PresentReleaseInspection:
+    presence = run_action_recovery_module.RunActionReleasePresence.PRESENT
+
+    def __init__(self, adoption):
+        self.adoption = adoption
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exception_type, exception, traceback):
+        return False
+
+
+@pytest.fixture(autouse=True)
+def _synthetic_release_inspection(monkeypatch):
+    monkeypatch.setattr(
+        run_action_recovery_module,
+        "open_run_action_release_inspection",
+        lambda **_arguments: _AbsentReleaseInspection(),
+    )
+    monkeypatch.setattr(
+        run_action_recovery_module.RunActionRecoveryCoordinator,
+        "_require_release_adoption",
+        lambda _self, activation_event, expected: (
+            expected
+            if expected is not None
+            else _release_adoption_for_event(
+                activation_event,
+                _self._security_authority.observation,
+            )
+        ),
+    )
 
 
 class _FakeResultInterpreter:
@@ -623,6 +668,33 @@ class _SecurityAdvancingStageAdapter(_FakeExecutionAdapter):
         return activation
 
 
+class _AdoptionAwarePendingAdapter(_FakeExecutionAdapter):
+    def continue_committed_once(self, capability):
+        self.observed_release_adoption = capability.workload_release_adoption
+        self.continuation_calls.append(capability)
+        return RunActionContinuationOutcome(
+            state=RunActionContinuationState.PENDING,
+            result=None,
+        )
+
+
+class _ReleaseStateChangingQuiescentAdapter(_FakeExecutionAdapter):
+    def __init__(self, boundary_identity, change_release_state) -> None:
+        super().__init__(
+            boundary_identity,
+            observation_state=RunActionCommittedSpawnState.RUNNING_CONTINUABLE,
+        )
+        self._change_release_state = change_release_state
+
+    def continue_committed_once(self, capability):
+        self.continuation_calls.append(capability)
+        self._change_release_state()
+        return RunActionContinuationOutcome(
+            state=RunActionContinuationState.PROVEN_QUIESCENT_WITHOUT_RESULT,
+            result=None,
+        )
+
+
 class _AdvancingOnCallSecurityAuthority:
     def __init__(self, current, advanced, advance_on_call) -> None:
         self.current = current
@@ -889,6 +961,10 @@ def _append_result_received(gate, reservation) -> bytes:
         )
         session.record_result(
             spawn_commit=spawn,
+            workload_release_adoption=_release_adoption_for_event(
+                session.events[4],
+                gate._security_authority.observation,
+            ),
             terminal_observation=result.terminal_observation,
             result_capture_receipt=result.result_capture_receipt,
             result_payload=result.result_payload,
@@ -1166,6 +1242,7 @@ def test_committed_query_rejects_event_two_and_event_five_splices(
         RunActionCommittedSpawnQuery(
             preparation_allocation=replacement_allocation,
             activation_event=events[4],
+            workload_release_adoption=None,
         )
 
     foreign_prepared = _prepared_execution(inode_offset=11)
@@ -1184,6 +1261,7 @@ def test_committed_query_rejects_event_two_and_event_five_splices(
         RunActionCommittedSpawnQuery(
             preparation_allocation=allocation,
             activation_event=spliced_event,
+            workload_release_adoption=None,
         )
 
 
@@ -2037,6 +2115,7 @@ def test_projected_event_8_cleanup_precedes_new_pending_edit_after_restart(
         active_workspace=active,
         publisher=reopened_publisher,
         security_authority=security,
+        credential_validity_authority=None,
     )
     publisher_case["active"] = active
     pending = _reserve_implementation_agent(
@@ -2307,6 +2386,132 @@ def test_security_advance_prevents_committed_spawn_continuation(
     assert not report.is_complete
     assert len(adapter.inspect_calls) == 1
     assert not adapter.continuation_calls
+
+
+def test_published_release_is_adopted_after_security_advance(
+    publisher_case,
+    monkeypatch,
+) -> None:
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
+    _append_activation_committed(gate, reservation)
+    activation_event = gate._action_store.inspect().events_for(
+        reservation.intent.operation_id
+    )[4]
+    adoption = _release_adoption_for_event(
+        activation_event,
+        frontier.checkpoint.safety_state.security_observation,
+    )
+    monkeypatch.setattr(
+        run_action_recovery_module,
+        "open_run_action_release_inspection",
+        lambda **_arguments: _PresentReleaseInspection(adoption),
+    )
+    _advance_security(publisher_case, gate, frontier)
+    adapter = _AdoptionAwarePendingAdapter(
+        reservation.intent.boundary_identity,
+        observation_state=(RunActionCommittedSpawnState.RUNNING_CONTINUABLE),
+        continuation_result=False,
+    )
+
+    report = _recovery_coordinator(gate, adapter).recover(frontier)
+
+    assert not report.is_complete
+    assert adapter.observed_release_adoption == adoption
+    assert len(adapter.continuation_calls) == 1
+
+
+def test_release_published_during_callback_cannot_be_recorded_as_quiescent(
+    publisher_case,
+    monkeypatch,
+) -> None:
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
+    _append_activation_committed(gate, reservation)
+    activation_event = gate._action_store.inspect().events_for(
+        reservation.intent.operation_id
+    )[4]
+    adoption = _release_adoption_for_event(
+        activation_event,
+        frontier.checkpoint.safety_state.security_observation,
+    )
+    release_state = {"present": False}
+
+    def inspect_release(**_arguments):
+        return (
+            _PresentReleaseInspection(adoption)
+            if release_state["present"]
+            else _AbsentReleaseInspection()
+        )
+
+    monkeypatch.setattr(
+        run_action_recovery_module,
+        "open_run_action_release_inspection",
+        inspect_release,
+    )
+    adapter = _ReleaseStateChangingQuiescentAdapter(
+        reservation.intent.boundary_identity,
+        lambda: release_state.__setitem__("present", True),
+    )
+
+    with pytest.raises(
+        RunActionRecoveryError,
+        match="released workload cannot use evidence-free interruption",
+    ):
+        _recovery_coordinator(gate, adapter).recover(frontier)
+
+    assert len(adapter.continuation_calls) == 1
+    assert (
+        gate._action_store.inspect()
+        .events_for(reservation.intent.operation_id)[-1]
+        .event_kind
+        is RunActionExecutionEventKind.ACTIVATION_COMMITTED
+    )
+
+
+def test_adopted_release_cannot_disappear_then_be_recorded_as_quiescent(
+    publisher_case,
+    monkeypatch,
+) -> None:
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
+    _append_activation_committed(gate, reservation)
+    activation_event = gate._action_store.inspect().events_for(
+        reservation.intent.operation_id
+    )[4]
+    adoption = _release_adoption_for_event(
+        activation_event,
+        frontier.checkpoint.safety_state.security_observation,
+    )
+    release_state = {"present": True}
+
+    def inspect_release(**_arguments):
+        return (
+            _PresentReleaseInspection(adoption)
+            if release_state["present"]
+            else _AbsentReleaseInspection()
+        )
+
+    monkeypatch.setattr(
+        run_action_recovery_module,
+        "open_run_action_release_inspection",
+        inspect_release,
+    )
+    adapter = _ReleaseStateChangingQuiescentAdapter(
+        reservation.intent.boundary_identity,
+        lambda: release_state.__setitem__("present", False),
+    )
+
+    with pytest.raises(
+        RunActionRecoveryError,
+        match="released workload cannot use evidence-free interruption",
+    ):
+        _recovery_coordinator(gate, adapter).recover(frontier)
+
+    assert len(adapter.continuation_calls) == 1
+    assert (
+        gate._action_store.inspect()
+        .events_for(reservation.intent.operation_id)[-1]
+        .event_kind
+        is RunActionExecutionEventKind.ACTIVATION_COMMITTED
+    )
 
 
 def test_workspace_mutation_during_continuation_never_records_result(
@@ -2927,6 +3132,7 @@ def test_result_received_recovers_after_full_runtime_restart(
         active_workspace=active,
         publisher=publisher,
         security_authority=security,
+        credential_validity_authority=None,
     )
     adapter = _FakeExecutionAdapter(reservation.intent.boundary_identity)
     report = _recovery_coordinator(reopened_gate, adapter).recover(reopened_frontier)
@@ -2957,6 +3163,7 @@ def test_result_decided_recovers_after_full_runtime_restart_without_implementati
         active_workspace=active,
         publisher=publisher,
         security_authority=security,
+        credential_validity_authority=None,
     )
     adapter = _AccessGuardedExecutionAdapter(reservation.intent.boundary_identity)
     guarded_interpreter = _AccessGuardedResultInterpreter(

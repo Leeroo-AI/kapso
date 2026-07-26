@@ -115,6 +115,17 @@ class RunActionSecurityAuthority(Protocol):
     ) -> SecurityDenylistObservation: ...
 
 
+class RunActionCredentialValidityAuthority(Protocol):
+    """Trusted broker authority retained outside lifecycle adapter control."""
+
+    def observe_exact(
+        self,
+        *,
+        activated_credential_file_observation_id: str,
+        credential_lease_authority_id: str,
+    ) -> object: ...
+
+
 class RunFrontierActionGate:
     """Reserve event 1 and issue the sole coordinator for later transitions."""
 
@@ -124,12 +135,17 @@ class RunFrontierActionGate:
         active_workspace: ActiveLaunchWorkspace,
         publisher: RunStatePublisher,
         security_authority: RunActionSecurityAuthority,
+        credential_validity_authority: RunActionCredentialValidityAuthority | None,
     ) -> None:
         if (
             type(active_workspace) is not ActiveLaunchWorkspace
             or type(publisher) is not RunStatePublisher
             or publisher._authority is not active_workspace
             or not hasattr(security_authority, "observe_exact_descendant_of")
+            or (
+                credential_validity_authority is not None
+                and not hasattr(credential_validity_authority, "observe_exact")
+            )
         ):
             raise RunFrontierActionError(
                 "run frontier action gate authorities are incompatible"
@@ -139,6 +155,7 @@ class RunFrontierActionGate:
         self._publisher = publisher
         self._action_store = publisher._action_store
         self._security_authority = security_authority
+        self._credential_validity_authority = credential_validity_authority
         self._owner_process_id = os.getpid()
 
     def recovery_coordinator(
@@ -155,6 +172,7 @@ class RunFrontierActionGate:
             active_workspace=self._active_workspace,
             publisher=self._publisher,
             security_authority=self._security_authority,
+            credential_validity_authority=self._credential_validity_authority,
             implementation_registry=implementation_registry,
             _authority=_RUN_ACTION_RECOVERY_COORDINATOR_AUTHORITY,
         )

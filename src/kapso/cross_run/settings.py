@@ -1607,6 +1607,7 @@ class LaunchSettings(StrictContract):
     run_action_operation_limit: int
     run_action_event_size_bytes: int
     run_action_release_receipt_size_bytes: int
+    run_action_release_commit_timeout_seconds: int
     run_action_process_snapshot_size_bytes: int
     run_action_request_size_bytes: int
     run_action_result_size_bytes: int
@@ -1793,6 +1794,10 @@ class LaunchSettings(StrictContract):
             (
                 self.run_action_release_receipt_size_bytes,
                 "run_action_release_receipt_size_bytes",
+            ),
+            (
+                self.run_action_release_commit_timeout_seconds,
+                "run_action_release_commit_timeout_seconds",
             ),
             (
                 self.run_action_process_snapshot_size_bytes,

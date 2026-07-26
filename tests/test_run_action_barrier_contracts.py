@@ -56,12 +56,18 @@ _INIT_EXECUTABLE_MOUNT_ID = 5100
 _HELPER_MOUNT_ID = 5101
 
 
-def _resolved_graph(*, inode_offset=0, prepared=None):
+def _resolved_graph(*, inode_offset=0, prepared=None, activation=None):
     prepared = (
         _prepared_execution(inode_offset=inode_offset) if prepared is None else prepared
     )
-    spawn = _spawn_commit(prepared)
-    activation = _activation_revalidation_receipt(prepared, spawn)
+    spawn = _spawn_commit(prepared) if activation is None else activation.spawn_commit
+    activation = (
+        _activation_revalidation_receipt(prepared, spawn)
+        if activation is None
+        else activation
+    )
+    if activation.prepared_execution != prepared:
+        raise AssertionError("resolved graph activation differs from its preparation")
     projection = prepared.inert_container_evidence.issued_create_projection
     cgroup_path = run_action_keeper_process_cgroup_path(
         prepared.preparation_claim.execution_policy,

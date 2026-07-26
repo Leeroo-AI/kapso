@@ -25,9 +25,31 @@ from kapso.cross_run.launch.run_action_contracts import (
     RunActionResultInterpreterIdentity,
     RunFrontierWorkspaceAccess,
 )
+from kapso.cross_run.launch.run_action_barrier_contracts import (
+    RunActionResolvedWorkloadObservation,
+)
 from kapso.cross_run.launch.run_action_ledger import (
     RunActionExecutionEventKind,
     RunActionLedgerSnapshot,
+)
+from kapso.cross_run.launch.run_action_release_authority import (
+    mint_run_action_workload_release_receipt,
+    require_run_action_workload_release_receipt_matches_event,
+)
+from kapso.cross_run.launch.run_action_release_adoption import (
+    open_run_action_release_inspection,
+    RunActionReleasePresence,
+)
+from kapso.cross_run.launch.run_action_release_candidate import (
+    _RELEASE_CANDIDATE_AUTHORIZATION_AUTHORITY,
+    _RunActionFrozenReleaseCandidate,
+    _SystemRunActionReleaseClock,
+)
+from kapso.cross_run.launch.run_action_release_contracts import (
+    RunActionCredentialValidityObservation,
+    RunActionReleaseAuthorizationObservation,
+    RunActionWorkloadReleaseAdoption,
+    RunActionWorkloadReleaseReceipt,
 )
 from kapso.cross_run.launch.run_action_reservation_contracts import (
     RunActionReservation,
@@ -51,6 +73,7 @@ from kapso.cross_run.launch.run_action_store import (
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
     DockerRunActionExecutionPolicy,
     RunActionActivationRevalidationReceipt,
+    RunActionCredentialMode,
     RunActionPreparationAllocation,
     RunActionPreparedExecution,
     RunActionResultCaptureReceipt,
@@ -80,6 +103,7 @@ _RUN_ACTION_RECOVERY_IMPLEMENTATION_REGISTRY_AUTHORITY = object()
 _RUN_ACTION_PREPARATION_AUTHORITY = object()
 _RUN_ACTION_ACTIVATION_AUTHORITY = object()
 _RUN_ACTION_COMMITTED_CONTINUATION_AUTHORITY = object()
+_RUN_ACTION_RELEASE_PUBLISHER_AUTHORITY = object()
 _ISSUED_RECOVERY_COORDINATORS: WeakValueDictionary[int, object] = WeakValueDictionary()
 _ISSUED_RECOVERY_IMPLEMENTATION_REGISTRIES: WeakValueDictionary[int, object] = (
     WeakValueDictionary()
@@ -96,6 +120,10 @@ _ISSUED_ACTIVATION_CAPABILITIES: WeakValueDictionary[int, object] = (
 _ISSUED_COMMITTED_CONTINUATION_CAPABILITIES: WeakValueDictionary[int, object] = (
     WeakValueDictionary()
 )
+_ISSUED_COMMITTED_CONTINUATION_RELEASE_AUTHORITIES: WeakKeyDictionary[
+    object,
+    "_RunActionIssuedReleaseAuthorities",
+] = WeakKeyDictionary()
 _RECOVERY_COORDINATOR_LOCK = Lock()
 _RECOVERY_IMPLEMENTATION_REGISTRY_LOCK = Lock()
 _PREPARATION_CAPABILITY_LOCK = Lock()
@@ -118,10 +146,39 @@ _EXECUTION_ADAPTER_METHOD_NAMES = (
 )
 _RESULT_INTERPRETER_METHOD_NAMES = ("interpret",)
 _SHA256_DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
+_NANOSECONDS_PER_SECOND = 1_000_000_000
 
 
 class RunActionRecoveryError(RuntimeError):
     """Durable action recovery is unsafe, ambiguous, or incompatible."""
+
+
+@dataclass(frozen=True)
+class _RunActionIssuedReleaseAuthorities:
+    """Coordinator-held authorities never accepted at the adapter call site."""
+
+    required_security_observation: SecurityDenylistObservation
+    security_authority: object
+    credential_validity_authority: object | None
+    clock: _SystemRunActionReleaseClock
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.required_security_observation) is not SecurityDenylistObservation
+            or self.required_security_observation.matched_revocations
+            or not hasattr(self.security_authority, "observe_exact_descendant_of")
+            or (
+                self.credential_validity_authority is not None
+                and not hasattr(
+                    self.credential_validity_authority,
+                    "observe_exact",
+                )
+            )
+            or type(self.clock) is not _SystemRunActionReleaseClock
+        ):
+            raise RunActionRecoveryError(
+                "issued release authorities are incomplete or unsafe"
+            )
 
 
 def _require_workspace_source_path(path: Path, descriptor: int) -> None:
@@ -673,6 +730,10 @@ class RunActionCommittedContinuationCapability:
         *,
         query: "RunActionCommittedSpawnQuery",
         observation: RunActionCommittedSpawnObservation,
+        required_security_observation: SecurityDenylistObservation,
+        security_authority: object,
+        credential_validity_authority: object | None,
+        release_clock: _SystemRunActionReleaseClock,
         _authority: object,
     ) -> None:
         if type(query) is not RunActionCommittedSpawnQuery:
@@ -703,6 +764,16 @@ class RunActionCommittedContinuationCapability:
                 RunActionCommittedSpawnState.TERMINAL_CONTINUABLE,
                 RunActionCommittedSpawnState.QUIESCENT_RECHECKABLE,
             }
+            or type(required_security_observation) is not SecurityDenylistObservation
+            or required_security_observation.observation_id
+            != reservation.frontier.security_observation_id
+            or required_security_observation.matched_revocations
+            or not hasattr(security_authority, "observe_exact_descendant_of")
+            or (
+                credential_validity_authority is not None
+                and not hasattr(credential_validity_authority, "observe_exact")
+            )
+            or type(release_clock) is not _SystemRunActionReleaseClock
             or _authority is not _RUN_ACTION_COMMITTED_CONTINUATION_AUTHORITY
         ):
             raise RunActionRecoveryError(
@@ -713,8 +784,17 @@ class RunActionCommittedContinuationCapability:
         self._owner_process_id = os.getpid()
         self._invoking_thread_id = None
         self._state = "ready"
+        self._release_publication_state = "ready"
         with _COMMITTED_CONTINUATION_CAPABILITY_LOCK:
             _ISSUED_COMMITTED_CONTINUATION_CAPABILITIES[id(self)] = self
+            _ISSUED_COMMITTED_CONTINUATION_RELEASE_AUTHORITIES[self] = (
+                _RunActionIssuedReleaseAuthorities(
+                    required_security_observation=required_security_observation,
+                    security_authority=security_authority,
+                    credential_validity_authority=credential_validity_authority,
+                    clock=release_clock,
+                )
+            )
 
     @property
     def activation_event(self) -> RunActionExecutionEvent:
@@ -746,6 +826,58 @@ class RunActionCommittedContinuationCapability:
         self._require_active_invocation()
         return self._observation
 
+    @property
+    def workload_release_adoption(
+        self,
+    ) -> RunActionWorkloadReleaseAdoption | None:
+        self._require_active_invocation()
+        return self._query.workload_release_adoption
+
+    def _begin_release_publication(
+        self,
+        resolved_workload_observation: RunActionResolvedWorkloadObservation,
+        *,
+        _authority: object,
+    ) -> "_RunActionReleasePublicationAuthorization":
+        """Open the trusted publisher's sole event-5 release authorization."""
+
+        with _COMMITTED_CONTINUATION_CAPABILITY_LOCK:
+            issued = _ISSUED_COMMITTED_CONTINUATION_CAPABILITIES.get(id(self))
+            release_authority = _ISSUED_COMMITTED_CONTINUATION_RELEASE_AUTHORITIES.get(
+                self
+            )
+            if (
+                issued is not self
+                or release_authority is None
+                or self._owner_process_id != os.getpid()
+                or self._state != "invoking"
+                or self._invoking_thread_id != get_ident()
+                or self._release_publication_state != "ready"
+                or self._observation.state
+                is not RunActionCommittedSpawnState.RUNNING_CONTINUABLE
+                or type(resolved_workload_observation)
+                is not RunActionResolvedWorkloadObservation
+                or resolved_workload_observation.activation_revalidation_receipt
+                != self._query.activation_revalidation_receipt
+                or resolved_workload_observation.running_container_observation.complete_inspection_digest
+                != self._observation.observation_token
+                or resolved_workload_observation.release_present is not False
+                or self._query.workload_release_adoption is not None
+                or _authority is not _RUN_ACTION_RELEASE_PUBLISHER_AUTHORITY
+            ):
+                raise RunActionRecoveryError(
+                    "workload release publication lacks exact live authority"
+                )
+            self._release_publication_state = "preparing"
+        return _RunActionReleasePublicationAuthorization(
+            capability=self,
+            resolved_workload_observation=resolved_workload_observation,
+            required_security_observation=(
+                release_authority.required_security_observation
+            ),
+            _authority=_RUN_ACTION_RELEASE_PUBLISHER_AUTHORITY,
+        )
+
     def _invoke_once(
         self,
         execution_adapter: "RunActionExecutionAdapter",
@@ -776,6 +908,7 @@ class RunActionCommittedContinuationCapability:
                 or self._owner_process_id != os.getpid()
                 or self._state != "invoking"
                 or self._invoking_thread_id != get_ident()
+                or self._release_publication_state == "authorizing"
             ):
                 raise RunActionRecoveryError(
                     "committed continuation capability is not in its one invocation"
@@ -795,7 +928,9 @@ class RunActionCommittedContinuationCapability:
                 )
             self._state = "spent"
             self._invoking_thread_id = None
+            self._release_publication_state = "spent"
             _ISSUED_COMMITTED_CONTINUATION_CAPABILITIES.pop(id(self))
+            _ISSUED_COMMITTED_CONTINUATION_RELEASE_AUTHORITIES.pop(self, None)
 
 
 class _RunActionCommittedContinuationInvocation:
@@ -810,6 +945,369 @@ class _RunActionCommittedContinuationInvocation:
     def __exit__(self, exception_type, exception, traceback) -> bool:
         self._capability._finish_invocation()
         return False
+
+
+class _RunActionReleasePublicationAuthorization:
+    """Publisher-private security authority for one already-frozen receipt."""
+
+    def __init__(
+        self,
+        *,
+        capability: RunActionCommittedContinuationCapability,
+        resolved_workload_observation: RunActionResolvedWorkloadObservation,
+        required_security_observation: SecurityDenylistObservation,
+        _authority: object,
+    ) -> None:
+        if (
+            type(capability) is not RunActionCommittedContinuationCapability
+            or type(resolved_workload_observation)
+            is not RunActionResolvedWorkloadObservation
+            or type(required_security_observation) is not SecurityDenylistObservation
+            or _authority is not _RUN_ACTION_RELEASE_PUBLISHER_AUTHORITY
+        ):
+            raise RunActionRecoveryError(
+                "release publication authorization lacks issuance authority"
+            )
+        self._capability = capability
+        self._resolved_workload_observation = resolved_workload_observation
+        self._required_security_observation = required_security_observation
+        self._owner_process_id = os.getpid()
+        self._owner_thread_id = get_ident()
+        self._receipt = None
+        self._closed = False
+
+    def _mint_receipt(
+        self,
+        *,
+        _authority: object,
+    ) -> RunActionWorkloadReleaseReceipt:
+        self._require_preparing(_authority)
+        if self._receipt is not None:
+            raise RunActionRecoveryError(
+                "release publication authorization already minted its receipt"
+            )
+        authorities = self._release_authorities()
+        anchor_boottime = _read_positive_release_clock(
+            authorities.clock.boottime_nanoseconds(),
+            "release BOOTTIME anchor",
+        )
+        anchor_realtime = _read_positive_release_clock(
+            authorities.clock.realtime_nanoseconds(),
+            "release REALTIME anchor",
+        )
+        credential_validity = _observe_release_credential_validity(
+            self._resolved_workload_observation,
+            authorities.credential_validity_authority,
+            authorities.clock,
+            anchor_realtime,
+        )
+        release_authorization = RunActionReleaseAuthorizationObservation.mint(
+            security_observation=self._required_security_observation,
+            authorized_at_boottime_nanoseconds=anchor_boottime,
+            authorized_at_realtime_nanoseconds=anchor_realtime,
+            credential_validity_observation=credential_validity,
+        )
+        self._receipt = mint_run_action_workload_release_receipt(
+            activation_event=self._capability.activation_event,
+            resolved_workload_observation=self._resolved_workload_observation,
+            release_authorization_observation=release_authorization,
+        )
+        return self._receipt
+
+    def _authorize_frozen_release_once(
+        self,
+        *,
+        candidate: _RunActionFrozenReleaseCandidate,
+        _authority: object,
+    ) -> RunActionWorkloadReleaseReceipt | None:
+        self._require_preparing(_authority)
+        if (
+            type(candidate) is not _RunActionFrozenReleaseCandidate
+            or type(self._receipt) is not RunActionWorkloadReleaseReceipt
+        ):
+            raise RunActionRecoveryError(
+                "release authorization lacks one exact frozen receipt candidate"
+            )
+        receipt = candidate._begin_authorization(
+            self._receipt,
+            _authority=_RELEASE_CANDIDATE_AUTHORIZATION_AUTHORITY,
+        )
+        if (
+            receipt != self._receipt
+            or receipt.release_authorization_observation.security_observation
+            != self._required_security_observation
+        ):
+            raise RunActionRecoveryError(
+                "frozen release candidate differs from its issued authorization"
+            )
+        capability = self._capability
+        with _COMMITTED_CONTINUATION_CAPABILITY_LOCK:
+            capability._release_publication_state = "authorizing"
+        authorities = self._release_authorities()
+        with _RunActionReleaseLinkInvocation(self):
+            _revalidate_release_credential_validity(
+                self._resolved_workload_observation,
+                authorities.credential_validity_authority,
+                receipt,
+                authorities.clock,
+            )
+            required = authorities.required_security_observation
+            current = authorities.security_authority.observe_exact_descendant_of(
+                scope_id=required.scope_id,
+                scope_contract_id=required.scope_contract_id,
+                checked_subject_ids=required.checked_subject_ids,
+                required_ancestor=required,
+            )
+            if type(current) is not SecurityDenylistObservation:
+                raise RunActionRecoveryError(
+                    "workload release security authority returned another type"
+                )
+            if current != required:
+                return None
+            current_boottime_nanoseconds = authorities.clock.boottime_nanoseconds()
+            if (
+                type(current_boottime_nanoseconds) is not int
+                or current_boottime_nanoseconds <= 0
+                or current_boottime_nanoseconds
+                > receipt.release_commit_deadline_boottime_nanoseconds
+            ):
+                return None
+            return candidate._link_authorized_once(
+                _authority=_RELEASE_CANDIDATE_AUTHORIZATION_AUTHORITY,
+            )
+
+    def _release_authorities(self) -> _RunActionIssuedReleaseAuthorities:
+        with _COMMITTED_CONTINUATION_CAPABILITY_LOCK:
+            authorities = _ISSUED_COMMITTED_CONTINUATION_RELEASE_AUTHORITIES.get(
+                self._capability
+            )
+        if type(authorities) is not _RunActionIssuedReleaseAuthorities:
+            raise RunActionRecoveryError(
+                "release publication lost its coordinator-issued authorities"
+            )
+        return authorities
+
+    def _require_preparing(self, _authority: object) -> None:
+        capability = self._capability
+        with _COMMITTED_CONTINUATION_CAPABILITY_LOCK:
+            issued = _ISSUED_COMMITTED_CONTINUATION_CAPABILITIES.get(id(capability))
+            release_authority = _ISSUED_COMMITTED_CONTINUATION_RELEASE_AUTHORITIES.get(
+                capability
+            )
+            if (
+                self._closed
+                or self._owner_process_id != os.getpid()
+                or self._owner_thread_id != get_ident()
+                or issued is not capability
+                or release_authority is None
+                or capability._owner_process_id != os.getpid()
+                or capability._state != "invoking"
+                or capability._invoking_thread_id != get_ident()
+                or capability._release_publication_state != "preparing"
+                or release_authority.required_security_observation
+                != self._required_security_observation
+                or _authority is not _RUN_ACTION_RELEASE_PUBLISHER_AUTHORITY
+            ):
+                raise RunActionRecoveryError(
+                    "release publication authorization is spent, inactive, or foreign"
+                )
+
+    def _finish_link_invocation(self) -> None:
+        capability = self._capability
+        with _COMMITTED_CONTINUATION_CAPABILITY_LOCK:
+            if (
+                self._closed
+                or self._owner_process_id != os.getpid()
+                or self._owner_thread_id != get_ident()
+                or capability._state != "invoking"
+                or capability._invoking_thread_id != get_ident()
+                or capability._release_publication_state != "authorizing"
+            ):
+                raise RunActionRecoveryError(
+                    "release link authorization invocation changed"
+                )
+            self._closed = True
+            capability._release_publication_state = "spent"
+
+    def _close(self) -> None:
+        if self._closed:
+            return
+        capability = self._capability
+        with _COMMITTED_CONTINUATION_CAPABILITY_LOCK:
+            if (
+                self._owner_process_id != os.getpid()
+                or self._owner_thread_id != get_ident()
+                or capability._state != "invoking"
+                or capability._invoking_thread_id != get_ident()
+                or capability._release_publication_state != "preparing"
+            ):
+                raise RunActionRecoveryError(
+                    "release publication authorization close changed"
+                )
+            self._closed = True
+            capability._release_publication_state = "spent"
+
+    def __enter__(self) -> "_RunActionReleasePublicationAuthorization":
+        self._require_preparing(_RUN_ACTION_RELEASE_PUBLISHER_AUTHORITY)
+        return self
+
+    def __exit__(self, exception_type, exception, traceback) -> bool:
+        self._close()
+        return False
+
+
+class _RunActionReleaseLinkInvocation:
+    """Burn the private link authorization on every final-check exit."""
+
+    def __init__(
+        self, authorization: _RunActionReleasePublicationAuthorization
+    ) -> None:
+        self._authorization = authorization
+
+    def __enter__(self) -> _RunActionReleasePublicationAuthorization:
+        return self._authorization
+
+    def __exit__(self, exception_type, exception, traceback) -> bool:
+        self._authorization._finish_link_invocation()
+        return False
+
+
+def _observe_release_credential_validity(
+    resolved: RunActionResolvedWorkloadObservation,
+    credential_authority: object | None,
+    clock: _SystemRunActionReleaseClock,
+    anchor_realtime_nanoseconds: int,
+) -> RunActionCredentialValidityObservation | None:
+    activation = resolved.activation_revalidation_receipt
+    policy = activation.prepared_execution.preparation_claim.execution_policy
+    credential_file = activation.credential_file_observation
+    if policy.credential_policy.mode is RunActionCredentialMode.NONE:
+        if credential_file is not None:
+            raise RunActionRecoveryError(
+                "credential-free release carries a credential file"
+            )
+        return None
+    if credential_file is None or not hasattr(credential_authority, "observe_exact"):
+        raise RunActionRecoveryError(
+            "credentialed release lacks its coordinator-held validity authority"
+        )
+    observed_before = _read_positive_release_clock(
+        clock.realtime_nanoseconds(),
+        "credential observation start",
+    )
+    validity = credential_authority.observe_exact(
+        activated_credential_file_observation_id=(
+            credential_file.activated_file_observation_id
+        ),
+        credential_lease_authority_id=credential_file.content_authority_id,
+    )
+    observed_after = _read_positive_release_clock(
+        clock.realtime_nanoseconds(),
+        "credential observation finish",
+    )
+    required_valid_until = (
+        anchor_realtime_nanoseconds
+        + (
+            policy.supervisor_limits.execution_timeout_seconds
+            + policy.supervisor_limits.termination_grace_seconds
+        )
+        * _NANOSECONDS_PER_SECOND
+    )
+    if (
+        type(validity) is not RunActionCredentialValidityObservation
+        or validity.activated_credential_file_observation_id
+        != credential_file.activated_file_observation_id
+        or validity.credential_lease_authority_id
+        != credential_file.content_authority_id
+        or not observed_before
+        <= validity.observed_at_realtime_nanoseconds
+        <= observed_after
+        or validity.valid_until_realtime_nanoseconds < required_valid_until
+        or (
+            validity.valid_until_realtime_nanoseconds
+            - validity.observed_at_realtime_nanoseconds
+        )
+        > policy.credential_policy.maximum_lease_seconds * _NANOSECONDS_PER_SECOND
+    ):
+        raise RunActionRecoveryError(
+            "credential validity cannot authorize the release deadline"
+        )
+    return validity
+
+
+def _revalidate_release_credential_validity(
+    resolved: RunActionResolvedWorkloadObservation,
+    credential_authority: object | None,
+    receipt: RunActionWorkloadReleaseReceipt,
+    clock: _SystemRunActionReleaseClock,
+) -> None:
+    activation = resolved.activation_revalidation_receipt
+    policy = activation.prepared_execution.preparation_claim.execution_policy
+    credential_file = activation.credential_file_observation
+    required_validity = (
+        receipt.release_authorization_observation.credential_validity_observation
+    )
+    if policy.credential_policy.mode is RunActionCredentialMode.NONE:
+        if credential_file is not None or required_validity is not None:
+            raise RunActionRecoveryError(
+                "credential-free release gained credential evidence"
+            )
+        return
+    if (
+        type(required_validity) is not RunActionCredentialValidityObservation
+        or credential_file is None
+        or not hasattr(credential_authority, "observe_exact")
+    ):
+        raise RunActionRecoveryError(
+            "credential revalidation lacks exact coordinator authority"
+        )
+    observed_before = _read_positive_release_clock(
+        clock.realtime_nanoseconds(),
+        "credential revalidation start",
+    )
+    current = credential_authority.observe_exact(
+        activated_credential_file_observation_id=(
+            credential_file.activated_file_observation_id
+        ),
+        credential_lease_authority_id=credential_file.content_authority_id,
+    )
+    observed_after = _read_positive_release_clock(
+        clock.realtime_nanoseconds(),
+        "credential revalidation finish",
+    )
+    containment_deadline_realtime = (
+        receipt.release_authorization_observation.authorized_at_realtime_nanoseconds
+        + (
+            policy.supervisor_limits.execution_timeout_seconds
+            + policy.supervisor_limits.termination_grace_seconds
+        )
+        * _NANOSECONDS_PER_SECOND
+    )
+    if (
+        type(current) is not RunActionCredentialValidityObservation
+        or current.activated_credential_file_observation_id
+        != required_validity.activated_credential_file_observation_id
+        or current.credential_lease_authority_id
+        != required_validity.credential_lease_authority_id
+        or not observed_before
+        <= current.observed_at_realtime_nanoseconds
+        <= observed_after
+        or current.observed_at_realtime_nanoseconds
+        < required_validity.observed_at_realtime_nanoseconds
+        or current.valid_until_realtime_nanoseconds < containment_deadline_realtime
+        or (
+            current.valid_until_realtime_nanoseconds
+            - current.observed_at_realtime_nanoseconds
+        )
+        > policy.credential_policy.maximum_lease_seconds * _NANOSECONDS_PER_SECOND
+    ):
+        raise RunActionRecoveryError("credential authority changed before release link")
+
+
+def _read_positive_release_clock(value: int, name: str) -> int:
+    if type(value) is not int or value <= 0:
+        raise RunActionRecoveryError(f"{name} is invalid")
+    return value
 
 
 @dataclass(frozen=True)
@@ -852,6 +1350,7 @@ class RunActionCommittedSpawnQuery:
 
     preparation_allocation: RunActionPreparationAllocation
     activation_event: RunActionExecutionEvent
+    workload_release_adoption: RunActionWorkloadReleaseAdoption | None
 
     def __post_init__(self) -> None:
         if (
@@ -862,9 +1361,19 @@ class RunActionCommittedSpawnQuery:
             is not RunActionExecutionEventKind.ACTIVATION_COMMITTED
             or type(self.activation_event.activation_revalidation_receipt)
             is not RunActionActivationRevalidationReceipt
+            or (
+                self.workload_release_adoption is not None
+                and type(self.workload_release_adoption)
+                is not RunActionWorkloadReleaseAdoption
+            )
         ):
             raise RunActionRecoveryError(
                 "committed run action query lacks its durable activation"
+            )
+        if self.workload_release_adoption is not None:
+            require_run_action_workload_release_receipt_matches_event(
+                self.workload_release_adoption.workload_release_receipt,
+                self.activation_event,
             )
         unactivated = RunActionUnactivatedSpawnQuery(
             prepared_execution=self.prepared_execution,
@@ -881,6 +1390,11 @@ class RunActionCommittedSpawnQuery:
             != unactivated.prepared_execution
             or self.activation_revalidation_receipt.spawn_commit
             != unactivated.spawn_commit
+            or (
+                self.workload_release_adoption is not None
+                and self.workload_release_adoption.workload_release_receipt.activation_event_id
+                != self.activation_event.event_id
+            )
         ):
             raise RunActionRecoveryError(
                 "committed run action query lacks its durable activation"
@@ -1307,6 +1821,7 @@ class RunActionRecoveryCoordinator:
         active_workspace: ActiveLaunchWorkspace,
         publisher: RunStatePublisher,
         security_authority: object,
+        credential_validity_authority: object | None,
         implementation_registry: RunActionRecoveryImplementationRegistry,
         _authority: object,
     ) -> None:
@@ -1315,6 +1830,10 @@ class RunActionRecoveryCoordinator:
             or type(publisher) is not RunStatePublisher
             or publisher._authority is not active_workspace
             or not hasattr(security_authority, "observe_exact_descendant_of")
+            or (
+                credential_validity_authority is not None
+                and not hasattr(credential_validity_authority, "observe_exact")
+            )
             or type(implementation_registry)
             is not RunActionRecoveryImplementationRegistry
             or _authority is not _RUN_ACTION_RECOVERY_COORDINATOR_AUTHORITY
@@ -1331,6 +1850,8 @@ class RunActionRecoveryCoordinator:
             settings=publisher._settings,
         )
         self._security_authority = security_authority
+        self._credential_validity_authority = credential_validity_authority
+        self._release_clock = _SystemRunActionReleaseClock()
         implementation_registry._require_owner_process()
         self._implementation_registry = implementation_registry
         self._owner_process_id = os.getpid()
@@ -1784,9 +2305,19 @@ class RunActionRecoveryCoordinator:
             raise RunActionRecoveryError(
                 "provider continuation requires the durable activation tail"
             )
+        with open_run_action_release_inspection(
+            activation_event=activation_event,
+            launch_settings=self._publisher._settings,
+        ) as release_inspection:
+            workload_release_adoption = (
+                release_inspection.adoption
+                if release_inspection.presence is RunActionReleasePresence.PRESENT
+                else None
+            )
         query = RunActionCommittedSpawnQuery(
             preparation_allocation=session.events[1].preparation_allocation,
             activation_event=activation_event,
+            workload_release_adoption=workload_release_adoption,
         )
         observation = execution_adapter.inspect_committed(query)
         if type(observation) is not RunActionCommittedSpawnObservation:
@@ -1800,14 +2331,25 @@ class RunActionRecoveryCoordinator:
             descriptors,
             "host workspace changed before committed provider continuation",
         )
-        if observation.state in {
-            RunActionCommittedSpawnState.INERT_CONTINUABLE,
-            RunActionCommittedSpawnState.RUNNING_CONTINUABLE,
-        } and not self._security_is_current(frontier):
+        if (
+            observation.state
+            in {
+                RunActionCommittedSpawnState.INERT_CONTINUABLE,
+                RunActionCommittedSpawnState.RUNNING_CONTINUABLE,
+            }
+            and workload_release_adoption is None
+            and not self._security_is_current(frontier)
+        ):
             return None
         capability = RunActionCommittedContinuationCapability(
             query=query,
             observation=observation,
+            required_security_observation=(
+                frontier.checkpoint.safety_state.security_observation
+            ),
+            security_authority=self._security_authority,
+            credential_validity_authority=self._credential_validity_authority,
+            release_clock=self._release_clock,
             _authority=_RUN_ACTION_COMMITTED_CONTINUATION_AUTHORITY,
         )
         outcome = capability._invoke_once(execution_adapter)
@@ -1827,12 +2369,29 @@ class RunActionRecoveryCoordinator:
         if outcome.state is RunActionContinuationState.PENDING:
             return None
         if outcome.state is RunActionContinuationState.RESULT_CAPTURED:
+            final_release_adoption = self._require_release_adoption(
+                activation_event,
+                workload_release_adoption,
+            )
             return self._record_and_interpret(
                 session,
                 outcome.result,
+                final_release_adoption,
                 descriptors,
                 workspace_lock_descriptor,
             )
+        with open_run_action_release_inspection(
+            activation_event=activation_event,
+            launch_settings=self._publisher._settings,
+        ) as final_release_inspection:
+            if (
+                workload_release_adoption is not None
+                or final_release_inspection.presence
+                is not RunActionReleasePresence.ABSENT
+            ):
+                raise RunActionRecoveryError(
+                    "released workload cannot use evidence-free interruption"
+                )
         session.interrupt(
             reason=RunActionTerminalReason.PROVIDER_INTERRUPTED,
             workspace_after=terminal_workspace,
@@ -1894,6 +2453,7 @@ class RunActionRecoveryCoordinator:
         self,
         session,
         result: RunActionProviderResult,
+        workload_release_adoption: RunActionWorkloadReleaseAdoption,
         descriptors: ExitStack,
         workspace_lock_descriptor: int,
     ) -> RunActionAcceptance:
@@ -1913,6 +2473,7 @@ class RunActionRecoveryCoordinator:
             )
         session.record_result(
             spawn_commit=spawn_commit,
+            workload_release_adoption=workload_release_adoption,
             terminal_observation=result.terminal_observation,
             result_capture_receipt=result.result_capture_receipt,
             result_payload=result.result_payload,
@@ -1922,6 +2483,26 @@ class RunActionRecoveryCoordinator:
             descriptors,
             workspace_lock_descriptor,
         )
+
+    def _require_release_adoption(
+        self,
+        activation_event: RunActionExecutionEvent,
+        expected: RunActionWorkloadReleaseAdoption | None,
+    ) -> RunActionWorkloadReleaseAdoption:
+        with open_run_action_release_inspection(
+            activation_event=activation_event,
+            launch_settings=self._publisher._settings,
+        ) as release_inspection:
+            if release_inspection.presence is not RunActionReleasePresence.PRESENT:
+                raise RunActionRecoveryError(
+                    "captured provider result lacks its published workload release"
+                )
+            adoption = release_inspection.adoption
+            if expected is not None and adoption != expected:
+                raise RunActionRecoveryError(
+                    "published workload release changed before result event"
+                )
+            return adoption
 
     def _interpret_received(
         self,
@@ -2361,8 +2942,14 @@ class RunActionRecoveryCoordinator:
         policy_bound = (
             execution_adapter.execution_policy.supervisor_limits.release_receipt_size_bytes
         )
+        policy_commit_timeout = (
+            execution_adapter.execution_policy.supervisor_limits.release_commit_timeout_seconds
+        )
         configured_bound = (
             self._publisher._settings.run_action_release_receipt_size_bytes
+        )
+        configured_commit_timeout = (
+            self._publisher._settings.run_action_release_commit_timeout_seconds
         )
         first = execution_adapter.release_receipt_size_bound(
             reservation=reservation,
@@ -2375,6 +2962,7 @@ class RunActionRecoveryCoordinator:
             or first <= self._publisher._settings.run_action_process_snapshot_size_bytes
             or second != first
             or policy_bound != configured_bound
+            or policy_commit_timeout != configured_commit_timeout
             or first > policy_bound
         ):
             raise RunActionRecoveryError(

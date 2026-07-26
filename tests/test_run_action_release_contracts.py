@@ -24,6 +24,7 @@ from kapso.cross_run.launch.run_action_release_contracts import (
     RunActionCredentialValidityObservation,
     RunActionReleaseAuthorizationObservation,
     RunActionReleaseContractError,
+    RunActionWorkloadReleaseAdoption,
     RunActionWorkloadReleaseReceipt,
 )
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
@@ -138,7 +139,7 @@ def _release_receipt(
             ),
             credential_lease_authority_id=credential_file.content_authority_id,
             observed_at_realtime_nanoseconds=(
-                _AUTHORIZED_REALTIME_NANOSECONDS - _NANOSECONDS_PER_SECOND
+                _AUTHORIZED_REALTIME_NANOSECONDS + _NANOSECONDS_PER_SECOND
             ),
             valid_until_realtime_nanoseconds=(
                 _AUTHORIZED_REALTIME_NANOSECONDS
@@ -181,6 +182,68 @@ def _activation_event(resolved, *, predecessor_label="event-four"):
     )
 
 
+def _release_adoption_for_event(activation_event, security=None):
+    security = _security_observation() if security is None else security
+    activation = activation_event.activation_revalidation_receipt
+    prepared = activation.prepared_execution
+    assert (
+        prepared.preparation_claim.reservation.frontier.security_observation_id
+        == security.observation_id
+    )
+    resolved = _resolved_graph(
+        prepared=prepared,
+        activation=activation,
+    )
+    credential_file = activation.credential_file_observation
+    limits = prepared.preparation_claim.execution_policy.supervisor_limits
+    validity = (
+        None
+        if credential_file is None
+        else RunActionCredentialValidityObservation.mint(
+            activated_credential_file_observation_id=(
+                credential_file.activated_file_observation_id
+            ),
+            credential_lease_authority_id=credential_file.content_authority_id,
+            observed_at_realtime_nanoseconds=(
+                _AUTHORIZED_REALTIME_NANOSECONDS + _NANOSECONDS_PER_SECOND
+            ),
+            valid_until_realtime_nanoseconds=(
+                _AUTHORIZED_REALTIME_NANOSECONDS
+                + (limits.execution_timeout_seconds + limits.termination_grace_seconds)
+                * _NANOSECONDS_PER_SECOND
+            ),
+        )
+    )
+    authorization = RunActionReleaseAuthorizationObservation.mint(
+        security_observation=security,
+        authorized_at_boottime_nanoseconds=_AUTHORIZED_BOOTTIME_NANOSECONDS,
+        authorized_at_realtime_nanoseconds=_AUTHORIZED_REALTIME_NANOSECONDS,
+        credential_validity_observation=validity,
+    )
+    receipt = mint_run_action_workload_release_receipt(
+        activation_event=activation_event,
+        resolved_workload_observation=resolved,
+        release_authorization_observation=authorization,
+    )
+    control = prepared.control_directory
+    payload = receipt.to_json_bytes()
+    return RunActionWorkloadReleaseAdoption.mint(
+        workload_release_receipt=receipt,
+        control_mount_id=control.mount_id,
+        control_device=control.device,
+        control_inode=control.inode,
+        owner_user_id=prepared.runtime_volume_authority.owner_user_id,
+        owner_group_id=prepared.runtime_volume_authority.owner_group_id,
+        mode=0o400,
+        link_count=1,
+        size_bytes=len(payload),
+        content_digest=tree_or_blob_digest(payload),
+        release_mount_id=control.mount_id,
+        release_device=control.device,
+        release_inode=control.inode + 1000,
+    )
+
+
 def test_release_receipt_round_trips_and_derives_same_boot_deadlines():
     security = _security_observation()
     resolved = _resolved_for_security(security)
@@ -194,6 +257,11 @@ def test_release_receipt_round_trips_and_derives_same_boot_deadlines():
         receipt.execution_deadline_boottime_nanoseconds
         == _AUTHORIZED_BOOTTIME_NANOSECONDS
         + limits.execution_timeout_seconds * _NANOSECONDS_PER_SECOND
+    )
+    assert (
+        receipt.release_commit_deadline_boottime_nanoseconds
+        == _AUTHORIZED_BOOTTIME_NANOSECONDS
+        + limits.release_commit_timeout_seconds * _NANOSECONDS_PER_SECOND
     )
     assert (
         receipt.containment_deadline_boottime_nanoseconds
@@ -280,8 +348,9 @@ def test_credential_validity_cannot_exceed_policy_lease_authority():
     )
     exact = _remint(
         validity,
-        observed_at_realtime_nanoseconds=(
-            validity.valid_until_realtime_nanoseconds - maximum_interval
+        observed_at_realtime_nanoseconds=_AUTHORIZED_REALTIME_NANOSECONDS,
+        valid_until_realtime_nanoseconds=(
+            _AUTHORIZED_REALTIME_NANOSECONDS + maximum_interval
         ),
     )
     exact_authorization = _remint(
@@ -299,7 +368,7 @@ def test_credential_validity_cannot_exceed_policy_lease_authority():
 
     too_long = _remint(
         exact,
-        observed_at_realtime_nanoseconds=(exact.observed_at_realtime_nanoseconds - 1),
+        valid_until_realtime_nanoseconds=(exact.valid_until_realtime_nanoseconds + 1),
     )
     with pytest.raises(
         RunActionReleaseContractError,
@@ -341,6 +410,59 @@ def test_credential_policy_must_be_capable_of_spanning_containment():
                 maximum_lease_seconds=required_seconds - 1,
             ),
         )
+
+
+def test_release_commit_window_must_be_shorter_than_execution_timeout():
+    policy = _execution_policy()
+
+    with pytest.raises(
+        RunActionSupervisorContractError,
+        match="supervisor limits are invalid",
+    ):
+        _remint(
+            policy.supervisor_limits,
+            release_commit_timeout_seconds=(
+                policy.supervisor_limits.execution_timeout_seconds
+            ),
+        )
+
+
+def test_release_adoption_binds_exact_receipt_and_control_inode():
+    security = _security_observation()
+    resolved = _resolved_for_security(
+        security,
+        credential_mode=RunActionCredentialMode.NONE,
+    )
+    receipt = _release_receipt(
+        resolved,
+        security,
+        credential_validity=False,
+    )
+    prepared = resolved.activation_revalidation_receipt.prepared_execution
+    control = prepared.control_directory
+    payload = receipt.to_json_bytes()
+    adoption = RunActionWorkloadReleaseAdoption.mint(
+        workload_release_receipt=receipt,
+        control_mount_id=control.mount_id,
+        control_device=control.device,
+        control_inode=control.inode,
+        owner_user_id=prepared.runtime_volume_authority.owner_user_id,
+        owner_group_id=prepared.runtime_volume_authority.owner_group_id,
+        mode=0o400,
+        link_count=1,
+        size_bytes=len(payload),
+        content_digest=tree_or_blob_digest(payload),
+        release_mount_id=control.mount_id,
+        release_device=control.device,
+        release_inode=control.inode + 1,
+    )
+
+    assert adoption.workload_release_receipt == receipt
+    with pytest.raises(
+        RunActionReleaseContractError,
+        match="linked receipt inode",
+    ):
+        _remint(adoption, release_inode=control.inode)
 
 
 def test_release_receipt_rejects_missing_or_unexpected_credential_validity():

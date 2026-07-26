@@ -5,7 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import ClassVar
 
-from kapso.cross_run.canonical import require_content_id, require_identifier
+from kapso.cross_run.canonical import (
+    require_content_id,
+    require_identifier,
+    tree_or_blob_digest,
+)
 from kapso.cross_run.contracts import StrictContract
 from kapso.cross_run.launch.run_action_barrier_contracts import (
     RunActionResolvedWorkloadObservation,
@@ -63,7 +67,7 @@ class RunActionCredentialValidityObservation(StrictContract):
 
 @dataclass(frozen=True)
 class RunActionReleaseAuthorizationObservation(StrictContract):
-    """The last external authorities observed before the release link."""
+    """Conservative attempt anchors plus security freshly revalidated at link."""
 
     release_authorization_observation_id: str
     security_observation: SecurityDenylistObservation
@@ -151,7 +155,7 @@ class RunActionWorkloadReleaseReceipt(StrictContract):
                     or credential_validity.credential_lease_authority_id
                     != credential_file.content_authority_id
                     or credential_validity.observed_at_realtime_nanoseconds
-                    > authorization.authorized_at_realtime_nanoseconds
+                    < authorization.authorized_at_realtime_nanoseconds
                     or credential_validity.valid_until_realtime_nanoseconds
                     < containment_realtime_deadline
                     or (
@@ -184,6 +188,14 @@ class RunActionWorkloadReleaseReceipt(StrictContract):
         )
 
     @property
+    def release_commit_deadline_boottime_nanoseconds(self) -> int:
+        return (
+            self.release_authorization_observation.authorized_at_boottime_nanoseconds
+            + self._supervisor_limits.release_commit_timeout_seconds
+            * _NANOSECONDS_PER_SECOND
+        )
+
+    @property
     def containment_deadline_boottime_nanoseconds(self) -> int:
         return (
             self.execution_deadline_boottime_nanoseconds
@@ -196,6 +208,58 @@ class RunActionWorkloadReleaseReceipt(StrictContract):
         return (
             self.resolved_workload_observation.activation_revalidation_receipt.prepared_execution.preparation_claim.execution_policy.supervisor_limits
         )
+
+
+@dataclass(frozen=True)
+class RunActionWorkloadReleaseAdoption(StrictContract):
+    """Descriptor-read proof of the exact release inode linked after event 5."""
+
+    workload_release_adoption_id: str
+    workload_release_receipt: RunActionWorkloadReleaseReceipt
+    control_mount_id: int
+    control_device: int
+    control_inode: int
+    owner_user_id: int
+    owner_group_id: int
+    mode: int
+    link_count: int
+    size_bytes: int
+    content_digest: str
+    release_mount_id: int
+    release_device: int
+    release_inode: int
+
+    CONTENT_NAMESPACE: ClassVar[str] = "run-action-workload-release-adoption"
+    IDENTITY_FIELD: ClassVar[str] = "workload_release_adoption_id"
+
+    def _validate(self) -> None:
+        if type(self.workload_release_receipt) is not RunActionWorkloadReleaseReceipt:
+            raise RunActionReleaseContractError(
+                "workload release adoption lacks an exact receipt"
+            )
+        receipt_payload = self.workload_release_receipt.to_json_bytes()
+        prepared = (
+            self.workload_release_receipt.resolved_workload_observation.activation_revalidation_receipt.prepared_execution
+        )
+        control = prepared.control_directory
+        authority = prepared.runtime_volume_authority
+        if (
+            (self.control_mount_id, self.control_device, self.control_inode)
+            != (control.mount_id, control.device, control.inode)
+            or self.owner_user_id != authority.owner_user_id
+            or self.owner_group_id != authority.owner_group_id
+            or self.mode != 0o400
+            or self.link_count != 1
+            or self.size_bytes != len(receipt_payload)
+            or self.content_digest != tree_or_blob_digest(receipt_payload)
+            or self.release_mount_id != control.mount_id
+            or self.release_device != control.device
+            or self.release_inode <= 0
+            or self.release_inode == control.inode
+        ):
+            raise RunActionReleaseContractError(
+                "workload release adoption differs from its linked receipt inode"
+            )
 
 
 def _require_namespaced_content_id(
@@ -212,5 +276,6 @@ __all__ = [
     "RunActionCredentialValidityObservation",
     "RunActionReleaseAuthorizationObservation",
     "RunActionReleaseContractError",
+    "RunActionWorkloadReleaseAdoption",
     "RunActionWorkloadReleaseReceipt",
 ]

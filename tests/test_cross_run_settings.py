@@ -908,6 +908,7 @@ def test_launch_derived_generation_bound_covers_all_projection_authorities():
         "run_derived_state_store_entry_limit",
         "run_derived_state_staging_entry_limit",
         "run_action_release_receipt_size_bytes",
+        "run_action_release_commit_timeout_seconds",
         "run_action_process_snapshot_size_bytes",
         "run_workspace_entry_limit",
         "run_workspace_size_bytes",

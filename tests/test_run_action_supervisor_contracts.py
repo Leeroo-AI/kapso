@@ -102,6 +102,9 @@ _BARRIER_POLL_INTERVAL_SECONDS = CrossRunSettings.from_dict(
 _RUN_ACTION_RELEASE_RECEIPT_SIZE_BYTES = CrossRunSettings.from_dict(
     load_config(_CANONICAL_CONFIG_PATH)["cross_run"]
 ).launch.run_action_release_receipt_size_bytes
+_RUN_ACTION_RELEASE_COMMIT_TIMEOUT_SECONDS = CrossRunSettings.from_dict(
+    load_config(_CANONICAL_CONFIG_PATH)["cross_run"]
+).launch.run_action_release_commit_timeout_seconds
 
 
 def _fixture_content_id(namespace: str, label: str) -> str:
@@ -338,6 +341,7 @@ def _execution_policy(
         supervisor_limits=RunActionSupervisorLimits.mint(
             execution_timeout_seconds=600,
             termination_grace_seconds=30,
+            release_commit_timeout_seconds=(_RUN_ACTION_RELEASE_COMMIT_TIMEOUT_SECONDS),
             result_size_bytes=268435456,
             release_receipt_size_bytes=_RUN_ACTION_RELEASE_RECEIPT_SIZE_BYTES,
         ),

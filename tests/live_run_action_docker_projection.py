@@ -52,6 +52,16 @@ from kapso.cross_run.launch.run_action_recovery import (
 from kapso.cross_run.launch.run_action_resolved_workload import (
     open_run_action_blocked_workload,
 )
+from kapso.cross_run.launch.run_action_release_contracts import (
+    RunActionCredentialValidityObservation,
+)
+from kapso.cross_run.launch.run_action_release_adoption import (
+    open_run_action_release_inspection,
+    RunActionReleasePresence,
+)
+from kapso.cross_run.launch.run_action_release_publisher import (
+    publish_run_action_workload_release_once,
+)
 from kapso.cross_run.launch.run_action_store import _RUN_ACTION_RECOVERY_AUTHORITY
 from kapso.cross_run.launch.run_action_reservation_contracts import (
     RunActionWorkspaceBinding,
@@ -124,6 +134,36 @@ class _UnusedLiveResultInterpreter:
         raise AssertionError("blocked-workload proof must not interpret a result")
 
 
+class _LiveCredentialValidityAuthority:
+    def __init__(self, maximum_lease_seconds) -> None:
+        self._maximum_lease_seconds = maximum_lease_seconds
+        self.calls = []
+
+    def observe_exact(
+        self,
+        *,
+        activated_credential_file_observation_id,
+        credential_lease_authority_id,
+    ):
+        self.calls.append(
+            (
+                activated_credential_file_observation_id,
+                credential_lease_authority_id,
+            )
+        )
+        observed_at = time.time_ns()
+        return RunActionCredentialValidityObservation.mint(
+            activated_credential_file_observation_id=(
+                activated_credential_file_observation_id
+            ),
+            credential_lease_authority_id=credential_lease_authority_id,
+            observed_at_realtime_nanoseconds=observed_at,
+            valid_until_realtime_nanoseconds=(
+                observed_at + self._maximum_lease_seconds * 1_000_000_000
+            ),
+        )
+
+
 class _LiveBlockedWorkloadAdapter:
     def __init__(
         self,
@@ -156,6 +196,8 @@ class _LiveBlockedWorkloadAdapter:
         self._launch_settings = launch_settings
         self._committed_running_observation = None
         self.lease = None
+        self.resolved_workload_observation = None
+        self.release_receipt = None
 
     def prepared_event_size_bound(self, **_arguments):
         raise AssertionError("durable event 5 must not replay preparation")
@@ -214,6 +256,16 @@ class _LiveBlockedWorkloadAdapter:
             docker_settings=self._docker_settings,
             launch_settings=self._launch_settings,
         )
+        with self.lease:
+            self.resolved_workload_observation = (
+                self.lease.resolved_workload_observation
+            )
+            self.release_receipt = publish_run_action_workload_release_once(
+                capability=capability,
+                blocked_workload_lease=self.lease,
+            )
+        if self.release_receipt is None:
+            raise AssertionError("live blocked workload lost release authorization")
         return RunActionContinuationOutcome(
             state=RunActionContinuationState.PENDING,
             result=None,
@@ -775,12 +827,18 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
                 RunActionStaticEnvironmentVariable(key="PATH", value="/bin"),
             ),
         )
+        credential_validity_authority = _LiveCredentialValidityAuthority(
+            layout_policy.credential_policy.maximum_lease_seconds,
+        )
         (
             _action_publisher,
             action_frontier,
             _security_authority,
             action_gate,
-        ) = _action_case(publisher_case)
+        ) = _action_case(
+            publisher_case,
+            credential_validity_authority=credential_validity_authority,
+        )
         base_boundary_identity = _boundary_identity(
             RunFrontierActionKind.CODING_AGENT,
             RunFrontierWorkspaceAccess.READ_ONLY,
@@ -1166,60 +1224,90 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
         assert not report.is_complete
         assert report.unresolved_operation_id == layout_reservation.intent.operation_id
         assert adapter.lease is not None
-        with adapter.lease:
-            adapter.lease.require_current()
-            adapter.lease.require_current()
-            assert adapter.lease.activation_event == activation_event
-            resolved = adapter.lease.resolved_workload_observation
-            assert resolved.activation_revalidation_receipt == activation_receipt
-            assert resolved.running_container_observation.container_id == layout_main_id
-            assert resolved.init_process_observation.process_id == (
-                running_main_observation.init_process_id
-            )
-            assert resolved.wrapper_process_observation.parent_process_id == (
-                resolved.init_process_observation.process_id
-            )
-            assert {
-                observation.kind
-                for observation in resolved.resolved_mount_root_observations
-            } == {
-                RunActionResolvedMountKind.DOCKER_INIT,
-                RunActionResolvedMountKind.SUPERVISOR_HELPER,
-                *(
-                    RunActionResolvedMountKind(mount.kind.value)
-                    for mount in (
-                        prepared_execution.inert_container_evidence.issued_create_projection.mounts
-                    )
-                ),
-            }
-            assert resolved.control_entry_count == 0
-            assert resolved.temporary_entry_count == 0
-            assert resolved.release_present is False
+        assert adapter.release_receipt is not None
+        assert (
+            adapter.release_receipt.release_authorization_observation.security_observation.observation_id
+            == layout_reservation.frontier.security_observation_id
+        )
+        resolved = adapter.resolved_workload_observation
+        assert resolved.activation_revalidation_receipt == activation_receipt
+        assert resolved.running_container_observation.container_id == layout_main_id
+        assert resolved.init_process_observation.process_id == (
+            running_main_observation.init_process_id
+        )
+        assert resolved.wrapper_process_observation.parent_process_id == (
+            resolved.init_process_observation.process_id
+        )
+        assert {
+            observation.kind
+            for observation in resolved.resolved_mount_root_observations
+        } == {
+            RunActionResolvedMountKind.DOCKER_INIT,
+            RunActionResolvedMountKind.SUPERVISOR_HELPER,
+            *(
+                RunActionResolvedMountKind(mount.kind.value)
+                for mount in (
+                    prepared_execution.inert_container_evidence.issued_create_projection.mounts
+                )
+            ),
+        }
+        assert resolved.control_entry_count == 0
+        assert resolved.temporary_entry_count == 0
+        assert resolved.release_present is False
+        assert len(credential_validity_authority.calls) == 2
+        with open_run_action_release_inspection(
+            activation_event=activation_event,
+            launch_settings=cross_run_settings.launch,
+        ) as release_inspection:
+            assert release_inspection.presence is RunActionReleasePresence.PRESENT
             assert (
-                len(
-                    action_gate._action_store.inspect().events_for(
-                        layout_reservation.intent.operation_id
-                    )
-                )
-                == 5
+                release_inspection.adoption.workload_release_receipt
+                == adapter.release_receipt
             )
-            for forbidden_path in (
-                "/kapso/runtime-volume/control/release",
-                "/kapso/runtime-volume/result/target-started",
-                "/kapso/runtime-volume/result/barrier-injection",
-            ):
-                runtime.run_control(
-                    (
-                        "container",
-                        "exec",
-                        layout_keeper_id,
-                        "/kapso-supervisor/busybox",
-                        "test",
-                        "!",
-                        "-e",
-                        forbidden_path,
-                    )
+        assert (
+            len(
+                action_gate._action_store.inspect().events_for(
+                    layout_reservation.intent.operation_id
                 )
+            )
+            == 5
+        )
+        release_payload = runtime.run_control(
+            (
+                "container",
+                "exec",
+                layout_keeper_id,
+                "/kapso-supervisor/busybox",
+                "cat",
+                "/kapso/runtime-volume/control/release",
+            )
+        )
+        assert release_payload.stdout == adapter.release_receipt.to_json_bytes()
+        wait_result = runtime.run_control(("container", "wait", layout_main_id))
+        assert wait_result.stdout == b"0\n"
+        runtime.run_control(
+            (
+                "container",
+                "exec",
+                layout_keeper_id,
+                "/kapso-supervisor/busybox",
+                "test",
+                "-f",
+                "/kapso/runtime-volume/result/target-started",
+            )
+        )
+        runtime.run_control(
+            (
+                "container",
+                "exec",
+                layout_keeper_id,
+                "/kapso-supervisor/busybox",
+                "test",
+                "!",
+                "-e",
+                "/kapso/runtime-volume/result/barrier-injection",
+            )
+        )
 
         runtime.run_control(("container", "rm", "--force", "--volumes", layout_main_id))
         runtime.run_control(

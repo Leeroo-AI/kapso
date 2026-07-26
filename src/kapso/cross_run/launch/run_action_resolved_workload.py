@@ -7,7 +7,8 @@ import stat
 from contextlib import ExitStack
 from dataclasses import dataclass, fields
 from pathlib import PurePosixPath
-from threading import get_ident
+from threading import get_ident, Lock
+from weakref import WeakValueDictionary
 
 from kapso.cross_run.canonical import tree_or_blob_digest
 from kapso.cross_run.launch.run_action_barrier_contracts import (
@@ -38,8 +39,8 @@ from kapso.cross_run.launch.run_action_recovery import (
     RunActionCommittedContinuationCapability,
 )
 from kapso.cross_run.launch.run_action_runtime_volume import (
-    RunActionBarrierControlLease,
-    open_run_action_barrier_control,
+    RunActionControlDirectoryLease,
+    open_run_action_control_directory,
 )
 from kapso.cross_run.launch.run_action_store import RunActionExecutionEvent
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
@@ -75,6 +76,11 @@ from kapso.cross_run.settings import DockerRuntimeSettings, LaunchSettings
 
 _BLOCKED_PROCESS_STATES = {"R", "S"}
 _LEASE_AUTHORITY = object()
+_RELEASE_PUBLICATION_AUTHORITY = object()
+_ISSUED_BLOCKED_WORKLOAD_LEASES: WeakValueDictionary[int, object] = (
+    WeakValueDictionary()
+)
+_BLOCKED_WORKLOAD_LEASE_LOCK = Lock()
 
 
 class RunActionResolvedWorkloadError(RuntimeError):
@@ -127,7 +133,7 @@ class RunActionBlockedWorkloadLease:
         descriptors: ExitStack,
         activation_event: RunActionExecutionEvent,
         resolved_workload_observation: RunActionResolvedWorkloadObservation,
-        control_lease: RunActionBarrierControlLease,
+        control_lease: RunActionControlDirectoryLease,
         resource_manager: DockerRunActionResourceManager,
         preparation_allocation: RunActionPreparationAllocation,
         command: DockerRunActionCommand,
@@ -152,7 +158,7 @@ class RunActionBlockedWorkloadLease:
             is not RunActionExecutionEventKind.ACTIVATION_COMMITTED
             or type(resolved_workload_observation)
             is not RunActionResolvedWorkloadObservation
-            or type(control_lease) is not RunActionBarrierControlLease
+            or type(control_lease) is not RunActionControlDirectoryLease
             or type(resource_manager) is not DockerRunActionResourceManager
             or type(preparation_allocation) is not RunActionPreparationAllocation
             or type(command) is not DockerRunActionCommand
@@ -214,6 +220,10 @@ class RunActionBlockedWorkloadLease:
     def require_current(self) -> None:
         """Re-run the reverse sandwich against every retained authority."""
 
+        self._require_issued()
+        self._require_current_state()
+
+    def _require_current_state(self) -> None:
         if (
             self._closed
             or self._owner_process_id != os.getpid()
@@ -229,7 +239,11 @@ class RunActionBlockedWorkloadLease:
             raise RunActionResolvedWorkloadError(
                 "host boot identity changed while workload was blocked"
             )
-        self._control_lease.require_release_absent()
+        self._control_lease.require_current()
+        if self._control_lease.release_present:
+            raise RunActionResolvedWorkloadError(
+                "blocked workload release became present"
+            )
         expected_container = (
             self._resolved_workload_observation.running_container_observation
         )
@@ -346,7 +360,11 @@ class RunActionBlockedWorkloadLease:
                     _changed_contract_fields(expected_container, current_container)
                 )
             )
-        self._control_lease.require_release_absent()
+        self._control_lease.require_current()
+        if self._control_lease.release_present:
+            raise RunActionResolvedWorkloadError(
+                "blocked workload release became present"
+            )
         if (
             read_run_action_host_boot_id(self._proc_root_descriptor)
             != self._host_boot_id
@@ -354,6 +372,28 @@ class RunActionBlockedWorkloadLease:
             raise RunActionResolvedWorkloadError(
                 "host boot identity changed during resolved-workload revalidation"
             )
+
+    def _require_issued(self) -> None:
+        with _BLOCKED_WORKLOAD_LEASE_LOCK:
+            issued = _ISSUED_BLOCKED_WORKLOAD_LEASES.get(id(self))
+        if issued is not self:
+            raise RunActionResolvedWorkloadError(
+                "blocked workload lease is unissued, closed, or foreign"
+            )
+
+    def _duplicate_release_control_descriptor(
+        self,
+        *,
+        _authority: object,
+    ) -> int:
+        if _authority is not _RELEASE_PUBLICATION_AUTHORITY:
+            raise RunActionResolvedWorkloadError(
+                "blocked workload release control lacks publication authority"
+            )
+        self.require_current()
+        descriptor = os.dup(self._control_lease._control_descriptor)
+        os.set_inheritable(descriptor, False)
+        return descriptor
 
     def __enter__(self) -> RunActionBlockedWorkloadLease:
         self.require_current()
@@ -363,13 +403,19 @@ class RunActionBlockedWorkloadLease:
         self.close()
 
     def close(self) -> None:
+        self._require_issued()
         if (
-            self._closed
-            or self._owner_process_id != os.getpid()
+            self._owner_process_id != os.getpid()
             or self._owner_thread_id != get_ident()
         ):
             raise RunActionResolvedWorkloadError(
                 "blocked workload lease is already closed, forked, or foreign"
+            )
+        with _BLOCKED_WORKLOAD_LEASE_LOCK:
+            issued = _ISSUED_BLOCKED_WORKLOAD_LEASES.pop(id(self), None)
+        if issued is not self:
+            raise RunActionResolvedWorkloadError(
+                "blocked workload lease issuance changed before close"
             )
         self._closed = True
         self._descriptors.close()
@@ -436,8 +482,12 @@ def open_run_action_blocked_workload(
             os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
         )
         descriptors.callback(os.close, proc_root_descriptor)
-        control_lease = open_run_action_barrier_control(prepared)
+        control_lease = open_run_action_control_directory(prepared)
         descriptors.callback(control_lease.close)
+        if control_lease.release_present:
+            raise RunActionResolvedWorkloadError(
+                "blocked workload already carries a published release"
+            )
         current_running = _observe_running_container(
             resource_manager,
             preparation_allocation,
@@ -566,7 +616,13 @@ def open_run_action_blocked_workload(
             host_boot_id=host_boot_id,
             _authority=_LEASE_AUTHORITY,
         )
-        lease.require_current()
+        lease._require_current_state()
+        with _BLOCKED_WORKLOAD_LEASE_LOCK:
+            if _ISSUED_BLOCKED_WORKLOAD_LEASES.get(id(lease)) is not None:
+                raise RunActionResolvedWorkloadError(
+                    "blocked workload lease identity is already issued"
+                )
+            _ISSUED_BLOCKED_WORKLOAD_LEASES[id(lease)] = lease
         lease._descriptors = descriptors.pop_all()
     return lease
 

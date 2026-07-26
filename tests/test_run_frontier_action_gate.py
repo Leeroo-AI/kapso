@@ -206,7 +206,11 @@ def _successor_at_boundary(
     return bundle, checkpoint
 
 
-def _action_case(case, boundary=RunSafetyBoundary.IDEATION):
+def _action_case(
+    case,
+    boundary=RunSafetyBoundary.IDEATION,
+    credential_validity_authority=None,
+):
     publisher, initial = _publish_genesis(case)
     bundle, checkpoint = _successor_at_boundary(
         case,
@@ -226,6 +230,7 @@ def _action_case(case, boundary=RunSafetyBoundary.IDEATION):
         active_workspace=case["active"],
         publisher=publisher,
         security_authority=security,
+        credential_validity_authority=credential_validity_authority,
     )
     return publisher, receipt, security, gate
 
@@ -425,6 +430,7 @@ def test_stopped_checkpoint_cannot_reserve_an_action(
         security_authority=_StaticSecurityAuthority(
             receipt.checkpoint.safety_state.security_observation
         ),
+        credential_validity_authority=None,
     )
 
     with pytest.raises(RunFrontierActionError, match="stopped or completed"):
@@ -582,6 +588,7 @@ def test_reconstructed_gate_observes_unresolved_reservation(
         active_workspace=publisher_case["active"],
         publisher=reconstructed_publisher,
         security_authority=security,
+        credential_validity_authority=None,
     )
     reconstructed_frontier = reconstructed_publisher.load_reconciled()
 

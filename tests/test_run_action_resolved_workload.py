@@ -32,7 +32,23 @@ def _ownership_only_lease() -> RunActionBlockedWorkloadLease:
     lease._owner_process_id = os.getpid()
     lease._owner_thread_id = get_ident()
     lease._closed = False
+    _issue_test_lease(lease)
     return lease
+
+
+def _issue_test_lease(lease: RunActionBlockedWorkloadLease) -> None:
+    with workload_module._BLOCKED_WORKLOAD_LEASE_LOCK:
+        workload_module._ISSUED_BLOCKED_WORKLOAD_LEASES[id(lease)] = lease
+
+
+def test_blocked_workload_lease_rejects_an_unissued_lookalike():
+    lease = object.__new__(RunActionBlockedWorkloadLease)
+
+    with pytest.raises(
+        RunActionResolvedWorkloadError,
+        match="unissued, closed, or foreign",
+    ):
+        lease.require_current()
 
 
 def test_blocked_workload_lease_rejects_forked_and_cross_thread_use(monkeypatch):
@@ -264,7 +280,10 @@ def test_require_current_reverse_check_detects_splice_during_logical_read(
         lease._closed = False
         lease._proc_root_descriptor = 30
         lease._host_boot_id = "boot"
-        lease._control_lease = SimpleNamespace(require_release_absent=lambda: None)
+        lease._control_lease = SimpleNamespace(
+            require_current=lambda: None,
+            release_present=False,
+        )
         lease._resolved_workload_observation = SimpleNamespace(
             running_container_observation=running_container,
         )
@@ -281,6 +300,7 @@ def test_require_current_reverse_check_detects_splice_during_logical_read(
         lease._wrapper_process = wrapper_process
         lease._mount_info_snapshot = object()
         lease._retained_roots = (retained_root,)
+        _issue_test_lease(lease)
 
         monkeypatch.setattr(
             workload_module,

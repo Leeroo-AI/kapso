@@ -32,6 +32,9 @@ from kapso.cross_run.launch.run_action_ledger import (
     RunActionLedgerSnapshot,
     RunActionOperationTail,
 )
+from kapso.cross_run.launch.run_action_release_contracts import (
+    RunActionWorkloadReleaseAdoption,
+)
 from kapso.cross_run.launch.run_action_reservation_contracts import (
     RunActionRequestBlob as _RunActionRequestBlob,
     RunActionReservation as _RunActionReservation,
@@ -167,6 +170,7 @@ class RunActionResultReceipt(StrictContract):
     spawn_commit_id: str
     provider_execution_id: str
     activation_revalidation_receipt_id: str
+    workload_release_adoption: RunActionWorkloadReleaseAdoption
     terminal_observation: RunActionTerminalObservation
     result_capture_receipt: RunActionResultCaptureReceipt
     result_blob: RunActionResultBlob
@@ -191,6 +195,10 @@ class RunActionResultReceipt(StrictContract):
         )
         if (
             type(self.terminal_observation) is not RunActionTerminalObservation
+            or type(self.workload_release_adoption)
+            is not RunActionWorkloadReleaseAdoption
+            or self.workload_release_adoption.workload_release_receipt.resolved_workload_observation.activation_revalidation_receipt.activation_revalidation_receipt_id
+            != self.activation_revalidation_receipt_id
             or type(self.result_capture_receipt) is not RunActionResultCaptureReceipt
             or self.terminal_observation.spawn_commit_id != self.spawn_commit_id
             or self.terminal_observation.provider_execution_id
@@ -794,6 +802,7 @@ class _RunActionExecutionSession:
         self,
         *,
         spawn_commit: _RunActionSpawnCommit,
+        workload_release_adoption: RunActionWorkloadReleaseAdoption,
         terminal_observation: RunActionTerminalObservation,
         result_capture_receipt: RunActionResultCaptureReceipt,
         result_payload: bytes,
@@ -804,6 +813,7 @@ class _RunActionExecutionSession:
         if (
             type(spawn_commit) is not _RunActionSpawnCommit
             or spawn_commit != durable_spawn
+            or type(workload_release_adoption) is not RunActionWorkloadReleaseAdoption
             or type(terminal_observation) is not RunActionTerminalObservation
             or type(result_capture_receipt) is not RunActionResultCaptureReceipt
             or terminal_observation.spawn_commit_id != spawn_commit.spawn_commit_id
@@ -816,6 +826,15 @@ class _RunActionExecutionSession:
         ):
             raise RunActionStoreError(
                 "run action result differs from its durable spawn"
+            )
+        release_receipt = workload_release_adoption.workload_release_receipt
+        if (
+            release_receipt.activation_event_id != self._events[4].event_id
+            or release_receipt.resolved_workload_observation.activation_revalidation_receipt
+            != durable_activation
+        ):
+            raise RunActionStoreError(
+                "run action release adoption differs from durable event 5"
             )
         if type(result_payload) is not bytes or not result_payload:
             raise RunActionStoreError(
@@ -831,6 +850,7 @@ class _RunActionExecutionSession:
             activation_revalidation_receipt_id=(
                 durable_activation.activation_revalidation_receipt_id
             ),
+            workload_release_adoption=workload_release_adoption,
             terminal_observation=terminal_observation,
             result_capture_receipt=result_capture_receipt,
             result_blob=result_blob,
@@ -2738,6 +2758,8 @@ def _validate_event_prefix(events: tuple[RunActionExecutionEvent, ...]) -> None:
             or result.provider_execution_id != spawn.provider_execution_id
             or result.activation_revalidation_receipt_id
             != activation.activation_revalidation_receipt_id
+            or result.workload_release_adoption.workload_release_receipt.activation_event_id
+            != events[4].event_id
             or result.terminal_observation.prepared_execution_id
             != prepared.prepared_execution_id
             or result.terminal_observation.spawn_commit_id != spawn.spawn_commit_id
@@ -2756,6 +2778,15 @@ def _validate_event_prefix(events: tuple[RunActionExecutionEvent, ...]) -> None:
             )
         ):
             raise RunActionStoreError("run action result differs from its spawn")
+        release_receipt = result.workload_release_adoption.workload_release_receipt
+        if (
+            release_receipt.activation_event_id != events[4].event_id
+            or release_receipt.resolved_workload_observation.activation_revalidation_receipt
+            != activation
+        ):
+            raise RunActionStoreError(
+                "run action result release differs from durable event 5"
+            )
     if len(events) >= 7:
         result = events[5].result_receipt
         decision = events[6].result_decision

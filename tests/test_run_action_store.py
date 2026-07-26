@@ -58,6 +58,7 @@ from test_run_frontier_action_gate import (
 )
 from test_launch_resolver import resolver_case
 from test_run_state_publisher import publisher_case
+from test_run_action_release_contracts import _release_adoption_for_event
 from test_run_action_supervisor_contracts import (
     _activation_revalidation_receipt,
     _execution_policy,
@@ -166,7 +167,7 @@ def _prepare_session(session, *, container_id=None, inode_offset=None):
     return prepared
 
 
-def _record_captured_result(session, spawn, payload):
+def _record_captured_result(session, spawn, payload, security_observation):
     prepared = session.events[2].prepared_execution
     activation = _activation_revalidation_receipt(prepared, spawn)
     if session.events[-1].event_kind is RunActionExecutionEventKind.SPAWN_COMMITTED:
@@ -180,6 +181,10 @@ def _record_captured_result(session, spawn, payload):
     )
     return session.record_result(
         spawn_commit=spawn,
+        workload_release_adoption=_release_adoption_for_event(
+            session.events[4],
+            security_observation,
+        ),
         terminal_observation=terminal,
         result_capture_receipt=capture,
         result_payload=payload,
@@ -307,7 +312,12 @@ def test_action_store_reopens_complete_request_result_and_terminal_prefix(
         assert spawn.boundary_identity == session.reservation.intent.boundary_identity
         assert session.read_request() == request_payload
         raw_result = b'{"provider_response":"complete"}'
-        result = _record_captured_result(session, spawn, raw_result)
+        result = _record_captured_result(
+            session,
+            spawn,
+            raw_result,
+            frontier.checkpoint.safety_state.security_observation,
+        )
         assert session.read_result(result) == raw_result
         accepted_result = b'{"proposal":"complete"}'
         decision = session.decide_result(
@@ -373,6 +383,7 @@ def test_action_store_requires_exact_decision_before_acceptance(
             session,
             spawn,
             b'{"provider_response":"complete"}',
+            frontier.checkpoint.safety_state.security_observation,
         )
         with pytest.raises(RunActionStoreError, match="result_decided tail"):
             session.accept_decision(workspace_after=workspace)
@@ -463,6 +474,10 @@ def test_action_store_rejects_terminal_and_capture_occurrence_splices(
         payload = b'{"provider_response":"complete"}'
         activation = _activation_revalidation_receipt(prepared, spawn)
         session.commit_activation(activation)
+        workload_release_adoption = _release_adoption_for_event(
+            session.events[4],
+            frontier.checkpoint.safety_state.security_observation,
+        )
         foreign_prepared = _prepared_execution(
             claim=prepared.preparation_claim,
             inode_offset=8181,
@@ -491,6 +506,7 @@ def test_action_store_rejects_terminal_and_capture_occurrence_splices(
         ):
             session.record_result(
                 spawn_commit=spawn,
+                workload_release_adoption=workload_release_adoption,
                 terminal_observation=foreign_terminal,
                 result_capture_receipt=foreign_capture,
                 result_payload=payload,
@@ -517,6 +533,7 @@ def test_action_store_rejects_terminal_and_capture_occurrence_splices(
             ):
                 session.record_result(
                     spawn_commit=spawn,
+                    workload_release_adoption=workload_release_adoption,
                     terminal_observation=unsuccessful_terminal,
                     result_capture_receipt=unsuccessful_capture,
                     result_payload=payload,
@@ -532,6 +549,7 @@ def test_action_store_rejects_terminal_and_capture_occurrence_splices(
         with pytest.raises(RunActionStoreError, match="result differs from its spawn"):
             session.record_result(
                 spawn_commit=spawn,
+                workload_release_adoption=workload_release_adoption,
                 terminal_observation=terminal,
                 result_capture_receipt=substituted_capture,
                 result_payload=payload,
@@ -543,6 +561,7 @@ def test_action_store_rejects_terminal_and_capture_occurrence_splices(
         with pytest.raises(RunActionStoreError, match="result differs from its spawn"):
             session.record_result(
                 spawn_commit=spawn,
+                workload_release_adoption=workload_release_adoption,
                 terminal_observation=terminal,
                 result_capture_receipt=backwards_usage_capture,
                 result_payload=payload,
@@ -554,6 +573,7 @@ def test_action_store_rejects_terminal_and_capture_occurrence_splices(
         with pytest.raises(RunActionStoreError, match="result differs from its spawn"):
             session.record_result(
                 spawn_commit=spawn,
+                workload_release_adoption=workload_release_adoption,
                 terminal_observation=terminal,
                 result_capture_receipt=substituted_result_inode,
                 result_payload=payload,
@@ -565,6 +585,7 @@ def test_action_store_rejects_terminal_and_capture_occurrence_splices(
         with pytest.raises(RunActionStoreError, match="result differs from its spawn"):
             session.record_result(
                 spawn_commit=spawn,
+                workload_release_adoption=workload_release_adoption,
                 terminal_observation=terminal,
                 result_capture_receipt=substituted_result_parent,
                 result_payload=payload,
@@ -687,6 +708,7 @@ def test_result_decision_blob_and_event_recover_as_one_durable_boundary(
             session,
             spawn,
             b'{"provider_response":"complete"}',
+            frontier.checkpoint.safety_state.security_observation,
         )
 
     publish_event_locked = store._publish_event_locked
@@ -1058,6 +1080,7 @@ def test_action_store_rejects_reminted_failed_edit_with_changed_workspace(
             session,
             spawn,
             b'{"provider_result":"complete"}',
+            frontier.checkpoint.safety_state.security_observation,
         )
         session.decide_result(
             result_interpreter_identity=(
@@ -1160,6 +1183,7 @@ def test_successful_edit_decision_owns_exact_workspace_promotion(
             session,
             spawn,
             b'{"provider_result":"successful edit"}',
+            frontier.checkpoint.safety_state.security_observation,
         )
         before = reservation.frontier.workspace_before
         candidate_identity = replace(
@@ -1445,6 +1469,7 @@ def test_action_store_rejects_request_substitution_and_result_corruption(
             session,
             spawn,
             b'{"result":"durable"}',
+            _frontier.checkpoint.safety_state.security_observation,
         )
         result_blob = result.result_blob
         if result_kind == "accepted":
@@ -1584,6 +1609,7 @@ def test_action_store_rejects_reused_prepared_container_identity(
             session,
             spawn,
             b'{"result":"first"}',
+            frontier.checkpoint.safety_state.security_observation,
         )
         session.decide_result(
             result_interpreter_identity=(
