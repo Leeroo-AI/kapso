@@ -116,6 +116,58 @@ def resolve_benchmark_id(name: str) -> str:
     return ""
 
 
+KNOWLEDGE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "knowledge")
+KNOWLEDGE_ARTIFACT_FILENAME = "prior_run_learnings.md"
+
+
+def seed_benchmark_knowledge(workspace_dir: str, benchmark_id: str) -> bool:
+    """Pre-seed the campaign shared cache with the benchmark's learnings doc.
+
+    knowledge/<benchmark_id>.md holds distilled, score-attached lessons from
+    finished runs on the same benchmark (see knowledge/ docs). When present,
+    it is copied into the strategy's shared-cache dir and registered in
+    artifacts.json, so every ideation/implementation session receives the
+    standing OPTIONAL offer (shared_cache.py: "an OFFER, not an instruction")
+    — the agent may read it for inspiration and is free to ignore it. Same
+    install mechanism as the ioai LEARNINGS.md seed-cache drop.
+
+    Idempotent for resumes: re-copies the doc and replaces its registry
+    entry. Returns True when a doc was seeded. A missing knowledge doc is
+    the documented default (nothing seeded); a corrupt registry raises.
+    """
+    knowledge_path = os.path.join(KNOWLEDGE_DIR, f"{benchmark_id}.md")
+    if not (benchmark_id and os.path.isfile(knowledge_path)):
+        return False
+    cache_dir = os.path.join(workspace_dir, ".kapso", "shared_cache")
+    os.makedirs(cache_dir, exist_ok=True)
+    shutil.copyfile(
+        knowledge_path, os.path.join(cache_dir, KNOWLEDGE_ARTIFACT_FILENAME)
+    )
+    registry_path = os.path.join(cache_dir, "artifacts.json")
+    entries = []
+    if os.path.isfile(registry_path):
+        with open(registry_path, encoding="utf-8") as f:
+            entries = json.load(f)
+    entry_name = f"prior-run-learnings-{benchmark_id}"
+    entries = [e for e in entries if e.get("name") != entry_name]
+    entries.append({
+        "name": entry_name,
+        "path": KNOWLEDGE_ARTIFACT_FILENAME,
+        "description": (
+            "Distilled score-attached learnings from finished runs on this "
+            "benchmark (other base models) + official baseline traces: "
+            "winning recipe skeleton, teacher/decoding choices, data-quality "
+            "loops, eval-protocol and mechanical traps. OPTIONAL inspiration "
+            "— suggestions, not instructions; verify against your own recon "
+            "and deviate freely."
+        ),
+        "producer": "campaign operator (pre-seeded at run start)",
+    })
+    with open(registry_path, "w", encoding="utf-8") as f:
+        json.dump(entries, f, indent=1)
+    return True
+
+
 def build_runtime_config(
     mode: str,
     coding_model: "str | None",
@@ -315,13 +367,18 @@ def main():
         session_caps=session_timeouts,
     )
 
+    workspace_dir = os.path.join(task_dir, "kapso_campaign")
+    if seed_benchmark_knowledge(workspace_dir, benchmark_id):
+        print(f"seeded knowledge/{benchmark_id}.md into the shared cache "
+              f"(optional offer to all sessions)")
+
     orchestrator = OrchestratorAgent(
         handler,
         config_path=config_path,
         mode=args.mode,
         coding_agent=args.coding_agent,
         is_kg_active=False,
-        workspace_dir=os.path.join(task_dir, "kapso_campaign"),
+        workspace_dir=workspace_dir,
         goal=prompt,
         resume=args.resume,
     )
