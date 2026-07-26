@@ -18,6 +18,10 @@ from kapso.cross_run.launch.run_action_activation_delivery import (
 )
 from kapso.cross_run.launch.run_action_docker_inspect import (
     DockerRunActionVolumeObservation,
+    observe_runtime_volume,
+)
+from kapso.cross_run.launch.run_action_docker_resources import (
+    DockerRunActionResourceManager,
 )
 from kapso.cross_run.launch.run_action_supervisor_helper import (
     read_run_action_descriptor_mount_id,
@@ -36,6 +40,7 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RunActionActivatedRuntimeDirectoryObservation,
     RunActionActivatedWorkspaceObservation,
     RunActionCredentialMode,
+    RunActionPreparationAllocation,
     RunActionPreparationClaim,
     RunActionPreparedDeliverySlot,
     RunActionPreparedExecution,
@@ -1761,6 +1766,90 @@ def materialize_runtime_volume_layout(
         observed,
         empty_entry_count=empty_volume.empty_entry_count,
         empty_size_bytes=empty_volume.empty_size_bytes,
+    )
+
+
+def adopt_prepared_runtime_volume_layout(
+    allocation: RunActionPreparationAllocation,
+    resource_manager: DockerRunActionResourceManager,
+    keeper: RunActionVolumeKeeperEvidence,
+    *,
+    settings: LaunchSettings,
+) -> DockerRunActionPreparedVolumeObservation:
+    """Reconstruct event-3 layout evidence from one exact event-2 occurrence."""
+
+    if (
+        type(allocation) is not RunActionPreparationAllocation
+        or type(resource_manager) is not DockerRunActionResourceManager
+        or type(keeper) is not RunActionVolumeKeeperEvidence
+        or type(settings) is not LaunchSettings
+    ):
+        raise RunActionRuntimeVolumeError(
+            "runtime volume adoption requires one exact durable allocation"
+        )
+    claim = allocation.preparation_claim
+    authority = allocation.runtime_volume_authority
+    if (
+        keeper.preparation_claim_id != claim.preparation_claim_id
+        or keeper.issued_create_projection.execution_policy != claim.execution_policy
+        or keeper.issued_create_projection.volume_authority != authority
+        or (claim.execution_policy.user_id, claim.execution_policy.group_id)
+        != (os.geteuid(), os.getegid())
+    ):
+        raise RunActionRuntimeVolumeError(
+            "runtime volume adoption differs from its durable allocation"
+        )
+    inventory = resource_manager.observe(allocation)
+    if (
+        not inventory.volume_present
+        or inventory.keeper_container_id != keeper.container_id
+    ):
+        raise RunActionRuntimeVolumeError(
+            "runtime volume adoption lacks its exact live Docker occurrence"
+        )
+    volume = observe_runtime_volume(
+        resource_manager.inspect_volume(inventory),
+        claim,
+        authority,
+        resource_manager.runtime_settings,
+    )
+    workspace_binding = claim.reservation.frontier.workspace_before
+    with ExitStack() as descriptors:
+        lease = _open_mounted_runtime_volume(descriptors, keeper)
+        observed = _observe_prepared_layout_at_descriptor(
+            lease,
+            claim=claim,
+            authority=authority,
+            keeper=keeper,
+            workspace_frontier=(
+                None if workspace_binding is None else workspace_binding.to_identity()
+            ),
+            settings=settings,
+        )
+        _require_same_mounted_runtime_volume(lease, keeper)
+    current_inventory = resource_manager.observe(allocation)
+    if current_inventory != inventory:
+        raise RunActionRuntimeVolumeError(
+            "runtime volume Docker occurrence changed during adoption"
+        )
+    current_volume = observe_runtime_volume(
+        resource_manager.inspect_volume(current_inventory),
+        claim,
+        authority,
+        resource_manager.runtime_settings,
+    )
+    if current_volume != volume:
+        raise RunActionRuntimeVolumeError(
+            "runtime volume Docker inspection changed during adoption"
+        )
+    return _mint_prepared_volume_observation(
+        claim,
+        authority,
+        current_volume,
+        keeper,
+        observed,
+        empty_entry_count=0,
+        empty_size_bytes=0,
     )
 
 
@@ -3916,6 +4005,7 @@ __all__ = [
     "RunActionControlDirectoryLease",
     "RunActionResultWorkspaceLease",
     "RunActionRuntimeVolumeError",
+    "adopt_prepared_runtime_volume_layout",
     "capture_run_action_result_file",
     "deliver_and_reobserve_runtime_volume_activation",
     "materialize_runtime_volume_layout",

@@ -7,7 +7,10 @@ from dataclasses import replace
 
 import pytest
 
+import kapso.cross_run.docker.runtime as docker_runtime_module
 from kapso.core.config import load_config
+from kapso.cross_run.canonical import tree_or_blob_digest
+from kapso.cross_run.docker.runtime import PinnedDockerRuntime
 from kapso.cross_run.launch import run_action_runtime_volume as volume_module
 from kapso.cross_run.launch.run_action_contracts import (
     RunFrontierWorkspaceAccess,
@@ -18,6 +21,9 @@ from kapso.cross_run.launch.run_action_control_topology import (
 from kapso.cross_run.launch.run_action_docker_inspect import (
     observe_runtime_volume,
 )
+from kapso.cross_run.launch.run_action_docker_resources import (
+    DockerRunActionResourceManager,
+)
 from kapso.cross_run.launch.run_action_runtime_volume import (
     DockerRunActionEmptyVolumeObservation,
     DockerRunActionPreparedVolumeObservation,
@@ -26,6 +32,7 @@ from kapso.cross_run.launch.run_action_runtime_volume import (
     _open_exact_regular_file,
     _plan_runtime_volume_layout,
     _require_same_exact_regular_file,
+    adopt_prepared_runtime_volume_layout,
 )
 from kapso.cross_run.launch.run_action_supervisor_helper import (
     read_run_action_descriptor_mount_id,
@@ -36,8 +43,11 @@ from kapso.cross_run.launch.run_action_reservation_contracts import (
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RunActionContainerLabel,
     RunActionCredentialMode,
+    RunActionPreparationAllocation,
     RunActionPreparationClaim,
     RunActionRuntimeVolumeSentinelEvidence,
+    preparation_keeper_container_labels,
+    preparation_keeper_container_name,
 )
 from kapso.cross_run.launch.workspace_frontier import (
     inspect_run_workspace_frontier,
@@ -45,6 +55,7 @@ from kapso.cross_run.launch.workspace_frontier import (
 from kapso.cross_run.settings import CrossRunSettings
 from test_run_action_docker_inspect import _volume_raw
 from test_run_action_docker_projection import _policy
+from test_run_action_docker_resources import _InventoryDockerRunner
 from test_launch_resolver import resolver_case
 from test_run_action_supervisor_contracts import (
     _claim,
@@ -61,6 +72,7 @@ from test_run_state_publisher import publisher_case
 
 _CANONICAL_CONFIG_PATH = "src/kapso/config.yaml"
 _GENERATION_NONCE = "9" * 32
+_TEST_DOCKER_BYTES = b"prepared-layout adoption Docker"
 
 
 @pytest.mark.parametrize(
@@ -1011,6 +1023,12 @@ def _physical_result_capture_case(
         )
     prepared = _prepared_execution(claim=_claim(policy=policy))
     authority = prepared.runtime_volume_authority
+    volume = observe_runtime_volume(
+        _volume_raw(authority, settings.docker),
+        prepared.preparation_claim,
+        authority,
+        settings.docker,
+    )
     root_path = tmp_path / "captured-result"
     root_path.mkdir(mode=0o700)
     directory_paths = {
@@ -1055,6 +1073,7 @@ def _physical_result_capture_case(
     )
     physical_volume = _remint_contract(
         prepared.runtime_volume_evidence,
+        docker_volume_occurrence_digest=volume.volume_occurrence_digest,
         root_mount_id=root_mount_id,
         root_device=root_metadata.st_dev,
         root_inode=root_metadata.st_ino,
@@ -1121,12 +1140,6 @@ def _physical_result_capture_case(
     )
     spawn = _spawn_commit(physical_prepared)
     terminal = _terminal_observation(physical_prepared, spawn)
-    volume = observe_runtime_volume(
-        _volume_raw(authority, settings.docker),
-        physical_prepared.preparation_claim,
-        authority,
-        settings.docker,
-    )
     return (
         physical_prepared,
         terminal,
@@ -1518,6 +1531,365 @@ def _open_empty_root(path, descriptors):
     )
     descriptors.callback(os.close, descriptor)
     return descriptor
+
+
+def _physical_prepared_adoption_case(
+    layout_context,
+    tmp_path,
+    monkeypatch,
+):
+    settings, _claim_fixture, _authority_fixture, empty_fixture = layout_context
+    docker_settings = replace(
+        settings.docker,
+        runtime_executable_digest=tree_or_blob_digest(_TEST_DOCKER_BYTES),
+    )
+    policy = _policy(
+        docker_settings,
+        workspace_access=RunFrontierWorkspaceAccess.NONE,
+        credential_mode=RunActionCredentialMode.NONE,
+    )
+    claim = _claim(policy=policy)
+    authority = _volume_authority(claim, nonce=_GENERATION_NONCE)
+    volume = observe_runtime_volume(
+        _volume_raw(authority, docker_settings),
+        claim,
+        authority,
+        docker_settings,
+    )
+    empty = replace(
+        empty_fixture,
+        runtime_volume_authority=authority,
+        docker_volume_observation=volume,
+    )
+    root_path = tmp_path / "runtime-volume"
+    root_path.mkdir(mode=0o700)
+    root_path.chmod(0o700)
+    root_descriptor = os.open(
+        root_path,
+        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+    )
+    root_metadata = os.fstat(root_descriptor)
+    root_mount_id = read_run_action_descriptor_mount_id(root_descriptor)
+    os.close(root_descriptor)
+    contract_fixture = _prepared_execution(claim=claim, authority=authority)
+    keeper = contract_fixture.volume_keeper_evidence
+    allocation = RunActionPreparationAllocation.mint(
+        preparation_claim=claim,
+        runtime_volume_authority=authority,
+    )
+    docker_runtime_root = tmp_path / "docker-runtime"
+    docker_runtime_root.mkdir(mode=0o700)
+    monkeypatch.setattr(
+        docker_runtime_module,
+        "read_verified_root_executable",
+        lambda _path, _digest: _TEST_DOCKER_BYTES,
+    )
+    monkeypatch.setattr(
+        docker_runtime_module,
+        "_require_runtime_socket",
+        lambda _path: None,
+    )
+    docker_runner = _InventoryDockerRunner(docker_settings)
+    docker_runtime = PinnedDockerRuntime(
+        trusted_root=docker_runtime_root.resolve(),
+        settings=docker_settings,
+        process_runner=docker_runner,
+    )
+    docker_runner.runtime = docker_runtime
+    resource_manager = DockerRunActionResourceManager(docker_runtime)
+    docker_runner.volumes[authority.volume_name] = _volume_raw(
+        authority,
+        docker_settings,
+    )
+    docker_runner.containers[keeper.container_id] = {
+        "Config": {
+            "Labels": {
+                label.key: label.value
+                for label in preparation_keeper_container_labels(claim)
+            }
+        },
+        "Id": keeper.container_id,
+        "Name": f"/{preparation_keeper_container_name(claim)}",
+    }
+    physical_empty = replace(
+        empty,
+        keeper_container_id=keeper.container_id,
+        keeper_process_id=keeper.process_id,
+        keeper_process_start_time_ticks=keeper.process_start_time_ticks,
+        process_cgroup_path=keeper.mounted_helper_evidence.process_cgroup_path,
+        mount_id=root_mount_id,
+        device=root_metadata.st_dev,
+        root_inode=root_metadata.st_ino,
+    )
+    prepared_capacity = contract_fixture.runtime_volume_evidence
+
+    def open_test_volume(descriptors, observed_keeper):
+        assert observed_keeper == keeper
+        opened_root = os.open(
+            root_path,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+        )
+        descriptors.callback(os.close, opened_root)
+        return volume_module._MountedRuntimeVolumeLease(
+            process_descriptor=opened_root,
+            root_descriptor=opened_root,
+            keeper_container_id=keeper.container_id,
+            keeper_process_id=keeper.process_id,
+            process_start_time_ticks=keeper.process_start_time_ticks,
+            process_cgroup_path=keeper.mounted_helper_evidence.process_cgroup_path,
+            root_mount_id=root_mount_id,
+            root_device=root_metadata.st_dev,
+            root_inode=root_metadata.st_ino,
+        )
+
+    def observe_filesystem(_descriptor):
+        if tuple(root_path.iterdir()):
+            return os.statvfs_result(
+                (
+                    prepared_capacity.allocation_block_size_bytes,
+                    prepared_capacity.allocation_block_size_bytes,
+                    prepared_capacity.effective_block_count,
+                    prepared_capacity.available_block_count,
+                    prepared_capacity.available_block_count,
+                    prepared_capacity.effective_inode_limit,
+                    prepared_capacity.available_inode_count,
+                    prepared_capacity.available_inode_count,
+                    0,
+                    255,
+                )
+            )
+        return os.statvfs_result(
+            (
+                physical_empty.allocation_block_size_bytes,
+                physical_empty.allocation_block_size_bytes,
+                physical_empty.effective_block_count,
+                physical_empty.available_block_count,
+                physical_empty.available_block_count,
+                physical_empty.effective_inode_limit,
+                physical_empty.available_inode_count,
+                physical_empty.available_inode_count,
+                0,
+                255,
+            )
+        )
+
+    monkeypatch.setattr(
+        volume_module,
+        "_open_mounted_runtime_volume",
+        open_test_volume,
+    )
+    monkeypatch.setattr(
+        volume_module,
+        "_require_same_mounted_runtime_volume",
+        lambda _mounted, _keeper: None,
+    )
+    monkeypatch.setattr(
+        volume_module,
+        "_require_mount_authority",
+        lambda _mount, _metadata, _authority: None,
+    )
+    monkeypatch.setattr(
+        volume_module,
+        "_read_mount_info",
+        lambda _process, _mount_id, _destination: "test-mount",
+    )
+    monkeypatch.setattr(volume_module.os, "fstatvfs", observe_filesystem)
+    prepared = volume_module.materialize_runtime_volume_layout(
+        claim,
+        physical_empty,
+        keeper,
+        workspace_descriptor=None,
+        settings=settings.launch,
+    )
+    return (
+        allocation,
+        resource_manager,
+        keeper,
+        prepared,
+        root_path,
+        docker_runner,
+    )
+
+
+def _runtime_layout_snapshot(root_path):
+    return tuple(
+        (
+            path.relative_to(root_path).as_posix(),
+            stat.S_IFMT(path.stat(follow_symlinks=False).st_mode),
+            stat.S_IMODE(path.stat(follow_symlinks=False).st_mode),
+            None if path.is_dir() else path.read_bytes(),
+        )
+        for path in sorted(root_path.rglob("*"))
+    )
+
+
+def test_complete_prepared_layout_is_read_only_idempotently_adopted(
+    layout_context,
+    tmp_path,
+    monkeypatch,
+):
+    (
+        allocation,
+        resource_manager,
+        keeper,
+        prepared,
+        root_path,
+        _docker_runner,
+    ) = _physical_prepared_adoption_case(layout_context, tmp_path, monkeypatch)
+    snapshot = _runtime_layout_snapshot(root_path)
+
+    def reject_materialization(*_arguments, **_keywords):
+        raise AssertionError("adoption attempted to materialize")
+
+    monkeypatch.setattr(
+        volume_module,
+        "_materialize_layout_at_descriptor",
+        reject_materialization,
+    )
+    first = adopt_prepared_runtime_volume_layout(
+        allocation,
+        resource_manager,
+        keeper,
+        settings=layout_context[0].launch,
+    )
+    second = adopt_prepared_runtime_volume_layout(
+        allocation,
+        resource_manager,
+        keeper,
+        settings=layout_context[0].launch,
+    )
+
+    assert first == prepared
+    assert second == first
+    assert _runtime_layout_snapshot(root_path) == snapshot
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "missing_sentinel",
+        "pending_sentinel",
+        "extra_path",
+        "wrong_sentinel",
+    ),
+)
+def test_prepared_layout_adoption_rejects_partial_or_substituted_topology(
+    layout_context,
+    tmp_path,
+    monkeypatch,
+    mutation,
+):
+    (
+        allocation,
+        resource_manager,
+        keeper,
+        _prepared,
+        root_path,
+        _docker_runner,
+    ) = _physical_prepared_adoption_case(layout_context, tmp_path, monkeypatch)
+    sentinel_path = root_path / ".kapso-generation"
+    if mutation == "missing_sentinel":
+        sentinel_path.unlink()
+    elif mutation == "pending_sentinel":
+        sentinel_path.rename(
+            root_path
+            / f".kapso-generation.pending-{allocation.runtime_volume_authority.generation_nonce}"
+        )
+    elif mutation == "extra_path":
+        (root_path / "unexpected").write_bytes(b"foreign")
+    else:
+        sentinel_path.chmod(0o600)
+        sentinel_path.write_bytes(
+            b"f" * len(allocation.runtime_volume_authority.generation_nonce)
+        )
+        sentinel_path.chmod(0o400)
+    snapshot = _runtime_layout_snapshot(root_path)
+
+    with pytest.raises(RunActionRuntimeVolumeError):
+        adopt_prepared_runtime_volume_layout(
+            allocation,
+            resource_manager,
+            keeper,
+            settings=layout_context[0].launch,
+        )
+
+    assert _runtime_layout_snapshot(root_path) == snapshot
+
+
+def test_prepared_layout_adoption_rejects_foreign_allocation(
+    layout_context,
+    tmp_path,
+    monkeypatch,
+):
+    (
+        allocation,
+        resource_manager,
+        keeper,
+        _prepared,
+        _root_path,
+        _docker_runner,
+    ) = _physical_prepared_adoption_case(layout_context, tmp_path, monkeypatch)
+    foreign_allocation = RunActionPreparationAllocation.mint(
+        preparation_claim=allocation.preparation_claim,
+        runtime_volume_authority=_volume_authority(
+            allocation.preparation_claim,
+            nonce="8" * 32,
+        ),
+    )
+
+    with pytest.raises(
+        RunActionRuntimeVolumeError,
+        match="differs from its durable allocation",
+    ):
+        adopt_prepared_runtime_volume_layout(
+            foreign_allocation,
+            resource_manager,
+            keeper,
+            settings=layout_context[0].launch,
+        )
+
+
+def test_prepared_layout_adoption_rejects_docker_occurrence_change(
+    layout_context,
+    tmp_path,
+    monkeypatch,
+):
+    (
+        allocation,
+        resource_manager,
+        keeper,
+        _prepared,
+        root_path,
+        docker_runner,
+    ) = _physical_prepared_adoption_case(layout_context, tmp_path, monkeypatch)
+    original_observe = volume_module._observe_prepared_layout_at_descriptor
+
+    def mutate_docker_occurrence_after_physical_observation(*arguments, **keywords):
+        observed = original_observe(*arguments, **keywords)
+        docker_runner.volumes[allocation.runtime_volume_authority.volume_name][
+            "CreatedAt"
+        ] = "2026-07-25T00:00:01Z"
+        return observed
+
+    monkeypatch.setattr(
+        volume_module,
+        "_observe_prepared_layout_at_descriptor",
+        mutate_docker_occurrence_after_physical_observation,
+    )
+    snapshot = _runtime_layout_snapshot(root_path)
+
+    with pytest.raises(
+        RunActionRuntimeVolumeError,
+        match="Docker occurrence changed during adoption",
+    ):
+        adopt_prepared_runtime_volume_layout(
+            allocation,
+            resource_manager,
+            keeper,
+            settings=layout_context[0].launch,
+        )
+
+    assert _runtime_layout_snapshot(root_path) == snapshot
 
 
 def test_descriptor_materializer_publishes_complete_layout_and_sentinel_last(

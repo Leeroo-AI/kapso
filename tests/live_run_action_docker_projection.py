@@ -124,6 +124,7 @@ from kapso.cross_run.launch.run_action_supervisor_helper import (
 )
 from kapso.cross_run.launch.run_action_runtime_volume import (
     RunActionRuntimeVolumeError,
+    adopt_prepared_runtime_volume_layout,
     deliver_and_reobserve_runtime_volume_activation,
     materialize_runtime_volume_layout,
     observe_empty_runtime_volume,
@@ -1376,6 +1377,13 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             workspace_descriptor=workspace_descriptor,
             settings=cross_run_settings.launch,
         )
+        adopted_prepared_volume = adopt_prepared_runtime_volume_layout(
+            layout_allocation,
+            resource_manager,
+            layout_keeper_evidence,
+            settings=cross_run_settings.launch,
+        )
+        assert adopted_prepared_volume == prepared_volume
         cleanup.callback(
             _remove_owned_container,
             settings,
@@ -1677,6 +1685,13 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             assert loss_inventory.volume_present
             assert loss_inventory.keeper_container_id == layout_keeper_id
             assert loss_inventory.main_container_id is None
+            with open_run_action_release_inspection(
+                activation_event=activation_event,
+                launch_settings=cross_run_settings.launch,
+            ) as absent_release_inspection:
+                assert absent_release_inspection.topology is (
+                    RunActionControlDirectoryTopology.EMPTY
+                )
             loss_adapter = _LivePreReleaseMainLossAdapter(
                 boundary_identity=boundary_identity,
                 execution_policy=layout_policy,
@@ -1718,13 +1733,6 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
                 loss_events[-1].provider_termination_receipt
                 == loss_adapter.termination_receipt
             )
-            with open_run_action_release_inspection(
-                activation_event=activation_event,
-                launch_settings=cross_run_settings.launch,
-            ) as absent_release_inspection:
-                assert absent_release_inspection.topology is (
-                    RunActionControlDirectoryTopology.EMPTY
-                )
             assert tree_or_blob_digest(busybox_bytes) == (
                 settings.helper_executable_digest
             )

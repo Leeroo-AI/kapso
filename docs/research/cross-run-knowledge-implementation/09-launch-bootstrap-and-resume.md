@@ -21,7 +21,10 @@ content-addressed Docker execution-policy, deterministic preparation-claim,
 inert-evidence, prepared-execution contracts, and durable eight-event action prefix
 are implemented. Every Docker volume-subpath now has preparation-time physical
 authority, and post-spawn request/credential delivery plus pre-start volume
-reobservation are crash-atomic and descriptor-bound. Full event-5 receipt
+reobservation are crash-atomic and descriptor-bound. Allocation-bound recovery
+can now reconstruct deterministic prepared-volume evidence from a fully
+published event-2 layout without mutation; incomplete, pending, extra, or
+substituted topology remains non-adoptable. Full event-5 receipt
 assembly, committed-container reinspection and token-sealed start, terminal
 Docker inspection, and adopted-release result authority are implemented.
 Descriptor-bound result capture, the closed typed-termination evidence
@@ -1036,13 +1039,22 @@ sentinel, and control descriptors; reproves their original physical identities;
 reopens the keeper's current mount path on every use; and admits only the exact
 empty or sole-release namespace. The raw descriptor is not public: release
 publication must consume the process-bound lease through a guarded operation.
-Read-only reopen is available only from a durable `PreparedExecution` and
+Read-only reopen is available from a durable `PreparedExecution` and
 reproves the exact root topology, child topology, file shapes, workspace/Git
 frontier, sentinel inode/content, keeper process generation, mount, and stable
-`statvfs` accounting. After an event-2 crash, allocation-bound recovery may create
-only after proven total absence or may adopt only a completely reobserved exact
-occurrence. Partial or ambiguous resources remain unresolved until positive
-terminal cleanup exists; no path mints replacement allocation authority.
+`statvfs` accounting. The allocation-bound adoption leaf now reconstructs the
+same deterministic prepared-volume graph directly from the durable event-2
+allocation and the complete final-sentinel occurrence, without requiring the
+lost in-memory event-3 projection. It accepts no caller-supplied occurrence
+digest: a sealed read-only Docker resource manager sandwiches the descriptor
+proof between stable complete inventories and exact volume inspections. Repeated
+adoption is byte-identical and read-only. It rejects missing or pending
+sentinels, extra paths, substituted sentinel content, foreign allocation
+authority, a changing Docker occurrence, and any other incomplete topology.
+Full recovery may create only after proven total absence or compose this exact
+adopted layout with the separately reobserved inert main. Partial or ambiguous
+resources remain unresolved until positive terminal cleanup exists; no path
+repairs a prefix or mints replacement allocation authority.
 The result boundary no longer admits provider bytes alone. Result event 6 now
 carries the release adoption, terminal main-container observation, and
 descriptor-capture receipt
@@ -1312,6 +1324,11 @@ this path is activated.
   before allocation cancels, security movement after allocation remains
   cleanup-blocked, and workspace mutation during local interpretation never becomes
   a terminal event.
+- Crash after final-sentinel publication but before event 3; discard the
+  in-memory prepared projection, reconstruct it only from the durable event-2
+  allocation and live volume/keeper occurrence, and require byte-identical,
+  repeatable evidence. Reject every pending, partial, extra, corrupt, or foreign
+  topology without mutation.
 - Prove embeddings receive no workspace capability; prove edits exclude parallel
   edits/readers across processes, poison stale reservations/publication candidates, and
   become usable only after an exact branch-advance checkpoint successor.
