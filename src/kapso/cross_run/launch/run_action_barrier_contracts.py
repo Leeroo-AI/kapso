@@ -15,6 +15,9 @@ from kapso.cross_run.canonical import (
     tree_or_blob_digest,
 )
 from kapso.cross_run.contracts import StrictContract
+from kapso.cross_run.launch.run_action_control_topology import (
+    RunActionControlDirectoryTopology,
+)
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
     DockerRunActionCreateInspectProjection,
     RUN_ACTION_DOCKER_INIT_DESTINATION,
@@ -620,7 +623,7 @@ class RunActionResolvedWorkloadObservation(StrictContract):
     resolved_workspace_observation: RunActionResolvedWorkspaceObservation | None
     control_entry_count: int
     temporary_entry_count: int
-    release_present: bool
+    control_directory_topology: RunActionControlDirectoryTopology
 
     CONTENT_NAMESPACE: ClassVar[str] = "run-action-resolved-workload-observation"
     IDENTITY_FIELD: ClassVar[str] = "resolved_workload_observation_id"
@@ -656,7 +659,8 @@ class RunActionResolvedWorkloadObservation(StrictContract):
             or self.control_entry_count != 0
             or type(self.temporary_entry_count) is not int
             or self.temporary_entry_count != 0
-            or self.release_present is not False
+            or self.control_directory_topology
+            is not RunActionControlDirectoryTopology.EMPTY
             or not _resolved_workload_graph_matches(self)
         ):
             raise RunActionBarrierContractError(

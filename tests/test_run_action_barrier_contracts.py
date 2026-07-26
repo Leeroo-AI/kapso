@@ -14,6 +14,9 @@ from kapso.cross_run.launch.run_action_contracts import (
     RunFrontierActionKind,
     RunFrontierWorkspaceAccess,
 )
+from kapso.cross_run.launch.run_action_control_topology import (
+    RunActionControlDirectoryTopology,
+)
 from kapso.cross_run.launch.run_action_barrier_contracts import (
     RunActionBarrierContractError,
     RunActionBarrierInitProcessObservation,
@@ -169,7 +172,7 @@ def _resolved_graph(*, inode_offset=0, prepared=None, activation=None):
         resolved_workspace_observation=workspace,
         control_entry_count=0,
         temporary_entry_count=0,
-        release_present=False,
+        control_directory_topology=RunActionControlDirectoryTopology.EMPTY,
     )
     return resolved
 
@@ -542,6 +545,9 @@ def test_resolved_workload_graph_round_trips_with_exact_canonical_sets():
     assert tuple(
         observed.kind.value for observed in resolved.resolved_file_observations
     ) == ("credential", "input", "result")
+    assert (
+        resolved.control_directory_topology is RunActionControlDirectoryTopology.EMPTY
+    )
     assert "activation_event_id" not in resolved.to_dict()
     snapshot = resolved.mount_info_snapshot
     assert snapshot.raw_byte_length == len(snapshot.raw_payload.encode("ascii"))
@@ -745,7 +751,9 @@ def test_resolved_mount_requires_the_actual_inode_to_join_event_5():
             )
         },
         lambda resolved: {"control_entry_count": 1},
-        lambda resolved: {"release_present": True},
+        lambda resolved: {
+            "control_directory_topology": RunActionControlDirectoryTopology.RELEASED
+        },
     ),
 )
 def test_aggregate_rejects_cross_occurrence_splices_and_noncanonical_sets(mutate):

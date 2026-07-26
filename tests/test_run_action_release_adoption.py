@@ -12,9 +12,11 @@ import pytest
 
 import kapso.cross_run.launch.run_action_release_adoption as adoption_module
 from kapso.core.config import load_config
+from kapso.cross_run.launch.run_action_control_topology import (
+    RunActionControlDirectoryTopology,
+)
 from kapso.cross_run.launch.run_action_release_adoption import (
     RunActionReleaseAdoptionError,
-    RunActionReleasePresence,
     open_run_action_release_inspection,
 )
 from kapso.cross_run.launch.run_action_release_contracts import (
@@ -90,7 +92,7 @@ def _release_case():
 def _control_lease(
     control_path: Path,
     *,
-    release_present: bool,
+    topology: RunActionControlDirectoryTopology,
     require_current=None,
 ) -> RunActionControlDirectoryLease:
     descriptor = os.open(
@@ -99,7 +101,7 @@ def _control_lease(
     )
     lease = object.__new__(RunActionControlDirectoryLease)
     lease._control_descriptor = descriptor
-    lease._release_present = release_present
+    lease._topology = topology
     lease.require_current = (
         (lambda: None) if require_current is None else require_current
     )
@@ -142,7 +144,10 @@ def _install_control_projection(monkeypatch, control_path, activation_event, lea
 
 def test_empty_control_directory_is_classified_absent(tmp_path, monkeypatch):
     activation_event, _adoption = _release_case()
-    lease = _control_lease(tmp_path, release_present=False)
+    lease = _control_lease(
+        tmp_path,
+        topology=RunActionControlDirectoryTopology.EMPTY,
+    )
     monkeypatch.setattr(
         adoption_module,
         "open_run_action_control_directory",
@@ -153,7 +158,7 @@ def test_empty_control_directory_is_classified_absent(tmp_path, monkeypatch):
         activation_event=activation_event,
         launch_settings=_launch_settings(),
     ) as inspection:
-        assert inspection.presence is RunActionReleasePresence.ABSENT
+        assert inspection.topology is RunActionControlDirectoryTopology.EMPTY
         with pytest.raises(
             RunActionReleaseAdoptionError,
             match="absent release inspection has no adoption",
@@ -161,9 +166,17 @@ def test_empty_control_directory_is_classified_absent(tmp_path, monkeypatch):
             inspection.adoption
 
 
+@pytest.mark.parametrize(
+    "topology",
+    (
+        RunActionControlDirectoryTopology.RELEASED,
+        RunActionControlDirectoryTopology.TIMED_OUT,
+    ),
+)
 def test_canonical_release_is_adopted_from_its_retained_descriptor(
     tmp_path,
     monkeypatch,
+    topology,
 ):
     activation_event, expected_adoption = _release_case()
     prepared = activation_event.activation_revalidation_receipt.prepared_execution
@@ -175,14 +188,17 @@ def test_canonical_release_is_adopted_from_its_retained_descriptor(
         prepared.runtime_volume_authority.owner_user_id,
         prepared.runtime_volume_authority.owner_group_id,
     )
-    lease = _control_lease(tmp_path, release_present=True)
+    lease = _control_lease(
+        tmp_path,
+        topology=topology,
+    )
     _install_control_projection(monkeypatch, tmp_path, activation_event, lease)
 
     with open_run_action_release_inspection(
         activation_event=activation_event,
         launch_settings=_launch_settings(),
     ) as inspection:
-        assert inspection.presence is RunActionReleasePresence.PRESENT
+        assert inspection.topology is topology
         assert (
             inspection.adoption.workload_release_receipt
             == expected_adoption.workload_release_receipt
@@ -203,7 +219,10 @@ def test_release_with_wrong_mode_fails_loud(tmp_path, monkeypatch):
         prepared.runtime_volume_authority.owner_group_id,
     )
     release_path.chmod(0o600)
-    lease = _control_lease(tmp_path, release_present=True)
+    lease = _control_lease(
+        tmp_path,
+        topology=RunActionControlDirectoryTopology.RELEASED,
+    )
     _install_control_projection(monkeypatch, tmp_path, activation_event, lease)
 
     with pytest.raises(
@@ -234,7 +253,10 @@ def test_release_for_another_event_fails_loud(tmp_path, monkeypatch):
         prepared.runtime_volume_authority.owner_user_id,
         prepared.runtime_volume_authority.owner_group_id,
     )
-    lease = _control_lease(tmp_path, release_present=True)
+    lease = _control_lease(
+        tmp_path,
+        topology=RunActionControlDirectoryTopology.RELEASED,
+    )
     _install_control_projection(monkeypatch, tmp_path, activation_event, lease)
 
     with pytest.raises(
@@ -257,7 +279,10 @@ def test_malformed_release_bytes_fail_loud(tmp_path, monkeypatch):
         prepared.runtime_volume_authority.owner_user_id,
         prepared.runtime_volume_authority.owner_group_id,
     )
-    lease = _control_lease(tmp_path, release_present=True)
+    lease = _control_lease(
+        tmp_path,
+        topology=RunActionControlDirectoryTopology.RELEASED,
+    )
     _install_control_projection(monkeypatch, tmp_path, activation_event, lease)
 
     with pytest.raises(json.JSONDecodeError):
@@ -289,7 +314,7 @@ def test_path_replacement_during_adoption_fails_loud(tmp_path, monkeypatch):
 
     lease = _control_lease(
         tmp_path,
-        release_present=True,
+        topology=RunActionControlDirectoryTopology.RELEASED,
         require_current=require_current,
     )
     _install_control_projection(monkeypatch, tmp_path, activation_event, lease)

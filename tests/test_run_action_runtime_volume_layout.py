@@ -12,6 +12,9 @@ from kapso.cross_run.launch import run_action_runtime_volume as volume_module
 from kapso.cross_run.launch.run_action_contracts import (
     RunFrontierWorkspaceAccess,
 )
+from kapso.cross_run.launch.run_action_control_topology import (
+    RunActionControlDirectoryTopology,
+)
 from kapso.cross_run.launch.run_action_docker_inspect import (
     observe_runtime_volume,
 )
@@ -145,6 +148,85 @@ def test_barrier_control_lease_retains_exact_empty_generation(
         os.fstat(control_descriptor)
     with pytest.raises(OSError):
         os.fstat(opened_roots[-1])
+
+
+@pytest.mark.parametrize(
+    ("entries", "expected_topology"),
+    (
+        ((), RunActionControlDirectoryTopology.EMPTY),
+        (("release",), RunActionControlDirectoryTopology.RELEASED),
+        (
+            ("release", "timeout"),
+            RunActionControlDirectoryTopology.TIMED_OUT,
+        ),
+        (("timeout",), None),
+        (("release", "unexpected"), None),
+    ),
+)
+def test_barrier_control_lease_admits_only_closed_semantic_topologies(
+    layout_context,
+    tmp_path,
+    monkeypatch,
+    entries,
+    expected_topology,
+):
+    settings, _claim_without_workspace, _authority, _empty = layout_context
+    prepared, root_path, root_mount_id, root_metadata = _physical_barrier_control_case(
+        tmp_path,
+        settings,
+    )
+    control_path = root_path / "control"
+    for entry in entries:
+        (control_path / entry).write_bytes(entry.encode("ascii"))
+
+    def open_test_volume(descriptors, keeper):
+        root = os.open(
+            root_path,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+        )
+        descriptors.callback(os.close, root)
+        return volume_module._MountedRuntimeVolumeLease(
+            process_descriptor=root,
+            root_descriptor=root,
+            keeper_container_id=keeper.container_id,
+            keeper_process_id=keeper.process_id,
+            process_start_time_ticks=keeper.process_start_time_ticks,
+            process_cgroup_path=keeper.mounted_helper_evidence.process_cgroup_path,
+            root_mount_id=root_mount_id,
+            root_device=root_metadata.st_dev,
+            root_inode=root_metadata.st_ino,
+        )
+
+    monkeypatch.setattr(
+        volume_module,
+        "_open_mounted_runtime_volume",
+        open_test_volume,
+    )
+    monkeypatch.setattr(
+        volume_module,
+        "_require_same_mounted_runtime_volume",
+        lambda _mounted, _keeper: None,
+    )
+
+    if expected_topology is None:
+        with pytest.raises(
+            RunActionRuntimeVolumeError,
+            match="invalid semantic topology",
+        ):
+            volume_module.open_run_action_control_directory(prepared)
+        return
+
+    lease = volume_module.open_run_action_control_directory(prepared)
+    assert lease.topology is expected_topology
+    if expected_topology is RunActionControlDirectoryTopology.EMPTY:
+        (control_path / "release").write_bytes(b"release")
+    elif expected_topology is RunActionControlDirectoryTopology.RELEASED:
+        (control_path / "timeout").write_bytes(b"timeout")
+    else:
+        (control_path / "timeout").unlink()
+    with pytest.raises(RunActionRuntimeVolumeError):
+        lease.require_current()
+    lease.close()
 
 
 def test_barrier_control_lease_rejects_substituted_prepared_inode(

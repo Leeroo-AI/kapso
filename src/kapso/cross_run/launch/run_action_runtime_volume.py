@@ -25,6 +25,9 @@ from kapso.cross_run.launch.run_action_supervisor_helper import (
     read_run_action_process_stat_from_descriptor,
 )
 from kapso.cross_run.launch.run_action_contracts import RunFrontierWorkspaceAccess
+from kapso.cross_run.launch.run_action_control_topology import (
+    RunActionControlDirectoryTopology,
+)
 from kapso.cross_run.launch.run_action_spawn_contracts import RunActionSpawnCommit
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RUN_ACTION_RUNTIME_VOLUME_KEEPER_DESTINATION,
@@ -91,7 +94,7 @@ class RunActionRuntimeVolumeError(RuntimeError):
 
 
 class RunActionControlDirectoryLease:
-    """Process-bound lease for an exact absent-or-published release directory."""
+    """Process-bound lease for one exact semantic control topology."""
 
     def __init__(
         self,
@@ -102,7 +105,7 @@ class RunActionControlDirectoryLease:
         sentinel_observation: "_ExactRegularFileObservation",
         control_descriptor: int,
         control_metadata_identity: tuple[int, ...],
-        release_present: bool,
+        topology: RunActionControlDirectoryTopology,
         _authority: object,
     ) -> None:
         if (
@@ -115,7 +118,7 @@ class RunActionControlDirectoryLease:
             or type(control_metadata_identity) is not tuple
             or control_metadata_identity
             != _stable_metadata(os.fstat(control_descriptor))
-            or type(release_present) is not bool
+            or type(topology) is not RunActionControlDirectoryTopology
             or _authority is not _BARRIER_CONTROL_LEASE_AUTHORITY
         ):
             raise RunActionRuntimeVolumeError(
@@ -127,7 +130,7 @@ class RunActionControlDirectoryLease:
         self._sentinel_observation = sentinel_observation
         self._control_descriptor = control_descriptor
         self._control_metadata_identity = control_metadata_identity
-        self._release_present = release_present
+        self._topology = topology
         self._owner_process_id = os.getpid()
         self._closed = False
         self.require_current()
@@ -138,9 +141,9 @@ class RunActionControlDirectoryLease:
         return self._prepared
 
     @property
-    def release_present(self) -> bool:
+    def topology(self) -> RunActionControlDirectoryTopology:
         self.require_current()
-        return self._release_present
+        return self._topology
 
     def require_current(self) -> None:
         if self._owner_process_id != os.getpid() or self._closed:
@@ -167,7 +170,7 @@ class RunActionControlDirectoryLease:
             self._prepared.control_directory,
             self._mounted_volume.root_descriptor,
             self._control_descriptor,
-            expected_entries=(("release",) if self._release_present else ()),
+            expected_entries=self._topology.entries,
         )
 
     def __enter__(self) -> "RunActionControlDirectoryLease":
@@ -1059,14 +1062,17 @@ def open_run_action_control_directory(
             expected_entries=None,
         )
         entries_after = tuple(sorted(os.listdir(control_descriptor)))
-        if entries_after != entries_before or entries_before not in {
-            (),
-            ("release",),
-        }:
+        topologies_by_entries = {
+            topology.entries: topology for topology in RunActionControlDirectoryTopology
+        }
+        if (
+            entries_after != entries_before
+            or entries_before not in topologies_by_entries
+        ):
             raise RunActionRuntimeVolumeError(
-                "barrier control directory has an invalid release topology"
+                "barrier control directory has an invalid semantic topology"
             )
-        release_present = entries_before == ("release",)
+        topology = topologies_by_entries[entries_before]
         _require_exact_activation_directory(
             prepared.control_directory,
             mounted_volume.root_descriptor,
@@ -1080,7 +1086,7 @@ def open_run_action_control_directory(
             sentinel_observation=sentinel_observation,
             control_descriptor=control_descriptor,
             control_metadata_identity=control_metadata_identity,
-            release_present=release_present,
+            topology=topology,
             _authority=_BARRIER_CONTROL_LEASE_AUTHORITY,
         )
         lease._descriptors = descriptors.pop_all()

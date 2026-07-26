@@ -13,6 +13,9 @@ from kapso.cross_run.canonical import (
     tree_or_blob_digest,
 )
 from kapso.cross_run.contracts import StrictContract
+from kapso.cross_run.launch.run_action_control_topology import (
+    RunActionControlDirectoryTopology,
+)
 from kapso.cross_run.launch.run_action_barrier_contracts import (
     RunActionBarrierRunningContainerObservation,
 )
@@ -231,7 +234,7 @@ class RunActionPreReleaseMainLossObservation(StrictContract):
     control_device: int
     control_inode: int
     control_entry_count: int
-    release_present: bool
+    control_directory_topology: RunActionControlDirectoryTopology
 
     CONTENT_NAMESPACE: ClassVar[str] = "run-action-pre-release-main-loss-observation"
     IDENTITY_FIELD: ClassVar[str] = "pre_release_main_loss_observation_id"
@@ -296,7 +299,8 @@ class RunActionPreReleaseMainLossObservation(StrictContract):
             )
             != (control.mount_id, control.device, control.inode)
             or self.control_entry_count != 0
-            or self.release_present is not False
+            or self.control_directory_topology
+            is not RunActionControlDirectoryTopology.EMPTY
         ):
             raise RunActionTerminationContractError(
                 "pre-release main loss observation is incomplete or spliced"
@@ -394,10 +398,9 @@ class RunActionProviderTerminationReceipt(StrictContract):
                 type(self.timeout_directive_publication)
                 is not RunActionTimeoutDirectivePublicationReceipt
                 or self.empty_result_capture_receipt is not None
-                or self.timeout_directive_publication.timeout_directive.activation_event_id
-                != self.activation_event_id
-                or not _timeout_publication_evidence_matches(
+                or not run_action_timeout_publication_evidence_matches(
                     self.timeout_directive_publication,
+                    self.activation_event_id,
                     activation,
                     adoption,
                 )
@@ -536,11 +539,21 @@ def _released_terminal_evidence_matches(
     )
 
 
-def _timeout_publication_evidence_matches(
+def run_action_timeout_publication_evidence_matches(
     publication: RunActionTimeoutDirectivePublicationReceipt,
+    activation_event_id: str,
     activation: RunActionActivationRevalidationReceipt,
     adoption: RunActionWorkloadReleaseAdoption,
 ) -> bool:
+    """Join one adopted timeout inode to its exact activation and release."""
+
+    if (
+        type(publication) is not RunActionTimeoutDirectivePublicationReceipt
+        or type(activation_event_id) is not str
+        or type(activation) is not RunActionActivationRevalidationReceipt
+        or type(adoption) is not RunActionWorkloadReleaseAdoption
+    ):
+        return False
     directive = publication.timeout_directive
     release = adoption.workload_release_receipt
     prepared = activation.prepared_execution
@@ -551,9 +564,10 @@ def _timeout_publication_evidence_matches(
     )
     timeout_running = directive.running_container_observation
     return (
-        release.resolved_workload_observation.activation_revalidation_receipt
+        release.activation_event_id == activation_event_id
+        and release.resolved_workload_observation.activation_revalidation_receipt
         == activation
-        and directive.activation_event_id == release.activation_event_id
+        and directive.activation_event_id == activation_event_id
         and directive.workload_release_receipt_id == release.workload_release_receipt_id
         and directive.workload_release_adoption_id
         == adoption.workload_release_adoption_id
@@ -562,6 +576,10 @@ def _timeout_publication_evidence_matches(
         == release.execution_deadline_boottime_nanoseconds
         and directive.containment_deadline_boottime_nanoseconds
         == release.containment_deadline_boottime_nanoseconds
+        and directive.observed_before_boottime_nanoseconds
+        >= release.execution_deadline_boottime_nanoseconds
+        and directive.observed_after_boottime_nanoseconds
+        <= release.containment_deadline_boottime_nanoseconds
         and timeout_running.container_id
         == activation.spawn_commit.provider_execution_id
         and timeout_running.container_id == released_running.container_id
@@ -593,6 +611,9 @@ def _timeout_publication_evidence_matches(
         )
         and publication.owner_user_id == authority.owner_user_id
         and publication.owner_group_id == authority.owner_group_id
+        and 0
+        < publication.size_bytes
+        <= prepared.preparation_claim.execution_policy.supervisor_limits.timeout_directive_size_bytes
     )
 
 
@@ -615,4 +636,5 @@ __all__ = [
     "RunActionTimeoutDirective",
     "RunActionTimeoutDirectivePublicationReceipt",
     "provider_termination_matches_durable_activation",
+    "run_action_timeout_publication_evidence_matches",
 ]

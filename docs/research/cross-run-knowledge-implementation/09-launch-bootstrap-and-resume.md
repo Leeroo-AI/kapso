@@ -25,10 +25,11 @@ reobservation are crash-atomic and descriptor-bound. Full event-5 receipt
 assembly, committed-container reinspection and token-sealed start, terminal
 Docker inspection, and adopted-release result authority are implemented.
 Descriptor-bound result capture, the closed typed-termination evidence
-contracts, and terminal event-6 persistence/replay are implemented. Physical
-timeout/termination registration, cleanup, OS executor activation, explicit
-E0/S-EMPTY provisioning orchestration, full policy refresh on resume, and
-API/runner activation remain.
+contracts, terminal event-6 persistence/replay, the closed semantic control
+topology, and exact crash adoption of a published timeout directive are
+implemented. Physical timeout publication and provider termination, cleanup, OS
+executor activation, explicit E0/S-EMPTY provisioning orchestration, full policy
+refresh on resume, and API/runner activation remain.
 
 ## Objective
 
@@ -984,11 +985,14 @@ outcomes. The only pre-release interruption is a stable, same-boot proof that
 the exact volume and keeper remain, the main alone is absent, and release is
 absent under the exact control authority. The contracts bind the activation
 event, release adoption, terminal occurrence, immutable runtime-volume
-occurrence, deadlines, and publication inode. They do not yet authorize recovery
-directly. The store persists a complete receipt only as terminal event 6 after a
-pure join to durable allocation and activation. That event publishes no result
-blobs, cannot be extended, reopens across either publication crash side, and
-replays through recovery without invoking an adapter or interpreter.
+occurrence, deadlines, and publication inode. Recovery reopens the exact
+`EMPTY`, `RELEASED`, or `TIMED_OUT` control topology. A timed-out query carries
+the reconstructed publication receipt itself, joined to event 5 and its adopted
+release; it cannot collapse to an ordinary released query. The store persists a
+complete receipt only as terminal event 6 after a pure join to durable allocation
+and activation. That event publishes no result blobs, cannot be extended, reopens
+across either publication crash side, and replays through recovery without
+invoking an adapter or interpreter.
 
 Recovery now has a sealed registration boundary for that receipt. A dedicated
 pre-release-main-loss observation state cannot be confused with inert, running,
@@ -997,18 +1001,25 @@ capability admits exactly `PENDING`, its privately captured result, or its
 privately registered termination receipt. Result capture and termination
 registration consume each other's authority, and a returned but unregistered or
 cross-occurrence receipt is rejected. Released termination must reproduce the
-retained trusted terminal and release adoption; pre-release loss must reproduce
+retained trusted terminal and release adoption; timeout additionally must
+reproduce the exact adopted timeout publication; pre-release loss must reproduce
 the exact loss-observation content ID. Before terminal publication the
-coordinator reproves the unchanged host workspace and reopens either the exact
-release adoption or exact release absence, retaining that descriptor lease across
-the event append and checking it immediately before and after. A crash before
-the append leaves event 5 and requires fresh physical evidence; a crash after it
-replays event 6 without adapter or interpreter use.
+coordinator reproves the unchanged host workspace and reopens the reason-specific
+topology—`EMPTY` for pre-release loss, `TIMED_OUT` for timeout, and `RELEASED`
+for every other released failure. It retains that descriptor lease across the
+event append and checks it immediately before and after. Successful result
+publication similarly retains `RELEASED` across its append, so a concurrent
+timeout cannot become success. A crash before either append leaves event 5 and
+requires fresh physical evidence; a crash after event 6 replays without adapter
+or interpreter use.
 
-The registration seam intentionally has no normal physical producer yet.
-Timeout publication, Docker containment, terminal-failure/empty-result evidence,
-positive pre-release-loss inspection, cleanup, and production adapters remain
-later slices; ordinary adapters therefore remain pending rather than fabricating
+The reader and recovery seam deliberately do not publish a missing timeout.
+They adopt only a canonical, owner/mode/link/mount/device/inode-exact
+`control/timeout` file under a retained release/control sandwich; malformed or
+spliced visible state fails loud. The normal physical producer remains later:
+timeout publication, Docker containment, terminal-failure/empty-result evidence,
+positive pre-release-loss inspection, cleanup, and production adapters are not
+yet wired. Ordinary adapters therefore remain pending rather than fabricating
 termination. No production caller can receive Docker start authority from the
 reservation gate; M9 activation must continue to route every post-reservation
 transition through the coordinator's sealed capabilities.
@@ -1017,11 +1028,12 @@ The timeout payload envelope is now single-sourced before physical publication
 lands. Launch configuration and the durable supervisor policy carry the same
 2 MiB directive bound; configuration requires the process-snapshot bound to fit
 strictly inside it and the release, snapshot, and timeout bounds together to fit
-strictly inside one terminal event. Recovery and release adoption reject a
-policy/config mismatch before provider mutation. Preparation, activation
-revalidation, and runtime-volume planning reserve the allocated timeout bytes
-and a second immutable control-file inode in addition to release headroom. The
-real Docker lifecycle continues to pass with that stricter capacity accounting.
+strictly inside one terminal event. Recovery, release adoption, and timeout
+adoption reject a policy/config mismatch before provider mutation. Preparation,
+activation revalidation, and runtime-volume planning reserve the allocated
+timeout bytes and a second immutable control-file inode in addition to release
+headroom. The real Docker lifecycle continues to pass with that stricter capacity
+accounting.
 
 The recovery surface is now fail-closed ahead of typed termination. The
 proof-only `PROVEN_RESOURCE_LOST`, `QUIESCENT_RECHECKABLE`, and
@@ -1147,6 +1159,14 @@ this path is activated.
   terminal reinspection capability, descriptor-capture the original bounded
   result inode, and prove the exact result graph is interpreted and durably
   accepted through event 8 without cleanup.
+- Admit only `()`, `(release)`, and `(release, timeout)` as real control-directory
+  topologies; reject timeout-only/extra entries and every retained topology
+  mutation. Reject malformed, over-bound, substituted, and cross-occurrence
+  timeout bytes.
+- Reopen an event-5 run with an existing timeout, reconstruct its exact
+  publication receipt without republishing, carry it through the committed query
+  and sealed terminal capability, persist timeout event 6 under a retained
+  `TIMED_OUT` fence, and replay without implementation access.
 - Verify expert repo is writable only inside the run workspace and snapshot/adapter
   roots remain read-only.
 - Verify old `initial_repo` and checkpoint paths are absent after activation.

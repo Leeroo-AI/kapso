@@ -32,6 +32,9 @@ from kapso.cross_run.launch.run_action_docker_projection import DockerRunActionC
 from kapso.cross_run.launch.run_action_docker_resources import (
     DockerRunActionResourceManager,
 )
+from kapso.cross_run.launch.run_action_control_topology import (
+    RunActionControlDirectoryTopology,
+)
 from kapso.cross_run.launch.run_action_ledger import RunActionExecutionEventKind
 from kapso.cross_run.launch.run_action_recovery import (
     RunActionCommittedSpawnObservation,
@@ -240,9 +243,9 @@ class RunActionBlockedWorkloadLease:
                 "host boot identity changed while workload was blocked"
             )
         self._control_lease.require_current()
-        if self._control_lease.release_present:
+        if self._control_lease.topology is not RunActionControlDirectoryTopology.EMPTY:
             raise RunActionResolvedWorkloadError(
-                "blocked workload release became present"
+                "blocked workload control topology changed"
             )
         expected_container = (
             self._resolved_workload_observation.running_container_observation
@@ -361,9 +364,9 @@ class RunActionBlockedWorkloadLease:
                 )
             )
         self._control_lease.require_current()
-        if self._control_lease.release_present:
+        if self._control_lease.topology is not RunActionControlDirectoryTopology.EMPTY:
             raise RunActionResolvedWorkloadError(
-                "blocked workload release became present"
+                "blocked workload control topology changed"
             )
         if (
             read_run_action_host_boot_id(self._proc_root_descriptor)
@@ -484,9 +487,9 @@ def open_run_action_blocked_workload(
         descriptors.callback(os.close, proc_root_descriptor)
         control_lease = open_run_action_control_directory(prepared)
         descriptors.callback(control_lease.close)
-        if control_lease.release_present:
+        if control_lease.topology is not RunActionControlDirectoryTopology.EMPTY:
             raise RunActionResolvedWorkloadError(
-                "blocked workload already carries a published release"
+                "blocked workload control directory is not empty"
             )
         current_running = _observe_running_container(
             resource_manager,
@@ -593,7 +596,7 @@ def open_run_action_blocked_workload(
             resolved_workspace_observation=workspace_observation,
             control_entry_count=0,
             temporary_entry_count=0,
-            release_present=False,
+            control_directory_topology=RunActionControlDirectoryTopology.EMPTY,
         )
         lease = RunActionBlockedWorkloadLease(
             descriptors=descriptors,

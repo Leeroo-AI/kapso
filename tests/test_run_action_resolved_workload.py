@@ -11,6 +11,9 @@ from types import SimpleNamespace
 import pytest
 
 import kapso.cross_run.launch.run_action_resolved_workload as workload_module
+from kapso.cross_run.launch.run_action_control_topology import (
+    RunActionControlDirectoryTopology,
+)
 from kapso.cross_run.launch.run_action_resolved_workload import (
     RunActionBlockedWorkloadLease,
     RunActionResolvedWorkloadError,
@@ -282,7 +285,7 @@ def test_require_current_reverse_check_detects_splice_during_logical_read(
         lease._host_boot_id = "boot"
         lease._control_lease = SimpleNamespace(
             require_current=lambda: None,
-            release_present=False,
+            topology=RunActionControlDirectoryTopology.EMPTY,
         )
         lease._resolved_workload_observation = SimpleNamespace(
             running_container_observation=running_container,

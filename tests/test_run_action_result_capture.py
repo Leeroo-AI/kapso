@@ -8,9 +8,14 @@ import kapso.cross_run.launch.run_action_docker_inspect as docker_inspect
 import kapso.cross_run.launch.run_action_result_capture as result_capture
 import kapso.cross_run.launch.run_action_terminal_inspection as terminal_inspection
 from kapso.cross_run.canonical import tree_or_blob_digest
+from kapso.cross_run.launch.run_action_control_topology import (
+    RunActionControlDirectoryTopology,
+)
 from kapso.cross_run.launch.run_action_recovery import (
     _RUN_ACTION_COMMITTED_CONTINUATION_AUTHORITY,
     _RUN_ACTION_PROVIDER_TERMINATION_AUTHORITY,
+    _RUN_ACTION_RESULT_CAPTURE_AUTHORITY,
+    _RUN_ACTION_TERMINAL_INSPECTION_AUTHORITY,
     RunActionCommittedContinuationCapability,
     RunActionCommittedSpawnObservation,
     RunActionCommittedSpawnState,
@@ -18,9 +23,6 @@ from kapso.cross_run.launch.run_action_recovery import (
     RunActionContinuationState,
     RunActionProviderResult,
     RunActionRecoveryError,
-)
-from kapso.cross_run.launch.run_action_release_adoption import (
-    RunActionReleasePresence,
 )
 from kapso.cross_run.launch.run_action_release_candidate import (
     _SystemRunActionReleaseClock,
@@ -34,12 +36,31 @@ from test_run_action_terminal_inspection import (
     _configured_settings,
     _inspection_context,
     _patch_physical_inspection,
-    _ReleaseInspection,
     _SecurityAuthority,
 )
 from test_run_action_release_contracts import (
     _security_observation as _release_security_observation,
 )
+
+
+class _ReleaseInspection:
+    def __init__(self, topology, adoption):
+        self.topology = topology
+        self.adoption = adoption
+        self.workload_release_adoption = adoption
+        self.timeout_directive_publication = None
+        self.current_checks = 0
+        self.closed = False
+
+    def require_current(self):
+        if self.closed:
+            raise AssertionError("test release inspection is closed")
+        self.current_checks += 1
+
+    def close(self):
+        if self.closed:
+            raise AssertionError("test release inspection closed twice")
+        self.closed = True
 
 
 def _capture_case(
@@ -52,7 +73,7 @@ def _capture_case(
     query, inventory, raw, command, helper, init = _inspection_context(docker_settings)
     adoption = query.workload_release_adoption
     terminal_release = _ReleaseInspection(
-        RunActionReleasePresence.PRESENT,
+        RunActionControlDirectoryTopology.RELEASED,
         adoption,
     )
     manager, remaining_main_payloads = _patch_physical_inspection(
@@ -63,7 +84,7 @@ def _capture_case(
             docker_settings,
         ),
         main_inspections=(copy.deepcopy(raw), copy.deepcopy(raw)),
-        release_inspection=terminal_release,
+        control_inspection=terminal_release,
         host_boot_id=adoption.workload_release_receipt.host_boot_id,
     )
     _normalized, normalized_payload, _raw_size_bytes = (
@@ -88,7 +109,7 @@ def _capture_case(
         _authority=_RUN_ACTION_COMMITTED_CONTINUATION_AUTHORITY,
     )
     outer_release = _ReleaseInspection(
-        RunActionReleasePresence.PRESENT,
+        RunActionControlDirectoryTopology.RELEASED,
         adoption,
     )
     monkeypatch.setattr(
@@ -494,3 +515,49 @@ def test_result_capture_must_start_by_the_original_execution_deadline(monkeypatc
 
     with pytest.raises(RunActionRecoveryError, match="started outside"):
         capability._invoke_once(_DeadlineAdapter())
+
+
+def test_timed_out_topology_cannot_consume_result_capture_authority():
+    query = _inspection_context(_configured_settings()[0], timed_out=True)[0]
+    terminal = _terminal_observation(
+        query.prepared_execution,
+        query.spawn_commit,
+        query.workload_release_adoption,
+    )
+    capability = RunActionCommittedContinuationCapability(
+        query=query,
+        observation=RunActionCommittedSpawnObservation(
+            state=RunActionCommittedSpawnState.TERMINAL_CONTINUABLE,
+            observation_token=terminal.complete_inspection_digest,
+        ),
+        required_security_observation=_release_security_observation(),
+        security_authority=_SecurityAuthority(),
+        credential_validity_authority=None,
+        release_clock=_SystemRunActionReleaseClock(),
+        _authority=_RUN_ACTION_COMMITTED_CONTINUATION_AUTHORITY,
+    )
+
+    class _TimedOutAdapter:
+        @staticmethod
+        def continue_committed_once(active_capability):
+            active_capability._take_terminal_inspection_authority(
+                _authority=_RUN_ACTION_TERMINAL_INSPECTION_AUTHORITY,
+            )
+            active_capability._complete_terminal_inspection(
+                terminal,
+                _authority=_RUN_ACTION_TERMINAL_INSPECTION_AUTHORITY,
+            )
+            with pytest.raises(
+                RunActionRecoveryError,
+                match="result capture lacks exact live terminal authority",
+            ):
+                active_capability._take_result_capture_authority(
+                    _authority=_RUN_ACTION_RESULT_CAPTURE_AUTHORITY,
+                )
+            return RunActionContinuationOutcome(
+                state=RunActionContinuationState.PENDING,
+                result=None,
+                provider_termination_receipt=None,
+            )
+
+    capability._invoke_once(_TimedOutAdapter())

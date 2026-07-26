@@ -30,6 +30,9 @@ from kapso.cross_run.launch.run_action_contracts import (
     RunFrontierActionKind,
     RunFrontierWorkspaceAccess,
 )
+from kapso.cross_run.launch.run_action_control_topology import (
+    RunActionControlDirectoryTopology,
+)
 from kapso.cross_run.launch.run_action_gate import RunFrontierActionGate
 from kapso.cross_run.launch.run_action_ledger import (
     RunActionExecutionEventKind,
@@ -110,11 +113,17 @@ from test_run_action_supervisor_contracts import (
     _spawn_commit,
     _terminal_observation,
 )
-from test_run_action_termination_contracts import _pre_release_loss
+from test_run_action_termination_contracts import (
+    _pre_release_loss,
+    _termination_graph,
+    _timeout_publication,
+)
 
 
 class _AbsentReleaseInspection:
-    presence = run_action_recovery_module.RunActionReleasePresence.ABSENT
+    topology = RunActionControlDirectoryTopology.EMPTY
+    workload_release_adoption = None
+    timeout_directive_publication = None
 
     def require_current(self):
         return None
@@ -127,10 +136,12 @@ class _AbsentReleaseInspection:
 
 
 class _PresentReleaseInspection:
-    presence = run_action_recovery_module.RunActionReleasePresence.PRESENT
+    topology = RunActionControlDirectoryTopology.RELEASED
+    timeout_directive_publication = None
 
     def __init__(self, adoption):
         self.adoption = adoption
+        self.workload_release_adoption = adoption
 
     def require_current(self):
         return None
@@ -140,6 +151,14 @@ class _PresentReleaseInspection:
 
     def __exit__(self, exception_type, exception, traceback):
         return False
+
+
+class _TimedOutReleaseInspection(_PresentReleaseInspection):
+    topology = RunActionControlDirectoryTopology.TIMED_OUT
+
+    def __init__(self, adoption, timeout_directive_publication):
+        super().__init__(adoption)
+        self.timeout_directive_publication = timeout_directive_publication
 
 
 class _ChangingAbsentReleaseInspection(_AbsentReleaseInspection):
@@ -173,16 +192,9 @@ def _synthetic_release_inspection(monkeypatch):
         lambda **_arguments: _AbsentReleaseInspection(),
     )
     monkeypatch.setattr(
-        run_action_recovery_module.RunActionRecoveryCoordinator,
-        "_require_release_adoption",
-        lambda _self, activation_event, expected: (
-            expected
-            if expected is not None
-            else _release_adoption_for_event(
-                activation_event,
-                _self._security_authority.observation,
-            )
-        ),
+        run_action_recovery_module,
+        "open_run_action_timeout_inspection",
+        lambda **_arguments: _AbsentReleaseInspection(),
     )
 
 
@@ -813,6 +825,79 @@ class _TrustedReleasedTerminationAdapter(_FakeExecutionAdapter):
         )
 
 
+class _TrustedTimeoutTerminationAdapter(_FakeExecutionAdapter):
+    def __init__(self, boundary_identity) -> None:
+        super().__init__(
+            boundary_identity,
+            observation_state=RunActionCommittedSpawnState.TERMINAL_CONTINUABLE,
+        )
+        self.terminal = None
+        self.termination_receipt = None
+
+    def inspect_committed(self, query):
+        self.inspect_calls.append(query)
+        assert (
+            query.control_directory_topology
+            is RunActionControlDirectoryTopology.TIMED_OUT
+        )
+        assert query.timeout_directive_publication is not None
+        self.terminal = _terminal_observation(
+            query.prepared_execution,
+            query.spawn_commit,
+            query.workload_release_adoption,
+        )
+        return RunActionCommittedSpawnObservation(
+            state=RunActionCommittedSpawnState.TERMINAL_CONTINUABLE,
+            observation_token=self.terminal.complete_inspection_digest,
+        )
+
+    def continue_committed_once(self, capability):
+        self.continuation_calls.append(capability)
+        query, observation_token = capability._take_terminal_inspection_authority(
+            _authority=(
+                run_action_recovery_module._RUN_ACTION_TERMINAL_INSPECTION_AUTHORITY
+            ),
+        )
+        assert observation_token == self.terminal.complete_inspection_digest
+        capability._complete_terminal_inspection(
+            self.terminal,
+            _authority=(
+                run_action_recovery_module._RUN_ACTION_TERMINAL_INSPECTION_AUTHORITY
+            ),
+        )
+        termination_query, retained_terminal, loss_observation_id = (
+            capability._take_provider_termination_authority(
+                _authority=(
+                    run_action_recovery_module._RUN_ACTION_PROVIDER_TERMINATION_AUTHORITY
+                ),
+            )
+        )
+        assert termination_query == query
+        assert retained_terminal == self.terminal
+        assert loss_observation_id is None
+        self.termination_receipt = RunActionProviderTerminationReceipt.mint(
+            disposition=RunActionProviderTerminationDisposition.INTERRUPTED,
+            reason=RunActionProviderTerminationReason.TIMEOUT,
+            activation_event_id=query.activation_event.event_id,
+            workload_release_adoption=query.workload_release_adoption,
+            terminal_observation=self.terminal,
+            timeout_directive_publication=query.timeout_directive_publication,
+            empty_result_capture_receipt=None,
+            pre_release_main_loss_observation=None,
+        )
+        capability._complete_provider_termination(
+            self.termination_receipt,
+            _authority=(
+                run_action_recovery_module._RUN_ACTION_PROVIDER_TERMINATION_AUTHORITY
+            ),
+        )
+        return RunActionContinuationOutcome(
+            state=RunActionContinuationState.PROVIDER_TERMINATED,
+            result=None,
+            provider_termination_receipt=self.termination_receipt,
+        )
+
+
 class _SecurityAdvancingStageAdapter(_FakeExecutionAdapter):
     def __init__(self, boundary_identity, advance_security) -> None:
         super().__init__(boundary_identity)
@@ -1423,6 +1508,7 @@ def test_committed_query_rejects_allocation_and_activation_splices(
             preparation_allocation=replacement_allocation,
             activation_event=events[4],
             workload_release_adoption=None,
+            timeout_directive_publication=None,
         )
 
     foreign_prepared = _prepared_execution(inode_offset=11)
@@ -1442,6 +1528,71 @@ def test_committed_query_rejects_allocation_and_activation_splices(
             preparation_allocation=allocation,
             activation_event=spliced_event,
             workload_release_adoption=None,
+            timeout_directive_publication=None,
+        )
+
+
+def test_committed_query_derives_exact_empty_released_and_timed_out_topology(
+    publisher_case,
+) -> None:
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
+    _append_activation_committed(gate, reservation)
+    events = gate._action_store.inspect().events_for(reservation.intent.operation_id)
+    allocation = events[1].preparation_allocation
+    activation_event = events[4]
+    adoption = _release_adoption_for_event(
+        activation_event,
+        frontier.checkpoint.safety_state.security_observation,
+    )
+    publication = _timeout_publication(
+        activation_event.activation_revalidation_receipt,
+        adoption,
+    )
+
+    empty = RunActionCommittedSpawnQuery(
+        preparation_allocation=allocation,
+        activation_event=activation_event,
+        workload_release_adoption=None,
+        timeout_directive_publication=None,
+    )
+    released = RunActionCommittedSpawnQuery(
+        preparation_allocation=allocation,
+        activation_event=activation_event,
+        workload_release_adoption=adoption,
+        timeout_directive_publication=None,
+    )
+    timed_out = RunActionCommittedSpawnQuery(
+        preparation_allocation=allocation,
+        activation_event=activation_event,
+        workload_release_adoption=adoption,
+        timeout_directive_publication=publication,
+    )
+
+    assert empty.control_directory_topology is RunActionControlDirectoryTopology.EMPTY
+    assert (
+        released.control_directory_topology
+        is RunActionControlDirectoryTopology.RELEASED
+    )
+    assert (
+        timed_out.control_directory_topology
+        is RunActionControlDirectoryTopology.TIMED_OUT
+    )
+    with pytest.raises(RunActionRecoveryError, match="control topology"):
+        RunActionCommittedSpawnQuery(
+            preparation_allocation=allocation,
+            activation_event=activation_event,
+            workload_release_adoption=None,
+            timeout_directive_publication=publication,
+        )
+    foreign_publication = _termination_graph(
+        RunActionProviderTerminationReason.TIMEOUT
+    ).timeout_directive_publication
+    with pytest.raises(RunActionRecoveryError, match="control topology"):
+        RunActionCommittedSpawnQuery(
+            preparation_allocation=allocation,
+            activation_event=activation_event,
+            workload_release_adoption=adoption,
+            timeout_directive_publication=foreign_publication,
         )
 
 
@@ -2520,7 +2671,7 @@ def test_published_release_is_adopted_after_security_advance(
     )
     monkeypatch.setattr(
         run_action_recovery_module,
-        "open_run_action_release_inspection",
+        "open_run_action_timeout_inspection",
         lambda **_arguments: _PresentReleaseInspection(adoption),
     )
     _advance_security(publisher_case, gate, frontier)
@@ -2744,6 +2895,64 @@ def test_registered_pre_release_loss_persists_as_terminal_event(
     assert events[-1].provider_termination_receipt == adapter.termination_receipt
 
 
+def test_existing_timeout_is_adopted_once_persisted_and_replayed(
+    publisher_case,
+    monkeypatch,
+) -> None:
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
+    _append_activation_committed(gate, reservation)
+    activation_event = gate._action_store.inspect().events_for(
+        reservation.intent.operation_id
+    )[4]
+    adoption = _release_adoption_for_event(
+        activation_event,
+        gate._security_authority.observation,
+    )
+    publication = _timeout_publication(
+        activation_event.activation_revalidation_receipt,
+        adoption,
+    )
+    inspections = []
+
+    def inspect_existing_timeout(**_arguments):
+        inspection = _TimedOutReleaseInspection(adoption, publication)
+        inspections.append(inspection)
+        return inspection
+
+    monkeypatch.setattr(
+        run_action_recovery_module,
+        "open_run_action_timeout_inspection",
+        inspect_existing_timeout,
+    )
+    adapter = _TrustedTimeoutTerminationAdapter(
+        reservation.intent.boundary_identity,
+    )
+
+    report = _recovery_coordinator(gate, adapter).recover(frontier)
+
+    events = gate._action_store.inspect().events_for(reservation.intent.operation_id)
+    assert report.is_complete
+    assert len(events) == 6
+    assert len(inspections) == 2
+    assert adapter.inspect_calls[0].timeout_directive_publication == publication
+    assert events[-1].provider_termination_receipt == adapter.termination_receipt
+    assert (
+        events[-1].provider_termination_receipt.reason
+        is RunActionProviderTerminationReason.TIMEOUT
+    )
+
+    guarded = _AccessGuardedExecutionAdapter(reservation.intent.boundary_identity)
+    restarted = _recovery_coordinator(gate, guarded)
+    guarded.reject_execution_access = True
+    replay = restarted.recover(frontier)
+
+    assert replay.is_complete
+    assert replay.recovered_operations[-1].events[-1] == events[-1]
+    assert not guarded.inspect_calls
+    assert not guarded.continuation_calls
+    assert len(inspections) == 2
+
+
 @pytest.mark.parametrize("publish_before_interrupt", (False, True))
 def test_provider_termination_has_exact_crash_restart_semantics(
     publisher_case,
@@ -2815,7 +3024,7 @@ def test_provider_termination_retains_exact_release_absence_during_publication(
     )
     monkeypatch.setattr(
         run_action_recovery_module,
-        "open_run_action_release_inspection",
+        "open_run_action_timeout_inspection",
         lambda **_arguments: next(inspections),
     )
 
@@ -2857,7 +3066,7 @@ def test_provider_termination_retains_exact_release_adoption_during_publication(
     )
     monkeypatch.setattr(
         run_action_recovery_module,
-        "open_run_action_release_inspection",
+        "open_run_action_timeout_inspection",
         lambda **_arguments: next(inspections),
     )
 

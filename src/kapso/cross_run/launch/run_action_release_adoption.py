@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 import stat
 from contextlib import ExitStack
-from enum import Enum
 from threading import get_ident
 
 from kapso.cross_run.canonical import tree_or_blob_digest
@@ -19,6 +18,9 @@ from kapso.cross_run.launch.run_action_release_contracts import (
     RunActionWorkloadReleaseAdoption,
     RunActionWorkloadReleaseReceipt,
 )
+from kapso.cross_run.launch.run_action_control_topology import (
+    RunActionControlDirectoryTopology,
+)
 from kapso.cross_run.launch.run_action_runtime_volume import (
     RunActionControlDirectoryLease,
     open_run_action_control_directory,
@@ -31,13 +33,7 @@ from kapso.cross_run.settings import LaunchSettings
 
 _RELEASE_FILE_NAME = "release"
 _RELEASE_FILE_MODE = 0o400
-
-
-class RunActionReleasePresence(str, Enum):
-    """The only noncorrupt physical states admitted after durable event 5."""
-
-    ABSENT = "absent"
-    PRESENT = "present"
+_RUN_ACTION_TIMEOUT_ADOPTION_AUTHORITY = object()
 
 
 class RunActionReleaseAdoptionError(RuntimeError):
@@ -45,14 +41,14 @@ class RunActionReleaseAdoptionError(RuntimeError):
 
 
 class RunActionReleaseInspectionLease:
-    """Owner-bound retained proof of one exact release presence observation."""
+    """Owner-bound retained proof of one exact semantic control topology."""
 
     def __init__(
         self,
         *,
         descriptors: ExitStack,
         control_lease: RunActionControlDirectoryLease,
-        presence: RunActionReleasePresence,
+        topology: RunActionControlDirectoryTopology,
         adoption: RunActionWorkloadReleaseAdoption | None,
         release_descriptor: int | None,
         release_identity: tuple[int, ...] | None,
@@ -61,14 +57,14 @@ class RunActionReleaseInspectionLease:
         if (
             type(descriptors) is not ExitStack
             or type(control_lease) is not RunActionControlDirectoryLease
-            or type(presence) is not RunActionReleasePresence
-            or (presence is RunActionReleasePresence.PRESENT)
+            or type(topology) is not RunActionControlDirectoryTopology
+            or (topology is not RunActionControlDirectoryTopology.EMPTY)
             != (type(adoption) is RunActionWorkloadReleaseAdoption)
-            or (presence is RunActionReleasePresence.PRESENT)
+            or (topology is not RunActionControlDirectoryTopology.EMPTY)
             != (type(release_descriptor) is int)
-            or (presence is RunActionReleasePresence.PRESENT)
+            or (topology is not RunActionControlDirectoryTopology.EMPTY)
             != (type(release_identity) is tuple)
-            or (presence is RunActionReleasePresence.PRESENT)
+            or (topology is not RunActionControlDirectoryTopology.EMPTY)
             != (type(release_payload) is bytes)
         ):
             raise RunActionReleaseAdoptionError(
@@ -76,7 +72,7 @@ class RunActionReleaseInspectionLease:
             )
         self._descriptors = descriptors
         self._control_lease = control_lease
-        self._presence = presence
+        self._topology = topology
         self._adoption = adoption
         self._release_descriptor = release_descriptor
         self._release_identity = release_identity
@@ -87,9 +83,9 @@ class RunActionReleaseInspectionLease:
         self.require_current()
 
     @property
-    def presence(self) -> RunActionReleasePresence:
+    def topology(self) -> RunActionControlDirectoryTopology:
         self.require_current()
-        return self._presence
+        return self._topology
 
     @property
     def adoption(self) -> RunActionWorkloadReleaseAdoption:
@@ -110,22 +106,18 @@ class RunActionReleaseInspectionLease:
                 "release inspection lease is closed or foreign"
             )
         self._control_lease.require_current()
-        if self._control_lease.release_present != (
-            self._presence is RunActionReleasePresence.PRESENT
-        ):
+        if self._control_lease.topology is not self._topology:
             raise RunActionReleaseAdoptionError(
-                "release presence changed during retained inspection"
+                "control topology changed during retained release inspection"
             )
-        if self._presence is RunActionReleasePresence.ABSENT:
+        if self._topology is RunActionControlDirectoryTopology.EMPTY:
             return
         before = os.fstat(self._release_descriptor)
         mount_id_before = read_run_action_descriptor_mount_id(self._release_descriptor)
-        payload = _read_complete_bounded_payload(
+        retained_payload_before = _read_complete_bounded_payload(
             self._release_descriptor,
             len(self._release_payload),
         )
-        after = os.fstat(self._release_descriptor)
-        mount_id_after = read_run_action_descriptor_mount_id(self._release_descriptor)
         path_descriptor = os.open(
             _RELEASE_FILE_NAME,
             os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW | os.O_CLOEXEC,
@@ -138,16 +130,45 @@ class RunActionReleaseInspectionLease:
             )
             path_metadata = os.fstat(path_file.fileno())
             path_mount_id = read_run_action_descriptor_mount_id(path_file.fileno())
+        retained_payload_after = _read_complete_bounded_payload(
+            self._release_descriptor,
+            len(self._release_payload),
+        )
+        after = os.fstat(self._release_descriptor)
+        mount_id_after = read_run_action_descriptor_mount_id(self._release_descriptor)
         if (
             _release_identity(before, mount_id_before) != self._release_identity
-            or _release_identity(after, mount_id_after) != self._release_identity
             or _release_identity(path_metadata, path_mount_id) != self._release_identity
-            or payload != self._release_payload
+            or _release_identity(after, mount_id_after) != self._release_identity
+            or retained_payload_before != self._release_payload
             or path_payload != self._release_payload
+            or retained_payload_after != self._release_payload
         ):
             raise RunActionReleaseAdoptionError(
                 "adopted release inode changed or was replaced"
             )
+        self._control_lease.require_current()
+
+    def _duplicate_timeout_control_descriptor(
+        self,
+        *,
+        descriptors: ExitStack,
+        _authority: object,
+    ) -> int:
+        self.require_current()
+        if (
+            self._topology is not RunActionControlDirectoryTopology.TIMED_OUT
+            or type(descriptors) is not ExitStack
+            or _authority is not _RUN_ACTION_TIMEOUT_ADOPTION_AUTHORITY
+        ):
+            raise RunActionReleaseAdoptionError(
+                "timeout adoption lacks exact retained control authority"
+            )
+        descriptor = os.dup(self._control_lease._control_descriptor)
+        descriptors.callback(os.close, descriptor)
+        os.set_inheritable(descriptor, False)
+        self.require_current()
+        return descriptor
 
     def __enter__(self) -> "RunActionReleaseInspectionLease":
         self.require_current()
@@ -201,11 +222,12 @@ def open_run_action_release_inspection(
     with ExitStack() as descriptors:
         control_lease = open_run_action_control_directory(prepared)
         descriptors.callback(control_lease.close)
-        if not control_lease.release_present:
+        topology = control_lease.topology
+        if topology is RunActionControlDirectoryTopology.EMPTY:
             inspection = RunActionReleaseInspectionLease(
                 descriptors=descriptors,
                 control_lease=control_lease,
-                presence=RunActionReleasePresence.ABSENT,
+                topology=topology,
                 adoption=None,
                 release_descriptor=None,
                 release_identity=None,
@@ -277,7 +299,7 @@ def open_run_action_release_inspection(
         inspection = RunActionReleaseInspectionLease(
             descriptors=descriptors,
             control_lease=control_lease,
-            presence=RunActionReleasePresence.PRESENT,
+            topology=topology,
             adoption=adoption,
             release_descriptor=release_descriptor,
             release_identity=identity,
@@ -335,6 +357,5 @@ def _release_identity(
 __all__ = [
     "RunActionReleaseAdoptionError",
     "RunActionReleaseInspectionLease",
-    "RunActionReleasePresence",
     "open_run_action_release_inspection",
 ]

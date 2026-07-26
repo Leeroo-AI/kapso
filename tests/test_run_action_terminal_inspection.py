@@ -22,11 +22,11 @@ from kapso.cross_run.launch.run_action_recovery import (
     RunActionContinuationState,
     RunActionRecoveryError,
 )
+from kapso.cross_run.launch.run_action_control_topology import (
+    RunActionControlDirectoryTopology,
+)
 from kapso.cross_run.launch.run_action_release_candidate import (
     _SystemRunActionReleaseClock,
-)
-from kapso.cross_run.launch.run_action_release_adoption import (
-    RunActionReleasePresence,
 )
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RunActionPreparationAllocation,
@@ -43,14 +43,16 @@ from test_run_action_release_contracts import _activation_event
 from test_run_action_release_contracts import (
     _security_observation as _release_security_observation,
 )
+from test_run_action_termination_contracts import _timeout_publication
 
 _CANONICAL_CONFIG_PATH = "src/kapso/config.yaml"
 
 
-class _ReleaseInspection:
-    def __init__(self, presence, adoption):
-        self.presence = presence
-        self.adoption = adoption
+class _ControlInspection:
+    def __init__(self, topology, adoption, timeout_directive_publication=None):
+        self.topology = topology
+        self.workload_release_adoption = adoption
+        self.timeout_directive_publication = timeout_directive_publication
         self.current_checks = 0
         self.closed = False
 
@@ -70,7 +72,7 @@ class _SecurityAuthority:
         raise AssertionError("terminal reinspection must not reauthorize security")
 
 
-def _inspection_context(docker_settings):
+def _inspection_context(docker_settings, *, timed_out=False):
     (
         prepared,
         activation,
@@ -87,10 +89,14 @@ def _inspection_context(docker_settings):
         preparation_claim=prepared.preparation_claim,
         runtime_volume_authority=prepared.runtime_volume_authority,
     )
+    timeout_directive_publication = (
+        _timeout_publication(activation, adoption) if timed_out else None
+    )
     query = RunActionCommittedSpawnQuery(
         preparation_allocation=allocation,
         activation_event=activation_event,
         workload_release_adoption=adoption,
+        timeout_directive_publication=timeout_directive_publication,
     )
     inventory = DockerRunActionResourceInventory(
         preparation_allocation=allocation,
@@ -121,7 +127,7 @@ def _patch_physical_inspection(
     inventory,
     volume_raw,
     main_inspections,
-    release_inspection,
+    control_inspection,
     host_boot_id,
 ):
     main_payloads = list(main_inspections)
@@ -149,8 +155,8 @@ def _patch_physical_inspection(
     )
     monkeypatch.setattr(
         terminal_inspection,
-        "open_run_action_release_inspection",
-        lambda **_arguments: release_inspection,
+        "open_run_action_timeout_inspection",
+        lambda **_arguments: control_inspection,
     )
     monkeypatch.setattr(
         terminal_inspection,
@@ -160,15 +166,21 @@ def _patch_physical_inspection(
     return manager, main_payloads
 
 
-def test_terminal_inspection_retains_release_and_requires_two_equal_snapshots(
+@pytest.mark.parametrize("timed_out", (False, True))
+def test_terminal_inspection_retains_exact_control_and_two_equal_snapshots(
     monkeypatch,
+    timed_out,
 ):
     docker_settings, launch_settings = _configured_settings()
-    query, inventory, raw, command, helper, init = _inspection_context(docker_settings)
+    query, inventory, raw, command, helper, init = _inspection_context(
+        docker_settings,
+        timed_out=timed_out,
+    )
     adoption = query.workload_release_adoption
-    release_inspection = _ReleaseInspection(
-        RunActionReleasePresence.PRESENT,
+    control_inspection = _ControlInspection(
+        query.control_directory_topology,
         adoption,
+        query.timeout_directive_publication,
     )
     manager, remaining_payloads = _patch_physical_inspection(
         monkeypatch,
@@ -178,7 +190,7 @@ def test_terminal_inspection_retains_release_and_requires_two_equal_snapshots(
             docker_settings,
         ),
         main_inspections=(copy.deepcopy(raw), copy.deepcopy(raw)),
-        release_inspection=release_inspection,
+        control_inspection=control_inspection,
         host_boot_id=adoption.workload_release_receipt.host_boot_id,
     )
 
@@ -196,8 +208,8 @@ def test_terminal_inspection_retains_release_and_requires_two_equal_snapshots(
         adoption.workload_release_adoption_id
     )
     assert not remaining_payloads
-    assert release_inspection.current_checks == 2
-    assert release_inspection.closed
+    assert control_inspection.current_checks == 2
+    assert control_inspection.closed
 
 
 def test_terminal_inspection_rejects_absent_release_or_changing_terminal(
@@ -206,7 +218,7 @@ def test_terminal_inspection_rejects_absent_release_or_changing_terminal(
     docker_settings, launch_settings = _configured_settings()
     query, inventory, raw, command, helper, init = _inspection_context(docker_settings)
     adoption = query.workload_release_adoption
-    absent = _ReleaseInspection(RunActionReleasePresence.ABSENT, None)
+    absent = _ControlInspection(RunActionControlDirectoryTopology.EMPTY, None)
     manager, _remaining_payloads = _patch_physical_inspection(
         monkeypatch,
         inventory=inventory,
@@ -215,12 +227,12 @@ def test_terminal_inspection_rejects_absent_release_or_changing_terminal(
             docker_settings,
         ),
         main_inspections=(),
-        release_inspection=absent,
+        control_inspection=absent,
         host_boot_id=adoption.workload_release_receipt.host_boot_id,
     )
     with pytest.raises(
         terminal_inspection.RunActionTerminalInspectionError,
-        match="retained release",
+        match="retained control",
     ):
         terminal_inspection.inspect_run_action_terminal(
             query=query,
@@ -233,7 +245,10 @@ def test_terminal_inspection_rejects_absent_release_or_changing_terminal(
         )
     changed = copy.deepcopy(raw)
     changed["State"]["FinishedAt"] = "2026-07-25T01:02:05.123456789Z"
-    present = _ReleaseInspection(RunActionReleasePresence.PRESENT, adoption)
+    present = _ControlInspection(
+        RunActionControlDirectoryTopology.RELEASED,
+        adoption,
+    )
     manager, _remaining_payloads = _patch_physical_inspection(
         monkeypatch,
         inventory=inventory,
@@ -242,12 +257,51 @@ def test_terminal_inspection_rejects_absent_release_or_changing_terminal(
             docker_settings,
         ),
         main_inspections=(copy.deepcopy(raw), changed),
-        release_inspection=present,
+        control_inspection=present,
         host_boot_id=adoption.workload_release_receipt.host_boot_id,
     )
     with pytest.raises(
         terminal_inspection.RunActionTerminalInspectionError,
         match="changed",
+    ):
+        terminal_inspection.inspect_run_action_terminal(
+            query=query,
+            resource_manager=manager,
+            command=command,
+            helper_evidence=helper,
+            init_source_evidence=init,
+            docker_settings=docker_settings,
+            launch_settings=launch_settings,
+        )
+
+
+def test_terminal_inspection_rejects_timeout_publication_downgrade(monkeypatch):
+    docker_settings, launch_settings = _configured_settings()
+    query, inventory, _raw, command, helper, init = _inspection_context(
+        docker_settings,
+        timed_out=True,
+    )
+    adoption = query.workload_release_adoption
+    downgraded = _ControlInspection(
+        RunActionControlDirectoryTopology.TIMED_OUT,
+        adoption,
+        None,
+    )
+    manager, _remaining_payloads = _patch_physical_inspection(
+        monkeypatch,
+        inventory=inventory,
+        volume_raw=_volume_raw(
+            query.prepared_execution.runtime_volume_authority,
+            docker_settings,
+        ),
+        main_inspections=(),
+        control_inspection=downgraded,
+        host_boot_id=adoption.workload_release_receipt.host_boot_id,
+    )
+
+    with pytest.raises(
+        terminal_inspection.RunActionTerminalInspectionError,
+        match="retained control",
     ):
         terminal_inspection.inspect_run_action_terminal(
             query=query,
@@ -266,8 +320,8 @@ def test_terminal_reinspection_consumes_one_capability_and_seals_the_digest(
     docker_settings, launch_settings = _configured_settings()
     query, inventory, raw, command, helper, init = _inspection_context(docker_settings)
     adoption = query.workload_release_adoption
-    release_inspection = _ReleaseInspection(
-        RunActionReleasePresence.PRESENT,
+    control_inspection = _ControlInspection(
+        RunActionControlDirectoryTopology.RELEASED,
         adoption,
     )
     manager, remaining_payloads = _patch_physical_inspection(
@@ -278,7 +332,7 @@ def test_terminal_reinspection_consumes_one_capability_and_seals_the_digest(
             docker_settings,
         ),
         main_inspections=(copy.deepcopy(raw), copy.deepcopy(raw)),
-        release_inspection=release_inspection,
+        control_inspection=control_inspection,
         host_boot_id=adoption.workload_release_receipt.host_boot_id,
     )
     _normalized, normalized_payload, _raw_size_bytes = (

@@ -15,14 +15,16 @@ from kapso.cross_run.launch.run_action_docker_projection import DockerRunActionC
 from kapso.cross_run.launch.run_action_docker_resources import (
     DockerRunActionResourceManager,
 )
+from kapso.cross_run.launch.run_action_control_topology import (
+    RunActionControlDirectoryTopology,
+)
 from kapso.cross_run.launch.run_action_recovery import (
     _RUN_ACTION_TERMINAL_INSPECTION_AUTHORITY,
     RunActionCommittedContinuationCapability,
     RunActionCommittedSpawnQuery,
 )
-from kapso.cross_run.launch.run_action_release_adoption import (
-    RunActionReleasePresence,
-    open_run_action_release_inspection,
+from kapso.cross_run.launch.run_action_timeout_adoption import (
+    open_run_action_timeout_inspection,
 )
 from kapso.cross_run.launch.run_action_release_authority import (
     require_run_action_workload_release_receipt_matches_event,
@@ -155,19 +157,26 @@ def _inspect_exact_terminal(
             os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
         )
         descriptors.callback(os.close, proc_root_descriptor)
-        release_inspection = open_run_action_release_inspection(
+        control_inspection = open_run_action_timeout_inspection(
             activation_event=query.activation_event,
             launch_settings=launch_settings,
         )
-        descriptors.callback(release_inspection.close)
+        descriptors.callback(control_inspection.close)
         if (
-            release_inspection.presence is not RunActionReleasePresence.PRESENT
-            or release_inspection.adoption != adoption
+            control_inspection.topology is not query.control_directory_topology
+            or control_inspection.topology
+            not in {
+                RunActionControlDirectoryTopology.RELEASED,
+                RunActionControlDirectoryTopology.TIMED_OUT,
+            }
+            or control_inspection.workload_release_adoption != adoption
+            or control_inspection.timeout_directive_publication
+            != query.timeout_directive_publication
             or read_run_action_host_boot_id(proc_root_descriptor)
             != adoption.workload_release_receipt.host_boot_id
         ):
             raise RunActionTerminalInspectionError(
-                "terminal inspection differs from its retained release occurrence"
+                "terminal inspection differs from its retained control occurrence"
             )
         inventory = resource_manager.observe(query.preparation_allocation)
         if (
@@ -213,7 +222,7 @@ def _inspect_exact_terminal(
                 launch_settings.run_action_process_snapshot_size_bytes
             ),
         )
-        release_inspection.require_current()
+        control_inspection.require_current()
         if first != second:
             changed_paths = _changed_paths(first_raw, second_raw)
             raise RunActionTerminalInspectionError(
@@ -231,7 +240,7 @@ def _inspect_exact_terminal(
             raise RunActionTerminalInspectionError(
                 "host boot identity changed during retained terminal inspection"
             )
-        release_inspection.require_current()
+        control_inspection.require_current()
         return second
 
 

@@ -25,6 +25,9 @@ from kapso.cross_run.launch.run_action_contracts import (
     RunActionResultInterpreterIdentity,
     RunFrontierWorkspaceAccess,
 )
+from kapso.cross_run.launch.run_action_control_topology import (
+    RunActionControlDirectoryTopology,
+)
 from kapso.cross_run.launch.run_action_barrier_contracts import (
     RunActionResolvedWorkloadObservation,
 )
@@ -38,7 +41,9 @@ from kapso.cross_run.launch.run_action_release_authority import (
 )
 from kapso.cross_run.launch.run_action_release_adoption import (
     open_run_action_release_inspection,
-    RunActionReleasePresence,
+)
+from kapso.cross_run.launch.run_action_timeout_adoption import (
+    open_run_action_timeout_inspection,
 )
 from kapso.cross_run.launch.run_action_release_candidate import (
     _RELEASE_CANDIDATE_AUTHORIZATION_AUTHORITY,
@@ -83,8 +88,10 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
 )
 from kapso.cross_run.launch.run_action_termination_contracts import (
     provider_termination_matches_durable_activation,
+    run_action_timeout_publication_evidence_matches,
     RunActionProviderTerminationReason,
     RunActionProviderTerminationReceipt,
+    RunActionTimeoutDirectivePublicationReceipt,
 )
 from kapso.cross_run.launch.run_action_workspace_promotion import (
     _RUN_ACTION_WORKSPACE_PROMOTION_AUTHORITY,
@@ -914,8 +921,12 @@ class RunActionCommittedContinuationCapability:
                 != self._query.activation_revalidation_receipt
                 or resolved_workload_observation.running_container_observation.complete_inspection_digest
                 != self._observation.observation_token
-                or resolved_workload_observation.release_present is not False
+                or resolved_workload_observation.control_directory_topology
+                is not RunActionControlDirectoryTopology.EMPTY
+                or self._query.control_directory_topology
+                is not RunActionControlDirectoryTopology.EMPTY
                 or self._query.workload_release_adoption is not None
+                or self._query.timeout_directive_publication is not None
                 or _authority is not _RUN_ACTION_RELEASE_PUBLISHER_AUTHORITY
             ):
                 raise RunActionRecoveryError(
@@ -951,6 +962,11 @@ class RunActionCommittedContinuationCapability:
                 is not RunActionCommittedSpawnState.TERMINAL_CONTINUABLE
                 or type(observation_token) is not str
                 or self._query.workload_release_adoption is None
+                or self._query.control_directory_topology
+                not in {
+                    RunActionControlDirectoryTopology.RELEASED,
+                    RunActionControlDirectoryTopology.TIMED_OUT,
+                }
                 or _authority is not _RUN_ACTION_TERMINAL_INSPECTION_AUTHORITY
             ):
                 raise RunActionRecoveryError(
@@ -1033,6 +1049,9 @@ class RunActionCommittedContinuationCapability:
                 or terminal.exit_code != 0
                 or terminal.oom_killed is not False
                 or adoption is None
+                or self._query.control_directory_topology
+                is not RunActionControlDirectoryTopology.RELEASED
+                or self._query.timeout_directive_publication is not None
                 or self._result_capture_state != "ready"
                 or self._captured_result is not None
                 or self._provider_termination_state != "ready"
@@ -1093,6 +1112,9 @@ class RunActionCommittedContinuationCapability:
                 or self._provider_termination_receipt is not None
                 or type(authorities) is not _RunActionIssuedReleaseAuthorities
                 or adoption is None
+                or query.control_directory_topology
+                is not RunActionControlDirectoryTopology.RELEASED
+                or query.timeout_directive_publication is not None
                 or type(terminal) is not RunActionTerminalObservation
                 or type(result) is not RunActionProviderResult
                 or result.terminal_observation != terminal
@@ -1136,6 +1158,11 @@ class RunActionCommittedContinuationCapability:
                 and self._terminal_inspection_state == "complete"
                 and type(terminal) is RunActionTerminalObservation
                 and query.workload_release_adoption is not None
+                and query.control_directory_topology
+                in {
+                    RunActionControlDirectoryTopology.RELEASED,
+                    RunActionControlDirectoryTopology.TIMED_OUT,
+                }
                 and loss_observation_id is None
             )
             pre_release_loss_ready = (
@@ -1144,6 +1171,9 @@ class RunActionCommittedContinuationCapability:
                 and self._terminal_inspection_state == "ready"
                 and terminal is None
                 and query.workload_release_adoption is None
+                and query.control_directory_topology
+                is RunActionControlDirectoryTopology.EMPTY
+                and query.timeout_directive_publication is None
                 and type(loss_observation_id) is str
                 and _PRE_RELEASE_MAIN_LOSS_OBSERVATION_ID_PATTERN.fullmatch(
                     loss_observation_id
@@ -1196,6 +1226,21 @@ class RunActionCommittedContinuationCapability:
                 is not RunActionProviderTerminationReason.PRE_RELEASE_MAIN_LOSS
                 and receipt.workload_release_adoption == query.workload_release_adoption
                 and receipt.terminal_observation == retained_terminal
+                and (
+                    (
+                        receipt.reason is RunActionProviderTerminationReason.TIMEOUT
+                        and query.control_directory_topology
+                        is RunActionControlDirectoryTopology.TIMED_OUT
+                        and receipt.timeout_directive_publication
+                        == query.timeout_directive_publication
+                    )
+                    or (
+                        receipt.reason is not RunActionProviderTerminationReason.TIMEOUT
+                        and query.control_directory_topology
+                        is RunActionControlDirectoryTopology.RELEASED
+                        and query.timeout_directive_publication is None
+                    )
+                )
             )
             loss = receipt.pre_release_main_loss_observation
             pre_release_loss_matches = (
@@ -1205,7 +1250,10 @@ class RunActionCommittedContinuationCapability:
                 and retained_terminal is None
                 and receipt.reason
                 is RunActionProviderTerminationReason.PRE_RELEASE_MAIN_LOSS
+                and query.control_directory_topology
+                is RunActionControlDirectoryTopology.EMPTY
                 and query.workload_release_adoption is None
+                and query.timeout_directive_publication is None
                 and loss is not None
                 and loss.pre_release_main_loss_observation_id
                 == self._observation.observation_token
@@ -1838,6 +1886,7 @@ class RunActionCommittedSpawnQuery:
     preparation_allocation: RunActionPreparationAllocation
     activation_event: RunActionExecutionEvent
     workload_release_adoption: RunActionWorkloadReleaseAdoption | None
+    timeout_directive_publication: RunActionTimeoutDirectivePublicationReceipt | None
 
     def __post_init__(self) -> None:
         if (
@@ -1853,6 +1902,11 @@ class RunActionCommittedSpawnQuery:
                 and type(self.workload_release_adoption)
                 is not RunActionWorkloadReleaseAdoption
             )
+            or (
+                self.timeout_directive_publication is not None
+                and type(self.timeout_directive_publication)
+                is not RunActionTimeoutDirectivePublicationReceipt
+            )
         ):
             raise RunActionRecoveryError(
                 "committed run action query lacks its durable activation"
@@ -1861,6 +1915,21 @@ class RunActionCommittedSpawnQuery:
             require_run_action_workload_release_receipt_matches_event(
                 self.workload_release_adoption.workload_release_receipt,
                 self.activation_event,
+            )
+        if (
+            self.workload_release_adoption is None
+            and self.timeout_directive_publication is not None
+        ) or (
+            self.timeout_directive_publication is not None
+            and not run_action_timeout_publication_evidence_matches(
+                self.timeout_directive_publication,
+                self.activation_event.event_id,
+                self.activation_revalidation_receipt,
+                self.workload_release_adoption,
+            )
+        ):
+            raise RunActionRecoveryError(
+                "committed run action query differs from its control topology"
             )
         unactivated = RunActionUnactivatedSpawnQuery(
             prepared_execution=self.prepared_execution,
@@ -1890,6 +1959,14 @@ class RunActionCommittedSpawnQuery:
     @property
     def prepared_execution(self) -> RunActionPreparedExecution:
         return self.activation_revalidation_receipt.prepared_execution
+
+    @property
+    def control_directory_topology(self) -> RunActionControlDirectoryTopology:
+        if self.timeout_directive_publication is not None:
+            return RunActionControlDirectoryTopology.TIMED_OUT
+        if self.workload_release_adoption is not None:
+            return RunActionControlDirectoryTopology.RELEASED
+        return RunActionControlDirectoryTopology.EMPTY
 
     @property
     def spawn_commit(self) -> RunActionSpawnCommit:
@@ -2768,21 +2845,26 @@ class RunActionRecoveryCoordinator:
             raise RunActionRecoveryError(
                 "provider continuation requires the durable activation tail"
             )
-        with open_run_action_release_inspection(
+        with open_run_action_timeout_inspection(
             activation_event=activation_event,
             launch_settings=self._publisher._settings,
-        ) as release_inspection:
-            workload_release_adoption = (
-                release_inspection.adoption
-                if release_inspection.presence is RunActionReleasePresence.PRESENT
-                else None
+        ) as control_inspection:
+            workload_release_adoption = control_inspection.workload_release_adoption
+            timeout_directive_publication = (
+                control_inspection.timeout_directive_publication
             )
-        query = RunActionCommittedSpawnQuery(
-            preparation_allocation=session.events[1].preparation_allocation,
-            activation_event=activation_event,
-            workload_release_adoption=workload_release_adoption,
-        )
-        observation = execution_adapter.inspect_committed(query)
+            query = RunActionCommittedSpawnQuery(
+                preparation_allocation=session.events[1].preparation_allocation,
+                activation_event=activation_event,
+                workload_release_adoption=workload_release_adoption,
+                timeout_directive_publication=timeout_directive_publication,
+            )
+            if query.control_directory_topology is not control_inspection.topology:
+                raise RunActionRecoveryError(
+                    "committed query differs from retained control topology"
+                )
+            observation = execution_adapter.inspect_committed(query)
+            control_inspection.require_current()
         if type(observation) is not RunActionCommittedSpawnObservation:
             raise RunActionRecoveryError(
                 "execution adapter returned an invalid committed-spawn observation"
@@ -2832,14 +2914,10 @@ class RunActionRecoveryCoordinator:
         if outcome.state is RunActionContinuationState.PENDING:
             return None
         if outcome.state is RunActionContinuationState.RESULT_CAPTURED:
-            final_release_adoption = self._require_release_adoption(
-                activation_event,
-                workload_release_adoption,
-            )
             return self._record_and_interpret(
                 session,
                 outcome.result,
-                final_release_adoption,
+                workload_release_adoption,
                 descriptors,
                 workspace_lock_descriptor,
             )
@@ -2904,18 +2982,18 @@ class RunActionRecoveryCoordinator:
             descriptors,
             "host workspace changed before provider termination event",
         )
-        with open_run_action_release_inspection(
+        with open_run_action_timeout_inspection(
             activation_event=activation_event,
             launch_settings=self._publisher._settings,
-        ) as release_inspection:
+        ) as control_inspection:
             self._require_provider_termination_release_fence(
-                release_inspection,
+                control_inspection,
                 receipt,
                 expected_release_adoption,
             )
-            release_inspection.require_current()
+            control_inspection.require_current()
             session.terminate_provider(receipt)
-            release_inspection.require_current()
+            control_inspection.require_current()
         self._require_unchanged_host_workspace(
             session.reservation,
             descriptors,
@@ -2924,28 +3002,57 @@ class RunActionRecoveryCoordinator:
 
     @staticmethod
     def _require_provider_termination_release_fence(
-        release_inspection,
+        control_inspection,
         receipt: RunActionProviderTerminationReceipt,
         expected_release_adoption: RunActionWorkloadReleaseAdoption | None,
     ) -> None:
-        pre_release_loss = (
-            receipt.reason is RunActionProviderTerminationReason.PRE_RELEASE_MAIN_LOSS
-        )
-        if pre_release_loss:
+        required_topology = {
+            RunActionProviderTerminationReason.PRE_RELEASE_MAIN_LOSS: (
+                RunActionControlDirectoryTopology.EMPTY
+            ),
+            RunActionProviderTerminationReason.TIMEOUT: (
+                RunActionControlDirectoryTopology.TIMED_OUT
+            ),
+            RunActionProviderTerminationReason.OOM: (
+                RunActionControlDirectoryTopology.RELEASED
+            ),
+            RunActionProviderTerminationReason.NONZERO_EXIT: (
+                RunActionControlDirectoryTopology.RELEASED
+            ),
+            RunActionProviderTerminationReason.EMPTY_RESULT: (
+                RunActionControlDirectoryTopology.RELEASED
+            ),
+        }[receipt.reason]
+        if control_inspection.topology is not required_topology:
+            raise RunActionRecoveryError(
+                "provider termination lost its exact control topology"
+            )
+        if required_topology is RunActionControlDirectoryTopology.EMPTY:
             if (
-                release_inspection.presence is not RunActionReleasePresence.ABSENT
-                or expected_release_adoption is not None
+                expected_release_adoption is not None
                 or receipt.workload_release_adoption is not None
+                or control_inspection.workload_release_adoption is not None
+                or control_inspection.timeout_directive_publication is not None
             ):
                 raise RunActionRecoveryError(
-                    "pre-release termination lost exact release absence"
+                    "pre-release termination carries release adoption"
                 )
             return
         if (
-            release_inspection.presence is not RunActionReleasePresence.PRESENT
-            or expected_release_adoption is None
-            or release_inspection.adoption != expected_release_adoption
+            expected_release_adoption is None
+            or control_inspection.workload_release_adoption != expected_release_adoption
             or receipt.workload_release_adoption != expected_release_adoption
+            or (
+                required_topology is RunActionControlDirectoryTopology.TIMED_OUT
+                and (
+                    control_inspection.timeout_directive_publication
+                    != receipt.timeout_directive_publication
+                )
+            )
+            or (
+                required_topology is RunActionControlDirectoryTopology.RELEASED
+                and control_inspection.timeout_directive_publication is not None
+            )
         ):
             raise RunActionRecoveryError(
                 "released termination lost its exact release adoption"
@@ -2974,7 +3081,7 @@ class RunActionRecoveryCoordinator:
         self,
         session,
         result: RunActionProviderResult,
-        workload_release_adoption: RunActionWorkloadReleaseAdoption,
+        expected_release_adoption: RunActionWorkloadReleaseAdoption | None,
         descriptors: ExitStack,
         workspace_lock_descriptor: int,
     ) -> RunActionAcceptance:
@@ -2983,48 +3090,47 @@ class RunActionRecoveryCoordinator:
                 "execution adapter returned an invalid provider result"
             )
         spawn_commit = session.events[3].spawn_commit
-        activation = session.events[4].activation_revalidation_receipt
-        if not run_action_terminal_result_evidence_matches(
-            result.terminal_observation,
-            result.result_capture_receipt,
-            activation,
-            workload_release_adoption,
-        ):
-            raise RunActionRecoveryError(
-                "execution adapter result differs from durable activation"
+        activation_event = session.events[4]
+        activation = activation_event.activation_revalidation_receipt
+        with open_run_action_release_inspection(
+            activation_event=activation_event,
+            launch_settings=self._publisher._settings,
+        ) as release_inspection:
+            if (
+                release_inspection.topology
+                is not RunActionControlDirectoryTopology.RELEASED
+                or (
+                    expected_release_adoption is not None
+                    and release_inspection.adoption != expected_release_adoption
+                )
+            ):
+                raise RunActionRecoveryError(
+                    "captured provider result lacks its exact released topology"
+                )
+            workload_release_adoption = release_inspection.adoption
+            if not run_action_terminal_result_evidence_matches(
+                result.terminal_observation,
+                result.result_capture_receipt,
+                activation,
+                workload_release_adoption,
+            ):
+                raise RunActionRecoveryError(
+                    "execution adapter result differs from durable activation"
+                )
+            release_inspection.require_current()
+            session.record_result(
+                spawn_commit=spawn_commit,
+                workload_release_adoption=workload_release_adoption,
+                terminal_observation=result.terminal_observation,
+                result_capture_receipt=result.result_capture_receipt,
+                result_payload=result.result_payload,
             )
-        session.record_result(
-            spawn_commit=spawn_commit,
-            workload_release_adoption=workload_release_adoption,
-            terminal_observation=result.terminal_observation,
-            result_capture_receipt=result.result_capture_receipt,
-            result_payload=result.result_payload,
-        )
+            release_inspection.require_current()
         return self._interpret_received(
             session,
             descriptors,
             workspace_lock_descriptor,
         )
-
-    def _require_release_adoption(
-        self,
-        activation_event: RunActionExecutionEvent,
-        expected: RunActionWorkloadReleaseAdoption | None,
-    ) -> RunActionWorkloadReleaseAdoption:
-        with open_run_action_release_inspection(
-            activation_event=activation_event,
-            launch_settings=self._publisher._settings,
-        ) as release_inspection:
-            if release_inspection.presence is not RunActionReleasePresence.PRESENT:
-                raise RunActionRecoveryError(
-                    "captured provider result lacks its published workload release"
-                )
-            adoption = release_inspection.adoption
-            if expected is not None and adoption != expected:
-                raise RunActionRecoveryError(
-                    "published workload release changed before result event"
-                )
-            return adoption
 
     def _interpret_received(
         self,

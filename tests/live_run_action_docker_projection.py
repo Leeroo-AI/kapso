@@ -40,6 +40,9 @@ from kapso.cross_run.launch.run_action_contracts import (
     RunFrontierActionKind,
     RunFrontierWorkspaceAccess,
 )
+from kapso.cross_run.launch.run_action_control_topology import (
+    RunActionControlDirectoryTopology,
+)
 from kapso.cross_run.launch.run_action_barrier_contracts import (
     RunActionResolvedMountKind,
 )
@@ -61,7 +64,6 @@ from kapso.cross_run.launch.run_action_release_contracts import (
 )
 from kapso.cross_run.launch.run_action_release_adoption import (
     open_run_action_release_inspection,
-    RunActionReleasePresence,
 )
 from kapso.cross_run.launch.run_action_release_publisher import (
     publish_run_action_workload_release_once,
@@ -1383,13 +1385,19 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
         }
         assert resolved.control_entry_count == 0
         assert resolved.temporary_entry_count == 0
-        assert resolved.release_present is False
+        assert (
+            resolved.control_directory_topology
+            is RunActionControlDirectoryTopology.EMPTY
+        )
         assert len(credential_validity_authority.calls) == 2
         with open_run_action_release_inspection(
             activation_event=activation_event,
             launch_settings=cross_run_settings.launch,
         ) as release_inspection:
-            assert release_inspection.presence is RunActionReleasePresence.PRESENT
+            assert (
+                release_inspection.topology
+                is RunActionControlDirectoryTopology.RELEASED
+            )
             assert (
                 release_inspection.adoption.workload_release_receipt
                 == adapter.release_receipt

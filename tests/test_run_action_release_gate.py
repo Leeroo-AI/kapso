@@ -176,6 +176,7 @@ def _capability(
             preparation_allocation=allocation,
             activation_event=activation_event,
             workload_release_adoption=None,
+            timeout_directive_publication=None,
         ),
         observation=RunActionCommittedSpawnObservation(
             state=(

@@ -7,6 +7,9 @@ from dataclasses import fields
 import pytest
 
 from kapso.cross_run.canonical import content_id, tree_or_blob_digest
+from kapso.cross_run.launch.run_action_control_topology import (
+    RunActionControlDirectoryTopology,
+)
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RunActionPreparationAllocation,
 )
@@ -119,7 +122,7 @@ def _pre_release_loss(activation, activation_event_id):
         control_device=control.device,
         control_inode=control.inode,
         control_entry_count=0,
-        release_present=False,
+        control_directory_topology=RunActionControlDirectoryTopology.EMPTY,
     )
 
 
@@ -477,7 +480,10 @@ def test_pre_release_loss_is_a_distinct_stable_absence_branch():
         RunActionTerminationContractError,
         match="incomplete or spliced",
     ):
-        _remint(loss, release_present=True)
+        _remint(
+            loss,
+            control_directory_topology=RunActionControlDirectoryTopology.RELEASED,
+        )
     with pytest.raises(
         RunActionTerminationContractError,
         match="incomplete or spliced",

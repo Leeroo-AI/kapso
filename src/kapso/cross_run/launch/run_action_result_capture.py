@@ -10,13 +10,15 @@ from kapso.cross_run.launch.run_action_docker_projection import DockerRunActionC
 from kapso.cross_run.launch.run_action_docker_resources import (
     DockerRunActionResourceManager,
 )
+from kapso.cross_run.launch.run_action_control_topology import (
+    RunActionControlDirectoryTopology,
+)
 from kapso.cross_run.launch.run_action_recovery import (
     _RUN_ACTION_RESULT_CAPTURE_AUTHORITY,
     RunActionCommittedContinuationCapability,
     RunActionProviderResult,
 )
 from kapso.cross_run.launch.run_action_release_adoption import (
-    RunActionReleasePresence,
     open_run_action_release_inspection,
 )
 from kapso.cross_run.launch.run_action_runtime_volume import (
@@ -84,7 +86,8 @@ def capture_run_action_terminal_result(
         )
         descriptors.callback(release_inspection.close)
         if (
-            release_inspection.presence is not RunActionReleasePresence.PRESENT
+            release_inspection.topology
+            is not RunActionControlDirectoryTopology.RELEASED
             or release_inspection.adoption != adoption
             or read_run_action_host_boot_id(proc_root_descriptor)
             != adoption.workload_release_receipt.host_boot_id
