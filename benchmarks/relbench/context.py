@@ -401,12 +401,15 @@ Data access (read carefully — violations invalidate the run):
 """
 
 
-def _resources(spec: TaskSpec, has_gpu: bool, num_cpus: int, mem_gb: int) -> str:
-    gpu_line = (
-        "one CUDA GPU (set device from env CUDA_DEVICE, default 0)"
-        if has_gpu
-        else "no GPU on this machine"
-    )
+def _resources(spec: TaskSpec, has_gpu: bool, num_cpus: int, mem_gb: int, gpu_name: str = "") -> str:
+    if has_gpu:
+        detail = f" — {gpu_name}" if gpu_name else ""
+        gpu_line = (
+            f"this instance HAS a dedicated CUDA GPU{detail} — available to any "
+            "candidate; set device from env CUDA_DEVICE, default 0"
+        )
+    else:
+        gpu_line = "no GPU on this machine"
     return f"""
 Resources & engineering:
 - Hardware: {gpu_line}; ~{num_cpus} CPUs; ~{mem_gb} GB RAM. Parallelize dataloading and
@@ -462,6 +465,7 @@ def build_problem_context(
     mem_gb: int,
     sota_note: str = "",
     extra_knowledge: str = "",
+    gpu_name: str = "",
 ) -> str:
     sections = [
         "# RelBench task",
@@ -477,7 +481,7 @@ def build_problem_context(
         "\n## Database schema (your sanitized copy)\n" + describe_database(db, dataset),
         "\n## Prediction contract\n" + _prediction_contract(spec, len(val_df), n_test),
         "\n## Data access rules\n" + _data_access_rules(spec),
-        "\n## Resources\n" + _resources(spec, has_gpu, num_cpus, mem_gb),
+        "\n## Resources\n" + _resources(spec, has_gpu, num_cpus, mem_gb, gpu_name),
         "\n## Playbook (battle-tested guidance — use it)\n"
         + _COMMON_PLAYBOOK
         + _FAMILY_PLAYBOOKS[spec.family],

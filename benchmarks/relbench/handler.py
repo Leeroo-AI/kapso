@@ -122,6 +122,7 @@ class RelBenchHandler(ProblemHandler):
             val_df=self._val_table.df,
             n_test=self.n_test,
             has_gpu=self._detect_gpu(),
+            gpu_name=self._detect_gpu_name(),
             num_cpus=os.cpu_count() or 8,
             mem_gb=self._detect_mem_gb(),
             sota_note=sota_note,
@@ -764,6 +765,20 @@ class RelBenchHandler(ProblemHandler):
         return shutil.which("nvidia-smi") is not None and subprocess.run(
             ["nvidia-smi", "-L"], capture_output=True
         ).returncode == 0
+
+    @staticmethod
+    def _detect_gpu_name() -> str:
+        """Exact GPU model + VRAM, e.g. 'NVIDIA H100 80GB HBM3, 81559 MiB'."""
+        if shutil.which("nvidia-smi") is None:
+            return ""
+        probe = subprocess.run(
+            ["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader"],
+            capture_output=True,
+            text=True,
+        )
+        if probe.returncode != 0 or not probe.stdout.strip():
+            return ""
+        return probe.stdout.strip().splitlines()[0].strip()
 
     @staticmethod
     def _detect_mem_gb() -> int:
