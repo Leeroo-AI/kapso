@@ -27,6 +27,7 @@ from kapso.cross_run.launch.run_action_result_authority import (
     run_action_terminal_result_evidence_matches,
 )
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
+    DockerRunActionCreateInspectProjection,
     RunActionActivationRevalidationReceipt,
     RunActionPreparationAllocation,
     RunActionResultCaptureReceipt,
@@ -40,6 +41,13 @@ _BOOT_ID_PATTERN = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-" r"[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
 )
 _SHA256_DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
+_GENERATION_NONCE_PATTERN = re.compile(r"^[0-9a-f]{32}$")
+_DOCKER_TIMESTAMP_PATTERN = re.compile(
+    r"^(?P<year>[0-9]{4})-(?P<month>[0-9]{2})-(?P<day>[0-9]{2})T"
+    r"(?P<hour>[0-9]{2}):(?P<minute>[0-9]{2}):(?P<second>[0-9]{2})"
+    r"(?:[.](?P<fraction>[0-9]{1,9}))?Z$"
+)
+_ZERO_DOCKER_TIMESTAMP = "0001-01-01T00:00:00Z"
 
 
 class RunActionTerminationContractError(ValueError):
@@ -61,6 +69,7 @@ class RunActionProviderTerminationReason(str, Enum):
     NONZERO_EXIT = "nonzero_exit"
     EMPTY_RESULT = "empty_result"
     PRE_RELEASE_MAIN_LOSS = "pre_release_main_loss"
+    PRE_RELEASE_MAIN_TERMINAL = "pre_release_main_terminal"
 
 
 @dataclass(frozen=True)
@@ -347,6 +356,237 @@ def run_action_pre_release_main_loss_observation_token(
 
 
 @dataclass(frozen=True)
+class RunActionPreReleaseTerminalContainerObservation(StrictContract):
+    """Release-independent exited state of the exact event-5 main occurrence."""
+
+    pre_release_terminal_container_observation_id: str
+    prepared_execution_id: str
+    spawn_commit_id: str
+    provider_execution_id: str
+    runtime_volume_authority_id: str
+    generation_nonce: str
+    activation_revalidation_receipt_id: str
+    observed_inspect_projection: DockerRunActionCreateInspectProjection
+    complete_inspection_digest: str
+    container_status: str
+    process_id: int
+    restart_count: int
+    paused: bool
+    restarting: bool
+    dead: bool
+    started_at: str
+    finished_at: str
+    exit_code: int
+    oom_killed: bool
+    state_error: str
+
+    CONTENT_NAMESPACE: ClassVar[str] = (
+        "run-action-pre-release-terminal-container-observation"
+    )
+    IDENTITY_FIELD: ClassVar[str] = "pre_release_terminal_container_observation_id"
+
+    def _validate(self) -> None:
+        _require_namespaced_content_id(
+            self.prepared_execution_id,
+            "run-action-prepared-execution",
+            "pre-release terminal prepared execution",
+        )
+        _require_namespaced_content_id(
+            self.spawn_commit_id,
+            "run-action-spawn-commit",
+            "pre-release terminal spawn commit",
+        )
+        require_identifier(
+            self.provider_execution_id,
+            "pre-release terminal provider execution",
+        )
+        _require_namespaced_content_id(
+            self.runtime_volume_authority_id,
+            "run-action-runtime-volume-authority",
+            "pre-release terminal runtime volume",
+        )
+        _require_namespaced_content_id(
+            self.activation_revalidation_receipt_id,
+            RunActionActivationRevalidationReceipt.CONTENT_NAMESPACE,
+            "pre-release terminal activation revalidation",
+        )
+        started_at = _docker_timestamp_order_key(self.started_at)
+        finished_at = _docker_timestamp_order_key(self.finished_at)
+        if (
+            type(self.observed_inspect_projection)
+            is not DockerRunActionCreateInspectProjection
+            or _GENERATION_NONCE_PATTERN.fullmatch(self.generation_nonce) is None
+            or _SHA256_DIGEST_PATTERN.fullmatch(self.complete_inspection_digest) is None
+            or self.container_status != "exited"
+            or self.process_id != 0
+            or self.restart_count != 0
+            or self.paused is not False
+            or self.restarting is not False
+            or self.dead is not False
+            or self.started_at == _ZERO_DOCKER_TIMESTAMP
+            or self.finished_at == _ZERO_DOCKER_TIMESTAMP
+            or started_at is None
+            or finished_at is None
+            or finished_at < started_at
+            or type(self.exit_code) is not int
+            or not 0 <= self.exit_code <= 255
+            or type(self.oom_killed) is not bool
+            or self.state_error != ""
+        ):
+            raise RunActionTerminationContractError(
+                "pre-release terminal container observation is invalid"
+            )
+
+
+@dataclass(frozen=True)
+class RunActionPreReleaseMainTerminalObservation(StrictContract):
+    """Stable proof that the unreleased event-5 main exists and has exited."""
+
+    pre_release_main_terminal_observation_id: str
+    activation_event_id: str
+    preparation_allocation: RunActionPreparationAllocation
+    activation_revalidation_receipt: RunActionActivationRevalidationReceipt
+    host_boot_id: str
+    observed_before_boottime_nanoseconds: int
+    first_complete_inventory_digest: str
+    reobserved_volume_evidence: RunActionRuntimeVolumeEvidence
+    reobserved_keeper_evidence: RunActionVolumeKeeperEvidence
+    terminal_container_observation: RunActionPreReleaseTerminalContainerObservation
+    second_complete_inventory_digest: str
+    observed_after_boottime_nanoseconds: int
+    observed_runtime_volume_names: tuple[str, ...]
+    observed_keeper_container_ids: tuple[str, ...]
+    observed_main_container_ids: tuple[str, ...]
+    control_mount_id: int
+    control_device: int
+    control_inode: int
+    control_entry_count: int
+    control_directory_topology: RunActionControlDirectoryTopology
+
+    CONTENT_NAMESPACE: ClassVar[str] = (
+        "run-action-pre-release-main-terminal-observation"
+    )
+    IDENTITY_FIELD: ClassVar[str] = "pre_release_main_terminal_observation_id"
+
+    def _validate(self) -> None:
+        _require_namespaced_content_id(
+            self.activation_event_id,
+            "run-action-execution-event",
+            "pre-release terminal activation event",
+        )
+        if (
+            type(self.preparation_allocation) is not RunActionPreparationAllocation
+            or type(self.activation_revalidation_receipt)
+            is not RunActionActivationRevalidationReceipt
+            or type(self.reobserved_volume_evidence)
+            is not RunActionRuntimeVolumeEvidence
+            or type(self.reobserved_keeper_evidence)
+            is not RunActionVolumeKeeperEvidence
+            or type(self.terminal_container_observation)
+            is not RunActionPreReleaseTerminalContainerObservation
+        ):
+            raise RunActionTerminationContractError(
+                "pre-release terminal lacks its exact prepared evidence"
+            )
+        activation = self.activation_revalidation_receipt
+        prepared = activation.prepared_execution
+        allocation = self.preparation_allocation
+        control = prepared.control_directory
+        spawn = activation.spawn_commit
+        terminal = self.terminal_container_observation
+        authority = prepared.runtime_volume_authority
+        if (
+            _BOOT_ID_PATTERN.fullmatch(self.host_boot_id) is None
+            or _SHA256_DIGEST_PATTERN.fullmatch(self.first_complete_inventory_digest)
+            is None
+            or _SHA256_DIGEST_PATTERN.fullmatch(self.second_complete_inventory_digest)
+            is None
+            or self.first_complete_inventory_digest
+            != self.second_complete_inventory_digest
+            or type(self.observed_before_boottime_nanoseconds) is not int
+            or self.observed_before_boottime_nanoseconds <= 0
+            or type(self.observed_after_boottime_nanoseconds) is not int
+            or self.observed_after_boottime_nanoseconds
+            < self.observed_before_boottime_nanoseconds
+            or allocation.preparation_claim != prepared.preparation_claim
+            or allocation.runtime_volume_authority != authority
+            or not run_action_runtime_volume_occurrence_matches(
+                self.reobserved_volume_evidence,
+                activation.reobserved_volume_evidence,
+            )
+            or self.reobserved_keeper_evidence != activation.reobserved_keeper_evidence
+            or terminal.prepared_execution_id != prepared.prepared_execution_id
+            or terminal.spawn_commit_id != spawn.spawn_commit_id
+            or terminal.provider_execution_id != spawn.provider_execution_id
+            or terminal.provider_execution_id
+            != prepared.inert_container_evidence.container_id
+            or terminal.runtime_volume_authority_id
+            != authority.runtime_volume_authority_id
+            or terminal.generation_nonce != authority.generation_nonce
+            or terminal.activation_revalidation_receipt_id
+            != activation.activation_revalidation_receipt_id
+            or terminal.observed_inspect_projection
+            != prepared.inert_container_evidence.issued_create_projection
+            or self.observed_runtime_volume_names != (authority.volume_name,)
+            or self.observed_keeper_container_ids
+            != (prepared.volume_keeper_evidence.container_id,)
+            or self.observed_main_container_ids != (spawn.provider_execution_id,)
+            or (
+                self.control_mount_id,
+                self.control_device,
+                self.control_inode,
+            )
+            != (control.mount_id, control.device, control.inode)
+            or self.control_entry_count != 0
+            or self.control_directory_topology
+            is not RunActionControlDirectoryTopology.EMPTY
+        ):
+            raise RunActionTerminationContractError(
+                "pre-release main terminal observation is incomplete or spliced"
+            )
+
+
+def run_action_pre_release_main_terminal_observation_token(
+    observation: RunActionPreReleaseMainTerminalObservation,
+) -> str:
+    """Bind the stable present-exited occurrence without sampling times or usage."""
+
+    if type(observation) is not RunActionPreReleaseMainTerminalObservation:
+        raise RunActionTerminationContractError(
+            "pre-release main terminal token requires one exact observation"
+        )
+    terminal = observation.terminal_container_observation
+    return tree_or_blob_digest(
+        canonical_json_bytes(
+            {
+                "activation_event_id": observation.activation_event_id,
+                "preparation_allocation_id": (
+                    observation.preparation_allocation.preparation_allocation_id
+                ),
+                "activation_revalidation_receipt_id": (
+                    observation.activation_revalidation_receipt.activation_revalidation_receipt_id
+                ),
+                "host_boot_id": observation.host_boot_id,
+                "complete_inventory_digest": (
+                    observation.first_complete_inventory_digest
+                ),
+                "terminal_container_observation_id": (
+                    terminal.pre_release_terminal_container_observation_id
+                ),
+                "complete_inspection_digest": terminal.complete_inspection_digest,
+                "control_mount_id": observation.control_mount_id,
+                "control_device": observation.control_device,
+                "control_inode": observation.control_inode,
+                "control_entry_count": observation.control_entry_count,
+                "control_directory_topology": (
+                    observation.control_directory_topology.value
+                ),
+            }
+        )
+    )
+
+
+@dataclass(frozen=True)
 class RunActionProviderTerminationReceipt(StrictContract):
     """One complete mutually exclusive provider termination evidence graph."""
 
@@ -355,7 +595,9 @@ class RunActionProviderTerminationReceipt(StrictContract):
     reason: RunActionProviderTerminationReason
     activation_event_id: str
     workload_release_adoption: RunActionWorkloadReleaseAdoption | None
-    terminal_observation: RunActionTerminalObservation | None
+    terminal_observation: (
+        RunActionTerminalObservation | RunActionPreReleaseMainTerminalObservation | None
+    )
     timeout_directive_publication: RunActionTimeoutDirectivePublicationReceipt | None
     empty_result_capture_receipt: RunActionResultCaptureReceipt | None
     pre_release_main_loss_observation: RunActionPreReleaseMainLossObservation | None
@@ -388,6 +630,9 @@ class RunActionProviderTerminationReceipt(StrictContract):
         if self.reason is RunActionProviderTerminationReason.PRE_RELEASE_MAIN_LOSS:
             self._validate_pre_release_main_loss()
             return
+        if self.reason is RunActionProviderTerminationReason.PRE_RELEASE_MAIN_TERMINAL:
+            self._validate_pre_release_main_terminal()
+            return
         self._validate_released_terminal()
 
     def _validate_pre_release_main_loss(self) -> None:
@@ -402,6 +647,20 @@ class RunActionProviderTerminationReceipt(StrictContract):
         ):
             raise RunActionTerminationContractError(
                 "pre-release main loss must be the sole termination evidence branch"
+            )
+
+    def _validate_pre_release_main_terminal(self) -> None:
+        terminal = self.terminal_observation
+        if (
+            type(terminal) is not RunActionPreReleaseMainTerminalObservation
+            or terminal.activation_event_id != self.activation_event_id
+            or self.workload_release_adoption is not None
+            or self.timeout_directive_publication is not None
+            or self.empty_result_capture_receipt is not None
+            or self.pre_release_main_loss_observation is not None
+        ):
+            raise RunActionTerminationContractError(
+                "pre-release main terminal must be the sole termination evidence branch"
             )
 
     def _validate_released_terminal(self) -> None:
@@ -493,6 +752,13 @@ class RunActionProviderTerminationReceipt(StrictContract):
                     "pre-release termination lacks activation evidence"
                 )
             return loss.activation_revalidation_receipt
+        if self.reason is RunActionProviderTerminationReason.PRE_RELEASE_MAIN_TERMINAL:
+            terminal = self.terminal_observation
+            if type(terminal) is not RunActionPreReleaseMainTerminalObservation:
+                raise RunActionTerminationContractError(
+                    "pre-release termination lacks activation evidence"
+                )
+            return terminal.activation_revalidation_receipt
         adoption = self.workload_release_adoption
         if type(adoption) is not RunActionWorkloadReleaseAdoption:
             raise RunActionTerminationContractError(
@@ -534,6 +800,13 @@ def provider_termination_matches_durable_activation(
             type(loss) is RunActionPreReleaseMainLossObservation
             and loss.activation_event_id == activation_event_id
             and loss.preparation_allocation == preparation_allocation
+        )
+    if receipt.reason is RunActionProviderTerminationReason.PRE_RELEASE_MAIN_TERMINAL:
+        terminal = receipt.terminal_observation
+        return (
+            type(terminal) is RunActionPreReleaseMainTerminalObservation
+            and terminal.activation_event_id == activation_event_id
+            and terminal.preparation_allocation == preparation_allocation
         )
     adoption = receipt.workload_release_adoption
     return (
@@ -701,9 +974,60 @@ def _require_namespaced_content_id(
         raise RunActionTerminationContractError(f"{name} uses another namespace")
 
 
+def _docker_timestamp_order_key(value: object) -> tuple[int, ...] | None:
+    if type(value) is not str:
+        return None
+    match = _DOCKER_TIMESTAMP_PATTERN.fullmatch(value)
+    if match is None:
+        return None
+    year = int(match.group("year"))
+    month = int(match.group("month"))
+    day = int(match.group("day"))
+    hour = int(match.group("hour"))
+    minute = int(match.group("minute"))
+    second = int(match.group("second"))
+    fraction = match.group("fraction") or ""
+    leap_year = year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)
+    month_lengths = (
+        31,
+        29 if leap_year else 28,
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    )
+    if (
+        year <= 0
+        or not 1 <= month <= len(month_lengths)
+        or not 1 <= day <= month_lengths[month - 1]
+        or not 0 <= hour < 24
+        or not 0 <= minute < 60
+        or not 0 <= second < 60
+    ):
+        return None
+    return (
+        year,
+        month,
+        day,
+        hour,
+        minute,
+        second,
+        int(fraction.ljust(9, "0")) if fraction else 0,
+    )
+
+
 __all__ = [
     "run_action_pre_release_main_loss_observation_token",
+    "run_action_pre_release_main_terminal_observation_token",
     "RunActionPreReleaseMainLossObservation",
+    "RunActionPreReleaseMainTerminalObservation",
+    "RunActionPreReleaseTerminalContainerObservation",
     "RunActionProviderTerminationDisposition",
     "RunActionProviderTerminationReason",
     "RunActionProviderTerminationReceipt",

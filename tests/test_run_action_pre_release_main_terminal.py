@@ -1,16 +1,20 @@
-"""Retained physical authority for a main loss before workload release."""
+"""Retained present-exited authority for a main before workload release."""
 
 from __future__ import annotations
 
+import copy
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
 
-import kapso.cross_run.launch.run_action_pre_release_main_loss as main_loss
+import kapso.cross_run.launch.run_action_pre_release_main_terminal as main_terminal
 import kapso.cross_run.launch.run_action_pre_release_resources as pre_release_resources
 from kapso.cross_run.launch.run_action_clock import _SystemRunActionClock
+from kapso.cross_run.launch.run_action_control_topology import (
+    RunActionControlDirectoryTopology,
+)
 from kapso.cross_run.launch.run_action_recovery import (
     _RUN_ACTION_COMMITTED_CONTINUATION_AUTHORITY,
     RunActionCommittedContinuationCapability,
@@ -24,7 +28,7 @@ from kapso.cross_run.launch.run_action_runtime_volume import (
     RunActionControlDirectoryLease,
 )
 from kapso.cross_run.launch.run_action_termination_contracts import (
-    run_action_pre_release_main_loss_observation_token,
+    run_action_pre_release_main_terminal_observation_token,
     RunActionProviderTerminationDisposition,
     RunActionProviderTerminationReason,
 )
@@ -42,8 +46,8 @@ _HOST_BOOT_ID = "123e4567-e89b-42d3-a456-426614174000"
 
 
 def _case(monkeypatch):
-    docker_settings, _launch_settings = _configured_settings()
-    released_query, inventory, _raw, _command, helper, init = _inspection_context(
+    docker_settings, launch_settings = _configured_settings()
+    released_query, inventory, raw, command, helper, init = _inspection_context(
         docker_settings
     )
     query = RunActionCommittedSpawnQuery(
@@ -52,27 +56,28 @@ def _case(monkeypatch):
         workload_release_adoption=None,
         timeout_directive_publication=None,
     )
-    surviving_inventory = replace(inventory, main_container_id=None)
     state = {
-        "inventory": surviving_inventory,
+        "inventory": inventory,
+        "main_raw": raw,
+        "topology": RunActionControlDirectoryTopology.EMPTY,
         "control_checks": 0,
         "control_leases": [],
     }
-    manager = object.__new__(main_loss.DockerRunActionResourceManager)
+    manager = object.__new__(main_terminal.DockerRunActionResourceManager)
     activation = query.activation_revalidation_receipt
 
     monkeypatch.setattr(
-        main_loss.DockerRunActionResourceManager,
+        main_terminal.DockerRunActionResourceManager,
         "runtime_settings",
         property(lambda _self: docker_settings),
     )
     monkeypatch.setattr(
-        main_loss.DockerRunActionResourceManager,
+        main_terminal.DockerRunActionResourceManager,
         "observe",
         lambda _self, _allocation: state["inventory"],
     )
     monkeypatch.setattr(
-        main_loss.DockerRunActionResourceManager,
+        main_terminal.DockerRunActionResourceManager,
         "inspect_volume",
         lambda _self, _inventory: _volume_raw(
             query.prepared_execution.runtime_volume_authority,
@@ -80,23 +85,32 @@ def _case(monkeypatch):
         ),
     )
     monkeypatch.setattr(
-        main_loss.DockerRunActionResourceManager,
+        main_terminal.DockerRunActionResourceManager,
         "inspect_keeper",
         lambda _self, _inventory: {},
     )
+    monkeypatch.setattr(
+        main_terminal.DockerRunActionResourceManager,
+        "inspect_main",
+        lambda _self, _inventory: copy.deepcopy(state["main_raw"]),
+    )
 
-    def require_control_current(_self):
-        if _self._test_closed:
+    def require_control_current(lease):
+        if lease._test_closed:
             raise AssertionError("test control lease is closed")
+        if state["topology"] is not RunActionControlDirectoryTopology.EMPTY:
+            raise main_terminal.RunActionPreReleaseMainTerminalError(
+                "test control topology changed"
+            )
         state["control_checks"] += 1
 
-    def close_control(_self):
-        if _self._test_closed:
+    def close_control(lease):
+        if lease._test_closed:
             raise AssertionError("test control lease closed twice")
-        _self._test_closed = True
+        lease._test_closed = True
 
-    def reobserve_volume(_self, _volume, keeper):
-        require_control_current(_self)
+    def reobserve_volume(lease, _volume, keeper):
+        require_control_current(lease)
         assert keeper == activation.reobserved_keeper_evidence
         return activation.reobserved_volume_evidence
 
@@ -108,7 +122,7 @@ def _case(monkeypatch):
     monkeypatch.setattr(
         RunActionControlDirectoryLease,
         "topology",
-        property(lambda _self: query.control_directory_topology),
+        property(lambda _self: state["topology"]),
     )
     monkeypatch.setattr(
         RunActionControlDirectoryLease,
@@ -121,7 +135,7 @@ def _case(monkeypatch):
         reobserve_volume,
     )
     monkeypatch.setattr(
-        main_loss,
+        main_terminal,
         "open_run_action_control_directory",
         lambda _prepared: _new_control_lease(state),
     )
@@ -131,7 +145,7 @@ def _case(monkeypatch):
         lambda *_arguments: activation.reobserved_keeper_evidence,
     )
     monkeypatch.setattr(
-        main_loss,
+        main_terminal,
         "read_run_action_host_boot_id",
         lambda _descriptor: _HOST_BOOT_ID,
     )
@@ -150,11 +164,13 @@ def _case(monkeypatch):
     return SimpleNamespace(
         query=query,
         manager=manager,
+        command=command,
         helper=helper,
         init=init,
         docker_settings=docker_settings,
+        launch_settings=launch_settings,
         state=state,
-        surviving_inventory=surviving_inventory,
+        inventory=inventory,
     )
 
 
@@ -166,12 +182,14 @@ def _new_control_lease(state):
 
 
 def _inspect(case):
-    return main_loss.inspect_run_action_pre_release_main_loss(
+    return main_terminal.inspect_run_action_pre_release_main_terminal(
         query=case.query,
         resource_manager=case.manager,
+        command=case.command,
         helper_evidence=case.helper,
         init_source_evidence=case.init,
         docker_settings=case.docker_settings,
+        launch_settings=case.launch_settings,
     )
 
 
@@ -179,9 +197,9 @@ def _capability(case, observation):
     return RunActionCommittedContinuationCapability(
         query=case.query,
         observation=RunActionCommittedSpawnObservation(
-            state=RunActionCommittedSpawnState.PRE_RELEASE_MAIN_LOSS_CONTINUABLE,
-            observation_token=run_action_pre_release_main_loss_observation_token(
-                observation
+            state=(RunActionCommittedSpawnState.PRE_RELEASE_MAIN_TERMINAL_CONTINUABLE),
+            observation_token=(
+                run_action_pre_release_main_terminal_observation_token(observation)
             ),
         ),
         required_security_observation=_release_security_observation(),
@@ -193,32 +211,41 @@ def _capability(case, observation):
 
 
 def _capture(case, capability):
-    class _LossAdapter:
+    class _TerminalAdapter:
         @staticmethod
         def continue_committed_once(active_capability):
-            return main_loss.capture_run_action_pre_release_main_loss_termination(
-                capability=active_capability,
-                resource_manager=case.manager,
-                helper_evidence=case.helper,
-                init_source_evidence=case.init,
-                docker_settings=case.docker_settings,
+            return (
+                main_terminal.capture_run_action_pre_release_main_terminal_termination(
+                    capability=active_capability,
+                    resource_manager=case.manager,
+                    command=case.command,
+                    helper_evidence=case.helper,
+                    init_source_evidence=case.init,
+                    docker_settings=case.docker_settings,
+                    launch_settings=case.launch_settings,
+                )
             )
 
-    return capability._invoke_once(_LossAdapter())
+    return capability._invoke_once(_TerminalAdapter())
 
 
-def test_stable_main_loss_is_captured_once_as_provider_failure(monkeypatch):
+def test_stable_pre_release_terminal_is_captured_as_provider_failure(monkeypatch):
     case = _case(monkeypatch)
     observation = _inspect(case)
-    capability = _capability(case, observation)
 
-    outcome = _capture(case, capability)
+    outcome = _capture(case, _capability(case, observation))
 
     receipt = outcome.provider_termination_receipt
     assert outcome.state is RunActionContinuationState.PROVIDER_TERMINATED
     assert receipt.disposition is RunActionProviderTerminationDisposition.FAILED
-    assert receipt.reason is RunActionProviderTerminationReason.PRE_RELEASE_MAIN_LOSS
-    assert receipt.pre_release_main_loss_observation.observed_main_container_ids == ()
+    assert (
+        receipt.reason is RunActionProviderTerminationReason.PRE_RELEASE_MAIN_TERMINAL
+    )
+    assert receipt.workload_release_adoption is None
+    assert receipt.pre_release_main_loss_observation is None
+    assert run_action_pre_release_main_terminal_observation_token(
+        receipt.terminal_observation
+    ) == run_action_pre_release_main_terminal_observation_token(observation)
     assert len(case.state["control_leases"]) == 2
     assert case.state["control_leases"][0]._test_closed
     assert not case.state["control_leases"][1]._test_closed
@@ -227,21 +254,68 @@ def test_stable_main_loss_is_captured_once_as_provider_failure(monkeypatch):
     assert all(lease._test_closed for lease in case.state["control_leases"])
 
 
-def test_main_reappearance_burns_lease_without_registering_termination(monkeypatch):
+def test_present_to_absent_transition_burns_capture_without_event6(monkeypatch):
     case = _case(monkeypatch)
     observation = _inspect(case)
-    capability = _capability(case, observation)
-    case.state["inventory"] = replace(
-        case.surviving_inventory,
-        main_container_id=case.query.spawn_commit.provider_execution_id,
-    )
+    case.state["inventory"] = replace(case.inventory, main_container_id=None)
 
     with pytest.raises(
-        main_loss.RunActionPreReleaseMainLossError,
-        match="exactly volume and keeper",
+        main_terminal.RunActionPreReleaseMainTerminalError,
+        match="volume, keeper, and main",
     ):
-        _capture(case, capability)
+        _capture(case, _capability(case, observation))
     assert all(lease._test_closed for lease in case.state["control_leases"])
+
+
+def test_terminal_mutation_rejects_sealed_capture(monkeypatch):
+    case = _case(monkeypatch)
+    observation = _inspect(case)
+    changed = copy.deepcopy(case.state["main_raw"])
+    changed["State"]["FinishedAt"] = "2026-07-25T01:02:05.123456789Z"
+    case.state["main_raw"] = changed
+
+    with pytest.raises(
+        main_terminal.RunActionPreReleaseMainTerminalError,
+        match="differs from sealed classification",
+    ):
+        _capture(case, _capability(case, observation))
+    assert all(lease._test_closed for lease in case.state["control_leases"])
+
+
+def test_release_appearance_invalidates_pre_release_terminal(monkeypatch):
+    case = _case(monkeypatch)
+    observation = _inspect(case)
+    case.state["topology"] = RunActionControlDirectoryTopology.RELEASED
+
+    with pytest.raises(
+        main_terminal.RunActionPreReleaseMainTerminalError,
+        match="empty control topology",
+    ):
+        _capture(case, _capability(case, observation))
+    assert all(lease._test_closed for lease in case.state["control_leases"])
+
+
+def test_keeper_or_main_substitution_rejects_classification(monkeypatch):
+    case = _case(monkeypatch)
+    case.state["inventory"] = replace(
+        case.inventory,
+        keeper_container_id="f" * 64,
+    )
+    with pytest.raises(
+        main_terminal.RunActionPreReleaseMainTerminalError,
+        match="volume, keeper, and main",
+    ):
+        _inspect(case)
+
+    case.state["inventory"] = replace(
+        case.inventory,
+        main_container_id="e" * 64,
+    )
+    with pytest.raises(
+        main_terminal.RunActionPreReleaseMainTerminalError,
+        match="volume, keeper, and main",
+    ):
+        _inspect(case)
 
 
 def test_publication_fence_cannot_cross_threads(monkeypatch):
@@ -262,34 +336,7 @@ def test_publication_fence_cannot_cross_threads(monkeypatch):
     publication_fence.close()
 
 
-def test_classification_closes_descriptors_before_coordinator_checks(monkeypatch):
-    case = _case(monkeypatch)
-
-    first_observation = _inspect(case)
-    second_observation = _inspect(case)
-
-    assert run_action_pre_release_main_loss_observation_token(
-        first_observation
-    ) == run_action_pre_release_main_loss_observation_token(second_observation)
-    assert all(lease._test_closed for lease in case.state["control_leases"])
-
-
-def test_surviving_resource_substitution_rejects_loss_classification(monkeypatch):
-    case = _case(monkeypatch)
-    case.state["inventory"] = replace(
-        case.surviving_inventory,
-        keeper_container_id="f" * 64,
-    )
-
-    with pytest.raises(
-        main_loss.RunActionPreReleaseMainLossError,
-        match="exactly volume and keeper",
-    ):
-        _inspect(case)
-    assert all(lease._test_closed for lease in case.state["control_leases"])
-
-
-def test_foreign_settings_reject_before_opening_control_authority(monkeypatch):
+def test_foreign_settings_reject_before_control_authority(monkeypatch):
     case = _case(monkeypatch)
     foreign_settings = replace(
         case.docker_settings,
@@ -297,15 +344,17 @@ def test_foreign_settings_reject_before_opening_control_authority(monkeypatch):
     )
 
     with pytest.raises(
-        main_loss.RunActionPreReleaseMainLossError,
+        main_terminal.RunActionPreReleaseMainTerminalError,
         match="configured authority",
     ):
-        main_loss.inspect_run_action_pre_release_main_loss(
+        main_terminal.inspect_run_action_pre_release_main_terminal(
             query=case.query,
             resource_manager=case.manager,
+            command=case.command,
             helper_evidence=case.helper,
             init_source_evidence=case.init,
             docker_settings=foreign_settings,
+            launch_settings=case.launch_settings,
         )
     assert case.state["control_checks"] == 0
     assert case.state["control_leases"] == []

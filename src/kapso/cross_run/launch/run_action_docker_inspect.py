@@ -55,6 +55,9 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
     preparation_main_mounts,
     runtime_volume_driver_options,
 )
+from kapso.cross_run.launch.run_action_termination_contracts import (
+    RunActionPreReleaseTerminalContainerObservation,
+)
 from kapso.cross_run.settings import DockerRuntimeSettings
 
 _CONTAINER_ID_PATTERN = re.compile(r"^[0-9a-f]{64}$")
@@ -417,6 +420,147 @@ def observe_terminal_main_container(
             "Docker terminal inspection lacks exact activation authority"
         )
     prepared = activation.prepared_execution
+    authority = prepared.runtime_volume_authority
+    issued, container_id, state, restart_count, complete_inspection_digest = (
+        _observe_exited_main_container_snapshot(
+            raw_inspection=raw_inspection,
+            activation=activation,
+            volume=volume,
+            command=command,
+            helper_evidence=helper_evidence,
+            init_source_evidence=init_source_evidence,
+            settings=settings,
+            inspection_size_limit_bytes=inspection_size_limit_bytes,
+        )
+    )
+    release_receipt = workload_release_adoption.workload_release_receipt
+    released = release_receipt.resolved_workload_observation
+    if (
+        release_receipt.resolved_workload_observation.activation_revalidation_receipt
+        != activation
+        or container_id != activation.spawn_commit.provider_execution_id
+        or container_id != prepared.inert_container_evidence.container_id
+        or container_id != released.running_container_observation.container_id
+        or state["StartedAt"] != released.running_container_observation.started_at
+        or issued != prepared.inert_container_evidence.issued_create_projection
+    ):
+        raise DockerRunActionInspectionError(
+            "Docker terminal main differs from its adopted released occurrence"
+        )
+    return RunActionTerminalObservation.mint(
+        prepared_execution_id=prepared.prepared_execution_id,
+        spawn_commit_id=activation.spawn_commit.spawn_commit_id,
+        provider_execution_id=activation.spawn_commit.provider_execution_id,
+        runtime_volume_authority_id=authority.runtime_volume_authority_id,
+        generation_nonce=authority.generation_nonce,
+        activation_revalidation_receipt_id=(
+            activation.activation_revalidation_receipt_id
+        ),
+        workload_release_adoption_id=(
+            workload_release_adoption.workload_release_adoption_id
+        ),
+        observed_inspect_projection=issued,
+        complete_inspection_digest=complete_inspection_digest,
+        container_status=state["Status"],
+        process_id=state["Pid"],
+        restart_count=restart_count,
+        paused=state["Paused"],
+        restarting=state["Restarting"],
+        dead=state["Dead"],
+        started_at=state["StartedAt"],
+        finished_at=state["FinishedAt"],
+        exit_code=state["ExitCode"],
+        oom_killed=state["OOMKilled"],
+        state_error=state["Error"],
+    )
+
+
+def observe_pre_release_terminal_main_container(
+    raw_inspection: Mapping[str, Any],
+    activation: RunActionActivationRevalidationReceipt,
+    volume: DockerRunActionVolumeObservation,
+    command: DockerRunActionCommand,
+    helper_evidence: RunActionSupervisorHelperEvidence,
+    init_source_evidence: RunActionDockerInitSourceEvidence,
+    settings: DockerRuntimeSettings,
+    *,
+    inspection_size_limit_bytes: int,
+) -> RunActionPreReleaseTerminalContainerObservation:
+    """Parse one exact exited event-5 main without inventing release authority."""
+
+    if (
+        type(activation) is not RunActionActivationRevalidationReceipt
+        or type(inspection_size_limit_bytes) is not int
+        or inspection_size_limit_bytes <= 0
+    ):
+        raise DockerRunActionInspectionError(
+            "Docker pre-release terminal inspection lacks activation authority"
+        )
+    prepared = activation.prepared_execution
+    authority = prepared.runtime_volume_authority
+    issued, container_id, state, restart_count, complete_inspection_digest = (
+        _observe_exited_main_container_snapshot(
+            raw_inspection=raw_inspection,
+            activation=activation,
+            volume=volume,
+            command=command,
+            helper_evidence=helper_evidence,
+            init_source_evidence=init_source_evidence,
+            settings=settings,
+            inspection_size_limit_bytes=inspection_size_limit_bytes,
+        )
+    )
+    if (
+        container_id != activation.spawn_commit.provider_execution_id
+        or container_id != prepared.inert_container_evidence.container_id
+        or issued != prepared.inert_container_evidence.issued_create_projection
+    ):
+        raise DockerRunActionInspectionError(
+            "Docker pre-release terminal main differs from event-5 authority"
+        )
+    return RunActionPreReleaseTerminalContainerObservation.mint(
+        prepared_execution_id=prepared.prepared_execution_id,
+        spawn_commit_id=activation.spawn_commit.spawn_commit_id,
+        provider_execution_id=activation.spawn_commit.provider_execution_id,
+        runtime_volume_authority_id=authority.runtime_volume_authority_id,
+        generation_nonce=authority.generation_nonce,
+        activation_revalidation_receipt_id=(
+            activation.activation_revalidation_receipt_id
+        ),
+        observed_inspect_projection=issued,
+        complete_inspection_digest=complete_inspection_digest,
+        container_status=state["Status"],
+        process_id=state["Pid"],
+        restart_count=restart_count,
+        paused=state["Paused"],
+        restarting=state["Restarting"],
+        dead=state["Dead"],
+        started_at=state["StartedAt"],
+        finished_at=state["FinishedAt"],
+        exit_code=state["ExitCode"],
+        oom_killed=state["OOMKilled"],
+        state_error=state["Error"],
+    )
+
+
+def _observe_exited_main_container_snapshot(
+    *,
+    raw_inspection: Mapping[str, Any],
+    activation: RunActionActivationRevalidationReceipt,
+    volume: DockerRunActionVolumeObservation,
+    command: DockerRunActionCommand,
+    helper_evidence: RunActionSupervisorHelperEvidence,
+    init_source_evidence: RunActionDockerInitSourceEvidence,
+    settings: DockerRuntimeSettings,
+    inspection_size_limit_bytes: int,
+) -> tuple[
+    DockerRunActionCreateInspectProjection,
+    str,
+    Mapping[str, Any],
+    int,
+    str,
+]:
+    prepared = activation.prepared_execution
     claim = prepared.preparation_claim
     authority = prepared.runtime_volume_authority
     issued = issued_main_projection(
@@ -452,47 +596,12 @@ def observe_terminal_main_container(
         settings=settings,
         lifecycle=_DockerContainerLifecycle.EXITED_MAIN,
     )
-    release_receipt = workload_release_adoption.workload_release_receipt
-    released = release_receipt.resolved_workload_observation
-    if (
-        release_receipt.resolved_workload_observation.activation_revalidation_receipt
-        != activation
-        or container_id != activation.spawn_commit.provider_execution_id
-        or container_id != prepared.inert_container_evidence.container_id
-        or container_id != released.running_container_observation.container_id
-        or raw["State"]["StartedAt"]
-        != released.running_container_observation.started_at
-        or issued != prepared.inert_container_evidence.issued_create_projection
-    ):
-        raise DockerRunActionInspectionError(
-            "Docker terminal main differs from its adopted released occurrence"
-        )
-    state = raw["State"]
-    return RunActionTerminalObservation.mint(
-        prepared_execution_id=prepared.prepared_execution_id,
-        spawn_commit_id=activation.spawn_commit.spawn_commit_id,
-        provider_execution_id=activation.spawn_commit.provider_execution_id,
-        runtime_volume_authority_id=authority.runtime_volume_authority_id,
-        generation_nonce=authority.generation_nonce,
-        activation_revalidation_receipt_id=(
-            activation.activation_revalidation_receipt_id
-        ),
-        workload_release_adoption_id=(
-            workload_release_adoption.workload_release_adoption_id
-        ),
-        observed_inspect_projection=issued,
-        complete_inspection_digest=tree_or_blob_digest(complete_inspection_payload),
-        container_status=state["Status"],
-        process_id=state["Pid"],
-        restart_count=raw["RestartCount"],
-        paused=state["Paused"],
-        restarting=state["Restarting"],
-        dead=state["Dead"],
-        started_at=state["StartedAt"],
-        finished_at=state["FinishedAt"],
-        exit_code=state["ExitCode"],
-        oom_killed=state["OOMKilled"],
-        state_error=state["Error"],
+    return (
+        issued,
+        container_id,
+        _require_mapping(raw["State"], "Docker terminal main State"),
+        raw["RestartCount"],
+        tree_or_blob_digest(complete_inspection_payload),
     )
 
 
@@ -506,6 +615,71 @@ def reobserve_terminal_main_container_for_cleanup(
         raise DockerRunActionInspectionError(
             "Docker terminal cleanup lacks durable terminal authority"
         )
+    _require_reobserved_exited_main_container(
+        raw_inspection=raw_inspection,
+        complete_inspection_digest=terminal.complete_inspection_digest,
+        provider_execution_id=terminal.provider_execution_id,
+        container_status=terminal.container_status,
+        process_id=terminal.process_id,
+        restart_count=terminal.restart_count,
+        paused=terminal.paused,
+        restarting=terminal.restarting,
+        dead=terminal.dead,
+        started_at=terminal.started_at,
+        finished_at=terminal.finished_at,
+        exit_code=terminal.exit_code,
+        oom_killed=terminal.oom_killed,
+        state_error=terminal.state_error,
+    )
+    return terminal
+
+
+def reobserve_pre_release_terminal_main_container_for_cleanup(
+    raw_inspection: Mapping[str, Any],
+    terminal: RunActionPreReleaseTerminalContainerObservation,
+) -> RunActionPreReleaseTerminalContainerObservation:
+    """Reprove one durable pre-release terminal snapshot before exact deletion."""
+
+    if type(terminal) is not RunActionPreReleaseTerminalContainerObservation:
+        raise DockerRunActionInspectionError(
+            "Docker pre-release terminal cleanup lacks durable authority"
+        )
+    _require_reobserved_exited_main_container(
+        raw_inspection=raw_inspection,
+        complete_inspection_digest=terminal.complete_inspection_digest,
+        provider_execution_id=terminal.provider_execution_id,
+        container_status=terminal.container_status,
+        process_id=terminal.process_id,
+        restart_count=terminal.restart_count,
+        paused=terminal.paused,
+        restarting=terminal.restarting,
+        dead=terminal.dead,
+        started_at=terminal.started_at,
+        finished_at=terminal.finished_at,
+        exit_code=terminal.exit_code,
+        oom_killed=terminal.oom_killed,
+        state_error=terminal.state_error,
+    )
+    return terminal
+
+
+def _require_reobserved_exited_main_container(
+    *,
+    raw_inspection: Mapping[str, Any],
+    complete_inspection_digest: str,
+    provider_execution_id: str,
+    container_status: str,
+    process_id: int,
+    restart_count: int,
+    paused: bool,
+    restarting: bool,
+    dead: bool,
+    started_at: str,
+    finished_at: str,
+    exit_code: int,
+    oom_killed: bool,
+    state_error: str,
+) -> None:
     raw, normalized_payload, _raw_size_bytes = _snapshot_container_inspection(
         raw_inspection,
         "Docker terminal cleanup main inspection",
@@ -515,24 +689,23 @@ def reobserve_terminal_main_container_for_cleanup(
         "Docker terminal cleanup main State",
     )
     if (
-        tree_or_blob_digest(normalized_payload) != terminal.complete_inspection_digest
-        or raw["Id"] != terminal.provider_execution_id
-        or state["Status"] != terminal.container_status
-        or state["Pid"] != terminal.process_id
-        or raw["RestartCount"] != terminal.restart_count
-        or state["Paused"] != terminal.paused
-        or state["Restarting"] != terminal.restarting
-        or state["Dead"] != terminal.dead
-        or state["StartedAt"] != terminal.started_at
-        or state["FinishedAt"] != terminal.finished_at
-        or state["ExitCode"] != terminal.exit_code
-        or state["OOMKilled"] != terminal.oom_killed
-        or state["Error"] != terminal.state_error
+        tree_or_blob_digest(normalized_payload) != complete_inspection_digest
+        or raw["Id"] != provider_execution_id
+        or state["Status"] != container_status
+        or state["Pid"] != process_id
+        or raw["RestartCount"] != restart_count
+        or state["Paused"] != paused
+        or state["Restarting"] != restarting
+        or state["Dead"] != dead
+        or state["StartedAt"] != started_at
+        or state["FinishedAt"] != finished_at
+        or state["ExitCode"] != exit_code
+        or state["OOMKilled"] != oom_killed
+        or state["Error"] != state_error
     ):
         raise DockerRunActionInspectionError(
             "Docker terminal cleanup main differs from durable terminal authority"
         )
-    return terminal
 
 
 def issued_keeper_projection(
@@ -1619,6 +1792,8 @@ __all__ = [
     "observe_running_barrier_main_container",
     "observe_running_keeper",
     "observe_runtime_volume",
+    "observe_pre_release_terminal_main_container",
     "observe_terminal_main_container",
+    "reobserve_pre_release_terminal_main_container_for_cleanup",
     "reobserve_terminal_main_container_for_cleanup",
 ]

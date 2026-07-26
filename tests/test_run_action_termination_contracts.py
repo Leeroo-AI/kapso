@@ -18,8 +18,12 @@ from kapso.cross_run.launch.run_action_recovery import (
     RunActionRecoveryError,
 )
 from kapso.cross_run.launch.run_action_termination_contracts import (
+    provider_termination_matches_durable_activation,
     run_action_pre_release_main_loss_observation_token,
+    run_action_pre_release_main_terminal_observation_token,
     RunActionPreReleaseMainLossObservation,
+    RunActionPreReleaseMainTerminalObservation,
+    RunActionPreReleaseTerminalContainerObservation,
     RunActionProviderTerminationDisposition,
     RunActionProviderTerminationReason,
     RunActionProviderTerminationReceipt,
@@ -130,6 +134,64 @@ def _pre_release_loss(activation, activation_event_id):
     )
 
 
+def _pre_release_terminal(
+    activation,
+    activation_event_id,
+    released_terminal,
+):
+    prepared = activation.prepared_execution
+    inventory_digest = tree_or_blob_digest(b"stable present terminal inventory")
+    allocation = RunActionPreparationAllocation.mint(
+        preparation_claim=prepared.preparation_claim,
+        runtime_volume_authority=prepared.runtime_volume_authority,
+    )
+    control = prepared.control_directory
+    terminal = RunActionPreReleaseTerminalContainerObservation.mint(
+        prepared_execution_id=released_terminal.prepared_execution_id,
+        spawn_commit_id=released_terminal.spawn_commit_id,
+        provider_execution_id=released_terminal.provider_execution_id,
+        runtime_volume_authority_id=(released_terminal.runtime_volume_authority_id),
+        generation_nonce=released_terminal.generation_nonce,
+        activation_revalidation_receipt_id=(
+            released_terminal.activation_revalidation_receipt_id
+        ),
+        observed_inspect_projection=(released_terminal.observed_inspect_projection),
+        complete_inspection_digest=released_terminal.complete_inspection_digest,
+        container_status=released_terminal.container_status,
+        process_id=released_terminal.process_id,
+        restart_count=released_terminal.restart_count,
+        paused=released_terminal.paused,
+        restarting=released_terminal.restarting,
+        dead=released_terminal.dead,
+        started_at=released_terminal.started_at,
+        finished_at=released_terminal.finished_at,
+        exit_code=released_terminal.exit_code,
+        oom_killed=released_terminal.oom_killed,
+        state_error=released_terminal.state_error,
+    )
+    return RunActionPreReleaseMainTerminalObservation.mint(
+        activation_event_id=activation_event_id,
+        preparation_allocation=allocation,
+        activation_revalidation_receipt=activation,
+        host_boot_id="123e4567-e89b-42d3-a456-426614174000",
+        observed_before_boottime_nanoseconds=80_000_000_000,
+        first_complete_inventory_digest=inventory_digest,
+        reobserved_volume_evidence=activation.reobserved_volume_evidence,
+        reobserved_keeper_evidence=activation.reobserved_keeper_evidence,
+        terminal_container_observation=terminal,
+        second_complete_inventory_digest=inventory_digest,
+        observed_after_boottime_nanoseconds=80_000_000_001,
+        observed_runtime_volume_names=(prepared.runtime_volume_authority.volume_name,),
+        observed_keeper_container_ids=(prepared.volume_keeper_evidence.container_id,),
+        observed_main_container_ids=(activation.spawn_commit.provider_execution_id,),
+        control_mount_id=control.mount_id,
+        control_device=control.device,
+        control_inode=control.inode,
+        control_entry_count=0,
+        control_directory_topology=RunActionControlDirectoryTopology.EMPTY,
+    )
+
+
 def _termination_graph(reason):
     activation, adoption, successful_terminal, _nonempty_capture = _result_graph()
     timeout = None
@@ -158,7 +220,7 @@ def _termination_graph(reason):
             b"",
         )
         disposition = RunActionProviderTerminationDisposition.FAILED
-    else:
+    elif reason is RunActionProviderTerminationReason.PRE_RELEASE_MAIN_LOSS:
         adoption = None
         terminal = None
         activation_event_id = content_id(
@@ -166,6 +228,18 @@ def _termination_graph(reason):
             {"fixture": "pre-release activation event"},
         )
         loss = _pre_release_loss(activation, activation_event_id)
+        disposition = RunActionProviderTerminationDisposition.FAILED
+    else:
+        adoption = None
+        activation_event_id = content_id(
+            "run-action-execution-event",
+            {"fixture": "pre-release activation event"},
+        )
+        terminal = _pre_release_terminal(
+            activation,
+            activation_event_id,
+            successful_terminal,
+        )
         disposition = RunActionProviderTerminationDisposition.FAILED
     receipt = RunActionProviderTerminationReceipt.mint(
         disposition=disposition,
@@ -678,3 +752,121 @@ def test_pre_release_loss_token_changes_with_the_physical_occurrence():
     assert run_action_pre_release_main_loss_observation_token(
         changed_inventory
     ) != run_action_pre_release_main_loss_observation_token(loss)
+
+
+def test_pre_release_terminal_is_distinct_from_loss_and_released_terminal():
+    receipt = _termination_graph(
+        RunActionProviderTerminationReason.PRE_RELEASE_MAIN_TERMINAL
+    )
+    terminal = receipt.terminal_observation
+    loss = _termination_graph(RunActionProviderTerminationReason.PRE_RELEASE_MAIN_LOSS)
+    released = _termination_graph(RunActionProviderTerminationReason.NONZERO_EXIT)
+
+    assert type(terminal) is RunActionPreReleaseMainTerminalObservation
+    assert provider_termination_matches_durable_activation(
+        receipt,
+        receipt.activation_event_id,
+        terminal.preparation_allocation,
+        terminal.activation_revalidation_receipt,
+    )
+    with pytest.raises(
+        RunActionTerminationContractError,
+        match="sole termination evidence",
+    ):
+        _remint(receipt, terminal_observation=released.terminal_observation)
+    with pytest.raises(
+        RunActionTerminationContractError,
+        match="sole termination evidence",
+    ):
+        _remint(
+            receipt,
+            pre_release_main_loss_observation=(loss.pre_release_main_loss_observation),
+        )
+    with pytest.raises(
+        RunActionTerminationContractError,
+        match="sole termination evidence",
+    ):
+        _remint(receipt, workload_release_adoption=released.workload_release_adoption)
+
+
+def test_pre_release_terminal_rejects_inventory_control_and_main_splices():
+    receipt = _termination_graph(
+        RunActionProviderTerminationReason.PRE_RELEASE_MAIN_TERMINAL
+    )
+    observation = receipt.terminal_observation
+
+    with pytest.raises(
+        RunActionTerminationContractError,
+        match="incomplete or spliced",
+    ):
+        _remint(
+            observation,
+            second_complete_inventory_digest=tree_or_blob_digest(b"changed inventory"),
+        )
+    with pytest.raises(
+        RunActionTerminationContractError,
+        match="incomplete or spliced",
+    ):
+        _remint(observation, observed_main_container_ids=())
+    with pytest.raises(
+        RunActionTerminationContractError,
+        match="incomplete or spliced",
+    ):
+        _remint(
+            observation,
+            control_directory_topology=RunActionControlDirectoryTopology.RELEASED,
+        )
+    with pytest.raises(
+        RunActionTerminationContractError,
+        match="incomplete or spliced",
+    ):
+        _remint(
+            observation,
+            terminal_container_observation=_remint(
+                observation.terminal_container_observation,
+                provider_execution_id="e" * 64,
+            ),
+        )
+
+
+def test_pre_release_terminal_token_ignores_sampling_time_and_usage_only():
+    receipt = _termination_graph(
+        RunActionProviderTerminationReason.PRE_RELEASE_MAIN_TERMINAL
+    )
+    observation = receipt.terminal_observation
+    volume = observation.reobserved_volume_evidence
+    changed_volume = _remint_contract(
+        volume,
+        used_block_count=volume.used_block_count + 1,
+        used_size_bytes=(volume.used_size_bytes + volume.allocation_block_size_bytes),
+        available_block_count=volume.available_block_count - 1,
+        available_size_bytes=(
+            volume.available_size_bytes - volume.allocation_block_size_bytes
+        ),
+    )
+    later = _remint(
+        observation,
+        observed_before_boottime_nanoseconds=(
+            observation.observed_before_boottime_nanoseconds + 100
+        ),
+        observed_after_boottime_nanoseconds=(
+            observation.observed_after_boottime_nanoseconds + 100
+        ),
+        reobserved_volume_evidence=changed_volume,
+    )
+    changed_terminal = _remint(
+        observation,
+        terminal_container_observation=_remint(
+            observation.terminal_container_observation,
+            complete_inspection_digest=tree_or_blob_digest(
+                b"another terminal snapshot"
+            ),
+        ),
+    )
+
+    assert run_action_pre_release_main_terminal_observation_token(
+        later
+    ) == run_action_pre_release_main_terminal_observation_token(observation)
+    assert run_action_pre_release_main_terminal_observation_token(
+        changed_terminal
+    ) != run_action_pre_release_main_terminal_observation_token(observation)

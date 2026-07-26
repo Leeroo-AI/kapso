@@ -49,6 +49,7 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
     preparation_volume_name,
 )
 from kapso.cross_run.launch.run_action_termination_contracts import (
+    RunActionPreReleaseMainTerminalObservation,
     RunActionProviderTerminationDisposition,
     RunActionProviderTerminationReason,
     RunActionProviderTerminationReceipt,
@@ -73,6 +74,10 @@ from test_run_action_recovery import (
     _remint_contract,
     _reserved_case,
     _terminal_observation,
+)
+from test_run_action_termination_contracts import (
+    _pre_release_loss,
+    _pre_release_terminal,
 )
 from test_run_action_supervisor_contracts import _execution_policy
 from test_run_state_publisher import publisher_case
@@ -232,6 +237,44 @@ def _append_cleanup_terminal(
                     pre_release_main_loss_observation=None,
                 )
             )
+        elif terminal_kind == "pre_release_terminal":
+            released_terminal = _terminal_observation(prepared, spawn, adoption)
+            pre_release_terminal = _pre_release_terminal(
+                activation,
+                session.events[4].event_id,
+                released_terminal,
+            )
+            session.terminate_provider(
+                RunActionProviderTerminationReceipt.mint(
+                    disposition=RunActionProviderTerminationDisposition.FAILED,
+                    reason=(
+                        RunActionProviderTerminationReason.PRE_RELEASE_MAIN_TERMINAL
+                    ),
+                    activation_event_id=session.events[4].event_id,
+                    workload_release_adoption=None,
+                    terminal_observation=pre_release_terminal,
+                    timeout_directive_publication=None,
+                    empty_result_capture_receipt=None,
+                    pre_release_main_loss_observation=None,
+                )
+            )
+        elif terminal_kind == "pre_release_loss":
+            loss = _pre_release_loss(
+                activation,
+                session.events[4].event_id,
+            )
+            session.terminate_provider(
+                RunActionProviderTerminationReceipt.mint(
+                    disposition=RunActionProviderTerminationDisposition.FAILED,
+                    reason=(RunActionProviderTerminationReason.PRE_RELEASE_MAIN_LOSS),
+                    activation_event_id=session.events[4].event_id,
+                    workload_release_adoption=None,
+                    terminal_observation=None,
+                    timeout_directive_publication=None,
+                    empty_result_capture_receipt=None,
+                    pre_release_main_loss_observation=loss,
+                )
+            )
         else:
             raise AssertionError("test terminal kind is unsupported")
     events = gate._action_store.inspect().events_for(reservation.intent.operation_id)
@@ -320,12 +363,24 @@ def _install_cleanup_proof_adapters(monkeypatch, prepared, events):
             )
         return terminal
 
+    def reobserve_pre_release_terminal(raw, terminal):
+        if raw["RoleProof"] != terminal.complete_inspection_digest:
+            raise RunActionDockerCleanupError(
+                "run-action cleanup main differs from durable terminal authority"
+            )
+        return terminal
+
     monkeypatch.setattr(cleanup_module, "observe_runtime_volume", observe_volume)
     monkeypatch.setattr(cleanup_module, "observe_running_keeper", observe_keeper)
     monkeypatch.setattr(
         cleanup_module,
         "reobserve_terminal_main_container_for_cleanup",
         reobserve_terminal,
+    )
+    monkeypatch.setattr(
+        cleanup_module,
+        "reobserve_pre_release_terminal_main_container_for_cleanup",
+        reobserve_pre_release_terminal,
     )
     monkeypatch.setattr(
         cleanup_module,
@@ -412,6 +467,7 @@ def _finalization_authority(
     (
         ("result_accepted", RunActionExecutionEventKind.RESULT_ACCEPTED),
         ("provider_terminated", RunActionExecutionEventKind.PROVIDER_TERMINATED),
+        ("pre_release_terminal", RunActionExecutionEventKind.PROVIDER_TERMINATED),
     ),
 )
 def test_terminal_cleanup_removes_exact_physical_suffix(
@@ -433,11 +489,16 @@ def test_terminal_cleanup_removes_exact_physical_suffix(
         terminal_kind,
     )
     terminal = cleanup_module._terminal_cleanup_evidence(events).terminal_observation
+    terminal_container = (
+        terminal.terminal_container_observation
+        if type(terminal) is RunActionPreReleaseMainTerminalObservation
+        else terminal
+    )
     _install_cleanup_resources(
         runner,
         allocation,
         prepared,
-        main_role_proof=terminal.complete_inspection_digest,
+        main_role_proof=terminal_container.complete_inspection_digest,
     )
     _install_cleanup_proof_adapters(monkeypatch, prepared, events)
 
@@ -908,6 +969,129 @@ def test_provider_termination_is_exact_terminal_cleanup_eligibility(publisher_ca
         evidence.terminal_observation
         == events[-1].provider_termination_receipt.terminal_observation
     )
+
+
+def test_pre_release_terminal_cleanup_is_empty_and_main_optional(
+    publisher_case,
+    resource_context,
+    monkeypatch,
+):
+    resource_manager, runner, _fixture_allocation, _claim = resource_context
+    gate, reservation, execution_policy = _reserve_cleanup_operation(
+        publisher_case,
+        resource_manager,
+    )
+    allocation, prepared, events = _append_cleanup_terminal(
+        gate,
+        reservation,
+        execution_policy,
+        "pre_release_terminal",
+    )
+    evidence = cleanup_module._terminal_cleanup_evidence(events)
+    terminal = evidence.terminal_observation
+    assert type(terminal) is RunActionPreReleaseMainTerminalObservation
+    assert evidence.topology is RunActionControlDirectoryTopology.EMPTY
+    assert evidence.workload_release_adoption is None
+    assert evidence.timeout_directive_publication is None
+    assert not evidence.main_must_be_absent
+
+    _install_cleanup_resources(
+        runner,
+        allocation,
+        prepared,
+        main_role_proof=(
+            terminal.terminal_container_observation.complete_inspection_digest
+        ),
+    )
+    _install_cleanup_proof_adapters(monkeypatch, prepared, events)
+    runner.containers.pop(prepared.inert_container_evidence.container_id)
+
+    _finalization_authority(
+        publisher_case,
+        gate,
+        resource_manager,
+        runner,
+    ).finalize_terminal(reservation.intent.operation_id)
+
+    assert _cleanup_commands(runner) == (
+        (
+            "container",
+            "rm",
+            "--force",
+            prepared.volume_keeper_evidence.container_id,
+        ),
+        ("volume", "rm", allocation.runtime_volume_authority.volume_name),
+    )
+
+
+def test_event5_tail_cannot_authorize_cleanup(
+    publisher_case,
+    resource_context,
+):
+    resource_manager, runner, _fixture_allocation, _claim = resource_context
+    gate, reservation, execution_policy = _reserve_cleanup_operation(
+        publisher_case,
+        resource_manager,
+    )
+    allocation, prepared = _append_prepared_cleanup_prefix(
+        gate,
+        reservation,
+        execution_policy,
+    )
+    with gate._action_store._recovery_session(
+        reservation,
+        _authority=_RUN_ACTION_RECOVERY_AUTHORITY,
+    ) as session:
+        spawn = session.commit_spawn(
+            security_observation_id=reservation.frontier.security_observation_id,
+            boundary_identity=reservation.intent.boundary_identity,
+        )
+        session.commit_activation(_activation_revalidation_receipt(prepared, spawn))
+    _install_cleanup_resources(runner, allocation, prepared)
+
+    with pytest.raises(
+        RunActionDockerCleanupError,
+        match="lacks a complete durable execution prefix",
+    ):
+        _finalization_authority(
+            publisher_case,
+            gate,
+            resource_manager,
+            runner,
+        ).finalize_terminal(reservation.intent.operation_id)
+
+    assert not _cleanup_commands(runner)
+
+
+def test_pre_release_loss_still_rejects_main_reappearance(
+    publisher_case,
+    resource_context,
+):
+    resource_manager, runner, _fixture_allocation, _claim = resource_context
+    gate, reservation, execution_policy = _reserve_cleanup_operation(
+        publisher_case,
+        resource_manager,
+    )
+    allocation, prepared, _events = _append_cleanup_terminal(
+        gate,
+        reservation,
+        execution_policy,
+        "pre_release_loss",
+    )
+    _install_cleanup_resources(runner, allocation, prepared)
+
+    with pytest.raises(
+        RunActionDockerCleanupError,
+        match="pre-release main reappeared",
+    ):
+        _finalization_authority(
+            publisher_case,
+            gate,
+            resource_manager,
+            runner,
+        ).finalize_terminal(reservation.intent.operation_id)
+
+    assert not _cleanup_commands(runner)
 
 
 def test_received_result_is_never_cleanup_eligibility(

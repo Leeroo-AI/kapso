@@ -19,6 +19,7 @@ from kapso.cross_run.launch.run_action_recovery import (
 )
 from kapso.cross_run.launch.run_action_termination_contracts import (
     run_action_pre_release_main_loss_observation_token,
+    run_action_pre_release_main_terminal_observation_token,
     RunActionProviderTerminationDisposition,
     RunActionProviderTerminationReason,
     RunActionProviderTerminationReceipt,
@@ -474,12 +475,18 @@ def test_observation_and_outcome_matrix_is_closed():
     loss = _termination_graph(
         RunActionProviderTerminationReason.PRE_RELEASE_MAIN_LOSS
     ).pre_release_main_loss_observation
+    pre_release_terminal = _termination_graph(
+        RunActionProviderTerminationReason.PRE_RELEASE_MAIN_TERMINAL
+    ).terminal_observation
     observations = {
         RunActionCommittedSpawnState.INERT_CONTINUABLE: "sha256:" + "1" * 64,
         RunActionCommittedSpawnState.RUNNING_CONTINUABLE: "sha256:" + "2" * 64,
         RunActionCommittedSpawnState.TERMINAL_CONTINUABLE: "sha256:" + "3" * 64,
         RunActionCommittedSpawnState.PRE_RELEASE_MAIN_LOSS_CONTINUABLE: (
             run_action_pre_release_main_loss_observation_token(loss)
+        ),
+        RunActionCommittedSpawnState.PRE_RELEASE_MAIN_TERMINAL_CONTINUABLE: (
+            run_action_pre_release_main_terminal_observation_token(pre_release_terminal)
         ),
         RunActionCommittedSpawnState.UNKNOWN: None,
     }
@@ -497,6 +504,10 @@ def test_observation_and_outcome_matrix_is_closed():
             RunActionContinuationState.PROVIDER_TERMINATED,
         },
         RunActionCommittedSpawnState.PRE_RELEASE_MAIN_LOSS_CONTINUABLE: {
+            RunActionContinuationState.PENDING,
+            RunActionContinuationState.PROVIDER_TERMINATED,
+        },
+        RunActionCommittedSpawnState.PRE_RELEASE_MAIN_TERMINAL_CONTINUABLE: {
             RunActionContinuationState.PENDING,
             RunActionContinuationState.PROVIDER_TERMINATED,
         },

@@ -64,6 +64,10 @@ from kapso.cross_run.launch.run_action_pre_release_main_loss import (
     capture_run_action_pre_release_main_loss_termination,
     inspect_run_action_pre_release_main_loss,
 )
+from kapso.cross_run.launch.run_action_pre_release_main_terminal import (
+    capture_run_action_pre_release_main_terminal_termination,
+    inspect_run_action_pre_release_main_terminal,
+)
 from kapso.cross_run.launch.run_action_resolved_workload import (
     open_run_action_blocked_workload,
 )
@@ -91,6 +95,7 @@ from kapso.cross_run.launch.run_action_timeout_termination import (
 )
 from kapso.cross_run.launch.run_action_termination_contracts import (
     run_action_pre_release_main_loss_observation_token,
+    run_action_pre_release_main_terminal_observation_token,
     RunActionProviderTerminationDisposition,
     RunActionProviderTerminationReason,
 )
@@ -507,6 +512,72 @@ class _LivePreReleaseMainLossAdapter:
         return outcome
 
 
+class _LivePreReleaseMainTerminalAdapter(_LivePreReleaseMainLossAdapter):
+    def __init__(
+        self,
+        *,
+        boundary_identity,
+        execution_policy,
+        resource_manager,
+        preparation_allocation,
+        command,
+        helper_evidence,
+        init_source_evidence,
+        docker_settings,
+        launch_settings,
+    ) -> None:
+        super().__init__(
+            boundary_identity=boundary_identity,
+            execution_policy=execution_policy,
+            resource_manager=resource_manager,
+            preparation_allocation=preparation_allocation,
+            helper_evidence=helper_evidence,
+            init_source_evidence=init_source_evidence,
+            docker_settings=docker_settings,
+        )
+        self._command = command
+        self._launch_settings = launch_settings
+        self.terminal_observation = None
+
+    def inspect_committed(self, query):
+        if query.preparation_allocation != self._preparation_allocation:
+            raise AssertionError(
+                "pre-release terminal query differs from exact allocation"
+            )
+        self.terminal_observation = inspect_run_action_pre_release_main_terminal(
+            query=query,
+            resource_manager=self._resource_manager,
+            command=self._command,
+            helper_evidence=self._helper_evidence,
+            init_source_evidence=self._init_source_evidence,
+            docker_settings=self._docker_settings,
+            launch_settings=self._launch_settings,
+        )
+        return RunActionCommittedSpawnObservation(
+            state=(RunActionCommittedSpawnState.PRE_RELEASE_MAIN_TERMINAL_CONTINUABLE),
+            observation_token=(
+                run_action_pre_release_main_terminal_observation_token(
+                    self.terminal_observation
+                )
+            ),
+        )
+
+    def continue_committed_once(self, capability):
+        if self.terminal_observation is None:
+            raise AssertionError("pre-release terminal was not classified")
+        outcome = capture_run_action_pre_release_main_terminal_termination(
+            capability=capability,
+            resource_manager=self._resource_manager,
+            command=self._command,
+            helper_evidence=self._helper_evidence,
+            init_source_evidence=self._init_source_evidence,
+            docker_settings=self._docker_settings,
+            launch_settings=self._launch_settings,
+        )
+        self.termination_receipt = outcome.provider_termination_receipt
+        return outcome
+
+
 class _LiveTimeoutWorkloadAdapter:
     def __init__(
         self,
@@ -794,6 +865,7 @@ def _listed_exact(
         "nonzero",
         "oom",
         "pre_release_main_loss",
+        "pre_release_main_terminal",
         "frontier_invalidated",
     ),
 )
@@ -1746,6 +1818,82 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             assert tree_or_blob_digest(busybox_bytes) == (
                 settings.helper_executable_digest
             )
+            action_gate._resource_finalization_authority.require_terminal_absence(
+                layout_reservation.intent.operation_id
+            )
+            return
+        if terminal_path == "pre_release_main_terminal":
+            runtime.run_control(
+                ("container", "kill", "--signal", "KILL", layout_main_id)
+            )
+            inspection_deadline = time.monotonic() + settings.command_timeout_seconds
+            terminal_main = resource_manager.inspect_main(
+                resource_manager.observe(layout_allocation)
+            )
+            while (
+                terminal_main["State"]["Running"] is True
+                and time.monotonic() < inspection_deadline
+            ):
+                time.sleep(settings.run_action_barrier_poll_interval_seconds)
+                terminal_main = resource_manager.inspect_main(
+                    resource_manager.observe(layout_allocation)
+                )
+            assert terminal_main["Id"] == layout_main_id
+            assert terminal_main["State"]["Running"] is False
+            assert terminal_main["State"]["Status"] == "exited"
+            terminal_inventory = resource_manager.observe(layout_allocation)
+            assert terminal_inventory.main_container_id == layout_main_id
+            with open_run_action_release_inspection(
+                activation_event=activation_event,
+                launch_settings=cross_run_settings.launch,
+            ) as absent_release_inspection:
+                assert absent_release_inspection.topology is (
+                    RunActionControlDirectoryTopology.EMPTY
+                )
+            terminal_adapter = _LivePreReleaseMainTerminalAdapter(
+                boundary_identity=boundary_identity,
+                execution_policy=layout_policy,
+                resource_manager=resource_manager,
+                preparation_allocation=layout_allocation,
+                command=command,
+                helper_evidence=helper_evidence,
+                init_source_evidence=init_source_evidence,
+                docker_settings=settings,
+                launch_settings=cross_run_settings.launch,
+            )
+            terminal_report = _recovery_coordinator(
+                action_gate,
+                terminal_adapter,
+            ).recover(action_frontier)
+            assert terminal_report.is_complete
+            assert terminal_adapter.termination_receipt is not None
+            assert terminal_adapter.termination_receipt.disposition is (
+                RunActionProviderTerminationDisposition.FAILED
+            )
+            assert terminal_adapter.termination_receipt.reason is (
+                RunActionProviderTerminationReason.PRE_RELEASE_MAIN_TERMINAL
+            )
+            observation = terminal_adapter.termination_receipt.terminal_observation
+            assert observation.observed_main_container_ids == (layout_main_id,)
+            assert (
+                observation.terminal_container_observation.provider_execution_id
+                == layout_main_id
+            )
+            assert observation.first_complete_inventory_digest == (
+                observation.second_complete_inventory_digest
+            )
+            terminal_events = action_gate._action_store.inspect().events_for(
+                layout_reservation.intent.operation_id
+            )
+            assert len(terminal_events) == 6
+            assert terminal_events[-1].event_kind is (
+                RunActionExecutionEventKind.PROVIDER_TERMINATED
+            )
+            assert (
+                terminal_events[-1].provider_termination_receipt
+                == terminal_adapter.termination_receipt
+            )
+            assert resource_manager.observe(layout_allocation).is_absent
             action_gate._resource_finalization_authority.require_terminal_absence(
                 layout_reservation.intent.operation_id
             )

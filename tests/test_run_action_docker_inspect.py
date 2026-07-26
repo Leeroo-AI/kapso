@@ -21,6 +21,7 @@ from kapso.cross_run.launch.run_action_docker_inspect import (
     observe_running_barrier_main_container,
     observe_running_keeper,
     observe_runtime_volume,
+    observe_pre_release_terminal_main_container,
     observe_terminal_main_container,
 )
 from kapso.cross_run.launch.run_action_docker_projection import (
@@ -669,6 +670,103 @@ def test_terminal_main_inspection_binds_the_adopted_released_occurrence(
         )
         == terminal
     )
+
+
+def test_pre_release_terminal_inspection_needs_no_release_authority(
+    docker_settings,
+):
+    (
+        prepared,
+        activation,
+        adoption,
+        volume,
+        command,
+        helper,
+        init,
+    ) = _terminal_context(docker_settings)
+    raw = _terminal_main_raw(
+        prepared,
+        adoption,
+        volume,
+        command,
+        docker_settings,
+        exit_code=23,
+        oom_killed=False,
+    )
+
+    terminal = observe_pre_release_terminal_main_container(
+        raw,
+        activation,
+        volume,
+        command,
+        helper,
+        init,
+        docker_settings,
+        inspection_size_limit_bytes=len(canonical_json_bytes(raw)),
+    )
+
+    assert (
+        terminal.provider_execution_id == activation.spawn_commit.provider_execution_id
+    )
+    assert (
+        terminal.activation_revalidation_receipt_id
+        == activation.activation_revalidation_receipt_id
+    )
+    assert terminal.exit_code == 23
+    assert terminal.oom_killed is False
+    assert not hasattr(terminal, "workload_release_adoption_id")
+
+
+def test_pre_release_terminal_inspection_rejects_running_and_oversized_main(
+    docker_settings,
+):
+    (
+        prepared,
+        activation,
+        adoption,
+        volume,
+        command,
+        helper,
+        init,
+    ) = _terminal_context(docker_settings)
+    raw = _terminal_main_raw(
+        prepared,
+        adoption,
+        volume,
+        command,
+        docker_settings,
+    )
+    running = copy.deepcopy(raw)
+    running["State"]["Running"] = True
+    running["State"]["Status"] = "running"
+    running["State"]["Pid"] = 42
+    running["State"]["FinishedAt"] = "0001-01-01T00:00:00Z"
+
+    with pytest.raises(DockerRunActionInspectionError):
+        observe_pre_release_terminal_main_container(
+            running,
+            activation,
+            volume,
+            command,
+            helper,
+            init,
+            docker_settings,
+            inspection_size_limit_bytes=len(canonical_json_bytes(running)),
+        )
+    with pytest.raises(
+        DockerRunActionInspectionError,
+        match="configured bound",
+    ):
+        observe_pre_release_terminal_main_container(
+            raw,
+            activation,
+            volume,
+            command,
+            helper,
+            init,
+            docker_settings,
+            inspection_size_limit_bytes=len(canonical_json_bytes(raw)) - 1,
+        )
 
 
 @pytest.mark.parametrize(

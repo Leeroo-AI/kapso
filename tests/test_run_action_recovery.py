@@ -1657,6 +1657,7 @@ def test_recovery_contract_has_no_proof_free_terminal_states() -> None:
         RunActionCommittedSpawnState.RUNNING_CONTINUABLE,
         RunActionCommittedSpawnState.TERMINAL_CONTINUABLE,
         RunActionCommittedSpawnState.PRE_RELEASE_MAIN_LOSS_CONTINUABLE,
+        RunActionCommittedSpawnState.PRE_RELEASE_MAIN_TERMINAL_CONTINUABLE,
         RunActionCommittedSpawnState.UNKNOWN,
     }
     assert set(RunActionContinuationState) == {

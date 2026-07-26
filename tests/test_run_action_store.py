@@ -76,6 +76,7 @@ from test_run_state_publisher import publisher_case
 from test_run_action_release_contracts import _release_adoption_for_event
 from test_run_action_termination_contracts import (
     _pre_release_loss,
+    _pre_release_terminal,
     _termination_graph,
 )
 from test_run_action_supervisor_contracts import (
@@ -253,6 +254,34 @@ def _pre_release_provider_termination(session):
         timeout_directive_publication=None,
         empty_result_capture_receipt=None,
         pre_release_main_loss_observation=loss,
+    )
+
+
+def _pre_release_terminal_provider_termination(
+    session,
+    spawn,
+    security_observation,
+):
+    prepared = session.events[2].prepared_execution
+    activation = session.events[4].activation_revalidation_receipt
+    adoption = _release_adoption_for_event(
+        session.events[4],
+        security_observation,
+    )
+    terminal = _pre_release_terminal(
+        activation,
+        session.events[4].event_id,
+        _terminal_observation(prepared, spawn, adoption),
+    )
+    return RunActionProviderTerminationReceipt.mint(
+        disposition=RunActionProviderTerminationDisposition.FAILED,
+        reason=RunActionProviderTerminationReason.PRE_RELEASE_MAIN_TERMINAL,
+        activation_event_id=session.events[4].event_id,
+        workload_release_adoption=None,
+        terminal_observation=terminal,
+        timeout_directive_publication=None,
+        empty_result_capture_receipt=None,
+        pre_release_main_loss_observation=None,
     )
 
 
@@ -694,6 +723,47 @@ def test_provider_termination_publication_recovers_exactly_across_crash(
             assert session.events[-1].event_kind is (
                 RunActionExecutionEventKind.PROVIDER_TERMINATED
             )
+
+
+def test_pre_release_terminal_event_persists_without_result_blobs(publisher_case):
+    frontier, request_payload, reservation, _workspace = _reserved_action(
+        publisher_case,
+        operation_id="pre_release_terminal_store_0123456789abcdef",
+    )
+    store = _open_store(
+        publisher_case["active"],
+        publisher_case["settings"],
+    )
+    _reserve_action(store, reservation, request_payload)
+    with _open_session(store, reservation) as session:
+        _prepare_session(session)
+        spawn = session.commit_spawn(
+            security_observation_id=reservation.frontier.security_observation_id,
+            boundary_identity=reservation.intent.boundary_identity,
+        )
+        prepared = session.events[2].prepared_execution
+        session.commit_activation(_activation_revalidation_receipt(prepared, spawn))
+        receipt = _pre_release_terminal_provider_termination(
+            session,
+            spawn,
+            frontier.checkpoint.safety_state.security_observation,
+        )
+        session.terminate_provider(receipt)
+
+    reopened = _open_store(
+        publisher_case["active"],
+        publisher_case["settings"],
+    )
+    events = reopened.inspect().events_for(reservation.intent.operation_id)
+    store_path = (
+        publisher_case["active"].run_root
+        / publisher_case["settings"].run_action_store_path
+    )
+    assert len(events) == 6
+    assert events[-1].event_kind is RunActionExecutionEventKind.PROVIDER_TERMINATED
+    assert events[-1].provider_termination_receipt == receipt
+    assert not tuple(store_path.glob("result-*.blob"))
+    assert not tuple(store_path.glob("accepted-*.blob"))
 
 
 @pytest.mark.parametrize("mutation", ("old", "unknown"))

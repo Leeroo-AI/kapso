@@ -102,9 +102,11 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
 from kapso.cross_run.launch.run_action_termination_contracts import (
     provider_termination_matches_durable_activation,
     run_action_pre_release_main_loss_observation_token,
+    run_action_pre_release_main_terminal_observation_token,
     run_action_running_container_occurrence_matches,
     run_action_timeout_directive_evidence_matches,
     run_action_timeout_publication_evidence_matches,
+    RunActionPreReleaseMainTerminalObservation,
     RunActionProviderTerminationReason,
     RunActionProviderTerminationReceipt,
     RunActionTimeoutDirective,
@@ -345,6 +347,7 @@ class RunActionCommittedSpawnState(str, Enum):
     RUNNING_CONTINUABLE = "running_continuable"
     TERMINAL_CONTINUABLE = "terminal_continuable"
     PRE_RELEASE_MAIN_LOSS_CONTINUABLE = "pre_release_main_loss_continuable"
+    PRE_RELEASE_MAIN_TERMINAL_CONTINUABLE = "pre_release_main_terminal_continuable"
     UNKNOWN = "unknown"
 
 
@@ -410,6 +413,7 @@ class RunActionCommittedSpawnObservation:
             RunActionCommittedSpawnState.RUNNING_CONTINUABLE,
             RunActionCommittedSpawnState.TERMINAL_CONTINUABLE,
             RunActionCommittedSpawnState.PRE_RELEASE_MAIN_LOSS_CONTINUABLE,
+            RunActionCommittedSpawnState.PRE_RELEASE_MAIN_TERMINAL_CONTINUABLE,
         }
         if continuable != (self.observation_token is not None):
             raise RunActionRecoveryError(
@@ -523,7 +527,10 @@ class RunActionContinuationOutcome:
                 (
                     self.provider_termination_receipt is not None
                     and self.provider_termination_receipt.reason
-                    is RunActionProviderTerminationReason.PRE_RELEASE_MAIN_LOSS
+                    in {
+                        RunActionProviderTerminationReason.PRE_RELEASE_MAIN_LOSS,
+                        RunActionProviderTerminationReason.PRE_RELEASE_MAIN_TERMINAL,
+                    }
                 ),
             ),
         }
@@ -901,11 +908,20 @@ class RunActionCommittedContinuationCapability:
                 RunActionCommittedSpawnState.RUNNING_CONTINUABLE,
                 RunActionCommittedSpawnState.TERMINAL_CONTINUABLE,
                 RunActionCommittedSpawnState.PRE_RELEASE_MAIN_LOSS_CONTINUABLE,
+                RunActionCommittedSpawnState.PRE_RELEASE_MAIN_TERMINAL_CONTINUABLE,
             }
             or (
                 observation.state
-                is RunActionCommittedSpawnState.PRE_RELEASE_MAIN_LOSS_CONTINUABLE
-                and query.workload_release_adoption is not None
+                in {
+                    RunActionCommittedSpawnState.PRE_RELEASE_MAIN_LOSS_CONTINUABLE,
+                    RunActionCommittedSpawnState.PRE_RELEASE_MAIN_TERMINAL_CONTINUABLE,
+                }
+                and (
+                    query.workload_release_adoption is not None
+                    or query.timeout_directive_publication is not None
+                    or query.control_directory_topology
+                    is not RunActionControlDirectoryTopology.EMPTY
+                )
             )
             or type(required_security_observation) is not SecurityDenylistObservation
             or required_security_observation.observation_id
@@ -1389,10 +1405,13 @@ class RunActionCommittedContinuationCapability:
             query = self._query
             observation_state = self._observation.state
             terminal = self._terminal_observation
-            loss_observation_id = (
+            pre_release_observation_token = (
                 self._observation.observation_token
                 if observation_state
-                is RunActionCommittedSpawnState.PRE_RELEASE_MAIN_LOSS_CONTINUABLE
+                in {
+                    RunActionCommittedSpawnState.PRE_RELEASE_MAIN_LOSS_CONTINUABLE,
+                    RunActionCommittedSpawnState.PRE_RELEASE_MAIN_TERMINAL_CONTINUABLE,
+                }
                 else None
             )
             released_terminal_ready = (
@@ -1420,11 +1439,14 @@ class RunActionCommittedContinuationCapability:
                         == query.timeout_directive_publication
                     )
                 )
-                and loss_observation_id is None
+                and pre_release_observation_token is None
             )
-            pre_release_loss_ready = (
+            pre_release_termination_ready = (
                 observation_state
-                is RunActionCommittedSpawnState.PRE_RELEASE_MAIN_LOSS_CONTINUABLE
+                in {
+                    RunActionCommittedSpawnState.PRE_RELEASE_MAIN_LOSS_CONTINUABLE,
+                    RunActionCommittedSpawnState.PRE_RELEASE_MAIN_TERMINAL_CONTINUABLE,
+                }
                 and self._terminal_inspection_state == "ready"
                 and terminal is None
                 and query.workload_release_adoption is None
@@ -1433,8 +1455,9 @@ class RunActionCommittedContinuationCapability:
                 and query.timeout_directive_publication is None
                 and self._timeout_publication_state == "ready"
                 and self._timeout_directive_publication is None
-                and type(loss_observation_id) is str
-                and _SHA256_DIGEST_PATTERN.fullmatch(loss_observation_id) is not None
+                and type(pre_release_observation_token) is str
+                and _SHA256_DIGEST_PATTERN.fullmatch(pre_release_observation_token)
+                is not None
             )
             if (
                 _ISSUED_COMMITTED_CONTINUATION_CAPABILITIES.get(id(self)) is not self
@@ -1451,7 +1474,7 @@ class RunActionCommittedContinuationCapability:
                     "ready",
                     "complete",
                 }
-                or not (released_terminal_ready or pre_release_loss_ready)
+                or not (released_terminal_ready or pre_release_termination_ready)
                 or _authority is not _RUN_ACTION_PROVIDER_TERMINATION_AUTHORITY
             ):
                 raise RunActionRecoveryError(
@@ -1459,9 +1482,9 @@ class RunActionCommittedContinuationCapability:
                 )
             self._provider_termination_state = "registering"
             self._result_capture_state = "blocked_by_provider_termination"
-            if pre_release_loss_ready:
+            if pre_release_termination_ready:
                 self._terminal_inspection_state = "blocked_by_provider_termination"
-        return query, terminal, loss_observation_id
+        return query, terminal, pre_release_observation_token
 
     def _complete_provider_termination(
         self,
@@ -1487,7 +1510,10 @@ class RunActionCommittedContinuationCapability:
                 and self._terminal_inspection_state == "complete"
                 and type(retained_terminal) is RunActionTerminalObservation
                 and receipt.reason
-                is not RunActionProviderTerminationReason.PRE_RELEASE_MAIN_LOSS
+                not in {
+                    RunActionProviderTerminationReason.PRE_RELEASE_MAIN_LOSS,
+                    RunActionProviderTerminationReason.PRE_RELEASE_MAIN_TERMINAL,
+                }
                 and receipt.workload_release_adoption == query.workload_release_adoption
                 and receipt.terminal_observation == retained_terminal
                 and (
@@ -1529,6 +1555,30 @@ class RunActionCommittedContinuationCapability:
                 and run_action_pre_release_main_loss_observation_token(loss)
                 == self._observation.observation_token
             )
+            pre_release_terminal = receipt.terminal_observation
+            pre_release_terminal_matches = (
+                observation_state
+                is RunActionCommittedSpawnState.PRE_RELEASE_MAIN_TERMINAL_CONTINUABLE
+                and self._terminal_inspection_state == "blocked_by_provider_termination"
+                and retained_terminal is None
+                and receipt.reason
+                is RunActionProviderTerminationReason.PRE_RELEASE_MAIN_TERMINAL
+                and query.control_directory_topology
+                is RunActionControlDirectoryTopology.EMPTY
+                and query.workload_release_adoption is None
+                and query.timeout_directive_publication is None
+                and self._timeout_publication_state == "ready"
+                and self._timeout_directive_publication is None
+                and type(pre_release_terminal)
+                is RunActionPreReleaseMainTerminalObservation
+                and run_action_pre_release_main_terminal_observation_token(
+                    pre_release_terminal
+                )
+                == self._observation.observation_token
+            )
+            pre_release_termination_matches = (
+                pre_release_loss_matches or pre_release_terminal_matches
+            )
             if (
                 _ISSUED_COMMITTED_CONTINUATION_CAPABILITIES.get(id(self)) is not self
                 or self._owner_process_id != os.getpid()
@@ -1546,9 +1596,9 @@ class RunActionCommittedContinuationCapability:
                     query.preparation_allocation,
                     query.activation_revalidation_receipt,
                 )
-                or not (released_terminal_matches or pre_release_loss_matches)
+                or not (released_terminal_matches or pre_release_termination_matches)
                 or (
-                    pre_release_loss_matches
+                    pre_release_termination_matches
                     != (
                         type(publication_fence)
                         is RunActionProviderTerminationPublicationFence
@@ -1660,10 +1710,10 @@ class RunActionCommittedContinuationCapability:
                     raise RunActionRecoveryError(
                         "terminal continuation lacks its trusted outcome registration"
                     )
-            elif (
-                self._observation.state
-                is RunActionCommittedSpawnState.PRE_RELEASE_MAIN_LOSS_CONTINUABLE
-            ):
+            elif self._observation.state in {
+                RunActionCommittedSpawnState.PRE_RELEASE_MAIN_LOSS_CONTINUABLE,
+                RunActionCommittedSpawnState.PRE_RELEASE_MAIN_TERMINAL_CONTINUABLE,
+            }:
                 if (
                     self._release_publication_state != "ready"
                     or self._timeout_publication_state != "ready"
@@ -1704,7 +1754,7 @@ class RunActionCommittedContinuationCapability:
                     }
                 ):
                     raise RunActionRecoveryError(
-                        "pre-release loss continuation lacks its trusted termination"
+                        "pre-release continuation lacks its trusted termination"
                     )
             elif (
                 self._observation.state
@@ -3906,6 +3956,10 @@ class RunActionRecoveryCoordinator:
                 RunActionContinuationState.PENDING,
                 RunActionContinuationState.PROVIDER_TERMINATED,
             },
+            RunActionCommittedSpawnState.PRE_RELEASE_MAIN_TERMINAL_CONTINUABLE: {
+                RunActionContinuationState.PENDING,
+                RunActionContinuationState.PROVIDER_TERMINATED,
+            },
             RunActionCommittedSpawnState.UNKNOWN: set(),
         }
         return outcome.state in admitted[observation.state]
@@ -3920,11 +3974,12 @@ class RunActionRecoveryCoordinator:
     ) -> None:
         """Publish only a registered receipt under one retained release fence."""
 
-        fence_required = (
-            type(receipt) is RunActionProviderTerminationReceipt
-            and receipt.reason
-            is RunActionProviderTerminationReason.PRE_RELEASE_MAIN_LOSS
-        )
+        fence_required = type(
+            receipt
+        ) is RunActionProviderTerminationReceipt and receipt.reason in {
+            RunActionProviderTerminationReason.PRE_RELEASE_MAIN_LOSS,
+            RunActionProviderTerminationReason.PRE_RELEASE_MAIN_TERMINAL,
+        }
         if type(
             receipt
         ) is not RunActionProviderTerminationReceipt or fence_required != (
@@ -3971,6 +4026,9 @@ class RunActionRecoveryCoordinator:
     ) -> None:
         required_topology = {
             RunActionProviderTerminationReason.PRE_RELEASE_MAIN_LOSS: (
+                RunActionControlDirectoryTopology.EMPTY
+            ),
+            RunActionProviderTerminationReason.PRE_RELEASE_MAIN_TERMINAL: (
                 RunActionControlDirectoryTopology.EMPTY
             ),
             RunActionProviderTerminationReason.TIMEOUT: (

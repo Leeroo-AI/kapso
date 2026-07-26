@@ -24,6 +24,7 @@ from kapso.cross_run.launch.run_action_docker_inspect import (
     observe_inert_main_container,
     observe_running_keeper,
     observe_runtime_volume,
+    reobserve_pre_release_terminal_main_container_for_cleanup,
     reobserve_terminal_main_container_for_cleanup,
 )
 from kapso.cross_run.launch.run_action_docker_projection import (
@@ -58,6 +59,7 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RunActionTerminalObservation,
 )
 from kapso.cross_run.launch.run_action_termination_contracts import (
+    RunActionPreReleaseMainTerminalObservation,
     RunActionProviderTerminationReason,
     RunActionTimeoutDirectivePublicationReceipt,
 )
@@ -89,7 +91,9 @@ class _RunActionTerminalCleanupEvidence:
     topology: RunActionControlDirectoryTopology
     workload_release_adoption: RunActionWorkloadReleaseAdoption | None
     timeout_directive_publication: RunActionTimeoutDirectivePublicationReceipt | None
-    terminal_observation: RunActionTerminalObservation | None
+    terminal_observation: (
+        RunActionTerminalObservation | RunActionPreReleaseMainTerminalObservation | None
+    )
     main_must_be_absent: bool
 
 
@@ -541,9 +545,13 @@ def _terminal_cleanup_evidence(
     pre_release_loss = (
         termination.reason is RunActionProviderTerminationReason.PRE_RELEASE_MAIN_LOSS
     )
+    pre_release_termination = termination.reason in {
+        RunActionProviderTerminationReason.PRE_RELEASE_MAIN_LOSS,
+        RunActionProviderTerminationReason.PRE_RELEASE_MAIN_TERMINAL,
+    }
     topology = (
         RunActionControlDirectoryTopology.EMPTY
-        if pre_release_loss
+        if pre_release_termination
         else (
             RunActionControlDirectoryTopology.TIMED_OUT
             if termination.reason is RunActionProviderTerminationReason.TIMEOUT
@@ -787,15 +795,24 @@ def _prove_terminal_main_occurrence(
     resource_manager: DockerRunActionResourceManager,
 ) -> None:
     terminal = evidence.terminal_observation
-    if type(terminal) is not RunActionTerminalObservation:
+    if type(terminal) is RunActionTerminalObservation:
+        provider_execution_id = terminal.provider_execution_id
+        reobserve_terminal_main_container_for_cleanup(
+            resource_manager.inspect_main(inventory),
+            terminal,
+        )
+    elif type(terminal) is RunActionPreReleaseMainTerminalObservation:
+        container = terminal.terminal_container_observation
+        provider_execution_id = container.provider_execution_id
+        reobserve_pre_release_terminal_main_container_for_cleanup(
+            resource_manager.inspect_main(inventory),
+            container,
+        )
+    else:
         raise RunActionDockerCleanupError(
             "run-action cleanup main lacks durable terminal authority"
         )
-    reobserve_terminal_main_container_for_cleanup(
-        resource_manager.inspect_main(inventory),
-        terminal,
-    )
-    if inventory.main_container_id != terminal.provider_execution_id:
+    if inventory.main_container_id != provider_execution_id:
         raise RunActionDockerCleanupError(
             "run-action cleanup main differs from durable provider identity"
         )

@@ -41,6 +41,11 @@ leaf now resolves nonempty result, empty result, nonzero exit, or OOM under the
 retained release. A separate pre-release path classifies main loss without
 leaking descriptors, freshly reproves the stable loss occurrence during
 continuation, and transfers its physical fence through terminal publication.
+An exclusive sibling path now classifies the still-present event-5 main as
+stably exited while the control tree remains `EMPTY`; it binds two normalized
+Docker snapshots, exact surviving volume/keeper authority, inventory and host
+boot, then transfers the same retained publication fence without inventing a
+release or experiment result.
 A sealed, store-bound finalization authority now joins durable eligibility,
 role-proved Docker cleanup, recovery reporting, checkpoint publication, and the
 next reservation. OS executor activation, authenticated Docker socket/lock
@@ -90,6 +95,8 @@ src/kapso/cross_run/launch/
   run_action_result_authority.py
   run_action_natural_terminal.py
   run_action_pre_release_main_loss.py
+  run_action_pre_release_main_terminal.py
+  run_action_pre_release_resources.py
   run_action_docker_cleanup.py
   run_action_resource_finalization.py
   run_action_docker_adapter.py
@@ -829,13 +836,14 @@ content-addressed receipt whose disposition is `FAILED` for provider failures
 or `INTERRUPTED` for supervisor containment. That receipt disposition is not the
 deleted overloaded execution-event kind: the ledger event remains
 `PROVIDER_TERMINATED`. Its closed reason set is timeout, OOM, nonzero exit, empty
-result, or positive pre-release main loss. It embeds either
-exact terminal-plus-empty-result evidence or a narrowly pre-release
-resource-loss observation and includes the full workload release receipt when
-release occurred. Any wrong/unstable/oversized result inode, released resource
-disappearance, or mixed Docker inventory remains `UNKNOWN`; it is never
-mislabeled as a provider failure. Event 6 stores the complete result or
-termination evidence before cleanup.
+result, positive pre-release main loss, or positive pre-release present-exited
+main. It embeds exact released-terminal evidence, a narrowly pre-release
+resource-loss observation, or a release-independent exited-main observation;
+only released branches include the workload release receipt. Any
+wrong/unstable/oversized result inode, released resource disappearance, or mixed
+Docker inventory remains `UNKNOWN`; it is never mislabeled as a provider
+failure. Event 6 stores the complete result or termination evidence before
+cleanup.
 
 The controller issues one process-bound resource-finalization authority, sealed
 to the exact action store, launch settings, physical driver object, driver type,
@@ -1114,10 +1122,12 @@ publication. A durable `TIMED_OUT` topology outranks every later exit fact; a
 natural terminal observed while topology remains `RELEASED` outranks an
 unpublished timeout attempt. Without durable timeout authority, OOM,
 nonzero exit, and descriptor-proved empty result are mutually exclusive failed
-outcomes. The sole admitted pre-release loss is a stable, same-boot proof that
-the exact volume and keeper remain, the main alone is absent, and release is
-absent under the exact control authority. This is a provider failure, not a
-supervisor interruption. The contracts bind the activation
+outcomes. Pre-release failure has two mutually exclusive positive branches:
+stable same-boot proof that the exact volume and keeper remain while the main is
+absent, or stable same-boot proof that those resources and the exact main remain
+while the main is exited. Both require `EMPTY` control and no release; neither
+is a scientific result. These are provider failures, not supervisor
+interruptions. The contracts bind the activation
 event, release adoption, terminal occurrence, immutable runtime-volume
 occurrence, deadlines, and publication inode. Recovery reopens the exact
 `EMPTY`, `RELEASED`, or `TIMED_OUT` control topology. A timed-out query carries
@@ -1128,9 +1138,10 @@ and activation. That event publishes no result blobs, cannot be extended, reopen
 across either publication crash side, and replays through recovery without
 invoking an adapter or interpreter.
 
-Recovery now has a sealed registration boundary for that receipt. A dedicated
-pre-release-main-loss observation state cannot be confused with inert, running,
-terminal, or unknown Docker state. One process/thread-bound continuation
+Recovery now has a sealed registration boundary for that receipt. Dedicated
+pre-release-main-loss and pre-release-main-terminal observation states cannot be
+confused with each other or with inert, released-running, released-terminal, or
+unknown Docker state. One process/thread-bound continuation
 capability admits exactly `PENDING`, its privately registered
 `TIMEOUT_PUBLISHED` transition, its privately captured result, or its privately
 registered termination receipt. Result capture and termination registration
@@ -1140,17 +1151,18 @@ retained trusted terminal and release adoption; timeout additionally must
 reproduce the exact adopted timeout publication. Pre-release classification seals
 a stable occurrence token that excludes sampling time and mutable volume usage;
 continuation must freshly reproduce that token, then transfer its retained
-thread-bound loss lease into the continuation capability as a publication fence.
+thread-bound physical lease into the continuation capability as a publication
+fence.
 The capability admits only the exact registered fence identity, closes it if the
 adapter raises or substitutes an outcome, and hands it to the coordinator only
 after full outcome-authority validation. Before
 terminal publication the
 coordinator reproves the unchanged host workspace and reopens the reason-specific
-topology—`EMPTY` for pre-release loss, `TIMED_OUT` for timeout, and `RELEASED`
+topology—`EMPTY` for either pre-release failure, `TIMED_OUT` for timeout, and `RELEASED`
 for every other released failure. It retains that descriptor lease across the
-event append and checks it immediately before and after. For pre-release loss it
-also checks the transferred main-absence fence around the append and closes it
-on every success or failure path. Successful result
+event append and checks it immediately before and after. For either pre-release
+branch it also checks the transferred exact physical fence around the append and
+closes it on every success or failure path. Successful result
 publication similarly retains `RELEASED` across its append, so a concurrent
 timeout cannot become success. A crash before either append leaves event 5 and
 requires fresh physical evidence; a crash after event 6 replays without adapter
@@ -1227,10 +1239,11 @@ The BOOTTIME sample is the logical TERM-versus-KILL decision point. A synchronou
 Docker CLI cannot promise daemon delivery at an exact nanosecond; the enforceable
 contract is that recovery always uses the original never-reset decision deadline.
 
-Natural terminal-failure/empty-result evidence and positive pre-release-loss
-inspection are now wired through trusted continuation leaves and exercised
-against real zero-exit, nonzero, OOM-killed, and physically removed Docker
-occurrences. Durable eligibility, role proof, cleanup, recovery-report admission,
+Natural terminal-failure/empty-result evidence, positive pre-release loss, and
+positive pre-release present-exited inspection are now wired through trusted
+continuation leaves and exercised against real zero-exit, nonzero, OOM-killed,
+physically removed, and barrier-killed-but-present Docker occurrences. Durable
+eligibility, role proof, cleanup, recovery-report admission,
 publication, and subsequent reservation are now one sealed authority chain.
 The allocation-only invalidation residue and production adapters remain unwired.
 No production
@@ -1379,7 +1392,8 @@ this path is activated.
   result inode, and prove the exact result graph is interpreted and durably
   accepted through event 8 before ordered cleanup.
 - For accepted result, timeout, empty result, nonzero exit, OOM, pre-release main
-  loss, and fully prepared frontier invalidation, remove only the exact main →
+  loss, pre-release present-exited main, and fully prepared frontier invalidation,
+  remove only the exact main →
   keeper → volume suffix, accept each command only after fresh physical inventory
   proves the next suffix, then prove complete absence twice more. Reject mixed
   suffixes, runtime/role/occurrence substitution, started-main force removal,
