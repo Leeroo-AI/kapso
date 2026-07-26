@@ -26,10 +26,10 @@ from kapso.cross_run.launch.run_action_release_contracts import (
     RunActionCredentialValidityObservation,
     RunActionWorkloadReleaseReceipt,
 )
-from kapso.cross_run.launch.run_action_release_candidate import (
-    _RunActionFrozenReleaseCandidate,
-    _SystemRunActionReleaseClock,
-    RunActionReleaseCandidateError,
+from kapso.cross_run.launch.run_action_clock import _SystemRunActionClock
+from kapso.cross_run.launch.run_action_control_candidate import (
+    _RunActionFrozenControlFileCandidate,
+    RunActionControlCandidateError,
 )
 from kapso.cross_run.launch.run_action_release_publisher import (
     publish_run_action_workload_release_once,
@@ -163,7 +163,7 @@ def _capability(
 ):
     activation_event = _activation_event(resolved)
     prepared = resolved.activation_revalidation_receipt.prepared_execution
-    release_clock = _SystemRunActionReleaseClock()
+    release_clock = _SystemRunActionClock()
     if clock is not None:
         release_clock.boottime_nanoseconds = clock.boottime_nanoseconds
         release_clock.realtime_nanoseconds = clock.realtime_nanoseconds
@@ -332,9 +332,9 @@ def test_unissued_frozen_candidate_cannot_consume_final_security():
             authorization._mint_receipt(
                 _authority=_RUN_ACTION_RELEASE_PUBLISHER_AUTHORITY,
             )
-            forged = object.__new__(_RunActionFrozenReleaseCandidate)
+            forged = object.__new__(_RunActionFrozenControlFileCandidate)
             with pytest.raises(
-                RunActionReleaseCandidateError,
+                RunActionControlCandidateError,
                 match="unissued, spent, or foreign",
             ):
                 authorization._authorize_frozen_release_once(
@@ -473,7 +473,7 @@ def test_post_link_failure_leaves_canonical_receipt_for_adoption(
     control = tmp_path / "control"
     control.mkdir(mode=0o700)
     lease, descriptor = _lease(resolved, control)
-    original = _RunActionFrozenReleaseCandidate._require_linked_file
+    original = _RunActionFrozenControlFileCandidate._require_linked_file
 
     def fail_after_link(candidate):
         if candidate._state == "linked":
@@ -481,7 +481,7 @@ def test_post_link_failure_leaves_canonical_receipt_for_adoption(
         return original(candidate)
 
     monkeypatch.setattr(
-        _RunActionFrozenReleaseCandidate,
+        _RunActionFrozenControlFileCandidate,
         "_require_linked_file",
         fail_after_link,
     )

@@ -28,6 +28,11 @@ from kapso.cross_run.launch.run_action_contracts import (
 from kapso.cross_run.launch.run_action_control_topology import (
     RunActionControlDirectoryTopology,
 )
+from kapso.cross_run.launch.run_action_clock import _SystemRunActionClock
+from kapso.cross_run.launch.run_action_control_candidate import (
+    _CONTROL_FILE_CANDIDATE_PUBLICATION_AUTHORITY,
+    _RunActionFrozenControlFileCandidate,
+)
 from kapso.cross_run.launch.run_action_barrier_contracts import (
     RunActionResolvedWorkloadObservation,
 )
@@ -44,11 +49,6 @@ from kapso.cross_run.launch.run_action_release_adoption import (
 )
 from kapso.cross_run.launch.run_action_timeout_adoption import (
     open_run_action_timeout_inspection,
-)
-from kapso.cross_run.launch.run_action_release_candidate import (
-    _RELEASE_CANDIDATE_AUTHORIZATION_AUTHORITY,
-    _RunActionFrozenReleaseCandidate,
-    _SystemRunActionReleaseClock,
 )
 from kapso.cross_run.launch.run_action_release_contracts import (
     RunActionCredentialValidityObservation,
@@ -180,7 +180,7 @@ class _RunActionIssuedReleaseAuthorities:
     required_security_observation: SecurityDenylistObservation
     security_authority: object
     credential_validity_authority: object | None
-    clock: _SystemRunActionReleaseClock
+    clock: _SystemRunActionClock
 
     def __post_init__(self) -> None:
         if (
@@ -194,7 +194,7 @@ class _RunActionIssuedReleaseAuthorities:
                     "observe_exact",
                 )
             )
-            or type(self.clock) is not _SystemRunActionReleaseClock
+            or type(self.clock) is not _SystemRunActionClock
         ):
             raise RunActionRecoveryError(
                 "issued release authorities are incomplete or unsafe"
@@ -778,7 +778,7 @@ class RunActionCommittedContinuationCapability:
         required_security_observation: SecurityDenylistObservation,
         security_authority: object,
         credential_validity_authority: object | None,
-        release_clock: _SystemRunActionReleaseClock,
+        release_clock: _SystemRunActionClock,
         _authority: object,
     ) -> None:
         if type(query) is not RunActionCommittedSpawnQuery:
@@ -823,7 +823,7 @@ class RunActionCommittedContinuationCapability:
                 credential_validity_authority is not None
                 and not hasattr(credential_validity_authority, "observe_exact")
             )
-            or type(release_clock) is not _SystemRunActionReleaseClock
+            or type(release_clock) is not _SystemRunActionClock
             or _authority is not _RUN_ACTION_COMMITTED_CONTINUATION_AUTHORITY
         ):
             raise RunActionRecoveryError(
@@ -1552,24 +1552,24 @@ class _RunActionReleasePublicationAuthorization:
     def _authorize_frozen_release_once(
         self,
         *,
-        candidate: _RunActionFrozenReleaseCandidate,
+        candidate: _RunActionFrozenControlFileCandidate,
         _authority: object,
     ) -> RunActionWorkloadReleaseReceipt | None:
         self._require_preparing(_authority)
         if (
-            type(candidate) is not _RunActionFrozenReleaseCandidate
+            type(candidate) is not _RunActionFrozenControlFileCandidate
             or type(self._receipt) is not RunActionWorkloadReleaseReceipt
         ):
             raise RunActionRecoveryError(
                 "release authorization lacks one exact frozen receipt candidate"
             )
-        receipt = candidate._begin_authorization(
-            self._receipt,
-            _authority=_RELEASE_CANDIDATE_AUTHORIZATION_AUTHORITY,
+        receipt_payload = candidate._begin_publication(
+            self._receipt.to_json_bytes(),
+            _authority=_CONTROL_FILE_CANDIDATE_PUBLICATION_AUTHORITY,
         )
         if (
-            receipt != self._receipt
-            or receipt.release_authorization_observation.security_observation
+            receipt_payload != self._receipt.to_json_bytes()
+            or self._receipt.release_authorization_observation.security_observation
             != self._required_security_observation
         ):
             raise RunActionRecoveryError(
@@ -1583,7 +1583,7 @@ class _RunActionReleasePublicationAuthorization:
             _revalidate_release_credential_validity(
                 self._resolved_workload_observation,
                 authorities.credential_validity_authority,
-                receipt,
+                self._receipt,
                 authorities.clock,
             )
             required = authorities.required_security_observation
@@ -1604,12 +1604,13 @@ class _RunActionReleasePublicationAuthorization:
                 type(current_boottime_nanoseconds) is not int
                 or current_boottime_nanoseconds <= 0
                 or current_boottime_nanoseconds
-                > receipt.release_commit_deadline_boottime_nanoseconds
+                > self._receipt.release_commit_deadline_boottime_nanoseconds
             ):
                 return None
-            return candidate._link_authorized_once(
-                _authority=_RELEASE_CANDIDATE_AUTHORIZATION_AUTHORITY,
+            candidate._link_authorized_once(
+                _authority=_CONTROL_FILE_CANDIDATE_PUBLICATION_AUTHORITY,
             )
+            return self._receipt
 
     def _release_authorities(self) -> _RunActionIssuedReleaseAuthorities:
         with _COMMITTED_CONTINUATION_CAPABILITY_LOCK:
@@ -1710,7 +1711,7 @@ class _RunActionReleaseLinkInvocation:
 def _observe_release_credential_validity(
     resolved: RunActionResolvedWorkloadObservation,
     credential_authority: object | None,
-    clock: _SystemRunActionReleaseClock,
+    clock: _SystemRunActionClock,
     anchor_realtime_nanoseconds: int,
 ) -> RunActionCredentialValidityObservation | None:
     activation = resolved.activation_revalidation_receipt
@@ -1774,7 +1775,7 @@ def _revalidate_release_credential_validity(
     resolved: RunActionResolvedWorkloadObservation,
     credential_authority: object | None,
     receipt: RunActionWorkloadReleaseReceipt,
-    clock: _SystemRunActionReleaseClock,
+    clock: _SystemRunActionClock,
 ) -> None:
     activation = resolved.activation_revalidation_receipt
     policy = activation.prepared_execution.preparation_claim.execution_policy
@@ -2415,7 +2416,7 @@ class RunActionRecoveryCoordinator:
         )
         self._security_authority = security_authority
         self._credential_validity_authority = credential_validity_authority
-        self._release_clock = _SystemRunActionReleaseClock()
+        self._release_clock = _SystemRunActionClock()
         implementation_registry._require_owner_process()
         self._implementation_registry = implementation_registry
         self._owner_process_id = os.getpid()

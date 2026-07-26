@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 import kapso.cross_run.launch.run_action_recovery as recovery
+from kapso.cross_run.launch.run_action_clock import _SystemRunActionClock
 from kapso.cross_run.launch.run_action_recovery import (
     _RUN_ACTION_COMMITTED_CONTINUATION_AUTHORITY,
     RunActionCommittedContinuationCapability,
@@ -15,9 +16,6 @@ from kapso.cross_run.launch.run_action_recovery import (
     RunActionProviderResult,
     RunActionRecoveryCoordinator,
     RunActionRecoveryError,
-)
-from kapso.cross_run.launch.run_action_release_candidate import (
-    _SystemRunActionReleaseClock,
 )
 from kapso.cross_run.launch.run_action_termination_contracts import (
     RunActionProviderTerminationDisposition,
@@ -54,7 +52,7 @@ def _capability(query, state, token):
         required_security_observation=_release_security_observation(),
         security_authority=_SecurityAuthority(),
         credential_validity_authority=None,
-        release_clock=_SystemRunActionReleaseClock(),
+        release_clock=_SystemRunActionClock(),
         _authority=_RUN_ACTION_COMMITTED_CONTINUATION_AUTHORITY,
     )
 
@@ -261,6 +259,7 @@ def test_pre_release_loss_registration_requires_the_exact_observation_token():
         preparation_allocation=released_query.preparation_allocation,
         activation_event=released_query.activation_event,
         workload_release_adoption=None,
+        timeout_directive_publication=None,
     )
     loss = _pre_release_loss(
         query.activation_revalidation_receipt,

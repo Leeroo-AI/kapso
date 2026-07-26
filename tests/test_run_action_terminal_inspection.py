@@ -8,6 +8,7 @@ import kapso.cross_run.launch.run_action_docker_inspect as docker_inspect
 import kapso.cross_run.launch.run_action_terminal_inspection as terminal_inspection
 from kapso.core.config import load_config
 from kapso.cross_run.canonical import tree_or_blob_digest
+from kapso.cross_run.launch.run_action_clock import _SystemRunActionClock
 from kapso.cross_run.launch.run_action_docker_resources import (
     DockerRunActionResourceInventory,
     DockerRunActionResourceManager,
@@ -24,9 +25,6 @@ from kapso.cross_run.launch.run_action_recovery import (
 )
 from kapso.cross_run.launch.run_action_control_topology import (
     RunActionControlDirectoryTopology,
-)
-from kapso.cross_run.launch.run_action_release_candidate import (
-    _SystemRunActionReleaseClock,
 )
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RunActionPreparationAllocation,
@@ -351,7 +349,7 @@ def test_terminal_reinspection_consumes_one_capability_and_seals_the_digest(
         required_security_observation=_release_security_observation(),
         security_authority=_SecurityAuthority(),
         credential_validity_authority=None,
-        release_clock=_SystemRunActionReleaseClock(),
+        release_clock=_SystemRunActionClock(),
         _authority=_RUN_ACTION_COMMITTED_CONTINUATION_AUTHORITY,
     )
 
@@ -418,7 +416,7 @@ def test_terminal_continuation_rejects_an_adapter_that_skips_trusted_reinspectio
         required_security_observation=_release_security_observation(),
         security_authority=_SecurityAuthority(),
         credential_validity_authority=None,
-        release_clock=_SystemRunActionReleaseClock(),
+        release_clock=_SystemRunActionClock(),
         _authority=_RUN_ACTION_COMMITTED_CONTINUATION_AUTHORITY,
     )
 

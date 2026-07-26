@@ -8,13 +8,14 @@ from contextlib import ExitStack
 from kapso.cross_run.launch.run_action_atomic_publication import (
     open_run_action_anonymous_file,
 )
+from kapso.cross_run.launch.run_action_control_candidate import (
+    _CONTROL_FILE_CANDIDATE_ISSUANCE_AUTHORITY,
+    _RunActionControlFileTransition,
+    _RunActionFrozenControlFileCandidate,
+)
 from kapso.cross_run.launch.run_action_recovery import (
     _RUN_ACTION_RELEASE_PUBLISHER_AUTHORITY,
     RunActionCommittedContinuationCapability,
-)
-from kapso.cross_run.launch.run_action_release_candidate import (
-    _RELEASE_CANDIDATE_ISSUANCE_AUTHORITY,
-    _RunActionFrozenReleaseCandidate,
 )
 from kapso.cross_run.launch.run_action_release_contracts import (
     RunActionWorkloadReleaseReceipt,
@@ -69,16 +70,18 @@ def publish_run_action_workload_release_once(
                 _ANONYMOUS_FILE_MODE,
             )
             descriptors.callback(os.close, anonymous_descriptor)
-            candidate = _RunActionFrozenReleaseCandidate(
+            candidate = _RunActionFrozenControlFileCandidate(
+                transition=_RunActionControlFileTransition.RELEASE,
                 control_directory_descriptor=control_descriptor,
                 anonymous_file_descriptor=anonymous_descriptor,
+                predecessor_file_descriptor=None,
                 owner_user_id=control.owner_user_id,
                 owner_group_id=control.owner_group_id,
                 payload_size_limit_bytes=(
                     policy.supervisor_limits.release_receipt_size_bytes
                 ),
-                receipt=receipt,
-                _authority=_RELEASE_CANDIDATE_ISSUANCE_AUTHORITY,
+                payload=receipt.to_json_bytes(),
+                _authority=_CONTROL_FILE_CANDIDATE_ISSUANCE_AUTHORITY,
             )
             descriptors.callback(candidate.close)
             blocked_workload_lease.require_current()

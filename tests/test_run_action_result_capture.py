@@ -11,6 +11,7 @@ from kapso.cross_run.canonical import tree_or_blob_digest
 from kapso.cross_run.launch.run_action_control_topology import (
     RunActionControlDirectoryTopology,
 )
+from kapso.cross_run.launch.run_action_clock import _SystemRunActionClock
 from kapso.cross_run.launch.run_action_recovery import (
     _RUN_ACTION_COMMITTED_CONTINUATION_AUTHORITY,
     _RUN_ACTION_PROVIDER_TERMINATION_AUTHORITY,
@@ -23,9 +24,6 @@ from kapso.cross_run.launch.run_action_recovery import (
     RunActionContinuationState,
     RunActionProviderResult,
     RunActionRecoveryError,
-)
-from kapso.cross_run.launch.run_action_release_candidate import (
-    _SystemRunActionReleaseClock,
 )
 from test_run_action_docker_inspect import _volume_raw
 from test_run_action_supervisor_contracts import (
@@ -93,7 +91,7 @@ def _capture_case(
             "test result capture",
         )
     )
-    release_clock = _SystemRunActionReleaseClock()
+    release_clock = _SystemRunActionClock()
     clock_values = iter(clock_samples)
     release_clock.boottime_nanoseconds = lambda: next(clock_values)
     capability = RunActionCommittedContinuationCapability(
@@ -533,7 +531,7 @@ def test_timed_out_topology_cannot_consume_result_capture_authority():
         required_security_observation=_release_security_observation(),
         security_authority=_SecurityAuthority(),
         credential_validity_authority=None,
-        release_clock=_SystemRunActionReleaseClock(),
+        release_clock=_SystemRunActionClock(),
         _authority=_RUN_ACTION_COMMITTED_CONTINUATION_AUTHORITY,
     )
 
