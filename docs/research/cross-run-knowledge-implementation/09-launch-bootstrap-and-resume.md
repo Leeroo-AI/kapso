@@ -40,8 +40,8 @@ A sealed, store-bound finalization authority now joins durable eligibility,
 role-proved Docker cleanup, recovery reporting, checkpoint publication, and the
 next reservation. OS executor activation, authenticated Docker socket/lock
 isolation, a typed lost-installation transition for daemon/host restart, explicit
-E0/S-EMPTY provisioning orchestration, full policy refresh on resume, and
-API/runner activation remain.
+E0/S-EMPTY provisioning orchestration, and API/runner activation remain. Resume
+now refreshes policy through a separately sealed local-pin coordinator.
 
 ## Objective
 
@@ -334,22 +334,22 @@ expert workspace before the new runtime becomes reachable.
       spawn; bind recovery to the complete frontier and an issued exact
       implementation catalog, burn preparation and activation authority once, and
       replay terminal accepted bytes without execution or interpretation access.
-- [ ] On resume, require the original `BootstrapPin`, workspace tree, read-only
+- [x] On resume, require the original `BootstrapPin`, workspace tree, read-only
       snapshot package, adapter, checkpoint, IdeaArchive, experiment store, journal,
       and branches to reconcile.
-- [ ] Never replace a pinned expert or scientific knowledge component. A narrow
+- [x] Never replace a pinned expert or scientific knowledge component. A narrow
       policy-only reader may resolve current knowledge `CURRENT` solely to refresh
       the release-use projection.
-- [ ] Refresh and authenticate the current security/contamination denylist and,
+- [x] Refresh and authenticate the current security/contamination denylist and,
       when online eligibility is required, the release-use policy projection.
-- [ ] If a new performance revocation exists, preserve reproducibility but mark run
+- [x] If a new performance revocation exists, preserve reproducibility but mark run
       output/promotion eligibility under policy.
-- [ ] If a security/contamination revocation affects the pin or derivatives, fail
+- [x] If a security/contamination revocation affects the pin or derivatives, fail
       closed before agent execution/evaluation/publication.
-- [ ] Require the live authenticated snapshot to equal or descend from both the
+- [x] Require the live authenticated snapshot to equal or descend from both the
       bootstrap pin and durable local floor; checkpoint its exact identity,
       generation, publication, pointer, and every derivative taint.
-- [ ] Old checkpoint/bootstrap shapes fail explicitly; no migration.
+- [x] Old checkpoint/bootstrap shapes fail explicitly; no migration.
 
 `RunStatePublisher` is now the only publication API for the new run-state
 authority. The checkpoint-only permit and durable receipt were deleted. Its
@@ -358,6 +358,19 @@ candidate, generation, and exact bundle digest/size. Under the pinned lock it
 publishes the immutable bundle with no-replace semantics, commits the checkpoint
 and monotonic journal, promotes all strategy-owned views, reopens the full closure,
 and issues a live non-clonable `ReconciledRunFrontier`.
+
+`RunResumeCoordinator` now composes the resume boundary. It reopens only the
+local `BootstrapPin`, reconciles the retained checkpoint/bundle/views and exact
+action ledger, proves the configured clean Git branch at the checkpointed head,
+and then reads current knowledge only through the narrow release-use policy
+authority. It requires a freshly authenticated security snapshot descending from
+both the prior run observation and the durable local floor, publishes one
+`RESUME` safety successor through `RunStatePublisher`, and returns live workspace
+authority only for `ELIGIBLE` or `REPRODUCIBILITY_ONLY`. A security match
+publishes and returns immutable `SECURITY_BLOCKED` evidence after closing the
+runtime lease; recovery replays that exact blocked checkpoint without another
+remote read or successor attempt. Pinned-offline release use never follows
+knowledge `CURRENT` and is always reproducibility-only.
 
 Construction and ordinary inspection never repair checkpoint state. Explicit
 `load_reconciled()` may repair only an exactly adjacent checkpoint after the
