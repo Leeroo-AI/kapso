@@ -1769,6 +1769,28 @@ def test_release_receipt_envelope_rejects_before_allocation(
     assert not adapter.continuation_calls
 
 
+def test_execution_envelope_rejects_timeout_policy_config_mismatch(
+    publisher_case,
+) -> None:
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
+    settings = publisher_case["settings"]
+    adapter = _FakeExecutionAdapter(reservation.intent.boundary_identity)
+    coordinator = _recovery_coordinator(gate, adapter)
+    gate._publisher._settings = replace(
+        settings,
+        run_action_timeout_directive_size_bytes=(
+            settings.run_action_timeout_directive_size_bytes
+            + settings.run_action_process_snapshot_size_bytes
+        ),
+    )
+
+    with pytest.raises(RunActionRecoveryError, match="timeout envelope"):
+        coordinator._release_receipt_size_bound(adapter, reservation)
+    assert coordinator.inspect(frontier).pending_operation_id == (
+        reservation.intent.operation_id
+    )
+
+
 def test_activation_bound_must_leave_resolved_release_envelope(
     publisher_case,
 ) -> None:

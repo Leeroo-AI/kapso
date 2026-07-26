@@ -2575,7 +2575,7 @@ def _plan_runtime_volume_layout(
         or current_inode_count
         + len(delivery_slot_plans)
         + limits.runtime_temporary_reservation_inode_count
-        + 1
+        + 2
         >= empty_volume.available_inode_count
     ):
         raise RunActionRuntimeVolumeError(
@@ -3356,7 +3356,7 @@ def _mint_prepared_volume_observation(
         allocation_block_size_bytes,
     )
     required_available_inode_count = (
-        len(delivery_slot_plans) + limits.runtime_temporary_reservation_inode_count + 1
+        len(delivery_slot_plans) + limits.runtime_temporary_reservation_inode_count + 2
     )
     if (
         required_available_size_bytes >= available_size_bytes
@@ -3573,6 +3573,7 @@ def _required_execution_headroom_size_bytes(
             limits.supervisor_limits.result_size_bytes,
             limits.docker_resource_limits.runtime_temporary_reservation_size_bytes,
             limits.supervisor_limits.release_receipt_size_bytes,
+            limits.supervisor_limits.timeout_directive_size_bytes,
         )
     )
 

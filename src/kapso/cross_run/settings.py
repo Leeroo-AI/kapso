@@ -1607,6 +1607,7 @@ class LaunchSettings(StrictContract):
     run_action_operation_limit: int
     run_action_event_size_bytes: int
     run_action_release_receipt_size_bytes: int
+    run_action_timeout_directive_size_bytes: int
     run_action_release_commit_timeout_seconds: int
     run_action_process_snapshot_size_bytes: int
     run_action_request_size_bytes: int
@@ -1796,6 +1797,10 @@ class LaunchSettings(StrictContract):
                 "run_action_release_receipt_size_bytes",
             ),
             (
+                self.run_action_timeout_directive_size_bytes,
+                "run_action_timeout_directive_size_bytes",
+            ),
+            (
                 self.run_action_release_commit_timeout_seconds,
                 "run_action_release_commit_timeout_seconds",
             ),
@@ -1831,11 +1836,35 @@ class LaunchSettings(StrictContract):
                 "launch process-snapshot bound must fit inside one release receipt"
             )
         if (
+            self.run_action_process_snapshot_size_bytes
+            >= self.run_action_timeout_directive_size_bytes
+        ):
+            raise CrossRunConfigurationError(
+                "launch process-snapshot bound must fit inside one timeout directive"
+            )
+        if (
+            self.run_action_timeout_directive_size_bytes
+            >= self.run_action_event_size_bytes
+        ):
+            raise CrossRunConfigurationError(
+                "launch timeout-directive bound must leave action-event envelope space"
+            )
+        if (
             self.run_action_release_receipt_size_bytes
             >= self.run_action_event_size_bytes
         ):
             raise CrossRunConfigurationError(
                 "launch release-receipt bound must leave action-event envelope space"
+            )
+        if (
+            self.run_action_release_receipt_size_bytes
+            + self.run_action_process_snapshot_size_bytes
+            + self.run_action_timeout_directive_size_bytes
+            >= self.run_action_event_size_bytes
+        ):
+            raise CrossRunConfigurationError(
+                "launch release, snapshot, and timeout bounds must fit one terminal "
+                "action-event envelope"
             )
         minimum_action_store_entry_limit = (
             self.run_action_operation_limit

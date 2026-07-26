@@ -1013,6 +1013,16 @@ termination. No production caller can receive Docker start authority from the
 reservation gate; M9 activation must continue to route every post-reservation
 transition through the coordinator's sealed capabilities.
 
+The timeout payload envelope is now single-sourced before physical publication
+lands. Launch configuration and the durable supervisor policy carry the same
+2 MiB directive bound; configuration requires the process-snapshot bound to fit
+strictly inside it and the release, snapshot, and timeout bounds together to fit
+strictly inside one terminal event. Recovery and release adoption reject a
+policy/config mismatch before provider mutation. Preparation, activation
+revalidation, and runtime-volume planning reserve the allocated timeout bytes
+and a second immutable control-file inode in addition to release headroom. The
+real Docker lifecycle continues to pass with that stricter capacity accounting.
+
 The recovery surface is now fail-closed ahead of typed termination. The
 proof-only `PROVEN_RESOURCE_LOST`, `QUIESCENT_RECHECKABLE`, and
 `PROVEN_QUIESCENT_WITHOUT_RESULT` states are deleted, as are the overloaded

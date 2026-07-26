@@ -1616,6 +1616,7 @@ def test_layout_plan_requires_strict_peak_and_execution_headroom(
                 admitted.result_file_plan.payload_size_limit_bytes,
                 limits.runtime_temporary_reservation_size_bytes,
                 claim.execution_policy.supervisor_limits.release_receipt_size_bytes,
+                claim.execution_policy.supervisor_limits.timeout_directive_size_bytes,
             )
         )
         assert future_size_bytes == (
@@ -1652,7 +1653,7 @@ def test_layout_plan_requires_strict_peak_and_execution_headroom(
             admitted.preparation_inode_count
             + len(admitted.delivery_slot_plans)
             + limits.runtime_temporary_reservation_inode_count
-            + 1
+            + 2
         )
         exhausted = replace(
             empty,
@@ -1683,6 +1684,31 @@ def test_layout_plan_requires_strict_peak_and_execution_headroom(
             settings=settings.launch,
         ).preparation_inode_count
         == admitted.preparation_inode_count
+    )
+
+
+def test_timeout_directive_bound_reserves_exact_additional_volume_headroom(
+    layout_context,
+):
+    _settings, claim, _authority, empty = layout_context
+    block_size = empty.allocation_block_size_bytes
+    limits = claim.execution_policy.supervisor_limits
+    expanded_limits = _remint_contract(
+        limits,
+        timeout_directive_size_bytes=limits.timeout_directive_size_bytes + block_size,
+    )
+    expanded_policy = _remint_contract(
+        claim.execution_policy,
+        supervisor_limits=expanded_limits,
+    )
+    expanded_claim = _claim(policy=expanded_policy)
+
+    assert volume_module._required_execution_headroom_size_bytes(
+        expanded_claim,
+        block_size,
+    ) == (
+        volume_module._required_execution_headroom_size_bytes(claim, block_size)
+        + block_size
     )
 
 

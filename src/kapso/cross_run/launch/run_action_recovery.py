@@ -3467,11 +3467,17 @@ class RunActionRecoveryCoordinator:
         policy_commit_timeout = (
             execution_adapter.execution_policy.supervisor_limits.release_commit_timeout_seconds
         )
+        policy_timeout_directive_bound = (
+            execution_adapter.execution_policy.supervisor_limits.timeout_directive_size_bytes
+        )
         configured_bound = (
             self._publisher._settings.run_action_release_receipt_size_bytes
         )
         configured_commit_timeout = (
             self._publisher._settings.run_action_release_commit_timeout_seconds
+        )
+        configured_timeout_directive_bound = (
+            self._publisher._settings.run_action_timeout_directive_size_bytes
         )
         first = execution_adapter.release_receipt_size_bound(
             reservation=reservation,
@@ -3485,10 +3491,12 @@ class RunActionRecoveryCoordinator:
             or second != first
             or policy_bound != configured_bound
             or policy_commit_timeout != configured_commit_timeout
+            or policy_timeout_directive_bound != configured_timeout_directive_bound
             or first > policy_bound
         ):
             raise RunActionRecoveryError(
-                "run action release-receipt envelope is invalid or too large"
+                "run action release-receipt envelope or timeout envelope is invalid "
+                "or too large"
             )
         return first
 

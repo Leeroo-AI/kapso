@@ -101,6 +101,9 @@ _BARRIER_POLL_INTERVAL_SECONDS = CrossRunSettings.from_dict(
 _RUN_ACTION_RELEASE_RECEIPT_SIZE_BYTES = CrossRunSettings.from_dict(
     load_config(_CANONICAL_CONFIG_PATH)["cross_run"]
 ).launch.run_action_release_receipt_size_bytes
+_RUN_ACTION_TIMEOUT_DIRECTIVE_SIZE_BYTES = CrossRunSettings.from_dict(
+    load_config(_CANONICAL_CONFIG_PATH)["cross_run"]
+).launch.run_action_timeout_directive_size_bytes
 _RUN_ACTION_RELEASE_COMMIT_TIMEOUT_SECONDS = CrossRunSettings.from_dict(
     load_config(_CANONICAL_CONFIG_PATH)["cross_run"]
 ).launch.run_action_release_commit_timeout_seconds
@@ -343,6 +346,7 @@ def _execution_policy(
             release_commit_timeout_seconds=(_RUN_ACTION_RELEASE_COMMIT_TIMEOUT_SECONDS),
             result_size_bytes=268435456,
             release_receipt_size_bytes=_RUN_ACTION_RELEASE_RECEIPT_SIZE_BYTES,
+            timeout_directive_size_bytes=_RUN_ACTION_TIMEOUT_DIRECTIVE_SIZE_BYTES,
         ),
     )
 
@@ -2341,12 +2345,28 @@ def test_execution_policy_exposes_only_renderable_resource_degrees_of_freedom():
     assert {"stdout_size_bytes", "stderr_size_bytes"}.isdisjoint(
         {field.name for field in fields(RunActionSupervisorLimits)}
     )
+    assert "timeout_directive_size_bytes" in {
+        field.name for field in fields(RunActionSupervisorLimits)
+    }
     assert "safe_create_defaults" in {
         field.name for field in fields(DockerRunActionExecutionPolicy)
     }
     assert tuple(RunActionActivationNetworkMode) == (
         RunActionActivationNetworkMode.NONE,
     )
+
+
+def test_supervisor_timeout_directive_bound_is_positive_and_config_sourced():
+    limits = _execution_policy().supervisor_limits
+
+    assert (
+        limits.timeout_directive_size_bytes == _RUN_ACTION_TIMEOUT_DIRECTIVE_SIZE_BYTES
+    )
+    with pytest.raises(
+        RunActionSupervisorContractError,
+        match="supervisor limits",
+    ):
+        _remint_contract(limits, timeout_directive_size_bytes=0)
 
 
 @pytest.mark.parametrize(
@@ -2936,6 +2956,7 @@ def test_prepared_execution_requires_strict_byte_and_inode_headroom():
             prepared.result_file.payload_size_limit_bytes,
             prepared.credential_delivery_slot.payload_size_limit_bytes,
             prepared.preparation_claim.execution_policy.supervisor_limits.release_receipt_size_bytes,
+            prepared.preparation_claim.execution_policy.supervisor_limits.timeout_directive_size_bytes,
         )
     )
     exact_byte_cap = (
@@ -2959,8 +2980,14 @@ def test_prepared_execution_requires_strict_byte_and_inode_headroom():
     with pytest.raises(RunActionSupervisorContractError, match="positive byte"):
         replace(prepared, runtime_volume_evidence=exhausted_bytes)
 
+    delivery_slot_count = 1 + (
+        1 if prepared.credential_delivery_slot is not None else 0
+    )
     exact_inode_cap = (
-        evidence.used_inode_count + limits.runtime_temporary_reservation_inode_count + 2
+        evidence.used_inode_count
+        + delivery_slot_count
+        + limits.runtime_temporary_reservation_inode_count
+        + 2
     )
     exhausted_inodes = _remint_contract(
         evidence,

@@ -190,9 +190,13 @@ def open_run_action_release_inspection(
     prepared = activation_event.activation_revalidation_receipt.prepared_execution
     policy_bound = prepared.preparation_claim.execution_policy.supervisor_limits
     configured_bound = launch_settings.run_action_release_receipt_size_bytes
-    if policy_bound.release_receipt_size_bytes != configured_bound:
+    if (
+        policy_bound.release_receipt_size_bytes != configured_bound
+        or policy_bound.timeout_directive_size_bytes
+        != launch_settings.run_action_timeout_directive_size_bytes
+    ):
         raise RunActionReleaseAdoptionError(
-            "release inspection policy differs from its configured receipt bound"
+            "release inspection policy differs from configured control bounds"
         )
     with ExitStack() as descriptors:
         control_lease = open_run_action_control_directory(prepared)

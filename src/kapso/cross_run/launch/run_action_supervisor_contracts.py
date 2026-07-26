@@ -347,6 +347,7 @@ class RunActionSupervisorLimits(StrictContract):
     release_commit_timeout_seconds: int
     result_size_bytes: int
     release_receipt_size_bytes: int
+    timeout_directive_size_bytes: int
 
     CONTENT_NAMESPACE: ClassVar[str] = "run-action-supervisor-limits"
     IDENTITY_FIELD: ClassVar[str] = "supervisor_limits_id"
@@ -358,6 +359,7 @@ class RunActionSupervisorLimits(StrictContract):
             self.release_commit_timeout_seconds,
             self.result_size_bytes,
             self.release_receipt_size_bytes,
+            self.timeout_directive_size_bytes,
         )
         if (
             any(type(value) is not int or value <= 0 for value in values)
@@ -2268,9 +2270,13 @@ class RunActionPreparedExecution(StrictContract):
                 claim.execution_policy.supervisor_limits.release_receipt_size_bytes,
                 evidence.allocation_block_size_bytes,
             )
+            + _allocated_size(
+                claim.execution_policy.supervisor_limits.timeout_directive_size_bytes,
+                evidence.allocation_block_size_bytes,
+            )
         )
         required_available_inode_count = (
-            len(delivery_slots) + limits.runtime_temporary_reservation_inode_count + 1
+            len(delivery_slots) + limits.runtime_temporary_reservation_inode_count + 2
         )
         if (
             layout.runtime_volume_authority_id != authority.runtime_volume_authority_id
@@ -3272,6 +3278,10 @@ def run_action_activated_volume_evidence_matches(
             prepared.preparation_claim.execution_policy.supervisor_limits.release_receipt_size_bytes,
             block_size,
         )
+        + _allocated_size(
+            prepared.preparation_claim.execution_policy.supervisor_limits.timeout_directive_size_bytes,
+            block_size,
+        )
     )
     return (
         spawn_commit.reservation_id == reservation.reservation_id
@@ -3341,7 +3351,7 @@ def run_action_activated_volume_evidence_matches(
         )
         and remaining_requirement_bytes
         < reobserved_volume_evidence.available_size_bytes
-        and limits.runtime_temporary_reservation_inode_count + 1
+        and limits.runtime_temporary_reservation_inode_count + 2
         < reobserved_volume_evidence.available_inode_count
     )
 
