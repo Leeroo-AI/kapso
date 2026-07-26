@@ -10,6 +10,7 @@ import kapso.cross_run.launch.run_action_terminal_inspection as terminal_inspect
 from kapso.cross_run.canonical import tree_or_blob_digest
 from kapso.cross_run.launch.run_action_recovery import (
     _RUN_ACTION_COMMITTED_CONTINUATION_AUTHORITY,
+    _RUN_ACTION_PROVIDER_TERMINATION_AUTHORITY,
     RunActionCommittedContinuationCapability,
     RunActionCommittedSpawnObservation,
     RunActionCommittedSpawnState,
@@ -194,9 +195,17 @@ def test_trusted_result_capture_registers_the_exact_provider_result(monkeypatch)
                 docker_settings=docker_settings,
                 launch_settings=launch_settings,
             )
+            with pytest.raises(
+                RunActionRecoveryError,
+                match="termination registration lacks exact live authority",
+            ):
+                active_capability._take_provider_termination_authority(
+                    _authority=_RUN_ACTION_PROVIDER_TERMINATION_AUTHORITY,
+                )
             return RunActionContinuationOutcome(
                 state=RunActionContinuationState.RESULT_CAPTURED,
                 result=self.result,
+                provider_termination_receipt=None,
             )
 
     adapter = _TrustedCaptureAdapter()
@@ -253,11 +262,12 @@ def test_fabricated_result_cannot_bypass_the_trusted_capture_leaf(monkeypatch):
             return RunActionContinuationOutcome(
                 state=RunActionContinuationState.RESULT_CAPTURED,
                 result=result,
+                provider_termination_receipt=None,
             )
 
     with pytest.raises(
         RunActionRecoveryError,
-        match="terminal continuation lacks its trusted result capture",
+        match="terminal continuation lacks its trusted outcome registration",
     ):
         capability._invoke_once(_FabricatingAdapter())
 
@@ -317,11 +327,12 @@ def test_nonterminal_observation_cannot_return_a_fabricated_result(
             return RunActionContinuationOutcome(
                 state=RunActionContinuationState.RESULT_CAPTURED,
                 result=forged_result,
+                provider_termination_receipt=None,
             )
 
     with pytest.raises(
         RunActionRecoveryError,
-        match="nonterminal continuation consumed terminal or result authority",
+        match="nonterminal continuation consumed terminal outcome authority",
     ):
         capability._invoke_once(_FabricatingNonterminalAdapter())
 
@@ -391,6 +402,7 @@ def test_adapter_cannot_discard_a_trusted_capture(monkeypatch, capture_outcome):
                 return RunActionContinuationOutcome(
                     state=RunActionContinuationState.PENDING,
                     result=None,
+                    provider_termination_receipt=None,
                 )
             substituted = RunActionProviderResult(
                 terminal_observation=terminal,
@@ -405,11 +417,12 @@ def test_adapter_cannot_discard_a_trusted_capture(monkeypatch, capture_outcome):
             return RunActionContinuationOutcome(
                 state=RunActionContinuationState.RESULT_CAPTURED,
                 result=substituted,
+                provider_termination_receipt=None,
             )
 
     with pytest.raises(
         RunActionRecoveryError,
-        match="terminal continuation lacks its trusted result capture",
+        match="terminal continuation lacks its trusted outcome registration",
     ):
         capability._invoke_once(_DiscardingAdapter())
 
@@ -476,6 +489,7 @@ def test_result_capture_must_start_by_the_original_execution_deadline(monkeypatc
             return RunActionContinuationOutcome(
                 state=RunActionContinuationState.RESULT_CAPTURED,
                 result=result,
+                provider_termination_receipt=None,
             )
 
     with pytest.raises(RunActionRecoveryError, match="started outside"):

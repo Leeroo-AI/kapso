@@ -331,6 +331,7 @@ def test_terminal_reinspection_consumes_one_capability_and_seals_the_digest(
             return RunActionContinuationOutcome(
                 state=RunActionContinuationState.PENDING,
                 result=None,
+                provider_termination_receipt=None,
             )
 
     adapter = _TerminalReinspectionAdapter()
@@ -373,6 +374,7 @@ def test_terminal_continuation_rejects_an_adapter_that_skips_trusted_reinspectio
             return RunActionContinuationOutcome(
                 state=RunActionContinuationState.PENDING,
                 result=None,
+                provider_termination_receipt=None,
             )
 
     with pytest.raises(

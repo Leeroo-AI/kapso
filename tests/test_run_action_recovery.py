@@ -110,10 +110,14 @@ from test_run_action_supervisor_contracts import (
     _spawn_commit,
     _terminal_observation,
 )
+from test_run_action_termination_contracts import _pre_release_loss
 
 
 class _AbsentReleaseInspection:
     presence = run_action_recovery_module.RunActionReleasePresence.ABSENT
+
+    def require_current(self):
+        return None
 
     def __enter__(self):
         return self
@@ -128,11 +132,37 @@ class _PresentReleaseInspection:
     def __init__(self, adoption):
         self.adoption = adoption
 
+    def require_current(self):
+        return None
+
     def __enter__(self):
         return self
 
     def __exit__(self, exception_type, exception, traceback):
         return False
+
+
+class _ChangingAbsentReleaseInspection(_AbsentReleaseInspection):
+    def __init__(self, change_at_check) -> None:
+        self.change_at_check = change_at_check
+        self.current_checks = 0
+
+    def require_current(self):
+        self.current_checks += 1
+        if self.current_checks == self.change_at_check:
+            raise RuntimeError("release presence changed during retained inspection")
+
+
+class _ChangingPresentReleaseInspection(_PresentReleaseInspection):
+    def __init__(self, adoption, change_at_check) -> None:
+        super().__init__(adoption)
+        self.change_at_check = change_at_check
+        self.current_checks = 0
+
+    def require_current(self):
+        self.current_checks += 1
+        if self.current_checks == self.change_at_check:
+            raise RuntimeError("release adoption changed during retained inspection")
 
 
 @pytest.fixture(autouse=True)
@@ -451,6 +481,7 @@ class _FakeExecutionAdapter:
             return RunActionContinuationOutcome(
                 state=RunActionContinuationState.PENDING,
                 result=None,
+                provider_termination_receipt=None,
             )
         raise AssertionError(
             "terminal fake must use the trusted terminal and result-capture leaves"
@@ -642,6 +673,143 @@ class _PendingContinuationAdapter(_FakeExecutionAdapter):
         return RunActionContinuationOutcome(
             state=RunActionContinuationState.PENDING,
             result=None,
+            provider_termination_receipt=None,
+        )
+
+
+class _TrustedPreReleaseTerminationAdapter(_FakeExecutionAdapter):
+    def __init__(self, boundary_identity) -> None:
+        super().__init__(
+            boundary_identity,
+            observation_state=(
+                RunActionCommittedSpawnState.PRE_RELEASE_MAIN_LOSS_CONTINUABLE
+            ),
+        )
+        self.loss_observation = None
+        self.termination_receipt = None
+
+    def inspect_committed(self, query):
+        self.inspect_calls.append(query)
+        self.loss_observation = _pre_release_loss(
+            query.activation_revalidation_receipt,
+            query.activation_event.event_id,
+        )
+        return RunActionCommittedSpawnObservation(
+            state=RunActionCommittedSpawnState.PRE_RELEASE_MAIN_LOSS_CONTINUABLE,
+            observation_token=(
+                self.loss_observation.pre_release_main_loss_observation_id
+            ),
+        )
+
+    def continue_committed_once(self, capability):
+        self.continuation_calls.append(capability)
+        query, terminal, loss_observation_id = (
+            capability._take_provider_termination_authority(
+                _authority=(
+                    run_action_recovery_module._RUN_ACTION_PROVIDER_TERMINATION_AUTHORITY
+                ),
+            )
+        )
+        assert terminal is None
+        assert (
+            query.activation_event.event_id == self.loss_observation.activation_event_id
+        )
+        assert (
+            loss_observation_id
+            == self.loss_observation.pre_release_main_loss_observation_id
+        )
+        self.termination_receipt = RunActionProviderTerminationReceipt.mint(
+            disposition=RunActionProviderTerminationDisposition.INTERRUPTED,
+            reason=RunActionProviderTerminationReason.PRE_RELEASE_MAIN_LOSS,
+            activation_event_id=query.activation_event.event_id,
+            workload_release_adoption=None,
+            terminal_observation=None,
+            timeout_directive_publication=None,
+            empty_result_capture_receipt=None,
+            pre_release_main_loss_observation=self.loss_observation,
+        )
+        capability._complete_provider_termination(
+            self.termination_receipt,
+            _authority=(
+                run_action_recovery_module._RUN_ACTION_PROVIDER_TERMINATION_AUTHORITY
+            ),
+        )
+        return RunActionContinuationOutcome(
+            state=RunActionContinuationState.PROVIDER_TERMINATED,
+            result=None,
+            provider_termination_receipt=self.termination_receipt,
+        )
+
+
+class _TrustedReleasedTerminationAdapter(_FakeExecutionAdapter):
+    def __init__(self, boundary_identity) -> None:
+        super().__init__(
+            boundary_identity,
+            observation_state=RunActionCommittedSpawnState.TERMINAL_CONTINUABLE,
+        )
+        self.terminal = None
+        self.termination_receipt = None
+
+    def inspect_committed(self, query):
+        self.inspect_calls.append(query)
+        self.terminal = _remint_contract(
+            _terminal_observation(
+                query.prepared_execution,
+                query.spawn_commit,
+                query.workload_release_adoption,
+            ),
+            exit_code=137,
+            oom_killed=True,
+        )
+        return RunActionCommittedSpawnObservation(
+            state=RunActionCommittedSpawnState.TERMINAL_CONTINUABLE,
+            observation_token=self.terminal.complete_inspection_digest,
+        )
+
+    def continue_committed_once(self, capability):
+        self.continuation_calls.append(capability)
+        query, observation_token = capability._take_terminal_inspection_authority(
+            _authority=(
+                run_action_recovery_module._RUN_ACTION_TERMINAL_INSPECTION_AUTHORITY
+            ),
+        )
+        assert observation_token == self.terminal.complete_inspection_digest
+        capability._complete_terminal_inspection(
+            self.terminal,
+            _authority=(
+                run_action_recovery_module._RUN_ACTION_TERMINAL_INSPECTION_AUTHORITY
+            ),
+        )
+        termination_query, retained_terminal, loss_observation_id = (
+            capability._take_provider_termination_authority(
+                _authority=(
+                    run_action_recovery_module._RUN_ACTION_PROVIDER_TERMINATION_AUTHORITY
+                ),
+            )
+        )
+        assert termination_query == query
+        assert retained_terminal == self.terminal
+        assert loss_observation_id is None
+        self.termination_receipt = RunActionProviderTerminationReceipt.mint(
+            disposition=RunActionProviderTerminationDisposition.FAILED,
+            reason=RunActionProviderTerminationReason.OOM,
+            activation_event_id=query.activation_event.event_id,
+            workload_release_adoption=query.workload_release_adoption,
+            terminal_observation=self.terminal,
+            timeout_directive_publication=None,
+            empty_result_capture_receipt=None,
+            pre_release_main_loss_observation=None,
+        )
+        capability._complete_provider_termination(
+            self.termination_receipt,
+            _authority=(
+                run_action_recovery_module._RUN_ACTION_PROVIDER_TERMINATION_AUTHORITY
+            ),
+        )
+        return RunActionContinuationOutcome(
+            state=RunActionContinuationState.PROVIDER_TERMINATED,
+            result=None,
+            provider_termination_receipt=self.termination_receipt,
         )
 
 
@@ -663,6 +831,7 @@ class _AdoptionAwarePendingAdapter(_FakeExecutionAdapter):
         return RunActionContinuationOutcome(
             state=RunActionContinuationState.PENDING,
             result=None,
+            provider_termination_receipt=None,
         )
 
 
@@ -1297,11 +1466,13 @@ def test_recovery_contract_has_no_proof_free_terminal_states() -> None:
         RunActionCommittedSpawnState.INERT_CONTINUABLE,
         RunActionCommittedSpawnState.RUNNING_CONTINUABLE,
         RunActionCommittedSpawnState.TERMINAL_CONTINUABLE,
+        RunActionCommittedSpawnState.PRE_RELEASE_MAIN_LOSS_CONTINUABLE,
         RunActionCommittedSpawnState.UNKNOWN,
     }
     assert set(RunActionContinuationState) == {
         RunActionContinuationState.PENDING,
         RunActionContinuationState.RESULT_CAPTURED,
+        RunActionContinuationState.PROVIDER_TERMINATED,
     }
 
 
@@ -2533,6 +2704,160 @@ def test_provider_termination_replays_without_implementation_use(
     assert not adapter.continuation_calls
     assert not adapter.inspect_calls
     assert not adapter.result_interpreter.interpret_calls
+
+
+def test_registered_pre_release_loss_persists_as_terminal_event(
+    publisher_case,
+) -> None:
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
+    _append_activation_committed(gate, reservation)
+    adapter = _TrustedPreReleaseTerminationAdapter(reservation.intent.boundary_identity)
+
+    report = _recovery_coordinator(gate, adapter).recover(frontier)
+
+    events = gate._action_store.inspect().events_for(reservation.intent.operation_id)
+    assert report.is_complete
+    assert len(events) == 6
+    assert events[-1].event_kind is RunActionExecutionEventKind.PROVIDER_TERMINATED
+    assert events[-1].provider_termination_receipt == adapter.termination_receipt
+
+
+@pytest.mark.parametrize("publish_before_interrupt", (False, True))
+def test_provider_termination_has_exact_crash_restart_semantics(
+    publisher_case,
+    monkeypatch,
+    publish_before_interrupt,
+) -> None:
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
+    _append_activation_committed(gate, reservation)
+    adapter = _TrustedPreReleaseTerminationAdapter(reservation.intent.boundary_identity)
+    coordinator = _recovery_coordinator(gate, adapter)
+    store = gate._action_store
+    publish_event_locked = store._publish_event_locked
+
+    def interrupt_provider_termination(store_descriptor, operation_id, event):
+        if (
+            event.event_kind is RunActionExecutionEventKind.PROVIDER_TERMINATED
+            and not publish_before_interrupt
+        ):
+            raise RuntimeError("injected death before provider termination event")
+        publish_event_locked(store_descriptor, operation_id, event)
+        if event.event_kind is RunActionExecutionEventKind.PROVIDER_TERMINATED:
+            raise RuntimeError("injected death after provider termination event")
+
+    monkeypatch.setattr(
+        store,
+        "_publish_event_locked",
+        interrupt_provider_termination,
+    )
+    with pytest.raises(RuntimeError, match="provider termination event"):
+        coordinator.recover(frontier)
+
+    events = store.inspect().events_for(reservation.intent.operation_id)
+    assert len(events) == (6 if publish_before_interrupt else 5)
+    monkeypatch.setattr(store, "_publish_event_locked", publish_event_locked)
+    if publish_before_interrupt:
+        guarded = _AccessGuardedExecutionAdapter(reservation.intent.boundary_identity)
+        restarted = _recovery_coordinator(gate, guarded)
+        guarded.reject_execution_access = True
+
+        report = restarted.recover(frontier)
+
+        assert report.is_complete
+        assert report.recovered_operations[-1].events[-1].event_kind is (
+            RunActionExecutionEventKind.PROVIDER_TERMINATED
+        )
+
+
+@pytest.mark.parametrize(
+    ("change_at_check", "expected_event_count"),
+    (
+        (1, 5),
+        (2, 6),
+    ),
+)
+def test_provider_termination_retains_exact_release_absence_during_publication(
+    publisher_case,
+    monkeypatch,
+    change_at_check,
+    expected_event_count,
+) -> None:
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
+    _append_activation_committed(gate, reservation)
+    adapter = _TrustedPreReleaseTerminationAdapter(reservation.intent.boundary_identity)
+    inspections = iter(
+        (
+            _AbsentReleaseInspection(),
+            _ChangingAbsentReleaseInspection(change_at_check),
+        )
+    )
+    monkeypatch.setattr(
+        run_action_recovery_module,
+        "open_run_action_release_inspection",
+        lambda **_arguments: next(inspections),
+    )
+
+    with pytest.raises(RuntimeError, match="release presence changed"):
+        _recovery_coordinator(gate, adapter).recover(frontier)
+
+    events = gate._action_store.inspect().events_for(reservation.intent.operation_id)
+    assert len(events) == expected_event_count
+
+
+@pytest.mark.parametrize(
+    ("change_at_check", "expected_event_count"),
+    (
+        (1, 5),
+        (2, 6),
+    ),
+)
+def test_provider_termination_retains_exact_release_adoption_during_publication(
+    publisher_case,
+    monkeypatch,
+    change_at_check,
+    expected_event_count,
+) -> None:
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
+    _append_activation_committed(gate, reservation)
+    activation_event = gate._action_store.inspect().events_for(
+        reservation.intent.operation_id
+    )[4]
+    adoption = _release_adoption_for_event(
+        activation_event,
+        gate._security_authority.observation,
+    )
+    adapter = _TrustedReleasedTerminationAdapter(reservation.intent.boundary_identity)
+    inspections = iter(
+        (
+            _PresentReleaseInspection(adoption),
+            _ChangingPresentReleaseInspection(adoption, change_at_check),
+        )
+    )
+    monkeypatch.setattr(
+        run_action_recovery_module,
+        "open_run_action_release_inspection",
+        lambda **_arguments: next(inspections),
+    )
+
+    with pytest.raises(RuntimeError, match="release adoption changed"):
+        _recovery_coordinator(gate, adapter).recover(frontier)
+
+    events = gate._action_store.inspect().events_for(reservation.intent.operation_id)
+    assert len(events) == expected_event_count
+
+
+def test_normal_adapter_without_a_physical_termination_leaf_remains_pending(
+    publisher_case,
+) -> None:
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
+    adapter = _FakeExecutionAdapter(reservation.intent.boundary_identity)
+
+    report = _recovery_coordinator(gate, adapter).recover(frontier)
+
+    events = gate._action_store.inspect().events_for(reservation.intent.operation_id)
+    assert not report.is_complete
+    assert len(adapter.continuation_calls) == 1
+    assert events[-1].event_kind is RunActionExecutionEventKind.ACTIVATION_COMMITTED
 
 
 def test_recovered_operation_rejects_malformed_accepted_prefix(

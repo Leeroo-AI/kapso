@@ -297,6 +297,7 @@ class _LiveBlockedWorkloadAdapter:
         return RunActionContinuationOutcome(
             state=RunActionContinuationState.PENDING,
             result=None,
+            provider_termination_receipt=None,
         )
 
 
@@ -395,6 +396,7 @@ class _LiveTerminalWorkloadAdapter:
         return RunActionContinuationOutcome(
             state=RunActionContinuationState.RESULT_CAPTURED,
             result=self.captured_result,
+            provider_termination_receipt=None,
         )
 
 

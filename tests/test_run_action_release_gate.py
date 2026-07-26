@@ -148,6 +148,7 @@ class _ReleaseAdapter:
         return RunActionContinuationOutcome(
             state=RunActionContinuationState.PENDING,
             result=None,
+            provider_termination_receipt=None,
         )
 
 

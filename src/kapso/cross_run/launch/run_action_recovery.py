@@ -81,6 +81,11 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RunActionResultCaptureReceipt,
     RunActionTerminalObservation,
 )
+from kapso.cross_run.launch.run_action_termination_contracts import (
+    provider_termination_matches_durable_activation,
+    RunActionProviderTerminationReason,
+    RunActionProviderTerminationReceipt,
+)
 from kapso.cross_run.launch.run_action_workspace_promotion import (
     _RUN_ACTION_WORKSPACE_PROMOTION_AUTHORITY,
     RunActionWorkspacePromotion,
@@ -107,6 +112,7 @@ _RUN_ACTION_COMMITTED_CONTINUATION_AUTHORITY = object()
 _RUN_ACTION_RELEASE_PUBLISHER_AUTHORITY = object()
 _RUN_ACTION_TERMINAL_INSPECTION_AUTHORITY = object()
 _RUN_ACTION_RESULT_CAPTURE_AUTHORITY = object()
+_RUN_ACTION_PROVIDER_TERMINATION_AUTHORITY = object()
 _ISSUED_RECOVERY_COORDINATORS: WeakValueDictionary[int, object] = WeakValueDictionary()
 _ISSUED_RECOVERY_IMPLEMENTATION_REGISTRIES: WeakValueDictionary[int, object] = (
     WeakValueDictionary()
@@ -150,6 +156,9 @@ _EXECUTION_ADAPTER_METHOD_NAMES = (
 )
 _RESULT_INTERPRETER_METHOD_NAMES = ("interpret",)
 _SHA256_DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
+_PRE_RELEASE_MAIN_LOSS_OBSERVATION_ID_PATTERN = re.compile(
+    r"^run-action-pre-release-main-loss-observation:sha256:[0-9a-f]{64}$"
+)
 _NANOSECONDS_PER_SECOND = 1_000_000_000
 
 
@@ -311,6 +320,7 @@ class RunActionCommittedSpawnState(str, Enum):
     INERT_CONTINUABLE = "inert_continuable"
     RUNNING_CONTINUABLE = "running_continuable"
     TERMINAL_CONTINUABLE = "terminal_continuable"
+    PRE_RELEASE_MAIN_LOSS_CONTINUABLE = "pre_release_main_loss_continuable"
     UNKNOWN = "unknown"
 
 
@@ -375,15 +385,22 @@ class RunActionCommittedSpawnObservation:
             RunActionCommittedSpawnState.INERT_CONTINUABLE,
             RunActionCommittedSpawnState.RUNNING_CONTINUABLE,
             RunActionCommittedSpawnState.TERMINAL_CONTINUABLE,
+            RunActionCommittedSpawnState.PRE_RELEASE_MAIN_LOSS_CONTINUABLE,
         }
         if continuable != (self.observation_token is not None):
             raise RunActionRecoveryError(
                 "committed-spawn observation payload differs from its state"
             )
         if self.observation_token is not None:
+            token_pattern = (
+                _PRE_RELEASE_MAIN_LOSS_OBSERVATION_ID_PATTERN
+                if self.state
+                is RunActionCommittedSpawnState.PRE_RELEASE_MAIN_LOSS_CONTINUABLE
+                else _SHA256_DIGEST_PATTERN
+            )
             if (
                 type(self.observation_token) is not str
-                or _SHA256_DIGEST_PATTERN.fullmatch(self.observation_token) is None
+                or token_pattern.fullmatch(self.observation_token) is None
             ):
                 raise RunActionRecoveryError(
                     "run action committed observation token is invalid"
@@ -395,25 +412,46 @@ class RunActionContinuationState(str, Enum):
 
     PENDING = "pending"
     RESULT_CAPTURED = "result_captured"
+    PROVIDER_TERMINATED = "provider_terminated"
 
 
 @dataclass(frozen=True)
 class RunActionContinuationOutcome:
-    """Typed continuation outcome; pending work carries no provider bytes."""
+    """Typed continuation outcome with exactly one registered terminal branch."""
 
     state: RunActionContinuationState
     result: RunActionProviderResult | None
+    provider_termination_receipt: RunActionProviderTerminationReceipt | None
 
     def __post_init__(self) -> None:
-        if type(self.state) is not RunActionContinuationState or (
-            self.state is RunActionContinuationState.RESULT_CAPTURED
-        ) != (self.result is not None):
+        if type(self.state) is not RunActionContinuationState:
             raise RunActionRecoveryError(
                 "run action continuation outcome differs from its state"
             )
-        if self.result is not None and type(self.result) is not RunActionProviderResult:
+        result_present = type(self.result) is RunActionProviderResult
+        termination_present = (
+            type(self.provider_termination_receipt)
+            is RunActionProviderTerminationReceipt
+        )
+        expected_presence = {
+            RunActionContinuationState.PENDING: (False, False),
+            RunActionContinuationState.RESULT_CAPTURED: (True, False),
+            RunActionContinuationState.PROVIDER_TERMINATED: (False, True),
+        }
+        if (
+            (result_present, termination_present) != expected_presence[self.state]
+            or (
+                self.result is not None
+                and type(self.result) is not RunActionProviderResult
+            )
+            or (
+                self.provider_termination_receipt is not None
+                and type(self.provider_termination_receipt)
+                is not RunActionProviderTerminationReceipt
+            )
+        ):
             raise RunActionRecoveryError(
-                "run action continuation outcome carries an invalid result"
+                "run action continuation outcome differs from its state"
             )
 
 
@@ -762,7 +800,13 @@ class RunActionCommittedContinuationCapability:
                 RunActionCommittedSpawnState.INERT_CONTINUABLE,
                 RunActionCommittedSpawnState.RUNNING_CONTINUABLE,
                 RunActionCommittedSpawnState.TERMINAL_CONTINUABLE,
+                RunActionCommittedSpawnState.PRE_RELEASE_MAIN_LOSS_CONTINUABLE,
             }
+            or (
+                observation.state
+                is RunActionCommittedSpawnState.PRE_RELEASE_MAIN_LOSS_CONTINUABLE
+                and query.workload_release_adoption is not None
+            )
             or type(required_security_observation) is not SecurityDenylistObservation
             or required_security_observation.observation_id
             != reservation.frontier.security_observation_id
@@ -788,6 +832,10 @@ class RunActionCommittedContinuationCapability:
         self._terminal_observation: RunActionTerminalObservation | None = None
         self._result_capture_state = "ready"
         self._captured_result: RunActionProviderResult | None = None
+        self._provider_termination_state = "ready"
+        self._provider_termination_receipt: (
+            RunActionProviderTerminationReceipt | None
+        ) = None
         with _COMMITTED_CONTINUATION_CAPABILITY_LOCK:
             _ISSUED_COMMITTED_CONTINUATION_CAPABILITIES[id(self)] = self
             _ISSUED_COMMITTED_CONTINUATION_RELEASE_AUTHORITIES[self] = (
@@ -856,6 +904,8 @@ class RunActionCommittedContinuationCapability:
                 or self._state != "invoking"
                 or self._invoking_thread_id != get_ident()
                 or self._release_publication_state != "ready"
+                or self._provider_termination_state != "ready"
+                or self._provider_termination_receipt is not None
                 or self._observation.state
                 is not RunActionCommittedSpawnState.RUNNING_CONTINUABLE
                 or type(resolved_workload_observation)
@@ -985,6 +1035,8 @@ class RunActionCommittedContinuationCapability:
                 or adoption is None
                 or self._result_capture_state != "ready"
                 or self._captured_result is not None
+                or self._provider_termination_state != "ready"
+                or self._provider_termination_receipt is not None
                 or type(authorities) is not _RunActionIssuedReleaseAuthorities
                 or _authority is not _RUN_ACTION_RESULT_CAPTURE_AUTHORITY
             ):
@@ -1006,12 +1058,15 @@ class RunActionCommittedContinuationCapability:
                 or self._invoking_thread_id != get_ident()
                 or self._terminal_observation != terminal
                 or self._result_capture_state != "ready"
+                or self._provider_termination_state != "ready"
+                or self._provider_termination_receipt is not None
                 or current_boottime > deadline
             ):
                 raise RunActionRecoveryError(
                     "result capture started outside its exact terminal deadline"
                 )
             self._result_capture_state = "capturing"
+            self._provider_termination_state = "blocked_by_result_capture"
         return self._query, terminal
 
     def _complete_result_capture(
@@ -1034,6 +1089,8 @@ class RunActionCommittedContinuationCapability:
                 or self._invoking_thread_id != get_ident()
                 or self._result_capture_state != "capturing"
                 or self._captured_result is not None
+                or self._provider_termination_state != "blocked_by_result_capture"
+                or self._provider_termination_receipt is not None
                 or type(authorities) is not _RunActionIssuedReleaseAuthorities
                 or adoption is None
                 or type(terminal) is not RunActionTerminalObservation
@@ -1053,20 +1110,144 @@ class RunActionCommittedContinuationCapability:
             self._captured_result = result
             self._result_capture_state = "complete"
 
+    def _take_provider_termination_authority(
+        self,
+        *,
+        _authority: object,
+    ) -> tuple[
+        "RunActionCommittedSpawnQuery",
+        RunActionTerminalObservation | None,
+        str | None,
+    ]:
+        """Consume the trusted termination leaf's sole receipt registration."""
+
+        with _COMMITTED_CONTINUATION_CAPABILITY_LOCK:
+            query = self._query
+            observation_state = self._observation.state
+            terminal = self._terminal_observation
+            loss_observation_id = (
+                self._observation.observation_token
+                if observation_state
+                is RunActionCommittedSpawnState.PRE_RELEASE_MAIN_LOSS_CONTINUABLE
+                else None
+            )
+            released_terminal_ready = (
+                observation_state is RunActionCommittedSpawnState.TERMINAL_CONTINUABLE
+                and self._terminal_inspection_state == "complete"
+                and type(terminal) is RunActionTerminalObservation
+                and query.workload_release_adoption is not None
+                and loss_observation_id is None
+            )
+            pre_release_loss_ready = (
+                observation_state
+                is RunActionCommittedSpawnState.PRE_RELEASE_MAIN_LOSS_CONTINUABLE
+                and self._terminal_inspection_state == "ready"
+                and terminal is None
+                and query.workload_release_adoption is None
+                and type(loss_observation_id) is str
+                and _PRE_RELEASE_MAIN_LOSS_OBSERVATION_ID_PATTERN.fullmatch(
+                    loss_observation_id
+                )
+                is not None
+            )
+            if (
+                _ISSUED_COMMITTED_CONTINUATION_CAPABILITIES.get(id(self)) is not self
+                or self._owner_process_id != os.getpid()
+                or self._state != "invoking"
+                or self._invoking_thread_id != get_ident()
+                or self._provider_termination_state != "ready"
+                or self._provider_termination_receipt is not None
+                or self._result_capture_state != "ready"
+                or self._captured_result is not None
+                or self._release_publication_state != "ready"
+                or not (released_terminal_ready or pre_release_loss_ready)
+                or _authority is not _RUN_ACTION_PROVIDER_TERMINATION_AUTHORITY
+            ):
+                raise RunActionRecoveryError(
+                    "provider termination registration lacks exact live authority"
+                )
+            self._provider_termination_state = "registering"
+            self._result_capture_state = "blocked_by_provider_termination"
+            if pre_release_loss_ready:
+                self._terminal_inspection_state = "blocked_by_provider_termination"
+        return query, terminal, loss_observation_id
+
+    def _complete_provider_termination(
+        self,
+        receipt: RunActionProviderTerminationReceipt,
+        *,
+        _authority: object,
+    ) -> None:
+        """Register the trusted termination leaf's exact retained evidence."""
+
+        with _COMMITTED_CONTINUATION_CAPABILITY_LOCK:
+            if type(receipt) is not RunActionProviderTerminationReceipt:
+                raise RunActionRecoveryError(
+                    "provider termination completion lacks exact live authority"
+                )
+            query = self._query
+            observation_state = self._observation.state
+            retained_terminal = self._terminal_observation
+            released_terminal_matches = (
+                observation_state is RunActionCommittedSpawnState.TERMINAL_CONTINUABLE
+                and self._terminal_inspection_state == "complete"
+                and type(retained_terminal) is RunActionTerminalObservation
+                and receipt.reason
+                is not RunActionProviderTerminationReason.PRE_RELEASE_MAIN_LOSS
+                and receipt.workload_release_adoption == query.workload_release_adoption
+                and receipt.terminal_observation == retained_terminal
+            )
+            loss = receipt.pre_release_main_loss_observation
+            pre_release_loss_matches = (
+                observation_state
+                is RunActionCommittedSpawnState.PRE_RELEASE_MAIN_LOSS_CONTINUABLE
+                and self._terminal_inspection_state == "blocked_by_provider_termination"
+                and retained_terminal is None
+                and receipt.reason
+                is RunActionProviderTerminationReason.PRE_RELEASE_MAIN_LOSS
+                and query.workload_release_adoption is None
+                and loss is not None
+                and loss.pre_release_main_loss_observation_id
+                == self._observation.observation_token
+            )
+            if (
+                _ISSUED_COMMITTED_CONTINUATION_CAPABILITIES.get(id(self)) is not self
+                or self._owner_process_id != os.getpid()
+                or self._state != "invoking"
+                or self._invoking_thread_id != get_ident()
+                or self._provider_termination_state != "registering"
+                or self._provider_termination_receipt is not None
+                or self._result_capture_state != "blocked_by_provider_termination"
+                or self._captured_result is not None
+                or not provider_termination_matches_durable_activation(
+                    receipt,
+                    query.activation_event.event_id,
+                    query.preparation_allocation,
+                    query.activation_revalidation_receipt,
+                )
+                or not (released_terminal_matches or pre_release_loss_matches)
+                or _authority is not _RUN_ACTION_PROVIDER_TERMINATION_AUTHORITY
+            ):
+                raise RunActionRecoveryError(
+                    "provider termination completion lacks exact live authority"
+                )
+            self._provider_termination_receipt = receipt
+            self._provider_termination_state = "complete"
+
     def _invoke_once(
         self,
         execution_adapter: "RunActionExecutionAdapter",
     ) -> RunActionContinuationOutcome:
         with self._begin_invocation():
             outcome = execution_adapter.continue_committed_once(self)
-            self._require_terminal_outcome_authority(outcome)
+            self._require_continuation_outcome_authority(outcome)
             return outcome
 
-    def _require_terminal_outcome_authority(
+    def _require_continuation_outcome_authority(
         self,
         outcome: RunActionContinuationOutcome,
     ) -> None:
-        """Bind terminal continuation outcomes to the trusted terminal leaf."""
+        """Bind every continuation branch to its exact consumed authorities."""
 
         with _COMMITTED_CONTINUATION_CAPABILITY_LOCK:
             issued = _ISSUED_COMMITTED_CONTINUATION_CAPABILITIES.get(id(self))
@@ -1101,31 +1282,91 @@ class RunActionCommittedContinuationCapability:
                         "terminal continuation lacks its trusted reinspection"
                     )
                 if (
-                    outcome.state is RunActionContinuationState.PENDING
-                    and (
-                        self._result_capture_state != "ready"
-                        or self._captured_result is not None
+                    (
+                        outcome.state is RunActionContinuationState.PENDING
+                        and (
+                            self._result_capture_state != "ready"
+                            or self._captured_result is not None
+                            or self._provider_termination_state != "ready"
+                            or self._provider_termination_receipt is not None
+                        )
                     )
-                ) or (
-                    outcome.state is RunActionContinuationState.RESULT_CAPTURED
-                    and (
-                        self._result_capture_state != "complete"
-                        or type(self._captured_result) is not RunActionProviderResult
-                        or outcome.result != self._captured_result
+                    or (
+                        outcome.state is RunActionContinuationState.RESULT_CAPTURED
+                        and (
+                            self._result_capture_state != "complete"
+                            or type(self._captured_result)
+                            is not RunActionProviderResult
+                            or outcome.result != self._captured_result
+                            or self._provider_termination_state
+                            != "blocked_by_result_capture"
+                            or self._provider_termination_receipt is not None
+                        )
+                    )
+                    or (
+                        outcome.state is RunActionContinuationState.PROVIDER_TERMINATED
+                        and (
+                            self._result_capture_state
+                            != "blocked_by_provider_termination"
+                            or self._captured_result is not None
+                            or self._provider_termination_state != "complete"
+                            or type(self._provider_termination_receipt)
+                            is not RunActionProviderTerminationReceipt
+                            or outcome.provider_termination_receipt
+                            != self._provider_termination_receipt
+                        )
                     )
                 ):
                     raise RunActionRecoveryError(
-                        "terminal continuation lacks its trusted result capture"
+                        "terminal continuation lacks its trusted outcome registration"
                     )
             elif (
-                outcome.state is RunActionContinuationState.RESULT_CAPTURED
+                self._observation.state
+                is RunActionCommittedSpawnState.PRE_RELEASE_MAIN_LOSS_CONTINUABLE
+            ):
+                if (
+                    self._release_publication_state != "ready"
+                    or self._terminal_observation is not None
+                    or self._captured_result is not None
+                    or (
+                        outcome.state is RunActionContinuationState.PENDING
+                        and (
+                            self._terminal_inspection_state != "ready"
+                            or self._result_capture_state != "ready"
+                            or self._provider_termination_state != "ready"
+                            or self._provider_termination_receipt is not None
+                        )
+                    )
+                    or (
+                        outcome.state is RunActionContinuationState.PROVIDER_TERMINATED
+                        and (
+                            self._terminal_inspection_state
+                            != "blocked_by_provider_termination"
+                            or self._result_capture_state
+                            != "blocked_by_provider_termination"
+                            or self._provider_termination_state != "complete"
+                            or type(self._provider_termination_receipt)
+                            is not RunActionProviderTerminationReceipt
+                            or outcome.provider_termination_receipt
+                            != self._provider_termination_receipt
+                        )
+                    )
+                    or outcome.state is RunActionContinuationState.RESULT_CAPTURED
+                ):
+                    raise RunActionRecoveryError(
+                        "pre-release loss continuation lacks its trusted termination"
+                    )
+            elif (
+                outcome.state is not RunActionContinuationState.PENDING
                 or self._terminal_inspection_state != "ready"
                 or self._terminal_observation is not None
                 or self._result_capture_state != "ready"
                 or self._captured_result is not None
+                or self._provider_termination_state != "ready"
+                or self._provider_termination_receipt is not None
             ):
                 raise RunActionRecoveryError(
-                    "nonterminal continuation consumed terminal or result authority"
+                    "nonterminal continuation consumed terminal outcome authority"
                 )
 
     def _begin_invocation(self) -> "_RunActionCommittedContinuationInvocation":
@@ -1174,6 +1415,7 @@ class RunActionCommittedContinuationCapability:
             self._release_publication_state = "spent"
             self._terminal_inspection_state = "spent"
             self._result_capture_state = "spent"
+            self._provider_termination_state = "spent"
             _ISSUED_COMMITTED_CONTINUATION_CAPABILITIES.pop(id(self))
             _ISSUED_COMMITTED_CONTINUATION_RELEASE_AUTHORITIES.pop(self, None)
 
@@ -2601,6 +2843,14 @@ class RunActionRecoveryCoordinator:
                 descriptors,
                 workspace_lock_descriptor,
             )
+        if outcome.state is RunActionContinuationState.PROVIDER_TERMINATED:
+            self._record_provider_termination(
+                session,
+                outcome.provider_termination_receipt,
+                workload_release_adoption,
+                descriptors,
+            )
+            return None
         raise RunActionRecoveryError(
             "execution adapter returned an unknown committed continuation"
         )
@@ -2625,10 +2875,81 @@ class RunActionRecoveryCoordinator:
             RunActionCommittedSpawnState.TERMINAL_CONTINUABLE: {
                 RunActionContinuationState.PENDING,
                 RunActionContinuationState.RESULT_CAPTURED,
+                RunActionContinuationState.PROVIDER_TERMINATED,
+            },
+            RunActionCommittedSpawnState.PRE_RELEASE_MAIN_LOSS_CONTINUABLE: {
+                RunActionContinuationState.PENDING,
+                RunActionContinuationState.PROVIDER_TERMINATED,
             },
             RunActionCommittedSpawnState.UNKNOWN: set(),
         }
         return outcome.state in admitted[observation.state]
+
+    def _record_provider_termination(
+        self,
+        session,
+        receipt: RunActionProviderTerminationReceipt,
+        expected_release_adoption: RunActionWorkloadReleaseAdoption | None,
+        descriptors: ExitStack,
+    ) -> None:
+        """Publish only a registered receipt under one retained release fence."""
+
+        if type(receipt) is not RunActionProviderTerminationReceipt:
+            raise RunActionRecoveryError(
+                "provider termination publication lacks a registered receipt"
+            )
+        activation_event = session.events[4]
+        self._require_unchanged_host_workspace(
+            session.reservation,
+            descriptors,
+            "host workspace changed before provider termination event",
+        )
+        with open_run_action_release_inspection(
+            activation_event=activation_event,
+            launch_settings=self._publisher._settings,
+        ) as release_inspection:
+            self._require_provider_termination_release_fence(
+                release_inspection,
+                receipt,
+                expected_release_adoption,
+            )
+            release_inspection.require_current()
+            session.terminate_provider(receipt)
+            release_inspection.require_current()
+        self._require_unchanged_host_workspace(
+            session.reservation,
+            descriptors,
+            "host workspace changed across provider termination event",
+        )
+
+    @staticmethod
+    def _require_provider_termination_release_fence(
+        release_inspection,
+        receipt: RunActionProviderTerminationReceipt,
+        expected_release_adoption: RunActionWorkloadReleaseAdoption | None,
+    ) -> None:
+        pre_release_loss = (
+            receipt.reason is RunActionProviderTerminationReason.PRE_RELEASE_MAIN_LOSS
+        )
+        if pre_release_loss:
+            if (
+                release_inspection.presence is not RunActionReleasePresence.ABSENT
+                or expected_release_adoption is not None
+                or receipt.workload_release_adoption is not None
+            ):
+                raise RunActionRecoveryError(
+                    "pre-release termination lost exact release absence"
+                )
+            return
+        if (
+            release_inspection.presence is not RunActionReleasePresence.PRESENT
+            or expected_release_adoption is None
+            or release_inspection.adoption != expected_release_adoption
+            or receipt.workload_release_adoption != expected_release_adoption
+        ):
+            raise RunActionRecoveryError(
+                "released termination lost its exact release adoption"
+            )
 
     def _require_unchanged_host_workspace(
         self,

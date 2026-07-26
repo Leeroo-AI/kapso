@@ -985,16 +985,33 @@ the exact volume and keeper remain, the main alone is absent, and release is
 absent under the exact control authority. The contracts bind the activation
 event, release adoption, terminal occurrence, immutable runtime-volume
 occurrence, deadlines, and publication inode. They do not yet authorize recovery
-directly. The store can now persist a complete receipt only as terminal event 6
-after a pure join to durable allocation and activation. That event publishes no
-result blobs, cannot be extended, reopens across either publication crash side,
-and replays through recovery without invoking an adapter or interpreter.
-Production recovery still has no call site that can create it: positive
-termination requires a private physical leaf and sealed capability registration
-in the next slice. Cleanup and production adapters remain later slices. No
-production caller can receive Docker start authority from the reservation gate;
-M9 activation must continue to route every post-reservation transition through
-the coordinator's sealed capabilities.
+directly. The store persists a complete receipt only as terminal event 6 after a
+pure join to durable allocation and activation. That event publishes no result
+blobs, cannot be extended, reopens across either publication crash side, and
+replays through recovery without invoking an adapter or interpreter.
+
+Recovery now has a sealed registration boundary for that receipt. A dedicated
+pre-release-main-loss observation state cannot be confused with inert, running,
+terminal, or unknown Docker state. One process/thread-bound continuation
+capability admits exactly `PENDING`, its privately captured result, or its
+privately registered termination receipt. Result capture and termination
+registration consume each other's authority, and a returned but unregistered or
+cross-occurrence receipt is rejected. Released termination must reproduce the
+retained trusted terminal and release adoption; pre-release loss must reproduce
+the exact loss-observation content ID. Before terminal publication the
+coordinator reproves the unchanged host workspace and reopens either the exact
+release adoption or exact release absence, retaining that descriptor lease across
+the event append and checking it immediately before and after. A crash before
+the append leaves event 5 and requires fresh physical evidence; a crash after it
+replays event 6 without adapter or interpreter use.
+
+The registration seam intentionally has no normal physical producer yet.
+Timeout publication, Docker containment, terminal-failure/empty-result evidence,
+positive pre-release-loss inspection, cleanup, and production adapters remain
+later slices; ordinary adapters therefore remain pending rather than fabricating
+termination. No production caller can receive Docker start authority from the
+reservation gate; M9 activation must continue to route every post-reservation
+transition through the coordinator's sealed capabilities.
 
 The recovery surface is now fail-closed ahead of typed termination. The
 proof-only `PROVEN_RESOURCE_LOST`, `QUIESCENT_RECHECKABLE`, and
@@ -1003,10 +1020,11 @@ provider `INTERRUPTED` reasons and store mutation. Cancellation is expressed by
 its event kind, and a distinct `FRONTIER_INVALIDATED` event can close only an
 allocated or prepared pre-spawn prefix after its unchanged workspace is
 re-proved. A workspace mismatch remains unresolved. After durable event 5, the
-production continuation still admits only `PENDING` or a privately registered
-descriptor-captured result. A complete pre-existing event-6 termination receipt
-is terminal and replayable, but no continuation can mint one until the next
-slice supplies trusted physical registration; ambiguity cannot become terminal.
+continuation admits only `PENDING`, a privately registered descriptor-captured
+result, or a privately registered typed termination. Because no normal adapter
+yet owns the physical termination leaf, current production behavior still
+selects only the first two branches. A complete pre-existing event-6 termination
+receipt is terminal and replayable; ambiguity cannot become terminal.
 
 The coordinator owns one process-bound, non-clonable implementation catalog fixed
 at composition; `recover()` accepts no caller-selected implementation. Each
