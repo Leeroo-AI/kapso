@@ -1332,6 +1332,47 @@ class GenericSearch(SearchStrategy):
         telemetry["duration_seconds"] = time.monotonic() - phase_started
         return chosen["solutions"], sections, telemetry
 
+    def _campaign_state_brief(self) -> str:
+        """Factual campaign trajectory for the selector's return judgment.
+
+        The selector prompt values candidates by expected return against the
+        GOAL's bar; this supplies the other half of that arithmetic — where
+        the campaign currently stands and whether progress has stalled.
+        """
+        scored = [
+            n
+            for n in self.node_history
+            if not n.had_error and n.evaluation_valid and n.score is not None
+        ]
+        if not scored:
+            return (
+                "No scored experiments yet — the pool below is the campaign's "
+                "first swing; judge return against the GOAL's published bar."
+            )
+        maximize = self.problem_handler.maximize_scoring
+        champion = max(n.score for n in scored) if maximize else min(
+            n.score for n in scored
+        )
+        recent = [float(f"{n.score:.6g}") for n in scored[-5:]]
+        stagnation = 0
+        running_best: Optional[float] = None
+        for node in scored:
+            improved = running_best is None or (
+                node.score > running_best if maximize else node.score < running_best
+            )
+            if improved:
+                running_best = node.score
+                stagnation = 0
+            else:
+                stagnation += 1
+        return (
+            f"Scored experiments: {len(scored)}; champion score: {champion:.6g}; "
+            f"last {len(recent)} scores: {recent}; consecutive experiments "
+            f"without strict improvement: {stagnation}. The GOAL above states "
+            "the published bar — judge every candidate's return against the "
+            "remaining gap to THAT bar, not against the champion."
+        )
+
     def _select_from_candidates(
         self,
         problem: str,
@@ -1361,6 +1402,7 @@ class GenericSearch(SearchStrategy):
                 "problem": problem,
                 "repo_memory_brief": repo_memory_brief
                 or "(No repo memory available)",
+                "campaign_state": self._campaign_state_brief(),
                 "candidates": candidates_block,
             },
         )

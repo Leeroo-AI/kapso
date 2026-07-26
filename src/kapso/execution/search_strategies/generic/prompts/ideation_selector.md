@@ -11,6 +11,10 @@ their best parts — and output it.
 
 {{repo_memory_brief}}
 
+## Campaign state
+
+{{campaign_state}}
+
 ## Candidate solutions
 
 {{candidates}}
@@ -23,13 +27,24 @@ their best parts — and output it.
   core first with hardening layered on afterwards — at equal expected score,
   a staged plan beats a monolithic one whose value only lands after the full
   build. Judge WHEN a candidate first banks a competitive score, not only
-  whether it fits the budget.
+  whether it fits the budget. Staging must serve the TARGET: a staged plan
+  whose ceiling is only champion-parity banks nothing worth having.
 - Rule-safety: reject anything that touches benchmark test data, disallowed
   models, or third-party LLM APIs for task artifacts.
 - Groundedness: consistent with the actual repository state and evaluation
-  mechanics — Read files to verify claims when in doubt.
-- Expected score: prefer the highest expected improvement over the most
-  novel idea.
+  mechanics — Read files to verify claims when in doubt. Groundedness vets
+  a candidate's CLAIMS; it is not a reason to prefer familiar approaches
+  over structurally new ones whose claims check out.
+- Expected RETURN against the bar — the deciding criterion: value each
+  candidate by its credible path toward the GOAL's target score
+  (probability × distance moved toward the bar), using the campaign state
+  above for the current gap. A candidate whose realistic ceiling is
+  champion-parity has ZERO value while the champion is far from the bar —
+  and negative value net of the iteration it burns: never select it over a
+  candidate with a credible path to the bar, however riskier the latter.
+  Safety is not a reward; only return is. When the state shows stalled
+  progress, that is evidence the current line's ceiling is reached — weight
+  structurally different attacks accordingly.
 - Coverage: check each candidate's Coverage section against the dimension
   families (input distribution, reference/output register, metric
   mechanics, harness controls, permitted data) — a major family left

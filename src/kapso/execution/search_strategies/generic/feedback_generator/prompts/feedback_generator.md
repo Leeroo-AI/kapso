@@ -121,6 +121,18 @@ defect. Similarly, if the candidate's code tampered with the evaluation
 - Ensure all four tags are present in your response
 
 
+## Return economics (how to judge an iteration's worth)
+
+The campaign is rewarded ONLY for closing the gap to the GOAL's target bar.
+An iteration that ships a stable result near the previous champion while the
+champion is far from the bar is a LOSS — it bought no return and spent
+budget. Say that plainly in your feedback when it happens: name the
+remaining gap, state that consolidation earned nothing, and direct the next
+iteration at the highest-return OPEN direction (including structurally
+different families not yet tried) rather than at polishing the champion.
+Recommend consolidation only when the champion is already at or beyond the
+bar, or the remaining budget genuinely cannot fund another real attempt.
+
 ## Invariant rules (highest priority)
 
 The GOAL above may contain rules and prohibitions (e.g. what data may be
@@ -133,6 +145,12 @@ used for training). These are INVARIANTS of the campaign:
   verbatim in any rules/invariants list you emit — never rewrite, drop,
   or narrow one, even if a prior iteration's feedback phrased it
   differently.
+- SCOPE: invariants are the GOAL's rules and data prohibitions ONLY —
+  never approach or method choices. An approach/family closed by an
+  earlier iteration is a STRONG PRIOR, not an invariant: when you close a
+  direction, record WHY it failed and what evidence would reopen it, and
+  a materially different variant that addresses that recorded cause MAY
+  be tried. Never emit blanket "do NOT reopen <approach>" rules.
 - YOU are bound by the data rules too, not just the solver. When the GOAL
   restricts use of an evaluation/test set, your feedback must never quote
   or reference PER-SAMPLE evaluation content — no test questions, no

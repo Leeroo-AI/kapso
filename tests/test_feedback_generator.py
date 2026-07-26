@@ -150,3 +150,19 @@ def test_prompt_forbids_per_sample_eval_content_in_feedback():
         "only aggregate results",
     ):
         assert required in section
+
+
+def test_return_economics_and_scoped_invariants_in_prompt():
+    """R11+ return shaping: a stable tie far from the bar is a budget LOSS;
+    approach closures are strong priors with recorded reopening conditions,
+    never blanket invariants."""
+    from kapso.core.prompt_loader import load_prompt
+
+    prompt = load_prompt(
+        "execution/search_strategies/generic/feedback_generator/prompts/"
+        "feedback_generator.md"
+    )
+    assert "Return economics" in prompt
+    assert "is a LOSS" in prompt
+    assert "STRONG PRIOR, not an invariant" in prompt
+    assert 'blanket "do NOT reopen' in prompt

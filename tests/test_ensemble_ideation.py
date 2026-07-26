@@ -184,6 +184,8 @@ def make_ensemble_strategy(tmp_path, monkeypatch, *, ensemble, selector,
     # Mirror __init__-set attributes the ensemble path reads (stub gotcha:
     # every new GenericSearch instance attribute must be added here too).
     strategy.llm = None
+    strategy.node_history = []
+    strategy.problem_handler = SimpleNamespace(maximize_scoring=False)
     strategy.ideation_web_search = True
     strategy._web_disallowed_tools = []
     strategy.ideation_lens_planner = None
@@ -575,3 +577,59 @@ def test_codex_selector_runs_web_off_and_choice_wins(tmp_path, monkeypatch):
         {"web_search": False, "model": "gpt-5.6-sol", "effort": "xhigh"}
     ]
     assert not [p for is_sel, p in events["claude_prompts"] if is_sel]
+
+
+# ---------------------------------------------------------------------------
+# Return economics: campaign state + prompt contracts
+# ---------------------------------------------------------------------------
+
+def test_selector_prompt_carries_campaign_state(tmp_path, monkeypatch):
+    strategy, events = make_ensemble_strategy(
+        tmp_path, monkeypatch,
+        ensemble=[dict(CODEX_MEMBER), dict(CLAUDE_MEMBER)],
+        selector=dict(SELECTOR),
+        claude_output=f"<solution>{_plan('claude idea')}</solution>",
+        codex_output=f"<solution>{_plan('codex idea')}</solution>",
+        selector_output=f"<solution>{_plan('winner')}</solution>",
+    )
+    strategy._generate_solution("problem", "main")
+    selector_prompts = [p for is_sel, p in events["claude_prompts"] if is_sel]
+    assert selector_prompts, "selector session never ran"
+    assert "## Campaign state" in selector_prompts[0]
+    assert "No scored experiments yet" in selector_prompts[0]
+
+
+def test_campaign_state_brief_math_minimize():
+    from kapso.execution.search_strategies.base import SearchNode
+
+    strategy = GenericSearch.__new__(GenericSearch)
+    strategy.problem_handler = SimpleNamespace(maximize_scoring=False)
+    strategy.node_history = [
+        SearchNode(node_id=0, branch_name="e0", score=2.7),
+        SearchNode(node_id=1, branch_name="e1", score=2.6),   # improvement
+        SearchNode(node_id=2, branch_name="e2", score=2.6),   # tie
+        SearchNode(node_id=3, branch_name="e3", score=2.65),  # worse
+        SearchNode(node_id=4, branch_name="e4", score=None),  # unscored: skipped
+    ]
+    brief = strategy._campaign_state_brief()
+    assert "champion score: 2.6" in brief
+    assert "consecutive experiments without strict improvement: 2" in brief
+    assert "Scored experiments: 4" in brief
+
+
+def test_return_economics_prompt_contracts():
+    from kapso.core.prompt_loader import load_prompt
+
+    selector = load_prompt(
+        "execution/search_strategies/generic/prompts/ideation_selector.md"
+    )
+    assert "{{campaign_state}}" in selector
+    assert "Expected RETURN against the bar" in selector
+    assert "ZERO value while the champion is far from the bar" in selector
+
+    addendum = load_prompt(
+        "execution/search_strategies/generic/prompts/ideation_ensemble_addendum.md"
+    )
+    assert "highest-ceiling structural attack" in addendum
+    assert "CEILING" in addendum
+    assert "Return economics" in addendum
