@@ -31,8 +31,12 @@ implemented. Physical timeout publication now performs the sole durable
 `RELEASED → TIMED_OUT` transition and forces fresh adoption without carrying any
 signal authority. Exact at-least-once Docker TERM/KILL containment now preserves
 the original absolute deadline, and a trusted terminal leaf registers the
-existing timeout termination evidence graph. Natural terminal-failure and
-empty-result classification, cleanup, OS executor activation, explicit
+existing timeout termination evidence graph. One unified trusted natural-terminal
+leaf now resolves nonempty result, empty result, nonzero exit, or OOM under the
+retained release. A separate pre-release path classifies main loss without
+leaking descriptors, freshly reproves the stable loss occurrence during
+continuation, and transfers its physical fence through terminal publication.
+Cleanup, OS executor activation, explicit
 E0/S-EMPTY provisioning orchestration, full policy refresh on resume, and
 API/runner activation remain.
 
@@ -70,7 +74,9 @@ src/kapso/cross_run/launch/
   run_action_activation_delivery.py
   run_action_runtime_volume.py
   run_action_docker_barrier.py
-  run_action_result_capture.py
+  run_action_result_authority.py
+  run_action_natural_terminal.py
+  run_action_pre_release_main_loss.py
   run_action_docker_adapter.py
 
 src/kapso/
@@ -775,8 +781,8 @@ prepared result-parent authority. `PROVIDER_TERMINATED` carries a
 content-addressed receipt whose disposition is `FAILED` for provider failures
 or `INTERRUPTED` for supervisor containment. That receipt disposition is not the
 deleted overloaded execution-event kind: the ledger event remains
-`PROVIDER_TERMINATED`. Its reason names timeout, OOM, empty result, barrier exit,
-security/credential containment, or positive pre-release loss. It embeds either
+`PROVIDER_TERMINATED`. Its closed reason set is timeout, OOM, nonzero exit, empty
+result, or positive pre-release main loss. It embeds either
 exact terminal-plus-empty-result evidence or a narrowly pre-release
 resource-loss observation and includes the full workload release receipt when
 release occurred. Any wrong/unstable/oversized result inode, released resource
@@ -969,7 +975,8 @@ completing the leaf, and `RESULT_CAPTURED` must carry the retained observation
 unchanged. Exit zero, nonzero, and OOM remain typed terminal facts; only the
 adopted-release result join admits zero/no-OOM capture from the same released
 container and start timestamp. Descriptor-bound result capture is now
-implemented as a second private trusted leaf. It retains the adopted release,
+implemented as a descriptor-bound primitive inside the unified trusted
+natural-terminal leaf. The resolver retains the adopted release,
 same host boot, exact Docker inventory, and terminal occurrence around a
 keeper-root descriptor read; reopens the original prepared result inode without
 following links or blocking on special files; and sandwiches its parent,
@@ -994,9 +1001,10 @@ publication. A durable `TIMED_OUT` topology outranks every later exit fact; a
 natural terminal observed while topology remains `RELEASED` outranks an
 unpublished timeout attempt. Without durable timeout authority, OOM,
 nonzero exit, and descriptor-proved empty result are mutually exclusive failed
-outcomes. The only pre-release interruption is a stable, same-boot proof that
+outcomes. The sole admitted pre-release loss is a stable, same-boot proof that
 the exact volume and keeper remain, the main alone is absent, and release is
-absent under the exact control authority. The contracts bind the activation
+absent under the exact control authority. This is a provider failure, not a
+supervisor interruption. The contracts bind the activation
 event, release adoption, terminal occurrence, immutable runtime-volume
 occurrence, deadlines, and publication inode. Recovery reopens the exact
 `EMPTY`, `RELEASED`, or `TIMED_OUT` control topology. A timed-out query carries
@@ -1016,12 +1024,20 @@ registered termination receipt. Result capture and termination registration
 consume each other's authority, and a returned but unregistered or
 cross-occurrence receipt is rejected. Released termination must reproduce the
 retained trusted terminal and release adoption; timeout additionally must
-reproduce the exact adopted timeout publication; pre-release loss must reproduce
-the exact loss-observation content ID. Before terminal publication the
+reproduce the exact adopted timeout publication. Pre-release classification seals
+a stable occurrence token that excludes sampling time and mutable volume usage;
+continuation must freshly reproduce that token, then transfer its retained
+thread-bound loss lease into the continuation capability as a publication fence.
+The capability admits only the exact registered fence identity, closes it if the
+adapter raises or substitutes an outcome, and hands it to the coordinator only
+after full outcome-authority validation. Before
+terminal publication the
 coordinator reproves the unchanged host workspace and reopens the reason-specific
 topology—`EMPTY` for pre-release loss, `TIMED_OUT` for timeout, and `RELEASED`
 for every other released failure. It retains that descriptor lease across the
-event append and checks it immediately before and after. Successful result
+event append and checks it immediately before and after. For pre-release loss it
+also checks the transferred main-absence fence around the append and closes it
+on every success or failure path. Successful result
 publication similarly retains `RELEASED` across its append, so a concurrent
 timeout cannot become success. A crash before either append leaves event 5 and
 requires fresh physical evidence; a crash after event 6 replays without adapter
@@ -1098,8 +1114,10 @@ The BOOTTIME sample is the logical TERM-versus-KILL decision point. A synchronou
 Docker CLI cannot promise daemon delivery at an exact nanosecond; the enforceable
 contract is that recovery always uses the original never-reset decision deadline.
 
-Natural terminal-failure/empty-result evidence, positive pre-release-loss
-inspection, cleanup, and production adapters are not yet wired. No production
+Natural terminal-failure/empty-result evidence and positive pre-release-loss
+inspection are now wired through trusted continuation leaves and exercised
+against real zero-exit, nonzero, OOM-killed, and physically removed Docker
+occurrences. Cleanup and production adapters are not yet wired. No production
 caller can receive Docker start authority from the reservation gate; M9
 activation must continue to route every post-reservation transition through the
 coordinator's sealed capabilities.

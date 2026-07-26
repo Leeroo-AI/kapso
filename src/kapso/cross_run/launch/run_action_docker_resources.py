@@ -95,6 +95,29 @@ class DockerRunActionResourceInventory:
         return self.volume_inspection_digest is not None
 
 
+def docker_run_action_resource_inventory_digest(
+    inventory: DockerRunActionResourceInventory,
+) -> str:
+    """Digest the complete stable identity scan for one allocation."""
+
+    if type(inventory) is not DockerRunActionResourceInventory:
+        raise DockerRunActionResourceError(
+            "Docker run-action inventory digest requires one exact inventory"
+        )
+    return tree_or_blob_digest(
+        canonical_json_bytes(
+            {
+                "preparation_allocation_id": (
+                    inventory.preparation_allocation.preparation_allocation_id
+                ),
+                "volume_inspection_digest": inventory.volume_inspection_digest,
+                "keeper_container_id": inventory.keeper_container_id,
+                "main_container_id": inventory.main_container_id,
+            }
+        )
+    )
+
+
 class DockerRunActionResourceManager:
     """Discover and rebind only exact name-and-label-owned Docker resources."""
 
@@ -424,6 +447,7 @@ def _parse_json_string_lines(
 
 
 __all__ = [
+    "docker_run_action_resource_inventory_digest",
     "DockerRunActionResourceError",
     "DockerRunActionResourceInventory",
     "DockerRunActionResourceManager",

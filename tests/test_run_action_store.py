@@ -245,7 +245,7 @@ def _pre_release_provider_termination(session):
     activation = session.events[4].activation_revalidation_receipt
     loss = _pre_release_loss(activation, session.events[4].event_id)
     return RunActionProviderTerminationReceipt.mint(
-        disposition=RunActionProviderTerminationDisposition.INTERRUPTED,
+        disposition=RunActionProviderTerminationDisposition.FAILED,
         reason=RunActionProviderTerminationReason.PRE_RELEASE_MAIN_LOSS,
         activation_event_id=session.events[4].event_id,
         workload_release_adoption=None,
@@ -575,7 +575,7 @@ def test_provider_termination_rejects_event_position_and_graph_splices(
         )
         foreign_loss = _pre_release_loss(activation, foreign_event_id)
         foreign_loss_receipt = RunActionProviderTerminationReceipt.mint(
-            disposition=RunActionProviderTerminationDisposition.INTERRUPTED,
+            disposition=RunActionProviderTerminationDisposition.FAILED,
             reason=RunActionProviderTerminationReason.PRE_RELEASE_MAIN_LOSS,
             activation_event_id=foreign_event_id,
             workload_release_adoption=None,
@@ -597,7 +597,7 @@ def test_provider_termination_rejects_event_position_and_graph_splices(
             activation_event_id=session.events[4].event_id,
         )
         foreign_graph_at_current_event = RunActionProviderTerminationReceipt.mint(
-            disposition=RunActionProviderTerminationDisposition.INTERRUPTED,
+            disposition=RunActionProviderTerminationDisposition.FAILED,
             reason=RunActionProviderTerminationReason.PRE_RELEASE_MAIN_LOSS,
             activation_event_id=session.events[4].event_id,
             workload_release_adoption=None,

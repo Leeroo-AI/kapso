@@ -97,6 +97,7 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
 )
 from kapso.cross_run.launch.run_action_termination_contracts import (
     provider_termination_matches_durable_activation,
+    run_action_pre_release_main_loss_observation_token,
     run_action_running_container_occurrence_matches,
     run_action_timeout_directive_evidence_matches,
     run_action_timeout_publication_evidence_matches,
@@ -134,6 +135,7 @@ _RUN_ACTION_TIMEOUT_CONTAINMENT_AUTHORITY = object()
 _RUN_ACTION_TERMINAL_INSPECTION_AUTHORITY = object()
 _RUN_ACTION_RESULT_CAPTURE_AUTHORITY = object()
 _RUN_ACTION_PROVIDER_TERMINATION_AUTHORITY = object()
+_RUN_ACTION_PROVIDER_TERMINATION_PUBLICATION_FENCE_AUTHORITY = object()
 _ISSUED_RECOVERY_COORDINATORS: WeakValueDictionary[int, object] = WeakValueDictionary()
 _ISSUED_RECOVERY_IMPLEMENTATION_REGISTRIES: WeakValueDictionary[int, object] = (
     WeakValueDictionary()
@@ -177,9 +179,6 @@ _EXECUTION_ADAPTER_METHOD_NAMES = (
 )
 _RESULT_INTERPRETER_METHOD_NAMES = ("interpret",)
 _SHA256_DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
-_PRE_RELEASE_MAIN_LOSS_OBSERVATION_ID_PATTERN = re.compile(
-    r"^run-action-pre-release-main-loss-observation:sha256:[0-9a-f]{64}$"
-)
 _NANOSECONDS_PER_SECOND = 1_000_000_000
 
 
@@ -413,15 +412,9 @@ class RunActionCommittedSpawnObservation:
                 "committed-spawn observation payload differs from its state"
             )
         if self.observation_token is not None:
-            token_pattern = (
-                _PRE_RELEASE_MAIN_LOSS_OBSERVATION_ID_PATTERN
-                if self.state
-                is RunActionCommittedSpawnState.PRE_RELEASE_MAIN_LOSS_CONTINUABLE
-                else _SHA256_DIGEST_PATTERN
-            )
             if (
                 type(self.observation_token) is not str
-                or token_pattern.fullmatch(self.observation_token) is None
+                or _SHA256_DIGEST_PATTERN.fullmatch(self.observation_token) is None
             ):
                 raise RunActionRecoveryError(
                     "run action committed observation token is invalid"
@@ -437,6 +430,49 @@ class RunActionContinuationState(str, Enum):
     PROVIDER_TERMINATED = "provider_terminated"
 
 
+class RunActionProviderTerminationPublicationFence:
+    """Coordinator-owned physical fence retained through terminal event 6."""
+
+    def __init__(self, *, source: object, _authority: object) -> None:
+        if (
+            not hasattr(source, "require_current")
+            or not hasattr(source, "close")
+            or _authority
+            is not _RUN_ACTION_PROVIDER_TERMINATION_PUBLICATION_FENCE_AUTHORITY
+        ):
+            raise RunActionRecoveryError(
+                "provider termination publication fence lacks issued authority"
+            )
+        self._source = source
+        self._owner_process_id = os.getpid()
+        self._owner_thread_id = get_ident()
+        self._closed = False
+        self.require_current()
+
+    def require_current(self) -> None:
+        if (
+            self._closed
+            or self._owner_process_id != os.getpid()
+            or self._owner_thread_id != get_ident()
+        ):
+            raise RunActionRecoveryError(
+                "provider termination publication fence is closed or foreign"
+            )
+        self._source.require_current()
+
+    def close(self) -> None:
+        if (
+            self._closed
+            or self._owner_process_id != os.getpid()
+            or self._owner_thread_id != get_ident()
+        ):
+            raise RunActionRecoveryError(
+                "provider termination publication fence is already closed or foreign"
+            )
+        self._closed = True
+        self._source.close()
+
+
 @dataclass(frozen=True)
 class RunActionContinuationOutcome:
     """Typed continuation outcome with exactly one registered terminal branch."""
@@ -445,6 +481,9 @@ class RunActionContinuationOutcome:
     result: RunActionProviderResult | None
     provider_termination_receipt: RunActionProviderTerminationReceipt | None
     timeout_directive_publication: RunActionTimeoutDirectivePublicationReceipt | None
+    provider_termination_publication_fence: (
+        RunActionProviderTerminationPublicationFence | None
+    ) = None
 
     def __post_init__(self) -> None:
         if type(self.state) is not RunActionContinuationState:
@@ -460,14 +499,32 @@ class RunActionContinuationOutcome:
             type(self.timeout_directive_publication)
             is RunActionTimeoutDirectivePublicationReceipt
         )
+        fence_present = (
+            type(self.provider_termination_publication_fence)
+            is RunActionProviderTerminationPublicationFence
+        )
         expected_presence = {
-            RunActionContinuationState.PENDING: (False, False, False),
-            RunActionContinuationState.TIMEOUT_PUBLISHED: (False, False, True),
-            RunActionContinuationState.RESULT_CAPTURED: (True, False, False),
-            RunActionContinuationState.PROVIDER_TERMINATED: (False, True, False),
+            RunActionContinuationState.PENDING: (False, False, False, False),
+            RunActionContinuationState.TIMEOUT_PUBLISHED: (
+                False,
+                False,
+                True,
+                False,
+            ),
+            RunActionContinuationState.RESULT_CAPTURED: (True, False, False, False),
+            RunActionContinuationState.PROVIDER_TERMINATED: (
+                False,
+                True,
+                False,
+                (
+                    self.provider_termination_receipt is not None
+                    and self.provider_termination_receipt.reason
+                    is RunActionProviderTerminationReason.PRE_RELEASE_MAIN_LOSS
+                ),
+            ),
         }
         if (
-            (result_present, termination_present, timeout_present)
+            (result_present, termination_present, timeout_present, fence_present)
             != expected_presence[self.state]
             or (
                 self.result is not None
@@ -482,6 +539,11 @@ class RunActionContinuationOutcome:
                 self.timeout_directive_publication is not None
                 and type(self.timeout_directive_publication)
                 is not RunActionTimeoutDirectivePublicationReceipt
+            )
+            or (
+                self.provider_termination_publication_fence is not None
+                and type(self.provider_termination_publication_fence)
+                is not RunActionProviderTerminationPublicationFence
             )
         ):
             raise RunActionRecoveryError(
@@ -881,6 +943,10 @@ class RunActionCommittedContinuationCapability:
         self._provider_termination_receipt: (
             RunActionProviderTerminationReceipt | None
         ) = None
+        self._provider_termination_publication_fence: (
+            RunActionProviderTerminationPublicationFence | None
+        ) = None
+        self._provider_termination_publication_fence_handed_off = False
         with _COMMITTED_CONTINUATION_CAPABILITY_LOCK:
             _ISSUED_COMMITTED_CONTINUATION_CAPABILITIES[id(self)] = self
             _ISSUED_COMMITTED_CONTINUATION_RELEASE_AUTHORITIES[self] = (
@@ -1364,10 +1430,7 @@ class RunActionCommittedContinuationCapability:
                 and self._timeout_publication_state == "ready"
                 and self._timeout_directive_publication is None
                 and type(loss_observation_id) is str
-                and _PRE_RELEASE_MAIN_LOSS_OBSERVATION_ID_PATTERN.fullmatch(
-                    loss_observation_id
-                )
-                is not None
+                and _SHA256_DIGEST_PATTERN.fullmatch(loss_observation_id) is not None
             )
             if (
                 _ISSUED_COMMITTED_CONTINUATION_CAPABILITIES.get(id(self)) is not self
@@ -1399,11 +1462,14 @@ class RunActionCommittedContinuationCapability:
     def _complete_provider_termination(
         self,
         receipt: RunActionProviderTerminationReceipt,
+        publication_fence: RunActionProviderTerminationPublicationFence | None = None,
         *,
         _authority: object,
     ) -> None:
         """Register the trusted termination leaf's exact retained evidence."""
 
+        if type(publication_fence) is RunActionProviderTerminationPublicationFence:
+            publication_fence.require_current()
         with _COMMITTED_CONTINUATION_CAPABILITY_LOCK:
             if type(receipt) is not RunActionProviderTerminationReceipt:
                 raise RunActionRecoveryError(
@@ -1456,7 +1522,7 @@ class RunActionCommittedContinuationCapability:
                 and self._timeout_publication_state == "ready"
                 and self._timeout_directive_publication is None
                 and loss is not None
-                and loss.pre_release_main_loss_observation_id
+                and run_action_pre_release_main_loss_observation_token(loss)
                 == self._observation.observation_token
             )
             if (
@@ -1466,6 +1532,8 @@ class RunActionCommittedContinuationCapability:
                 or self._invoking_thread_id != get_ident()
                 or self._provider_termination_state != "registering"
                 or self._provider_termination_receipt is not None
+                or self._provider_termination_publication_fence is not None
+                or self._provider_termination_publication_fence_handed_off
                 or self._result_capture_state != "blocked_by_provider_termination"
                 or self._captured_result is not None
                 or not provider_termination_matches_durable_activation(
@@ -1475,12 +1543,21 @@ class RunActionCommittedContinuationCapability:
                     query.activation_revalidation_receipt,
                 )
                 or not (released_terminal_matches or pre_release_loss_matches)
+                or (
+                    pre_release_loss_matches
+                    != (
+                        type(publication_fence)
+                        is RunActionProviderTerminationPublicationFence
+                    )
+                )
+                or (released_terminal_matches and publication_fence is not None)
                 or _authority is not _RUN_ACTION_PROVIDER_TERMINATION_AUTHORITY
             ):
                 raise RunActionRecoveryError(
                     "provider termination completion lacks exact live authority"
                 )
             self._provider_termination_receipt = receipt
+            self._provider_termination_publication_fence = publication_fence
             self._provider_termination_state = "complete"
 
     def _invoke_once(
@@ -1571,6 +1648,8 @@ class RunActionCommittedContinuationCapability:
                             is not RunActionProviderTerminationReceipt
                             or outcome.provider_termination_receipt
                             != self._provider_termination_receipt
+                            or outcome.provider_termination_publication_fence
+                            is not self._provider_termination_publication_fence
                         )
                     )
                 ):
@@ -1610,6 +1689,8 @@ class RunActionCommittedContinuationCapability:
                             is not RunActionProviderTerminationReceipt
                             or outcome.provider_termination_receipt
                             != self._provider_termination_receipt
+                            or outcome.provider_termination_publication_fence
+                            is not self._provider_termination_publication_fence
                         )
                     )
                     or outcome.state
@@ -1712,6 +1793,11 @@ class RunActionCommittedContinuationCapability:
                 raise RunActionRecoveryError(
                     "nonterminal continuation consumed terminal outcome authority"
                 )
+            if (
+                type(outcome.provider_termination_publication_fence)
+                is RunActionProviderTerminationPublicationFence
+            ):
+                self._provider_termination_publication_fence_handed_off = True
 
     def _begin_invocation(self) -> "_RunActionCommittedContinuationInvocation":
         with _COMMITTED_CONTINUATION_CAPABILITY_LOCK:
@@ -1754,6 +1840,7 @@ class RunActionCommittedContinuationCapability:
                 )
 
     def _finish_invocation(self) -> None:
+        abandoned_publication_fence = None
         with _COMMITTED_CONTINUATION_CAPABILITY_LOCK:
             issued = _ISSUED_COMMITTED_CONTINUATION_CAPABILITIES.get(id(self))
             if (
@@ -1765,6 +1852,11 @@ class RunActionCommittedContinuationCapability:
                 raise RunActionRecoveryError(
                     "committed continuation capability invocation changed"
                 )
+            if not self._provider_termination_publication_fence_handed_off:
+                abandoned_publication_fence = (
+                    self._provider_termination_publication_fence
+                )
+            self._provider_termination_publication_fence = None
             self._state = "spent"
             self._invoking_thread_id = None
             self._release_publication_state = "spent"
@@ -1775,6 +1867,8 @@ class RunActionCommittedContinuationCapability:
             self._provider_termination_state = "spent"
             _ISSUED_COMMITTED_CONTINUATION_CAPABILITIES.pop(id(self))
             _ISSUED_COMMITTED_CONTINUATION_RELEASE_AUTHORITIES.pop(self, None)
+        if abandoned_publication_fence is not None:
+            abandoned_publication_fence.close()
 
 
 class _RunActionCommittedContinuationInvocation:
@@ -3712,6 +3806,14 @@ class RunActionRecoveryCoordinator:
             _authority=_RUN_ACTION_COMMITTED_CONTINUATION_AUTHORITY,
         )
         outcome = capability._invoke_once(execution_adapter)
+        publication_fence = (
+            outcome.provider_termination_publication_fence
+            if type(outcome) is RunActionContinuationOutcome
+            else None
+        )
+        if type(publication_fence) is RunActionProviderTerminationPublicationFence:
+            descriptors.callback(publication_fence.close)
+            publication_fence.require_current()
         if type(
             outcome
         ) is not RunActionContinuationOutcome or not self._continuation_outcome_allowed(
@@ -3758,6 +3860,7 @@ class RunActionRecoveryCoordinator:
                 session,
                 outcome.provider_termination_receipt,
                 workload_release_adoption,
+                publication_fence,
                 descriptors,
             )
             return None
@@ -3801,14 +3904,26 @@ class RunActionRecoveryCoordinator:
         session,
         receipt: RunActionProviderTerminationReceipt,
         expected_release_adoption: RunActionWorkloadReleaseAdoption | None,
+        publication_fence: RunActionProviderTerminationPublicationFence | None,
         descriptors: ExitStack,
     ) -> None:
         """Publish only a registered receipt under one retained release fence."""
 
-        if type(receipt) is not RunActionProviderTerminationReceipt:
+        fence_required = (
+            type(receipt) is RunActionProviderTerminationReceipt
+            and receipt.reason
+            is RunActionProviderTerminationReason.PRE_RELEASE_MAIN_LOSS
+        )
+        if type(
+            receipt
+        ) is not RunActionProviderTerminationReceipt or fence_required != (
+            type(publication_fence) is RunActionProviderTerminationPublicationFence
+        ):
             raise RunActionRecoveryError(
                 "provider termination publication lacks a registered receipt"
             )
+        if publication_fence is not None:
+            publication_fence.require_current()
         activation_event = session.events[4]
         self._require_unchanged_host_workspace(
             session.reservation,
@@ -3825,7 +3940,11 @@ class RunActionRecoveryCoordinator:
                 expected_release_adoption,
             )
             control_inspection.require_current()
+            if publication_fence is not None:
+                publication_fence.require_current()
             session.terminate_provider(receipt)
+            if publication_fence is not None:
+                publication_fence.require_current()
             control_inspection.require_current()
         self._require_unchanged_host_workspace(
             session.reservation,
@@ -4467,6 +4586,7 @@ __all__ = [
     "RunActionPreparationOrigin",
     "RunActionPreparationState",
     "RunActionProviderResult",
+    "RunActionProviderTerminationPublicationFence",
     "RunActionRecoveredOperation",
     "RunActionRecoveryCoordinator",
     "RunActionRecoveryError",

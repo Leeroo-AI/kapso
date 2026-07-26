@@ -8,6 +8,7 @@ from enum import Enum
 from typing import ClassVar
 
 from kapso.cross_run.canonical import (
+    canonical_json_bytes,
     require_content_id,
     require_identifier,
     tree_or_blob_digest,
@@ -307,6 +308,44 @@ class RunActionPreReleaseMainLossObservation(StrictContract):
             )
 
 
+def run_action_pre_release_main_loss_observation_token(
+    observation: RunActionPreReleaseMainLossObservation,
+) -> str:
+    """Bind the stable loss occurrence while excluding sampling time and usage."""
+
+    if type(observation) is not RunActionPreReleaseMainLossObservation:
+        raise RunActionTerminationContractError(
+            "pre-release main loss token requires one exact observation"
+        )
+    return tree_or_blob_digest(
+        canonical_json_bytes(
+            {
+                "activation_event_id": observation.activation_event_id,
+                "preparation_allocation_id": (
+                    observation.preparation_allocation.preparation_allocation_id
+                ),
+                "activation_revalidation_receipt_id": (
+                    observation.activation_revalidation_receipt.activation_revalidation_receipt_id
+                ),
+                "host_boot_id": observation.host_boot_id,
+                "complete_inventory_digest": (
+                    observation.first_complete_inventory_digest
+                ),
+                "missing_provider_execution_id": (
+                    observation.missing_provider_execution_id
+                ),
+                "control_mount_id": observation.control_mount_id,
+                "control_device": observation.control_device,
+                "control_inode": observation.control_inode,
+                "control_entry_count": observation.control_entry_count,
+                "control_directory_topology": (
+                    observation.control_directory_topology.value
+                ),
+            }
+        )
+    )
+
+
 @dataclass(frozen=True)
 class RunActionProviderTerminationReceipt(StrictContract):
     """One complete mutually exclusive provider termination evidence graph."""
@@ -339,11 +378,7 @@ class RunActionProviderTerminationReceipt(StrictContract):
         )
         expected_disposition = (
             RunActionProviderTerminationDisposition.INTERRUPTED
-            if self.reason
-            in {
-                RunActionProviderTerminationReason.TIMEOUT,
-                RunActionProviderTerminationReason.PRE_RELEASE_MAIN_LOSS,
-            }
+            if self.reason is RunActionProviderTerminationReason.TIMEOUT
             else RunActionProviderTerminationDisposition.FAILED
         )
         if self.disposition is not expected_disposition:
@@ -667,6 +702,7 @@ def _require_namespaced_content_id(
 
 
 __all__ = [
+    "run_action_pre_release_main_loss_observation_token",
     "RunActionPreReleaseMainLossObservation",
     "RunActionProviderTerminationDisposition",
     "RunActionProviderTerminationReason",

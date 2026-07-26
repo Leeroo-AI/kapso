@@ -18,6 +18,7 @@ from kapso.cross_run.launch.run_action_recovery import (
     RunActionRecoveryError,
 )
 from kapso.cross_run.launch.run_action_termination_contracts import (
+    run_action_pre_release_main_loss_observation_token,
     RunActionProviderTerminationDisposition,
     RunActionProviderTerminationReason,
     RunActionProviderTerminationReceipt,
@@ -40,6 +41,33 @@ from test_run_action_termination_contracts import (
     _pre_release_loss,
     _termination_graph,
 )
+
+
+class _PublicationFenceSource:
+    def __init__(self):
+        self.current_checks = 0
+        self.closed = False
+
+    def require_current(self):
+        if self.closed:
+            raise AssertionError("test publication fence source is closed")
+        self.current_checks += 1
+
+    def close(self):
+        if self.closed:
+            raise AssertionError("test publication fence source closed twice")
+        self.closed = True
+
+
+def _publication_fence():
+    source = _PublicationFenceSource()
+    fence = recovery.RunActionProviderTerminationPublicationFence(
+        source=source,
+        _authority=(
+            recovery._RUN_ACTION_PROVIDER_TERMINATION_PUBLICATION_FENCE_AUTHORITY
+        ),
+    )
+    return fence, source
 
 
 def _capability(query, state, token):
@@ -98,7 +126,7 @@ def _register_terminal(capability, terminal):
     return query
 
 
-def _register_termination(capability, receipt):
+def _register_termination(capability, receipt, publication_fence=None):
     query, retained_terminal, loss_observation_id = (
         capability._take_provider_termination_authority(
             _authority=recovery._RUN_ACTION_PROVIDER_TERMINATION_AUTHORITY,
@@ -106,6 +134,7 @@ def _register_termination(capability, receipt):
     )
     capability._complete_provider_termination(
         receipt,
+        publication_fence,
         _authority=recovery._RUN_ACTION_PROVIDER_TERMINATION_AUTHORITY,
     )
     return query, retained_terminal, loss_observation_id
@@ -257,7 +286,7 @@ def test_cross_occurrence_receipt_cannot_complete_registration():
         capability._invoke_once(_SplicingAdapter())
 
 
-def test_pre_release_loss_registration_requires_the_exact_observation_token():
+def _pre_release_termination_case():
     released_query = _inspection_context(_configured_settings()[0])[0]
     query = type(released_query)(
         preparation_allocation=released_query.preparation_allocation,
@@ -270,7 +299,7 @@ def test_pre_release_loss_registration_requires_the_exact_observation_token():
         query.activation_event.event_id,
     )
     receipt = RunActionProviderTerminationReceipt.mint(
-        disposition=RunActionProviderTerminationDisposition.INTERRUPTED,
+        disposition=RunActionProviderTerminationDisposition.FAILED,
         reason=RunActionProviderTerminationReason.PRE_RELEASE_MAIN_LOSS,
         activation_event_id=query.activation_event.event_id,
         workload_release_adoption=None,
@@ -282,28 +311,95 @@ def test_pre_release_loss_registration_requires_the_exact_observation_token():
     capability = _capability(
         query,
         RunActionCommittedSpawnState.PRE_RELEASE_MAIN_LOSS_CONTINUABLE,
-        loss.pre_release_main_loss_observation_id,
+        run_action_pre_release_main_loss_observation_token(loss),
     )
+    return capability, query, loss, receipt
+
+
+def test_pre_release_loss_registration_requires_the_exact_observation_token():
+    capability, query, loss, receipt = _pre_release_termination_case()
 
     class _TrustedLossAdapter:
         @staticmethod
         def continue_committed_once(active_capability):
-            registered = _register_termination(active_capability, receipt)
+            publication_fence, source = _publication_fence()
+            registered = _register_termination(
+                active_capability,
+                receipt,
+                publication_fence,
+            )
+            observation_token = run_action_pre_release_main_loss_observation_token(loss)
             assert registered == (
                 query,
                 None,
-                loss.pre_release_main_loss_observation_id,
+                observation_token,
+            )
+            _TrustedLossAdapter.source = source
+            return RunActionContinuationOutcome(
+                state=RunActionContinuationState.PROVIDER_TERMINATED,
+                result=None,
+                provider_termination_receipt=receipt,
+                timeout_directive_publication=None,
+                provider_termination_publication_fence=publication_fence,
+            )
+
+    outcome = capability._invoke_once(_TrustedLossAdapter())
+
+    assert outcome.provider_termination_receipt == receipt
+    outcome.provider_termination_publication_fence.close()
+    assert _TrustedLossAdapter.source.closed
+
+
+def test_pre_release_loss_rejects_substituted_publication_fence_and_closes_real():
+    capability, _query, _loss, receipt = _pre_release_termination_case()
+    registered_fence, registered_source = _publication_fence()
+    substituted_fence, substituted_source = _publication_fence()
+
+    class _SubstitutingLossAdapter:
+        @staticmethod
+        def continue_committed_once(active_capability):
+            _register_termination(
+                active_capability,
+                receipt,
+                registered_fence,
             )
             return RunActionContinuationOutcome(
                 state=RunActionContinuationState.PROVIDER_TERMINATED,
                 result=None,
                 provider_termination_receipt=receipt,
                 timeout_directive_publication=None,
+                provider_termination_publication_fence=substituted_fence,
             )
 
-    outcome = capability._invoke_once(_TrustedLossAdapter())
+    with pytest.raises(
+        RunActionRecoveryError,
+        match="trusted termination",
+    ):
+        capability._invoke_once(_SubstitutingLossAdapter())
 
-    assert outcome.provider_termination_receipt == receipt
+    assert registered_source.closed
+    assert not substituted_source.closed
+    substituted_fence.close()
+
+
+def test_pre_release_loss_closes_registered_fence_when_adapter_raises():
+    capability, _query, _loss, receipt = _pre_release_termination_case()
+    registered_fence, registered_source = _publication_fence()
+
+    class _RaisingLossAdapter:
+        @staticmethod
+        def continue_committed_once(active_capability):
+            _register_termination(
+                active_capability,
+                receipt,
+                registered_fence,
+            )
+            raise RuntimeError("adapter abandoned trusted pre-release outcome")
+
+    with pytest.raises(RuntimeError, match="abandoned trusted"):
+        capability._invoke_once(_RaisingLossAdapter())
+
+    assert registered_source.closed
 
 
 def test_result_and_termination_are_an_exact_outcome_xor():
@@ -383,7 +479,7 @@ def test_observation_and_outcome_matrix_is_closed():
         RunActionCommittedSpawnState.RUNNING_CONTINUABLE: "sha256:" + "2" * 64,
         RunActionCommittedSpawnState.TERMINAL_CONTINUABLE: "sha256:" + "3" * 64,
         RunActionCommittedSpawnState.PRE_RELEASE_MAIN_LOSS_CONTINUABLE: (
-            loss.pre_release_main_loss_observation_id
+            run_action_pre_release_main_loss_observation_token(loss)
         ),
         RunActionCommittedSpawnState.UNKNOWN: None,
     }

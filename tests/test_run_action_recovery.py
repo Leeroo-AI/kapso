@@ -75,6 +75,7 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RunActionPreparationAllocation,
 )
 from kapso.cross_run.launch.run_action_termination_contracts import (
+    run_action_pre_release_main_loss_observation_token,
     RunActionProviderTerminationDisposition,
     RunActionProviderTerminationReason,
     RunActionProviderTerminationReceipt,
@@ -692,8 +693,27 @@ class _PendingContinuationAdapter(_FakeExecutionAdapter):
         )
 
 
+class _PreReleasePublicationFenceSource:
+    def __init__(self, change_at_check=None) -> None:
+        self.change_at_check = change_at_check
+        self.current_checks = 0
+        self.closed = False
+
+    def require_current(self):
+        if self.closed:
+            raise AssertionError("test pre-release publication fence is closed")
+        self.current_checks += 1
+        if self.current_checks == self.change_at_check:
+            raise RuntimeError("pre-release main absence changed")
+
+    def close(self):
+        if self.closed:
+            raise AssertionError("test pre-release publication fence closed twice")
+        self.closed = True
+
+
 class _TrustedPreReleaseTerminationAdapter(_FakeExecutionAdapter):
-    def __init__(self, boundary_identity) -> None:
+    def __init__(self, boundary_identity, *, fence_change_at_check=None) -> None:
         super().__init__(
             boundary_identity,
             observation_state=(
@@ -702,6 +722,9 @@ class _TrustedPreReleaseTerminationAdapter(_FakeExecutionAdapter):
         )
         self.loss_observation = None
         self.termination_receipt = None
+        self.publication_fence_source = _PreReleasePublicationFenceSource(
+            fence_change_at_check
+        )
 
     def inspect_committed(self, query):
         self.inspect_calls.append(query)
@@ -711,8 +734,8 @@ class _TrustedPreReleaseTerminationAdapter(_FakeExecutionAdapter):
         )
         return RunActionCommittedSpawnObservation(
             state=RunActionCommittedSpawnState.PRE_RELEASE_MAIN_LOSS_CONTINUABLE,
-            observation_token=(
-                self.loss_observation.pre_release_main_loss_observation_id
+            observation_token=run_action_pre_release_main_loss_observation_token(
+                self.loss_observation
             ),
         )
 
@@ -731,10 +754,10 @@ class _TrustedPreReleaseTerminationAdapter(_FakeExecutionAdapter):
         )
         assert (
             loss_observation_id
-            == self.loss_observation.pre_release_main_loss_observation_id
+            == run_action_pre_release_main_loss_observation_token(self.loss_observation)
         )
         self.termination_receipt = RunActionProviderTerminationReceipt.mint(
-            disposition=RunActionProviderTerminationDisposition.INTERRUPTED,
+            disposition=RunActionProviderTerminationDisposition.FAILED,
             reason=RunActionProviderTerminationReason.PRE_RELEASE_MAIN_LOSS,
             activation_event_id=query.activation_event.event_id,
             workload_release_adoption=None,
@@ -743,8 +766,15 @@ class _TrustedPreReleaseTerminationAdapter(_FakeExecutionAdapter):
             empty_result_capture_receipt=None,
             pre_release_main_loss_observation=self.loss_observation,
         )
+        publication_fence = run_action_recovery_module.RunActionProviderTerminationPublicationFence(
+            source=self.publication_fence_source,
+            _authority=(
+                run_action_recovery_module._RUN_ACTION_PROVIDER_TERMINATION_PUBLICATION_FENCE_AUTHORITY
+            ),
+        )
         capability._complete_provider_termination(
             self.termination_receipt,
+            publication_fence,
             _authority=(
                 run_action_recovery_module._RUN_ACTION_PROVIDER_TERMINATION_AUTHORITY
             ),
@@ -754,6 +784,7 @@ class _TrustedPreReleaseTerminationAdapter(_FakeExecutionAdapter):
             result=None,
             provider_termination_receipt=self.termination_receipt,
             timeout_directive_publication=None,
+            provider_termination_publication_fence=publication_fence,
         )
 
 
@@ -3042,6 +3073,26 @@ def test_registered_pre_release_loss_persists_as_terminal_event(
     assert len(events) == 6
     assert events[-1].event_kind is RunActionExecutionEventKind.PROVIDER_TERMINATED
     assert events[-1].provider_termination_receipt == adapter.termination_receipt
+    assert adapter.publication_fence_source.closed
+
+
+def test_pre_release_loss_fence_change_blocks_terminal_event(
+    publisher_case,
+) -> None:
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
+    _append_activation_committed(gate, reservation)
+    adapter = _TrustedPreReleaseTerminationAdapter(
+        reservation.intent.boundary_identity,
+        fence_change_at_check=4,
+    )
+
+    with pytest.raises(RuntimeError, match="main absence changed"):
+        _recovery_coordinator(gate, adapter).recover(frontier)
+
+    events = gate._action_store.inspect().events_for(reservation.intent.operation_id)
+    assert len(events) == 5
+    assert events[-1].event_kind is (RunActionExecutionEventKind.ACTIVATION_COMMITTED)
+    assert adapter.publication_fence_source.closed
 
 
 def test_existing_timeout_is_adopted_once_persisted_and_replayed(

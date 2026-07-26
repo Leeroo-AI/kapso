@@ -18,6 +18,7 @@ from kapso.cross_run.launch.run_action_recovery import (
     RunActionRecoveryError,
 )
 from kapso.cross_run.launch.run_action_termination_contracts import (
+    run_action_pre_release_main_loss_observation_token,
     RunActionPreReleaseMainLossObservation,
     RunActionProviderTerminationDisposition,
     RunActionProviderTerminationReason,
@@ -165,7 +166,7 @@ def _termination_graph(reason):
             {"fixture": "pre-release activation event"},
         )
         loss = _pre_release_loss(activation, activation_event_id)
-        disposition = RunActionProviderTerminationDisposition.INTERRUPTED
+        disposition = RunActionProviderTerminationDisposition.FAILED
     receipt = RunActionProviderTerminationReceipt.mint(
         disposition=disposition,
         reason=reason,
@@ -628,3 +629,52 @@ def test_pre_release_loss_allows_mutable_usage_on_the_same_volume_occurrence():
     reminted_loss = _remint(loss, reobserved_volume_evidence=changed_volume)
 
     assert reminted_loss.reobserved_volume_evidence == changed_volume
+
+
+def test_pre_release_loss_token_ignores_sampling_time_and_mutable_usage():
+    receipt = _termination_graph(
+        RunActionProviderTerminationReason.PRE_RELEASE_MAIN_LOSS
+    )
+    loss = receipt.pre_release_main_loss_observation
+    volume = loss.reobserved_volume_evidence
+    changed_volume = _remint_contract(
+        volume,
+        used_block_count=volume.used_block_count + 1,
+        used_size_bytes=(volume.used_size_bytes + volume.allocation_block_size_bytes),
+        available_block_count=volume.available_block_count - 1,
+        available_size_bytes=(
+            volume.available_size_bytes - volume.allocation_block_size_bytes
+        ),
+    )
+    later_observation = _remint(
+        loss,
+        observed_before_boottime_nanoseconds=(
+            loss.observed_before_boottime_nanoseconds + 100
+        ),
+        observed_after_boottime_nanoseconds=(
+            loss.observed_after_boottime_nanoseconds + 100
+        ),
+        reobserved_volume_evidence=changed_volume,
+    )
+
+    assert later_observation != loss
+    assert run_action_pre_release_main_loss_observation_token(
+        later_observation
+    ) == run_action_pre_release_main_loss_observation_token(loss)
+
+
+def test_pre_release_loss_token_changes_with_the_physical_occurrence():
+    receipt = _termination_graph(
+        RunActionProviderTerminationReason.PRE_RELEASE_MAIN_LOSS
+    )
+    loss = receipt.pre_release_main_loss_observation
+    changed_inventory_digest = tree_or_blob_digest(b"another stable inventory")
+    changed_inventory = _remint(
+        loss,
+        first_complete_inventory_digest=changed_inventory_digest,
+        second_complete_inventory_digest=changed_inventory_digest,
+    )
+
+    assert run_action_pre_release_main_loss_observation_token(
+        changed_inventory
+    ) != run_action_pre_release_main_loss_observation_token(loss)

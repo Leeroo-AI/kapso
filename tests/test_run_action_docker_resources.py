@@ -14,6 +14,7 @@ from kapso.cross_run.docker.runtime import (
     PinnedDockerRuntimeError,
 )
 from kapso.cross_run.launch.run_action_docker_resources import (
+    docker_run_action_resource_inventory_digest,
     DockerRunActionResourceError,
     DockerRunActionResourceManager,
 )
@@ -292,6 +293,27 @@ def test_inventory_rebinds_exact_labels_and_container_ids(resource_context):
     assert _MAIN_CONTAINER_ID in inspected_targets
     assert preparation_keeper_container_name(claim) not in inspected_targets
     assert preparation_container_name(claim) not in inspected_targets
+
+
+def test_inventory_digest_commits_every_stable_resource_identity(resource_context):
+    manager, runner, allocation, _claim = resource_context
+    _install_exact_resources(runner, allocation)
+    inventory = manager.observe(allocation)
+
+    exact_digest = docker_run_action_resource_inventory_digest(inventory)
+
+    assert exact_digest != docker_run_action_resource_inventory_digest(
+        replace(inventory, main_container_id=None)
+    )
+    assert exact_digest != docker_run_action_resource_inventory_digest(
+        replace(inventory, keeper_container_id="f" * 64)
+    )
+    assert exact_digest != docker_run_action_resource_inventory_digest(
+        replace(
+            inventory,
+            volume_inspection_digest=tree_or_blob_digest(b"changed volume"),
+        )
+    )
 
 
 @pytest.mark.parametrize("resource_kind", ("volume", "keeper", "main"))

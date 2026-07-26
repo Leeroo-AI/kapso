@@ -57,8 +57,12 @@ from kapso.cross_run.launch.run_action_recovery import (
     RunActionContinuationState,
     RunActionInterpretedResult,
 )
-from kapso.cross_run.launch.run_action_result_capture import (
-    capture_run_action_terminal_result,
+from kapso.cross_run.launch.run_action_natural_terminal import (
+    resolve_run_action_natural_terminal_once,
+)
+from kapso.cross_run.launch.run_action_pre_release_main_loss import (
+    capture_run_action_pre_release_main_loss_termination,
+    inspect_run_action_pre_release_main_loss,
 )
 from kapso.cross_run.launch.run_action_resolved_workload import (
     open_run_action_blocked_workload,
@@ -74,7 +78,6 @@ from kapso.cross_run.launch.run_action_release_publisher import (
 )
 from kapso.cross_run.launch.run_action_terminal_inspection import (
     inspect_run_action_terminal,
-    reinspect_run_action_terminal,
 )
 from kapso.cross_run.launch.run_action_timeout_containment import (
     contain_run_action_timeout_once,
@@ -85,6 +88,11 @@ from kapso.cross_run.launch.run_action_timeout_publisher import (
 )
 from kapso.cross_run.launch.run_action_timeout_termination import (
     capture_run_action_timeout_termination,
+)
+from kapso.cross_run.launch.run_action_termination_contracts import (
+    run_action_pre_release_main_loss_observation_token,
+    RunActionProviderTerminationDisposition,
+    RunActionProviderTerminationReason,
 )
 from kapso.cross_run.launch.run_action_store import (
     _RUN_ACTION_RECOVERY_AUTHORITY,
@@ -318,7 +326,7 @@ class _LiveBlockedWorkloadAdapter:
         )
 
 
-class _LiveTerminalWorkloadAdapter:
+class _LiveNaturalTerminalWorkloadAdapter:
     def __init__(
         self,
         *,
@@ -349,6 +357,7 @@ class _LiveTerminalWorkloadAdapter:
         self.terminal_observation = None
         self.reinspected_terminal_observation = None
         self.captured_result = None
+        self.provider_termination_receipt = None
 
     def prepared_event_size_bound(self, **_arguments):
         raise AssertionError("durable event 5 must not replay preparation")
@@ -390,7 +399,7 @@ class _LiveTerminalWorkloadAdapter:
     def continue_committed_once(self, capability):
         if self.terminal_observation is None:
             raise AssertionError("terminal observation was not sealed")
-        self.reinspected_terminal_observation = reinspect_run_action_terminal(
+        outcome = resolve_run_action_natural_terminal_once(
             capability=capability,
             resource_manager=self._resource_manager,
             command=self._command,
@@ -399,23 +408,97 @@ class _LiveTerminalWorkloadAdapter:
             docker_settings=self._docker_settings,
             launch_settings=self._launch_settings,
         )
+        if outcome.state is RunActionContinuationState.RESULT_CAPTURED:
+            self.reinspected_terminal_observation = outcome.result.terminal_observation
+            self.captured_result = outcome.result
+        elif outcome.state is RunActionContinuationState.PROVIDER_TERMINATED:
+            self.provider_termination_receipt = outcome.provider_termination_receipt
+            self.reinspected_terminal_observation = (
+                self.provider_termination_receipt.terminal_observation
+            )
+        else:
+            raise AssertionError("live natural terminal remained unresolved")
         if self.reinspected_terminal_observation != self.terminal_observation:
             raise AssertionError("terminal reinspection changed its occurrence")
-        self.captured_result = capture_run_action_terminal_result(
-            capability=capability,
+        return outcome
+
+
+class _LivePreReleaseMainLossAdapter:
+    def __init__(
+        self,
+        *,
+        boundary_identity,
+        execution_policy,
+        resource_manager,
+        preparation_allocation,
+        helper_evidence,
+        init_source_evidence,
+        docker_settings,
+    ) -> None:
+        self.execution_lifecycle_identity = (
+            boundary_identity.execution_lifecycle_identity
+        )
+        self.execution_policy = execution_policy
+        self.result_interpreter = _UnusedLiveResultInterpreter(
+            boundary_identity.result_interpreter_identity
+        )
+        self._resource_manager = resource_manager
+        self._preparation_allocation = preparation_allocation
+        self._helper_evidence = helper_evidence
+        self._init_source_evidence = init_source_evidence
+        self._docker_settings = docker_settings
+        self.loss_observation = None
+        self.termination_receipt = None
+
+    def prepared_event_size_bound(self, **_arguments):
+        raise AssertionError("durable event 5 must not replay preparation")
+
+    def activation_event_size_bound(self, **_arguments):
+        raise AssertionError("durable event 5 must not replay activation")
+
+    def release_receipt_size_bound(self, *, reservation):
+        if reservation != self._preparation_allocation.preparation_claim.reservation:
+            raise AssertionError("main-loss bound differs from durable reservation")
+        return self.execution_policy.supervisor_limits.release_receipt_size_bytes
+
+    def prepare(self, _capability):
+        raise AssertionError("durable event 5 must not replay preparation")
+
+    def stage_activation(self, _capability):
+        raise AssertionError("durable event 5 must not replay activation")
+
+    def inspect_unactivated(self, _query):
+        raise AssertionError("durable event 5 is already activated")
+
+    def inspect_committed(self, query):
+        if query.preparation_allocation != self._preparation_allocation:
+            raise AssertionError("main-loss live query differs from exact allocation")
+        self.loss_observation = inspect_run_action_pre_release_main_loss(
+            query=query,
             resource_manager=self._resource_manager,
-            command=self._command,
             helper_evidence=self._helper_evidence,
             init_source_evidence=self._init_source_evidence,
             docker_settings=self._docker_settings,
-            launch_settings=self._launch_settings,
         )
-        return RunActionContinuationOutcome(
-            state=RunActionContinuationState.RESULT_CAPTURED,
-            result=self.captured_result,
-            provider_termination_receipt=None,
-            timeout_directive_publication=None,
+        return RunActionCommittedSpawnObservation(
+            state=RunActionCommittedSpawnState.PRE_RELEASE_MAIN_LOSS_CONTINUABLE,
+            observation_token=run_action_pre_release_main_loss_observation_token(
+                self.loss_observation
+            ),
         )
+
+    def continue_committed_once(self, capability):
+        if self.loss_observation is None:
+            raise AssertionError("pre-release main loss was not classified")
+        outcome = capture_run_action_pre_release_main_loss_termination(
+            capability=capability,
+            resource_manager=self._resource_manager,
+            helper_evidence=self._helper_evidence,
+            init_source_evidence=self._init_source_evidence,
+            docker_settings=self._docker_settings,
+        )
+        self.termination_receipt = outcome.provider_termination_receipt
+        return outcome
 
 
 class _LiveTimeoutWorkloadAdapter:
@@ -696,7 +779,10 @@ def _listed_exact(
     return tuple(line.decode("ascii") for line in result.stdout.splitlines())
 
 
-@pytest.mark.parametrize("terminal_path", ("result", "timeout"))
+@pytest.mark.parametrize(
+    "terminal_path",
+    ("result", "timeout", "empty", "nonzero", "oom", "pre_release_main_loss"),
+)
 def test_real_docker_accepts_only_the_issued_run_action_projection(
     tmp_path: Path,
     publisher_case,
@@ -756,17 +842,28 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             architecture_variant=None,
         )
         target_command = (
-            'printf \'{"live":"captured"}\''
-            " > /kapso/result/result.blob"
-            " && printf started > /kapso/tmp/target-started"
+            "printf started > /kapso/tmp/target-started"
             " && grep -Fqx 'complete request' /kapso/input/request.blob"
             " && grep -Fqx 'credential bytes'"
             " /kapso/credentials/credentials"
             " && test -d /kapso/workspace/.git"
         )
+        if terminal_path in {"result", "timeout"}:
+            target_command = (
+                'printf \'{"live":"captured"}\''
+                " > /kapso/result/result.blob"
+                f" && {target_command}"
+            )
         if terminal_path == "timeout":
             target_command += (
                 " && exec /bin/busybox sleep " f"{2 * settings.command_timeout_seconds}"
+            )
+        elif terminal_path == "nonzero":
+            target_command += " && exit 23"
+        elif terminal_path == "oom":
+            target_command += (
+                " && exec /bin/busybox awk"
+                " 'BEGIN { value=\"x\"; while (1) value=value value }'"
             )
         command = DockerRunActionCommand.build(
             entrypoint="/bin/busybox",
@@ -1524,6 +1621,66 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
                 "/kapso/runtime-volume/result/result.blob",
             )
         )
+        if terminal_path == "pre_release_main_loss":
+            runtime.run_control(
+                ("container", "rm", "--force", "--volumes", layout_main_id)
+            )
+            loss_inventory = resource_manager.observe(layout_allocation)
+            assert loss_inventory.volume_present
+            assert loss_inventory.keeper_container_id == layout_keeper_id
+            assert loss_inventory.main_container_id is None
+            loss_adapter = _LivePreReleaseMainLossAdapter(
+                boundary_identity=boundary_identity,
+                execution_policy=layout_policy,
+                resource_manager=resource_manager,
+                preparation_allocation=layout_allocation,
+                helper_evidence=helper_evidence,
+                init_source_evidence=init_source_evidence,
+                docker_settings=settings,
+            )
+            loss_report = _recovery_coordinator(
+                action_gate,
+                loss_adapter,
+            ).recover(action_frontier)
+            assert loss_report.is_complete
+            assert loss_adapter.termination_receipt is not None
+            assert loss_adapter.termination_receipt.disposition is (
+                RunActionProviderTerminationDisposition.FAILED
+            )
+            assert loss_adapter.termination_receipt.reason is (
+                RunActionProviderTerminationReason.PRE_RELEASE_MAIN_LOSS
+            )
+            loss_observation = (
+                loss_adapter.termination_receipt.pre_release_main_loss_observation
+            )
+            assert loss_observation.missing_provider_execution_id == layout_main_id
+            assert loss_observation.observed_main_container_ids == ()
+            assert loss_observation.observed_keeper_container_ids == (layout_keeper_id,)
+            assert loss_observation.first_complete_inventory_digest == (
+                loss_observation.second_complete_inventory_digest
+            )
+            loss_events = action_gate._action_store.inspect().events_for(
+                layout_reservation.intent.operation_id
+            )
+            assert len(loss_events) == 6
+            assert loss_events[-1].event_kind is (
+                RunActionExecutionEventKind.PROVIDER_TERMINATED
+            )
+            assert (
+                loss_events[-1].provider_termination_receipt
+                == loss_adapter.termination_receipt
+            )
+            with open_run_action_release_inspection(
+                activation_event=activation_event,
+                launch_settings=cross_run_settings.launch,
+            ) as absent_release_inspection:
+                assert absent_release_inspection.topology is (
+                    RunActionControlDirectoryTopology.EMPTY
+                )
+            assert tree_or_blob_digest(busybox_bytes) == (
+                settings.helper_executable_digest
+            )
+            return
         adapter = _LiveBlockedWorkloadAdapter(
             boundary_identity=boundary_identity,
             execution_policy=layout_policy,
@@ -1681,7 +1838,13 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             return
 
         wait_result = runtime.run_control(("container", "wait", layout_main_id))
-        assert wait_result.stdout == b"0\n"
+        expected_exit_status = {
+            "result": b"0\n",
+            "empty": b"0\n",
+            "nonzero": b"23\n",
+            "oom": b"137\n",
+        }[terminal_path]
+        assert wait_result.stdout == expected_exit_status
         runtime.run_control(
             (
                 "container",
@@ -1705,7 +1868,7 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
                 "/kapso/runtime-volume/temporary/barrier-injection",
             )
         )
-        terminal_adapter = _LiveTerminalWorkloadAdapter(
+        terminal_adapter = _LiveNaturalTerminalWorkloadAdapter(
             boundary_identity=boundary_identity,
             execution_policy=layout_policy,
             resource_manager=resource_manager,
@@ -1732,8 +1895,6 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
         assert terminal_adapter.terminal_observation.started_at == (
             adapter.release_receipt.resolved_workload_observation.running_container_observation.started_at
         )
-        assert terminal_adapter.captured_result is not None
-        assert terminal_adapter.captured_result.result_payload == _LIVE_RESULT_PAYLOAD
         with open_run_action_release_inspection(
             activation_event=activation_event,
             launch_settings=cross_run_settings.launch,
@@ -1742,17 +1903,45 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
                 terminal_adapter.terminal_observation.workload_release_adoption_id
                 == terminal_release_inspection.adoption.workload_release_adoption_id
             )
-        assert (
-            len(
-                action_gate._action_store.inspect().events_for(
-                    layout_reservation.intent.operation_id
-                )
-            )
-            == 8
-        )
         terminal_events = action_gate._action_store.inspect().events_for(
             layout_reservation.intent.operation_id
         )
+        expected_failure_reasons = {
+            "empty": RunActionProviderTerminationReason.EMPTY_RESULT,
+            "nonzero": RunActionProviderTerminationReason.NONZERO_EXIT,
+            "oom": RunActionProviderTerminationReason.OOM,
+        }
+        if terminal_path in expected_failure_reasons:
+            assert terminal_adapter.captured_result is None
+            assert terminal_adapter.provider_termination_receipt is not None
+            assert terminal_adapter.provider_termination_receipt.disposition is (
+                RunActionProviderTerminationDisposition.FAILED
+            )
+            assert terminal_adapter.provider_termination_receipt.reason is (
+                expected_failure_reasons[terminal_path]
+            )
+            assert len(terminal_events) == 6
+            assert terminal_events[-1].event_kind is (
+                RunActionExecutionEventKind.PROVIDER_TERMINATED
+            )
+            assert terminal_events[-1].provider_termination_receipt == (
+                terminal_adapter.provider_termination_receipt
+            )
+            runtime.run_control(
+                ("container", "rm", "--force", "--volumes", layout_main_id)
+            )
+            runtime.run_control(
+                ("container", "rm", "--force", "--volumes", layout_keeper_id)
+            )
+            runtime.run_control(("volume", "rm", layout_volume_name))
+            assert tree_or_blob_digest(busybox_bytes) == (
+                settings.helper_executable_digest
+            )
+            return
+
+        assert terminal_adapter.captured_result is not None
+        assert terminal_adapter.captured_result.result_payload == _LIVE_RESULT_PAYLOAD
+        assert len(terminal_events) == 8
         assert terminal_events[5].event_kind is (
             RunActionExecutionEventKind.RESULT_RECEIVED
         )

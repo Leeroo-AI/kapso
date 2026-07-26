@@ -173,6 +173,67 @@ class RunActionControlDirectoryLease:
             expected_entries=self._topology.entries,
         )
 
+    def reobserve_runtime_volume_evidence(
+        self,
+        volume: DockerRunActionVolumeObservation,
+        keeper: RunActionVolumeKeeperEvidence,
+    ) -> RunActionRuntimeVolumeEvidence:
+        """Sample current usage for the retained prepared volume occurrence."""
+
+        prepared = self._prepared
+        authority = prepared.runtime_volume_authority
+        if (
+            type(volume) is not DockerRunActionVolumeObservation
+            or type(keeper) is not RunActionVolumeKeeperEvidence
+            or keeper != prepared.volume_keeper_evidence
+            or volume.volume_authority_id != authority.runtime_volume_authority_id
+            or volume.volume_name != authority.volume_name
+        ):
+            raise RunActionRuntimeVolumeError(
+                "runtime volume reobservation lacks exact retained authority"
+            )
+        self.require_current()
+        root_descriptor = self._mounted_volume.root_descriptor
+        filesystem_before = os.fstatvfs(root_descriptor)
+        root_metadata_before = os.fstat(root_descriptor)
+        mount_info_before = _read_mount_info(
+            self._mounted_volume.process_descriptor,
+            self._mounted_volume.root_mount_id,
+            RUN_ACTION_RUNTIME_VOLUME_KEEPER_DESTINATION,
+        )
+        _require_mount_authority(mount_info_before, root_metadata_before, authority)
+        self.require_current()
+        filesystem_after = os.fstatvfs(root_descriptor)
+        root_metadata_after = os.fstat(root_descriptor)
+        mount_info_after = _read_mount_info(
+            self._mounted_volume.process_descriptor,
+            self._mounted_volume.root_mount_id,
+            RUN_ACTION_RUNTIME_VOLUME_KEEPER_DESTINATION,
+        )
+        if (
+            _stable_filesystem(filesystem_after)
+            != _stable_filesystem(filesystem_before)
+            or _root_metadata_identity(root_metadata_after)
+            != _root_metadata_identity(root_metadata_before)
+            or mount_info_after != mount_info_before
+        ):
+            raise RunActionRuntimeVolumeError(
+                "runtime volume changed during retained reobservation"
+            )
+        evidence = _mint_runtime_volume_evidence(
+            authority,
+            volume,
+            keeper,
+            root_mount_id=self._mounted_volume.root_mount_id,
+            root_device=self._mounted_volume.root_device,
+            root_inode=self._mounted_volume.root_inode,
+            sentinel_evidence=prepared.runtime_volume_evidence.sentinel_evidence,
+            filesystem=filesystem_after,
+        )
+        _require_result_volume_occurrence(prepared, evidence)
+        self.require_current()
+        return evidence
+
     def __enter__(self) -> "RunActionControlDirectoryLease":
         self.require_current()
         return self
