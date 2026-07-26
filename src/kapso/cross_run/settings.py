@@ -2133,6 +2133,7 @@ class EffectiveConfig:
     mode: Mapping[str, Any]
     cross_run: CrossRunSettings | None
     registry_source_fingerprint: str | None
+    cross_run_binding: CrossRunTaskBindingSettings | None
 
     def __post_init__(self) -> None:
         if not self.mode_name:
@@ -2151,11 +2152,30 @@ class EffectiveConfig:
             raise CrossRunConfigurationError(
                 "registry fingerprint cannot exist without cross_run settings"
             )
+        raw_binding = self.mode.get("cross_run_binding")
+        if (raw_binding is None) != (self.cross_run_binding is None):
+            raise CrossRunConfigurationError(
+                "typed cross-run binding differs from the selected mode"
+            )
+        if raw_binding is not None and (
+            type(self.cross_run_binding) is not CrossRunTaskBindingSettings
+            or CrossRunTaskBindingSettings.from_dict(raw_binding)
+            != self.cross_run_binding
+        ):
+            raise CrossRunConfigurationError(
+                "typed cross-run binding differs from the selected mode"
+            )
+        if self.cross_run_binding is not None and self.cross_run is None:
+            raise CrossRunConfigurationError(
+                "cross-run task binding requires cross-run settings"
+            )
         if self.cross_run is not None:
             if self.registry_source_fingerprint != self.cross_run.scopes.fingerprint:
                 raise CrossRunConfigurationError(
                     "runtime scope registry fingerprint mismatch"
                 )
+            if self.cross_run_binding is not None:
+                self.cross_run.scopes.resolve(self.cross_run_binding.scope_id)
 
 
 def compose_runtime_config(

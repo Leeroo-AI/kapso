@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
+from kapso.cross_run.contracts import CrossRunTaskBindingSettings
 from kapso.cross_run.expert.release_use_policy_contracts import (
     ExpertReleaseUsePolicyObservation,
 )
@@ -115,11 +116,16 @@ class RunResumeCoordinator:
         self,
         *,
         settings: CrossRunSettings,
+        binding: CrossRunTaskBindingSettings,
         security_authority: RunResumeSecurityAuthority,
         release_use_authority: RunResumeReleaseUseAuthority | None,
     ) -> None:
-        if type(settings) is not CrossRunSettings:
-            raise RunResumeError("run resume requires exact cross-run settings")
+        if (
+            type(settings) is not CrossRunSettings
+            or type(binding) is not CrossRunTaskBindingSettings
+        ):
+            raise RunResumeError("run resume requires exact settings and task binding")
+        settings.scopes.resolve(binding.scope_id)
         if not hasattr(security_authority, "observe_exact_descendant_of"):
             raise RunResumeError(
                 "run resume requires a descendant-checking security authority"
@@ -132,8 +138,21 @@ class RunResumeCoordinator:
                 "run resume release-use authority has no exact observation method"
             )
         self._settings = settings
+        self._binding = binding
         self._security_authority = security_authority
         self._release_use_authority = release_use_authority
+
+    @property
+    def settings(self) -> CrossRunSettings:
+        """Return the exact configuration object bound to resumed runs."""
+
+        return self._settings
+
+    @property
+    def binding(self) -> CrossRunTaskBindingSettings:
+        """Return the exact task binding required from the local pin."""
+
+        return self._binding
 
     def resume(
         self,
@@ -148,6 +167,11 @@ class RunResumeCoordinator:
         with ExitStack() as resources:
             active = StarterWorkspaceBuilder(self._settings).reopen(run_root)
             resources.callback(active.close)
+            pin = active.bootstrap_pin
+            if pin.launch_manifest.launch_request.binding != self._binding:
+                raise RunResumeError(
+                    "local run pin differs from its configured task binding"
+                )
             publisher = RunStatePublisher(active, self._settings.launch)
             current = publisher.load_reconciled()
             if current is None:
@@ -185,7 +209,6 @@ class RunResumeCoordinator:
                     expected_commit_sha=expected_commit,
                 )
 
-            pin = active.bootstrap_pin
             manifest = pin.launch_manifest
             release_use = self._release_use_observation(
                 predecessor,

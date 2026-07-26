@@ -17,6 +17,10 @@ modes:
   # Production configuration
   # ===========================================
   RELBENCH_CONFIGS:
+    cross_run_binding:
+      scope_id: "ml_ai"
+      task_family_id: "relational_tabular_prediction"
+      task_adapter_id: "relbench"
     search_strategy:
       type: "benchmark_tree_search"
       params:
@@ -69,6 +73,10 @@ modes:
 
   # Heavier ideation for the hardest tasks (big rec tasks, soft v2 tasks).
   HEAVY_EXPERIMENTATION:
+    cross_run_binding:
+      scope_id: "ml_ai"
+      task_family_id: "relational_tabular_prediction"
+      task_adapter_id: "relbench"
     search_strategy:
       type: "benchmark_tree_search"
       params:
@@ -103,6 +111,10 @@ modes:
   # (data/generic_eval — official val scoring only; test physically
   # unscorable in-loop). Runner wires eval_dir when --strategy generic.
   RELBENCH_GENERIC:
+    cross_run_binding:
+      scope_id: "ml_ai"
+      task_family_id: "relational_tabular_prediction"
+      task_adapter_id: "relbench"
     ideation_profile: DEFAULT
     search_strategy:
       type: "generic"
@@ -195,6 +207,10 @@ modes:
   # e.g.: -s rel-f1 -t driver-circuit-compete (27-row val/test, seconds-fast
   # evals). Iterations ~15-20 min instead of ~90.
   FAST_DEBUG:
+    cross_run_binding:
+      scope_id: "ml_ai"
+      task_family_id: "relational_tabular_prediction"
+      task_adapter_id: "relbench"
     search_strategy:
       type: "benchmark_tree_search"
       params:
@@ -233,6 +249,10 @@ modes:
   # Quick smoke testing (rel-f1 scale)
   # ===========================================
   MINIMAL:
+    cross_run_binding:
+      scope_id: "ml_ai"
+      task_family_id: "relational_tabular_prediction"
+      task_adapter_id: "relbench"
     search_strategy:
       type: "benchmark_tree_search"
       params:

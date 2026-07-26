@@ -1,6 +1,7 @@
 import copy
 
 import pytest
+import yaml
 
 from kapso.core.config import (
     load_config,
@@ -21,6 +22,8 @@ from kapso.cross_run.settings import (
 )
 
 CANONICAL_CONFIG_PATH = "src/kapso/config.yaml"
+POSTTRAIN_CONFIG_PATH = "benchmarks/posttrain/config.yaml"
+RELBENCH_CONFIG_PATH = "benchmarks/relbench/config.yaml"
 
 
 def test_shipped_cross_run_config_is_strict_and_single_sourced():
@@ -333,12 +336,100 @@ def test_effective_config_retains_registry_without_polluting_workload_mode():
     mode = load_mode_config(CANONICAL_CONFIG_PATH, "GENERIC")
 
     assert effective.cross_run is not None
+    assert effective.cross_run_binding is None
     assert (
         effective.registry_source_fingerprint == effective.cross_run.scopes.fingerprint
     )
     assert mode["search_strategy"] == effective.mode["search_strategy"]
     assert "cross_run" not in mode
     assert "cross_run_registry_fingerprint" not in mode
+
+
+@pytest.mark.parametrize(
+    ("workload_config_path", "mode_name", "expected_binding"),
+    (
+        (
+            POSTTRAIN_CONFIG_PATH,
+            "POSTTRAIN",
+            CrossRunTaskBindingSettings(
+                scope_id="ml_ai",
+                task_family_id="language_model_post_training",
+                task_adapter_id="posttrain",
+            ),
+        ),
+        *(
+            (
+                RELBENCH_CONFIG_PATH,
+                mode_name,
+                CrossRunTaskBindingSettings(
+                    scope_id="ml_ai",
+                    task_family_id="relational_tabular_prediction",
+                    task_adapter_id="relbench",
+                ),
+            )
+            for mode_name in (
+                "RELBENCH_CONFIGS",
+                "HEAVY_EXPERIMENTATION",
+                "RELBENCH_GENERIC",
+                "FAST_DEBUG",
+                "MINIMAL",
+            )
+        ),
+    ),
+)
+def test_benchmark_modes_expose_exact_typed_cross_run_binding(
+    tmp_path,
+    workload_config_path,
+    mode_name,
+    expected_binding,
+):
+    canonical = load_config(CANONICAL_CONFIG_PATH)
+    workload = load_config(workload_config_path)
+    runtime = compose_runtime_config(canonical, workload)
+    assert (
+        CrossRunTaskBindingSettings.from_dict(
+            runtime["modes"][mode_name]["cross_run_binding"]
+        )
+        == expected_binding
+    )
+
+    canonical_settings = CrossRunSettings.from_dict(canonical["cross_run"])
+    loadable_runtime = copy.deepcopy(workload)
+    loadable_runtime["cross_run"] = canonical["cross_run"]
+    loadable_runtime["cross_run_registry_fingerprint"] = (
+        canonical_settings.scopes.fingerprint
+    )
+    runtime_path = tmp_path / f"{mode_name}.yaml"
+    runtime_path.write_text(
+        yaml.safe_dump(loadable_runtime, sort_keys=False),
+        encoding="utf-8",
+    )
+
+    effective = load_effective_config(str(runtime_path), mode_name)
+
+    assert effective.cross_run_binding == expected_binding
+    assert effective.mode["cross_run_binding"] == expected_binding.to_dict()
+    assert "repository" not in str(effective.mode).lower()
+
+
+def test_task_binding_without_canonical_cross_run_settings_fails_loud(tmp_path):
+    config = tmp_path / "unrouted-binding.yaml"
+    config.write_text(
+        "default_mode: X\n"
+        "modes:\n"
+        "  X:\n"
+        "    cross_run_binding:\n"
+        "      scope_id: ml_ai\n"
+        "      task_family_id: language_model_post_training\n"
+        "      task_adapter_id: posttrain\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        CrossRunConfigurationError,
+        match="requires cross-run settings",
+    ):
+        load_effective_config(str(config))
 
 
 def test_runtime_composition_copies_registry_and_fingerprint_once():

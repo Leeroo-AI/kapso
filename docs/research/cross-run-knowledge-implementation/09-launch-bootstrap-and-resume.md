@@ -41,7 +41,10 @@ role-proved Docker cleanup, recovery reporting, checkpoint publication, and the
 next reservation. OS executor activation, authenticated Docker socket/lock
 isolation, a typed lost-installation transition for daemon/host restart, explicit
 E0/S-EMPTY provisioning orchestration, and API/runner activation remain. Resume
-now refreshes policy through a separately sealed local-pin coordinator.
+now refreshes policy through a separately sealed local-pin coordinator. Typed
+PostTrainBench/RelBench mode bindings and a dormant fresh-or-resume composition
+seam are implemented, but remain unreachable from `Kapso.evolve` and the legacy
+benchmark runners until the execution-permit boundary and M10 cutover are complete.
 
 ## Objective
 
@@ -68,7 +71,9 @@ new GitHub pointers.
 ```text
 src/kapso/cross_run/launch/
   __init__.py
+  bootstrap.py
   resolver.py
+  resume.py
   workspace.py
   revocation.py
   run_action_reservation_contracts.py
@@ -228,7 +233,7 @@ For a fresh launch:
 - [ ] Make benchmark runners obtain those three values from their typed
       `cross_run_binding`; callers normally select a benchmark mode rather than
       repeat the binding on every task.
-- [ ] Bind PostTrainBench to
+- [x] Bind PostTrainBench to
       `ml_ai/language_model_post_training/posttrain` and RelBench to
       `ml_ai/relational_tabular_prediction/relbench`; neither benchmark file may
       name any repository.
@@ -239,6 +244,16 @@ For a fresh launch:
 - [ ] Preserve an explicit task starting-artifact contract through the task adapter
       rather than a generic repository escape hatch.
 - [ ] Return launch/snapshot/expert/task-adapter identities in result metadata.
+
+`EffectiveConfig.cross_run_binding` is the exact typed projection of the selected
+mode. `LaunchBootstrapCoordinator` requires that binding, the resolver, and the
+resume coordinator to share one `CrossRunSettings` authority. Fresh launch resolves
+once, creates unpredictable run/campaign identifiers, atomically activates the
+workspace, and returns an identity projected only from its `BootstrapPin`. Resume
+delegates to the local-pin coordinator and never calls the fresh resolver. Both
+paths release live workspace authority if result wrapping or binding validation
+fails. This seam is deliberately dormant: it neither constructs the production
+resolver providers nor exposes execution authority through the current API/runners.
 
 M9 owns these high-conflict files until M10 performs final cleanup/activation.
 

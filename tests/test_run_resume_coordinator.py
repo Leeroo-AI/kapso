@@ -111,6 +111,7 @@ def _coordinator(
     return (
         RunResumeCoordinator(
             settings=settings,
+            binding=pin.launch_manifest.launch_request.binding,
             security_authority=security,
             release_use_authority=release_use,
         ),
@@ -162,6 +163,7 @@ def test_offline_resume_uses_pin_and_is_reproducibility_only(
     security = _SecurityAuthority(pin)
     coordinator = RunResumeCoordinator(
         settings=settings,
+        binding=pin.launch_manifest.launch_request.binding,
         security_authority=security,
         release_use_authority=_ForbiddenReleaseUseAuthority(),
     )

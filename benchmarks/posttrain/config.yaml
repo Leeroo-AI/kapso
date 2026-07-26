@@ -34,6 +34,10 @@ default_mode: POSTTRAIN
 
 modes:
   POSTTRAIN:
+    cross_run_binding:
+      scope_id: "ml_ai"
+      task_family_id: "language_model_post_training"
+      task_adapter_id: "posttrain"
     ideation_profile: DEFAULT
     search_strategy:
       type: "generic"

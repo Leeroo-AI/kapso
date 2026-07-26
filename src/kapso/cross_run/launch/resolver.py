@@ -376,6 +376,12 @@ class LaunchResolver:
         self._security_authority = security_authority
         self._clock = SystemLaunchClock() if clock is None else clock
 
+    @property
+    def settings(self) -> CrossRunSettings:
+        """Return the exact configuration object bound to this resolver."""
+
+        return self._settings
+
     def resolve(self, request: LaunchRequest) -> ResolvedLaunch:
         if type(request) is not LaunchRequest:
             raise LaunchResolutionError("launch resolver requires one LaunchRequest")

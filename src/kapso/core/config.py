@@ -7,6 +7,7 @@ from typing import Any, Mapping, Optional
 
 import yaml
 
+from kapso.cross_run.contracts import CrossRunTaskBindingSettings
 from kapso.cross_run.settings import (
     CrossRunConfigurationError,
     CrossRunSettings,
@@ -82,6 +83,7 @@ def load_effective_config(
         )
     cross_run = None
     registry_fingerprint = None
+    cross_run_binding = None
     if "cross_run" in config_data:
         cross_run = CrossRunSettings.from_dict(config_data["cross_run"])
         declared_fingerprint = config_data.get("cross_run_registry_fingerprint")
@@ -90,11 +92,16 @@ def load_effective_config(
             registry_fingerprint = declared_fingerprint
         else:
             registry_fingerprint = cross_run.scopes.fingerprint
+    if "cross_run_binding" in mode_config:
+        cross_run_binding = CrossRunTaskBindingSettings.from_dict(
+            mode_config["cross_run_binding"]
+        )
     return EffectiveConfig(
         mode_name=selected_mode,
         mode=mode_config,
         cross_run=cross_run,
         registry_source_fingerprint=registry_fingerprint,
+        cross_run_binding=cross_run_binding,
     )
 
 
