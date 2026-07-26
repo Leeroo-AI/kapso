@@ -105,12 +105,14 @@ modes:
       type: "generic"
       params:
         idea_generation_model: "claude-opus-4-8"
-        implementation_model: "claude-opus-4-8"
+        # Implementation sessions run on the codex CLI (gpt-5.6-sol).
+        # OpenAI's reasoning ceiling is xhigh — there is no "max" tier —
+        # so every codex role below pins xhigh. session effort also feeds
+        # the claude single-session ideation fallback.
+        implementation_model: "gpt-5.6-sol"
+        implementation_cli: "codex"
         auth_mode: "oauth"
-        # max on implementation sessions (the critical-path decision lives
-        # there); ensemble members / selector / lens planner pin their own
-        # efforts below. Mirrors the ioai-2025 IOAI deployment.
-        effort: "max"
+        effort: "xhigh"
         gate_failure_policy: "skip"
         parent_policy: "best"
         # K-way node expansion: 1 = sequential champion chain (default).
@@ -158,8 +160,8 @@ modes:
           effort: "max"
           timeout: 600
         ideation_selector:
-          cli: "claude_code"
-          model: "claude-opus-4-8"
+          cli: "codex"
+          model: "gpt-5.6-sol"
           effort: "xhigh"
 
     # Time-budgeted campaigns: the search decides its own iteration count;
@@ -172,12 +174,10 @@ modes:
       min_iteration_seconds: 1800
 
     evaluation_maintainer:
-      type: "claude_code"
-      model: "claude-opus-4-8"
+      type: "codex"
+      model: "gpt-5.6-sol"
       agent_specific:
-        auth_mode: "oauth"
         effort: "xhigh"
-        streaming: true
         timeout: 1800
       # Registration calibrates via a fast-fidelity run = the candidate's
       # --debug mode; must fit the debug-tier cap.
@@ -185,23 +185,20 @@ modes:
       max_change_requests: 3
 
     coding_agent:
-      type: "claude_code"
-      model: "claude-opus-4-8"
-      debug_model: "claude-opus-4-8"
+      type: "codex"
+      model: "gpt-5.6-sol"
+      debug_model: "gpt-5.6-sol"
       agent_specific:
-        auth_mode: "oauth"
         effort: "xhigh"
-        streaming: true
         timeout: 18000
 
+    # effort: user asked for max; xhigh is the OpenAI ceiling.
     feedback_generator:
-      type: "claude_code"
-      model: "claude-opus-4-8"
-      debug_model: "claude-opus-4-8"
+      type: "codex"
+      model: "gpt-5.6-sol"
+      debug_model: "gpt-5.6-sol"
       agent_specific:
-        auth_mode: "oauth"
         effort: "xhigh"
-        streaming: true
         timeout: 900
 
     # Rich routes: attaches reasoning_effort to call sites that never plumbed

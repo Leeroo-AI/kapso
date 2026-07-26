@@ -52,7 +52,7 @@ def test_invalid_ensemble_configs_raise(bad):
         normalize_ideation_ensemble(bad)
 
 
-def test_ensemble_requires_selector_and_selector_must_be_claude():
+def test_ensemble_requires_selector_and_selector_cli_is_validated():
     with _patched_super_init():
         with pytest.raises(ValueError, match="ideation_selector"):
             GenericSearch(
@@ -60,12 +60,14 @@ def test_ensemble_requires_selector_and_selector_must_be_claude():
                     params={"ideation_ensemble": [dict(CODEX_MEMBER)]}
                 )
             )
-        with pytest.raises(ValueError, match="claude_code"):
+        # codex and claude_code are both legal selector CLIs; anything else
+        # fails member validation before the selector-specific check.
+        with pytest.raises(ValueError, match="cli must be one of"):
             GenericSearch(
                 SimpleNamespace(
                     params={
                         "ideation_ensemble": [dict(CLAUDE_MEMBER)],
-                        "ideation_selector": {"cli": "codex", "model": "m"},
+                        "ideation_selector": {"cli": "gemini", "model": "m"},
                     }
                 )
             )
@@ -535,3 +537,41 @@ def test_env_strip_reaches_member_and_selector_session_configs(tmp_path, monkeyp
     assert events["configs"], "harness captured no session configs"
     for config in events["configs"]:
         assert config.agent_specific["env_strip"] == ["OPENAI_API_KEY"]
+
+
+def test_codex_selector_runs_web_off_and_choice_wins(tmp_path, monkeypatch):
+    """A codex selector judges the pool via run_codex_ideation (web OFF —
+    parity with the claude selector's Read-only toolset); its <solution>
+    choice wins and no claude selector session runs."""
+    strategy, events = make_ensemble_strategy(
+        tmp_path, monkeypatch,
+        ensemble=[dict(CODEX_MEMBER), dict(CLAUDE_MEMBER)],
+        selector={"cli": "codex", "model": "gpt-5.6-sol", "effort": "xhigh"},
+        claude_output=f"<solution>{_plan('claude idea')}</solution>",
+        codex_output=f"<solution>{_plan('codex idea')}</solution>",
+        selector_output="unused",
+    )
+    selector_calls = []
+
+    def prompt_aware_codex(prompt, model, cwd, timeout_seconds, effort=None,
+                           artifacts_dir=None, web_search=True):
+        meta = {"last_message_empty": False, "stream_tail": "",
+                "stream_path": None, "last_path": None}
+        if "### Candidate" in prompt:
+            selector_calls.append({"web_search": web_search, "model": model,
+                                   "effort": effort})
+            return (
+                "<selection_reasoning>codex judged</selection_reasoning>"
+                f"<solution>{_plan('the winner')}</solution>",
+                False, 1.0, meta,
+            )
+        return f"<solution>{_plan('codex idea')}</solution>", False, 1.0, meta
+
+    monkeypatch.setattr(codex_module, "run_codex_ideation", prompt_aware_codex)
+
+    (solution,), _, _ = strategy._generate_solution("problem", "main")
+    assert solution == _plan("the winner")
+    assert selector_calls == [
+        {"web_search": False, "model": "gpt-5.6-sol", "effort": "xhigh"}
+    ]
+    assert not [p for is_sel, p in events["claude_prompts"] if is_sel]

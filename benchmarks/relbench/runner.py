@@ -38,7 +38,7 @@ load_dotenv()
 
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.yaml")
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
-AVAILABLE_AGENTS = ["aider", "gemini", "claude_code", "openhands"]
+AVAILABLE_AGENTS = ["aider", "gemini", "claude_code", "codex", "openhands"]
 
 
 def list_tasks() -> None:

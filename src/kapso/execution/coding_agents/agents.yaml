@@ -137,3 +137,25 @@ agents:
       max_iterations: 10
       # Timeout in seconds
       timeout: 600
+
+  # ============================================================================
+  # Codex - OpenAI Codex CLI (non-interactive exec sessions)
+  # ============================================================================
+  codex:
+    description: "OpenAI Codex CLI, non-interactive exec with full-access sandbox"
+    adapter_class: "CodexCodingAgent"
+    adapter_module: "kapso.execution.coding_agents.adapters.codex_agent"
+    supports_native_git: false
+    default_model: "gpt-5.6-sol"
+    default_debug_model: "gpt-5.6-sol"
+    # Auth comes from ~/.codex/auth.json (ChatGPT login) or CODEX_API_KEY;
+    # OPENAI_API_KEY is deliberately stripped from the child environment.
+    env_vars: []
+    install_command: "npm install -g @openai/codex"
+    documentation_url: "https://github.com/openai/codex"
+    agent_specific:
+      # OpenAI reasoning ceiling is xhigh (no "max" tier)
+      effort: "xhigh"
+      timeout: 3600
+      sandbox: "danger-full-access"
+      web_search: true

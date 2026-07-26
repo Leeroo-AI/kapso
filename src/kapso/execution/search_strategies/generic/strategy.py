@@ -414,7 +414,7 @@ class GenericSearch(SearchStrategy):
           env var holding its key). Omit for single-session ideation
           (default)
         - ideation_selector: Required with ideation_ensemble — the
-          selector-critic session {cli: claude_code, model, effort?}
+          selector-critic session {cli: claude_code|codex, model, effort?}
         - parent_policy: Parent branch selection: best or baseline (default: best).
           Under `best`, before any validly evaluated node exists, the latest
           committed non-error, non-tampered node is used so in-progress work
@@ -489,10 +489,13 @@ class GenericSearch(SearchStrategy):
             raise ValueError(
                 "ideation_ensemble requires an ideation_selector member"
             )
-        if self.ideation_selector and self.ideation_selector["cli"] != "claude_code":
+        if self.ideation_selector and self.ideation_selector["cli"] not in (
+            "claude_code",
+            "codex",
+        ):
             raise ValueError(
-                "ideation_selector.cli must be claude_code (the selector "
-                "reads the worktree to verify candidates)"
+                "ideation_selector.cli must be claude_code or codex (the "
+                "selector reads the worktree to verify candidates)"
             )
         # Optional task-aware lens planning: a web-enabled Claude session
         # designs the member lenses for THIS task (once per campaign,
@@ -523,6 +526,17 @@ class GenericSearch(SearchStrategy):
             "implementation_model",
             "us.anthropic.claude-opus-4-5-20251101-v1:0"
         )
+        # Which CLI runs implementation sessions. codex sessions have no MCP
+        # mounting (repo memory reaches them via the .kapso file fallback)
+        # and report no cost telemetry.
+        self.implementation_cli = str(
+            self.params.get("implementation_cli", "claude_code")
+        )
+        if self.implementation_cli not in ("claude_code", "codex"):
+            raise ValueError(
+                "implementation_cli must be claude_code or codex, got "
+                f"{self.implementation_cli!r}"
+            )
         self.implementation_timeout = self.params.get("implementation_timeout", 600)
         self.gate_failure_policy = self.params.get("gate_failure_policy", "warn")
         self.implementation_gates = self.params.get("implementation_gates", ["research", "repo_memory", "leeroopedia"])
@@ -1361,27 +1375,51 @@ class GenericSearch(SearchStrategy):
                 {"expansion_count": str(expansion)},
             )
         selector = self.ideation_selector
-        config = CodingAgentConfig(
-            agent_type="claude_code",
-            model=selector["model"],
-            debug_model=selector["model"],
-            agent_specific={
-                **self._claude_auth_settings,
-                "env_strip": self.env_strip,
-                "env_defaults": self.env_defaults,
-                "aws_region": self.aws_region,
-                "allowed_tools": ["Read"],
-                "timeout": selector_deadline,
-                "streaming": True,
-                "planning_mode": False,
-                "effort": selector.get("effort", self.session_effort),
-            },
-        )
-        agent = ClaudeCodeCodingAgent(config)
-        agent.initialize(ideation_dir)
-        result = agent.generate_code(prompt)
-        cost = agent.get_cumulative_cost()
-        agent.cleanup()
+        if selector["cli"] == "codex":
+            from kapso.execution.search_strategies.generic.codex_ideation import (
+                run_codex_ideation,
+            )
+            from kapso.execution.coding_agents.base import CodingResult
+
+            # web off: parity with the claude selector's Read-only toolset —
+            # selection judges the pooled candidates, it does not research.
+            output, timed_out, _duration, _meta = run_codex_ideation(
+                prompt=prompt,
+                model=selector["model"],
+                cwd=ideation_dir,
+                timeout_seconds=selector_deadline,
+                effort=selector.get("effort"),
+                artifacts_dir=os.path.join(ideation_dir, ".kapso", "selector"),
+                web_search=False,
+            )
+            result = CodingResult(
+                success=not timed_out and bool(output.strip()),
+                output=output,
+                error="selector session timed out" if timed_out else None,
+            )
+            cost = 0.0
+        else:
+            config = CodingAgentConfig(
+                agent_type="claude_code",
+                model=selector["model"],
+                debug_model=selector["model"],
+                agent_specific={
+                    **self._claude_auth_settings,
+                    "env_strip": self.env_strip,
+                    "env_defaults": self.env_defaults,
+                    "aws_region": self.aws_region,
+                    "allowed_tools": ["Read"],
+                    "timeout": selector_deadline,
+                    "streaming": True,
+                    "planning_mode": False,
+                    "effort": selector.get("effort", self.session_effort),
+                },
+            )
+            agent = ClaudeCodeCodingAgent(config)
+            agent.initialize(ideation_dir)
+            result = agent.generate_code(prompt)
+            cost = agent.get_cumulative_cost()
+            agent.cleanup()
 
         reasoning = re.search(
             r"<selection_reasoning>(.*?)</selection_reasoning>",
@@ -1579,41 +1617,65 @@ Problem: {problem}"""
             and lane_index < len(self.expansion_lane_env)
             else None
         )
-        config = CodingAgentConfig(
-            agent_type="claude_code",
-            model=self.implementation_model,
-            debug_model=self.implementation_model,
-            agent_specific={
-                **self._claude_auth_settings,
-                **({"env_overrides": lane_env} if lane_env else {}),
-                "env_strip": self.env_strip,
-                "env_defaults": self.env_defaults,
-                "aws_region": self.aws_region,
-                "mcp_servers": mcp_servers,
-                "allowed_tools": implementation_allowed_tools,
-                "timeout": self._clamped_timeout(self.implementation_timeout),
-                # Under node expansion only lane 0 streams to the console;
-                # other lanes stay buffered (their raw streams still land in
-                # per-branch stream_artifact_path files).
-                "streaming": lane_index == 0,
-                "effort": self.session_effort,
-                # Per-session process record: raw stream-json events land
-                # here as they arrive, so a killed session still leaves its
-                # forensics behind (feeds the difficulties fallback).
-                "stream_artifact_path": self._session_stream_path(branch_name),
-                # Declared-completion contract: lets the adapter reap a CLI
-                # that delivered its full final report but lingers alive.
-                "completion_markers": IMPLEMENTATION_COMPLETION_MARKERS,
-            }
-        )
-        
+        if self.implementation_cli == "codex":
+            config = CodingAgentConfig(
+                agent_type="codex",
+                model=self.implementation_model,
+                debug_model=self.implementation_model,
+                agent_specific={
+                    **({"env_overrides": lane_env} if lane_env else {}),
+                    "env_strip": self.env_strip,
+                    "env_defaults": self.env_defaults,
+                    "timeout": self._clamped_timeout(self.implementation_timeout),
+                    "effort": self.session_effort,
+                    # Transcript stream persisted for the difficulties
+                    # fallback's forensics, same as the claude path.
+                    "stream_artifact_path": self._session_stream_path(branch_name),
+                },
+            )
+        else:
+            config = CodingAgentConfig(
+                agent_type="claude_code",
+                model=self.implementation_model,
+                debug_model=self.implementation_model,
+                agent_specific={
+                    **self._claude_auth_settings,
+                    **({"env_overrides": lane_env} if lane_env else {}),
+                    "env_strip": self.env_strip,
+                    "env_defaults": self.env_defaults,
+                    "aws_region": self.aws_region,
+                    "mcp_servers": mcp_servers,
+                    "allowed_tools": implementation_allowed_tools,
+                    "timeout": self._clamped_timeout(self.implementation_timeout),
+                    # Under node expansion only lane 0 streams to the console;
+                    # other lanes stay buffered (their raw streams still land in
+                    # per-branch stream_artifact_path files).
+                    "streaming": lane_index == 0,
+                    "effort": self.session_effort,
+                    # Per-session process record: raw stream-json events land
+                    # here as they arrive, so a killed session still leaves its
+                    # forensics behind (feeds the difficulties fallback).
+                    "stream_artifact_path": self._session_stream_path(branch_name),
+                    # Declared-completion contract: lets the adapter reap a CLI
+                    # that delivered its full final report but lingers alive.
+                    "completion_markers": IMPLEMENTATION_COMPLETION_MARKERS,
+                }
+            )
+
         # 5. Build implementation prompt
-        repo_memory_detail_access_instructions = (
-            "For detailed section content (architecture, gotchas, invariants, etc.),\n"
-            "use the MCP tool: `get_repo_memory_section(section_id=\"core.architecture\")`\n"
-            "Available sections: core.architecture, core.entrypoints, core.where_to_edit, core.invariants, core.testing, core.gotchas, core.dependencies\n"
-            "Fallback: open `.kapso/repo_memory.json` and read `book.sections[section_id]`."
-        )
+        if self.implementation_cli == "codex":
+            repo_memory_detail_access_instructions = (
+                "For detailed section content (architecture, gotchas, invariants, etc.),\n"
+                "open `.kapso/repo_memory.json` and read `book.sections[section_id]`.\n"
+                "Available sections: core.architecture, core.entrypoints, core.where_to_edit, core.invariants, core.testing, core.gotchas, core.dependencies"
+            )
+        else:
+            repo_memory_detail_access_instructions = (
+                "For detailed section content (architecture, gotchas, invariants, etc.),\n"
+                "use the MCP tool: `get_repo_memory_section(section_id=\"core.architecture\")`\n"
+                "Available sections: core.architecture, core.entrypoints, core.where_to_edit, core.invariants, core.testing, core.gotchas, core.dependencies\n"
+                "Fallback: open `.kapso/repo_memory.json` and read `book.sections[section_id]`."
+            )
         
         prompt = self._build_implementation_prompt(
             solution=solution,
@@ -1627,9 +1689,14 @@ Problem: {problem}"""
             ),
         )
         
-        # 6. Run Claude Code for implementation
-        print(f"[GenericSearch] Running Claude Code implementation...")
-        agent = ClaudeCodeCodingAgent(config)
+        # 6. Run the implementation session
+        print(f"[GenericSearch] Running {self.implementation_cli} implementation...")
+        if self.implementation_cli == "codex":
+            from kapso.execution.coding_agents.factory import CodingAgentFactory
+
+            agent = CodingAgentFactory.create(config)
+        else:
+            agent = ClaudeCodeCodingAgent(config)
         agent.initialize(session.session_folder)
 
         phase_started = time.monotonic()

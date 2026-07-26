@@ -456,7 +456,12 @@ class TestGenericModeConfig:
         mode = cfg["modes"]["RELBENCH_GENERIC"]
         assert mode["search_strategy"]["type"] == "generic"
         assert mode["search_strategy"]["params"]["parent_policy"] == "best"
-        assert mode["evaluation_maintainer"]["type"] == "claude_code"
+        # Codex deployment (2026-07-26): implementation, maintainer, and
+        # feedback all run on the codex CLI at the xhigh OpenAI ceiling.
+        assert mode["search_strategy"]["params"]["implementation_cli"] == "codex"
+        assert mode["evaluation_maintainer"]["type"] == "codex"
+        assert mode["feedback_generator"]["type"] == "codex"
+        assert mode["search_strategy"]["params"]["ideation_selector"]["cli"] == "codex"
         assert mode["models"]["utility"]["reasoning_effort"] == "xhigh"
 
 
