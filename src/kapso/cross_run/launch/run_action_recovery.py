@@ -107,6 +107,7 @@ _RUN_ACTION_ACTIVATION_AUTHORITY = object()
 _RUN_ACTION_COMMITTED_CONTINUATION_AUTHORITY = object()
 _RUN_ACTION_RELEASE_PUBLISHER_AUTHORITY = object()
 _RUN_ACTION_TERMINAL_INSPECTION_AUTHORITY = object()
+_RUN_ACTION_RESULT_CAPTURE_AUTHORITY = object()
 _ISSUED_RECOVERY_COORDINATORS: WeakValueDictionary[int, object] = WeakValueDictionary()
 _ISSUED_RECOVERY_IMPLEMENTATION_REGISTRIES: WeakValueDictionary[int, object] = (
     WeakValueDictionary()
@@ -790,6 +791,8 @@ class RunActionCommittedContinuationCapability:
         self._release_publication_state = "ready"
         self._terminal_inspection_state = "ready"
         self._terminal_observation: RunActionTerminalObservation | None = None
+        self._result_capture_state = "ready"
+        self._captured_result: RunActionProviderResult | None = None
         with _COMMITTED_CONTINUATION_CAPABILITY_LOCK:
             _ISSUED_COMMITTED_CONTINUATION_CAPABILITIES[id(self)] = self
             _ISSUED_COMMITTED_CONTINUATION_RELEASE_AUTHORITIES[self] = (
@@ -962,6 +965,99 @@ class RunActionCommittedContinuationCapability:
             self._terminal_observation = terminal_observation
             self._terminal_inspection_state = "complete"
 
+    def _take_result_capture_authority(
+        self,
+        *,
+        _authority: object,
+    ) -> tuple["RunActionCommittedSpawnQuery", RunActionTerminalObservation]:
+        """Consume the trusted result leaf's sole descriptor capture."""
+
+        with _COMMITTED_CONTINUATION_CAPABILITY_LOCK:
+            authorities = _ISSUED_COMMITTED_CONTINUATION_RELEASE_AUTHORITIES.get(self)
+            terminal = self._terminal_observation
+            adoption = self._query.workload_release_adoption
+            if (
+                _ISSUED_COMMITTED_CONTINUATION_CAPABILITIES.get(id(self)) is not self
+                or self._owner_process_id != os.getpid()
+                or self._state != "invoking"
+                or self._invoking_thread_id != get_ident()
+                or self._observation.state
+                is not RunActionCommittedSpawnState.TERMINAL_CONTINUABLE
+                or self._terminal_inspection_state != "complete"
+                or type(terminal) is not RunActionTerminalObservation
+                or terminal.exit_code != 0
+                or terminal.oom_killed is not False
+                or adoption is None
+                or self._result_capture_state != "ready"
+                or self._captured_result is not None
+                or type(authorities) is not _RunActionIssuedReleaseAuthorities
+                or _authority is not _RUN_ACTION_RESULT_CAPTURE_AUTHORITY
+            ):
+                raise RunActionRecoveryError(
+                    "result capture lacks exact live terminal authority"
+                )
+            clock = authorities.clock
+            deadline = (
+                adoption.workload_release_receipt.execution_deadline_boottime_nanoseconds
+            )
+        current_boottime = _read_positive_release_clock(
+            clock.boottime_nanoseconds(),
+            "result capture BOOTTIME",
+        )
+        with _COMMITTED_CONTINUATION_CAPABILITY_LOCK:
+            if (
+                _ISSUED_COMMITTED_CONTINUATION_CAPABILITIES.get(id(self)) is not self
+                or self._state != "invoking"
+                or self._invoking_thread_id != get_ident()
+                or self._terminal_observation != terminal
+                or self._result_capture_state != "ready"
+                or current_boottime > deadline
+            ):
+                raise RunActionRecoveryError(
+                    "result capture started outside its exact terminal deadline"
+                )
+            self._result_capture_state = "capturing"
+        return self._query, terminal
+
+    def _complete_result_capture(
+        self,
+        result: RunActionProviderResult,
+        *,
+        _authority: object,
+    ) -> None:
+        """Register the trusted descriptor leaf's exact captured result."""
+
+        with _COMMITTED_CONTINUATION_CAPABILITY_LOCK:
+            authorities = _ISSUED_COMMITTED_CONTINUATION_RELEASE_AUTHORITIES.get(self)
+            query = self._query
+            adoption = query.workload_release_adoption
+            terminal = self._terminal_observation
+            if (
+                _ISSUED_COMMITTED_CONTINUATION_CAPABILITIES.get(id(self)) is not self
+                or self._owner_process_id != os.getpid()
+                or self._state != "invoking"
+                or self._invoking_thread_id != get_ident()
+                or self._result_capture_state != "capturing"
+                or self._captured_result is not None
+                or type(authorities) is not _RunActionIssuedReleaseAuthorities
+                or adoption is None
+                or type(terminal) is not RunActionTerminalObservation
+                or type(result) is not RunActionProviderResult
+                or result.terminal_observation != terminal
+                or not run_action_terminal_result_evidence_matches(
+                    terminal,
+                    result.result_capture_receipt,
+                    query.activation_revalidation_receipt,
+                    adoption,
+                )
+                or _authority is not _RUN_ACTION_RESULT_CAPTURE_AUTHORITY
+            ):
+                raise RunActionRecoveryError(
+                    "result capture completion lacks exact live authority"
+                )
+            self._captured_result = result
+            self._result_capture_state = "complete"
+
     def _invoke_once(
         self,
         execution_adapter: "RunActionExecutionAdapter",
@@ -1009,12 +1105,32 @@ class RunActionCommittedContinuationCapability:
                     raise RunActionRecoveryError(
                         "terminal continuation lacks its trusted reinspection"
                     )
+                if (
+                    outcome.state is RunActionContinuationState.PENDING
+                    and (
+                        self._result_capture_state != "ready"
+                        or self._captured_result is not None
+                    )
+                ) or (
+                    outcome.state is RunActionContinuationState.RESULT_CAPTURED
+                    and (
+                        self._result_capture_state != "complete"
+                        or type(self._captured_result) is not RunActionProviderResult
+                        or outcome.result != self._captured_result
+                    )
+                ):
+                    raise RunActionRecoveryError(
+                        "terminal continuation lacks its trusted result capture"
+                    )
             elif (
-                self._terminal_inspection_state != "ready"
+                outcome.state is RunActionContinuationState.RESULT_CAPTURED
+                or self._terminal_inspection_state != "ready"
                 or self._terminal_observation is not None
+                or self._result_capture_state != "ready"
+                or self._captured_result is not None
             ):
                 raise RunActionRecoveryError(
-                    "nonterminal continuation consumed terminal authority"
+                    "nonterminal continuation consumed terminal or result authority"
                 )
 
     def _begin_invocation(self) -> "_RunActionCommittedContinuationInvocation":
@@ -1062,6 +1178,7 @@ class RunActionCommittedContinuationCapability:
             self._invoking_thread_id = None
             self._release_publication_state = "spent"
             self._terminal_inspection_state = "spent"
+            self._result_capture_state = "spent"
             _ISSUED_COMMITTED_CONTINUATION_CAPABILITIES.pop(id(self))
             _ISSUED_COMMITTED_CONTINUATION_RELEASE_AUTHORITIES.pop(self, None)
 
@@ -2544,12 +2661,10 @@ class RunActionRecoveryCoordinator:
         admitted = {
             RunActionCommittedSpawnState.INERT_CONTINUABLE: {
                 RunActionContinuationState.PENDING,
-                RunActionContinuationState.RESULT_CAPTURED,
                 RunActionContinuationState.PROVEN_QUIESCENT_WITHOUT_RESULT,
             },
             RunActionCommittedSpawnState.RUNNING_CONTINUABLE: {
                 RunActionContinuationState.PENDING,
-                RunActionContinuationState.RESULT_CAPTURED,
                 RunActionContinuationState.PROVEN_QUIESCENT_WITHOUT_RESULT,
             },
             RunActionCommittedSpawnState.TERMINAL_CONTINUABLE: {
@@ -2557,7 +2672,6 @@ class RunActionRecoveryCoordinator:
                 RunActionContinuationState.RESULT_CAPTURED,
             },
             RunActionCommittedSpawnState.QUIESCENT_RECHECKABLE: {
-                RunActionContinuationState.RESULT_CAPTURED,
                 RunActionContinuationState.PROVEN_QUIESCENT_WITHOUT_RESULT,
             },
             RunActionCommittedSpawnState.UNKNOWN: set(),

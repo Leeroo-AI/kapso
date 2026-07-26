@@ -252,7 +252,6 @@ class _FakeExecutionAdapter:
         *,
         observation_state=RunActionCommittedSpawnState.INERT_CONTINUABLE,
         fail_activation=False,
-        continuation_result=True,
         disposition=RunActionResultDisposition.SUCCEEDED,
     ) -> None:
         self.execution_lifecycle_identity = (
@@ -278,7 +277,6 @@ class _FakeExecutionAdapter:
         )
         self.observation_state = observation_state
         self.fail_activation = fail_activation
-        self.continuation_result = continuation_result
         self.prepare_calls = []
         self.preparation_capabilities = []
         self.prepare_allocations = []
@@ -442,18 +440,6 @@ class _FakeExecutionAdapter:
 
     def continue_committed_once(self, capability):
         self.continuation_calls.append(capability)
-        activation = capability.activation_revalidation_receipt
-        payload = {
-            RunActionCommittedSpawnState.INERT_CONTINUABLE: (
-                b'{"provider":"fresh-complete"}'
-            ),
-            RunActionCommittedSpawnState.RUNNING_CONTINUABLE: (
-                b'{"provider":"continued-complete"}'
-            ),
-            RunActionCommittedSpawnState.TERMINAL_CONTINUABLE: (
-                b'{"provider":"recovered-complete"}'
-            ),
-        }.get(capability.observation.state)
         if (
             capability.observation.state
             is RunActionCommittedSpawnState.QUIESCENT_RECHECKABLE
@@ -462,31 +448,16 @@ class _FakeExecutionAdapter:
                 state=(RunActionContinuationState.PROVEN_QUIESCENT_WITHOUT_RESULT),
                 result=None,
             )
-        if (
-            capability.observation.state
-            is RunActionCommittedSpawnState.RUNNING_CONTINUABLE
-            and not self.continuation_result
-        ):
+        if capability.observation.state in {
+            RunActionCommittedSpawnState.INERT_CONTINUABLE,
+            RunActionCommittedSpawnState.RUNNING_CONTINUABLE,
+        }:
             return RunActionContinuationOutcome(
                 state=RunActionContinuationState.PENDING,
                 result=None,
             )
-        return RunActionContinuationOutcome(
-            state=RunActionContinuationState.RESULT_CAPTURED,
-            result=self._provider_result(
-                capability.prepared_execution,
-                capability.spawn_commit,
-                activation,
-                payload,
-                (
-                    capability.workload_release_adoption
-                    if capability.workload_release_adoption is not None
-                    else _release_adoption_for_event(
-                        capability.activation_event,
-                        self.security_observation,
-                    )
-                ),
-            ),
+        raise AssertionError(
+            "terminal fake must use the trusted terminal and result-capture leaves"
         )
 
     def inspect_unactivated(self, query):
@@ -1101,7 +1072,7 @@ def test_committed_spawn_query_rejects_security_boundary_splice():
 def test_reserved_action_recovers_through_one_preparation_and_activation(
     publisher_case,
 ) -> None:
-    frontier, gate, _reservation, _payload = _reserved_case(publisher_case)
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
     adapter = _FakeExecutionAdapter(
         _boundary_identity(RunFrontierActionKind.CODING_AGENT)
     )
@@ -1111,16 +1082,16 @@ def test_reserved_action_recovers_through_one_preparation_and_activation(
     report = coordinator.recover(frontier)
 
     assert plan.pending_operation_id == plan.ordered_operation_ids[-1]
-    assert report.is_complete
-    assert report.unresolved_operation_id is None
+    assert not report.is_complete
+    assert report.unresolved_operation_id == reservation.intent.operation_id
     assert len(adapter.prepare_calls) == 1
     assert adapter.prepare_calls[0].intent.operation_id == (
-        report.recovered_operations[-1].operation_id
+        reservation.intent.operation_id
     )
     assert len(adapter.continuation_calls) == 1
     assert len(adapter.inspect_calls) == 1
-    assert report.recovered_operations[-1].accepted_result_payload == (
-        b'{"accepted":"deterministic"}'
+    assert report.live_ledger.operation_tails[-1].tail_kind is (
+        RunActionExecutionEventKind.ACTIVATION_COMMITTED
     )
 
 
@@ -1134,7 +1105,7 @@ def test_preparation_capability_is_spent_and_clone_fork_invalid(
 
     report = _recovery_coordinator(gate, adapter).recover(frontier)
 
-    assert report.is_complete
+    assert not report.is_complete
     assert adapter.active_clone_and_fork_rejected
     capability = adapter.preparation_capabilities[0]
     with pytest.raises(RunActionRecoveryError, match="not in its one invocation"):
@@ -1171,7 +1142,7 @@ def test_activation_capability_is_spent_and_clone_fork_invalid(
 
     report = _recovery_coordinator(gate, adapter).recover(frontier)
 
-    assert report.is_complete
+    assert not report.is_complete
     capability = adapter.stage_calls[0]
     with pytest.raises(RunActionRecoveryError, match="not in its one invocation"):
         capability.request_payload
@@ -1212,7 +1183,7 @@ def test_committed_continuation_capability_is_active_only_once(
 
     report = _recovery_coordinator(gate, adapter).recover(frontier)
 
-    assert report.is_complete
+    assert not report.is_complete
     assert adapter.active_clone_and_fork_rejected
     capability = adapter.continuation_calls[0]
     with pytest.raises(RunActionRecoveryError, match="not in its one invocation"):
@@ -1302,7 +1273,7 @@ def test_committed_continuation_reuses_exact_inspection_seal(
 
     report = _recovery_coordinator(gate, adapter).recover(frontier)
 
-    assert report.is_complete
+    assert not report.is_complete
     assert adapter.token_revalidated
 
 
@@ -1385,7 +1356,6 @@ def test_recovery_callback_holds_shared_publication_lock(
     publisher_case,
 ) -> None:
     frontier, gate, reservation, _payload = _reserved_case(publisher_case)
-    publisher = gate._publisher
     checkpoint_lock_path = (
         publisher_case["active"].run_root
         / publisher_case["settings"].run_checkpoint_lock_path
@@ -1397,24 +1367,11 @@ def test_recovery_callback_holds_shared_publication_lock(
 
     report = _recovery_coordinator(gate, adapter).recover(frontier)
 
-    assert report.is_complete
+    assert not report.is_complete
     assert adapter.exclusive_lock_rejections == 1
-    successor_bundle, successor_checkpoint = _successor_at_boundary(
-        publisher_case,
-        publisher,
-        frontier,
-        RunSafetyBoundary.IMPLEMENTATION,
-    )
-    successor = publisher.publish(
-        publisher.issue_publication_permit(
-            frontier,
-            successor_checkpoint,
-            successor_bundle,
-        ),
-        successor_checkpoint,
-        successor_bundle,
-    )
-    assert successor.checkpoint == successor_checkpoint
+    with checkpoint_lock_path.open("r+b", buffering=0) as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 def test_allocation_crash_recovery_reuses_exact_durable_authority(
@@ -1441,7 +1398,7 @@ def test_allocation_crash_recovery_reuses_exact_durable_authority(
     )
 
     allocation_crash.crash_after_preparation = False
-    assert coordinator.recover(frontier).is_complete
+    assert not coordinator.recover(frontier).is_complete
     assert allocation_crash.prepare_modes == [
         RunActionPreparationMode.CREATE_ALLOCATED,
         RunActionPreparationMode.REOPEN_ALLOCATED,
@@ -1532,7 +1489,7 @@ def test_prepared_crash_recovery_uses_revalidation_mode(
     )
 
     coordinator._security_is_current = lambda _frontier: True
-    assert coordinator.recover(frontier).is_complete
+    assert not coordinator.recover(frontier).is_complete
     assert prepared_crash.prepare_modes == [
         RunActionPreparationMode.CREATE_ALLOCATED,
         RunActionPreparationMode.REVALIDATE_PREPARED,
@@ -1751,7 +1708,7 @@ def test_committed_inert_recovery_activates_same_spawn_without_repreparing(
     adapter.observation_state = RunActionCommittedSpawnState.INERT_CONTINUABLE
     report = coordinator.recover(frontier)
 
-    assert report.is_complete
+    assert not report.is_complete
     assert len(adapter.prepare_calls) == 1
     assert len(adapter.continuation_calls) == 1
     assert len(adapter.continuation_attempts) == 2
@@ -1760,8 +1717,10 @@ def test_committed_inert_recovery_activates_same_spawn_without_repreparing(
         (durable_prepared, durable_spawn),
     ]
     assert len(adapter.inspect_calls) == 2
-    terminal_events = report.recovered_operations[-1].events
-    assert terminal_events[:5] == durable_prefix
+    unresolved_events = gate._action_store.inspect().events_for(
+        reservation.intent.operation_id
+    )
+    assert unresolved_events == durable_prefix
 
 
 def test_failed_edit_recovery_terminates_with_unchanged_workspace(
@@ -1782,6 +1741,7 @@ def test_failed_edit_recovery_terminates_with_unchanged_workspace(
         reservation.intent.boundary_identity,
         disposition=RunActionResultDisposition.FAILED,
     )
+    _append_result_received(gate, reservation)
 
     report = _recovery_coordinator(gate, adapter).recover(frontier)
 
@@ -1817,6 +1777,7 @@ def test_successful_edit_recovery_promotes_isolated_result_workspace(
         "open_run_action_result_workspace",
         lambda _prepared, _capture: _FakeResultWorkspaceLease(candidate),
     )
+    _append_result_received(gate, reservation)
 
     report = _recovery_coordinator(gate, adapter).recover(frontier)
 
@@ -1873,6 +1834,7 @@ def test_durable_edit_decision_recovers_without_provider_or_interpreter(
         "open_run_action_result_workspace",
         lambda _prepared, _capture: _FakeResultWorkspaceLease(candidate),
     )
+    _append_result_received(gate, reservation)
     original = gate._action_store._publish_result_event
 
     def publish_decision_then_die(*arguments, **keywords):
@@ -1933,6 +1895,7 @@ def test_exchanged_edit_decision_recovers_before_event_8_without_stale_inspectio
         "open_run_action_result_workspace",
         lambda _prepared, _capture: _FakeResultWorkspaceLease(candidate),
     )
+    _append_result_received(gate, reservation)
     coordinator = _recovery_coordinator(gate, adapter)
     original_promote = coordinator._workspace_promoter._promote_decided
 
@@ -1990,6 +1953,7 @@ def test_accepted_edit_cleanup_retries_from_durable_event_8(
         "open_run_action_result_workspace",
         lambda _prepared, _capture: _FakeResultWorkspaceLease(candidate),
     )
+    _append_result_received(gate, reservation)
     original_unlink = promotion_module.os.unlink
     removed_entries = 0
 
@@ -2062,6 +2026,7 @@ def test_projected_event_8_cleanup_precedes_new_pending_edit_after_restart(
         "open_run_action_result_workspace",
         lambda _prepared, _capture: _FakeResultWorkspaceLease(candidate),
     )
+    _append_result_received(gate, reservation)
     coordinator = _recovery_coordinator(gate, adapter)
 
     def stop_before_cleanup(**_arguments):
@@ -2185,6 +2150,7 @@ def test_projected_event_8_cleanup_precedes_new_pending_edit_after_restart(
         reopened_gate,
         reopened_adapter,
     )
+    _append_result_received(reopened_gate, pending)
     original_publish = reopened_gate._action_store._publish_result_event
 
     def publish_second_decision_then_die(*arguments, **keywords):
@@ -2238,8 +2204,8 @@ def test_projected_event_8_cleanup_precedes_new_pending_edit_after_restart(
         RunActionExecutionEventKind.RESULT_ACCEPTED
     )
     assert terminal_events[-2].result_decision.workspace_promotion is not None
-    assert len(reopened_adapter.prepare_calls) == 1
-    assert len(reopened_adapter.continuation_calls) == 1
+    assert not reopened_adapter.prepare_calls
+    assert not reopened_adapter.continuation_calls
     assert len(guarded_interpreter.interpret_calls) == 2
     assert prior_cleanup_calls == 0
     staging = (
@@ -2251,16 +2217,16 @@ def test_projected_event_8_cleanup_precedes_new_pending_edit_after_restart(
 
 
 @pytest.mark.parametrize(
-    ("state", "expected_continuation_calls", "expected_terminal"),
+    ("state", "expected_complete", "expected_terminal"),
     (
         (
             RunActionCommittedSpawnState.RUNNING_CONTINUABLE,
-            1,
-            RunActionExecutionEventKind.RESULT_ACCEPTED,
+            False,
+            RunActionExecutionEventKind.ACTIVATION_COMMITTED,
         ),
         (
             RunActionCommittedSpawnState.QUIESCENT_RECHECKABLE,
-            1,
+            True,
             RunActionExecutionEventKind.INTERRUPTED,
         ),
     ),
@@ -2268,7 +2234,7 @@ def test_projected_event_8_cleanup_precedes_new_pending_edit_after_restart(
 def test_committed_spawn_is_queried_and_never_reactivated(
     publisher_case,
     state,
-    expected_continuation_calls,
+    expected_complete,
     expected_terminal,
 ) -> None:
     frontier, gate, reservation, payload = _reserved_case(publisher_case)
@@ -2280,12 +2246,13 @@ def test_committed_spawn_is_queried_and_never_reactivated(
 
     report = _recovery_coordinator(gate, adapter).recover(frontier)
 
-    assert report.is_complete
+    assert report.is_complete is expected_complete
     assert not adapter.prepare_calls
     assert len(adapter.inspect_calls) == 1
     assert not hasattr(adapter.inspect_calls[0], "request_payload")
-    assert len(adapter.continuation_calls) == expected_continuation_calls
-    assert report.recovered_operations[-1].events[-1].event_kind is (expected_terminal)
+    assert len(adapter.continuation_calls) == 1
+    events = gate._action_store.inspect().events_for(reservation.intent.operation_id)
+    assert events[-1].event_kind is expected_terminal
 
 
 def test_quiescent_edit_rejects_a_host_workspace_successor(
@@ -2397,7 +2364,6 @@ def test_continuation_without_a_result_remains_unresolved(
     adapter = _FakeExecutionAdapter(
         reservation.intent.boundary_identity,
         observation_state=(RunActionCommittedSpawnState.RUNNING_CONTINUABLE),
-        continuation_result=False,
     )
 
     report = _recovery_coordinator(gate, adapter).recover(frontier)
@@ -2446,7 +2412,6 @@ def test_published_release_is_adopted_after_security_advance(
     adapter = _AdoptionAwarePendingAdapter(
         reservation.intent.boundary_identity,
         observation_state=(RunActionCommittedSpawnState.RUNNING_CONTINUABLE),
-        continuation_result=False,
     )
 
     report = _recovery_coordinator(gate, adapter).recover(frontier)
@@ -2681,6 +2646,7 @@ def test_workspace_mutation_during_interpretation_never_becomes_terminal(
     publisher_case,
 ) -> None:
     frontier, gate, reservation, _payload = _reserved_case(publisher_case)
+    _append_result_received(gate, reservation)
     adapter = _FakeExecutionAdapter(reservation.intent.boundary_identity)
     adapter.result_interpreter = _WorkspaceMutatingResultInterpreter(
         reservation.intent.boundary_identity.result_interpreter_identity
@@ -2760,7 +2726,7 @@ def test_activation_staging_crash_reopens_only_as_unactivated_spawn(
     crashing.fail_activation = False
     crashing.observation_state = RunActionCommittedSpawnState.INERT_CONTINUABLE
     report = coordinator.recover(frontier)
-    assert report.is_complete
+    assert not report.is_complete
     assert len(crashing.continuation_calls) == 1
     assert len(crashing.inspect_calls) == 2
 
@@ -3237,6 +3203,6 @@ def test_fresh_embedding_recovery_never_receives_workspace_descriptor(
 
     report = _recovery_coordinator(gate, adapter).recover(frontier)
 
-    assert report.is_complete
+    assert not report.is_complete
     assert len(adapter.continuation_calls) == 1
     assert not hasattr(adapter.continuation_calls[0], "workspace_descriptor")

@@ -18,6 +18,8 @@ from kapso.cross_run.launch.run_action_recovery import (
     RunActionCommittedSpawnObservation,
     RunActionCommittedSpawnQuery,
     RunActionCommittedSpawnState,
+    RunActionContinuationOutcome,
+    RunActionContinuationState,
     RunActionRecoveryError,
 )
 from kapso.cross_run.launch.run_action_release_contracts import (
@@ -142,7 +144,11 @@ class _ReleaseAdapter:
         self._callback = callback
 
     def continue_committed_once(self, capability):
-        return self._callback(capability)
+        self._callback(capability)
+        return RunActionContinuationOutcome(
+            state=RunActionContinuationState.PENDING,
+            result=None,
+        )
 
 
 def _capability(
@@ -666,7 +672,11 @@ def test_release_publication_is_owner_thread_and_running_state_bound(tmp_path):
                 blocked_workload_lease=lease,
             )
 
-    capability._invoke_once(_ReleaseAdapter(release))
+    with pytest.raises(
+        RunActionRecoveryError,
+        match="terminal continuation lacks its trusted reinspection",
+    ):
+        capability._invoke_once(_ReleaseAdapter(release))
 
     assert failures == ["thread"]
     assert authority.calls == []

@@ -46,6 +46,7 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RunActionRuntimeVolumeEvidence,
     RunActionRuntimeVolumeLayoutProof,
     RunActionRuntimeVolumeSentinelEvidence,
+    RunActionTerminalObservation,
     RunActionVolumeKeeperEvidence,
     issue_runtime_volume_authority,
     run_action_activated_volume_evidence_matches,
@@ -1187,6 +1188,218 @@ def open_run_action_result_workspace(
         )
         lease._descriptors = descriptors.pop_all()
     return lease
+
+
+def capture_run_action_result_file(
+    prepared: RunActionPreparedExecution,
+    terminal: RunActionTerminalObservation,
+    volume: DockerRunActionVolumeObservation,
+    *,
+    settings: LaunchSettings,
+) -> tuple[RunActionResultCaptureReceipt, bytes]:
+    """Capture the original bounded result inode through its keeper-mounted root."""
+
+    if (
+        type(prepared) is not RunActionPreparedExecution
+        or type(terminal) is not RunActionTerminalObservation
+        or type(volume) is not DockerRunActionVolumeObservation
+        or type(settings) is not LaunchSettings
+    ):
+        raise RunActionRuntimeVolumeError(
+            "result capture requires exact terminal and runtime authority"
+        )
+    authority = prepared.runtime_volume_authority
+    result_parent = prepared.result_directory
+    result_file = prepared.result_file
+    policy_limit = (
+        prepared.preparation_claim.execution_policy.supervisor_limits.result_size_bytes
+    )
+    if (
+        result_file.payload_size_limit_bytes != policy_limit
+        or policy_limit != settings.run_action_result_size_bytes
+        or terminal.exit_code != 0
+        or terminal.oom_killed is not False
+        or terminal.prepared_execution_id != prepared.prepared_execution_id
+        or terminal.provider_execution_id
+        != prepared.inert_container_evidence.container_id
+        or terminal.runtime_volume_authority_id != authority.runtime_volume_authority_id
+        or terminal.generation_nonce != authority.generation_nonce
+        or terminal.observed_inspect_projection
+        != prepared.inert_container_evidence.issued_create_projection
+        or volume.volume_authority_id != authority.runtime_volume_authority_id
+        or volume.volume_name != authority.volume_name
+    ):
+        raise RunActionRuntimeVolumeError(
+            "result capture differs from prepared terminal authority"
+        )
+    expected_root_entries = tuple(
+        sorted((*_expected_directory_names(prepared.preparation_claim), _SENTINEL_NAME))
+    )
+    keeper = prepared.volume_keeper_evidence
+    prepared_volume = prepared.runtime_volume_evidence
+    with ExitStack() as descriptors:
+        mounted_volume = _open_mounted_runtime_volume(descriptors, keeper)
+        if (
+            mounted_volume.root_mount_id != prepared_volume.root_mount_id
+            or mounted_volume.root_device != prepared_volume.root_device
+            or mounted_volume.root_inode != prepared_volume.root_inode
+        ):
+            raise RunActionRuntimeVolumeError(
+                "result capture runtime volume was substituted"
+            )
+        root_metadata_before = os.fstat(mounted_volume.root_descriptor)
+        if tuple(sorted(os.listdir(mounted_volume.root_descriptor))) != (
+            expected_root_entries
+        ):
+            raise RunActionRuntimeVolumeError(
+                "result capture runtime volume root topology is incomplete"
+            )
+        sentinel_observation = _open_exact_regular_file(
+            descriptors,
+            mounted_volume.root_descriptor,
+            _SENTINEL_NAME,
+            expected_payload=authority.generation_nonce.encode("ascii"),
+            expected_mode=_SENTINEL_MODE,
+            authority=authority,
+            root_mount_id=mounted_volume.root_mount_id,
+            root_device=mounted_volume.root_device,
+        )
+        _require_exact_sentinel_observation(
+            sentinel_observation,
+            prepared_volume.sentinel_evidence,
+        )
+        result_parent_descriptor = _open_activation_subpath_directory(
+            descriptors,
+            mounted_volume,
+            authority,
+            result_parent.directory_relative_path,
+            result_parent.mount_id,
+            result_parent.device,
+            result_parent.inode,
+        )
+        _require_exact_activation_directory(
+            result_parent,
+            mounted_volume.root_descriptor,
+            result_parent_descriptor,
+            expected_entries=("result.blob",),
+        )
+        result_descriptor = os.open(
+            "result.blob",
+            os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW | os.O_CLOEXEC,
+            dir_fd=result_parent_descriptor,
+        )
+        descriptors.callback(os.close, result_descriptor)
+        result_metadata_before = os.fstat(result_descriptor)
+        result_mount_id_before = read_run_action_descriptor_mount_id(result_descriptor)
+        if (
+            not stat.S_ISREG(result_metadata_before.st_mode)
+            or result_metadata_before.st_uid != result_file.owner_user_id
+            or result_metadata_before.st_gid != result_file.owner_group_id
+            or stat.S_IMODE(result_metadata_before.st_mode) != result_file.mode
+            or result_metadata_before.st_nlink != result_file.link_count
+            or not 0 < result_metadata_before.st_size <= policy_limit
+            or result_mount_id_before != result_file.mount_id
+            or result_metadata_before.st_dev != result_file.device
+            or result_metadata_before.st_ino != result_file.inode
+        ):
+            raise RunActionRuntimeVolumeError(
+                "result capture file is empty, oversized, or substituted"
+            )
+        os.fsync(result_descriptor)
+        os.fsync(result_parent_descriptor)
+        result_metadata_after_sync = os.fstat(result_descriptor)
+        result_mount_id_after_sync = read_run_action_descriptor_mount_id(
+            result_descriptor
+        )
+        filesystem_before = os.fstatvfs(mounted_volume.root_descriptor)
+        _require_consistent_filesystem(filesystem_before)
+        if (
+            _stable_metadata(result_metadata_after_sync)
+            != _stable_metadata(result_metadata_before)
+            or result_mount_id_after_sync != result_mount_id_before
+        ):
+            raise RunActionRuntimeVolumeError(
+                "result capture file changed while it was synchronized"
+            )
+        payload = _read_bounded_descriptor_payload(
+            result_descriptor,
+            policy_limit + 1,
+        )
+        if (
+            not payload
+            or len(payload) > policy_limit
+            or len(payload) != result_metadata_before.st_size
+        ):
+            raise RunActionRuntimeVolumeError(
+                "result capture payload is empty, oversized, or unstable"
+            )
+        captured_file = _ExactRegularFileObservation(
+            descriptor=result_descriptor,
+            parent_descriptor=result_parent_descriptor,
+            name="result.blob",
+            metadata=result_metadata_before,
+            mount_id=result_mount_id_before,
+            payload=payload,
+        )
+        _require_same_exact_regular_file(captured_file)
+        _require_exact_activation_directory(
+            result_parent,
+            mounted_volume.root_descriptor,
+            result_parent_descriptor,
+            expected_entries=("result.blob",),
+        )
+        _require_same_exact_regular_file(sentinel_observation)
+        _require_same_mounted_runtime_volume(mounted_volume, keeper)
+        filesystem_after = os.fstatvfs(mounted_volume.root_descriptor)
+        root_metadata_after = os.fstat(mounted_volume.root_descriptor)
+        if (
+            _stable_filesystem(filesystem_after)
+            != _stable_filesystem(filesystem_before)
+            or _root_metadata_identity(root_metadata_after)
+            != _root_metadata_identity(root_metadata_before)
+            or tuple(sorted(os.listdir(mounted_volume.root_descriptor)))
+            != expected_root_entries
+        ):
+            raise RunActionRuntimeVolumeError(
+                "result capture runtime volume changed during observation"
+            )
+        captured_volume = _mint_runtime_volume_evidence(
+            authority,
+            volume,
+            keeper,
+            root_mount_id=mounted_volume.root_mount_id,
+            root_device=mounted_volume.root_device,
+            root_inode=mounted_volume.root_inode,
+            sentinel_evidence=prepared_volume.sentinel_evidence,
+            filesystem=filesystem_after,
+        )
+        _require_result_volume_occurrence(prepared, captured_volume)
+        receipt = RunActionResultCaptureReceipt.mint(
+            terminal_observation_id=terminal.terminal_observation_id,
+            prepared_parent_authority_id=(result_parent.prepared_runtime_directory_id),
+            prepared_file_id=result_file.prepared_file_id,
+            parent_mount_id=result_parent.mount_id,
+            parent_device=result_parent.device,
+            parent_inode=result_parent.inode,
+            runtime_volume_authority_id=authority.runtime_volume_authority_id,
+            reobserved_volume_evidence=captured_volume,
+            prepared_sentinel_evidence_id=(
+                prepared_volume.sentinel_evidence.runtime_volume_sentinel_evidence_id
+            ),
+            generation_nonce=authority.generation_nonce,
+            relative_path=result_file.relative_path,
+            file_type=result_file.file_type,
+            owner_user_id=result_metadata_before.st_uid,
+            owner_group_id=result_metadata_before.st_gid,
+            mode=stat.S_IMODE(result_metadata_before.st_mode),
+            link_count=result_metadata_before.st_nlink,
+            size_bytes=len(payload),
+            content_digest=tree_or_blob_digest(payload),
+            mount_id=result_mount_id_before,
+            device=result_metadata_before.st_dev,
+            inode=result_metadata_before.st_ino,
+        )
+        return receipt, payload
 
 
 def _result_workspace_matches_prepared(
@@ -2883,7 +3096,7 @@ def _open_exact_regular_file(
 ) -> _ExactRegularFileObservation:
     descriptor = os.open(
         name,
-        os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
+        os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW | os.O_CLOEXEC,
         dir_fd=parent_descriptor,
     )
     descriptors.callback(os.close, descriptor)
@@ -2933,7 +3146,7 @@ def _require_same_exact_regular_file(
     mount_id = read_run_action_descriptor_mount_id(observation.descriptor)
     path_descriptor = os.open(
         observation.name,
-        os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
+        os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW | os.O_CLOEXEC,
         dir_fd=observation.parent_descriptor,
     )
     with ExitStack() as path_descriptors:
@@ -3633,6 +3846,7 @@ __all__ = [
     "RunActionControlDirectoryLease",
     "RunActionResultWorkspaceLease",
     "RunActionRuntimeVolumeError",
+    "capture_run_action_result_file",
     "deliver_and_reobserve_runtime_volume_activation",
     "materialize_runtime_volume_layout",
     "observe_empty_runtime_volume",

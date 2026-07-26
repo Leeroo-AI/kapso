@@ -952,11 +952,23 @@ trusted terminal: a terminal adapter cannot return even `PENDING` without
 completing the leaf, and `RESULT_CAPTURED` must carry the retained observation
 unchanged. Exit zero, nonzero, and OOM remain typed terminal facts; only the
 adopted-release result join admits zero/no-OOM capture from the same released
-container and start timestamp. Descriptor-bound result capture, positive cleanup
-authority, and production adapters remain the next slices. No production caller
-can receive Docker start authority from the reservation gate; M9 activation must
-continue to route every post-reservation transition through the coordinator's
-sealed capabilities.
+container and start timestamp. Descriptor-bound result capture is now
+implemented as a second private trusted leaf. It retains the adopted release,
+same host boot, exact Docker inventory, and terminal occurrence around a
+keeper-root descriptor read; reopens the original prepared result inode without
+following links or blocking on special files; and sandwiches its parent,
+sentinel, keeper generation, root topology, and `statvfs` evidence. The
+configured result bound is checked against the policy, the complete nonempty
+payload is read through EOF, and capture authority can be taken only after the
+trusted terminal is observed and no later than the original release execution
+deadline. Once authorized, bounded descriptor I/O may cross that deadline; host
+I/O latency cannot change provider success. The capability registers the exact
+`RunActionProviderResult`: a fabricated result, a substituted equal-shape
+capture, or returning `PENDING` after consuming capture authority is rejected.
+Positive termination and cleanup authority and production adapters remain the
+next slices. No production caller can receive Docker start authority from the
+reservation gate; M9 activation must continue to route every post-reservation
+transition through the coordinator's sealed capabilities.
 
 The coordinator owns one process-bound, non-clonable implementation catalog fixed
 at composition; `recover()` accepts no caller-selected implementation. Each
@@ -1066,8 +1078,9 @@ this path is activated.
   five events.
 - After the released target exits, reopen event 5, descriptor-adopt the same
   release, parse the exact exited Docker occurrence twice, consume one sealed
-  terminal reinspection capability, and prove the ledger remains at event 5
-  without result reads or cleanup.
+  terminal reinspection capability, descriptor-capture the original bounded
+  result inode, and prove the exact result graph is interpreted and durably
+  accepted through event 8 without cleanup.
 - Verify expert repo is writable only inside the run workspace and snapshot/adapter
   roots remain read-only.
 - Verify old `initial_repo` and checkpoint paths are absent after activation.

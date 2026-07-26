@@ -48,6 +48,10 @@ from kapso.cross_run.launch.run_action_recovery import (
     RunActionCommittedSpawnState,
     RunActionContinuationOutcome,
     RunActionContinuationState,
+    RunActionInterpretedResult,
+)
+from kapso.cross_run.launch.run_action_result_capture import (
+    capture_run_action_terminal_result,
 )
 from kapso.cross_run.launch.run_action_resolved_workload import (
     open_run_action_blocked_workload,
@@ -66,7 +70,11 @@ from kapso.cross_run.launch.run_action_terminal_inspection import (
     inspect_run_action_terminal,
     reinspect_run_action_terminal,
 )
-from kapso.cross_run.launch.run_action_store import _RUN_ACTION_RECOVERY_AUTHORITY
+from kapso.cross_run.launch.run_action_store import (
+    _RUN_ACTION_RECOVERY_AUTHORITY,
+    RunActionExecutionEventKind,
+    RunActionResultDisposition,
+)
 from kapso.cross_run.launch.run_action_reservation_contracts import (
     RunActionWorkspaceBinding,
 )
@@ -128,6 +136,7 @@ from test_run_state_publisher import publisher_case
 _CANONICAL_CONFIG_PATH = "src/kapso/config.yaml"
 _CONTAINER_ID_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 _ORIGINAL_SUBPROCESS_RUN = subprocess.run
+_LIVE_RESULT_PAYLOAD = b'{"live":"captured"}'
 
 
 class _UnusedLiveResultInterpreter:
@@ -136,6 +145,21 @@ class _UnusedLiveResultInterpreter:
 
     def interpret(self, *, request_payload, result_payload):
         raise AssertionError("blocked-workload proof must not interpret a result")
+
+
+class _LiveAcceptedResultInterpreter:
+    def __init__(self, result_interpreter_identity) -> None:
+        self.result_interpreter_identity = result_interpreter_identity
+
+    def interpret(self, *, request_payload, result_payload):
+        if request_payload != b"complete request":
+            raise AssertionError("live result interpreter received another request")
+        if result_payload != _LIVE_RESULT_PAYLOAD:
+            raise AssertionError("live result interpreter received another result")
+        return RunActionInterpretedResult(
+            disposition=RunActionResultDisposition.SUCCEEDED,
+            accepted_result_payload=result_payload,
+        )
 
 
 class _LiveCredentialValidityAuthority:
@@ -294,7 +318,7 @@ class _LiveTerminalWorkloadAdapter:
             boundary_identity.execution_lifecycle_identity
         )
         self.execution_policy = execution_policy
-        self.result_interpreter = _UnusedLiveResultInterpreter(
+        self.result_interpreter = _LiveAcceptedResultInterpreter(
             boundary_identity.result_interpreter_identity
         )
         self._resource_manager = resource_manager
@@ -306,6 +330,7 @@ class _LiveTerminalWorkloadAdapter:
         self._launch_settings = launch_settings
         self.terminal_observation = None
         self.reinspected_terminal_observation = None
+        self.captured_result = None
 
     def prepared_event_size_bound(self, **_arguments):
         raise AssertionError("durable event 5 must not replay preparation")
@@ -358,9 +383,18 @@ class _LiveTerminalWorkloadAdapter:
         )
         if self.reinspected_terminal_observation != self.terminal_observation:
             raise AssertionError("terminal reinspection changed its occurrence")
+        self.captured_result = capture_run_action_terminal_result(
+            capability=capability,
+            resource_manager=self._resource_manager,
+            command=self._command,
+            helper_evidence=self._helper_evidence,
+            init_source_evidence=self._init_source_evidence,
+            docker_settings=self._docker_settings,
+            launch_settings=self._launch_settings,
+        )
         return RunActionContinuationOutcome(
-            state=RunActionContinuationState.PENDING,
-            result=None,
+            state=RunActionContinuationState.RESULT_CAPTURED,
+            result=self.captured_result,
         )
 
 
@@ -544,13 +578,15 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
                 "sh",
                 "-c",
                 (
-                    "printf started > /kapso/result/target-started"
+                    'printf \'{"live":"captured"}\''
+                    " > /kapso/result/result.blob"
+                    " && printf started > /kapso/tmp/target-started"
                     " && grep -Fqx 'complete request' /kapso/input/request.blob"
                     " && grep -Fqx 'credential bytes'"
                     " /kapso/credentials/credentials"
                     " && test -d /kapso/workspace/.git"
                 ),
-                "target; printf injected > /kapso/result/barrier-injection",
+                "target; printf injected > /kapso/tmp/barrier-injection",
             ),
         )
         policy = _remint_policy(
@@ -1273,8 +1309,8 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             )
         )
         for forbidden_path in (
-            "/kapso/runtime-volume/result/target-started",
-            "/kapso/runtime-volume/result/barrier-injection",
+            "/kapso/runtime-volume/temporary/target-started",
+            "/kapso/runtime-volume/temporary/barrier-injection",
         ):
             runtime.run_control(
                 (
@@ -1385,7 +1421,7 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
                 "/kapso-supervisor/busybox",
                 "test",
                 "-f",
-                "/kapso/runtime-volume/result/target-started",
+                "/kapso/runtime-volume/temporary/target-started",
             )
         )
         runtime.run_control(
@@ -1397,7 +1433,7 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
                 "test",
                 "!",
                 "-e",
-                "/kapso/runtime-volume/result/barrier-injection",
+                "/kapso/runtime-volume/temporary/barrier-injection",
             )
         )
         terminal_adapter = _LiveTerminalWorkloadAdapter(
@@ -1415,10 +1451,7 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             action_gate,
             terminal_adapter,
         ).recover(action_frontier)
-        assert not terminal_report.is_complete
-        assert terminal_report.unresolved_operation_id == (
-            layout_reservation.intent.operation_id
-        )
+        assert terminal_report.is_complete
         assert terminal_adapter.terminal_observation is not None
         assert (
             terminal_adapter.reinspected_terminal_observation
@@ -1430,6 +1463,8 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
         assert terminal_adapter.terminal_observation.started_at == (
             adapter.release_receipt.resolved_workload_observation.running_container_observation.started_at
         )
+        assert terminal_adapter.captured_result is not None
+        assert terminal_adapter.captured_result.result_payload == _LIVE_RESULT_PAYLOAD
         with open_run_action_release_inspection(
             activation_event=activation_event,
             launch_settings=cross_run_settings.launch,
@@ -1444,7 +1479,22 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
                     layout_reservation.intent.operation_id
                 )
             )
-            == 5
+            == 8
+        )
+        terminal_events = action_gate._action_store.inspect().events_for(
+            layout_reservation.intent.operation_id
+        )
+        assert terminal_events[5].event_kind is (
+            RunActionExecutionEventKind.RESULT_RECEIVED
+        )
+        assert terminal_events[5].result_receipt.terminal_observation == (
+            terminal_adapter.terminal_observation
+        )
+        assert terminal_events[5].result_receipt.result_capture_receipt == (
+            terminal_adapter.captured_result.result_capture_receipt
+        )
+        assert terminal_events[-1].event_kind is (
+            RunActionExecutionEventKind.RESULT_ACCEPTED
         )
 
         runtime.run_control(("container", "rm", "--force", "--volumes", layout_main_id))
