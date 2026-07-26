@@ -25,7 +25,7 @@ def mint_run_action_workload_release_receipt(
 ) -> RunActionWorkloadReleaseReceipt:
     """Mint only after joining the full resolved graph to typed event 5."""
 
-    _require_event_five_graph(
+    _require_durable_activation_graph(
         activation_event,
         resolved_workload_observation,
     )
@@ -51,7 +51,7 @@ def require_run_action_workload_release_receipt_matches_event(
         raise RunActionReleaseContractError(
             "workload release authority requires an exact receipt"
         )
-    _require_event_five_graph(
+    _require_durable_activation_graph(
         activation_event,
         receipt.resolved_workload_observation,
     )
@@ -61,7 +61,7 @@ def require_run_action_workload_release_receipt_matches_event(
         )
 
 
-def _require_event_five_graph(
+def _require_durable_activation_graph(
     activation_event: RunActionExecutionEvent,
     resolved_workload_observation: RunActionResolvedWorkloadObservation,
 ) -> None:

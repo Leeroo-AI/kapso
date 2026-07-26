@@ -168,7 +168,6 @@ def _termination_graph(reason):
             if adoption is None
             else adoption.workload_release_receipt.activation_event_id
         ),
-        activation_revalidation_receipt=activation,
         workload_release_adoption=adoption,
         terminal_observation=terminal,
         timeout_directive_publication=timeout,

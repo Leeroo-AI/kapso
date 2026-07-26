@@ -26,6 +26,7 @@ class RunActionExecutionEventKind(str, Enum):
     SPAWN_COMMITTED = "spawn_committed"
     ACTIVATION_COMMITTED = "activation_committed"
     RESULT_RECEIVED = "result_received"
+    PROVIDER_TERMINATED = "provider_terminated"
     RESULT_DECIDED = "result_decided"
     RESULT_ACCEPTED = "result_accepted"
     CANCELLED = "cancelled"
@@ -57,7 +58,10 @@ class RunActionOperationTail(StrictContract):
                 RunActionExecutionEventKind.FRONTIER_INVALIDATED,
             },
             5: {RunActionExecutionEventKind.ACTIVATION_COMMITTED},
-            6: {RunActionExecutionEventKind.RESULT_RECEIVED},
+            6: {
+                RunActionExecutionEventKind.RESULT_RECEIVED,
+                RunActionExecutionEventKind.PROVIDER_TERMINATED,
+            },
             7: {RunActionExecutionEventKind.RESULT_DECIDED},
             8: {RunActionExecutionEventKind.RESULT_ACCEPTED},
         }
@@ -143,6 +147,7 @@ class RunActionLedgerSnapshot(StrictContract):
             tail.operation_id: tail for tail in self.operation_tails
         }
         terminal_kinds = {
+            RunActionExecutionEventKind.PROVIDER_TERMINATED,
             RunActionExecutionEventKind.RESULT_ACCEPTED,
             RunActionExecutionEventKind.CANCELLED,
             RunActionExecutionEventKind.FRONTIER_INVALIDATED,

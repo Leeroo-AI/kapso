@@ -577,6 +577,7 @@ class RunStatePublisher:
                 "candidate action ledger differs from durable execution state"
             )
         terminal_kinds = {
+            RunActionExecutionEventKind.PROVIDER_TERMINATED,
             RunActionExecutionEventKind.RESULT_ACCEPTED,
             RunActionExecutionEventKind.CANCELLED,
             RunActionExecutionEventKind.FRONTIER_INVALIDATED,

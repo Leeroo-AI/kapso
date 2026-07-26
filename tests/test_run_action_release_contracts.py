@@ -174,6 +174,7 @@ def _activation_event(resolved, *, predecessor_label="event-four"):
         prepared_execution=None,
         spawn_commit=None,
         activation_revalidation_receipt=activation,
+        provider_termination_receipt=None,
         result_receipt=None,
         result_decision=None,
         acceptance=None,

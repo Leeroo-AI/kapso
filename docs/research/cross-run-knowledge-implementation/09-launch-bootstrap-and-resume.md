@@ -24,10 +24,11 @@ authority, and post-spawn request/credential delivery plus pre-start volume
 reobservation are crash-atomic and descriptor-bound. Full event-5 receipt
 assembly, committed-container reinspection and token-sealed start, terminal
 Docker inspection, and adopted-release result authority are implemented.
-Descriptor-bound result capture and the closed typed-termination evidence
-contracts are implemented. Physical timeout/termination registration, cleanup,
-OS executor activation, explicit E0/S-EMPTY provisioning orchestration, full
-policy refresh on resume, and API/runner activation remain.
+Descriptor-bound result capture, the closed typed-termination evidence
+contracts, and terminal event-6 persistence/replay are implemented. Physical
+timeout/termination registration, cleanup, OS executor activation, explicit
+E0/S-EMPTY provisioning orchestration, full policy refresh on resume, and
+API/runner activation remain.
 
 ## Objective
 
@@ -984,12 +985,16 @@ the exact volume and keeper remain, the main alone is absent, and release is
 absent under the exact control authority. The contracts bind the activation
 event, release adoption, terminal occurrence, immutable runtime-volume
 occurrence, deadlines, and publication inode. They do not yet authorize recovery
-or mutate the ledger: positive termination still requires a private physical
-leaf and sealed capability registration in the next slice. Cleanup and
-production adapters remain later slices. No production caller can receive
-Docker start authority from the reservation gate; M9 activation must continue
-to route every post-reservation transition through the coordinator's sealed
-capabilities.
+directly. The store can now persist a complete receipt only as terminal event 6
+after a pure join to durable allocation and activation. That event publishes no
+result blobs, cannot be extended, reopens across either publication crash side,
+and replays through recovery without invoking an adapter or interpreter.
+Production recovery still has no call site that can create it: positive
+termination requires a private physical leaf and sealed capability registration
+in the next slice. Cleanup and production adapters remain later slices. No
+production caller can receive Docker start authority from the reservation gate;
+M9 activation must continue to route every post-reservation transition through
+the coordinator's sealed capabilities.
 
 The recovery surface is now fail-closed ahead of typed termination. The
 proof-only `PROVEN_RESOURCE_LOST`, `QUIESCENT_RECHECKABLE`, and
@@ -998,9 +1003,10 @@ provider `INTERRUPTED` reasons and store mutation. Cancellation is expressed by
 its event kind, and a distinct `FRONTIER_INVALIDATED` event can close only an
 allocated or prepared pre-spawn prefix after its unchanged workspace is
 re-proved. A workspace mismatch remains unresolved. After durable event 5, the
-only admitted outcomes are `PENDING` or a privately registered
-descriptor-captured result; ambiguity cannot become terminal until the next
-slice supplies a complete registered termination receipt.
+production continuation still admits only `PENDING` or a privately registered
+descriptor-captured result. A complete pre-existing event-6 termination receipt
+is terminal and replayable, but no continuation can mint one until the next
+slice supplies trusted physical registration; ambiguity cannot become terminal.
 
 The coordinator owns one process-bound, non-clonable implementation catalog fixed
 at composition; `recover()` accepts no caller-selected implementation. Each

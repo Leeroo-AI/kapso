@@ -12,7 +12,12 @@ from threading import Barrier, Event
 import pytest
 
 import kapso.cross_run.launch.run_action_store as run_action_store_module
-from kapso.cross_run.canonical import content_id, tree_or_blob_digest
+from kapso.cross_run.canonical import (
+    canonical_json_bytes,
+    content_id,
+    tree_or_blob_digest,
+)
+from kapso.cross_run.contracts import ContractValidationError
 from kapso.cross_run.launch.run_action_contracts import RunActionIntent
 from kapso.cross_run.launch.run_action_gate import (
     bind_run_action_frontier,
@@ -20,7 +25,10 @@ from kapso.cross_run.launch.run_action_gate import (
     RunFrontierActionKind,
     RunFrontierWorkspaceAccess,
 )
-from kapso.cross_run.launch.run_action_ledger import RunActionLedgerError
+from kapso.cross_run.launch.run_action_ledger import (
+    RunActionLedgerError,
+    RunActionLedgerSnapshot,
+)
 from kapso.cross_run.launch.run_action_reservation_contracts import (
     RunActionReservation,
     RunActionWorkspaceBinding,
@@ -35,12 +43,18 @@ from kapso.cross_run.launch.run_action_store import (
     RunActionAcceptance,
     RunActionResultDecision,
     RunActionResultDisposition,
+    RunActionStoreInspection,
     RunActionStoreError,
 )
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RunActionPreparationAllocation,
     RunActionPreparationClaim,
     issue_runtime_volume_authority,
+)
+from kapso.cross_run.launch.run_action_termination_contracts import (
+    RunActionProviderTerminationDisposition,
+    RunActionProviderTerminationReason,
+    RunActionProviderTerminationReceipt,
 )
 from kapso.cross_run.launch.run_action_workspace_promotion import (
     RunActionWorkspacePromotion,
@@ -54,10 +68,16 @@ from test_run_frontier_action_gate import (
     _boundary_identity,
     _commit_workspace_edit,
     _reserve_implementation_agent,
+    _reserve_ideation_agent,
+    _successor_at_boundary,
 )
 from test_launch_resolver import resolver_case
 from test_run_state_publisher import publisher_case
 from test_run_action_release_contracts import _release_adoption_for_event
+from test_run_action_termination_contracts import (
+    _pre_release_loss,
+    _termination_graph,
+)
 from test_run_action_supervisor_contracts import (
     _activation_revalidation_receipt,
     _execution_policy,
@@ -195,6 +215,47 @@ def _record_captured_result(session, spawn, payload, security_observation):
     )
 
 
+def _released_provider_termination(session, spawn, security_observation):
+    prepared = session.events[2].prepared_execution
+    activation = _activation_revalidation_receipt(prepared, spawn)
+    if session.events[-1].event_kind is RunActionExecutionEventKind.SPAWN_COMMITTED:
+        session.commit_activation(activation)
+    adoption = _release_adoption_for_event(
+        session.events[4],
+        security_observation,
+    )
+    terminal = _remint_contract(
+        _terminal_observation(prepared, spawn, adoption),
+        exit_code=137,
+        oom_killed=True,
+    )
+    return RunActionProviderTerminationReceipt.mint(
+        disposition=RunActionProviderTerminationDisposition.FAILED,
+        reason=RunActionProviderTerminationReason.OOM,
+        activation_event_id=session.events[4].event_id,
+        workload_release_adoption=adoption,
+        terminal_observation=terminal,
+        timeout_directive_publication=None,
+        empty_result_capture_receipt=None,
+        pre_release_main_loss_observation=None,
+    )
+
+
+def _pre_release_provider_termination(session):
+    activation = session.events[4].activation_revalidation_receipt
+    loss = _pre_release_loss(activation, session.events[4].event_id)
+    return RunActionProviderTerminationReceipt.mint(
+        disposition=RunActionProviderTerminationDisposition.INTERRUPTED,
+        reason=RunActionProviderTerminationReason.PRE_RELEASE_MAIN_LOSS,
+        activation_event_id=session.events[4].event_id,
+        workload_release_adoption=None,
+        terminal_observation=None,
+        timeout_directive_publication=None,
+        empty_result_capture_receipt=None,
+        pre_release_main_loss_observation=loss,
+    )
+
+
 def _execution_event(
     *,
     reservation,
@@ -205,6 +266,7 @@ def _execution_event(
     prepared_execution=None,
     spawn_commit=None,
     activation_revalidation_receipt=None,
+    provider_termination_receipt=None,
     result_receipt=None,
     result_decision=None,
     acceptance=None,
@@ -219,6 +281,7 @@ def _execution_event(
         prepared_execution=prepared_execution,
         spawn_commit=spawn_commit,
         activation_revalidation_receipt=activation_revalidation_receipt,
+        provider_termination_receipt=provider_termination_receipt,
         result_receipt=result_receipt,
         result_decision=result_decision,
         acceptance=acceptance,
@@ -359,6 +422,407 @@ def test_action_store_reopens_complete_request_result_and_terminal_prefix(
             session.read_decided_result(session.events[6].result_decision)
             == accepted_result
         )
+
+
+def test_provider_termination_is_terminal_without_result_blobs(
+    publisher_case,
+):
+    frontier, request_payload, reservation, workspace = _reserved_action(
+        publisher_case,
+        operation_id="provider_terminated_0123456789abcdef",
+    )
+    store = _open_store(
+        publisher_case["active"],
+        publisher_case["settings"],
+    )
+    _reserve_action(store, reservation, request_payload)
+    with _open_session(store, reservation) as session:
+        _prepare_session(session)
+        spawn = session.commit_spawn(
+            security_observation_id=(
+                frontier.checkpoint.safety_state.security_observation.observation_id
+            ),
+            boundary_identity=reservation.intent.boundary_identity,
+        )
+        receipt = _released_provider_termination(
+            session,
+            spawn,
+            frontier.checkpoint.safety_state.security_observation,
+        )
+        assert session.terminate_provider(receipt) == receipt
+        event = session.events[-1]
+        assert event.event_number == 6
+        assert event.predecessor_event_id == session.events[4].event_id
+        assert event.event_kind is RunActionExecutionEventKind.PROVIDER_TERMINATED
+        assert event.provider_termination_receipt == receipt
+        assert event.result_receipt is None
+        with pytest.raises(RunActionStoreError, match="result_received tail"):
+            session.decide_result(
+                result_interpreter_identity=(
+                    reservation.intent.boundary_identity.result_interpreter_identity
+                ),
+                disposition=RunActionResultDisposition.FAILED,
+                accepted_result_payload=b'{"must":"not publish"}',
+                workspace_promotion=None,
+            )
+        with pytest.raises(RunActionStoreError, match="activation_committed tail"):
+            session.terminate_provider(receipt)
+
+    snapshot = store.snapshot()
+    assert snapshot.event_count == 6
+    assert snapshot.operation_tails[0].tail_kind is (
+        RunActionExecutionEventKind.PROVIDER_TERMINATED
+    )
+    store_path = (
+        publisher_case["active"].run_root
+        / publisher_case["settings"].run_action_store_path
+    )
+    assert not tuple(store_path.glob("result-*.blob"))
+    assert not tuple(store_path.glob("accepted-*.blob"))
+    extended_tail = replace(
+        snapshot.operation_tails[0],
+        event_ids=(
+            *snapshot.operation_tails[0].event_ids,
+            content_id(
+                "run-action-execution-event",
+                {"forbidden": "terminal extension"},
+            ),
+        ),
+        tail_kind=RunActionExecutionEventKind.RESULT_DECIDED,
+    )
+    extended = RunActionLedgerSnapshot.build((extended_tail,))
+    with pytest.raises(RunActionLedgerError, match="terminal predecessor"):
+        extended.require_predecessor(snapshot)
+
+    reopened = _open_store(
+        publisher_case["active"],
+        publisher_case["settings"],
+    )
+    with _open_session(reopened, reservation) as session:
+        assert session.events[-1] == event
+        assert session.read_request() == request_payload
+    assert RunActionStoreInspection.workspace_chain(
+        (reopened.inspect().events_for(reservation.intent.operation_id),)
+    ) == (
+        (
+            RunActionWorkspaceBinding.from_identity(workspace),
+            RunActionWorkspaceBinding.from_identity(workspace),
+        ),
+    )
+
+
+def test_provider_termination_rejects_event_position_and_graph_splices(
+    publisher_case,
+):
+    frontier, request_payload, reservation, _workspace = _reserved_action(
+        publisher_case,
+        operation_id="provider_termination_splice_0123456789abcdef",
+    )
+    store = _open_store(
+        publisher_case["active"],
+        publisher_case["settings"],
+    )
+    _reserve_action(store, reservation, request_payload)
+    with _open_session(store, reservation) as session:
+        _prepare_session(session)
+        spawn = session.commit_spawn(
+            security_observation_id=(
+                frontier.checkpoint.safety_state.security_observation.observation_id
+            ),
+            boundary_identity=reservation.intent.boundary_identity,
+        )
+        activation = _activation_revalidation_receipt(
+            session.events[2].prepared_execution,
+            spawn,
+        )
+        session.commit_activation(activation)
+        exact = _pre_release_provider_termination(session)
+        with pytest.raises(
+            RunActionStoreError,
+            match="terminal kind differs from its event position",
+        ):
+            _execution_event(
+                reservation=reservation,
+                event_number=5,
+                predecessor_event_id=session.events[3].event_id,
+                event_kind=RunActionExecutionEventKind.PROVIDER_TERMINATED,
+                provider_termination_receipt=exact,
+            )
+        with pytest.raises(
+            RunActionStoreError,
+            match="terminal kind differs from its event position",
+        ):
+            _execution_event(
+                reservation=reservation,
+                event_number=7,
+                predecessor_event_id=content_id(
+                    "run-action-execution-event",
+                    {"fixture": "event six"},
+                ),
+                event_kind=RunActionExecutionEventKind.PROVIDER_TERMINATED,
+                provider_termination_receipt=exact,
+            )
+        with pytest.raises(
+            RunActionStoreError,
+            match="durable events 2 and 5",
+        ):
+            session.terminate_provider(
+                _termination_graph(RunActionProviderTerminationReason.OOM)
+            )
+        foreign_event_id = content_id(
+            "run-action-execution-event",
+            {"fixture": "foreign activation"},
+        )
+        foreign_loss = _pre_release_loss(activation, foreign_event_id)
+        foreign_loss_receipt = RunActionProviderTerminationReceipt.mint(
+            disposition=RunActionProviderTerminationDisposition.INTERRUPTED,
+            reason=RunActionProviderTerminationReason.PRE_RELEASE_MAIN_LOSS,
+            activation_event_id=foreign_event_id,
+            workload_release_adoption=None,
+            terminal_observation=None,
+            timeout_directive_publication=None,
+            empty_result_capture_receipt=None,
+            pre_release_main_loss_observation=foreign_loss,
+        )
+        with pytest.raises(
+            RunActionStoreError,
+            match="durable events 2 and 5",
+        ):
+            session.terminate_provider(foreign_loss_receipt)
+        foreign_graph = _termination_graph(
+            RunActionProviderTerminationReason.PRE_RELEASE_MAIN_LOSS
+        )
+        foreign_loss_at_current_event = _remint_contract(
+            foreign_graph.pre_release_main_loss_observation,
+            activation_event_id=session.events[4].event_id,
+        )
+        foreign_graph_at_current_event = RunActionProviderTerminationReceipt.mint(
+            disposition=RunActionProviderTerminationDisposition.INTERRUPTED,
+            reason=RunActionProviderTerminationReason.PRE_RELEASE_MAIN_LOSS,
+            activation_event_id=session.events[4].event_id,
+            workload_release_adoption=None,
+            terminal_observation=None,
+            timeout_directive_publication=None,
+            empty_result_capture_receipt=None,
+            pre_release_main_loss_observation=foreign_loss_at_current_event,
+        )
+        with pytest.raises(
+            RunActionStoreError,
+            match="durable events 2 and 5",
+        ):
+            session.terminate_provider(foreign_graph_at_current_event)
+        session.terminate_provider(exact)
+
+
+@pytest.mark.parametrize("termination_event_committed", (False, True))
+def test_provider_termination_publication_recovers_exactly_across_crash(
+    publisher_case,
+    monkeypatch,
+    termination_event_committed,
+):
+    publication_state = "committed" if termination_event_committed else "absent"
+    frontier, request_payload, reservation, _workspace = _reserved_action(
+        publisher_case,
+        operation_id=f"termination_publication_{publication_state}_0123456789abcdef",
+    )
+    store = _open_store(
+        publisher_case["active"],
+        publisher_case["settings"],
+    )
+    _reserve_action(store, reservation, request_payload)
+    with _open_session(store, reservation) as session:
+        _prepare_session(session)
+        spawn = session.commit_spawn(
+            security_observation_id=reservation.frontier.security_observation_id,
+            boundary_identity=reservation.intent.boundary_identity,
+        )
+        receipt = _released_provider_termination(
+            session,
+            spawn,
+            frontier.checkpoint.safety_state.security_observation,
+        )
+
+    publish_event_locked = store._publish_event_locked
+
+    def interrupt_termination_publication(store_descriptor, operation_id, event):
+        if (
+            event.event_kind is RunActionExecutionEventKind.PROVIDER_TERMINATED
+            and not termination_event_committed
+        ):
+            raise RuntimeError("injected death before provider termination event")
+        publish_event_locked(store_descriptor, operation_id, event)
+        if event.event_kind is RunActionExecutionEventKind.PROVIDER_TERMINATED:
+            raise RuntimeError("injected death after provider termination event")
+
+    monkeypatch.setattr(
+        store,
+        "_publish_event_locked",
+        interrupt_termination_publication,
+    )
+    with pytest.raises(RuntimeError, match="provider termination event"):
+        with _open_session(store, reservation) as session:
+            session.terminate_provider(receipt)
+    monkeypatch.setattr(store, "_publish_event_locked", publish_event_locked)
+
+    reopened = _open_store(
+        publisher_case["active"],
+        publisher_case["settings"],
+    )
+    events = reopened.inspect().events_for(reservation.intent.operation_id)
+    expected_tail = (
+        RunActionExecutionEventKind.PROVIDER_TERMINATED
+        if termination_event_committed
+        else RunActionExecutionEventKind.ACTIVATION_COMMITTED
+    )
+    assert events[-1].event_kind is expected_tail
+    assert len(events) == (6 if termination_event_committed else 5)
+    store_path = (
+        publisher_case["active"].run_root
+        / publisher_case["settings"].run_action_store_path
+    )
+    assert not tuple(store_path.glob("result-*.blob"))
+    assert not tuple(store_path.glob("accepted-*.blob"))
+    with _open_session(reopened, reservation) as session:
+        if termination_event_committed:
+            with pytest.raises(
+                RunActionStoreError,
+                match="activation_committed tail",
+            ):
+                session.terminate_provider(receipt)
+        else:
+            session.terminate_provider(receipt)
+            assert session.events[-1].event_kind is (
+                RunActionExecutionEventKind.PROVIDER_TERMINATED
+            )
+
+
+@pytest.mark.parametrize("mutation", ("old", "unknown"))
+def test_store_rejects_old_or_unknown_provider_termination_event_json(
+    publisher_case,
+    mutation,
+):
+    frontier, request_payload, reservation, _workspace = _reserved_action(
+        publisher_case,
+        operation_id=f"termination_{mutation}_json_0123456789abcdef",
+    )
+    store = _open_store(
+        publisher_case["active"],
+        publisher_case["settings"],
+    )
+    _reserve_action(store, reservation, request_payload)
+    with _open_session(store, reservation) as session:
+        _prepare_session(session)
+        spawn = session.commit_spawn(
+            security_observation_id=(
+                frontier.checkpoint.safety_state.security_observation.observation_id
+            ),
+            boundary_identity=reservation.intent.boundary_identity,
+        )
+        receipt = _released_provider_termination(
+            session,
+            spawn,
+            frontier.checkpoint.safety_state.security_observation,
+        )
+        session.terminate_provider(receipt)
+        event = session.events[-1]
+    payload = event.to_dict()
+    if mutation == "old":
+        del payload["provider_termination_receipt"]
+    else:
+        payload["legacy_provider_interruption"] = "timeout"
+    event_path = (
+        publisher_case["active"].run_root
+        / publisher_case["settings"].run_action_store_path
+        / store._event_name(reservation.intent.operation_id, 6)
+    )
+    event_path.chmod(0o600)
+    event_path.write_bytes(canonical_json_bytes(payload))
+    event_path.chmod(0o400)
+
+    with pytest.raises(ContractValidationError, match="fields mismatch"):
+        _open_store(
+            publisher_case["active"],
+            publisher_case["settings"],
+        )
+
+
+def test_gate_allows_the_next_action_after_provider_termination(
+    publisher_case,
+):
+    _publisher, frontier, _security, gate = _action_case(publisher_case)
+    reservation = _reserve_ideation_agent(
+        gate,
+        frontier,
+        b'{"prompt":"provider will fail"}',
+    )
+    with _open_session(gate._action_store, reservation) as session:
+        _prepare_session(session)
+        spawn = session.commit_spawn(
+            security_observation_id=reservation.frontier.security_observation_id,
+            boundary_identity=reservation.intent.boundary_identity,
+        )
+        receipt = _released_provider_termination(
+            session,
+            spawn,
+            frontier.checkpoint.safety_state.security_observation,
+        )
+        session.terminate_provider(receipt)
+
+    terminated_ledger = gate._action_store.snapshot()
+    next_reservation = gate.reserve(
+        frontier,
+        kind=RunFrontierActionKind.CODING_AGENT,
+        boundary=RunSafetyBoundary.IDEATION,
+        operation_id="after_provider_termination_0123456789abcdef",
+        request_payload=b'{"prompt":"next action"}',
+        workspace_access=RunFrontierWorkspaceAccess.READ_ONLY,
+        boundary_identity=_boundary_identity(RunFrontierActionKind.CODING_AGENT),
+    )
+
+    assert terminated_ledger.event_count == 6
+    assert (
+        next_reservation.predecessor_ledger_snapshot_id
+        == terminated_ledger.ledger_snapshot_id
+    )
+
+
+def test_publisher_reconciles_provider_termination_as_unchanged_terminal(
+    publisher_case,
+):
+    publisher, frontier, _security, gate = _action_case(publisher_case)
+    reservation = _reserve_ideation_agent(
+        gate,
+        frontier,
+        b'{"prompt":"provider will terminate"}',
+    )
+    with _open_session(gate._action_store, reservation) as session:
+        _prepare_session(session)
+        spawn = session.commit_spawn(
+            security_observation_id=reservation.frontier.security_observation_id,
+            boundary_identity=reservation.intent.boundary_identity,
+        )
+        receipt = _released_provider_termination(
+            session,
+            spawn,
+            frontier.checkpoint.safety_state.security_observation,
+        )
+        session.terminate_provider(receipt)
+    bundle, checkpoint = _successor_at_boundary(
+        publisher_case,
+        publisher,
+        frontier,
+        RunSafetyBoundary.IDEATION,
+    )
+
+    published = publisher.publish(
+        publisher.issue_publication_permit(frontier, checkpoint, bundle),
+        checkpoint,
+        bundle,
+    )
+
+    assert published.projection.action_ledger.operation_tails[-1].tail_kind is (
+        RunActionExecutionEventKind.PROVIDER_TERMINATED
+    )
 
 
 def test_action_store_requires_exact_decision_before_acceptance(
@@ -1124,6 +1588,7 @@ def test_action_store_rejects_reminted_failed_edit_with_changed_workspace(
         prepared_execution=None,
         spawn_commit=None,
         activation_revalidation_receipt=None,
+        provider_termination_receipt=None,
         result_receipt=None,
         result_decision=None,
         acceptance=acceptance,

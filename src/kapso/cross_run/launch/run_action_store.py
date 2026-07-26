@@ -56,6 +56,10 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RunActionTerminalObservation,
     issue_runtime_volume_authority,
 )
+from kapso.cross_run.launch.run_action_termination_contracts import (
+    provider_termination_matches_durable_activation,
+    RunActionProviderTerminationReceipt,
+)
 from kapso.cross_run.launch.run_action_workspace_promotion import (
     RunActionWorkspacePromotion,
 )
@@ -79,6 +83,7 @@ _RUN_ACTION_STORE_AUTHORITY = object()
 _RUN_ACTION_RESERVATION_AUTHORITY = object()
 _RUN_ACTION_RECOVERY_AUTHORITY = object()
 _TERMINAL_EVENT_KINDS = {
+    RunActionExecutionEventKind.PROVIDER_TERMINATED,
     RunActionExecutionEventKind.RESULT_ACCEPTED,
     RunActionExecutionEventKind.CANCELLED,
     RunActionExecutionEventKind.FRONTIER_INVALIDATED,
@@ -90,6 +95,7 @@ _FUTURE_EVENT_COUNT_BY_TAIL = {
     RunActionExecutionEventKind.SPAWN_COMMITTED: 4,
     RunActionExecutionEventKind.ACTIVATION_COMMITTED: 3,
     RunActionExecutionEventKind.RESULT_RECEIVED: 2,
+    RunActionExecutionEventKind.PROVIDER_TERMINATED: 0,
     RunActionExecutionEventKind.RESULT_DECIDED: 1,
     RunActionExecutionEventKind.RESULT_ACCEPTED: 0,
     RunActionExecutionEventKind.CANCELLED: 0,
@@ -102,6 +108,7 @@ _FUTURE_RESULT_BLOB_COUNT_BY_TAIL = {
     RunActionExecutionEventKind.SPAWN_COMMITTED: 2,
     RunActionExecutionEventKind.ACTIVATION_COMMITTED: 2,
     RunActionExecutionEventKind.RESULT_RECEIVED: 1,
+    RunActionExecutionEventKind.PROVIDER_TERMINATED: 0,
     RunActionExecutionEventKind.RESULT_DECIDED: 0,
     RunActionExecutionEventKind.RESULT_ACCEPTED: 0,
     RunActionExecutionEventKind.CANCELLED: 0,
@@ -287,6 +294,7 @@ class RunActionExecutionEvent(StrictContract):
     prepared_execution: RunActionPreparedExecution | None
     spawn_commit: _RunActionSpawnCommit | None
     activation_revalidation_receipt: RunActionActivationRevalidationReceipt | None
+    provider_termination_receipt: RunActionProviderTerminationReceipt | None
     result_receipt: RunActionResultReceipt | None
     result_decision: RunActionResultDecision | None
     acceptance: RunActionAcceptance | None
@@ -318,6 +326,10 @@ class RunActionExecutionEvent(StrictContract):
                 self.activation_revalidation_receipt,
                 RunActionActivationRevalidationReceipt,
             ),
+            (
+                self.provider_termination_receipt,
+                RunActionProviderTerminationReceipt,
+            ),
             (self.result_receipt, RunActionResultReceipt),
             (self.result_decision, RunActionResultDecision),
             (self.acceptance, RunActionAcceptance),
@@ -335,6 +347,7 @@ class RunActionExecutionEvent(StrictContract):
             self.prepared_execution is not None,
             self.spawn_commit is not None,
             self.activation_revalidation_receipt is not None,
+            self.provider_termination_receipt is not None,
             self.result_receipt is not None,
             self.result_decision is not None,
             self.acceptance is not None,
@@ -342,6 +355,7 @@ class RunActionExecutionEvent(StrictContract):
         )
         expected = {
             RunActionExecutionEventKind.INTENT_RESERVED: (
+                False,
                 False,
                 False,
                 False,
@@ -360,10 +374,12 @@ class RunActionExecutionEvent(StrictContract):
                 False,
                 False,
                 False,
+                False,
             ),
             RunActionExecutionEventKind.EXECUTION_PREPARED: (
                 False,
                 True,
+                False,
                 False,
                 False,
                 False,
@@ -380,6 +396,7 @@ class RunActionExecutionEvent(StrictContract):
                 False,
                 False,
                 False,
+                False,
             ),
             RunActionExecutionEventKind.ACTIVATION_COMMITTED: (
                 False,
@@ -390,13 +407,26 @@ class RunActionExecutionEvent(StrictContract):
                 False,
                 False,
                 False,
+                False,
             ),
             RunActionExecutionEventKind.RESULT_RECEIVED: (
                 False,
                 False,
                 False,
                 False,
+                False,
                 True,
+                False,
+                False,
+                False,
+            ),
+            RunActionExecutionEventKind.PROVIDER_TERMINATED: (
+                False,
+                False,
+                False,
+                False,
+                True,
+                False,
                 False,
                 False,
                 False,
@@ -407,11 +437,13 @@ class RunActionExecutionEvent(StrictContract):
                 False,
                 False,
                 False,
+                False,
                 True,
                 False,
                 False,
             ),
             RunActionExecutionEventKind.RESULT_ACCEPTED: (
+                False,
                 False,
                 False,
                 False,
@@ -430,8 +462,10 @@ class RunActionExecutionEvent(StrictContract):
                 False,
                 False,
                 False,
+                False,
             ),
             RunActionExecutionEventKind.FRONTIER_INVALIDATED: (
+                False,
                 False,
                 False,
                 False,
@@ -447,11 +481,18 @@ class RunActionExecutionEvent(StrictContract):
                 "run action execution event payload differs from its kind"
             )
         if (
-            self.event_kind is RunActionExecutionEventKind.CANCELLED
-            and self.event_number != 2
-        ) or (
-            self.event_kind is RunActionExecutionEventKind.FRONTIER_INVALIDATED
-            and self.event_number not in {3, 4}
+            (
+                self.event_kind is RunActionExecutionEventKind.CANCELLED
+                and self.event_number != 2
+            )
+            or (
+                self.event_kind is RunActionExecutionEventKind.FRONTIER_INVALIDATED
+                and self.event_number not in {3, 4}
+            )
+            or (
+                self.event_kind is RunActionExecutionEventKind.PROVIDER_TERMINATED
+                and self.event_number != 6
+            )
         ):
             raise RunActionStoreError(
                 "run action terminal kind differs from its event position"
@@ -573,7 +614,10 @@ class RunActionStoreInspection:
                 terminal.event_kind is RunActionExecutionEventKind.FRONTIER_INVALIDATED
             ):
                 after = terminal.workspace_after
-            elif terminal.event_kind is RunActionExecutionEventKind.CANCELLED:
+            elif terminal.event_kind in {
+                RunActionExecutionEventKind.CANCELLED,
+                RunActionExecutionEventKind.PROVIDER_TERMINATED,
+            }:
                 after = before
             else:
                 raise RunActionStoreError(
@@ -835,6 +879,30 @@ class _RunActionExecutionSession:
         self._events = (*self._events, event)
         return result_receipt
 
+    def terminate_provider(
+        self,
+        receipt: RunActionProviderTerminationReceipt,
+    ) -> RunActionProviderTerminationReceipt:
+        """Persist one complete typed provider termination as terminal event 6."""
+
+        self._require_tail(RunActionExecutionEventKind.ACTIVATION_COMMITTED)
+        if not provider_termination_matches_durable_activation(
+            receipt,
+            self._events[4].event_id,
+            self._events[1].preparation_allocation,
+            self._events[4].activation_revalidation_receipt,
+        ):
+            raise RunActionStoreError(
+                "provider termination differs from durable events 2 and 5"
+            )
+        self._append(
+            self._event(
+                RunActionExecutionEventKind.PROVIDER_TERMINATED,
+                provider_termination_receipt=receipt,
+            )
+        )
+        return receipt
+
     def decide_result(
         self,
         *,
@@ -969,6 +1037,7 @@ class _RunActionExecutionSession:
         if not self._events or self._events[-1].event_kind not in {
             RunActionExecutionEventKind.SPAWN_COMMITTED,
             RunActionExecutionEventKind.ACTIVATION_COMMITTED,
+            RunActionExecutionEventKind.PROVIDER_TERMINATED,
             RunActionExecutionEventKind.RESULT_RECEIVED,
             RunActionExecutionEventKind.RESULT_DECIDED,
             RunActionExecutionEventKind.RESULT_ACCEPTED,
@@ -1003,6 +1072,7 @@ class _RunActionExecutionSession:
         activation_revalidation_receipt: (
             RunActionActivationRevalidationReceipt | None
         ) = None,
+        provider_termination_receipt: RunActionProviderTerminationReceipt | None = None,
         result_receipt: RunActionResultReceipt | None = None,
         result_decision: RunActionResultDecision | None = None,
         acceptance: RunActionAcceptance | None = None,
@@ -1019,6 +1089,7 @@ class _RunActionExecutionSession:
             prepared_execution=prepared_execution,
             spawn_commit=spawn_commit,
             activation_revalidation_receipt=activation_revalidation_receipt,
+            provider_termination_receipt=provider_termination_receipt,
             result_receipt=result_receipt,
             result_decision=result_decision,
             acceptance=acceptance,
@@ -1166,6 +1237,7 @@ class RunActionExecutionStore:
             prepared_execution=None,
             spawn_commit=None,
             activation_revalidation_receipt=None,
+            provider_termination_receipt=None,
             result_receipt=None,
             result_decision=None,
             acceptance=None,
@@ -2574,6 +2646,11 @@ def _validate_event_prefix(events: tuple[RunActionExecutionEvent, ...]) -> None:
             RunActionExecutionEventKind.INTENT_RESERVED,
             RunActionExecutionEventKind.CANCELLED,
         )
+    elif events[-1].event_kind is RunActionExecutionEventKind.PROVIDER_TERMINATED:
+        expected_kinds = (
+            *normal_kinds[:5],
+            RunActionExecutionEventKind.PROVIDER_TERMINATED,
+        )
     elif events[-1].event_kind is RunActionExecutionEventKind.FRONTIER_INVALIDATED:
         expected_kinds = (
             *normal_kinds[: len(events) - 1],
@@ -2684,6 +2761,18 @@ def _validate_event_prefix(events: tuple[RunActionExecutionEvent, ...]) -> None:
         ):
             raise RunActionStoreError(
                 "run action result release differs from durable event 5"
+            )
+    elif len(events) == 6 and events[5].event_kind is (
+        RunActionExecutionEventKind.PROVIDER_TERMINATED
+    ):
+        if not provider_termination_matches_durable_activation(
+            events[5].provider_termination_receipt,
+            events[4].event_id,
+            events[1].preparation_allocation,
+            events[4].activation_revalidation_receipt,
+        ):
+            raise RunActionStoreError(
+                "provider termination differs from durable events 2 and 5"
             )
     if len(events) >= 7:
         result = events[5].result_receipt

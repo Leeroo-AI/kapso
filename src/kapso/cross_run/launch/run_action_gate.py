@@ -271,6 +271,7 @@ class RunFrontierActionGate:
     ) -> RunActionWorkspaceBinding | None:
         inspection.ledger.require_predecessor(frontier.projection.action_ledger)
         terminal_kinds = {
+            RunActionExecutionEventKind.PROVIDER_TERMINATED,
             RunActionExecutionEventKind.RESULT_ACCEPTED,
             RunActionExecutionEventKind.CANCELLED,
             RunActionExecutionEventKind.FRONTIER_INVALIDATED,

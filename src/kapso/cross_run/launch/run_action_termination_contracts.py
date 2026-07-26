@@ -311,7 +311,6 @@ class RunActionProviderTerminationReceipt(StrictContract):
     disposition: RunActionProviderTerminationDisposition
     reason: RunActionProviderTerminationReason
     activation_event_id: str
-    activation_revalidation_receipt: RunActionActivationRevalidationReceipt
     workload_release_adoption: RunActionWorkloadReleaseAdoption | None
     terminal_observation: RunActionTerminalObservation | None
     timeout_directive_publication: RunActionTimeoutDirectivePublicationReceipt | None
@@ -325,8 +324,6 @@ class RunActionProviderTerminationReceipt(StrictContract):
         if (
             type(self.disposition) is not RunActionProviderTerminationDisposition
             or type(self.reason) is not RunActionProviderTerminationReason
-            or type(self.activation_revalidation_receipt)
-            is not RunActionActivationRevalidationReceipt
         ):
             raise RunActionTerminationContractError(
                 "provider termination receipt has invalid typed authority"
@@ -358,8 +355,6 @@ class RunActionProviderTerminationReceipt(StrictContract):
         loss = self.pre_release_main_loss_observation
         if (
             type(loss) is not RunActionPreReleaseMainLossObservation
-            or loss.activation_revalidation_receipt
-            != self.activation_revalidation_receipt
             or loss.activation_event_id != self.activation_event_id
             or self.workload_release_adoption is not None
             or self.terminal_observation is not None
@@ -379,11 +374,17 @@ class RunActionProviderTerminationReceipt(StrictContract):
             or self.pre_release_main_loss_observation is not None
             or adoption.workload_release_receipt.activation_event_id
             != self.activation_event_id
-            or not _released_terminal_evidence_matches(
-                terminal,
-                self.activation_revalidation_receipt,
-                adoption,
+        ):
+            raise RunActionTerminationContractError(
+                "released provider termination lacks its exact terminal occurrence"
             )
+        activation = (
+            adoption.workload_release_receipt.resolved_workload_observation.activation_revalidation_receipt
+        )
+        if not _released_terminal_evidence_matches(
+            terminal,
+            activation,
+            adoption,
         ):
             raise RunActionTerminationContractError(
                 "released provider termination lacks its exact terminal occurrence"
@@ -397,7 +398,7 @@ class RunActionProviderTerminationReceipt(StrictContract):
                 != self.activation_event_id
                 or not _timeout_publication_evidence_matches(
                     self.timeout_directive_publication,
-                    self.activation_revalidation_receipt,
+                    activation,
                     adoption,
                 )
             ):
@@ -432,7 +433,7 @@ class RunActionProviderTerminationReceipt(StrictContract):
                 and run_action_terminal_result_evidence_matches(
                     terminal,
                     capture,
-                    self.activation_revalidation_receipt,
+                    activation,
                     adoption,
                 )
             )
@@ -440,6 +441,67 @@ class RunActionProviderTerminationReceipt(StrictContract):
             raise RunActionTerminationContractError(
                 "provider termination reason differs from terminal evidence"
             )
+
+    @property
+    def activation_revalidation_receipt(
+        self,
+    ) -> RunActionActivationRevalidationReceipt:
+        """Derive activation evidence from the selected termination branch."""
+
+        if self.reason is RunActionProviderTerminationReason.PRE_RELEASE_MAIN_LOSS:
+            loss = self.pre_release_main_loss_observation
+            if type(loss) is not RunActionPreReleaseMainLossObservation:
+                raise RunActionTerminationContractError(
+                    "pre-release termination lacks activation evidence"
+                )
+            return loss.activation_revalidation_receipt
+        adoption = self.workload_release_adoption
+        if type(adoption) is not RunActionWorkloadReleaseAdoption:
+            raise RunActionTerminationContractError(
+                "released termination lacks activation evidence"
+            )
+        return (
+            adoption.workload_release_receipt.resolved_workload_observation.activation_revalidation_receipt
+        )
+
+
+def provider_termination_matches_durable_activation(
+    receipt: RunActionProviderTerminationReceipt,
+    activation_event_id: str,
+    preparation_allocation: RunActionPreparationAllocation,
+    activation_revalidation_receipt: RunActionActivationRevalidationReceipt,
+) -> bool:
+    """Join one complete termination graph to durable events 2 and 5."""
+
+    if (
+        type(receipt) is not RunActionProviderTerminationReceipt
+        or type(activation_event_id) is not str
+        or type(preparation_allocation) is not RunActionPreparationAllocation
+        or type(activation_revalidation_receipt)
+        is not RunActionActivationRevalidationReceipt
+    ):
+        return False
+    prepared = activation_revalidation_receipt.prepared_execution
+    if (
+        receipt.activation_event_id != activation_event_id
+        or receipt.activation_revalidation_receipt != activation_revalidation_receipt
+        or preparation_allocation.preparation_claim != prepared.preparation_claim
+        or preparation_allocation.runtime_volume_authority
+        != prepared.runtime_volume_authority
+    ):
+        return False
+    if receipt.reason is RunActionProviderTerminationReason.PRE_RELEASE_MAIN_LOSS:
+        loss = receipt.pre_release_main_loss_observation
+        return (
+            type(loss) is RunActionPreReleaseMainLossObservation
+            and loss.activation_event_id == activation_event_id
+            and loss.preparation_allocation == preparation_allocation
+        )
+    adoption = receipt.workload_release_adoption
+    return (
+        type(adoption) is RunActionWorkloadReleaseAdoption
+        and adoption.workload_release_receipt.activation_event_id == activation_event_id
+    )
 
 
 def _released_terminal_evidence_matches(
@@ -552,4 +614,5 @@ __all__ = [
     "RunActionTerminationContractError",
     "RunActionTimeoutDirective",
     "RunActionTimeoutDirectivePublicationReceipt",
+    "provider_termination_matches_durable_activation",
 ]

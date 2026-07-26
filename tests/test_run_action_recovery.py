@@ -70,6 +70,11 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
     issue_runtime_volume_authority,
     RunActionPreparationAllocation,
 )
+from kapso.cross_run.launch.run_action_termination_contracts import (
+    RunActionProviderTerminationDisposition,
+    RunActionProviderTerminationReason,
+    RunActionProviderTerminationReceipt,
+)
 from kapso.cross_run.launch.run_state_publisher import (
     RunStatePublisher,
     RunStatePublisherError,
@@ -346,6 +351,7 @@ class _FakeExecutionAdapter:
             prepared_execution=prepared,
             spawn_commit=None,
             activation_revalidation_receipt=None,
+            provider_termination_receipt=None,
             result_receipt=None,
             result_decision=None,
             acceptance=None,
@@ -373,6 +379,7 @@ class _FakeExecutionAdapter:
             prepared_execution=None,
             spawn_commit=None,
             activation_revalidation_receipt=activation,
+            provider_termination_receipt=None,
             result_receipt=None,
             result_decision=None,
             acceptance=None,
@@ -944,6 +951,38 @@ def _append_result_received(gate, reservation) -> bytes:
     return raw_result
 
 
+def _append_provider_terminated(gate, reservation) -> None:
+    activation = _append_activation_committed(gate, reservation)
+    with gate._action_store._recovery_session(
+        reservation,
+        _authority=_RUN_ACTION_RECOVERY_AUTHORITY,
+    ) as session:
+        prepared = session.events[2].prepared_execution
+        spawn = session.events[3].spawn_commit
+        adoption = _release_adoption_for_event(
+            session.events[4],
+            gate._security_authority.observation,
+        )
+        terminal = _remint_contract(
+            _terminal_observation(prepared, spawn, adoption),
+            exit_code=137,
+            oom_killed=True,
+        )
+        session.terminate_provider(
+            RunActionProviderTerminationReceipt.mint(
+                disposition=RunActionProviderTerminationDisposition.FAILED,
+                reason=RunActionProviderTerminationReason.OOM,
+                activation_event_id=session.events[4].event_id,
+                workload_release_adoption=adoption,
+                terminal_observation=terminal,
+                timeout_directive_publication=None,
+                empty_result_capture_receipt=None,
+                pre_release_main_loss_observation=None,
+            )
+        )
+        assert activation == session.events[4].activation_revalidation_receipt
+
+
 def _append_result_decided(gate, reservation) -> bytes:
     raw_result = _append_result_received(gate, reservation)
     with gate._action_store._recovery_session(
@@ -1190,7 +1229,7 @@ def test_committed_inspection_carries_only_state_and_token() -> None:
             )
 
 
-def test_committed_query_rejects_event_two_and_event_five_splices(
+def test_committed_query_rejects_allocation_and_activation_splices(
     publisher_case,
 ) -> None:
     frontier, gate, reservation, payload = _reserved_case(publisher_case)
@@ -1770,7 +1809,7 @@ def test_durable_edit_decision_recovers_without_provider_or_interpreter(
     )
 
 
-def test_exchanged_edit_decision_recovers_before_event_8_without_stale_inspection(
+def test_exchanged_edit_decision_recovers_before_acceptance_without_stale_inspection(
     publisher_case,
     tmp_path,
     monkeypatch,
@@ -1832,7 +1871,7 @@ def test_exchanged_edit_decision_recovers_before_event_8_without_stale_inspectio
     )
 
 
-def test_accepted_edit_cleanup_retries_from_durable_event_8(
+def test_accepted_edit_cleanup_retries_from_durable_acceptance(
     publisher_case,
     tmp_path,
     monkeypatch,
@@ -1904,7 +1943,7 @@ def test_accepted_edit_cleanup_retries_from_durable_event_8(
     assert tuple(staging.iterdir()) == ()
 
 
-def test_projected_event_8_cleanup_precedes_new_pending_edit_after_restart(
+def test_projected_acceptance_cleanup_precedes_new_pending_edit_after_restart(
     resolver_case,
     publisher_case,
     tmp_path,
@@ -2470,6 +2509,26 @@ def test_terminal_replay_reads_accepted_bytes_without_implementation_use(
     assert report.recovered_operations[0].accepted_result_payload == (
         b'{"accepted_result":"complete"}'
     )
+    assert not adapter.prepare_calls
+    assert not adapter.continuation_calls
+    assert not adapter.inspect_calls
+    assert not adapter.result_interpreter.interpret_calls
+
+
+def test_provider_termination_replays_without_implementation_use(
+    publisher_case,
+) -> None:
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
+    _append_provider_terminated(gate, reservation)
+    adapter = _FakeExecutionAdapter(reservation.intent.boundary_identity)
+
+    report = _recovery_coordinator(gate, adapter).recover(frontier)
+
+    assert report.is_complete
+    assert report.recovered_operations[0].events[-1].event_kind is (
+        RunActionExecutionEventKind.PROVIDER_TERMINATED
+    )
+    assert report.recovered_operations[0].accepted_result_payload is None
     assert not adapter.prepare_calls
     assert not adapter.continuation_calls
     assert not adapter.inspect_calls
