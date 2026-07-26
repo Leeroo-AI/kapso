@@ -526,9 +526,8 @@ class GenericSearch(SearchStrategy):
             "implementation_model",
             "us.anthropic.claude-opus-4-5-20251101-v1:0"
         )
-        # Which CLI runs implementation sessions. codex sessions have no MCP
-        # mounting (repo memory reaches them via the .kapso file fallback)
-        # and report no cost telemetry.
+        # Which CLI runs implementation sessions. Both mount the gate MCP
+        # servers; codex reports no cost telemetry (ledger undercounts).
         self.implementation_cli = str(
             self.params.get("implementation_cli", "claude_code")
         )
@@ -1626,7 +1625,11 @@ Problem: {problem}"""
                     **({"env_overrides": lane_env} if lane_env else {}),
                     "env_strip": self.env_strip,
                     "env_defaults": self.env_defaults,
+                    "mcp_servers": mcp_servers,
                     "timeout": self._clamped_timeout(self.implementation_timeout),
+                    # Lane 0 tees the live transcript to the console, same
+                    # policy as the claude path.
+                    "streaming": lane_index == 0,
                     "effort": self.session_effort,
                     # Transcript stream persisted for the difficulties
                     # fallback's forensics, same as the claude path.
@@ -1663,19 +1666,12 @@ Problem: {problem}"""
             )
 
         # 5. Build implementation prompt
-        if self.implementation_cli == "codex":
-            repo_memory_detail_access_instructions = (
-                "For detailed section content (architecture, gotchas, invariants, etc.),\n"
-                "open `.kapso/repo_memory.json` and read `book.sections[section_id]`.\n"
-                "Available sections: core.architecture, core.entrypoints, core.where_to_edit, core.invariants, core.testing, core.gotchas, core.dependencies"
-            )
-        else:
-            repo_memory_detail_access_instructions = (
-                "For detailed section content (architecture, gotchas, invariants, etc.),\n"
-                "use the MCP tool: `get_repo_memory_section(section_id=\"core.architecture\")`\n"
-                "Available sections: core.architecture, core.entrypoints, core.where_to_edit, core.invariants, core.testing, core.gotchas, core.dependencies\n"
-                "Fallback: open `.kapso/repo_memory.json` and read `book.sections[section_id]`."
-            )
+        repo_memory_detail_access_instructions = (
+            "For detailed section content (architecture, gotchas, invariants, etc.),\n"
+            "use the MCP tool: `get_repo_memory_section(section_id=\"core.architecture\")`\n"
+            "Available sections: core.architecture, core.entrypoints, core.where_to_edit, core.invariants, core.testing, core.gotchas, core.dependencies\n"
+            "Fallback: open `.kapso/repo_memory.json` and read `book.sections[section_id]`."
+        )
         
         prompt = self._build_implementation_prompt(
             solution=solution,

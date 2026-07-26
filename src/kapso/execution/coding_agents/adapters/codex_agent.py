@@ -16,14 +16,16 @@
 # survives the kill for the strategy's teardown guard / durable-archive
 # recovery (the same principle as the Claude adapter's completion-reap).
 
+import json
 import os
 import re
 import shutil
 import signal
 import subprocess
 import tempfile
+import threading
 import time
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from kapso.execution.coding_agents.base import (
     CodingAgentConfig,
@@ -37,6 +39,33 @@ _DEFAULT_TIMEOUT_SECONDS = 3600.0
 _STREAM_TAIL_CHARS = 2000
 
 
+def mcp_config_overrides(mcp_servers: Dict[str, Any]) -> List[str]:
+    """Translate a claude-shaped MCP server spec into codex `-c` overrides.
+
+    {name: {command, args, cwd, env}} becomes dotted-path TOML overrides
+    (`mcp_servers.<name>.command="..."` etc.) — the per-invocation
+    equivalent of `codex mcp add`. JSON string encoding is valid TOML for
+    these values (paths and identifiers).
+    """
+    overrides: List[str] = []
+    for name, spec in (mcp_servers or {}).items():
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", name):
+            raise ValueError(f"MCP server name not TOML-bare-key safe: {name!r}")
+        overrides += ["-c", f"mcp_servers.{name}.command={json.dumps(spec['command'])}"]
+        args = spec.get("args") or []
+        overrides += [
+            "-c",
+            f"mcp_servers.{name}.args=[{', '.join(json.dumps(a) for a in args)}]",
+        ]
+        if spec.get("cwd"):
+            overrides += ["-c", f"mcp_servers.{name}.cwd={json.dumps(spec['cwd'])}"]
+        env = spec.get("env") or {}
+        if env:
+            body = ", ".join(f"{k} = {json.dumps(v)}" for k, v in env.items())
+            overrides += ["-c", f"mcp_servers.{name}.env={{{body}}}"]
+    return overrides
+
+
 class CodexCodingAgent(CodingAgentInterface):
     """Non-interactive `codex exec` sessions as a pluggable coding agent.
 
@@ -47,6 +76,11 @@ class CodexCodingAgent(CodingAgentInterface):
         sandbox: codex sandbox mode (default "danger-full-access" — the
             write+network parity of Claude's skip-permissions sessions)
         web_search: enable the native --search tool (default True)
+        mcp_servers: claude-shaped MCP server spec {name: {command, args,
+            cwd, env}} mounted via per-invocation `-c mcp_servers.*`
+            overrides
+        streaming: tee the live transcript to the console (default False;
+            the artifact file always gets the full stream)
         env_strip: env var names removed from the child environment
         env_overrides: env vars SET on the child (e.g. expansion lane pins)
         env_defaults: env vars applied set-if-absent (ambient wins)
@@ -61,6 +95,10 @@ class CodexCodingAgent(CodingAgentInterface):
         self._timeout: float = float(spec.get("timeout", _DEFAULT_TIMEOUT_SECONDS))
         self._sandbox: str = str(spec.get("sandbox", "danger-full-access"))
         self._web_search: bool = bool(spec.get("web_search", True))
+        self._mcp_overrides: List[str] = mcp_config_overrides(
+            spec.get("mcp_servers") or {}
+        )
+        self._streaming: bool = bool(spec.get("streaming", False))
         self._env_strip: List[str] = list(spec.get("env_strip", []))
         self._env_overrides: Dict[str, str] = {
             str(k): str(v) for k, v in (spec.get("env_overrides") or {}).items()
@@ -113,6 +151,8 @@ class CodexCodingAgent(CodingAgentInterface):
                 "--sandbox",
                 self._sandbox,
                 "--skip-git-repo-check",
+                "--color",
+                "never",
                 "--output-last-message",
                 last_path,
                 "-m",
@@ -121,6 +161,7 @@ class CodexCodingAgent(CodingAgentInterface):
         )
         if self._effort:
             cmd.extend(["-c", f'model_reasoning_effort="{self._effort}"'])
+        cmd.extend(self._mcp_overrides)
 
         env = os.environ.copy()
         env.pop("OPENAI_API_KEY", None)
@@ -139,11 +180,25 @@ class CodexCodingAgent(CodingAgentInterface):
             cwd=self._workspace,
             env=env,
             stdin=subprocess.PIPE,
-            stdout=stream_file,
+            stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
+            errors="replace",
             start_new_session=True,
         )
+
+        # Drain stdout continuously (a full pipe would deadlock the child):
+        # every line lands in the stream artifact; streaming mode also tees
+        # it to the console, matching the claude adapter's live transcript.
+        def _drain() -> None:
+            for line in process.stdout:
+                stream_file.write(line)
+                stream_file.flush()
+                if self._streaming:
+                    print(f"[codex] {line.rstrip()}", flush=True)
+
+        reader = threading.Thread(target=_drain, daemon=True)
+        reader.start()
         process.stdin.write(prompt)
         process.stdin.close()
 
@@ -164,6 +219,7 @@ class CodexCodingAgent(CodingAgentInterface):
             process.wait()
         elapsed = time.monotonic() - started
 
+        reader.join(timeout=_DEADLINE_GRACE_SECONDS)
         stream_file.close()
         with open(last_path, "r", encoding="utf-8", errors="replace") as fh:
             last_message = fh.read().strip()
@@ -227,5 +283,5 @@ class CodexCodingAgent(CodingAgentInterface):
             "sandbox": True,
             "planning_mode": False,
             "cost_tracking": False,
-            "streaming": False,
+            "streaming": True,
         }

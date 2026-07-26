@@ -157,3 +157,51 @@ def test_generate_before_initialize_raises(fake_codex):
     agent = CodexCodingAgent(config)
     with pytest.raises(RuntimeError, match="initialize"):
         agent.generate_code("x")
+
+
+def test_mcp_servers_become_config_overrides(tmp_path, fake_codex, monkeypatch):
+    argdump = tmp_path / "args.txt"
+    monkeypatch.setenv("FAKE_CODEX_ARGDUMP", str(argdump))
+    agent = make_agent(
+        fake_codex,
+        mcp_servers={
+            "gated-knowledge": {
+                "command": "/env/bin/python",
+                "args": ["-m", "kapso.gated_mcp.server"],
+                "cwd": "/repo",
+                "env": {"MCP_ENABLED_GATES": "repo_memory"},
+            }
+        },
+    )
+    result = agent.generate_code("with mcp")
+    assert result.success
+    argv = argdump.read_text()
+    assert 'mcp_servers.gated-knowledge.command="/env/bin/python"' in argv
+    assert 'mcp_servers.gated-knowledge.args=["-m", "kapso.gated_mcp.server"]' in argv
+    assert 'mcp_servers.gated-knowledge.cwd="/repo"' in argv
+    assert 'mcp_servers.gated-knowledge.env={MCP_ENABLED_GATES = "repo_memory"}' in argv
+
+
+def test_unsafe_mcp_server_name_rejected(fake_codex):
+    with pytest.raises(ValueError, match="TOML-bare-key"):
+        make_agent(fake_codex, mcp_servers={"bad name!": {"command": "x"}})
+
+
+def test_streaming_tees_to_console_and_artifact(tmp_path, fake_codex, capfd):
+    artifact = tmp_path / "s.stream"
+    agent = make_agent(
+        fake_codex, streaming=True, stream_artifact_path=str(artifact)
+    )
+    result = agent.generate_code("stream me")
+    assert result.success
+    assert "stream line" in artifact.read_text()
+    assert "[codex] stream line" in capfd.readouterr().out
+
+
+def test_buffered_by_default_no_console_output(tmp_path, fake_codex, capfd):
+    artifact = tmp_path / "s.stream"
+    agent = make_agent(fake_codex, stream_artifact_path=str(artifact))
+    result = agent.generate_code("quiet stream")
+    assert result.success
+    assert "stream line" in artifact.read_text()
+    assert "[codex]" not in capfd.readouterr().out
