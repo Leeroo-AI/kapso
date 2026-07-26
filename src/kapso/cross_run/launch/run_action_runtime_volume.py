@@ -9,19 +9,23 @@ import stat
 from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import PurePosixPath
+from threading import get_ident
 
 from kapso.cross_run.canonical import require_identifier, tree_or_blob_digest
 from kapso.cross_run.launch.run_action_activation_delivery import (
-    RunActionDeliveredFileLease,
     RunActionDeliveredFilePhysicalObservation,
     publish_or_adopt_run_action_delivery,
 )
 from kapso.cross_run.launch.run_action_docker_inspect import (
     DockerRunActionVolumeObservation,
+    observe_inert_main_container,
+    observe_running_keeper,
     observe_runtime_volume,
 )
+from kapso.cross_run.launch.run_action_docker_projection import DockerRunActionCommand
 from kapso.cross_run.launch.run_action_docker_resources import (
     DockerRunActionResourceManager,
+    DockerRunActionResourceInventory,
 )
 from kapso.cross_run.launch.run_action_supervisor_helper import (
     read_run_action_descriptor_mount_id,
@@ -39,7 +43,9 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RunActionActivatedSentinelObservation,
     RunActionActivatedRuntimeDirectoryObservation,
     RunActionActivatedWorkspaceObservation,
+    RunActionActivationRevalidationReceipt,
     RunActionCredentialMode,
+    RunActionInertContainerEvidence,
     RunActionPreparationAllocation,
     RunActionPreparationClaim,
     RunActionPreparedDeliverySlot,
@@ -85,6 +91,8 @@ _PREPARED_FILE_MODE = 0o600
 _SENTINEL_MODE = 0o400
 _RESULT_WORKSPACE_LEASE_AUTHORITY = object()
 _BARRIER_CONTROL_LEASE_AUTHORITY = object()
+_ACTIVATION_REVALIDATION_LEASE_AUTHORITY = object()
+_BARRIER_COMMAND_PREFIX_LENGTH = 8
 _SIZE_MULTIPLIERS = {
     "": 1,
     "k": 1024,
@@ -698,6 +706,163 @@ class DockerRunActionActivatedVolumeObservation:
             )
 
 
+class RunActionActivationRevalidationLease:
+    """Retained read-only authority for one durably selected inert activation."""
+
+    def __init__(
+        self,
+        *,
+        descriptors: ExitStack,
+        preparation_allocation: RunActionPreparationAllocation,
+        selected_receipt: RunActionActivationRevalidationReceipt,
+        resource_manager: DockerRunActionResourceManager,
+        inventory: DockerRunActionResourceInventory,
+        volume_observation: DockerRunActionVolumeObservation,
+        keeper_evidence: RunActionVolumeKeeperEvidence,
+        inert_container_evidence: RunActionInertContainerEvidence,
+        mounted_volume: "_MountedRuntimeVolumeLease",
+        sentinel_observation: "_ExactRegularFileObservation",
+        input_file_observation: "_ExactRegularFileObservation",
+        result_file_observation: "_ExactRegularFileObservation",
+        credential_file_observation: "_ExactRegularFileShapeObservation | None",
+        directory_descriptors: tuple[
+            tuple[
+                RunActionPreparedDeliverySlot
+                | RunActionPreparedRuntimeDirectory
+                | RunActionPreparedWorkspaceProof,
+                int,
+                tuple[str, ...] | None,
+            ],
+            ...,
+        ],
+        activated_workspace_frontier: RunWorkspaceFrontierIdentity | None,
+        filesystem_identity: tuple[int, ...],
+        root_metadata_identity: tuple[int, ...],
+        mount_info: "_MountInfo",
+        settings: LaunchSettings,
+        _authority: object,
+    ) -> None:
+        if (
+            type(descriptors) is not ExitStack
+            or type(preparation_allocation) is not RunActionPreparationAllocation
+            or type(selected_receipt) is not RunActionActivationRevalidationReceipt
+            or type(resource_manager) is not DockerRunActionResourceManager
+            or type(inventory) is not DockerRunActionResourceInventory
+            or type(volume_observation) is not DockerRunActionVolumeObservation
+            or type(keeper_evidence) is not RunActionVolumeKeeperEvidence
+            or type(inert_container_evidence) is not RunActionInertContainerEvidence
+            or type(mounted_volume) is not _MountedRuntimeVolumeLease
+            or type(sentinel_observation) is not _ExactRegularFileObservation
+            or type(input_file_observation) is not _ExactRegularFileObservation
+            or type(result_file_observation) is not _ExactRegularFileObservation
+            or (
+                credential_file_observation is not None
+                and type(credential_file_observation)
+                is not _ExactRegularFileShapeObservation
+            )
+            or type(directory_descriptors) is not tuple
+            or not directory_descriptors
+            or any(
+                type(directory) is not tuple
+                or len(directory) != 3
+                or type(directory[1]) is not int
+                or directory[1] < 0
+                for directory in directory_descriptors
+            )
+            or (
+                activated_workspace_frontier is not None
+                and type(activated_workspace_frontier)
+                is not RunWorkspaceFrontierIdentity
+            )
+            or type(filesystem_identity) is not tuple
+            or type(root_metadata_identity) is not tuple
+            or type(mount_info) is not _MountInfo
+            or type(settings) is not LaunchSettings
+            or _authority is not _ACTIVATION_REVALIDATION_LEASE_AUTHORITY
+        ):
+            raise RunActionRuntimeVolumeError(
+                "activation revalidation lease lacks exact retained authority"
+            )
+        self._descriptors = descriptors
+        self._preparation_allocation = preparation_allocation
+        self._selected_receipt = selected_receipt
+        self._resource_manager = resource_manager
+        self._inventory = inventory
+        self._volume_observation = volume_observation
+        self._keeper_evidence = keeper_evidence
+        self._inert_container_evidence = inert_container_evidence
+        self._mounted_volume = mounted_volume
+        self._sentinel_observation = sentinel_observation
+        self._input_file_observation = input_file_observation
+        self._result_file_observation = result_file_observation
+        self._credential_file_observation = credential_file_observation
+        self._directory_descriptors = directory_descriptors
+        self._activated_workspace_frontier = activated_workspace_frontier
+        self._filesystem_identity = filesystem_identity
+        self._root_metadata_identity = root_metadata_identity
+        self._mount_info = mount_info
+        self._settings = settings
+        self._owner_process_id = os.getpid()
+        self._owner_thread_id = get_ident()
+        self._closed = False
+        self.require_current()
+
+    @property
+    def selected_receipt(self) -> RunActionActivationRevalidationReceipt:
+        self.require_current()
+        return self._selected_receipt
+
+    @property
+    def preparation_allocation(self) -> RunActionPreparationAllocation:
+        self.require_current()
+        return self._preparation_allocation
+
+    @property
+    def inventory(self) -> DockerRunActionResourceInventory:
+        self.require_current()
+        return self._inventory
+
+    def require_current(self) -> None:
+        """Reprove the selected activation and its still-inert main."""
+
+        self._require_owner()
+        _require_selected_activation_lease_current(
+            self,
+            require_inert_main=True,
+        )
+
+    def require_volume_current(self) -> None:
+        """Reprove retained event-5 paths while the main changes lifecycle."""
+
+        self._require_owner()
+        _require_selected_activation_lease_current(
+            self,
+            require_inert_main=False,
+        )
+
+    def _require_owner(self) -> None:
+        if (
+            self._owner_process_id != os.getpid()
+            or self._owner_thread_id != get_ident()
+            or self._closed
+        ):
+            raise RunActionRuntimeVolumeError(
+                "activation revalidation lease is closed or foreign"
+            )
+
+    def __enter__(self) -> "RunActionActivationRevalidationLease":
+        self.require_current()
+        return self
+
+    def __exit__(self, *_arguments: object) -> None:
+        self.close()
+
+    def close(self) -> None:
+        self._require_owner()
+        self._closed = True
+        self._descriptors.close()
+
+
 @dataclass(frozen=True)
 class DockerRunActionEmptyVolumeObservation:
     """Physical proof that the running keeper mounts one empty bounded tmpfs."""
@@ -849,6 +1014,30 @@ class _PreparedLayoutObservation:
 
 
 @dataclass(frozen=True)
+class _SelectedActivationDescriptorObservation:
+    mounted_volume: _MountedRuntimeVolumeLease
+    sentinel_observation: "_ExactRegularFileObservation"
+    input_file_observation: "_ExactRegularFileObservation"
+    result_file_observation: "_ExactRegularFileObservation"
+    credential_file_observation: "_ExactRegularFileShapeObservation | None"
+    directory_descriptors: tuple[
+        tuple[
+            RunActionPreparedDeliverySlot
+            | RunActionPreparedRuntimeDirectory
+            | RunActionPreparedWorkspaceProof,
+            int,
+            tuple[str, ...] | None,
+        ],
+        ...,
+    ]
+    activated_workspace_frontier: RunWorkspaceFrontierIdentity | None
+    filesystem_identity: tuple[int, ...]
+    root_metadata_identity: tuple[int, ...]
+    mount_info: "_MountInfo"
+    activated_volume: DockerRunActionActivatedVolumeObservation
+
+
+@dataclass(frozen=True)
 class _ExactRegularFileObservation:
     descriptor: int
     parent_descriptor: int
@@ -856,6 +1045,15 @@ class _ExactRegularFileObservation:
     metadata: os.stat_result
     mount_id: int
     payload: bytes
+
+
+@dataclass(frozen=True)
+class _ExactRegularFileShapeObservation:
+    descriptor: int
+    parent_descriptor: int
+    name: str
+    metadata: os.stat_result
+    mount_id: int
 
 
 @dataclass(frozen=True)
@@ -1926,6 +2124,141 @@ def reobserve_runtime_volume_layout(
     return reopened
 
 
+def open_selected_run_action_activation(
+    allocation: RunActionPreparationAllocation,
+    selected_receipt: RunActionActivationRevalidationReceipt,
+    resource_manager: DockerRunActionResourceManager,
+    *,
+    settings: LaunchSettings,
+) -> RunActionActivationRevalidationLease:
+    """Reopen event 5 without original payload or workspace-source authority."""
+
+    if (
+        type(allocation) is not RunActionPreparationAllocation
+        or type(selected_receipt) is not RunActionActivationRevalidationReceipt
+        or type(resource_manager) is not DockerRunActionResourceManager
+        or type(settings) is not LaunchSettings
+    ):
+        raise RunActionRuntimeVolumeError(
+            "activation reopen requires exact durable and Docker authorities"
+        )
+    prepared = selected_receipt.prepared_execution
+    if (
+        allocation.preparation_claim != prepared.preparation_claim
+        or allocation.runtime_volume_authority != prepared.runtime_volume_authority
+        or selected_receipt.reobserved_keeper_evidence
+        != prepared.volume_keeper_evidence
+        or selected_receipt.reobserved_container_evidence
+        != prepared.inert_container_evidence
+        or tree_or_blob_digest(resource_manager.runtime_settings.to_json_bytes())
+        != prepared.preparation_claim.execution_policy.docker_runtime_settings_digest
+    ):
+        raise RunActionRuntimeVolumeError(
+            "selected activation differs from its durable allocation"
+        )
+    inventory = resource_manager.observe(allocation)
+    volume, keeper, inert_main = _observe_selected_activation_docker_resources(
+        allocation,
+        selected_receipt,
+        resource_manager,
+        inventory,
+    )
+    with ExitStack() as descriptors:
+        descriptor_observation = _open_selected_activation_descriptors(
+            descriptors,
+            selected_receipt,
+            volume,
+            keeper,
+            settings=settings,
+        )
+        if descriptor_observation.activated_volume != (
+            _selected_activated_volume(selected_receipt)
+        ):
+            raise RunActionRuntimeVolumeError(
+                "reopened activation differs from its durable event-5 volume"
+            )
+        candidate = RunActionActivationRevalidationReceipt.mint(
+            prepared_execution=prepared,
+            spawn_commit=selected_receipt.spawn_commit,
+            reobserved_volume_evidence=(
+                descriptor_observation.activated_volume.reobserved_volume_evidence
+            ),
+            reobserved_keeper_evidence=keeper,
+            reobserved_container_evidence=inert_main,
+            activated_workspace_observation=(
+                descriptor_observation.activated_volume.activated_workspace_observation
+            ),
+            activated_runtime_directory_observations=(
+                descriptor_observation.activated_volume.activated_runtime_directory_observations
+            ),
+            activated_sentinel_observation=(
+                descriptor_observation.activated_volume.activated_sentinel_observation
+            ),
+            input_file_observation=(
+                descriptor_observation.activated_volume.input_file_observation
+            ),
+            result_file_observation=(
+                descriptor_observation.activated_volume.result_file_observation
+            ),
+            credential_file_observation=(
+                descriptor_observation.activated_volume.credential_file_observation
+            ),
+        )
+        if candidate != selected_receipt:
+            raise RunActionRuntimeVolumeError(
+                "reopened activation does not reproduce selected event 5"
+            )
+        current_inventory = resource_manager.observe(allocation)
+        if current_inventory != inventory:
+            raise RunActionRuntimeVolumeError(
+                "activation Docker occurrence changed during reopen"
+            )
+        current_volume, current_keeper, current_main = (
+            _observe_selected_activation_docker_resources(
+                allocation,
+                selected_receipt,
+                resource_manager,
+                current_inventory,
+            )
+        )
+        if (
+            current_volume != volume
+            or current_keeper != keeper
+            or current_main != inert_main
+        ):
+            raise RunActionRuntimeVolumeError(
+                "activation Docker evidence changed during reopen"
+            )
+        lease = RunActionActivationRevalidationLease(
+            descriptors=descriptors,
+            preparation_allocation=allocation,
+            selected_receipt=selected_receipt,
+            resource_manager=resource_manager,
+            inventory=current_inventory,
+            volume_observation=current_volume,
+            keeper_evidence=current_keeper,
+            inert_container_evidence=current_main,
+            mounted_volume=descriptor_observation.mounted_volume,
+            sentinel_observation=descriptor_observation.sentinel_observation,
+            input_file_observation=(descriptor_observation.input_file_observation),
+            result_file_observation=(descriptor_observation.result_file_observation),
+            credential_file_observation=(
+                descriptor_observation.credential_file_observation
+            ),
+            directory_descriptors=(descriptor_observation.directory_descriptors),
+            activated_workspace_frontier=(
+                descriptor_observation.activated_workspace_frontier
+            ),
+            filesystem_identity=descriptor_observation.filesystem_identity,
+            root_metadata_identity=(descriptor_observation.root_metadata_identity),
+            mount_info=descriptor_observation.mount_info,
+            settings=settings,
+            _authority=_ACTIVATION_REVALIDATION_LEASE_AUTHORITY,
+        )
+        descriptors.pop_all()
+        return lease
+
+
 def deliver_and_reobserve_runtime_volume_activation(
     prepared: RunActionPreparedExecution,
     spawn_commit: RunActionSpawnCommit,
@@ -2260,7 +2593,7 @@ def deliver_and_reobserve_runtime_volume_activation(
             reobserved_volume_evidence,
             activated_workspace_frontier,
             input_delivery.observation,
-            credential_delivery,
+            (None if credential_delivery is None else credential_delivery.observation),
             credential_content_authority_id,
         )
         input_delivery.require_final_path(request_payload)
@@ -2271,6 +2604,547 @@ def deliver_and_reobserve_runtime_volume_activation(
                 )
             credential_delivery.require_final_path(credential_payload)
         return activated_volume
+
+
+def _observe_selected_activation_docker_resources(
+    allocation: RunActionPreparationAllocation,
+    selected_receipt: RunActionActivationRevalidationReceipt,
+    resource_manager: DockerRunActionResourceManager,
+    inventory: DockerRunActionResourceInventory,
+) -> tuple[
+    DockerRunActionVolumeObservation,
+    RunActionVolumeKeeperEvidence,
+    RunActionInertContainerEvidence,
+]:
+    prepared = selected_receipt.prepared_execution
+    if (
+        inventory.preparation_allocation != allocation
+        or not inventory.volume_present
+        or inventory.keeper_container_id
+        != selected_receipt.reobserved_keeper_evidence.container_id
+        or inventory.main_container_id
+        != selected_receipt.reobserved_container_evidence.container_id
+    ):
+        raise RunActionRuntimeVolumeError(
+            "selected activation lacks its exact three-resource occurrence"
+        )
+    volume, keeper = _observe_selected_activation_volume_and_keeper(
+        allocation,
+        selected_receipt,
+        resource_manager,
+        inventory,
+    )
+    projection = prepared.inert_container_evidence.issued_create_projection
+    command = _command_from_inert_projection(projection.command_arguments)
+    inert_main = observe_inert_main_container(
+        resource_manager.inspect_main(inventory),
+        allocation.preparation_claim,
+        allocation.runtime_volume_authority,
+        volume,
+        command,
+        projection.supervisor_helper_evidence,
+        projection.docker_init_source_evidence,
+        resource_manager.runtime_settings,
+    )
+    if inert_main != selected_receipt.reobserved_container_evidence:
+        raise RunActionRuntimeVolumeError(
+            "selected activation main differs from event 5"
+        )
+    return volume, keeper, inert_main
+
+
+def _observe_selected_activation_volume_and_keeper(
+    allocation: RunActionPreparationAllocation,
+    selected_receipt: RunActionActivationRevalidationReceipt,
+    resource_manager: DockerRunActionResourceManager,
+    inventory: DockerRunActionResourceInventory,
+) -> tuple[DockerRunActionVolumeObservation, RunActionVolumeKeeperEvidence]:
+    if (
+        inventory.preparation_allocation != allocation
+        or not inventory.volume_present
+        or inventory.keeper_container_id
+        != selected_receipt.reobserved_keeper_evidence.container_id
+        or inventory.main_container_id
+        != selected_receipt.reobserved_container_evidence.container_id
+    ):
+        raise RunActionRuntimeVolumeError(
+            "selected activation resources differ from event 5"
+        )
+    prepared = selected_receipt.prepared_execution
+    volume = observe_runtime_volume(
+        resource_manager.inspect_volume(inventory),
+        allocation.preparation_claim,
+        allocation.runtime_volume_authority,
+        resource_manager.runtime_settings,
+    )
+    keeper_projection = prepared.volume_keeper_evidence.issued_create_projection
+    keeper = observe_running_keeper(
+        resource_manager.inspect_keeper(inventory),
+        allocation.preparation_claim,
+        allocation.runtime_volume_authority,
+        volume,
+        keeper_projection.helper_evidence,
+        keeper_projection.docker_init_source_evidence,
+        resource_manager.runtime_settings,
+    )
+    if (
+        volume.volume_occurrence_digest
+        != prepared.runtime_volume_evidence.docker_volume_occurrence_digest
+        or keeper != selected_receipt.reobserved_keeper_evidence
+    ):
+        raise RunActionRuntimeVolumeError(
+            "selected activation volume or keeper differs from event 5"
+        )
+    return volume, keeper
+
+
+def _command_from_inert_projection(
+    command_arguments: tuple[str, ...],
+) -> DockerRunActionCommand:
+    if (
+        type(command_arguments) is not tuple
+        or len(command_arguments) <= _BARRIER_COMMAND_PREFIX_LENGTH
+    ):
+        raise RunActionRuntimeVolumeError(
+            "selected activation lacks its policy-bound target command"
+        )
+    return DockerRunActionCommand.build(
+        entrypoint=command_arguments[_BARRIER_COMMAND_PREFIX_LENGTH],
+        arguments=command_arguments[_BARRIER_COMMAND_PREFIX_LENGTH + 1 :],
+    )
+
+
+def _open_selected_activation_descriptors(
+    descriptors: ExitStack,
+    selected_receipt: RunActionActivationRevalidationReceipt,
+    volume: DockerRunActionVolumeObservation,
+    keeper: RunActionVolumeKeeperEvidence,
+    *,
+    settings: LaunchSettings,
+) -> _SelectedActivationDescriptorObservation:
+    prepared = selected_receipt.prepared_execution
+    authority = prepared.runtime_volume_authority
+    lease = _open_mounted_runtime_volume(descriptors, keeper)
+    prepared_volume = prepared.runtime_volume_evidence
+    if (
+        lease.root_mount_id != prepared_volume.root_mount_id
+        or lease.root_device != prepared_volume.root_device
+        or lease.root_inode != prepared_volume.root_inode
+    ):
+        raise RunActionRuntimeVolumeError(
+            "selected activation runtime root was substituted"
+        )
+    root_metadata_before = os.fstat(lease.root_descriptor)
+    mount_info_before = _read_mount_info(
+        lease.process_descriptor,
+        lease.root_mount_id,
+        RUN_ACTION_RUNTIME_VOLUME_KEEPER_DESTINATION,
+    )
+    _require_mount_authority(mount_info_before, root_metadata_before, authority)
+    expected_root_entries = tuple(
+        sorted((*_expected_directory_names(prepared.preparation_claim), _SENTINEL_NAME))
+    )
+    if tuple(sorted(os.listdir(lease.root_descriptor))) != expected_root_entries:
+        raise RunActionRuntimeVolumeError(
+            "selected activation root topology is incomplete"
+        )
+    input_directory_descriptor = _open_activation_subpath_directory(
+        descriptors,
+        lease,
+        authority,
+        prepared.input_delivery_slot.directory_relative_path,
+        prepared.input_delivery_slot.mount_id,
+        prepared.input_delivery_slot.device,
+        prepared.input_delivery_slot.inode,
+    )
+    control_directory_descriptor = _open_activation_subpath_directory(
+        descriptors,
+        lease,
+        authority,
+        prepared.control_directory.directory_relative_path,
+        prepared.control_directory.mount_id,
+        prepared.control_directory.device,
+        prepared.control_directory.inode,
+    )
+    result_directory_descriptor = _open_activation_subpath_directory(
+        descriptors,
+        lease,
+        authority,
+        prepared.result_directory.directory_relative_path,
+        prepared.result_directory.mount_id,
+        prepared.result_directory.device,
+        prepared.result_directory.inode,
+    )
+    temporary_directory_descriptor = _open_activation_subpath_directory(
+        descriptors,
+        lease,
+        authority,
+        prepared.temporary_directory.directory_relative_path,
+        prepared.temporary_directory.mount_id,
+        prepared.temporary_directory.device,
+        prepared.temporary_directory.inode,
+    )
+    credential_directory_descriptor = None
+    if prepared.credential_delivery_slot is not None:
+        credential_directory_descriptor = _open_activation_subpath_directory(
+            descriptors,
+            lease,
+            authority,
+            prepared.credential_delivery_slot.directory_relative_path,
+            prepared.credential_delivery_slot.mount_id,
+            prepared.credential_delivery_slot.device,
+            prepared.credential_delivery_slot.inode,
+        )
+    workspace_directory_descriptor = None
+    activated_workspace_frontier = None
+    if prepared.workspace_proof is not None:
+        workspace_directory_descriptor = _open_activation_subpath_directory(
+            descriptors,
+            lease,
+            authority,
+            prepared.workspace_proof.volume_subpath,
+            prepared.workspace_proof.mount_id,
+            prepared.workspace_proof.device,
+            prepared.workspace_proof.inode,
+        )
+        activated_workspace_frontier = _observe_activation_workspace(
+            workspace_directory_descriptor,
+            prepared,
+            settings,
+        )
+    sentinel_observation = _open_exact_regular_file(
+        descriptors,
+        lease.root_descriptor,
+        _SENTINEL_NAME,
+        expected_payload=authority.generation_nonce.encode("ascii"),
+        expected_mode=_SENTINEL_MODE,
+        authority=authority,
+        root_mount_id=lease.root_mount_id,
+        root_device=lease.root_device,
+    )
+    _require_exact_sentinel_observation(
+        sentinel_observation,
+        prepared_volume.sentinel_evidence,
+    )
+    input_file_observation = _open_reobserved_input_file(
+        descriptors,
+        input_directory_descriptor,
+        prepared.input_delivery_slot,
+        selected_receipt.input_file_observation,
+        authority,
+        root_mount_id=lease.root_mount_id,
+        root_device=lease.root_device,
+    )
+    result_file_observation = _open_exact_regular_file(
+        descriptors,
+        result_directory_descriptor,
+        "result.blob",
+        expected_payload=b"",
+        expected_mode=_PREPARED_FILE_MODE,
+        authority=authority,
+        root_mount_id=lease.root_mount_id,
+        root_device=lease.root_device,
+    )
+    _require_activation_result_file(
+        result_file_observation,
+        prepared.result_file,
+    )
+    credential_file_observation = None
+    if prepared.credential_delivery_slot is not None:
+        if (
+            type(credential_directory_descriptor) is not int
+            or selected_receipt.credential_file_observation is None
+        ):
+            raise RunActionRuntimeVolumeError(
+                "selected activation lost its credential authority"
+            )
+        credential_file_observation = _open_reobserved_credential_file(
+            descriptors,
+            credential_directory_descriptor,
+            prepared.credential_delivery_slot,
+            selected_receipt.credential_file_observation,
+            authority,
+            root_mount_id=lease.root_mount_id,
+            root_device=lease.root_device,
+        )
+    elif selected_receipt.credential_file_observation is not None:
+        raise RunActionRuntimeVolumeError(
+            "credential-free activation carries a credential observation"
+        )
+    directory_descriptors = (
+        (
+            prepared.input_delivery_slot,
+            input_directory_descriptor,
+            (prepared.input_delivery_slot.final_file_name,),
+        ),
+        (prepared.control_directory, control_directory_descriptor, ()),
+        (
+            prepared.result_directory,
+            result_directory_descriptor,
+            ("result.blob",),
+        ),
+        (prepared.temporary_directory, temporary_directory_descriptor, ()),
+        *(
+            ()
+            if prepared.credential_delivery_slot is None
+            else (
+                (
+                    prepared.credential_delivery_slot,
+                    credential_directory_descriptor,
+                    (prepared.credential_delivery_slot.final_file_name,),
+                ),
+            )
+        ),
+        *(
+            ()
+            if prepared.workspace_proof is None
+            else ((prepared.workspace_proof, workspace_directory_descriptor, None),)
+        ),
+    )
+    for prepared_directory, descriptor, expected_entries in directory_descriptors:
+        if type(descriptor) is not int:
+            raise RunActionRuntimeVolumeError(
+                "selected activation lost one retained directory"
+            )
+        _require_exact_activation_directory(
+            prepared_directory,
+            lease.root_descriptor,
+            descriptor,
+            expected_entries=expected_entries,
+        )
+    filesystem_before = os.fstatvfs(lease.root_descriptor)
+    _require_consistent_filesystem(filesystem_before)
+    _require_same_mounted_runtime_volume(lease, keeper)
+    _require_same_exact_regular_file(sentinel_observation)
+    _require_same_exact_regular_file(input_file_observation)
+    _require_same_exact_regular_file(result_file_observation)
+    if credential_file_observation is not None:
+        _require_same_exact_regular_file_shape(credential_file_observation)
+    if prepared.workspace_proof is not None:
+        if type(workspace_directory_descriptor) is not int:
+            raise RunActionRuntimeVolumeError(
+                "selected activation lost its workspace descriptor"
+            )
+        reobserved_workspace = _observe_activation_workspace(
+            workspace_directory_descriptor,
+            prepared,
+            settings,
+        )
+        if not _same_workspace_semantics(
+            reobserved_workspace,
+            activated_workspace_frontier,
+        ):
+            raise RunActionRuntimeVolumeError(
+                "selected activation workspace changed during reopen"
+            )
+    filesystem_after = os.fstatvfs(lease.root_descriptor)
+    root_metadata_after = os.fstat(lease.root_descriptor)
+    mount_info_after = _read_mount_info(
+        lease.process_descriptor,
+        lease.root_mount_id,
+        RUN_ACTION_RUNTIME_VOLUME_KEEPER_DESTINATION,
+    )
+    if (
+        _stable_filesystem(filesystem_after) != _stable_filesystem(filesystem_before)
+        or _root_metadata_identity(root_metadata_after)
+        != _root_metadata_identity(root_metadata_before)
+        or mount_info_after != mount_info_before
+        or tuple(sorted(os.listdir(lease.root_descriptor))) != expected_root_entries
+    ):
+        raise RunActionRuntimeVolumeError(
+            "selected activation changed during descriptor reopen"
+        )
+    reobserved_volume_evidence = _mint_runtime_volume_evidence(
+        authority,
+        volume,
+        keeper,
+        root_mount_id=lease.root_mount_id,
+        root_device=lease.root_device,
+        root_inode=lease.root_inode,
+        sentinel_evidence=prepared_volume.sentinel_evidence,
+        filesystem=filesystem_after,
+    )
+    input_delivery = _physical_reobserved_delivery(
+        prepared.input_delivery_slot,
+        input_file_observation,
+        content_digest=tree_or_blob_digest(input_file_observation.payload),
+    )
+    credential_delivery = (
+        None
+        if prepared.credential_delivery_slot is None
+        else _physical_reobserved_delivery(
+            prepared.credential_delivery_slot,
+            credential_file_observation,
+            content_digest=None,
+        )
+    )
+    activated_volume = _mint_activated_volume_observation(
+        prepared,
+        selected_receipt.spawn_commit,
+        reobserved_volume_evidence,
+        activated_workspace_frontier,
+        input_delivery,
+        credential_delivery,
+        (
+            None
+            if selected_receipt.credential_file_observation is None
+            else selected_receipt.credential_file_observation.content_authority_id
+        ),
+    )
+    return _SelectedActivationDescriptorObservation(
+        mounted_volume=lease,
+        sentinel_observation=sentinel_observation,
+        input_file_observation=input_file_observation,
+        result_file_observation=result_file_observation,
+        credential_file_observation=credential_file_observation,
+        directory_descriptors=directory_descriptors,
+        activated_workspace_frontier=activated_workspace_frontier,
+        filesystem_identity=_stable_filesystem(filesystem_after),
+        root_metadata_identity=_root_metadata_identity(root_metadata_after),
+        mount_info=mount_info_after,
+        activated_volume=activated_volume,
+    )
+
+
+def _selected_activated_volume(
+    receipt: RunActionActivationRevalidationReceipt,
+) -> DockerRunActionActivatedVolumeObservation:
+    return DockerRunActionActivatedVolumeObservation(
+        prepared_execution=receipt.prepared_execution,
+        spawn_commit=receipt.spawn_commit,
+        reobserved_volume_evidence=receipt.reobserved_volume_evidence,
+        activated_workspace_observation=receipt.activated_workspace_observation,
+        activated_runtime_directory_observations=(
+            receipt.activated_runtime_directory_observations
+        ),
+        activated_sentinel_observation=receipt.activated_sentinel_observation,
+        input_file_observation=receipt.input_file_observation,
+        result_file_observation=receipt.result_file_observation,
+        credential_file_observation=receipt.credential_file_observation,
+    )
+
+
+def _require_selected_activation_lease_current(
+    lease: RunActionActivationRevalidationLease,
+    *,
+    require_inert_main: bool,
+) -> None:
+    inventory = lease._resource_manager.observe(lease._preparation_allocation)
+    if inventory != lease._inventory:
+        raise RunActionRuntimeVolumeError(
+            "selected activation Docker occurrence changed"
+        )
+    if require_inert_main:
+        volume, keeper, inert_main = _observe_selected_activation_docker_resources(
+            lease._preparation_allocation,
+            lease._selected_receipt,
+            lease._resource_manager,
+            inventory,
+        )
+        if inert_main != lease._inert_container_evidence:
+            raise RunActionRuntimeVolumeError("selected activation inert main changed")
+    else:
+        volume, keeper = _observe_selected_activation_volume_and_keeper(
+            lease._preparation_allocation,
+            lease._selected_receipt,
+            lease._resource_manager,
+            inventory,
+        )
+    if volume != lease._volume_observation or keeper != lease._keeper_evidence:
+        raise RunActionRuntimeVolumeError("selected activation Docker evidence changed")
+    _require_same_mounted_runtime_volume(
+        lease._mounted_volume,
+        lease._keeper_evidence,
+    )
+    _require_same_exact_regular_file(lease._sentinel_observation)
+    _require_same_exact_regular_file(lease._input_file_observation)
+    _require_same_exact_regular_file(lease._result_file_observation)
+    if lease._credential_file_observation is not None:
+        _require_same_exact_regular_file_shape(lease._credential_file_observation)
+    prepared = lease._selected_receipt.prepared_execution
+    for (
+        prepared_directory,
+        descriptor,
+        expected_entries,
+    ) in lease._directory_descriptors:
+        _require_exact_activation_directory(
+            prepared_directory,
+            lease._mounted_volume.root_descriptor,
+            descriptor,
+            expected_entries=expected_entries,
+        )
+    if prepared.workspace_proof is not None:
+        workspace_descriptors = tuple(
+            descriptor
+            for prepared_directory, descriptor, _entries in lease._directory_descriptors
+            if type(prepared_directory) is RunActionPreparedWorkspaceProof
+        )
+        if len(workspace_descriptors) != 1:
+            raise RunActionRuntimeVolumeError(
+                "selected activation lost its retained workspace"
+            )
+        workspace = _observe_activation_workspace(
+            workspace_descriptors[0],
+            prepared,
+            lease._settings,
+        )
+        if not _same_workspace_semantics(
+            workspace,
+            lease._activated_workspace_frontier,
+        ):
+            raise RunActionRuntimeVolumeError(
+                "selected activation retained workspace changed"
+            )
+    filesystem = os.fstatvfs(lease._mounted_volume.root_descriptor)
+    root_metadata = os.fstat(lease._mounted_volume.root_descriptor)
+    mount_info = _read_mount_info(
+        lease._mounted_volume.process_descriptor,
+        lease._mounted_volume.root_mount_id,
+        RUN_ACTION_RUNTIME_VOLUME_KEEPER_DESTINATION,
+    )
+    expected_root_entries = tuple(
+        sorted((*_expected_directory_names(prepared.preparation_claim), _SENTINEL_NAME))
+    )
+    if (
+        _stable_filesystem(filesystem) != lease._filesystem_identity
+        or _root_metadata_identity(root_metadata) != lease._root_metadata_identity
+        or mount_info != lease._mount_info
+        or tuple(sorted(os.listdir(lease._mounted_volume.root_descriptor)))
+        != expected_root_entries
+    ):
+        raise RunActionRuntimeVolumeError("selected activation retained volume changed")
+    current_inventory = lease._resource_manager.observe(lease._preparation_allocation)
+    if current_inventory != inventory:
+        raise RunActionRuntimeVolumeError(
+            "selected activation Docker occurrence changed during revalidation"
+        )
+    if require_inert_main:
+        current_volume, current_keeper, current_main = (
+            _observe_selected_activation_docker_resources(
+                lease._preparation_allocation,
+                lease._selected_receipt,
+                lease._resource_manager,
+                current_inventory,
+            )
+        )
+        if current_main != lease._inert_container_evidence:
+            raise RunActionRuntimeVolumeError(
+                "selected activation inert main changed during revalidation"
+            )
+    else:
+        current_volume, current_keeper = _observe_selected_activation_volume_and_keeper(
+            lease._preparation_allocation,
+            lease._selected_receipt,
+            lease._resource_manager,
+            current_inventory,
+        )
+    if (
+        current_volume != lease._volume_observation
+        or current_keeper != lease._keeper_evidence
+    ):
+        raise RunActionRuntimeVolumeError(
+            "selected activation Docker evidence changed during revalidation"
+        )
 
 
 def _require_activation_spawn_join(
@@ -2298,7 +3172,7 @@ def _mint_activated_volume_observation(
     reobserved_volume_evidence: RunActionRuntimeVolumeEvidence,
     activated_workspace_frontier: RunWorkspaceFrontierIdentity | None,
     input_delivery: RunActionDeliveredFilePhysicalObservation,
-    credential_delivery: RunActionDeliveredFileLease | None,
+    credential_delivery: RunActionDeliveredFilePhysicalObservation | None,
     credential_content_authority_id: str | None,
 ) -> DockerRunActionActivatedVolumeObservation:
     input_file_observation = _mint_activated_delivery_file(
@@ -2315,7 +3189,7 @@ def _mint_activated_volume_observation(
         else _mint_activated_delivery_file(
             spawn_commit,
             prepared.credential_delivery_slot,
-            credential_delivery.observation,
+            credential_delivery,
             content_authority_id=credential_content_authority_id,
         )
     )
@@ -2585,6 +3459,160 @@ def _require_activation_result_file(
         raise RunActionRuntimeVolumeError(
             "activation result file differs from its prepared inode"
         )
+
+
+def _open_reobserved_input_file(
+    descriptors: ExitStack,
+    directory_descriptor: int,
+    slot: RunActionPreparedDeliverySlot,
+    selected: RunActionActivatedFileObservation,
+    authority: RunActionRuntimeVolumeAuthority,
+    *,
+    root_mount_id: int,
+    root_device: int,
+) -> _ExactRegularFileObservation:
+    if (
+        type(selected) is not RunActionActivatedFileObservation
+        or slot.kind is not RunActionPreparedFileKind.INPUT
+        or selected.prepared_parent_authority_id != slot.prepared_delivery_slot_id
+        or selected.prepared_file_id is not None
+        or selected.parent_mount_id != slot.mount_id
+        or selected.parent_device != slot.device
+        or selected.parent_inode != slot.inode
+        or selected.runtime_volume_authority_id != slot.runtime_volume_authority_id
+        or selected.generation_nonce != slot.generation_nonce
+        or selected.kind is not slot.kind
+        or selected.relative_path
+        != f"{slot.directory_relative_path}/{slot.final_file_name}"
+        or selected.owner_user_id != slot.owner_user_id
+        or selected.owner_group_id != slot.owner_group_id
+        or selected.size_bytes <= 0
+        or selected.size_bytes > slot.payload_size_limit_bytes
+        or selected.content_digest is None
+    ):
+        raise RunActionRuntimeVolumeError(
+            "selected delivered file differs from its prepared slot"
+        )
+    observed = _open_regular_file_by_shape(
+        descriptors,
+        directory_descriptor,
+        slot.final_file_name,
+        expected_size_bytes=selected.size_bytes,
+        expected_mode=selected.mode,
+        authority=authority,
+        root_mount_id=root_mount_id,
+        root_device=root_device,
+    )
+    metadata = observed.metadata
+    observed_digest = tree_or_blob_digest(observed.payload)
+    if (
+        metadata.st_ino != selected.inode
+        or metadata.st_dev != selected.device
+        or observed.mount_id != selected.mount_id
+        or metadata.st_uid != selected.owner_user_id
+        or metadata.st_gid != selected.owner_group_id
+        or stat.S_IMODE(metadata.st_mode) != selected.mode
+        or metadata.st_nlink != selected.link_count
+        or metadata.st_size != selected.size_bytes
+        or observed_digest != selected.content_digest
+    ):
+        raise RunActionRuntimeVolumeError(
+            "reopened delivered file differs from selected event 5"
+        )
+    return observed
+
+
+def _open_reobserved_credential_file(
+    descriptors: ExitStack,
+    directory_descriptor: int,
+    slot: RunActionPreparedDeliverySlot,
+    selected: RunActionActivatedFileObservation,
+    authority: RunActionRuntimeVolumeAuthority,
+    *,
+    root_mount_id: int,
+    root_device: int,
+) -> _ExactRegularFileShapeObservation:
+    if (
+        type(selected) is not RunActionActivatedFileObservation
+        or slot.kind is not RunActionPreparedFileKind.CREDENTIAL
+        or selected.prepared_parent_authority_id != slot.prepared_delivery_slot_id
+        or selected.prepared_file_id is not None
+        or selected.parent_mount_id != slot.mount_id
+        or selected.parent_device != slot.device
+        or selected.parent_inode != slot.inode
+        or selected.runtime_volume_authority_id != slot.runtime_volume_authority_id
+        or selected.generation_nonce != slot.generation_nonce
+        or selected.kind is not slot.kind
+        or selected.relative_path
+        != f"{slot.directory_relative_path}/{slot.final_file_name}"
+        or selected.owner_user_id != slot.owner_user_id
+        or selected.owner_group_id != slot.owner_group_id
+        or selected.size_bytes <= 0
+        or selected.size_bytes > slot.payload_size_limit_bytes
+        or selected.content_digest is not None
+        or selected.content_authority_id is None
+    ):
+        raise RunActionRuntimeVolumeError(
+            "selected credential differs from its prepared slot"
+        )
+    observed = _open_regular_file_shape_without_content(
+        descriptors,
+        directory_descriptor,
+        slot.final_file_name,
+        expected_size_bytes=selected.size_bytes,
+        expected_mode=selected.mode,
+        authority=authority,
+        root_mount_id=root_mount_id,
+        root_device=root_device,
+    )
+    metadata = observed.metadata
+    if (
+        metadata.st_ino != selected.inode
+        or metadata.st_dev != selected.device
+        or observed.mount_id != selected.mount_id
+        or metadata.st_uid != selected.owner_user_id
+        or metadata.st_gid != selected.owner_group_id
+        or stat.S_IMODE(metadata.st_mode) != selected.mode
+        or metadata.st_nlink != selected.link_count
+        or metadata.st_size != selected.size_bytes
+    ):
+        raise RunActionRuntimeVolumeError(
+            "reopened credential differs from selected event 5"
+        )
+    return observed
+
+
+def _physical_reobserved_delivery(
+    slot: RunActionPreparedDeliverySlot | None,
+    observed: _ExactRegularFileObservation | _ExactRegularFileShapeObservation | None,
+    *,
+    content_digest: str | None,
+) -> RunActionDeliveredFilePhysicalObservation:
+    if type(slot) is not RunActionPreparedDeliverySlot or type(observed) not in {
+        _ExactRegularFileObservation,
+        _ExactRegularFileShapeObservation,
+    }:
+        raise RunActionRuntimeVolumeError(
+            "reopened delivery lacks exact physical authority"
+        )
+    metadata = observed.metadata
+    return RunActionDeliveredFilePhysicalObservation(
+        prepared_delivery_slot_id=slot.prepared_delivery_slot_id,
+        runtime_volume_authority_id=slot.runtime_volume_authority_id,
+        generation_nonce=slot.generation_nonce,
+        kind=slot.kind,
+        relative_path=f"{slot.directory_relative_path}/{slot.final_file_name}",
+        file_type="regular",
+        owner_user_id=metadata.st_uid,
+        owner_group_id=metadata.st_gid,
+        mode=stat.S_IMODE(metadata.st_mode),
+        link_count=metadata.st_nlink,
+        size_bytes=metadata.st_size,
+        mount_id=observed.mount_id,
+        device=metadata.st_dev,
+        inode=metadata.st_ino,
+        content_digest=content_digest,
+    )
 
 
 def _mint_activated_delivery_file(
@@ -3291,6 +4319,108 @@ def _open_exact_regular_file(
     )
 
 
+def _open_regular_file_by_shape(
+    descriptors: ExitStack,
+    parent_descriptor: int,
+    name: str,
+    *,
+    expected_size_bytes: int,
+    expected_mode: int,
+    authority: RunActionRuntimeVolumeAuthority,
+    root_mount_id: int,
+    root_device: int,
+) -> _ExactRegularFileObservation:
+    if type(expected_size_bytes) is not int or expected_size_bytes <= 0:
+        raise RunActionRuntimeVolumeError(
+            "selected runtime volume file lacks a positive size"
+        )
+    descriptor = os.open(
+        name,
+        os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW | os.O_CLOEXEC,
+        dir_fd=parent_descriptor,
+    )
+    descriptors.callback(os.close, descriptor)
+    metadata_before = os.fstat(descriptor)
+    mount_id_before = read_run_action_descriptor_mount_id(descriptor)
+    payload = _read_bounded_descriptor_payload(
+        descriptor,
+        expected_size_bytes + 1,
+    )
+    metadata_after = os.fstat(descriptor)
+    mount_id_after = read_run_action_descriptor_mount_id(descriptor)
+    if (
+        _stable_metadata(metadata_after) != _stable_metadata(metadata_before)
+        or mount_id_after != mount_id_before
+        or not stat.S_ISREG(metadata_before.st_mode)
+        or metadata_before.st_uid != authority.owner_user_id
+        or metadata_before.st_gid != authority.owner_group_id
+        or stat.S_IMODE(metadata_before.st_mode) != expected_mode
+        or metadata_before.st_nlink != 1
+        or metadata_before.st_size != expected_size_bytes
+        or len(payload) != expected_size_bytes
+        or mount_id_before != root_mount_id
+        or metadata_before.st_dev != root_device
+    ):
+        raise RunActionRuntimeVolumeError(
+            "selected runtime volume file is unsafe or substituted"
+        )
+    return _ExactRegularFileObservation(
+        descriptor=descriptor,
+        parent_descriptor=parent_descriptor,
+        name=name,
+        metadata=metadata_before,
+        mount_id=mount_id_before,
+        payload=payload,
+    )
+
+
+def _open_regular_file_shape_without_content(
+    descriptors: ExitStack,
+    parent_descriptor: int,
+    name: str,
+    *,
+    expected_size_bytes: int,
+    expected_mode: int,
+    authority: RunActionRuntimeVolumeAuthority,
+    root_mount_id: int,
+    root_device: int,
+) -> _ExactRegularFileShapeObservation:
+    if type(expected_size_bytes) is not int or expected_size_bytes <= 0:
+        raise RunActionRuntimeVolumeError("selected credential lacks a positive size")
+    descriptor = os.open(
+        name,
+        os.O_PATH | os.O_NOFOLLOW | os.O_CLOEXEC,
+        dir_fd=parent_descriptor,
+    )
+    descriptors.callback(os.close, descriptor)
+    metadata_before = os.fstat(descriptor)
+    mount_id_before = read_run_action_descriptor_mount_id(descriptor)
+    metadata_after = os.fstat(descriptor)
+    mount_id_after = read_run_action_descriptor_mount_id(descriptor)
+    if (
+        _stable_metadata(metadata_after) != _stable_metadata(metadata_before)
+        or mount_id_after != mount_id_before
+        or not stat.S_ISREG(metadata_before.st_mode)
+        or metadata_before.st_uid != authority.owner_user_id
+        or metadata_before.st_gid != authority.owner_group_id
+        or stat.S_IMODE(metadata_before.st_mode) != expected_mode
+        or metadata_before.st_nlink != 1
+        or metadata_before.st_size != expected_size_bytes
+        or mount_id_before != root_mount_id
+        or metadata_before.st_dev != root_device
+    ):
+        raise RunActionRuntimeVolumeError(
+            "selected credential file is unsafe or substituted"
+        )
+    return _ExactRegularFileShapeObservation(
+        descriptor=descriptor,
+        parent_descriptor=parent_descriptor,
+        name=name,
+        metadata=metadata_before,
+        mount_id=mount_id_before,
+    )
+
+
 def _require_same_exact_regular_file(
     observation: _ExactRegularFileObservation,
 ) -> None:
@@ -3331,6 +4461,37 @@ def _require_same_exact_regular_file(
             raise RunActionRuntimeVolumeError(
                 "prepared runtime volume file changed during exact observation"
             )
+
+
+def _require_same_exact_regular_file_shape(
+    observation: _ExactRegularFileShapeObservation,
+) -> None:
+    metadata = os.fstat(observation.descriptor)
+    mount_id = read_run_action_descriptor_mount_id(observation.descriptor)
+    path_descriptor = os.open(
+        observation.name,
+        os.O_PATH | os.O_NOFOLLOW | os.O_CLOEXEC,
+        dir_fd=observation.parent_descriptor,
+    )
+    with ExitStack() as path_descriptors:
+        path_descriptors.callback(os.close, path_descriptor)
+        path_metadata_before = os.fstat(path_descriptor)
+        path_mount_id_before = read_run_action_descriptor_mount_id(path_descriptor)
+        path_metadata_after = os.fstat(path_descriptor)
+        path_mount_id_after = read_run_action_descriptor_mount_id(path_descriptor)
+    if (
+        _stable_metadata(metadata) != _stable_metadata(observation.metadata)
+        or mount_id != observation.mount_id
+        or _stable_metadata(path_metadata_before)
+        != _stable_metadata(observation.metadata)
+        or _stable_metadata(path_metadata_after)
+        != _stable_metadata(path_metadata_before)
+        or path_mount_id_before != observation.mount_id
+        or path_mount_id_after != path_mount_id_before
+    ):
+        raise RunActionRuntimeVolumeError(
+            "selected credential shape changed during exact observation"
+        )
 
 
 def _read_bounded_descriptor_payload(descriptor: int, limit: int) -> bytes:
@@ -4002,6 +5163,7 @@ __all__ = [
     "DockerRunActionActivatedVolumeObservation",
     "DockerRunActionEmptyVolumeObservation",
     "DockerRunActionPreparedVolumeObservation",
+    "RunActionActivationRevalidationLease",
     "RunActionControlDirectoryLease",
     "RunActionResultWorkspaceLease",
     "RunActionRuntimeVolumeError",
@@ -4012,5 +5174,6 @@ __all__ = [
     "observe_empty_runtime_volume",
     "open_run_action_control_directory",
     "open_run_action_result_workspace",
+    "open_selected_run_action_activation",
     "reobserve_runtime_volume_layout",
 ]

@@ -128,6 +128,7 @@ from kapso.cross_run.launch.run_action_runtime_volume import (
     deliver_and_reobserve_runtime_volume_activation,
     materialize_runtime_volume_layout,
     observe_empty_runtime_volume,
+    open_selected_run_action_activation,
     reobserve_runtime_volume_layout,
 )
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
@@ -1610,8 +1611,17 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             _authority=_RUN_ACTION_RECOVERY_AUTHORITY,
         ) as session:
             activation_event = session.commit_activation(activation_receipt)
-        runtime.run_control(("container", "start", layout_main_id))
-        time.sleep(2 * settings.run_action_barrier_poll_interval_seconds)
+        with open_selected_run_action_activation(
+            layout_allocation,
+            activation_event.activation_revalidation_receipt,
+            resource_manager,
+            settings=cross_run_settings.launch,
+        ) as activation_revalidation:
+            assert activation_revalidation.selected_receipt == activation_receipt
+            runtime.run_control(("container", "start", layout_main_id))
+            activation_revalidation.require_volume_current()
+            time.sleep(2 * settings.run_action_barrier_poll_interval_seconds)
+            activation_revalidation.require_volume_current()
         running_layout_main = resource_manager.inspect_main(
             resource_manager.observe(layout_allocation)
         )

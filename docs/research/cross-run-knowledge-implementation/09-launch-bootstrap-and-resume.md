@@ -24,9 +24,11 @@ authority, and post-spawn request/credential delivery plus pre-start volume
 reobservation are crash-atomic and descriptor-bound. Allocation-bound recovery
 can now reconstruct deterministic prepared-volume evidence from a fully
 published event-2 layout without mutation; incomplete, pending, extra, or
-substituted topology remains non-adoptable. Full event-5 receipt
-assembly, committed-container reinspection and token-sealed start, terminal
-Docker inspection, and adopted-release result authority are implemented.
+substituted topology remains non-adoptable. Full event-5 receipt assembly, a
+descriptor-retained read-only reopen that reproduces the selected receipt
+without original delivery inputs, terminal Docker inspection, and
+adopted-release result authority are implemented. Committed-container
+classification and token-sealed start remain to be composed.
 Descriptor-bound result capture, the closed typed-termination evidence
 contracts, terminal event-6 persistence/replay, the closed semantic control
 topology, and exact crash adoption of a published timeout directive are
@@ -730,14 +732,23 @@ the fresh observation must retain positive result-plus-temporary headroom. Works
 and sentinel observations are distinct activation-time contracts bound to the
 exact spawn commit and their preparation evidence IDs; replaying a preparation
 object is not revalidation. Event 5 durably selects one full receipt with
-create-only publication. Revalidation itself grants no workload authority. After
-publication, a new process-bound single-use capability must reobserve the same
-inert occurrence, reproduce the selected receipt exactly, and retain the live
-resource authority and workspace lock.
+create-only publication. Revalidation itself grants no workload authority.
+After publication, the read-only activation reopen now sandwiches the exact
+three-resource Docker inventory around descriptor-retained volume, sentinel,
+directory, delivered-file, result, and optional copied-workspace observation.
+It reproduces the selected receipt exactly without the original request,
+credential, host-workspace source, or staging capability and retains the
+physical authority for the later start leaf. The distinct process-bound
+single-use continuation capability must consume that lease before start.
 It embeds the exact typed spawn commit and delivery predecessors. Request delivery
 proves the fixed regular-file name, digest, size, owner/group, read-only mode, and
 single link; credential delivery proves the same structural facts plus its opaque
 broker lease authority and size, but stores no credential digest or bytes.
+Restart revalidation therefore proves the exact credential inode and structure,
+not historical secret-byte identity; the trusted-supervisor/read-only-workload
+boundary owns that invariant. A stronger host-tamper threat model would require
+a broker-issued opaque materialization commitment and descriptor-attestation API
+rather than pretending the non-secret receipt contains a secret digest.
 Every delivery/proof record binds the exact spawn-commit content ID, including its
 invocation nonce; a semantically similar second fence cannot reuse prior delivery.
 A crash before event 5 may stage a new candidate. A crash after event 5 may only
