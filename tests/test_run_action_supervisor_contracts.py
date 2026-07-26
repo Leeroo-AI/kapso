@@ -1622,6 +1622,12 @@ def test_terminal_observation_and_result_capture_bind_the_physical_result():
     activation = _activation_revalidation_receipt(prepared, spawn)
     terminal = _terminal_observation(prepared, spawn)
     capture = _result_capture_receipt(prepared, activation, terminal, payload)
+    empty_capture = _result_capture_receipt(
+        prepared,
+        activation,
+        terminal,
+        b"",
+    )
 
     assert (
         RunActionTerminalObservation.from_json_bytes(terminal.to_json_bytes())
@@ -1640,6 +1646,16 @@ def test_terminal_observation_and_result_capture_bind_the_physical_result():
         capture.reobserved_volume_evidence.root_inode
         == prepared.runtime_volume_evidence.root_inode
     )
+    assert empty_capture.size_bytes == 0
+    assert empty_capture.content_digest == tree_or_blob_digest(b"")
+    with pytest.raises(
+        RunActionSupervisorContractError,
+        match="result capture receipt is invalid",
+    ):
+        _remint_contract(
+            empty_capture,
+            content_digest=tree_or_blob_digest(b"not empty"),
+        )
     with pytest.raises(
         RunActionSupervisorContractError,
         match="terminal observation is invalid",

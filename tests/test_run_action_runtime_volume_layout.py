@@ -1172,10 +1172,49 @@ def test_descriptor_result_capture_reads_only_the_original_bounded_inode(
     )
 
 
+def test_descriptor_result_capture_preserves_an_exact_empty_original_inode(
+    layout_context,
+    tmp_path,
+    monkeypatch,
+):
+    settings, _claim_without_workspace, _authority, _empty = layout_context
+    payload = b""
+    (
+        prepared,
+        terminal,
+        volume,
+        launch_settings,
+        root_path,
+        _result_path,
+        _sentinel_path,
+        root_mount_id,
+        root_metadata,
+    ) = _physical_result_capture_case(tmp_path, settings, payload)
+    _patch_physical_result_capture(
+        monkeypatch,
+        prepared,
+        root_path,
+        root_mount_id,
+        root_metadata,
+        len(payload),
+    )
+
+    receipt, captured_payload = volume_module.capture_run_action_result_file(
+        prepared,
+        terminal,
+        volume,
+        settings=launch_settings,
+    )
+
+    assert captured_payload == b""
+    assert receipt.size_bytes == 0
+    assert receipt.content_digest == volume_module.tree_or_blob_digest(b"")
+    assert receipt.inode == prepared.result_file.inode
+
+
 @pytest.mark.parametrize(
     "mutation",
     (
-        "empty",
         "replacement",
         "hard_link",
         "extra_result_entry",
@@ -1203,9 +1242,7 @@ def test_descriptor_result_capture_rejects_unsafe_physical_files(
         root_mount_id,
         root_metadata,
     ) = _physical_result_capture_case(tmp_path, settings, payload)
-    if mutation == "empty":
-        result_path.write_bytes(b"")
-    elif mutation == "replacement":
+    if mutation == "replacement":
         os.link(result_path, root_path.parent / "detached-original-result")
         result_path.unlink()
         result_path.write_bytes(payload)

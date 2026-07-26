@@ -24,9 +24,10 @@ authority, and post-spawn request/credential delivery plus pre-start volume
 reobservation are crash-atomic and descriptor-bound. Full event-5 receipt
 assembly, committed-container reinspection and token-sealed start, terminal
 Docker inspection, and adopted-release result authority are implemented.
-Descriptor-bound result capture, typed termination and cleanup, OS executor
-activation, explicit E0/S-EMPTY provisioning orchestration, full policy refresh
-on resume, and API/runner activation remain.
+Descriptor-bound result capture and the closed typed-termination evidence
+contracts are implemented. Physical timeout/termination registration, cleanup,
+OS executor activation, explicit E0/S-EMPTY provisioning orchestration, full
+policy refresh on resume, and API/runner activation remain.
 
 ## Objective
 
@@ -962,17 +963,33 @@ same host boot, exact Docker inventory, and terminal occurrence around a
 keeper-root descriptor read; reopens the original prepared result inode without
 following links or blocking on special files; and sandwiches its parent,
 sentinel, keeper generation, root topology, and `statvfs` evidence. The
-configured result bound is checked against the policy, the complete nonempty
-payload is read through EOF, and capture authority can be taken only after the
-trusted terminal is observed and no later than the original release execution
-deadline. Once authorized, bounded descriptor I/O may cross that deadline; host
-I/O latency cannot change provider success. The capability registers the exact
-`RunActionProviderResult`: a fabricated result, a substituted equal-shape
-capture, or returning `PENDING` after consuming capture authority is rejected.
-Positive termination and cleanup authority and production adapters remain the
-next slices. No production caller can receive Docker start authority from the
-reservation gate; M9 activation must continue to route every post-reservation
-transition through the coordinator's sealed capabilities.
+configured result bound is checked against the policy and the complete payload
+is read through EOF. A zero-byte original inode now remains exact descriptor
+evidence for `EMPTY_RESULT`, while `RunActionProviderResult` and durable result
+authority remain strictly nonempty. Capture authority can be taken only after
+the trusted terminal is observed and no later than the original release
+execution deadline. Once authorized, bounded descriptor I/O may cross that
+deadline; host I/O latency cannot change provider success. The capability
+registers the exact `RunActionProviderResult`: a fabricated result, a substituted
+equal-shape capture, or returning `PENDING` after consuming capture authority is
+rejected.
+
+Typed provider termination now has one closed immutable evidence graph. Timeout
+requires a fresh running-container observation sampled after the release-derived
+deadline and a descriptor-read, no-replace `control/timeout` publication;
+publication outranks every later exit fact. Without that authority, OOM,
+nonzero exit, and descriptor-proved empty result are mutually exclusive failed
+outcomes. The only pre-release interruption is a stable, same-boot proof that
+the exact volume and keeper remain, the main alone is absent, and release is
+absent under the exact control authority. The contracts bind the activation
+event, release adoption, terminal occurrence, immutable runtime-volume
+occurrence, deadlines, and publication inode. They do not yet authorize recovery
+or mutate the ledger: positive termination still requires a private physical
+leaf and sealed capability registration in the next slice. Cleanup and
+production adapters remain later slices. No production caller can receive
+Docker start authority from the reservation gate; M9 activation must continue
+to route every post-reservation transition through the coordinator's sealed
+capabilities.
 
 The recovery surface is now fail-closed ahead of typed termination. The
 proof-only `PROVEN_RESOURCE_LOST`, `QUIESCENT_RECHECKABLE`, and

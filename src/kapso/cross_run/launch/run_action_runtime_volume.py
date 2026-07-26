@@ -1297,13 +1297,13 @@ def capture_run_action_result_file(
             or result_metadata_before.st_gid != result_file.owner_group_id
             or stat.S_IMODE(result_metadata_before.st_mode) != result_file.mode
             or result_metadata_before.st_nlink != result_file.link_count
-            or not 0 < result_metadata_before.st_size <= policy_limit
+            or not 0 <= result_metadata_before.st_size <= policy_limit
             or result_mount_id_before != result_file.mount_id
             or result_metadata_before.st_dev != result_file.device
             or result_metadata_before.st_ino != result_file.inode
         ):
             raise RunActionRuntimeVolumeError(
-                "result capture file is empty, oversized, or substituted"
+                "result capture file is oversized or substituted"
             )
         os.fsync(result_descriptor)
         os.fsync(result_parent_descriptor)
@@ -1326,12 +1326,11 @@ def capture_run_action_result_file(
             policy_limit + 1,
         )
         if (
-            not payload
-            or len(payload) > policy_limit
+            len(payload) > policy_limit
             or len(payload) != result_metadata_before.st_size
         ):
             raise RunActionRuntimeVolumeError(
-                "result capture payload is empty, oversized, or unstable"
+                "result capture payload is oversized or unstable"
             )
         captured_file = _ExactRegularFileObservation(
             descriptor=result_descriptor,

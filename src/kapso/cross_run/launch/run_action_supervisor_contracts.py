@@ -2881,8 +2881,11 @@ class RunActionResultCaptureReceipt(StrictContract):
             or self.mode != 0o600
             or self.link_count != 1
             or type(self.size_bytes) is not int
-            or self.size_bytes <= 0
+            or self.size_bytes < 0
             or _SHA256_DIGEST_PATTERN.fullmatch(self.content_digest) is None
+            or (
+                self.size_bytes == 0 and self.content_digest != tree_or_blob_digest(b"")
+            )
             or self.reobserved_volume_evidence.volume_authority.runtime_volume_authority_id
             != self.runtime_volume_authority_id
             or self.reobserved_volume_evidence.volume_authority.generation_nonce
