@@ -162,6 +162,15 @@ modes:
           model: "claude-opus-4-8"
           effort: "xhigh"
 
+    # Time-budgeted campaigns: the search decides its own iteration count;
+    # launch with a high -i so the clock, not the counter, is binding.
+    # Admission floor keeps a doomed final iteration (needs ~1h+ with 4h
+    # evals) from being started; the reserve protects final_evaluate.
+    budget:
+      time_budget_minutes: 600
+      finalization_reserve_minutes: 15
+      min_iteration_seconds: 1800
+
     evaluation_maintainer:
       type: "claude_code"
       model: "claude-opus-4-8"

@@ -336,12 +336,12 @@ is better). Test metrics are computed but hidden from you.
 
 Run modes:
 - `python main.py --debug` must finish in under {spec.debug_timeout // 60} minutes — it is a
-  pipeline-correctness gate, not a mini training run. HARD RULES for debug mode: at most a
-  few thousand training rows, ONE small model (e.g. <=200 boosting rounds), NO ensembling/
-  stacking/extra folds, and skip any expensive feature block that full mode can rebuild.
-  It must STILL produce both full-shape prediction files (cheap/constant predictions are
-  fine for rows you skip). Exceeding the debug budget kills the run before it ever scores;
-  budget roughly half the limit to be safe.
+  pipeline-correctness gate, not a mini training run: cut the work however you like
+  (subsample rows, truncate training, skip expensive blocks full mode rebuilds) as long
+  as the complete pipeline is exercised end to end and both full-shape prediction files
+  are written (cheap/constant predictions are fine for rows you skip). Exceeding the
+  debug budget kills the run before it ever scores; budget roughly half the limit to be
+  safe.
 - `python main.py` (full mode) must finish in under {spec.full_timeout // 3600:.1f} hours
   including all embedding/feature computation. Budget time explicitly: print elapsed time
   after each phase; leave a safety margin to write predictions.
@@ -403,10 +403,9 @@ Data access (read carefully — violations invalidate the run):
 
 def _resources(spec: TaskSpec, has_gpu: bool, num_cpus: int, mem_gb: int) -> str:
     gpu_line = (
-        "one CUDA GPU (set device from env CUDA_DEVICE, default 0); use it for any "
-        "neural model; keep GBDT on CPU"
+        "one CUDA GPU (set device from env CUDA_DEVICE, default 0)"
         if has_gpu
-        else "NO GPU — prefer GBDT/duckdb pipelines; keep any torch model tiny and CPU-friendly"
+        else "no GPU on this machine"
     )
     return f"""
 Resources & engineering:
@@ -434,17 +433,13 @@ Resources & engineering:
 
 def _iteration_protocol(spec: TaskSpec) -> str:
     return f"""
-Experimentation protocol for this search:
+Experimentation notes for this search:
 - Each experiment's evaluation output includes the official VALIDATION metrics computed
   by the harness plus your printed logs — read previous experiments' outputs carefully
   and address what they reveal (overfitting, timeouts, weak segments, degenerate preds).
-- When the parent experiment succeeded, at least one child must be the same solution with
-  meaningfully better hyperparameters/training budget (deeper search around a winner).
-- Keep diversity: at least one child per expansion should try a structurally different
-  model family until it's clear which dominates here.
-- When run/budget notes in the evaluation output indicate the LATE phase (>75% budget),
-  stop exploring: ensemble the best distinct models from earlier experiments (their
-  cached val/test predictions are in $KAPSO_SHARED_CACHE_DIR) and fine-tune the winner.
+- The evaluation output's run/budget notes tell you how much of the campaign budget
+  remains; cached val/test predictions from earlier experiments persist in
+  $KAPSO_SHARED_CACHE_DIR. How to spend the remaining budget is your call.
 - Beat-the-number focus: the current published state of the art for this task is shown
   below (if known). Treat it as the bar; report progress against it in your logs.
 """
