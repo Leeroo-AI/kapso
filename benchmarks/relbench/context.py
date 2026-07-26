@@ -160,8 +160,7 @@ _COMMON_PLAYBOOK = """
 - The official SOTA reference for this benchmark is Relational Deep Learning (RDL): a
   heterogeneous temporal GNN (GraphSAGE-style) over the pkey-fkey graph with per-table
   PyTorch Frame column encoders and text embeddings, trained with time-aware neighbor
-  sampling. Starter implementations are vendored in `kapso_datasets/` — adapt
-  them (they are known-correct on temporal handling) rather than writing samplers from scratch.
+  sampling.
 - Strong non-GNN contender on many tasks: temporally-censored SQL feature engineering
   (duckdb) + gradient boosting (LightGBM/XGBoost/CatBoost). Aggregates over each fkey
   relation at multiple lookback windows (7/30/90/365 days, all-time): counts, recency
@@ -176,7 +175,7 @@ _COMMON_PLAYBOOK = """
   distribution — use them (a recency-weighted loss often helps too).
 - For the final model, retrain on train+val (after model selection on val) when the val
   metric is stable; keep an untouched early-stopping slice carved from the tail of train.
-- Text columns: GloVe averages (starter default) are weak; upgrade to a stronger sentence
+- Text columns: GloVe averages are weak; upgrade to a stronger sentence
   encoder (e.g. intfloat/e5-base-v2 or BAAI/bge-base-en-v1.5 if available locally) when
   text is informative. Embed ONCE and cache in $KAPSO_SHARED_CACHE_DIR keyed by
   (table, column, model); re-embedding every run wastes the time budget.
@@ -196,8 +195,7 @@ Binary entity classification specifics (primary: roc_auc, higher is better):
 - Class imbalance: prefer more informative negatives per epoch over loss reweighting.
 - Label-history autoregression is powerful: the entity's own past label windows
   (churned last month? active streak length?) computed with `make_table` logic at past
-  seed times are legal features at time t (window fully before t). The starter GNN
-  supports including past task tables as features.
+  seed times are legal features at time t (window fully before t).
 - GNN: 2 layers, 128 channels, fanout ~[128, 128], sum aggregation, uniform temporal
   sampling is the known-good starting point; try attention/PNA aggregation, deeper
   fanouts on small DBs, and shallow entity embeddings for high-overlap entity sets.
@@ -239,7 +237,7 @@ Recommendation specifics (primary: link_prediction_map = MAP@K, higher is better
 - REPEAT BEHAVIOR IS KING: on purchase/visit-style tasks, most future interactions are
   re-interactions. A time-decayed frequency+recency ranking of the source's own past
   destinations, backfilled with global/recent popularity, is a brutal baseline that beats
-  most GNNs — implement it FIRST (see starter_kit/recommendation_heuristics.py).
+  most GNNs — implement it FIRST.
 - The winning pattern on H&M-style data is candidate-generation + GBDT re-ranking:
   candidates = user's past items + item-item co-occurrence neighbors (items bought
   together within sessions/windows) + recent-popularity by segment; features = per
@@ -280,9 +278,8 @@ Autocomplete specifics:
   target for the same parent entity' features FIRST.
 - Text columns: TF-IDF features are surprisingly strong for autocomplete (worth up to
   +10 AUROC on text-heavy tasks) — cheap to try alongside sentence embeddings.
-- The GNN starter (gnn_autocomplete) treats the new row as a node with its known columns
-  and predicts the target from the sampled temporal subgraph — good complement for
-  ensembling with GBDT.
+- A GNN that treats the new row as a node with its known columns and predicts the target
+  from the sampled temporal subgraph is a good complement for ensembling with GBDT.
 - Some 'known' columns of the target row may be missing at prediction time in spirit —
   use exactly the columns present in the sanitized database, nothing else.
 """
@@ -391,7 +388,7 @@ Data access (read carefully — violations invalidate the run):
   from the network.
 {ac_note}- Temporal censoring is YOUR responsibility inside allowed data: every feature,
   aggregation, join, or sampled neighborhood for a seed row at time t must only use
-  rows with time <= t. The starter kit's samplers/SQL templates do this correctly.
+  rows with time <= t.
 - Validation labels are for model selection AND may be used as training data for the
   model that produces TEST predictions (they lie before the test cutoff) — but never
   for the model that produces VAL predictions (see the prediction contract). Test rows
@@ -420,8 +417,10 @@ Resources & engineering:
   embeddings, materialized graphs, engineered feature matrices, and per-model val/test
   predictions there, keyed by a content/version string. Check-before-compute.
 - Install any missing pip package quietly at the top of main.py (pip install -q).
-  Allowed/typical: torch, torch_geometric, pytorch_frame, relbench, lightgbm, xgboost,
-  catboost, sentence-transformers, duckdb, polars.
+  Any library and any modeling approach is allowed — including open pretrained
+  models/checkpoints — subject only to the data-access and integrity rules above
+  (a pretrained checkpoint that is itself a published solution to THIS task remains
+  forbidden).
 - Match the INSTALLED library APIs (print versions in your EDA) — modern majors have
   removed legacy kwargs. Known traps here: lightgbm 4.x (`lgb.train` takes
   callbacks=[lgb.early_stopping(N), lgb.log_evaluation(0)]; early_stopping_rounds /
@@ -442,7 +441,7 @@ Experimentation protocol for this search:
 - When the parent experiment succeeded, at least one child must be the same solution with
   meaningfully better hyperparameters/training budget (deeper search around a winner).
 - Keep diversity: at least one child per expansion should try a structurally different
-  model family (GNN vs GBDT vs heuristic/ensemble) until it's clear which dominates here.
+  model family until it's clear which dominates here.
 - When run/budget notes in the evaluation output indicate the LATE phase (>75% budget),
   stop exploring: ensemble the best distinct models from earlier experiments (their
   cached val/test predictions are in $KAPSO_SHARED_CACHE_DIR) and fine-tune the winner.
@@ -494,11 +493,10 @@ def build_problem_context(
     if extra_knowledge:
         sections.append("\n## Additional knowledge\n" + extra_knowledge)
     sections.append(
-        "\nStarter kit: `kapso_datasets/` contains vendored official RelBench "
-        "example implementations (temporal GNNs for all three families, LightGBM "
-        "baselines, ID-GNN recommendation) plus `common.py` (env/task loading and "
-        "prediction-saving helpers that already respect the contract) and "
-        "`recommendation_heuristics.py`. Adapt them; do not modify files under "
+        "\nStarter kit: `kapso_datasets/` contains contract helpers only — "
+        "`common.py` (env/task loading and prediction-saving that already respect "
+        "the contract) and `check_predictions.py` (pre-validate prediction shapes). "
+        "Method choice is entirely yours. Do not modify files under "
         "`kapso_evaluation/`."
     )
     return "\n".join(s for s in sections if s)

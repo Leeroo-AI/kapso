@@ -65,7 +65,6 @@ modes:
       type: "kg_llm_navigation"
       enabled: false
 
-    fetch_huggingface_models: false
 
   # Heavier ideation for the hardest tasks (big rec tasks, soft v2 tasks).
   HEAVY_EXPERIMENTATION:
@@ -95,7 +94,6 @@ modes:
       type: "kg_llm_navigation"
       enabled: false
 
-    fetch_huggingface_models: false
 
   # Generic-search mode (escalations / A-B vs the tree): code-reading agentic
   # ideation, champion-chain parent policy, evaluation through the
@@ -224,7 +222,6 @@ modes:
       type: "kg_llm_navigation"
       enabled: false
 
-    fetch_huggingface_models: false
 
   # Fast system-debugging loop: production mechanics (claude_code coder,
   # same contracts/handler) at ~5x lower latency. Pair with a tiny task,
@@ -263,7 +260,6 @@ modes:
       type: "kg_llm_navigation"
       enabled: false
 
-    fetch_huggingface_models: false
 
   # ===========================================
   # Quick smoke testing (rel-f1 scale)
@@ -294,4 +290,3 @@ modes:
       type: "kg_llm_navigation"
       enabled: false
 
-    fetch_huggingface_models: false
