@@ -101,6 +101,7 @@ from test_run_frontier_action_gate import (
     _reserve_ideation_agent,
     _reserve_implementation_agent,
     _run_git,
+    _static_resource_finalization_authority,
     _successor_at_boundary,
     _StaticSecurityAuthority,
 )
@@ -2445,6 +2446,9 @@ def test_projected_acceptance_cleanup_precedes_new_pending_edit_after_restart(
         publisher=reopened_publisher,
         security_authority=security,
         credential_validity_authority=None,
+        resource_finalization_authority=(
+            _static_resource_finalization_authority(reopened_publisher)
+        ),
     )
     publisher_case["active"] = active
     pending = _reserve_implementation_agent(
@@ -3057,6 +3061,83 @@ def test_provider_termination_replays_without_implementation_use(
     assert not adapter.continuation_calls
     assert not adapter.inspect_calls
     assert not adapter.result_interpreter.interpret_calls
+
+
+def test_terminal_resources_block_recovery_report(
+    publisher_case,
+) -> None:
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
+    _append_result_accepted(gate, reservation)
+    driver = gate._resource_finalization_authority._require_current()[2]
+    driver.block_finalization = True
+
+    with pytest.raises(RuntimeError, match="terminal resources remain"):
+        _recovery_coordinator(
+            gate,
+            _FakeExecutionAdapter(reservation.intent.boundary_identity),
+        ).recover(frontier)
+
+    assert driver.finalized_operation_ids == [reservation.intent.operation_id]
+
+
+def test_terminal_resources_are_reproved_at_both_publication_phases(
+    publisher_case,
+) -> None:
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
+    _append_result_accepted(gate, reservation)
+    publisher = gate._publisher
+    successor_bundle, successor_checkpoint = _successor_at_boundary(
+        publisher_case,
+        publisher,
+        frontier,
+        RunSafetyBoundary.IMPLEMENTATION,
+    )
+    driver = gate._resource_finalization_authority._require_current()[2]
+    driver.block_absence = True
+
+    with pytest.raises(RuntimeError, match="terminal resources remain"):
+        publisher.issue_publication_permit(
+            frontier,
+            successor_checkpoint,
+            successor_bundle,
+        )
+
+    driver.block_absence = False
+    permit = publisher.issue_publication_permit(
+        frontier,
+        successor_checkpoint,
+        successor_bundle,
+    )
+    driver.block_absence = True
+    with pytest.raises(RuntimeError, match="terminal resources remain"):
+        publisher.publish(
+            permit,
+            successor_checkpoint,
+            successor_bundle,
+        )
+
+    assert driver.absence_checked_operation_ids == [
+        reservation.intent.operation_id,
+        reservation.intent.operation_id,
+        reservation.intent.operation_id,
+    ]
+
+
+def test_terminal_resources_block_the_next_reservation(
+    publisher_case,
+) -> None:
+    publisher, frontier, _security, gate = _action_case(publisher_case)
+    reservation = _reserve_ideation_agent(gate, frontier)
+    _append_result_accepted(gate, reservation)
+    before = publisher.action_ledger_snapshot()
+    driver = gate._resource_finalization_authority._require_current()[2]
+    driver.block_absence = True
+
+    with pytest.raises(RuntimeError, match="terminal resources remain"):
+        _reserve_ideation_agent(gate, frontier)
+
+    assert publisher.action_ledger_snapshot() == before
+    assert driver.absence_checked_operation_ids == [reservation.intent.operation_id]
 
 
 def test_registered_pre_release_loss_persists_as_terminal_event(
@@ -3740,6 +3821,9 @@ def test_result_received_recovers_after_full_runtime_restart(
         publisher=publisher,
         security_authority=security,
         credential_validity_authority=None,
+        resource_finalization_authority=(
+            _static_resource_finalization_authority(publisher)
+        ),
     )
     adapter = _FakeExecutionAdapter(reservation.intent.boundary_identity)
     report = _recovery_coordinator(reopened_gate, adapter).recover(reopened_frontier)
@@ -3771,6 +3855,9 @@ def test_result_decided_recovers_after_full_runtime_restart_without_implementati
         publisher=publisher,
         security_authority=security,
         credential_validity_authority=None,
+        resource_finalization_authority=(
+            _static_resource_finalization_authority(publisher)
+        ),
     )
     adapter = _AccessGuardedExecutionAdapter(reservation.intent.boundary_identity)
     guarded_interpreter = _AccessGuardedResultInterpreter(

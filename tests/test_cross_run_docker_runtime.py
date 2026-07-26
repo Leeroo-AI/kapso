@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import multiprocessing
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 
 import pytest
@@ -173,6 +174,113 @@ def _construct_runtime_after_signal(trusted_root, settings, start_signal):
     )
 
 
+def _hold_docker_mutation(
+    trusted_root,
+    settings,
+    entered,
+    release,
+):
+    class _MutationHoldingRunner:
+        def __init__(self):
+            self.call_count = 0
+
+        def run(self, request):
+            self.call_count += 1
+            if self.call_count == 1:
+                stdout = _json_line(_version(settings))
+            elif self.call_count == 2:
+                stdout = _json_line(_info(settings))
+            else:
+                entered.set()
+                release.wait(settings.command_timeout_seconds)
+                stdout = b""
+            return BoundedProcessResult(
+                request=request,
+                outcome=BoundedProcessOutcome.COMPLETED,
+                returncode=0,
+                stdout=stdout,
+                stderr=b"",
+                stdout_bytes_observed=len(stdout),
+                stderr_bytes_observed=0,
+                duration_seconds=0.0,
+            )
+
+    runtime = PinnedDockerRuntime(
+        trusted_root=trusted_root,
+        settings=settings,
+        process_runner=_MutationHoldingRunner(),
+    )
+    runtime.run_control(("container", "start", "a" * 64))
+
+
+def _announce_runtime_ready(
+    trusted_root,
+    settings,
+    ready,
+):
+    runtime = PinnedDockerRuntime(
+        trusted_root=trusted_root,
+        settings=settings,
+        process_runner=_ScriptedProcessRunner(
+            [
+                {"stdout": _json_line(_version(settings))},
+                {"stdout": _json_line(_info(settings))},
+                {"stdout": b""},
+            ]
+        ),
+    )
+    runtime.run_control(("container", "start", "b" * 64))
+    ready.set()
+
+
+class _AttachedStartHoldingRunner:
+    def __init__(self, settings, entered, release):
+        self.settings = settings
+        self.entered = entered
+        self.release = release
+        self.requests = []
+        self.started = False
+
+    def run(self, request):
+        self.requests.append(request)
+        arguments = request.argv[5:]
+        if arguments == ("version", "--format", "{{json .}}"):
+            stdout = _json_line(_version(self.settings))
+        elif arguments == ("info", "--format", "{{json .}}"):
+            stdout = _json_line(_info(self.settings))
+        elif arguments[:3] == ("container", "start", "--attach"):
+            self.started = True
+            self.entered.set()
+            self.release.wait(self.settings.command_timeout_seconds)
+            stdout = b""
+        elif arguments[:4] == (
+            "container",
+            "inspect",
+            "--format",
+            "{{json .}}",
+        ):
+            stdout = _json_line(
+                {
+                    "Id": arguments[4],
+                    "State": {
+                        "Status": "running" if self.started else "created",
+                    },
+                }
+            )
+        else:
+            raise AssertionError(f"unexpected Docker arguments: {arguments}")
+        return BoundedProcessResult(
+            request=request,
+            outcome=BoundedProcessOutcome.COMPLETED,
+            returncode=0,
+            stdout=stdout,
+            stderr=b"",
+            stdout_bytes_observed=len(stdout),
+            stderr_bytes_observed=0,
+            duration_seconds=0.0,
+        )
+
+
 def test_runtime_executes_privately_pinned_cli_with_no_inherited_environment(
     tmp_path,
     provider_settings,
@@ -267,6 +375,322 @@ def test_containment_authority_has_only_closed_term_kill_surface(
         match="unissued or foreign",
     ):
         authority.settings
+
+
+def test_cleanup_authority_has_only_closed_exact_removal_surface(
+    tmp_path,
+    monkeypatch,
+    provider_settings,
+):
+    main_id = "a" * 64
+    keeper_id = "b" * 64
+    volume_name = "kapso-cleanup-volume"
+    runtime, runner = _make_runtime(
+        tmp_path,
+        provider_settings,
+        additional_outputs=(
+            {"stdout": _json_line(_version(provider_settings))},
+            {"stdout": _json_line(_info(provider_settings))},
+            {"stdout": f"{main_id}\n".encode("ascii")},
+            {"stdout": f"{keeper_id}\n".encode("ascii")},
+            {"stdout": f"{volume_name}\n".encode("ascii")},
+        ),
+    )
+    authority = runtime.issue_cleanup_authority()
+    request_count = len(runner.requests)
+
+    assert authority.settings == provider_settings
+    assert not hasattr(authority, "run_control")
+    assert not hasattr(authority, "run_bounded")
+    with pytest.raises(PinnedDockerRuntimeError, match="closed authority"):
+        authority._remove_stopped_container_once(
+            container_id="short-id",
+            exclusion_lease=None,
+            _authority=runtime_module._DOCKER_CLEANUP_REMOVE_AUTHORITY,
+        )
+    with pytest.raises(PinnedDockerRuntimeError, match="closed authority"):
+        authority._remove_volume_once(
+            volume_name="../foreign",
+            exclusion_lease=None,
+            _authority=runtime_module._DOCKER_CLEANUP_REMOVE_AUTHORITY,
+        )
+    with pytest.raises(PinnedDockerRuntimeError, match="closed authority"):
+        authority._remove_stopped_container_once(
+            container_id=main_id,
+            exclusion_lease=None,
+            _authority=runtime_module._DOCKER_CLEANUP_REMOVE_AUTHORITY,
+        )
+    assert len(runner.requests) == request_count
+
+    with authority._issue_exclusion_lease(
+        _authority=runtime_module._DOCKER_CLEANUP_EXCLUSION_ISSUANCE,
+    ) as exclusion:
+        authority._remove_stopped_container_once(
+            container_id=main_id,
+            exclusion_lease=exclusion,
+            _authority=runtime_module._DOCKER_CLEANUP_REMOVE_AUTHORITY,
+        )
+        authority._remove_running_keeper_once(
+            container_id=keeper_id,
+            exclusion_lease=exclusion,
+            _authority=runtime_module._DOCKER_CLEANUP_REMOVE_AUTHORITY,
+        )
+        authority._remove_volume_once(
+            volume_name=volume_name,
+            exclusion_lease=exclusion,
+            _authority=runtime_module._DOCKER_CLEANUP_REMOVE_AUTHORITY,
+        )
+    assert tuple(request.argv[5:] for request in runner.requests[-3:]) == (
+        ("container", "rm", main_id),
+        ("container", "rm", "--force", keeper_id),
+        ("volume", "rm", volume_name),
+    )
+
+    owner_process_id = authority._owner_process_id
+    monkeypatch.setattr(
+        runtime_module.os,
+        "getpid",
+        lambda: owner_process_id + 1,
+    )
+    with pytest.raises(
+        PinnedDockerRuntimeError,
+        match="unissued or foreign",
+    ):
+        authority.settings
+
+
+def test_independent_processes_share_one_daemon_mutation_lock(
+    tmp_path,
+    provider_settings,
+):
+    context = multiprocessing.get_context("fork")
+    holder_root = (tmp_path / "holder").resolve()
+    contender_root = (tmp_path / "contender").resolve()
+    holder_root.mkdir(mode=0o700)
+    contender_root.mkdir(mode=0o700)
+    entered = context.Event()
+    release = context.Event()
+    ready = context.Event()
+    holder = context.Process(
+        target=_hold_docker_mutation,
+        args=(holder_root, provider_settings, entered, release),
+    )
+    contender = context.Process(
+        target=_announce_runtime_ready,
+        args=(contender_root, provider_settings, ready),
+    )
+
+    holder.start()
+    assert entered.wait(provider_settings.command_timeout_seconds)
+    contender.start()
+    contender_was_blocked = not ready.wait(
+        provider_settings.run_action_barrier_poll_interval_seconds
+    )
+    release.set()
+    holder.join(provider_settings.command_timeout_seconds)
+    contender.join(provider_settings.command_timeout_seconds)
+
+    assert contender_was_blocked
+    assert ready.is_set()
+    assert holder.exitcode == 0
+    assert contender.exitcode == 0
+
+
+def test_same_thread_recursive_daemon_mutation_fails_loud(
+    tmp_path,
+    provider_settings,
+):
+    runtime, runner = _make_runtime(
+        tmp_path,
+        provider_settings,
+        ({"stdout": b""},),
+    )
+
+    with runtime_module._open_docker_mutation_lease(
+        runtime,
+        timeout_seconds=provider_settings.command_timeout_seconds,
+    ):
+        with pytest.raises(
+            PinnedDockerRuntimeError,
+            match="cannot be acquired recursively",
+        ):
+            runtime.run_control(("container", "start", "c" * 64))
+
+    assert len(runner.requests) == 2
+
+
+def test_corrupt_mutation_lease_closes_before_failing_loud(
+    tmp_path,
+    provider_settings,
+    monkeypatch,
+):
+    runtime, _runner = _make_runtime(tmp_path, provider_settings)
+    lease = runtime_module._open_docker_mutation_lease(
+        runtime,
+        timeout_seconds=provider_settings.command_timeout_seconds,
+    )
+    original_fstat = runtime_module.os.fstat
+    corrupt = True
+
+    def observed_fstat(descriptor):
+        metadata = original_fstat(descriptor)
+        if descriptor != lease._descriptor or not corrupt:
+            return metadata
+        fields = list(metadata)
+        fields[6] = 1
+        return runtime_module.os.stat_result(fields)
+
+    monkeypatch.setattr(runtime_module.os, "fstat", observed_fstat)
+
+    with pytest.raises(
+        PinnedDockerRuntimeError,
+        match="changed while retained",
+    ):
+        lease.close()
+
+    assert lease._closed
+    assert lease._owner_key not in runtime_module._DOCKER_MUTATION_LEASE_OWNERS
+    corrupt = False
+    with runtime_module._open_docker_mutation_lease(
+        runtime,
+        timeout_seconds=provider_settings.command_timeout_seconds,
+    ):
+        pass
+
+
+def test_containment_never_waits_behind_an_unrelated_daemon_mutation(
+    tmp_path,
+    provider_settings,
+):
+    context = multiprocessing.get_context("fork")
+    holder_root = (tmp_path / "holder").resolve()
+    contender_root = (tmp_path / "contender").resolve()
+    holder_root.mkdir(mode=0o700)
+    contender_root.mkdir(mode=0o700)
+    entered = context.Event()
+    release = context.Event()
+    holder = context.Process(
+        target=_hold_docker_mutation,
+        args=(holder_root, provider_settings, entered, release),
+    )
+    holder.start()
+    assert entered.wait(provider_settings.command_timeout_seconds)
+    runtime, runner = _make_runtime(
+        contender_root,
+        provider_settings,
+        (
+            {"stdout": _json_line(_version(provider_settings))},
+            {"stdout": _json_line(_info(provider_settings))},
+            {"stdout": b""},
+        ),
+    )
+    containment = runtime.issue_containment_authority()
+
+    signal_result = containment._signal_container_once(
+        container_id="d" * 64,
+        signal_name="SIGKILL",
+        _authority=runtime_module._DOCKER_CONTAINMENT_SIGNAL_AUTHORITY,
+    )
+
+    release.set()
+    holder.join(provider_settings.command_timeout_seconds)
+    assert holder.exitcode == 0
+    assert signal_result.outcome is BoundedProcessOutcome.COMPLETED
+    assert runner.requests[-1].argv[5:] == (
+        "container",
+        "kill",
+        "--signal",
+        "SIGKILL",
+        "d" * 64,
+    )
+
+
+def test_attached_execution_releases_daemon_lock_after_start_transition(
+    tmp_path,
+    provider_settings,
+):
+    context = multiprocessing.get_context("fork")
+    attached_root = (tmp_path / "attached").resolve()
+    contender_root = (tmp_path / "contender").resolve()
+    attached_root.mkdir(mode=0o700)
+    contender_root.mkdir(mode=0o700)
+    entered = context.Event()
+    release = context.Event()
+    attached_runner = _AttachedStartHoldingRunner(
+        provider_settings,
+        entered,
+        release,
+    )
+    attached_runtime = PinnedDockerRuntime(
+        trusted_root=attached_root,
+        settings=provider_settings,
+        process_runner=attached_runner,
+    )
+    contender_runtime, contender_runner = _make_runtime(
+        contender_root,
+        provider_settings,
+        ({"stdout": b""},),
+    )
+    container_id = "e" * 64
+
+    with ThreadPoolExecutor(max_workers=1) as execution:
+        attached = execution.submit(
+            attached_runtime.run_bounded,
+            ("container", "start", "--attach", container_id),
+            timeout_seconds=provider_settings.command_timeout_seconds,
+            cleanup_timeout_seconds=provider_settings.cleanup_timeout_seconds,
+            stdout_byte_limit=provider_settings.command_output_byte_limit,
+            stderr_byte_limit=provider_settings.command_output_byte_limit,
+        )
+        assert entered.wait(provider_settings.command_timeout_seconds)
+        contender_runtime.run_control(("container", "start", "f" * 64))
+        assert not attached.done()
+        release.set()
+        assert attached.result().outcome is BoundedProcessOutcome.COMPLETED
+
+    assert contender_runner.requests[-1].argv[5:] == (
+        "container",
+        "start",
+        "f" * 64,
+    )
+
+
+def test_attached_execution_requires_created_occurrence_before_submit(
+    tmp_path,
+    provider_settings,
+):
+    container_id = "0" * 64
+    runtime, runner = _make_runtime(
+        tmp_path,
+        provider_settings,
+        (
+            {
+                "stdout": _json_line(
+                    {
+                        "Id": container_id,
+                        "State": {"Status": "exited"},
+                    }
+                )
+            },
+        ),
+    )
+
+    with pytest.raises(
+        PinnedDockerRuntimeError,
+        match="lacks an exact created occurrence",
+    ):
+        runtime.run_bounded(
+            ("container", "start", "--attach", container_id),
+            timeout_seconds=provider_settings.command_timeout_seconds,
+            cleanup_timeout_seconds=provider_settings.cleanup_timeout_seconds,
+            stdout_byte_limit=provider_settings.command_output_byte_limit,
+            stderr_byte_limit=provider_settings.command_output_byte_limit,
+        )
+
+    assert not any(
+        request.argv[5:8] == ("container", "start", "--attach")
+        for request in runner.requests
+    )
 
 
 def test_independent_process_runtimes_serialize_authority_publication(

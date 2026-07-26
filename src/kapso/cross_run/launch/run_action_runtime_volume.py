@@ -1537,6 +1537,7 @@ def _require_result_volume_occurrence(
     keeper = prepared.volume_keeper_evidence
     immutable_original = (
         original.volume_authority,
+        original.docker_volume_occurrence_digest,
         original.volume_keeper_evidence_id,
         original.keeper_container_id,
         original.keeper_process_id,
@@ -1563,6 +1564,7 @@ def _require_result_volume_occurrence(
     )
     immutable_captured = (
         captured.volume_authority,
+        captured.docker_volume_occurrence_digest,
         captured.volume_keeper_evidence_id,
         captured.keeper_container_id,
         captured.keeper_process_id,
@@ -3527,6 +3529,7 @@ def _mint_runtime_volume_evidence(
     ) = _filesystem_capacity(filesystem)
     return RunActionRuntimeVolumeEvidence.mint(
         volume_authority=authority,
+        docker_volume_occurrence_digest=volume.volume_occurrence_digest,
         volume_keeper_evidence_id=keeper.volume_keeper_evidence_id,
         keeper_container_id=keeper.container_id,
         keeper_process_id=keeper.process_id,

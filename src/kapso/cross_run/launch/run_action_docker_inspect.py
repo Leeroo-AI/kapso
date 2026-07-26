@@ -108,6 +108,7 @@ class DockerRunActionVolumeObservation:
     """Closed daemon observation needed to bind container volume mounts."""
 
     volume_authority_id: str
+    volume_occurrence_digest: str
     volume_name: str
     mountpoint: str
     created_at: str
@@ -119,6 +120,12 @@ class DockerRunActionVolumeObservation:
         if (
             not isinstance(self.volume_authority_id, str)
             or _VOLUME_AUTHORITY_ID_PATTERN.fullmatch(self.volume_authority_id) is None
+            or not isinstance(self.volume_occurrence_digest, str)
+            or re.fullmatch(
+                r"sha256:[0-9a-f]{64}",
+                self.volume_occurrence_digest,
+            )
+            is None
             or not isinstance(self.volume_name, str)
             or not self.volume_name
             or not isinstance(self.mountpoint, str)
@@ -204,8 +211,22 @@ def observe_runtime_volume(
         raise DockerRunActionInspectionError(
             "Docker runtime volume differs from issued authority"
         )
+    occurrence_digest = tree_or_blob_digest(
+        canonical_json_bytes(
+            {
+                "CreatedAt": raw["CreatedAt"],
+                "Driver": raw["Driver"],
+                "Labels": raw["Labels"],
+                "Mountpoint": raw["Mountpoint"],
+                "Name": raw["Name"],
+                "Options": raw["Options"],
+                "Scope": raw["Scope"],
+            }
+        )
+    )
     return DockerRunActionVolumeObservation(
         volume_authority_id=authority.runtime_volume_authority_id,
+        volume_occurrence_digest=occurrence_digest,
         volume_name=authority.volume_name,
         mountpoint=expected_mountpoint,
         created_at=raw["CreatedAt"],
@@ -473,6 +494,45 @@ def observe_terminal_main_container(
         oom_killed=state["OOMKilled"],
         state_error=state["Error"],
     )
+
+
+def reobserve_terminal_main_container_for_cleanup(
+    raw_inspection: Mapping[str, Any],
+    terminal: RunActionTerminalObservation,
+) -> RunActionTerminalObservation:
+    """Reprove the complete durable terminal snapshot before exact deletion."""
+
+    if type(terminal) is not RunActionTerminalObservation:
+        raise DockerRunActionInspectionError(
+            "Docker terminal cleanup lacks durable terminal authority"
+        )
+    raw, normalized_payload, _raw_size_bytes = _snapshot_container_inspection(
+        raw_inspection,
+        "Docker terminal cleanup main inspection",
+    )
+    state = _require_mapping(
+        raw["State"],
+        "Docker terminal cleanup main State",
+    )
+    if (
+        tree_or_blob_digest(normalized_payload) != terminal.complete_inspection_digest
+        or raw["Id"] != terminal.provider_execution_id
+        or state["Status"] != terminal.container_status
+        or state["Pid"] != terminal.process_id
+        or raw["RestartCount"] != terminal.restart_count
+        or state["Paused"] != terminal.paused
+        or state["Restarting"] != terminal.restarting
+        or state["Dead"] != terminal.dead
+        or state["StartedAt"] != terminal.started_at
+        or state["FinishedAt"] != terminal.finished_at
+        or state["ExitCode"] != terminal.exit_code
+        or state["OOMKilled"] != terminal.oom_killed
+        or state["Error"] != terminal.state_error
+    ):
+        raise DockerRunActionInspectionError(
+            "Docker terminal cleanup main differs from durable terminal authority"
+        )
+    return terminal
 
 
 def issued_keeper_projection(
@@ -1560,4 +1620,5 @@ __all__ = [
     "observe_running_keeper",
     "observe_runtime_volume",
     "observe_terminal_main_container",
+    "reobserve_terminal_main_container_for_cleanup",
 ]

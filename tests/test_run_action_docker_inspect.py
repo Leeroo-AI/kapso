@@ -1346,6 +1346,7 @@ def test_command_or_volume_observation_cannot_be_spliced(docker_settings):
     )
     substituted_volume = type(volume)(
         volume_authority_id=volume.volume_authority_id,
+        volume_occurrence_digest=volume.volume_occurrence_digest,
         volume_name=volume.volume_name,
         mountpoint="/var/lib/docker/volumes/substituted/_data",
         created_at=volume.created_at,

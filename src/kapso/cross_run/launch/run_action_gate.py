@@ -33,6 +33,10 @@ from kapso.cross_run.launch.run_action_reservation_contracts import (
     RunActionViewBinding,
     RunActionWorkspaceBinding,
 )
+from kapso.cross_run.launch.run_action_resource_finalization import (
+    require_run_action_resource_finalization_authority,
+    RunActionResourceFinalizationAuthority,
+)
 from kapso.cross_run.launch.run_action_store import (
     _RUN_ACTION_RESERVATION_AUTHORITY,
     RunActionStoreInspection,
@@ -136,6 +140,7 @@ class RunFrontierActionGate:
         publisher: RunStatePublisher,
         security_authority: RunActionSecurityAuthority,
         credential_validity_authority: RunActionCredentialValidityAuthority | None,
+        resource_finalization_authority: RunActionResourceFinalizationAuthority,
     ) -> None:
         if (
             type(active_workspace) is not ActiveLaunchWorkspace
@@ -151,11 +156,20 @@ class RunFrontierActionGate:
                 "run frontier action gate authorities are incompatible"
             )
         active_workspace.require_control_authority()
+        require_run_action_resource_finalization_authority(
+            resource_finalization_authority,
+            publisher._action_store,
+            publisher._settings,
+        )
+        publisher._bind_action_resource_finalization_authority(
+            resource_finalization_authority
+        )
         self._active_workspace = active_workspace
         self._publisher = publisher
         self._action_store = publisher._action_store
         self._security_authority = security_authority
         self._credential_validity_authority = credential_validity_authority
+        self._resource_finalization_authority = resource_finalization_authority
         self._owner_process_id = os.getpid()
 
     def recovery_coordinator(
@@ -173,6 +187,7 @@ class RunFrontierActionGate:
             publisher=self._publisher,
             security_authority=self._security_authority,
             credential_validity_authority=self._credential_validity_authority,
+            resource_finalization_authority=self._resource_finalization_authority,
             implementation_registry=implementation_registry,
             _authority=_RUN_ACTION_RECOVERY_COORDINATOR_AUTHORITY,
         )
@@ -305,6 +320,7 @@ class RunFrontierActionGate:
                 raise RunFrontierActionError(
                     "run frontier action ledger contains another frontier"
                 )
+        self._publisher._require_terminal_resource_absence(ordered)
         workspace_pairs = inspection.workspace_chain(ordered)
         if any(before != after for before, after in workspace_pairs):
             raise RunFrontierActionError(

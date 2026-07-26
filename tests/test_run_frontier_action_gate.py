@@ -38,6 +38,9 @@ from kapso.cross_run.launch.run_action_ledger import RunActionExecutionEventKind
 from kapso.cross_run.launch.run_action_reservation_contracts import (
     RunActionReservation,
 )
+from kapso.cross_run.launch.run_action_resource_finalization import (
+    _issue_run_action_resource_finalization_authority,
+)
 from kapso.cross_run.launch.run_state_publisher import (
     RunStatePublisher,
     RunStatePublisherError,
@@ -110,6 +113,32 @@ class _StaticSecurityAuthority:
             )
         )
         return self.observation
+
+
+class _StaticRunActionResourceFinalizationDriver:
+    def __init__(self) -> None:
+        self.finalized_operation_ids = []
+        self.absence_checked_operation_ids = []
+        self.block_finalization = False
+        self.block_absence = False
+
+    def finalize_terminal(self, operation_id):
+        self.finalized_operation_ids.append(operation_id)
+        if self.block_finalization:
+            raise RuntimeError("terminal resources remain")
+
+    def require_terminal_absence(self, operation_id):
+        self.absence_checked_operation_ids.append(operation_id)
+        if self.block_absence:
+            raise RuntimeError("terminal resources remain")
+
+
+def _static_resource_finalization_authority(publisher):
+    return _issue_run_action_resource_finalization_authority(
+        action_store=publisher._action_store,
+        launch_settings=publisher._settings,
+        driver=_StaticRunActionResourceFinalizationDriver(),
+    )
 
 
 def _successor_at_boundary(
@@ -210,6 +239,7 @@ def _action_case(
     case,
     boundary=RunSafetyBoundary.IDEATION,
     credential_validity_authority=None,
+    resource_finalization_authority_factory=None,
 ):
     publisher, initial = _publish_genesis(case)
     bundle, checkpoint = _successor_at_boundary(
@@ -226,11 +256,17 @@ def _action_case(
     security = _StaticSecurityAuthority(
         receipt.checkpoint.safety_state.security_observation
     )
+    resource_finalization_authority = (
+        _static_resource_finalization_authority(publisher)
+        if resource_finalization_authority_factory is None
+        else resource_finalization_authority_factory(publisher)
+    )
     gate = RunFrontierActionGate(
         active_workspace=case["active"],
         publisher=publisher,
         security_authority=security,
         credential_validity_authority=credential_validity_authority,
+        resource_finalization_authority=resource_finalization_authority,
     )
     return publisher, receipt, security, gate
 
@@ -431,6 +467,9 @@ def test_stopped_checkpoint_cannot_reserve_an_action(
             receipt.checkpoint.safety_state.security_observation
         ),
         credential_validity_authority=None,
+        resource_finalization_authority=(
+            _static_resource_finalization_authority(publisher)
+        ),
     )
 
     with pytest.raises(RunFrontierActionError, match="stopped or completed"):
@@ -589,6 +628,9 @@ def test_reconstructed_gate_observes_unresolved_reservation(
         publisher=reconstructed_publisher,
         security_authority=security,
         credential_validity_authority=None,
+        resource_finalization_authority=(
+            _static_resource_finalization_authority(reconstructed_publisher)
+        ),
     )
     reconstructed_frontier = reconstructed_publisher.load_reconciled()
 

@@ -106,6 +106,10 @@ from kapso.cross_run.launch.resume_contracts import RunSafetyBoundary
 from kapso.cross_run.launch.run_action_docker_resources import (
     DockerRunActionResourceManager,
 )
+from kapso.cross_run.launch.run_action_docker_cleanup import (
+    DockerRunActionCleanupManager,
+    issue_docker_run_action_resource_finalization_authority,
+)
 from kapso.cross_run.launch.run_action_docker_inspect import (
     observe_inert_keeper,
     observe_inert_main_container,
@@ -781,7 +785,15 @@ def _listed_exact(
 
 @pytest.mark.parametrize(
     "terminal_path",
-    ("result", "timeout", "empty", "nonzero", "oom", "pre_release_main_loss"),
+    (
+        "result",
+        "timeout",
+        "empty",
+        "nonzero",
+        "oom",
+        "pre_release_main_loss",
+        "frontier_invalidated",
+    ),
 )
 def test_real_docker_accepts_only_the_issued_run_action_projection(
     tmp_path: Path,
@@ -834,6 +846,7 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             settings=settings,
         )
         resource_manager = DockerRunActionResourceManager(runtime)
+        cleanup_manager = DockerRunActionCleanupManager(runtime)
         image_authority = DockerImageAuthority.mint(
             image_reference=local_registry.image_reference,
             image_config_digest=local_registry.config_digest,
@@ -1251,6 +1264,14 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
         ) = _action_case(
             publisher_case,
             credential_validity_authority=credential_validity_authority,
+            resource_finalization_authority_factory=(
+                lambda publisher: issue_docker_run_action_resource_finalization_authority(
+                    action_store=publisher._action_store,
+                    launch_settings=publisher._settings,
+                    resource_manager=resource_manager,
+                    cleanup_manager=cleanup_manager,
+                )
+            ),
         )
         base_boundary_identity = _boundary_identity(
             RunFrontierActionKind.CODING_AGENT,
@@ -1480,12 +1501,39 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             _authority=_RUN_ACTION_RECOVERY_AUTHORITY,
         ) as session:
             session.commit_prepared_execution(prepared_execution)
-            spawn_commit = session.commit_spawn(
-                security_observation_id=(
-                    layout_reservation.frontier.security_observation_id
-                ),
+            if terminal_path == "frontier_invalidated":
+                session.invalidate_frontier()
+                spawn_commit = None
+            else:
+                spawn_commit = session.commit_spawn(
+                    security_observation_id=(
+                        layout_reservation.frontier.security_observation_id
+                    ),
+                    boundary_identity=boundary_identity,
+                )
+        if terminal_path == "frontier_invalidated":
+            inert_adapter = _LiveNaturalTerminalWorkloadAdapter(
                 boundary_identity=boundary_identity,
+                execution_policy=layout_policy,
+                resource_manager=resource_manager,
+                preparation_allocation=layout_allocation,
+                command=command,
+                helper_evidence=helper_evidence,
+                init_source_evidence=init_source_evidence,
+                docker_settings=settings,
+                launch_settings=cross_run_settings.launch,
             )
+            invalidated_report = _recovery_coordinator(
+                action_gate,
+                inert_adapter,
+            ).recover(action_frontier)
+            assert invalidated_report.is_complete
+            assert resource_manager.observe(layout_allocation).is_absent
+            action_gate._resource_finalization_authority.require_terminal_absence(
+                layout_reservation.intent.operation_id
+            )
+            return
+        assert spawn_commit is not None
         activated_volume = deliver_and_reobserve_runtime_volume_activation(
             prepared_execution,
             spawn_commit,
@@ -1680,6 +1728,9 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             assert tree_or_blob_digest(busybox_bytes) == (
                 settings.helper_executable_digest
             )
+            action_gate._resource_finalization_authority.require_terminal_absence(
+                layout_reservation.intent.operation_id
+            )
             return
         adapter = _LiveBlockedWorkloadAdapter(
             boundary_identity=boundary_identity,
@@ -1742,6 +1793,9 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             assert (
                 release_inspection.adoption.workload_release_receipt
                 == adapter.release_receipt
+            )
+            release_adoption_id = (
+                release_inspection.adoption.workload_release_adoption_id
             )
         assert (
             len(
@@ -1835,6 +1889,9 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             assert tree_or_blob_digest(busybox_bytes) == (
                 settings.helper_executable_digest
             )
+            action_gate._resource_finalization_authority.require_terminal_absence(
+                layout_reservation.intent.operation_id
+            )
             return
 
         wait_result = runtime.run_control(("container", "wait", layout_main_id))
@@ -1895,14 +1952,10 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
         assert terminal_adapter.terminal_observation.started_at == (
             adapter.release_receipt.resolved_workload_observation.running_container_observation.started_at
         )
-        with open_run_action_release_inspection(
-            activation_event=activation_event,
-            launch_settings=cross_run_settings.launch,
-        ) as terminal_release_inspection:
-            assert (
-                terminal_adapter.terminal_observation.workload_release_adoption_id
-                == terminal_release_inspection.adoption.workload_release_adoption_id
-            )
+        assert (
+            terminal_adapter.terminal_observation.workload_release_adoption_id
+            == release_adoption_id
+        )
         terminal_events = action_gate._action_store.inspect().events_for(
             layout_reservation.intent.operation_id
         )
@@ -1927,13 +1980,9 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             assert terminal_events[-1].provider_termination_receipt == (
                 terminal_adapter.provider_termination_receipt
             )
-            runtime.run_control(
-                ("container", "rm", "--force", "--volumes", layout_main_id)
+            action_gate._resource_finalization_authority.require_terminal_absence(
+                layout_reservation.intent.operation_id
             )
-            runtime.run_control(
-                ("container", "rm", "--force", "--volumes", layout_keeper_id)
-            )
-            runtime.run_control(("volume", "rm", layout_volume_name))
             assert tree_or_blob_digest(busybox_bytes) == (
                 settings.helper_executable_digest
             )
@@ -1955,9 +2004,7 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             RunActionExecutionEventKind.RESULT_ACCEPTED
         )
 
-        runtime.run_control(("container", "rm", "--force", "--volumes", layout_main_id))
-        runtime.run_control(
-            ("container", "rm", "--force", "--volumes", layout_keeper_id)
+        action_gate._resource_finalization_authority.require_terminal_absence(
+            layout_reservation.intent.operation_id
         )
-        runtime.run_control(("volume", "rm", layout_volume_name))
         assert tree_or_blob_digest(busybox_bytes) == settings.helper_executable_digest

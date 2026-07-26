@@ -49,19 +49,32 @@ class _InventoryDockerRunner:
         self.mutate_after_lookup_count = None
         self.lookup_mutation = None
         self.next_lookup_stdout = None
+        self.running_container_ids = set()
+        self.cleanup_returncode = 0
+        self.cleanup_stderr = b""
+        self.cleanup_stdout_override = None
+        self.cleanup_remove_target = True
+        self.cleanup_post_mutation = None
+        self.runtime = None
 
     def run(self, request):
         self.requests.append(request)
         arguments = request.argv[5:]
         stdout = self._stdout(arguments)
+        cleanup_command = arguments[:2] in {
+            ("container", "rm"),
+            ("volume", "rm"),
+        }
+        returncode = self.cleanup_returncode if cleanup_command else 0
+        stderr = self.cleanup_stderr if cleanup_command else b""
         return BoundedProcessResult(
             request=request,
             outcome=BoundedProcessOutcome.COMPLETED,
-            returncode=0,
+            returncode=returncode,
             stdout=stdout,
-            stderr=b"",
+            stderr=stderr,
             stdout_bytes_observed=len(stdout),
-            stderr_bytes_observed=0,
+            stderr_bytes_observed=len(stderr),
             duration_seconds=0.0,
         )
 
@@ -78,7 +91,39 @@ class _InventoryDockerRunner:
             return self._volume_list(arguments)
         if arguments[:3] == ("volume", "inspect", "--format"):
             return _json_line(self.volumes[arguments[-1]])
+        if arguments[:2] == ("container", "rm"):
+            return self._remove_container(arguments)
+        if arguments[:2] == ("volume", "rm"):
+            return self._remove_volume(arguments)
         raise AssertionError(f"unexpected Docker arguments: {arguments}")
+
+    def _remove_container(self, arguments):
+        container_id = arguments[-1]
+        forced = "--force" in arguments
+        removed = (
+            container_id in self.containers
+            and (forced or container_id not in self.running_container_ids)
+            and self.cleanup_remove_target
+        )
+        if removed:
+            self.containers.pop(container_id)
+            self.running_container_ids.discard(container_id)
+        if self.cleanup_post_mutation is not None:
+            self.cleanup_post_mutation()
+        if self.cleanup_stdout_override is not None:
+            return self.cleanup_stdout_override
+        return f"{container_id}\n".encode("ascii") if removed else b""
+
+    def _remove_volume(self, arguments):
+        volume_name = arguments[-1]
+        removed = volume_name in self.volumes and self.cleanup_remove_target
+        if removed:
+            self.volumes.pop(volume_name)
+        if self.cleanup_post_mutation is not None:
+            self.cleanup_post_mutation()
+        if self.cleanup_stdout_override is not None:
+            return self.cleanup_stdout_override
+        return f"{volume_name}\n".encode("ascii") if removed else b""
 
     def _container_list(self, arguments):
         override = self._begin_lookup()
@@ -151,6 +196,7 @@ def resource_context(tmp_path, monkeypatch):
         settings=settings,
         process_runner=runner,
     )
+    runner.runtime = runtime
     claim = _claim()
     allocation = RunActionPreparationAllocation.mint(
         preparation_claim=claim,

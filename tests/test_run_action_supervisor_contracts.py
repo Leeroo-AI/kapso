@@ -90,6 +90,7 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
     runtime_volume_sentinel_identity,
     run_action_activated_volume_evidence_matches,
     run_action_keeper_process_cgroup_path,
+    run_action_runtime_volume_occurrence_matches,
 )
 from kapso.cross_run.launch.resume_contracts import RunSafetyBoundary
 from kapso.cross_run.settings import CrossRunSettings
@@ -860,6 +861,9 @@ def _prepared_execution(
     )
     volume_evidence = RunActionRuntimeVolumeEvidence.mint(
         volume_authority=authority,
+        docker_volume_occurrence_digest=tree_or_blob_digest(
+            f"volume-occurrence-{inode_offset}".encode()
+        ),
         volume_keeper_evidence_id=keeper_evidence.volume_keeper_evidence_id,
         keeper_container_id=keeper_evidence.container_id,
         keeper_process_id=keeper_evidence.process_id,
@@ -2612,7 +2616,6 @@ def test_prepared_volume_rejects_keeper_and_layout_evidence_splices():
         match="artifacts differ from their preparation claim",
     ):
         replace(prepared, runtime_volume_evidence=substituted_root_evidence)
-
     substituted_layout = _remint_contract(
         prepared.layout_proof,
         runtime_volume_evidence_id=_fixture_content_id(
@@ -2654,6 +2657,18 @@ def test_prepared_volume_rejects_keeper_and_layout_evidence_splices():
             prepared,
             input_delivery_slot=foreign_prepared.input_delivery_slot,
         )
+
+
+def test_runtime_volume_occurrence_rejects_daemon_occurrence_splice():
+    evidence = _prepared_execution().runtime_volume_evidence
+    spliced = _remint_contract(
+        evidence,
+        docker_volume_occurrence_digest=tree_or_blob_digest(
+            b"replacement Docker volume occurrence"
+        ),
+    )
+
+    assert not run_action_runtime_volume_occurrence_matches(spliced, evidence)
 
 
 def test_prepared_keeper_rejects_coordinated_wrong_cgroup_parent():

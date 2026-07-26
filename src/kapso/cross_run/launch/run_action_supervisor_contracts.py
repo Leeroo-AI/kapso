@@ -945,6 +945,7 @@ class RunActionRuntimeVolumeEvidence(StrictContract):
 
     runtime_volume_evidence_id: str
     volume_authority: RunActionRuntimeVolumeAuthority
+    docker_volume_occurrence_digest: str
     volume_keeper_evidence_id: str
     keeper_container_id: str
     keeper_process_id: int
@@ -995,7 +996,9 @@ class RunActionRuntimeVolumeEvidence(StrictContract):
             else None
         )
         if (
-            _DOCKER_CONTAINER_ID_PATTERN.fullmatch(self.keeper_container_id) is None
+            _SHA256_DIGEST_PATTERN.fullmatch(self.docker_volume_occurrence_digest)
+            is None
+            or _DOCKER_CONTAINER_ID_PATTERN.fullmatch(self.keeper_container_id) is None
             or type(self.keeper_process_id) is not int
             or self.keeper_process_id <= 0
             or type(self.keeper_process_start_time_ticks) is not int
@@ -3369,6 +3372,8 @@ def run_action_runtime_volume_occurrence_matches(
         return False
     return (
         observed.volume_authority == prepared.volume_authority
+        and observed.docker_volume_occurrence_digest
+        == prepared.docker_volume_occurrence_digest
         and observed.volume_keeper_evidence_id == prepared.volume_keeper_evidence_id
         and observed.keeper_container_id == prepared.keeper_container_id
         and observed.keeper_process_id == prepared.keeper_process_id

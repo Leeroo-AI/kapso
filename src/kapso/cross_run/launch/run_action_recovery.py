@@ -73,6 +73,10 @@ from kapso.cross_run.launch.run_action_reservation_contracts import (
     RunActionViewBinding,
     RunActionWorkspaceBinding,
 )
+from kapso.cross_run.launch.run_action_resource_finalization import (
+    require_run_action_resource_finalization_authority,
+    RunActionResourceFinalizationAuthority,
+)
 from kapso.cross_run.launch.run_action_runtime_volume import (
     open_run_action_result_workspace,
 )
@@ -3295,6 +3299,7 @@ class RunActionRecoveryCoordinator:
         security_authority: object,
         credential_validity_authority: object | None,
         implementation_registry: RunActionRecoveryImplementationRegistry,
+        resource_finalization_authority: RunActionResourceFinalizationAuthority,
         _authority: object,
     ) -> None:
         if (
@@ -3314,6 +3319,11 @@ class RunActionRecoveryCoordinator:
                 "run action recovery authorities are incompatible"
             )
         active_workspace.require_control_authority()
+        require_run_action_resource_finalization_authority(
+            resource_finalization_authority,
+            publisher._action_store,
+            publisher._settings,
+        )
         self._active_workspace = active_workspace
         self._publisher = publisher
         self._store = publisher._action_store
@@ -3326,6 +3336,7 @@ class RunActionRecoveryCoordinator:
         self._release_clock = _SystemRunActionClock()
         implementation_registry._require_owner_process()
         self._implementation_registry = implementation_registry
+        self._resource_finalization_authority = resource_finalization_authority
         self._owner_process_id = os.getpid()
         with _RECOVERY_COORDINATOR_LOCK:
             _ISSUED_RECOVERY_COORDINATORS[id(self)] = self
@@ -4337,7 +4348,6 @@ class RunActionRecoveryCoordinator:
     ) -> RunActionRecoveryReport:
         inspection = self._store.inspect()
         operations = inspection.operations_since(frontier.projection.action_ledger)
-        recovered = []
         unresolved_operation_id = None
         for events in operations:
             if events[-1].event_kind not in _TERMINAL_KINDS:
@@ -4346,6 +4356,18 @@ class RunActionRecoveryCoordinator:
                         "run action recovery has multiple unresolved operations"
                     )
                 unresolved_operation_id = events[0].reservation.intent.operation_id
+                continue
+            self._resource_finalization_authority.finalize_terminal(
+                events[0].reservation.intent.operation_id
+            )
+        finalized_inspection = self._store.inspect()
+        if finalized_inspection != inspection:
+            raise RunActionRecoveryError(
+                "run action ledger changed during terminal resource finalization"
+            )
+        recovered = []
+        for events in operations:
+            if events[-1].event_kind not in _TERMINAL_KINDS:
                 continue
             with self._store._recovery_session(
                 events[0].reservation,

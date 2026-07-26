@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
+import ctypes
+import errno
 import fcntl
 import json
 import os
 import re
 import stat
+import time
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
-from threading import Lock
+from threading import get_ident, Lock
 from types import MappingProxyType
 from typing import Any, ClassVar, Mapping, Protocol
 from weakref import WeakKeyDictionary
@@ -31,8 +35,12 @@ _DOCKER_CONFIG_FILENAME = "config.json"
 _PINNED_DOCKER_FILENAME_PREFIX = "docker-"
 _EMPTY_DOCKER_CONFIG = b'{"auths":{}}\n'
 _DOCKER_HOST_PREFIX = "unix://"
+_LIBC_FLOCK = ctypes.CDLL(None, use_errno=True).flock
+_LIBC_FLOCK.argtypes = (ctypes.c_int, ctypes.c_int)
+_LIBC_FLOCK.restype = ctypes.c_int
 _DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 _CONTAINER_ID_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+_DOCKER_RESOURCE_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 _PLATFORM_IDENTIFIER_PATTERN = re.compile(r"^[a-z0-9]+(?:[._-][a-z0-9]+)*$")
 _REGISTRY_HOST_LABEL_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$")
 _REPOSITORY_COMPONENT_PATTERN = re.compile(r"^[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*$")
@@ -47,6 +55,19 @@ _DOCKER_CONTAINMENT_AUTHORITIES: WeakKeyDictionary[
     PinnedDockerContainmentAuthority, PinnedDockerRuntime
 ] = WeakKeyDictionary()
 _DOCKER_CONTAINMENT_AUTHORITY_LOCK = Lock()
+_DOCKER_CLEANUP_AUTHORITY_ISSUANCE = object()
+_DOCKER_CLEANUP_EXCLUSION_ISSUANCE = object()
+_DOCKER_CLEANUP_REMOVE_AUTHORITY = object()
+_DOCKER_CLEANUP_AUTHORITIES: WeakKeyDictionary[
+    PinnedDockerCleanupAuthority, PinnedDockerRuntime
+] = WeakKeyDictionary()
+_DOCKER_CLEANUP_AUTHORITY_LOCK = Lock()
+_DOCKER_CLEANUP_EXCLUSION_LEASES: WeakKeyDictionary[
+    PinnedDockerCleanupExclusionLease, PinnedDockerCleanupAuthority
+] = WeakKeyDictionary()
+_DOCKER_CLEANUP_EXCLUSION_LOCK = Lock()
+_DOCKER_MUTATION_LEASE_OWNERS: set[tuple[int, int, str]] = set()
+_DOCKER_MUTATION_LEASE_OWNER_LOCK = Lock()
 
 
 class PinnedDockerRuntimeError(RuntimeError):
@@ -123,7 +144,7 @@ class PinnedDockerContainmentAuthority:
             )
         runtime = _docker_containment_runtime(self)
         settings = runtime.settings
-        return runtime.run_bounded(
+        return runtime._run_bounded_without_mutation_lock(
             (
                 "container",
                 "kill",
@@ -131,6 +152,301 @@ class PinnedDockerContainmentAuthority:
                 signal_name,
                 container_id,
             ),
+            timeout_seconds=settings.command_timeout_seconds,
+            cleanup_timeout_seconds=settings.cleanup_timeout_seconds,
+            stdout_byte_limit=settings.command_output_byte_limit,
+            stderr_byte_limit=settings.command_output_byte_limit,
+        )
+
+
+class _PinnedDockerMutationLease:
+    """Retained daemon-wide flock shared by ordinary trusted Docker mutators."""
+
+    def __init__(
+        self,
+        *,
+        descriptors: ExitStack,
+        descriptor: int,
+        path: Path,
+        identity: tuple[int, int],
+        owner_key: tuple[int, int, str],
+    ) -> None:
+        if (
+            type(descriptors) is not ExitStack
+            or type(descriptor) is not int
+            or descriptor < 0
+            or not isinstance(path, Path)
+            or not path.is_absolute()
+            or type(identity) is not tuple
+            or len(identity) != 2
+            or type(owner_key) is not tuple
+            or len(owner_key) != 3
+        ):
+            raise PinnedDockerRuntimeError(
+                "Docker mutation lease lacks exact lock authority"
+            )
+        self._descriptors = descriptors
+        self._descriptor = descriptor
+        self._path = path
+        self._identity = identity
+        self._owner_key = owner_key
+        self._owner_process_id = os.getpid()
+        self._owner_thread_id = get_ident()
+        self._closed = False
+        self.require_current()
+
+    def require_current(self) -> None:
+        if (
+            self._closed
+            or self._owner_process_id != os.getpid()
+            or self._owner_thread_id != get_ident()
+        ):
+            raise PinnedDockerRuntimeError("Docker mutation lease is closed or foreign")
+        metadata = os.fstat(self._descriptor)
+        current = os.stat(self._path, follow_symlinks=False)
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_uid != 0
+            or stat.S_IMODE(metadata.st_mode) != 0o640
+            or metadata.st_nlink != 1
+            or metadata.st_size != 0
+            or (metadata.st_dev, metadata.st_ino) != self._identity
+            or (current.st_dev, current.st_ino) != self._identity
+        ):
+            raise PinnedDockerRuntimeError(
+                "Docker mutation lock changed while retained"
+            )
+
+    def __enter__(self) -> _PinnedDockerMutationLease:
+        self.require_current()
+        return self
+
+    def __exit__(self, *_arguments: object) -> None:
+        self.close()
+
+    def close(self) -> None:
+        if (
+            self._closed
+            or self._owner_process_id != os.getpid()
+            or self._owner_thread_id != get_ident()
+        ):
+            raise PinnedDockerRuntimeError("Docker mutation lease is closed or foreign")
+        metadata = os.fstat(self._descriptor)
+        integrity_changed = (
+            not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_uid != 0
+            or stat.S_IMODE(metadata.st_mode) != 0o640
+            or metadata.st_nlink != 1
+            or metadata.st_size != 0
+            or (metadata.st_dev, metadata.st_ino) != self._identity
+        )
+        self._closed = True
+        with _DOCKER_MUTATION_LEASE_OWNER_LOCK:
+            removed = self._owner_key in _DOCKER_MUTATION_LEASE_OWNERS
+            _DOCKER_MUTATION_LEASE_OWNERS.discard(self._owner_key)
+        self._descriptors.close()
+        if not removed or integrity_changed:
+            raise PinnedDockerRuntimeError(
+                "Docker mutation lock changed while retained"
+            )
+
+
+class PinnedDockerCleanupExclusionLease:
+    """Owner-bound proof that one cleanup caller retains mutation exclusion."""
+
+    def __init__(
+        self,
+        *,
+        cleanup_authority: PinnedDockerCleanupAuthority,
+        mutation_lease: _PinnedDockerMutationLease,
+        _authority: object,
+    ) -> None:
+        if (
+            type(cleanup_authority) is not PinnedDockerCleanupAuthority
+            or type(mutation_lease) is not _PinnedDockerMutationLease
+            or _authority is not _DOCKER_CLEANUP_EXCLUSION_ISSUANCE
+        ):
+            raise PinnedDockerRuntimeError(
+                "Docker cleanup exclusion lacks issuance authority"
+            )
+        self._owner_process_id = os.getpid()
+        self._owner_thread_id = get_ident()
+        self._mutation_lease = mutation_lease
+        self._closed = False
+
+    def require_current(self) -> None:
+        """Require the original process/thread and live issuing authority."""
+
+        with _DOCKER_CLEANUP_EXCLUSION_LOCK:
+            cleanup_authority = _DOCKER_CLEANUP_EXCLUSION_LEASES.get(self)
+        if (
+            self._closed
+            or self._owner_process_id != os.getpid()
+            or self._owner_thread_id != get_ident()
+            or type(cleanup_authority) is not PinnedDockerCleanupAuthority
+        ):
+            raise PinnedDockerRuntimeError(
+                "Docker cleanup exclusion is closed or foreign"
+            )
+        _docker_cleanup_runtime(cleanup_authority)
+        self._mutation_lease.require_current()
+
+    def __enter__(self) -> PinnedDockerCleanupExclusionLease:
+        self.require_current()
+        return self
+
+    def __exit__(self, *_arguments: object) -> None:
+        self.close()
+
+    def close(self) -> None:
+        with _DOCKER_CLEANUP_EXCLUSION_LOCK:
+            issuing_authority = _DOCKER_CLEANUP_EXCLUSION_LEASES.get(self)
+        if (
+            self._closed
+            or self._owner_process_id != os.getpid()
+            or self._owner_thread_id != get_ident()
+            or type(issuing_authority) is not PinnedDockerCleanupAuthority
+        ):
+            raise PinnedDockerRuntimeError(
+                "Docker cleanup exclusion is closed or foreign"
+            )
+        self._closed = True
+        with _DOCKER_CLEANUP_EXCLUSION_LOCK:
+            removed = _DOCKER_CLEANUP_EXCLUSION_LEASES.pop(self, None)
+        self._mutation_lease.close()
+        if type(removed) is not PinnedDockerCleanupAuthority:
+            raise PinnedDockerRuntimeError(
+                "Docker cleanup exclusion lost its issuing authority"
+            )
+
+
+class PinnedDockerCleanupAuthority:
+    """Issued Docker authority limited to exact container and volume removal."""
+
+    def __init__(self, *, _authority: object) -> None:
+        if _authority is not _DOCKER_CLEANUP_AUTHORITY_ISSUANCE:
+            raise PinnedDockerRuntimeError(
+                "Docker cleanup authority lacks issuance authority"
+            )
+        self._owner_process_id = os.getpid()
+
+    @property
+    def settings(self) -> DockerRuntimeSettings:
+        """Return the immutable settings of the issuing pinned runtime."""
+
+        return _docker_cleanup_runtime(self).settings
+
+    def _issue_exclusion_lease(
+        self,
+        *,
+        _authority: object,
+    ) -> PinnedDockerCleanupExclusionLease:
+        if _authority is not _DOCKER_CLEANUP_EXCLUSION_ISSUANCE:
+            raise PinnedDockerRuntimeError(
+                "Docker cleanup exclusion lacks closed authority"
+            )
+        runtime = _docker_cleanup_runtime(self)
+        mutation_lease = _open_docker_mutation_lease(
+            runtime,
+            timeout_seconds=runtime.settings.command_timeout_seconds,
+        )
+        lease = PinnedDockerCleanupExclusionLease(
+            cleanup_authority=self,
+            mutation_lease=mutation_lease,
+            _authority=_DOCKER_CLEANUP_EXCLUSION_ISSUANCE,
+        )
+        with _DOCKER_CLEANUP_EXCLUSION_LOCK:
+            if _DOCKER_CLEANUP_EXCLUSION_LEASES.get(lease) is not None:
+                raise PinnedDockerRuntimeError(
+                    "Docker cleanup exclusion identity is already issued"
+                )
+            _DOCKER_CLEANUP_EXCLUSION_LEASES[lease] = self
+        return lease
+
+    def _remove_stopped_container_once(
+        self,
+        *,
+        container_id: str,
+        exclusion_lease: PinnedDockerCleanupExclusionLease,
+        _authority: object,
+    ) -> BoundedProcessResult:
+        if (
+            type(container_id) is not str
+            or _CONTAINER_ID_PATTERN.fullmatch(container_id) is None
+            or _authority is not _DOCKER_CLEANUP_REMOVE_AUTHORITY
+            or not _docker_cleanup_exclusion_matches(self, exclusion_lease)
+        ):
+            raise PinnedDockerRuntimeError(
+                "Docker container cleanup lacks exact closed authority"
+            )
+        runtime = _docker_cleanup_runtime(self)
+        settings = runtime.settings
+        return runtime._run_bounded_under_mutation_lease(
+            (
+                "container",
+                "rm",
+                container_id,
+            ),
+            exclusion_lease._mutation_lease,
+            timeout_seconds=settings.command_timeout_seconds,
+            cleanup_timeout_seconds=settings.cleanup_timeout_seconds,
+            stdout_byte_limit=settings.command_output_byte_limit,
+            stderr_byte_limit=settings.command_output_byte_limit,
+        )
+
+    def _remove_running_keeper_once(
+        self,
+        *,
+        container_id: str,
+        exclusion_lease: PinnedDockerCleanupExclusionLease,
+        _authority: object,
+    ) -> BoundedProcessResult:
+        if (
+            type(container_id) is not str
+            or _CONTAINER_ID_PATTERN.fullmatch(container_id) is None
+            or _authority is not _DOCKER_CLEANUP_REMOVE_AUTHORITY
+            or not _docker_cleanup_exclusion_matches(self, exclusion_lease)
+        ):
+            raise PinnedDockerRuntimeError(
+                "Docker keeper cleanup lacks exact closed authority"
+            )
+        runtime = _docker_cleanup_runtime(self)
+        settings = runtime.settings
+        return runtime._run_bounded_under_mutation_lease(
+            (
+                "container",
+                "rm",
+                "--force",
+                container_id,
+            ),
+            exclusion_lease._mutation_lease,
+            timeout_seconds=settings.command_timeout_seconds,
+            cleanup_timeout_seconds=settings.cleanup_timeout_seconds,
+            stdout_byte_limit=settings.command_output_byte_limit,
+            stderr_byte_limit=settings.command_output_byte_limit,
+        )
+
+    def _remove_volume_once(
+        self,
+        *,
+        volume_name: str,
+        exclusion_lease: PinnedDockerCleanupExclusionLease,
+        _authority: object,
+    ) -> BoundedProcessResult:
+        if (
+            type(volume_name) is not str
+            or _DOCKER_RESOURCE_NAME_PATTERN.fullmatch(volume_name) is None
+            or _authority is not _DOCKER_CLEANUP_REMOVE_AUTHORITY
+            or not _docker_cleanup_exclusion_matches(self, exclusion_lease)
+        ):
+            raise PinnedDockerRuntimeError(
+                "Docker volume cleanup lacks exact closed authority"
+            )
+        runtime = _docker_cleanup_runtime(self)
+        settings = runtime.settings
+        return runtime._run_bounded_under_mutation_lease(
+            ("volume", "rm", volume_name),
+            exclusion_lease._mutation_lease,
             timeout_seconds=settings.command_timeout_seconds,
             cleanup_timeout_seconds=settings.cleanup_timeout_seconds,
             stdout_byte_limit=settings.command_output_byte_limit,
@@ -298,6 +614,21 @@ class PinnedDockerRuntime:
             _DOCKER_CONTAINMENT_AUTHORITIES[authority] = self
         return authority
 
+    def issue_cleanup_authority(self) -> PinnedDockerCleanupAuthority:
+        """Issue a projection limited to exact container and volume removal."""
+
+        self.require_live_authority()
+        authority = PinnedDockerCleanupAuthority(
+            _authority=_DOCKER_CLEANUP_AUTHORITY_ISSUANCE
+        )
+        with _DOCKER_CLEANUP_AUTHORITY_LOCK:
+            if _DOCKER_CLEANUP_AUTHORITIES.get(authority) is not None:
+                raise PinnedDockerRuntimeError(
+                    "Docker cleanup authority identity is already issued"
+                )
+            _DOCKER_CLEANUP_AUTHORITIES[authority] = self
+        return authority
+
     def inspect_exact_image(
         self,
         authority: DockerImageAuthority,
@@ -349,17 +680,145 @@ class PinnedDockerRuntime:
         stdout_byte_limit: int,
         stderr_byte_limit: int,
     ) -> BoundedProcessResult:
-        if (
-            not isinstance(arguments, tuple)
-            or not arguments
-            or any(
-                not isinstance(argument, str) or not argument or "\x00" in argument
-                for argument in arguments
+        _require_docker_arguments(arguments)
+        if _is_docker_read_only_control(arguments):
+            return self._run_bounded_without_mutation_lock(
+                arguments,
+                timeout_seconds=timeout_seconds,
+                cleanup_timeout_seconds=cleanup_timeout_seconds,
+                stdout_byte_limit=stdout_byte_limit,
+                stderr_byte_limit=stderr_byte_limit,
             )
-        ):
+        if _is_docker_attached_container_start(arguments):
+            return self._run_bounded_attached_container_start(
+                arguments,
+                timeout_seconds=timeout_seconds,
+                cleanup_timeout_seconds=cleanup_timeout_seconds,
+                stdout_byte_limit=stdout_byte_limit,
+                stderr_byte_limit=stderr_byte_limit,
+            )
+        return self._run_bounded_with_mutation_lock(
+            arguments,
+            timeout_seconds=timeout_seconds,
+            cleanup_timeout_seconds=cleanup_timeout_seconds,
+            stdout_byte_limit=stdout_byte_limit,
+            stderr_byte_limit=stderr_byte_limit,
+            mutation_timeout_seconds=timeout_seconds,
+        )
+
+    def _run_bounded_attached_container_start(
+        self,
+        arguments: tuple[str, ...],
+        *,
+        timeout_seconds: int,
+        cleanup_timeout_seconds: int,
+        stdout_byte_limit: int,
+        stderr_byte_limit: int,
+    ) -> BoundedProcessResult:
+        container_id = arguments[3]
+        with ThreadPoolExecutor(max_workers=1) as execution:
+            with _open_docker_mutation_lease(
+                self,
+                timeout_seconds=timeout_seconds,
+            ) as mutation_lease:
+                before_start = self.run_json_control(
+                    (
+                        "container",
+                        "inspect",
+                        "--format",
+                        "{{json .}}",
+                        container_id,
+                    )
+                )
+                if _attached_container_status(before_start, container_id) != "created":
+                    raise PinnedDockerRuntimeError(
+                        "attached Docker start lacks an exact created occurrence"
+                    )
+                attached = execution.submit(
+                    self._run_bounded_without_mutation_lock,
+                    arguments,
+                    timeout_seconds=timeout_seconds,
+                    cleanup_timeout_seconds=cleanup_timeout_seconds,
+                    stdout_byte_limit=stdout_byte_limit,
+                    stderr_byte_limit=stderr_byte_limit,
+                )
+                while not attached.done():
+                    observation = self.run_json_control(
+                        (
+                            "container",
+                            "inspect",
+                            "--format",
+                            "{{json .}}",
+                            container_id,
+                        )
+                    )
+                    if (
+                        _attached_container_status(observation, container_id)
+                        != "created"
+                    ):
+                        break
+                    time.sleep(self._settings.run_action_barrier_poll_interval_seconds)
+                mutation_lease.require_current()
+            return attached.result()
+
+    def _run_bounded_with_mutation_lock(
+        self,
+        arguments: tuple[str, ...],
+        *,
+        timeout_seconds: int,
+        cleanup_timeout_seconds: int,
+        stdout_byte_limit: int,
+        stderr_byte_limit: int,
+        mutation_timeout_seconds: int,
+    ) -> BoundedProcessResult:
+        with _open_docker_mutation_lease(
+            self,
+            timeout_seconds=mutation_timeout_seconds,
+        ) as mutation_lease:
+            return self._run_bounded_under_mutation_lease(
+                arguments,
+                mutation_lease,
+                timeout_seconds=timeout_seconds,
+                cleanup_timeout_seconds=cleanup_timeout_seconds,
+                stdout_byte_limit=stdout_byte_limit,
+                stderr_byte_limit=stderr_byte_limit,
+            )
+
+    def _run_bounded_under_mutation_lease(
+        self,
+        arguments: tuple[str, ...],
+        mutation_lease: _PinnedDockerMutationLease,
+        *,
+        timeout_seconds: int,
+        cleanup_timeout_seconds: int,
+        stdout_byte_limit: int,
+        stderr_byte_limit: int,
+    ) -> BoundedProcessResult:
+        _require_docker_arguments(arguments)
+        if type(mutation_lease) is not _PinnedDockerMutationLease:
             raise PinnedDockerRuntimeError(
-                "pinned Docker arguments must be non-empty strings"
+                "Docker mutation lacks daemon-wide exclusion"
             )
+        mutation_lease.require_current()
+        result = self._run_bounded_without_mutation_lock(
+            arguments,
+            timeout_seconds=timeout_seconds,
+            cleanup_timeout_seconds=cleanup_timeout_seconds,
+            stdout_byte_limit=stdout_byte_limit,
+            stderr_byte_limit=stderr_byte_limit,
+        )
+        mutation_lease.require_current()
+        return result
+
+    def _run_bounded_without_mutation_lock(
+        self,
+        arguments: tuple[str, ...],
+        *,
+        timeout_seconds: int,
+        cleanup_timeout_seconds: int,
+        stdout_byte_limit: int,
+        stderr_byte_limit: int,
+    ) -> BoundedProcessResult:
         self._require_local_authority()
         request = BoundedProcessRequest(
             argv=(
@@ -423,6 +882,22 @@ def _docker_containment_runtime(
     return runtime
 
 
+def _docker_cleanup_runtime(
+    authority: PinnedDockerCleanupAuthority,
+) -> PinnedDockerRuntime:
+    with _DOCKER_CLEANUP_AUTHORITY_LOCK:
+        runtime = _DOCKER_CLEANUP_AUTHORITIES.get(authority)
+    if (
+        type(authority) is not PinnedDockerCleanupAuthority
+        or authority._owner_process_id != os.getpid()
+        or type(runtime) is not PinnedDockerRuntime
+    ):
+        raise PinnedDockerRuntimeError(
+            "Docker cleanup authority is unissued or foreign"
+        )
+    return runtime
+
+
 def _docker_authorities_share_runtime(
     observation_authority: PinnedDockerObservationAuthority,
     containment_authority: PinnedDockerContainmentAuthority,
@@ -434,7 +909,140 @@ def _docker_authorities_share_runtime(
     ) is _docker_containment_runtime(containment_authority)
 
 
-def _require_docker_observation_arguments(arguments: tuple[str, ...]) -> None:
+def _docker_observation_and_cleanup_authorities_share_runtime(
+    observation_authority: PinnedDockerObservationAuthority,
+    cleanup_authority: PinnedDockerCleanupAuthority,
+) -> bool:
+    """Join read and cleanup projections without exposing their runtime."""
+
+    return _docker_observation_runtime(
+        observation_authority
+    ) is _docker_cleanup_runtime(cleanup_authority)
+
+
+def _docker_cleanup_exclusion_matches(
+    cleanup_authority: PinnedDockerCleanupAuthority,
+    exclusion_lease: PinnedDockerCleanupExclusionLease,
+) -> bool:
+    """Require one current lease issued by the exact cleanup authority."""
+
+    if type(exclusion_lease) is not PinnedDockerCleanupExclusionLease:
+        return False
+    exclusion_lease.require_current()
+    with _DOCKER_CLEANUP_EXCLUSION_LOCK:
+        issuing_authority = _DOCKER_CLEANUP_EXCLUSION_LEASES.get(exclusion_lease)
+    return issuing_authority is cleanup_authority
+
+
+def _open_docker_mutation_lease(
+    runtime: PinnedDockerRuntime,
+    *,
+    timeout_seconds: int,
+) -> _PinnedDockerMutationLease:
+    if type(runtime) is not PinnedDockerRuntime:
+        raise PinnedDockerRuntimeError(
+            "Docker mutation lease requires one pinned runtime"
+        )
+    if type(timeout_seconds) is not int or timeout_seconds < 0:
+        raise PinnedDockerRuntimeError("Docker mutation lease timeout is invalid")
+    path = Path(runtime.settings.runtime_mutation_lock_path)
+    parent = path.parent
+    if (
+        not path.is_absolute()
+        or path != Path(os.path.abspath(path))
+        or parent.resolve() != parent
+    ):
+        raise PinnedDockerRuntimeError(
+            "Docker mutation lock path is not absolute and normalized"
+        )
+    parent_metadata = os.stat(parent, follow_symlinks=False)
+    if (
+        not stat.S_ISDIR(parent_metadata.st_mode)
+        or parent_metadata.st_uid != 0
+        or stat.S_IMODE(parent_metadata.st_mode) & 0o022
+    ):
+        raise PinnedDockerRuntimeError(
+            "Docker mutation lock parent is not an immutable root-owned directory"
+        )
+    owner_key = (os.getpid(), get_ident(), str(path))
+    with _DOCKER_MUTATION_LEASE_OWNER_LOCK:
+        if owner_key in _DOCKER_MUTATION_LEASE_OWNERS:
+            raise PinnedDockerRuntimeError(
+                "Docker mutation lease cannot be acquired recursively"
+            )
+    with ExitStack() as descriptors:
+        descriptor = os.open(
+            path,
+            os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
+        )
+        descriptors.callback(os.close, descriptor)
+        os.set_inheritable(descriptor, False)
+        deadline = time.monotonic() + timeout_seconds
+        acquired = False
+        while not acquired:
+            acquired = _acquire_docker_mutation_flock_once(descriptor)
+            if not acquired:
+                if time.monotonic() >= deadline:
+                    raise PinnedDockerRuntimeError(
+                        "Docker mutation exclusion deadline elapsed"
+                    )
+                time.sleep(
+                    min(
+                        runtime.settings.run_action_barrier_poll_interval_seconds,
+                        max(0.0, deadline - time.monotonic()),
+                    )
+                )
+        metadata = os.fstat(descriptor)
+        current = os.stat(path, follow_symlinks=False)
+        socket_metadata = os.stat(
+            runtime.settings.runtime_socket_path,
+            follow_symlinks=False,
+        )
+        identity = (metadata.st_dev, metadata.st_ino)
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_uid != 0
+            or metadata.st_gid != socket_metadata.st_gid
+            or stat.S_IMODE(metadata.st_mode) != 0o640
+            or metadata.st_nlink != 1
+            or metadata.st_size != 0
+            or (current.st_dev, current.st_ino) != identity
+        ):
+            raise PinnedDockerRuntimeError(
+                "Docker mutation lock is unsafe or changed during acquisition"
+            )
+        with _DOCKER_MUTATION_LEASE_OWNER_LOCK:
+            if owner_key in _DOCKER_MUTATION_LEASE_OWNERS:
+                raise PinnedDockerRuntimeError(
+                    "Docker mutation lease identity is already retained"
+                )
+            _DOCKER_MUTATION_LEASE_OWNERS.add(owner_key)
+        lease = _PinnedDockerMutationLease(
+            descriptors=descriptors,
+            descriptor=descriptor,
+            path=path,
+            identity=identity,
+            owner_key=owner_key,
+        )
+        lease._descriptors = descriptors.pop_all()
+        return lease
+
+
+def _acquire_docker_mutation_flock_once(descriptor: int) -> bool:
+    if type(descriptor) is not int or descriptor < 0:
+        raise PinnedDockerRuntimeError("Docker mutation lock descriptor is invalid")
+    result = _LIBC_FLOCK(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    if result == 0:
+        return True
+    error_number = ctypes.get_errno()
+    if error_number in {errno.EACCES, errno.EAGAIN}:
+        return False
+    raise PinnedDockerRuntimeError(
+        f"Docker mutation lock acquisition failed with errno {error_number}"
+    )
+
+
+def _require_docker_arguments(arguments: tuple[str, ...]) -> None:
     if (
         not isinstance(arguments, tuple)
         or not arguments
@@ -444,11 +1052,73 @@ def _require_docker_observation_arguments(arguments: tuple[str, ...]) -> None:
         )
     ):
         raise PinnedDockerRuntimeError(
-            "Docker observation command has malformed arguments"
+            "pinned Docker arguments must be non-empty strings"
         )
-    if _is_docker_list_observation(arguments) or _is_docker_inspect_observation(
+
+
+def _is_docker_resource_observation(arguments: tuple[str, ...]) -> bool:
+    return _is_docker_list_observation(arguments) or _is_docker_inspect_observation(
         arguments
+    )
+
+
+def _is_docker_attached_container_start(arguments: tuple[str, ...]) -> bool:
+    return (
+        len(arguments) == 4
+        and arguments[:3] == ("container", "start", "--attach")
+        and _CONTAINER_ID_PATTERN.fullmatch(arguments[3]) is not None
+    )
+
+
+def _attached_container_status(
+    observation: Mapping[str, Any],
+    container_id: str,
+) -> str:
+    if (
+        not isinstance(observation, Mapping)
+        or type(container_id) is not str
+        or _CONTAINER_ID_PATTERN.fullmatch(container_id) is None
+        or observation.get("Id") != container_id
     ):
+        raise PinnedDockerRuntimeError(
+            "attached Docker container observation changed identity"
+        )
+    state = _require_mapping(
+        observation,
+        "State",
+        "attached Docker container state",
+    )
+    status = state.get("Status")
+    if type(status) is not str or not status:
+        raise PinnedDockerRuntimeError(
+            "attached Docker container state lacks exact status"
+        )
+    return status
+
+
+def _is_docker_read_only_control(arguments: tuple[str, ...]) -> bool:
+    return (
+        arguments
+        in {
+            ("version", "--format", "{{json .}}"),
+            ("info", "--format", "{{json .}}"),
+        }
+        or (
+            len(arguments) == 5
+            and arguments[:4] == ("image", "inspect", "--format", "{{json .}}")
+        )
+        or (
+            len(arguments) == 3
+            and arguments[:2] == ("container", "wait")
+            and _CONTAINER_ID_PATTERN.fullmatch(arguments[2]) is not None
+        )
+        or _is_docker_resource_observation(arguments)
+    )
+
+
+def _require_docker_observation_arguments(arguments: tuple[str, ...]) -> None:
+    _require_docker_arguments(arguments)
+    if _is_docker_resource_observation(arguments):
         return
     raise PinnedDockerRuntimeError(
         "Docker observation authority cannot execute provider mutations"

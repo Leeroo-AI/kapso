@@ -1193,6 +1193,7 @@ class DockerRuntimeSettings(StrictContract):
     runtime_executable_path: str
     runtime_executable_digest: str
     runtime_socket_path: str
+    runtime_mutation_lock_path: str
     runtime_server_version: str
     runtime_api_version: str
     runtime_host_operating_system: str
@@ -1216,6 +1217,7 @@ class DockerRuntimeSettings(StrictContract):
         for value, name in (
             (self.runtime_executable_path, "runtime_executable_path"),
             (self.runtime_socket_path, "runtime_socket_path"),
+            (self.runtime_mutation_lock_path, "runtime_mutation_lock_path"),
             (self.runtime_root_directory, "runtime_root_directory"),
             (self.helper_executable_path, "helper_executable_path"),
             (self.init_executable_path, "init_executable_path"),

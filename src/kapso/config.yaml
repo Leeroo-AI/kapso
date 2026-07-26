@@ -61,6 +61,7 @@ cross_run:
     runtime_executable_path: "/usr/bin/docker"
     runtime_executable_digest: "sha256:7ed12b00293d64742419a6601ae97960a367a0ce97c88b06e3278cc0a409557b"
     runtime_socket_path: "/run/docker.sock"
+    runtime_mutation_lock_path: "/run/lock/kapso/docker-mutation.lock"
     runtime_server_version: "29.1.3"
     runtime_api_version: "1.52"
     runtime_host_operating_system: "linux"

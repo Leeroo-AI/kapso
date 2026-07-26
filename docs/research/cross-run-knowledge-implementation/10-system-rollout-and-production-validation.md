@@ -108,7 +108,9 @@ Inject process failure immediately before/after:
 - immutable release publication and `CURRENT.json` CAS;
 - expert workspace extraction/rename/bootstrap pin;
 - ideation prior packet creation/generation/selection; and
-- security-revocation refresh.
+- security-revocation refresh;
+- retained run-action cleanup before/after Docker-daemon and host restart; and
+- replacement/corruption of the pre-provisioned Docker mutation-lock inode.
 
 For every seam, define the one valid restart action and prove idempotent retry or
 typed irrecoverable failure. Never infer success from a partially visible remote
@@ -156,8 +158,8 @@ Production tests are manually/explicitly enabled and never run in normal CI:
    embeddings endpoint and verify stable space/input identities.
 4. **Ideation CLI smoke:** run one Codex or Claude Code ideation batch with the
    packet-only MCP reader; verify packet/MCP provenance, configured GitHub write
-   credentials are absent, and all secret bytes are absent from
-   prompts/artifacts/logs.
+   credentials are absent, raw Docker-socket and mutation-lock access are denied,
+   and all secret bytes are absent from prompts/artifacts/logs.
    For Claude, first verify the exact installed build accepts the generated
    sandbox settings, has `bubblewrap` and `socat`, authenticates through the
    configured OAuth/provider mechanism, can read only the workspace and packet,
@@ -179,6 +181,11 @@ Production tests are manually/explicitly enabled and never run in normal CI:
 9. **Clean-machine smoke:** with only configured provider authentication and task
    input, resolve/materialize/run from immutable releases without historical run
    directories.
+10. **Docker authority smoke:** pre-provision the root-owned mutation lock, prove
+    ordinary mutations serialize while closed containment is not delayed, prove
+    coding agents and workloads cannot resolve the lock or socket, and prove the
+    typed lost-installation path converges after daemon and host restart without
+    guessing or human cleanup.
 
 Sealed benchmark/canary testing is a separate explicitly authorized production
 stage and must not expose hidden examples to coding-agent processes or GitHub
@@ -224,6 +231,9 @@ this external state rather than trusting the planning-time observation.
 - OpenAI embeddings authentication available to the trusted parent process through
   official SDK credential discovery; it must be absent from coding-agent/MCP child
   environments.
+- A root-provisioned Docker mutation lock matching the configured path, owned by
+  `root:docker`, mode `0640`, in a root-owned directory with no group/world write;
+  application code must not create or repair it.
 
 ### Required for full task evaluation, not transport smoke
 
@@ -254,6 +264,8 @@ After the credentialed path passes:
 - [ ] Delete any prototype GitHub App, candidate-PR, or human approval path; retain
       only the configured external Git/`gh` credential discovery.
 - [ ] Delete fallback retrieval/publication paths and legacy aliases.
+- [ ] Delete or move every Docker-SDK mutator outside the pinned cross-run daemon;
+      repository search must show no shared-socket mutation bypass.
 - [ ] Run the complete suite after deletion and verify repository search finds no
       superseded schema/config/prompt names.
 

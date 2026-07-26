@@ -62,7 +62,17 @@ class _StatefulDockerRunner:
             "--format",
             "{{json .}}",
         ):
-            return _json_line(self.containers[arguments[4]])
+            reference = arguments[4]
+            payload = (
+                self.containers[reference]
+                if reference in self.containers
+                else next(
+                    container
+                    for container in self.containers.values()
+                    if container["Id"] == reference
+                )
+            )
+            return _json_line(payload)
         if arguments[:2] == ("container", "rm"):
             container_id = arguments[-1]
             name = next(

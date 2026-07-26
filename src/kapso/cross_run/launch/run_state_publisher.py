@@ -39,6 +39,10 @@ from kapso.cross_run.launch.run_action_reservation_contracts import (
     RunActionViewBinding,
     RunActionWorkspaceBinding,
 )
+from kapso.cross_run.launch.run_action_resource_finalization import (
+    require_run_action_resource_finalization_authority,
+    RunActionResourceFinalizationAuthority,
+)
 from kapso.cross_run.launch.run_action_store import (
     _RUN_ACTION_STORE_AUTHORITY,
     RunActionExecutionStore,
@@ -260,6 +264,9 @@ class RunStatePublisher:
             settings=settings,
             _authority=_RUN_ACTION_STORE_AUTHORITY,
         )
+        self._action_resource_finalization_authority: (
+            RunActionResourceFinalizationAuthority | None
+        ) = None
         self._publisher_identity = object()
         self._permit_lock = Lock()
         self._issued_permits: dict[int, RunStatePublicationPermit] = {}
@@ -393,12 +400,17 @@ class RunStatePublisher:
                 RunFrontierWorkspaceAccess.READ_ONLY,
                 descriptors,
             )
+            action_inspection = self._action_store.inspect()
             self._require_action_publication_candidate(
                 current,
                 candidate,
                 projection,
-                self._action_store.inspect_locked(descriptors),
+                action_inspection,
             )
+            if self._action_store.inspect_locked(descriptors) != action_inspection:
+                raise RunStatePublisherError(
+                    "run action ledger changed after resource finalization"
+                )
             inspection = (
                 self._fresh_inspection(parent_descriptor, descriptors)
                 if current is None
@@ -468,12 +480,17 @@ class RunStatePublisher:
                 RunFrontierWorkspaceAccess.READ_ONLY,
                 descriptors,
             )
+            action_inspection = self._action_store.inspect()
             self._require_action_publication_candidate(
                 current,
                 candidate,
                 projection,
-                self._action_store.inspect_locked(descriptors),
+                action_inspection,
             )
+            if self._action_store.inspect_locked(descriptors) != action_inspection:
+                raise RunStatePublisherError(
+                    "run action ledger changed after resource finalization"
+                )
             if current is not None and current.checkpoint == candidate:
                 if (
                     permit.requested_predecessor_checkpoint_id
@@ -562,6 +579,22 @@ class RunStatePublisher:
         self._authority.require_control_authority()
         return self._action_store.snapshot()
 
+    def _bind_action_resource_finalization_authority(
+        self,
+        authority: RunActionResourceFinalizationAuthority,
+    ) -> None:
+        require_run_action_resource_finalization_authority(
+            authority,
+            self._action_store,
+            self._settings,
+        )
+        current = self._action_resource_finalization_authority
+        if current is not None and current is not authority:
+            raise RunStatePublisherError(
+                "run-state publisher resource finalization authority changed"
+            )
+        self._action_resource_finalization_authority = authority
+
     def _require_action_publication_candidate(
         self,
         current: _ReconciledMaterial | None,
@@ -609,6 +642,7 @@ class RunStatePublisher:
                 current,
                 events[0].reservation,
             )
+        self._require_terminal_resource_absence(ordered_new_operations)
         workspace_pairs = inspection.workspace_chain(
             ordered_new_operations,
         )
@@ -632,6 +666,27 @@ class RunStatePublisher:
             workspace_change,
             None if not workspace_pairs else workspace_pairs[-1][1],
         )
+
+    def _require_terminal_resource_absence(
+        self,
+        operations: tuple[tuple, ...],
+    ) -> None:
+        if not operations:
+            return
+        authority = self._action_resource_finalization_authority
+        if authority is None:
+            raise RunStatePublisherError(
+                "run action publication lacks resource finalization authority"
+            )
+        require_run_action_resource_finalization_authority(
+            authority,
+            self._action_store,
+            self._settings,
+        )
+        for events in operations:
+            authority.require_terminal_absence(
+                events[0].reservation.intent.operation_id
+            )
 
     def _require_candidate_workspace_evidence(
         self,

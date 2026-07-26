@@ -36,7 +36,10 @@ leaf now resolves nonempty result, empty result, nonzero exit, or OOM under the
 retained release. A separate pre-release path classifies main loss without
 leaking descriptors, freshly reproves the stable loss occurrence during
 continuation, and transfers its physical fence through terminal publication.
-Cleanup, OS executor activation, explicit
+A sealed, store-bound finalization authority now joins durable eligibility,
+role-proved Docker cleanup, recovery reporting, checkpoint publication, and the
+next reservation. OS executor activation, authenticated Docker socket/lock
+isolation, a typed lost-installation transition for daemon/host restart, explicit
 E0/S-EMPTY provisioning orchestration, full policy refresh on resume, and
 API/runner activation remain.
 
@@ -77,6 +80,8 @@ src/kapso/cross_run/launch/
   run_action_result_authority.py
   run_action_natural_terminal.py
   run_action_pre_release_main_loss.py
+  run_action_docker_cleanup.py
+  run_action_resource_finalization.py
   run_action_docker_adapter.py
 
 src/kapso/
@@ -790,6 +795,63 @@ disappearance, or mixed Docker inventory remains `UNKNOWN`; it is never
 mislabeled as a provider failure. Event 6 stores the complete result or
 termination evidence before cleanup.
 
+The controller issues one process-bound resource-finalization authority, sealed
+to the exact action store, launch settings, physical driver object, driver type,
+and captured driver methods. It accepts only an operation ID. The driver opens
+the operation's first-event `flock`, re-reads its complete durable prefix, and
+admits mutation only for event 8 `RESULT_ACCEPTED`, event 6
+`PROVIDER_TERMINATED`, or a fully prepared pre-spawn
+`FRONTIER_INVALIDATED`. `CANCELLED` must be allocation-free. An allocation-only
+invalidation is absence-only: partial resources without durable role evidence
+remain blocked rather than guessed at.
+
+Terminal cleanup proves the exact durable volume occurrence, running keeper
+projection and process, retained control topology, and complete terminal main
+snapshot. Prepared invalidation instead proves `EMPTY` control, the exact
+running keeper, and the exact never-started main. Cleanup then removes only the
+stopped main without force, the running keeper with force, and the exact named
+volume. It never requests broad volume deletion. Each command is followed by a
+fresh complete inventory proving the exact next suffix; final absence is
+observed twice. Crash recovery admits keeper-plus-volume, volume-only, and fully
+absent suffixes, but rejects mixed suffixes, substitution, or reappearance.
+
+Every ordinary trusted Docker mutator takes one configured daemon-wide OS
+`flock`; cleanup retains that lease across inspect, role proof, removal, and
+post-removal observation. The global order is checkpoint → workspace → operation
+→ Docker daemon. Docker list/inspect plus pinned version/info/image inspection
+remain read-only and do not reacquire the mutation lease. The lock is a
+pre-provisioned `root:docker 0640` inode below a root-owned non-writable
+directory; application code never creates or replaces it. Acquisition is
+bounded, same-thread recursion fails loudly, and integrity failure closes the
+descriptor before raising. Long `container start --attach` calls retain
+exclusion only until the container leaves `created`; the remaining attached
+stream is observation. Closed operation-bound TERM/KILL containment bypasses
+unrelated daemon exclusion so an experiment cannot delay an absolute
+containment deadline.
+
+Exact named-volume removal remains safe only while every ordinary actor with the
+selected Docker socket honors that exclusion. This code is not an activation
+claim: the production controller must keep both the Docker socket and lock path
+out of coding-agent/workload mount namespaces, and M10 must remove or isolate the
+legacy Docker-SDK deployment mutator that does not use this authority. Until
+authenticated denied-path and raw-Unix-socket probes prove that boundary, M9
+remains dormant.
+
+Cleanup recovery is currently same-daemon-boot only: keeper process identity and
+the tmpfs control topology are deliberate physical evidence. A Docker-daemon or
+host restart that stops the keeper or loses tmpfs control bytes fails closed
+instead of weakening role proof. Unattended reboot recovery therefore remains an
+explicit M10 rollout obligation; it needs a typed lost-installation transition,
+not a guessed cleanup suffix.
+
+Recovery finalizes every terminal before constructing its report and re-reads the
+ledger afterward. Publication-permit issuance and final publication independently
+reprove absence without mutating. The next reservation does the same for every
+unprojected prior terminal. Publication releases `registry.lock` before physical
+I/O, then reacquires it and requires an identical ledger, avoiding a
+registry→operation / operation→registry deadlock while the checkpoint transaction
+excludes authorized action mutation.
+
 Pre-commit cleanup is allowed only for the unique exact never-started occurrence
 when no spawn commit exists. Terminal observation precedes result capture: the
 observation never refers forward to a capture, while the capture may bind that
@@ -1117,7 +1179,10 @@ contract is that recovery always uses the original never-reset decision deadline
 Natural terminal-failure/empty-result evidence and positive pre-release-loss
 inspection are now wired through trusted continuation leaves and exercised
 against real zero-exit, nonzero, OOM-killed, and physically removed Docker
-occurrences. Cleanup and production adapters are not yet wired. No production
+occurrences. Durable eligibility, role proof, cleanup, recovery-report admission,
+publication, and subsequent reservation are now one sealed authority chain.
+The allocation-only invalidation residue and production adapters remain unwired.
+No production
 caller can receive Docker start authority from the reservation gate; M9
 activation must continue to route every post-reservation transition through the
 coordinator's sealed capabilities.
@@ -1256,7 +1321,16 @@ this path is activated.
   release, parse the exact exited Docker occurrence twice, consume one sealed
   terminal reinspection capability, descriptor-capture the original bounded
   result inode, and prove the exact result graph is interpreted and durably
-  accepted through event 8 without cleanup.
+  accepted through event 8 before ordered cleanup.
+- For accepted result, timeout, empty result, nonzero exit, OOM, pre-release main
+  loss, and fully prepared frontier invalidation, remove only the exact main →
+  keeper → volume suffix, accept each command only after fresh physical inventory
+  proves the next suffix, then prove complete absence twice more. Reject mixed
+  suffixes, runtime/role/occurrence substitution, started-main force removal,
+  replacement after removal, and cross-process authority use.
+- Block recovery reports, both checkpoint publication phases, and the next
+  reservation while any terminal resource remains or reappears. Exercise two
+  independent processes against the daemon-wide mutation `flock`.
 - Admit only `()`, `(release)`, and `(release, timeout)` as real control-directory
   topologies; reject timeout-only/extra entries and every retained topology
   mutation. Reject malformed, over-bound, substituted, and cross-occurrence
