@@ -153,7 +153,9 @@ modes:
             effort: "xhigh"
         # Task-aware lens planning: a web-enabled Fable session surveys how
         # this task's problem family is attacked and designs one lens per
-        # member (once per campaign, persisted to .kapso/lens_plan.json).
+        # member at iteration 1; EVERY later iteration a keep-or-revise
+        # session re-judges the plan against the campaign evidence (current
+        # plan in .kapso/lens_plan.json, audit in lens_plan_history.jsonl).
         ideation_lens_planner:
           cli: "claude_code"
           model: "claude-fable-5"

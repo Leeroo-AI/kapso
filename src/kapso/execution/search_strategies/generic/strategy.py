@@ -223,6 +223,7 @@ def parse_selected_solutions(output: str, expansion_count: int) -> List[str]:
 
 _LENS_PLANNER_KEYS = frozenset({"cli", "model", "effort", "timeout"})
 LENS_PLAN_FILENAME = "lens_plan.json"
+LENS_PLAN_HISTORY_FILENAME = "lens_plan_history.jsonl"
 
 
 def normalize_ideation_lens_planner(value: Any) -> Optional[Dict[str, Any]]:
@@ -289,6 +290,49 @@ def parse_lens_plan(output: str, expected_count: int) -> Dict[str, Any]:
     return {
         "lenses": lenses,
         "sources": sources_match.group(1).strip() if sources_match else "",
+    }
+
+
+def parse_lens_revision(output: str, expected_count: int) -> Dict[str, Any]:
+    """Classify a keep-or-revise replanner output; never raises.
+
+    Returns one of:
+      {"kind": "keep", "rationale": str}
+      {"kind": "revise", "lenses": [...], "sources": str, "rationale": str}
+      {"kind": "invalid", "reason": str}
+    `invalid` is a first-class outcome: the caller records it loudly and the
+    previous validated plan stays in force — a mid-flight campaign must
+    never die on a malformed revision.
+    """
+    text = output or ""
+    keep = re.search(r"<keep>(.*?)</keep>", text, re.DOTALL)
+    if keep and keep.group(1).strip():
+        return {"kind": "keep", "rationale": " ".join(keep.group(1).split())}
+    lenses = []
+    for i in range(1, expected_count + 1):
+        match = re.search(rf"<lens_{i}>(.*?)</lens_{i}>", text, re.DOTALL)
+        if not match or not match.group(1).strip():
+            return {
+                "kind": "invalid",
+                "reason": (
+                    "neither a non-empty <keep> nor a complete lens set "
+                    f"(missing <lens_{i}> of {expected_count})"
+                ),
+            }
+        lenses.append(" ".join(match.group(1).split()))
+    rationale = re.search(
+        r"<revision_rationale>(.*?)</revision_rationale>", text, re.DOTALL
+    )
+    sources = re.search(r"<sources>(.*?)</sources>", text, re.DOTALL)
+    return {
+        "kind": "revise",
+        "lenses": lenses,
+        "sources": sources.group(1).strip() if sources else "",
+        "rationale": (
+            " ".join(rationale.group(1).split())
+            if rationale and rationale.group(1).strip()
+            else ""
+        ),
     }
 
 
@@ -498,9 +542,11 @@ class GenericSearch(SearchStrategy):
                 "selector reads the worktree to verify candidates)"
             )
         # Optional task-aware lens planning: a web-enabled Claude session
-        # designs the member lenses for THIS task (once per campaign,
-        # persisted to .kapso/lens_plan.json). Static member lenses are
-        # forbidden while it is enabled.
+        # designs the member lenses for THIS task at iteration 1, then a
+        # keep-or-revise session re-judges the plan against the campaign
+        # evidence EVERY later iteration (current plan in
+        # .kapso/lens_plan.json, audit trail in lens_plan_history.jsonl).
+        # Static member lenses are forbidden while it is enabled.
         self.ideation_lens_planner = normalize_ideation_lens_planner(
             self.params.get("ideation_lens_planner")
         )
@@ -1001,35 +1047,8 @@ class GenericSearch(SearchStrategy):
             finally:
                 agent.cleanup()
     
-    def _resolve_member_lenses(
-        self, problem: str, ideation_dir: str
-    ) -> Optional[List[str]]:
-        """Task-aware lenses from the planner; None keeps static config lenses.
-
-        Planned ONCE per campaign: the plan persists to .kapso/lens_plan.json
-        and later iterations (and resumes) reuse it. A missing planner block
-        disables the feature; a failing planner session raises — it runs at
-        iteration 1 only, when a restart is cheap.
-        """
-        if not self.ideation_lens_planner:
-            return None
-        expected = len(self.ideation_ensemble)
-        plan_path = os.path.join(
-            self.workspace_dir, ".kapso", LENS_PLAN_FILENAME
-        )
-        if os.path.isfile(plan_path):
-            with open(plan_path, encoding="utf-8") as f:
-                plan = json.load(f)
-            lenses = plan["lenses"]
-            if len(lenses) != expected:
-                raise ValueError(
-                    f"{plan_path} holds {len(lenses)} lenses for "
-                    f"{expected} ensemble members — delete it to replan"
-                )
-            return lenses
-
-        planner = self.ideation_lens_planner
-        roster = "\n".join(
+    def _member_roster_brief(self) -> str:
+        return "\n".join(
             f"- member {i + 1}: cli={m['cli']}, model={m['model']}"
             + (
                 " (has native web search during ideation)"
@@ -1038,17 +1057,10 @@ class GenericSearch(SearchStrategy):
             )
             for i, m in enumerate(self.ideation_ensemble)
         )
-        prompt = render_prompt(
-            load_prompt(
-                "execution/search_strategies/generic/prompts/ideation_lens_planner.md"
-            ),
-            {
-                "problem": problem,
-                "member_roster": roster,
-                "lens_count": str(expected),
-                "shared_artifacts_brief": self.shared_artifacts_brief,
-            },
-        )
+
+    def _run_lens_planner_session(self, prompt: str, ideation_dir: str):
+        """One planner/replanner claude session; returns (result, cost_usd)."""
+        planner = self.ideation_lens_planner
 
         from kapso.execution.coding_agents.base import CodingAgentConfig
         from kapso.execution.coding_agents.adapters.claude_code_agent import ClaudeCodeCodingAgent
@@ -1077,20 +1089,191 @@ class GenericSearch(SearchStrategy):
         agent = ClaudeCodeCodingAgent(config)
         agent.initialize(ideation_dir)
         result = agent.generate_code(prompt)
+        cost = agent.get_cumulative_cost()
         agent.cleanup()
-        if not result.success:
-            raise RuntimeError(
-                f"lens planner session failed: {result.error}"
-            )
-        plan = parse_lens_plan(result.output, expected)
-        plan["planner_model"] = planner["model"]
-        plan["created_iteration"] = self.iteration_count
+        return result, cost
+
+    def _append_lens_history(self, history_path: str, record: Dict[str, Any]) -> None:
+        os.makedirs(os.path.dirname(history_path), exist_ok=True)
+        with open(history_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record) + "\n")
+
+    def _write_lens_plan(self, plan_path: str, plan: Dict[str, Any]) -> None:
         os.makedirs(os.path.dirname(plan_path), exist_ok=True)
         with open(plan_path, "w", encoding="utf-8") as f:
             json.dump(plan, f, indent=2)
-        for i, lens in enumerate(plan["lenses"], 1):
-            print(f"[GenericSearch] Lens {i}: {lens}")
-        return plan["lenses"]
+
+    def _resolve_member_lenses(
+        self, problem: str, ideation_dir: str
+    ) -> tuple:
+        """Task-aware lenses, replanned per iteration; returns (lenses, cost).
+
+        (None, 0.0) when no planner block is configured (static config
+        lenses). Iteration 1 runs the full research planner — fail-loud, a
+        restart is cheap. Every LATER iteration runs a keep-or-revise session
+        over the campaign evidence (state brief, recent judge feedback, the
+        champion's solution): the plan is re-aimed when the evidence says the
+        current angles are exhausted, kept when they still carry the highest
+        credible return toward the bar. A failed or unparseable revision
+        falls back LOUDLY to the previous validated plan — it never kills a
+        mid-flight campaign. The current plan lives in .kapso/lens_plan.json
+        (keyed by the iteration that last confirmed it, so a same-iteration
+        resume reuses it without a session); every planner decision appends
+        to .kapso/lens_plan_history.jsonl as the audit trail.
+        """
+        if not self.ideation_lens_planner:
+            return None, 0.0
+        expected = len(self.ideation_ensemble)
+        kapso_dir = os.path.join(self.workspace_dir, ".kapso")
+        plan_path = os.path.join(kapso_dir, LENS_PLAN_FILENAME)
+        history_path = os.path.join(kapso_dir, LENS_PLAN_HISTORY_FILENAME)
+
+        plan = None
+        if os.path.isfile(plan_path):
+            with open(plan_path, encoding="utf-8") as f:
+                plan = json.load(f)
+            if len(plan["lenses"]) != expected:
+                raise ValueError(
+                    f"{plan_path} holds {len(plan['lenses'])} lenses for "
+                    f"{expected} ensemble members — delete it to replan"
+                )
+            if plan.get("iteration") == self.iteration_count:
+                return plan["lenses"], 0.0
+
+        planner = self.ideation_lens_planner
+        roster = self._member_roster_brief()
+
+        if plan is None:
+            prompt = render_prompt(
+                load_prompt(
+                    "execution/search_strategies/generic/prompts/ideation_lens_planner.md"
+                ),
+                {
+                    "problem": problem,
+                    "member_roster": roster,
+                    "lens_count": str(expected),
+                    "shared_artifacts_brief": self.shared_artifacts_brief,
+                },
+            )
+            result, cost = self._run_lens_planner_session(prompt, ideation_dir)
+            if not result.success:
+                raise RuntimeError(
+                    f"lens planner session failed: {result.error}"
+                )
+            parsed = parse_lens_plan(result.output, expected)
+            plan = {
+                "lenses": parsed["lenses"],
+                "sources": parsed["sources"],
+                "planner_model": planner["model"],
+                "iteration": self.iteration_count,
+                "decision": "initial",
+                "rationale": "",
+            }
+            self._write_lens_plan(plan_path, plan)
+            self._append_lens_history(history_path, plan)
+            for i, lens in enumerate(plan["lenses"], 1):
+                print(f"[GenericSearch] Lens {i}: {lens}")
+            return plan["lenses"], cost
+
+        # Keep-or-revise: the replanner judges the plan against the campaign
+        # evidence. Judge feedbacks and the champion solution go in FULL —
+        # content bound for a model call is never truncated.
+        feedbacks = [
+            node.feedback
+            for node in self.node_history
+            if getattr(node, "feedback", None)
+        ]
+        recent_feedback = (
+            "\n\n---\n\n".join(feedbacks[-2:])
+            if feedbacks
+            else "(no judge feedback yet)"
+        )
+        best = self.get_best_experiment()
+        champion_solution = (
+            best.solution
+            if best is not None and best.solution
+            else "(no scored champion yet)"
+        )
+        previous_lenses = "\n".join(
+            f"lens {i}: {lens}" for i, lens in enumerate(plan["lenses"], 1)
+        )
+        prompt = render_prompt(
+            load_prompt(
+                "execution/search_strategies/generic/prompts/ideation_lens_replanner.md"
+            ),
+            {
+                "problem": problem,
+                "member_roster": roster,
+                "lens_count": str(expected),
+                "shared_artifacts_brief": self.shared_artifacts_brief,
+                "campaign_state": self._campaign_state_brief(),
+                "plan_iteration": str(plan.get("iteration", "?")),
+                "previous_lenses": previous_lenses,
+                "previous_sources": plan.get("sources") or "(none recorded)",
+                "previous_rationale": plan.get("rationale") or "(none recorded)",
+                "recent_feedback": recent_feedback,
+                "champion_solution": champion_solution,
+            },
+        )
+        result, cost = self._run_lens_planner_session(prompt, ideation_dir)
+        revision = (
+            parse_lens_revision(result.output, expected)
+            if result.success
+            else {"kind": "invalid", "reason": f"session failed: {result.error}"}
+        )
+        if revision["kind"] == "revise":
+            plan = {
+                "lenses": revision["lenses"],
+                "sources": revision["sources"],
+                "planner_model": planner["model"],
+                "iteration": self.iteration_count,
+                "decision": "revise",
+                "rationale": revision["rationale"],
+            }
+            self._write_lens_plan(plan_path, plan)
+            self._append_lens_history(history_path, plan)
+            print(
+                f"[GenericSearch] Lens plan REVISED (iteration "
+                f"{self.iteration_count}): {plan['rationale']}"
+            )
+            for i, lens in enumerate(plan["lenses"], 1):
+                print(f"[GenericSearch] Lens {i}: {lens}")
+            return plan["lenses"], cost
+        if revision["kind"] == "keep":
+            plan["iteration"] = self.iteration_count
+            plan["decision"] = "keep"
+            plan["rationale"] = revision["rationale"]
+            self._write_lens_plan(plan_path, plan)
+            self._append_lens_history(
+                history_path,
+                {
+                    "iteration": self.iteration_count,
+                    "decision": "keep",
+                    "rationale": revision["rationale"],
+                    "lenses": plan["lenses"],
+                },
+            )
+            print(
+                f"[GenericSearch] Lens plan kept (iteration "
+                f"{self.iteration_count}): {revision['rationale']}"
+            )
+            return plan["lenses"], cost
+        # invalid: loud fallback to the previous validated plan. The plan
+        # file's iteration is NOT bumped, so a same-iteration retry replans.
+        logger.warning(
+            "[GenericSearch] Lens revision invalid "
+            f"({revision['reason']}); keeping previous plan"
+        )
+        self._append_lens_history(
+            history_path,
+            {
+                "iteration": self.iteration_count,
+                "decision": "failed",
+                "reason": revision["reason"],
+                "raw_output": result.output or "",
+            },
+        )
+        return plan["lenses"], cost
 
     def _generate_solution_ensemble(
         self,
@@ -1108,11 +1291,6 @@ class GenericSearch(SearchStrategy):
         -> first claude_code candidate -> any candidate -> template fallback.
         """
         phase_started = time.monotonic()
-        clamp = self._clamped_timeout(self.ideation_timeout)
-        member_deadline = max(60.0, clamp * ENSEMBLE_MEMBER_TIME_FRACTION)
-        selector_deadline = max(
-            ENSEMBLE_SELECTOR_MIN_SECONDS, clamp * ENSEMBLE_SELECTOR_TIME_FRACTION
-        )
 
         base_prompt = self._build_ideation_prompt(
             problem=problem, repo_memory_brief=repo_memory_brief
@@ -1121,7 +1299,17 @@ class GenericSearch(SearchStrategy):
             "execution/search_strategies/generic/prompts/ideation_ensemble_addendum.md"
         )
 
-        member_lenses = self._resolve_member_lenses(problem, ideation_dir)
+        member_lenses, lens_planner_cost = self._resolve_member_lenses(
+            problem, ideation_dir
+        )
+
+        # Deadlines are computed AFTER the planner session so its wall time
+        # squeezes this iteration's members instead of overflowing the phase.
+        clamp = self._clamped_timeout(self.ideation_timeout)
+        member_deadline = max(60.0, clamp * ENSEMBLE_MEMBER_TIME_FRACTION)
+        selector_deadline = max(
+            ENSEMBLE_SELECTOR_MIN_SECONDS, clamp * ENSEMBLE_SELECTOR_TIME_FRACTION
+        )
 
         def run_member(member: Dict[str, str], lens: str) -> Dict[str, Any]:
             prompt = base_prompt + "\n\n" + render_prompt(
@@ -1270,7 +1458,7 @@ class GenericSearch(SearchStrategy):
 
         pool: List[Dict[str, str]] = []
         sections: List[str] = []
-        total_cost = 0.0
+        total_cost = lens_planner_cost
         for member_result in member_results:
             total_cost += member_result["cost_usd"]
             for section in member_result["sections"]:
