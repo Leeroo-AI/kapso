@@ -52,3 +52,43 @@ converts to a SCORE lift (beat #28's 0.0, reach ≥1/30, chase the 3.3 proven
 ceiling) is the open question — and on this cell the score is n=30-noisy
 (one problem = 3.3pp), so recipe-quality is the more reliable readout than
 the raw number. P2/P3 track the ladder and the official.
+
+## P2 (t+2.5h → t+6h) — uptake converts to PROCESS quality, not (yet) score
+
+Headline: **iteration 1 shipped 0/30 official (ties #28 and base) — but the
+seed turned the failure into a FAST, precisely-diagnosed one, and iteration
+2 is attacking the real wall from the start instead of discovering it.**
+
+- **R36-P2-1 — iter-1 official 0/30, seed-grade forensics.** Verdict (Node
+  0, two pooled official reads): "0/30 … ties base and prior gemma — no
+  improvement." But the diagnosis is exactly what the doc taught: model has
+  ~29% MATH-500 capability (rp 1.1 confirmed optimal), yet **30-73% of AIME
+  generations truncate at the token cap → guaranteed zeros**, and the corpus
+  came out 78% olympiad proof-style (integer-filter rejected 63% of OpenR1,
+  skewing away from AIME register). Same two defects run #28 found — reached
+  in one clean iteration here, not several.
+- **R36-P2-2 — decode lever validated on the dev proxy.** AIME-24 dev:
+  greedy rp1.1 = 1/30 (winner, least truncation); rp1.2 = 0/30 ("breaks
+  generation — measured"); T0.6 rambles to 93% truncation. Exactly the
+  seed's "rp 1.1 sweet spot, 1.2 too much" lever, independently re-measured.
+  Greedy rp1.1 baked into generation_config.
+- **R36-P2-3 — n=30 discipline held.** All decode/checkpoint decisions made
+  on MATH-100 / AIME-24 dev proxies, AIME-25 kept as pure held-out ("0/30
+  vs 1/30 is noise" — the doc's own line, followed). No promoting on n=30.
+- **R36-P2-4 — iter-2 attacks the wall directly.** Continue-FT the banked
+  exp1 checkpoint (Stage-A "paid for", ~29% MATH) with a Stage-B corpus
+  fixing both measured defects — ~2k verified decontaminated AIME-register
+  traces + budget-forcing against truncation. The RIGHT next move,
+  front-loaded from iter-1's evidence; running at epoch ~1.4, ~05:40
+  completion. Zero session-limit events / swaps.
+
+**Experiment read so far:** the shared-learning offer fixed the PROCESS
+decisively — no OOM/arch-discovery detour (run #28's iter-1 sink), dev-gated
+from the start, decode already optimal, right problem (truncation + corpus
+register) identified in iteration 1 instead of iteration 2-3. What it has
+NOT yet done is move the OFFICIAL score off 0/30: the ~29% MATH capability
+does not transfer to competition-hard AIME for a 4B, and truncation economics
+cap even the attempts that reason correctly. This mirrors the arena-gemma
+finding — recipe/knowledge transfers cleanly; the residual gap is a
+capability/data wall, not a process deficit. iter-2's anti-truncation Stage-B
+is the last real shot at ≥1/30; P3 has the official.
