@@ -105,6 +105,10 @@ an anonymous inode, reads it back byte-exactly, fsyncs it, links
 same private inode. Pre-link failure exposes nothing; post-link failure can
 expose only the complete candidate that supervisor recovery already understands.
 An existing path of any type is rejected rather than adopted.
+Editable consumers use the same descriptor-safe source scan as launch frontier
+inspection. The public bounded projection excludes exactly the root `.git`,
+preserves the canonical source digest/mode/size semantics, and observes a
+post-agent source identity without requiring the edited tree to be committed.
 The framework-owned credential broker and pre-release expiry path are also
 implemented. The broker response transfers secret bytes into coordinator-private
 single-use authority before adapter access. Before broker issue, credential

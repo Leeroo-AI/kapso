@@ -12,6 +12,7 @@ from kapso.cross_run.launch.workspace_frontier import (
     RunWorkspaceFrontierError,
     copy_run_workspace_frontier,
     inspect_run_workspace_frontier,
+    inspect_run_workspace_source_tree,
     plan_run_workspace_frontier_copy,
 )
 from test_launch_resolver import resolver_case
@@ -65,6 +66,63 @@ def _normalized_mode_substitution(path):
 def _same_size_content_substitution(path):
     payload = path.read_bytes()
     path.write_bytes(bytes((payload[0] ^ 0xFF,)) + payload[1:])
+
+
+def test_source_only_inspection_matches_frontier_and_observes_uncommitted_edits(
+    publisher_case,
+):
+    with ExitStack() as descriptors:
+        source_descriptor, frontier = _open_source(
+            publisher_case,
+            descriptors,
+        )
+        source = inspect_run_workspace_source_tree(
+            source_descriptor,
+            maximum_entries=publisher_case["settings"].run_workspace_entry_limit,
+            maximum_bytes=publisher_case["settings"].run_workspace_size_bytes,
+        )
+        source_file = _source_file(publisher_case)
+        _same_size_content_substitution(source_file)
+        edited = inspect_run_workspace_source_tree(
+            source_descriptor,
+            maximum_entries=publisher_case["settings"].run_workspace_entry_limit,
+            maximum_bytes=publisher_case["settings"].run_workspace_size_bytes,
+        )
+
+    assert source.workspace_identity == frontier.workspace_identity
+    assert source.source_tree_digest == frontier.source_tree_digest
+    assert source.source_entry_count == frontier.source_entry_count
+    assert source.source_size_bytes == frontier.source_size_bytes
+    assert edited.workspace_identity == source.workspace_identity
+    assert edited.source_tree_digest != source.source_tree_digest
+    assert edited.source_entry_count == source.source_entry_count
+    assert edited.source_size_bytes == source.source_size_bytes
+
+
+@pytest.mark.parametrize(
+    ("maximum_entries", "maximum_bytes", "message"),
+    (
+        (1, 2**63, "entry limit"),
+        (2**63, 1, "byte limit"),
+    ),
+)
+def test_source_only_inspection_enforces_exact_bounds(
+    publisher_case,
+    maximum_entries,
+    maximum_bytes,
+    message,
+):
+    with ExitStack() as descriptors:
+        source_descriptor, _frontier = _open_source(
+            publisher_case,
+            descriptors,
+        )
+        with pytest.raises(RunWorkspaceFrontierError, match=message):
+            inspect_run_workspace_source_tree(
+                source_descriptor,
+                maximum_entries=maximum_entries,
+                maximum_bytes=maximum_bytes,
+            )
 
 
 def test_workspace_copy_includes_git_and_reproves_both_frontiers(

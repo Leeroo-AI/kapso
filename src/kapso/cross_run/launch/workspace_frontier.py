@@ -36,6 +36,35 @@ class RunWorkspaceFrontierError(RuntimeError):
 
 
 @dataclass(frozen=True)
+class RunWorkspaceSourceTreeIdentity:
+    """Bounded source-only identity that deliberately excludes root Git metadata."""
+
+    workspace_identity: tuple[int, int]
+    source_tree_digest: str
+    source_entry_count: int
+    source_size_bytes: int
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.workspace_identity) is not tuple
+            or len(self.workspace_identity) != 2
+            or any(
+                type(value) is not int or value <= 0
+                for value in self.workspace_identity
+            )
+            or not isinstance(self.source_tree_digest, str)
+            or not self.source_tree_digest.startswith("sha256:")
+            or type(self.source_entry_count) is not int
+            or self.source_entry_count <= 0
+            or type(self.source_size_bytes) is not int
+            or self.source_size_bytes < 0
+        ):
+            raise RunWorkspaceFrontierError(
+                "run workspace source-tree identity is invalid"
+            )
+
+
+@dataclass(frozen=True)
 class RunWorkspaceFrontierIdentity:
     """Exact clean source/Git identity observed through a pinned workspace fd."""
 
@@ -351,6 +380,67 @@ class _WorkspaceCopyScanState:
 class _GitObject:
     kind: str
     payload: bytes
+
+
+def inspect_run_workspace_source_tree(
+    workspace_descriptor: int,
+    *,
+    maximum_entries: int,
+    maximum_bytes: int,
+) -> RunWorkspaceSourceTreeIdentity:
+    """Digest one bounded source tree while excluding exactly the root `.git`."""
+
+    if (
+        type(workspace_descriptor) is not int
+        or workspace_descriptor < 0
+        or type(maximum_entries) is not int
+        or maximum_entries <= 0
+        or type(maximum_bytes) is not int
+        or maximum_bytes <= 0
+    ):
+        raise RunWorkspaceFrontierError(
+            "run workspace source-tree inspection inputs are invalid"
+        )
+    workspace_metadata = os.fstat(workspace_descriptor)
+    if (
+        not stat.S_ISDIR(workspace_metadata.st_mode)
+        or workspace_metadata.st_uid != os.geteuid()
+        or workspace_metadata.st_gid != os.getegid()
+        or stat.S_IMODE(workspace_metadata.st_mode) != 0o700
+        or workspace_metadata.st_dev <= 0
+        or workspace_metadata.st_ino <= 0
+    ):
+        raise RunWorkspaceFrontierError(
+            "run workspace source-tree descriptor is not owner-private"
+        )
+    state = _SourceScanState(
+        entry_limit=maximum_entries,
+        size_limit=maximum_bytes,
+    )
+    descriptors_by_path, _blob_ids = _scan_source_directory(
+        workspace_descriptor,
+        PurePosixPath("."),
+        state,
+        root=True,
+    )
+    if not descriptors_by_path:
+        raise RunWorkspaceFrontierError("run workspace source tree is empty")
+    rebound = os.fstat(workspace_descriptor)
+    if _metadata_observation(rebound) != _metadata_observation(workspace_metadata):
+        raise RunWorkspaceFrontierError(
+            "run workspace source-tree descriptor changed during inspection"
+        )
+    return RunWorkspaceSourceTreeIdentity(
+        workspace_identity=(workspace_metadata.st_dev, workspace_metadata.st_ino),
+        source_tree_digest=source_tree_digest(
+            {
+                path: (descriptor.digest, descriptor.mode, descriptor.size)
+                for path, descriptor in descriptors_by_path.items()
+            }
+        ),
+        source_entry_count=state.entry_count,
+        source_size_bytes=state.size_bytes,
+    )
 
 
 def inspect_run_workspace_frontier(
@@ -1823,8 +1913,10 @@ def _copy_metadata_observation(
 __all__ = [
     "copy_run_workspace_frontier",
     "inspect_run_workspace_frontier",
+    "inspect_run_workspace_source_tree",
     "plan_run_workspace_frontier_copy",
     "RunWorkspaceCopyPlan",
     "RunWorkspaceFrontierError",
     "RunWorkspaceFrontierIdentity",
+    "RunWorkspaceSourceTreeIdentity",
 ]
