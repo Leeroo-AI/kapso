@@ -593,6 +593,7 @@ The implementation is complete only when:
 | D19 | Keep one dependency-pure typed record registry across catalog and knowledge boundaries | Content hashes prove identity, while owning strict parsers additionally prove exact schema and keep MCP startup free of service-side effects |
 | D20 | Publish local snapshot directories with atomic no-replace semantics | A concurrent writer must retain ownership of a destination created during the staging window |
 | D21 | Release Docker workloads only after proving their resolved mount namespace | Docker resolves `VolumeSubpath` during start, so a pinned blocked wrapper, post-start `/proc` mount proof, and crash-atomic release receipt are required to join actual execution inputs to event 5 |
+| D22 | Keep the final result namespace read-only to the workload and publish only after terminal observation | A private complete candidate plus supervisor-owned `O_TMPFILE`/no-replace publication prevents partial finals, direct-final forgery, and ambiguous crash recovery |
 
 ## Progress ledger
 
@@ -606,7 +607,7 @@ The implementation is complete only when:
 | M6 Ideation and Memory Bridge | Implemented; independent hardening approved | `generic.ideation` v4 archive, Generic v5 checkpoint, `IdeationCrossRunRuntime`, structured coding-agent packet/MCP boundary | 451 cross-run/knowledge tests; 167 ideation/checkpoint tests (1 unrelated skip); matched empty-memory/negative-prior E2E; real stdio MCP handshake; real Codex policy parse; independent reviewer found no remaining P0–P2 issues | Exact external `gpt-5.6-sol` xhigh replay is quota-blocked; M9 constructs the runtime and M10 provisions `bubblewrap`/`socat` plus authenticated CLI policy probes |
 | M7 Expert Candidates and Architecture | Complete; independent correctness review approved | `kapso.cross_run.expert.{triggers,candidates,sanitation,book,store,workspace,proposal,proposal_contract,architect,generalizer}`, fixed role prompts, `kapso.execution.coding_agents.{structured_call,workspace_delta,operation_receipt}`, exact source/materialization, durable deltas, complete agent artifacts, semantic MCP/audit replay | 152 final focused proposal/closure/store/workspace/contract/book/agent tests plus broad deterministic cross-run/expert/ideation pass; lease-before-persist atomicity, fixed role authority, pinned historical proposer authority, model-readable exact ancestors, monotonic preserved semantics, structural restructure enforcement, prior-record taint closure, compile/format/diff gates; final independent reviewer found no P0–P2 correctness defects | — |
 | M8 Expert Validation and Release | Complete; independent bypass review approved | `kapso.cross_run.expert.{validation,validation_store,review,review_stage,replay_stage,replay_execution_store,task_evaluation_preflight,task_evaluation_reservation,task_evaluation_execution,task_evaluation_execution_store,task_evaluation_docker_provider,promotion_contracts,promotion_plan,promotion_evidence,promotion_stage_contracts,promotion_stage,promotion_decision_contracts,promotion,promotion_authority_contracts,promotion_authority,composition_contracts,composition_base,composition_base_provider,composition_source,composition,composition_candidate,composition_admission_authority,composition_admission_contracts,composition_admission,release_authority,release_use,release_use_policy_contracts,release_use_policy,recovery_contracts,recovery_base,recovery_candidate,recovery_candidate_contracts,recovery_candidate_authority,recovery_candidate_coordinator,release_contracts,release,publisher,revocation_contracts,revocation}` plus shared catalog, knowledge, GitHub materialization, task-adapter, security, process, and config authorities | Exact sealed author/reader, release-use blocks, offline replay, authenticated true-E0 and historical recovery, scientific/control partition, scientific-source/temporal-CURRENT split, exact barrier-only security waiver, intermediate-control rejection, immutable-tag liveness, durable reservation/reopen, final GitHub publisher activation, activation-witness recovery, deeply reminted evidence rejection, and historical plus canonical-empty release E2E; final sweeps: 107 release/publication, 108 validation/store, 24 recovery, and 49 contract/authority tests; compile/format/diff gates; independent reviewer found no P0–P2 defects | — |
-| M9 Launch, Bootstrap, Resume | In progress; transactional launch/workspace/resume, exact eight-event recovery, sealed Docker lifecycle/termination/cleanup, and the self-contained coding-agent request/raw-result/interpreter boundary are complete | `kapso.cross_run.launch` resolver/workspace/checkpoint/action/Docker/credential/result modules, coding-agent compatibility/contracts/schema/interpreter, typed mode bindings, and shared projections | 92 coding-agent boundary tests; 312 combined settings/ideation/boundary tests; 116 complete recovery and 194 adjacent gate/store/workspace tests; exact operation/policy/request/result/prior-access/edit-tree substitution tests; real Docker crash after event 4 resumes through canonical envelope capture, structured-result acceptance, network/credential absence, event 8, and zero resource residue; two independent no-P0–P2 approvals | Provider-native Codex/Claude consumption, native credential projection and exact egress; authenticated Docker socket/lock isolation; daemon/host-restart lost-installation; E0/S-EMPTY orchestration; API/runners and legacy deletion; destructive power-loss validation |
+| M9 Launch, Bootstrap, Resume | In progress; transactional launch/workspace/resume, exact eight-event recovery, sealed Docker lifecycle/termination/cleanup, crash-atomic result publication, and the self-contained coding-agent request/raw-result/interpreter boundary are complete | `kapso.cross_run.launch` resolver/workspace/checkpoint/action/Docker/credential/result-publication modules, coding-agent compatibility/contracts/schema/interpreter, typed mode bindings, and shared projections | 92 coding-agent boundary tests; complete run-action logical regression; exact operation/policy/request/result/prior-access/edit-tree substitution and publication crash/race tests; real Docker result, missing-result, and composed offline-adapter lifecycles with a read-only final mount; independent no-P0–P2 review | Provider-native Codex/Claude consumption, native credential projection and exact egress; authenticated Docker socket/lock isolation; daemon/host-restart lost-installation; E0/S-EMPTY orchestration; API/runners and legacy deletion; destructive power-loss validation |
 | M10 Rollout and Production Validation | Planned | — | — | M3–M9 |
 
 M9 activation-envelope checkpoint: the schema-sealed event-5 bound and
@@ -693,6 +694,25 @@ only from a fresh physical absence/exited proof, append event 7, and complete
 report-gated cleanup. The final independent adversarial review reproduced the
 previous mutable-registry attack, verified it is closed, and found no remaining
 P0–P2 issue.
+
+Result publication now has one crash-recoverable authority. Preparation leaves
+the private result directory empty and mounts it read-only into the workload.
+An exit-zero provider may leave only a nonempty, mode-`0600`
+`temporary/result.candidate`; the trusted terminal supervisor serializes capture,
+revalidates the complete candidate, publishes a byte-exact anonymous inode with
+`linkat(AT_EMPTY_PATH)` and no replacement, fsyncs both inode and directory, and
+then reopens the sole final path. Recovery adopts only a final that exactly
+matches the retained candidate. A direct final, empty candidate/final, oversize,
+substitution, or extra result entry fails loud; absence of both candidate and
+final becomes `MISSING_RESULT`. Capacity authority reserves two complete copies
+and two inodes. Logical validation covers pre-link and post-link failure,
+concurrent identical publication, capture races, dynamic-inode evidence, and
+every terminal/store join: 1,047 non-heavy run-action tests plus all 220
+credential-expiry, cleanup, provider-recovery, recovery, and store tests pass.
+Real Docker validates the successful, missing, and composed offline coding-agent
+routes while the workload itself proves the final mount is unwritable.
+Independent adversarial review reproduced 264 focused tests and found no P0–P2
+issue.
 
 The next slice is final production-adapter composition.
 Provider-specific credential consumers and network egress remain explicit

@@ -173,6 +173,7 @@ def _resolved_graph(*, inode_offset=0, prepared=None, activation=None):
         resolved_file_observations=files,
         resolved_workspace_observation=workspace,
         control_entry_count=0,
+        result_entry_count=0,
         temporary_entry_count=0,
         control_directory_topology=RunActionControlDirectoryTopology.EMPTY,
     )
@@ -387,14 +388,8 @@ def _volume_root_sources(activation):
             prepared.input_delivery_slot.owner_group_id,
             prepared.input_delivery_slot.mode,
         ),
-        RunActionResolvedMountKind.RESULT: _source(
-            prepared.result_directory.prepared_runtime_directory_id,
-            activation.result_file_observation.parent_mount_id,
-            activation.result_file_observation.parent_device,
-            activation.result_file_observation.parent_inode,
-            prepared.result_directory.owner_user_id,
-            prepared.result_directory.owner_group_id,
-            prepared.result_directory.mode,
+        RunActionResolvedMountKind.RESULT: _runtime_directory_source(
+            runtime_directories[RunActionPreparedRuntimeDirectoryKind.RESULT]
         ),
         RunActionResolvedMountKind.CONTROL: _runtime_directory_source(
             runtime_directories[RunActionPreparedRuntimeDirectoryKind.CONTROL]
@@ -466,7 +461,6 @@ def _resolved_files(activation, roots):
     files = []
     for activated in (
         activation.input_file_observation,
-        activation.result_file_observation,
         activation.credential_file_observation,
     ):
         if activated is None:
@@ -546,7 +540,27 @@ def test_resolved_workload_graph_round_trips_with_exact_canonical_sets():
     )
     assert tuple(
         observed.kind.value for observed in resolved.resolved_file_observations
-    ) == ("credential", "input", "result")
+    ) == ("credential", "input")
+    result_root = {
+        root.kind: root for root in resolved.resolved_mount_root_observations
+    }[RunActionResolvedMountKind.RESULT]
+    activated_result = {
+        observed.kind: observed
+        for observed in resolved.activation_revalidation_receipt.activated_runtime_directory_observations
+    }[RunActionPreparedRuntimeDirectoryKind.RESULT]
+    assert (
+        result_root.source_authority_id,
+        result_root.source_mount_id,
+        result_root.source_device,
+        result_root.source_inode,
+        resolved.result_entry_count,
+    ) == (
+        activated_result.prepared_runtime_directory_id,
+        activated_result.mount_id,
+        activated_result.device,
+        activated_result.inode,
+        0,
+    )
     assert (
         resolved.control_directory_topology is RunActionControlDirectoryTopology.EMPTY
     )
@@ -603,7 +617,6 @@ def test_resolved_workload_graph_admits_exact_workspace_and_credential_absence()
     }
     assert {observed.kind for observed in resolved.resolved_file_observations} == {
         RunActionPreparedFileKind.INPUT,
-        RunActionPreparedFileKind.RESULT,
     }
     assert (
         RunActionResolvedWorkloadObservation.from_json_bytes(resolved.to_json_bytes())
@@ -753,6 +766,7 @@ def test_resolved_mount_requires_the_actual_inode_to_join_event_5():
             )
         },
         lambda resolved: {"control_entry_count": 1},
+        lambda resolved: {"result_entry_count": 1},
         lambda resolved: {
             "control_directory_topology": RunActionControlDirectoryTopology.RELEASED
         },
@@ -1014,6 +1028,7 @@ def test_credential_observation_never_carries_a_secret_digest():
     "changes",
     (
         {"host_boot_id": "not-a-boot-id"},
+        {"result_entry_count": 1},
         {"temporary_entry_count": 1},
     ),
 )

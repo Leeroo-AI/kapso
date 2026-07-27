@@ -189,6 +189,7 @@ def _resolved_workload_wire(
             activation,
         ),
         control_entry_count=0,
+        result_entry_count=0,
         temporary_entry_count=0,
         control_directory_topology=RunActionControlDirectoryTopology.EMPTY,
     )
@@ -383,7 +384,6 @@ def _resolved_file_wires(
         if mount.kind
         in {
             RunActionPreparedMountKind.INPUT,
-            RunActionPreparedMountKind.RESULT,
             RunActionPreparedMountKind.CREDENTIAL,
         }
     }
@@ -391,7 +391,6 @@ def _resolved_file_wires(
         observed
         for observed in (
             activation["input_file_observation"],
-            activation["result_file_observation"],
             activation["credential_file_observation"],
         )
         if observed is not None

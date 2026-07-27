@@ -87,7 +87,6 @@ def capture_run_action_timeout_termination(
         workload_release_adoption=adoption,
         terminal_observation=terminal,
         timeout_directive_publication=publication,
-        empty_result_capture_receipt=None,
         pre_release_main_loss_observation=None,
         credential_retirement_intent=None,
     )

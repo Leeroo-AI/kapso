@@ -641,7 +641,6 @@ def _observe_complete_prepared(
         input_delivery_slot=prepared_volume.input_delivery_slot,
         result_directory=prepared_volume.result_directory,
         control_directory=prepared_volume.control_directory,
-        result_file=prepared_volume.result_file,
         temporary_directory=prepared_volume.temporary_directory,
         credential_delivery_slot=prepared_volume.credential_delivery_slot,
         workspace_proof=prepared_volume.workspace_proof,

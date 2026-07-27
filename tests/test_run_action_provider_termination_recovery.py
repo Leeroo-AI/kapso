@@ -180,7 +180,6 @@ def _released_termination_case():
         workload_release_adoption=query.workload_release_adoption,
         terminal_observation=terminal,
         timeout_directive_publication=None,
-        empty_result_capture_receipt=None,
         pre_release_main_loss_observation=None,
         credential_retirement_intent=None,
     )
@@ -248,17 +247,11 @@ def test_provider_termination_registration_excludes_result_capture():
     )
     receipt = RunActionProviderTerminationReceipt.mint(
         disposition=RunActionProviderTerminationDisposition.FAILED,
-        reason=RunActionProviderTerminationReason.EMPTY_RESULT,
+        reason=RunActionProviderTerminationReason.MISSING_RESULT,
         activation_event_id=query.activation_event.event_id,
         workload_release_adoption=query.workload_release_adoption,
         terminal_observation=terminal,
         timeout_directive_publication=None,
-        empty_result_capture_receipt=_result_capture_receipt(
-            query.prepared_execution,
-            query.activation_revalidation_receipt,
-            terminal,
-            b"",
-        ),
         pre_release_main_loss_observation=None,
         credential_retirement_intent=None,
     )
@@ -385,7 +378,6 @@ def _pre_release_termination_case():
         workload_release_adoption=None,
         terminal_observation=None,
         timeout_directive_publication=None,
-        empty_result_capture_receipt=None,
         pre_release_main_loss_observation=loss,
         credential_retirement_intent=None,
     )
@@ -457,7 +449,6 @@ def _credential_expired_pre_release_termination_case():
         workload_release_adoption=None,
         terminal_observation=None,
         timeout_directive_publication=None,
-        empty_result_capture_receipt=None,
         pre_release_main_loss_observation=loss,
         credential_retirement_intent=intent,
     )

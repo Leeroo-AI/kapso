@@ -171,6 +171,8 @@ def _resolve(case, monkeypatch, result_payload):
 
     def capture(prepared, terminal, _volume, *, settings):
         capture_calls.append((prepared, terminal, settings))
+        if result_payload is None:
+            return None, None
         return (
             _result_capture_receipt(
                 prepared,
@@ -225,21 +227,17 @@ def test_nonempty_zero_exit_registers_one_exact_provider_result(monkeypatch):
     assert not case.remaining_main_payloads
 
 
-def test_empty_zero_exit_registers_exact_empty_result_failure(monkeypatch):
+def test_zero_exit_with_absent_final_registers_missing_result(monkeypatch):
     case = _case(monkeypatch)
 
-    outcome, capture_calls = _resolve(case, monkeypatch, b"")
+    outcome, capture_calls = _resolve(case, monkeypatch, None)
 
     assert outcome.state is RunActionContinuationState.PROVIDER_TERMINATED
     assert type(outcome.provider_termination_receipt) is (
         RunActionProviderTerminationReceipt
     )
     assert outcome.provider_termination_receipt.reason is (
-        RunActionProviderTerminationReason.EMPTY_RESULT
-    )
-    assert (
-        outcome.provider_termination_receipt.empty_result_capture_receipt.size_bytes
-        == 0
+        RunActionProviderTerminationReason.MISSING_RESULT
     )
     assert len(capture_calls) == 1
     assert not case.remaining_main_payloads
@@ -273,7 +271,6 @@ def test_terminal_failure_precedence_never_reads_result(
 
     assert outcome.state is RunActionContinuationState.PROVIDER_TERMINATED
     assert outcome.provider_termination_receipt.reason is expected_reason
-    assert outcome.provider_termination_receipt.empty_result_capture_receipt is None
     assert capture_calls == []
     assert not case.remaining_main_payloads
 

@@ -38,7 +38,6 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RunActionPreparationClaim,
     RunActionPreparedDeliverySlot,
     RunActionPreparedExecution,
-    RunActionPreparedFile,
     RunActionPreparedFileKind,
     RunActionPreparedMountAccess,
     RunActionPreparedRuntimeDirectory,
@@ -215,11 +214,6 @@ def _prepared_execution_wire(
         authority,
         RunActionPreparedRuntimeDirectoryKind.CONTROL,
     )
-    result_file = _result_file_wire(
-        claim.preparation_claim_id,
-        authority,
-        policy,
-    )
     workspace = claim.reservation.frontier.workspace_before
     workspace_proof = (
         None
@@ -238,7 +232,6 @@ def _prepared_execution_wire(
         result_directory,
         temporary_directory,
         control_directory,
-        result_file,
         workspace_proof,
         workspace,
     )
@@ -267,7 +260,6 @@ def _prepared_execution_wire(
         result_directory=result_directory,
         temporary_directory=temporary_directory,
         control_directory=control_directory,
-        result_file=result_file,
         credential_delivery_slot=credential_slot,
         workspace_proof=workspace_proof,
         layout_proof=layout,
@@ -524,38 +516,7 @@ def _runtime_directory_wire(
         owner_user_id=authority.owner_user_id,
         owner_group_id=authority.owner_group_id,
         mode=0o700,
-        observed_entry_count=(
-            1 if kind is RunActionPreparedRuntimeDirectoryKind.RESULT else 0
-        ),
-        mount_id=_MAXIMUM_PHYSICAL_INTEGER,
-        device=_MAXIMUM_PHYSICAL_INTEGER,
-        inode=_MAXIMUM_PHYSICAL_INTEGER,
-    )
-
-
-def _result_file_wire(
-    preparation_claim_id: str,
-    authority: RunActionRuntimeVolumeAuthority,
-    policy: DockerRunActionExecutionPolicy,
-) -> dict[str, Any]:
-    return _sealed_wire(
-        RunActionPreparedFile,
-        prepared_file_id=_content_identifier(RunActionPreparedFile),
-        prepared_parent_directory_id=_content_identifier(
-            RunActionPreparedRuntimeDirectory
-        ),
-        preparation_claim_id=preparation_claim_id,
-        runtime_volume_authority_id=authority.runtime_volume_authority_id,
-        generation_nonce=authority.generation_nonce,
-        kind=RunActionPreparedFileKind.RESULT,
-        relative_path="result/result.blob",
-        file_type="regular",
-        owner_user_id=authority.owner_user_id,
-        owner_group_id=authority.owner_group_id,
-        mode=0o600,
-        link_count=1,
-        size_bytes=0,
-        payload_size_limit_bytes=policy.supervisor_limits.result_size_bytes,
+        observed_entry_count=0,
         mount_id=_MAXIMUM_PHYSICAL_INTEGER,
         device=_MAXIMUM_PHYSICAL_INTEGER,
         inode=_MAXIMUM_PHYSICAL_INTEGER,
@@ -599,7 +560,6 @@ def _layout_proof_wire(
     result_directory: dict[str, Any],
     temporary_directory: dict[str, Any],
     control_directory: dict[str, Any],
-    result_file: dict[str, Any],
     workspace_proof: dict[str, Any] | None,
     workspace: RunActionWorkspaceBinding | None,
 ) -> dict[str, Any]:
@@ -651,14 +611,13 @@ def _layout_proof_wire(
         directory_relative_paths=directories,
         prepared_delivery_slot_ids=delivery_slot_ids,
         prepared_runtime_directory_ids=runtime_directory_ids,
-        prepared_result_file_id=result_file["prepared_file_id"],
         prepared_workspace_proof_id=(
             None
             if workspace_proof is None
             else workspace_proof["prepared_workspace_proof_id"]
         ),
         logical_content_size_bytes=len(authority.generation_nonce) + workspace_size,
-        logical_entry_count=len(directories) + 2 + workspace_entries,
+        logical_entry_count=len(directories) + 1 + workspace_entries,
         observed_used_size_bytes=_MAXIMUM_PHYSICAL_INTEGER,
         observed_used_inode_count=_MAXIMUM_PHYSICAL_INTEGER,
         unexpected_entry_count=0,

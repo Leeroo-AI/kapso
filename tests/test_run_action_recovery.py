@@ -1132,7 +1132,6 @@ class _TrustedPreReleaseTerminationAdapter(_FakeExecutionAdapter):
             workload_release_adoption=None,
             terminal_observation=None,
             timeout_directive_publication=None,
-            empty_result_capture_receipt=None,
             pre_release_main_loss_observation=self.loss_observation,
             credential_retirement_intent=None,
         )
@@ -1214,7 +1213,6 @@ class _TrustedReleasedTerminationAdapter(_FakeExecutionAdapter):
             workload_release_adoption=query.workload_release_adoption,
             terminal_observation=self.terminal,
             timeout_directive_publication=None,
-            empty_result_capture_receipt=None,
             pre_release_main_loss_observation=None,
             credential_retirement_intent=None,
         )
@@ -1289,7 +1287,6 @@ class _TrustedTimeoutTerminationAdapter(_FakeExecutionAdapter):
             workload_release_adoption=query.workload_release_adoption,
             terminal_observation=self.terminal,
             timeout_directive_publication=query.timeout_directive_publication,
-            empty_result_capture_receipt=None,
             pre_release_main_loss_observation=None,
             credential_retirement_intent=None,
         )
@@ -1693,7 +1690,6 @@ def _append_provider_terminated(gate, reservation) -> None:
                 workload_release_adoption=adoption,
                 terminal_observation=terminal,
                 timeout_directive_publication=None,
-                empty_result_capture_receipt=None,
                 pre_release_main_loss_observation=None,
                 credential_retirement_intent=None,
             )

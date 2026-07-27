@@ -544,8 +544,7 @@ class RunActionResolvedFileObservation(StrictContract):
             or self.owner_user_id <= 0
             or type(self.owner_group_id) is not int
             or self.owner_group_id <= 0
-            or self.mode
-            != (0o600 if self.kind is RunActionPreparedFileKind.RESULT else 0o400)
+            or self.mode != 0o400
             or type(self.link_count) is not int
             or self.link_count != 1
             or type(self.size_bytes) is not int
@@ -560,14 +559,6 @@ class RunActionResolvedFileObservation(StrictContract):
                     self.size_bytes <= 0
                     or self.content_digest is None
                     or self.content_authority_id is None
-                )
-            )
-            or (
-                self.kind is RunActionPreparedFileKind.RESULT
-                and (
-                    self.size_bytes != 0
-                    or self.content_digest is not None
-                    or self.content_authority_id is not None
                 )
             )
             or (
@@ -643,6 +634,7 @@ class RunActionResolvedWorkloadObservation(StrictContract):
     resolved_file_observations: tuple[RunActionResolvedFileObservation, ...]
     resolved_workspace_observation: RunActionResolvedWorkspaceObservation | None
     control_entry_count: int
+    result_entry_count: int
     temporary_entry_count: int
     control_directory_topology: RunActionControlDirectoryTopology
 
@@ -678,6 +670,8 @@ class RunActionResolvedWorkloadObservation(StrictContract):
             or _BOOT_ID_PATTERN.fullmatch(self.host_boot_id) is None
             or type(self.control_entry_count) is not int
             or self.control_entry_count != 0
+            or type(self.result_entry_count) is not int
+            or self.result_entry_count != 0
             or type(self.temporary_entry_count) is not int
             or self.temporary_entry_count != 0
             or self.control_directory_topology
@@ -958,14 +952,8 @@ def _expected_volume_mount_roots(
             prepared.input_delivery_slot.owner_group_id,
             prepared.input_delivery_slot.mode,
         ),
-        RunActionResolvedMountKind.RESULT: _directory_source(
-            prepared.result_directory.prepared_runtime_directory_id,
-            activation.result_file_observation.parent_mount_id,
-            activation.result_file_observation.parent_device,
-            activation.result_file_observation.parent_inode,
-            prepared.result_directory.owner_user_id,
-            prepared.result_directory.owner_group_id,
-            prepared.result_directory.mode,
+        RunActionResolvedMountKind.RESULT: _activated_directory_source(
+            runtime_directories[RunActionPreparedRuntimeDirectoryKind.RESULT]
         ),
         RunActionResolvedMountKind.CONTROL: _activated_directory_source(
             runtime_directories[RunActionPreparedRuntimeDirectoryKind.CONTROL]
@@ -1046,7 +1034,6 @@ def _resolved_files_match_activation(
         observed
         for observed in (
             activation.input_file_observation,
-            activation.result_file_observation,
             activation.credential_file_observation,
         )
         if observed is not None

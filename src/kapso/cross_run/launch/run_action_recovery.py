@@ -5845,7 +5845,7 @@ class RunActionRecoveryCoordinator:
             RunActionProviderTerminationReason.NONZERO_EXIT: (
                 RunActionControlDirectoryTopology.RELEASED
             ),
-            RunActionProviderTerminationReason.EMPTY_RESULT: (
+            RunActionProviderTerminationReason.MISSING_RESULT: (
                 RunActionControlDirectoryTopology.RELEASED
             ),
         }[receipt.reason]

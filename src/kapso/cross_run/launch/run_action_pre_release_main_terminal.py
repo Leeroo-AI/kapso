@@ -473,7 +473,6 @@ def capture_run_action_pre_release_main_terminal_termination(
             workload_release_adoption=None,
             terminal_observation=observation,
             timeout_directive_publication=None,
-            empty_result_capture_receipt=None,
             pre_release_main_loss_observation=None,
             credential_retirement_intent=retirement_intent,
         )

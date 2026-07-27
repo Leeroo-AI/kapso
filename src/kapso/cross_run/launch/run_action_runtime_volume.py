@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ctypes
+import fcntl
 import os
 import re
 import stat
@@ -35,6 +36,9 @@ from kapso.cross_run.launch.run_action_docker_resources import (
     DockerRunActionResourceManager,
     DockerRunActionResourceInventory,
 )
+from kapso.cross_run.launch.run_action_result_publication import (
+    publish_or_adopt_run_action_result,
+)
 from kapso.cross_run.launch.run_action_supervisor_helper import (
     read_run_action_descriptor_mount_id,
     read_run_action_process_cgroup_path_from_descriptor,
@@ -60,7 +64,6 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RunActionPreparationClaim,
     RunActionPreparedDeliverySlot,
     RunActionPreparedExecution,
-    RunActionPreparedFile,
     RunActionPreparedFileKind,
     RunActionPreparedRuntimeDirectory,
     RunActionPreparedRuntimeDirectoryKind,
@@ -96,6 +99,7 @@ _RENAME_NOREPLACE = 1
 _PREPARATION_STAGING_PREFIX = ".kapso-prepare-"
 _PENDING_SENTINEL_PREFIX = ".kapso-generation.pending-"
 _SENTINEL_NAME = ".kapso-generation"
+_RESULT_CANDIDATE_FILE_NAME = "result.candidate"
 _PREPARED_DIRECTORY_MODE = 0o700
 _PREPARED_FILE_MODE = 0o600
 _SENTINEL_MODE = 0o400
@@ -409,7 +413,6 @@ class DockerRunActionPreparedVolumeObservation:
     input_delivery_slot: RunActionPreparedDeliverySlot
     control_directory: RunActionPreparedRuntimeDirectory
     result_directory: RunActionPreparedRuntimeDirectory
-    result_file: RunActionPreparedFile
     temporary_directory: RunActionPreparedRuntimeDirectory
     credential_delivery_slot: RunActionPreparedDeliverySlot | None
     workspace_proof: RunActionPreparedWorkspaceProof | None
@@ -433,11 +436,6 @@ class DockerRunActionPreparedVolumeObservation:
             _expected_delivery_slot_plans(self.preparation_claim)
             if type(self.preparation_claim) is RunActionPreparationClaim
             else ()
-        )
-        expected_result_file_plan = (
-            _expected_result_file_plan(self.preparation_claim)
-            if type(self.preparation_claim) is RunActionPreparationClaim
-            else None
         )
         expected_runtime_directory_plans = (
             _expected_runtime_directory_plans()
@@ -480,7 +478,6 @@ class DockerRunActionPreparedVolumeObservation:
             or type(self.input_delivery_slot) is not RunActionPreparedDeliverySlot
             or type(self.control_directory) is not RunActionPreparedRuntimeDirectory
             or type(self.result_directory) is not RunActionPreparedRuntimeDirectory
-            or type(self.result_file) is not RunActionPreparedFile
             or type(self.temporary_directory) is not RunActionPreparedRuntimeDirectory
             or (
                 self.credential_delivery_slot is not None
@@ -536,20 +533,6 @@ class DockerRunActionPreparedVolumeObservation:
                     strict=True,
                 )
             )
-            or expected_result_file_plan is None
-            or self.result_file.preparation_claim_id
-            != self.preparation_claim.preparation_claim_id
-            or self.result_file.prepared_parent_directory_id
-            != self.result_directory.prepared_runtime_directory_id
-            or self.result_file.runtime_volume_authority_id
-            != authority.runtime_volume_authority_id
-            or self.result_file.generation_nonce != authority.generation_nonce
-            or self.result_file.kind is not expected_result_file_plan.kind
-            or self.result_file.relative_path != expected_result_file_plan.relative_path
-            or self.result_file.owner_user_id != authority.owner_user_id
-            or self.result_file.owner_group_id != authority.owner_group_id
-            or self.result_file.payload_size_limit_bytes
-            != expected_result_file_plan.payload_size_limit_bytes
             or any(
                 delivery_slot.mount_id != self.runtime_volume_evidence.root_mount_id
                 or delivery_slot.device != self.runtime_volume_evidence.root_device
@@ -560,8 +543,6 @@ class DockerRunActionPreparedVolumeObservation:
                 or runtime_directory.device != self.runtime_volume_evidence.root_device
                 for runtime_directory in runtime_directories
             )
-            or self.result_file.mount_id != self.runtime_volume_evidence.root_mount_id
-            or self.result_file.device != self.runtime_volume_evidence.root_device
             or (
                 self.workspace_proof is not None
                 and (
@@ -575,7 +556,6 @@ class DockerRunActionPreparedVolumeObservation:
                 {
                     *(delivery_slot.inode for delivery_slot in delivery_slots),
                     *(directory.inode for directory in runtime_directories),
-                    self.result_file.inode,
                     *(
                         ()
                         if self.workspace_proof is None
@@ -586,13 +566,11 @@ class DockerRunActionPreparedVolumeObservation:
             != (
                 len(delivery_slots)
                 + len(runtime_directories)
-                + 1
                 + (0 if self.workspace_proof is None else 1)
             )
             or {
                 *(delivery_slot.inode for delivery_slot in delivery_slots),
                 *(directory.inode for directory in runtime_directories),
-                self.result_file.inode,
                 *(
                     ()
                     if self.workspace_proof is None
@@ -611,8 +589,6 @@ class DockerRunActionPreparedVolumeObservation:
             or self.layout_proof.directory_relative_paths != expected_directory_names
             or self.layout_proof.prepared_delivery_slot_ids
             != tuple(sorted(slot.prepared_delivery_slot_id for slot in delivery_slots))
-            or self.layout_proof.prepared_result_file_id
-            != self.result_file.prepared_file_id
             or self.layout_proof.prepared_runtime_directory_ids
             != tuple(
                 sorted(
@@ -629,7 +605,7 @@ class DockerRunActionPreparedVolumeObservation:
             or self.layout_proof.logical_content_size_bytes
             != len(authority.generation_nonce) + workspace_size_bytes
             or self.layout_proof.logical_entry_count
-            != (len(expected_directory_names) + 2 + workspace_entry_count)
+            != (len(expected_directory_names) + 1 + workspace_entry_count)
             or self.layout_proof.observed_used_size_bytes
             != self.runtime_volume_evidence.used_size_bytes
             or self.layout_proof.observed_used_inode_count
@@ -669,7 +645,6 @@ class DockerRunActionActivatedVolumeObservation:
     ]
     activated_sentinel_observation: RunActionActivatedSentinelObservation
     input_file_observation: RunActionActivatedFileObservation
-    result_file_observation: RunActionActivatedFileObservation
     credential_file_observation: RunActionActivatedFileObservation | None
 
     def __post_init__(self) -> None:
@@ -693,8 +668,6 @@ class DockerRunActionActivatedVolumeObservation:
             is not RunActionActivatedSentinelObservation
             or type(self.input_file_observation)
             is not RunActionActivatedFileObservation
-            or type(self.result_file_observation)
-            is not RunActionActivatedFileObservation
             or (
                 self.credential_file_observation is not None
                 and type(self.credential_file_observation)
@@ -714,7 +687,6 @@ class DockerRunActionActivatedVolumeObservation:
             ),
             activated_sentinel_observation=self.activated_sentinel_observation,
             input_file_observation=self.input_file_observation,
-            result_file_observation=self.result_file_observation,
             credential_file_observation=self.credential_file_observation,
         ):
             raise RunActionRuntimeVolumeError(
@@ -739,7 +711,6 @@ class RunActionActivationRevalidationLease:
         mounted_volume: "_MountedRuntimeVolumeLease",
         sentinel_observation: "_ExactRegularFileObservation",
         input_file_observation: "_ExactRegularFileObservation",
-        result_file_observation: "_ExactRegularFileObservation",
         credential_file_observation: "_ExactRegularFileShapeObservation | None",
         directory_descriptors: tuple[
             tuple[
@@ -770,7 +741,6 @@ class RunActionActivationRevalidationLease:
             or type(mounted_volume) is not _MountedRuntimeVolumeLease
             or type(sentinel_observation) is not _ExactRegularFileObservation
             or type(input_file_observation) is not _ExactRegularFileObservation
-            or type(result_file_observation) is not _ExactRegularFileObservation
             or (
                 credential_file_observation is not None
                 and type(credential_file_observation)
@@ -810,7 +780,6 @@ class RunActionActivationRevalidationLease:
         self._mounted_volume = mounted_volume
         self._sentinel_observation = sentinel_observation
         self._input_file_observation = input_file_observation
-        self._result_file_observation = result_file_observation
         self._credential_file_observation = credential_file_observation
         self._directory_descriptors = directory_descriptors
         self._activated_workspace_frontier = activated_workspace_frontier
@@ -1024,7 +993,6 @@ class _PreparedLayoutObservation:
     sentinel_mount_id: int
     delivery_slot_observations: tuple["_ExactDirectoryObservation", ...]
     runtime_directory_observations: tuple["_ExactDirectoryObservation", ...]
-    result_file_observation: "_ExactRegularFileObservation"
     workspace_directory_observation: "_ExactDirectoryObservation | None"
     workspace_frontier: RunWorkspaceFrontierIdentity | None
     filesystem: os.statvfs_result
@@ -1035,7 +1003,6 @@ class _SelectedActivationDescriptorObservation:
     mounted_volume: _MountedRuntimeVolumeLease
     sentinel_observation: "_ExactRegularFileObservation"
     input_file_observation: "_ExactRegularFileObservation"
-    result_file_observation: "_ExactRegularFileObservation"
     credential_file_observation: "_ExactRegularFileShapeObservation | None"
     directory_descriptors: tuple[
         tuple[
@@ -1090,15 +1057,6 @@ class _PreparedDeliverySlotPlan:
 
 
 @dataclass(frozen=True)
-class _PreparedResultFilePlan:
-    kind: RunActionPreparedFileKind
-    directory_name: str
-    file_name: str
-    relative_path: str
-    payload_size_limit_bytes: int
-
-
-@dataclass(frozen=True)
 class _PreparedRuntimeDirectoryPlan:
     kind: RunActionPreparedRuntimeDirectoryKind
     directory_name: str
@@ -1110,7 +1068,6 @@ class _RuntimeVolumeLayoutPlan:
     directory_names: tuple[str, ...]
     delivery_slot_plans: tuple[_PreparedDeliverySlotPlan, ...]
     runtime_directory_plans: tuple[_PreparedRuntimeDirectoryPlan, ...]
-    result_file_plan: _PreparedResultFilePlan
     workspace_copy_plan: RunWorkspaceCopyPlan | None
     preparation_size_bytes: int
     preparation_inode_count: int
@@ -1425,27 +1382,26 @@ def open_run_action_result_workspace(
             "result workspace lease requires exact edit execution evidence"
         )
     result_parent = prepared.result_directory
-    result_file = prepared.result_file
     prepared_sentinel = prepared.runtime_volume_evidence.sentinel_evidence
     if (
         result_capture_receipt.prepared_parent_authority_id
         != result_parent.prepared_runtime_directory_id
-        or result_capture_receipt.prepared_file_id != result_file.prepared_file_id
         or result_capture_receipt.parent_mount_id != result_parent.mount_id
         or result_capture_receipt.parent_device != result_parent.device
         or result_capture_receipt.parent_inode != result_parent.inode
         or result_capture_receipt.prepared_sentinel_evidence_id
         != prepared_sentinel.runtime_volume_sentinel_evidence_id
-        or result_capture_receipt.generation_nonce != result_file.generation_nonce
-        or result_capture_receipt.relative_path != result_file.relative_path
-        or result_capture_receipt.file_type != result_file.file_type
-        or result_capture_receipt.owner_user_id != result_file.owner_user_id
-        or result_capture_receipt.owner_group_id != result_file.owner_group_id
-        or result_capture_receipt.mode != result_file.mode
-        or result_capture_receipt.link_count != result_file.link_count
-        or result_capture_receipt.mount_id != result_file.mount_id
-        or result_capture_receipt.device != result_file.device
-        or result_capture_receipt.inode != result_file.inode
+        or result_capture_receipt.generation_nonce
+        != prepared.runtime_volume_authority.generation_nonce
+        or result_capture_receipt.relative_path != "result/result.blob"
+        or result_capture_receipt.file_type != "regular"
+        or result_capture_receipt.owner_user_id != result_parent.owner_user_id
+        or result_capture_receipt.owner_group_id != result_parent.owner_group_id
+        or result_capture_receipt.mode != _PREPARED_FILE_MODE
+        or result_capture_receipt.link_count != 1
+        or result_capture_receipt.mount_id != result_parent.mount_id
+        or result_capture_receipt.device != result_parent.device
+        or result_capture_receipt.inode == result_parent.inode
     ):
         raise RunActionRuntimeVolumeError(
             "result workspace lease differs from prepared result capture"
@@ -1521,8 +1477,8 @@ def capture_run_action_result_file(
     volume: DockerRunActionVolumeObservation,
     *,
     settings: LaunchSettings,
-) -> tuple[RunActionResultCaptureReceipt, bytes]:
-    """Capture the original bounded result inode through its keeper-mounted root."""
+) -> tuple[RunActionResultCaptureReceipt | None, bytes | None]:
+    """Capture one atomically published result, or prove the slot remains empty."""
 
     if (
         type(prepared) is not RunActionPreparedExecution
@@ -1535,13 +1491,11 @@ def capture_run_action_result_file(
         )
     authority = prepared.runtime_volume_authority
     result_parent = prepared.result_directory
-    result_file = prepared.result_file
     policy_limit = (
         prepared.preparation_claim.execution_policy.supervisor_limits.result_size_bytes
     )
     if (
-        result_file.payload_size_limit_bytes != policy_limit
-        or policy_limit != settings.run_action_result_size_bytes
+        policy_limit != settings.run_action_result_size_bytes
         or terminal.exit_code != 0
         or terminal.oom_killed is not False
         or terminal.prepared_execution_id != prepared.prepared_execution_id
@@ -1605,13 +1559,152 @@ def capture_run_action_result_file(
             result_parent.device,
             result_parent.inode,
         )
+        temporary_parent = prepared.temporary_directory
+        temporary_parent_descriptor = _open_activation_subpath_directory(
+            descriptors,
+            mounted_volume,
+            authority,
+            temporary_parent.directory_relative_path,
+            temporary_parent.mount_id,
+            temporary_parent.device,
+            temporary_parent.inode,
+        )
+        fcntl.flock(result_parent_descriptor, fcntl.LOCK_EX)
+        descriptors.callback(
+            fcntl.flock,
+            result_parent_descriptor,
+            fcntl.LOCK_UN,
+        )
+        result_entries = tuple(sorted(os.listdir(result_parent_descriptor)))
+        if result_entries not in {(), ("result.blob",)}:
+            raise RunActionRuntimeVolumeError(
+                "result publication slot contains an invalid topology"
+            )
         _require_exact_activation_directory(
             result_parent,
             mounted_volume.root_descriptor,
             result_parent_descriptor,
             mounted_volume.process_snapshot_size_limit_bytes,
-            expected_entries=("result.blob",),
+            expected_entries=result_entries,
         )
+        temporary_entries = tuple(sorted(os.listdir(temporary_parent_descriptor)))
+        _require_exact_activation_directory(
+            temporary_parent,
+            mounted_volume.root_descriptor,
+            temporary_parent_descriptor,
+            mounted_volume.process_snapshot_size_limit_bytes,
+            expected_entries=temporary_entries,
+        )
+        candidate_is_present = _RESULT_CANDIDATE_FILE_NAME in temporary_entries
+        if not candidate_is_present and result_entries:
+            raise RunActionRuntimeVolumeError(
+                "published result lacks its terminal candidate authority"
+            )
+        if not candidate_is_present:
+            filesystem_before = os.fstatvfs(mounted_volume.root_descriptor)
+            _require_consistent_filesystem(filesystem_before)
+            os.fsync(result_parent_descriptor)
+            _require_exact_activation_directory(
+                result_parent,
+                mounted_volume.root_descriptor,
+                result_parent_descriptor,
+                mounted_volume.process_snapshot_size_limit_bytes,
+                expected_entries=(),
+            )
+            _require_exact_activation_directory(
+                temporary_parent,
+                mounted_volume.root_descriptor,
+                temporary_parent_descriptor,
+                mounted_volume.process_snapshot_size_limit_bytes,
+                expected_entries=temporary_entries,
+            )
+            _require_same_exact_regular_file(sentinel_observation)
+            _require_same_mounted_runtime_volume(mounted_volume, keeper)
+            filesystem_after = os.fstatvfs(mounted_volume.root_descriptor)
+            root_metadata_after = os.fstat(mounted_volume.root_descriptor)
+            if (
+                _stable_filesystem(filesystem_after)
+                != _stable_filesystem(filesystem_before)
+                or _root_metadata_identity(root_metadata_after)
+                != _root_metadata_identity(root_metadata_before)
+                or tuple(sorted(os.listdir(mounted_volume.root_descriptor)))
+                != expected_root_entries
+            ):
+                raise RunActionRuntimeVolumeError(
+                    "empty result publication slot changed during observation"
+                )
+            _require_exact_activation_directory(
+                result_parent,
+                mounted_volume.root_descriptor,
+                result_parent_descriptor,
+                mounted_volume.process_snapshot_size_limit_bytes,
+                expected_entries=(),
+            )
+            _require_exact_activation_directory(
+                temporary_parent,
+                mounted_volume.root_descriptor,
+                temporary_parent_descriptor,
+                mounted_volume.process_snapshot_size_limit_bytes,
+                expected_entries=temporary_entries,
+            )
+            return None, None
+        candidate_path_metadata = os.stat(
+            _RESULT_CANDIDATE_FILE_NAME,
+            dir_fd=temporary_parent_descriptor,
+            follow_symlinks=False,
+        )
+        if not 0 < candidate_path_metadata.st_size <= policy_limit:
+            raise RunActionRuntimeVolumeError(
+                "terminal result candidate is empty or oversized"
+            )
+        candidate = _open_regular_file_by_shape(
+            descriptors,
+            temporary_parent_descriptor,
+            _RESULT_CANDIDATE_FILE_NAME,
+            expected_size_bytes=candidate_path_metadata.st_size,
+            expected_mode=_PREPARED_FILE_MODE,
+            authority=authority,
+            root_mount_id=mounted_volume.root_mount_id,
+            root_device=mounted_volume.root_device,
+            process_snapshot_size_limit_bytes=(
+                mounted_volume.process_snapshot_size_limit_bytes
+            ),
+        )
+        if candidate.metadata.st_ino in {
+            result_parent.inode,
+            temporary_parent.inode,
+            prepared_volume.root_inode,
+            prepared_volume.sentinel_evidence.inode,
+        }:
+            raise RunActionRuntimeVolumeError(
+                "terminal result candidate is substituted"
+            )
+        published_result = publish_or_adopt_run_action_result(
+            result_parent_descriptor,
+            candidate.payload,
+            maximum_size_bytes=policy_limit,
+            process_snapshot_size_limit_bytes=(
+                mounted_volume.process_snapshot_size_limit_bytes
+            ),
+        )
+        fcntl.flock(result_parent_descriptor, fcntl.LOCK_EX)
+        if (
+            published_result.parent_mount_id != result_parent.mount_id
+            or published_result.parent_device != result_parent.device
+            or published_result.parent_inode != result_parent.inode
+            or published_result.mount_id != result_parent.mount_id
+            or published_result.device != result_parent.device
+            or published_result.size_bytes != len(candidate.payload)
+            or published_result.content_digest != tree_or_blob_digest(candidate.payload)
+        ):
+            raise RunActionRuntimeVolumeError(
+                "atomic result publication differs from its terminal candidate"
+            )
+        result_entries = tuple(sorted(os.listdir(result_parent_descriptor)))
+        if result_entries != ("result.blob",):
+            raise RunActionRuntimeVolumeError(
+                "atomic result publication did not produce the sole final path"
+            )
         result_descriptor = os.open(
             "result.blob",
             os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW | os.O_CLOEXEC,
@@ -1625,14 +1718,14 @@ def capture_run_action_result_file(
         )
         if (
             not stat.S_ISREG(result_metadata_before.st_mode)
-            or result_metadata_before.st_uid != result_file.owner_user_id
-            or result_metadata_before.st_gid != result_file.owner_group_id
-            or stat.S_IMODE(result_metadata_before.st_mode) != result_file.mode
-            or result_metadata_before.st_nlink != result_file.link_count
-            or not 0 <= result_metadata_before.st_size <= policy_limit
-            or result_mount_id_before != result_file.mount_id
-            or result_metadata_before.st_dev != result_file.device
-            or result_metadata_before.st_ino != result_file.inode
+            or result_metadata_before.st_uid != result_parent.owner_user_id
+            or result_metadata_before.st_gid != result_parent.owner_group_id
+            or stat.S_IMODE(result_metadata_before.st_mode) != _PREPARED_FILE_MODE
+            or result_metadata_before.st_nlink != 1
+            or not 0 < result_metadata_before.st_size <= policy_limit
+            or result_mount_id_before != result_parent.mount_id
+            or result_metadata_before.st_dev != result_parent.device
+            or result_metadata_before.st_ino == result_parent.inode
         ):
             raise RunActionRuntimeVolumeError(
                 "result capture file is oversized or substituted"
@@ -1713,7 +1806,6 @@ def capture_run_action_result_file(
         receipt = RunActionResultCaptureReceipt.mint(
             terminal_observation_id=terminal.terminal_observation_id,
             prepared_parent_authority_id=(result_parent.prepared_runtime_directory_id),
-            prepared_file_id=result_file.prepared_file_id,
             parent_mount_id=result_parent.mount_id,
             parent_device=result_parent.device,
             parent_inode=result_parent.inode,
@@ -1723,8 +1815,8 @@ def capture_run_action_result_file(
                 prepared_volume.sentinel_evidence.runtime_volume_sentinel_evidence_id
             ),
             generation_nonce=authority.generation_nonce,
-            relative_path=result_file.relative_path,
-            file_type=result_file.file_type,
+            relative_path="result/result.blob",
+            file_type="regular",
             owner_user_id=result_metadata_before.st_uid,
             owner_group_id=result_metadata_before.st_gid,
             mode=stat.S_IMODE(result_metadata_before.st_mode),
@@ -2181,7 +2273,6 @@ def reobserve_runtime_volume_layout(
         input_delivery_slot=prepared.input_delivery_slot,
         control_directory=prepared.control_directory,
         result_directory=prepared.result_directory,
-        result_file=prepared.result_file,
         temporary_directory=prepared.temporary_directory,
         credential_delivery_slot=prepared.credential_delivery_slot,
         workspace_proof=prepared.workspace_proof,
@@ -2266,9 +2357,6 @@ def open_selected_run_action_activation(
             input_file_observation=(
                 descriptor_observation.activated_volume.input_file_observation
             ),
-            result_file_observation=(
-                descriptor_observation.activated_volume.result_file_observation
-            ),
             credential_file_observation=(
                 descriptor_observation.activated_volume.credential_file_observation
             ),
@@ -2310,7 +2398,6 @@ def open_selected_run_action_activation(
             mounted_volume=descriptor_observation.mounted_volume,
             sentinel_observation=descriptor_observation.sentinel_observation,
             input_file_observation=(descriptor_observation.input_file_observation),
-            result_file_observation=(descriptor_observation.result_file_observation),
             credential_file_observation=(
                 descriptor_observation.credential_file_observation
             ),
@@ -2515,21 +2602,6 @@ def deliver_and_reobserve_runtime_volume_activation(
             sentinel_observation,
             prepared_volume.sentinel_evidence,
         )
-        result_file_observation = _open_exact_regular_file(
-            descriptors,
-            result_directory_descriptor,
-            "result.blob",
-            expected_payload=b"",
-            expected_mode=_PREPARED_FILE_MODE,
-            authority=authority,
-            root_mount_id=lease.root_mount_id,
-            root_device=lease.root_device,
-            process_snapshot_size_limit_bytes=(lease.process_snapshot_size_limit_bytes),
-        )
-        _require_activation_result_file(
-            result_file_observation,
-            prepared.result_file,
-        )
         _require_exact_activation_directory(
             prepared.control_directory,
             lease.root_descriptor,
@@ -2542,7 +2614,7 @@ def deliver_and_reobserve_runtime_volume_activation(
             lease.root_descriptor,
             result_directory_descriptor,
             lease.process_snapshot_size_limit_bytes,
-            expected_entries=("result.blob",),
+            expected_entries=(),
         )
         _require_exact_activation_directory(
             prepared.temporary_directory,
@@ -2595,7 +2667,6 @@ def deliver_and_reobserve_runtime_volume_activation(
         _require_consistent_filesystem(filesystem_before)
         _require_same_mounted_runtime_volume(lease, keeper)
         _require_same_exact_regular_file(sentinel_observation)
-        _require_same_exact_regular_file(result_file_observation)
         _require_exact_activation_directory(
             prepared.control_directory,
             lease.root_descriptor,
@@ -2615,7 +2686,7 @@ def deliver_and_reobserve_runtime_volume_activation(
             lease.root_descriptor,
             result_directory_descriptor,
             lease.process_snapshot_size_limit_bytes,
-            expected_entries=("result.blob",),
+            expected_entries=(),
         )
         _require_exact_activation_directory(
             prepared.temporary_directory,
@@ -2929,21 +3000,6 @@ def _open_selected_activation_descriptors(
         root_device=lease.root_device,
         process_snapshot_size_limit_bytes=lease.process_snapshot_size_limit_bytes,
     )
-    result_file_observation = _open_exact_regular_file(
-        descriptors,
-        result_directory_descriptor,
-        "result.blob",
-        expected_payload=b"",
-        expected_mode=_PREPARED_FILE_MODE,
-        authority=authority,
-        root_mount_id=lease.root_mount_id,
-        root_device=lease.root_device,
-        process_snapshot_size_limit_bytes=lease.process_snapshot_size_limit_bytes,
-    )
-    _require_activation_result_file(
-        result_file_observation,
-        prepared.result_file,
-    )
     credential_file_observation = None
     if prepared.credential_delivery_slot is not None:
         if (
@@ -2977,7 +3033,7 @@ def _open_selected_activation_descriptors(
         (
             prepared.result_directory,
             result_directory_descriptor,
-            ("result.blob",),
+            (),
         ),
         (prepared.temporary_directory, temporary_directory_descriptor, ()),
         *(
@@ -3014,7 +3070,6 @@ def _open_selected_activation_descriptors(
     _require_same_mounted_runtime_volume(lease, keeper)
     _require_same_exact_regular_file(sentinel_observation)
     _require_same_exact_regular_file(input_file_observation)
-    _require_same_exact_regular_file(result_file_observation)
     if credential_file_observation is not None:
         _require_same_exact_regular_file_shape(credential_file_observation)
     if prepared.workspace_proof is not None:
@@ -3093,7 +3148,6 @@ def _open_selected_activation_descriptors(
         mounted_volume=lease,
         sentinel_observation=sentinel_observation,
         input_file_observation=input_file_observation,
-        result_file_observation=result_file_observation,
         credential_file_observation=credential_file_observation,
         directory_descriptors=directory_descriptors,
         activated_workspace_frontier=activated_workspace_frontier,
@@ -3117,7 +3171,6 @@ def _selected_activated_volume(
         ),
         activated_sentinel_observation=receipt.activated_sentinel_observation,
         input_file_observation=receipt.input_file_observation,
-        result_file_observation=receipt.result_file_observation,
         credential_file_observation=receipt.credential_file_observation,
     )
 
@@ -3156,7 +3209,6 @@ def _require_selected_activation_lease_current(
     )
     _require_same_exact_regular_file(lease._sentinel_observation)
     _require_same_exact_regular_file(lease._input_file_observation)
-    _require_same_exact_regular_file(lease._result_file_observation)
     if lease._credential_file_observation is not None:
         _require_same_exact_regular_file_shape(lease._credential_file_observation)
     prepared = lease._selected_receipt.prepared_execution
@@ -3293,32 +3345,6 @@ def _mint_activated_volume_observation(
             content_authority_id=credential_content_authority_id,
         )
     )
-    result_file = prepared.result_file
-    result_file_observation = RunActionActivatedFileObservation.mint(
-        spawn_commit_id=spawn_commit.spawn_commit_id,
-        prepared_parent_authority_id=(
-            prepared.result_directory.prepared_runtime_directory_id
-        ),
-        prepared_file_id=result_file.prepared_file_id,
-        parent_mount_id=prepared.result_directory.mount_id,
-        parent_device=prepared.result_directory.device,
-        parent_inode=prepared.result_directory.inode,
-        runtime_volume_authority_id=result_file.runtime_volume_authority_id,
-        generation_nonce=result_file.generation_nonce,
-        kind=result_file.kind,
-        relative_path=result_file.relative_path,
-        file_type=result_file.file_type,
-        owner_user_id=result_file.owner_user_id,
-        owner_group_id=result_file.owner_group_id,
-        mode=result_file.mode,
-        link_count=result_file.link_count,
-        size_bytes=0,
-        mount_id=result_file.mount_id,
-        device=result_file.device,
-        inode=result_file.inode,
-        content_digest=None,
-        content_authority_id=None,
-    )
     sentinel = prepared.runtime_volume_evidence.sentinel_evidence
     activated_sentinel_observation = RunActionActivatedSentinelObservation.mint(
         spawn_commit_id=spawn_commit.spawn_commit_id,
@@ -3358,6 +3384,7 @@ def _mint_activated_volume_observation(
         )
         for runtime_directory in (
             prepared.control_directory,
+            prepared.result_directory,
             prepared.temporary_directory,
         )
     )
@@ -3376,7 +3403,6 @@ def _mint_activated_volume_observation(
         ),
         activated_sentinel_observation=activated_sentinel_observation,
         input_file_observation=input_file_observation,
-        result_file_observation=result_file_observation,
         credential_file_observation=credential_file_observation,
     )
 
@@ -3553,30 +3579,6 @@ def _observe_activation_workspace(
     return observed
 
 
-def _require_activation_result_file(
-    observed: _ExactRegularFileObservation,
-    prepared: RunActionPreparedFile,
-) -> None:
-    metadata = observed.metadata
-    if (
-        prepared.prepared_parent_directory_id.split(":sha256:", 1)[0]
-        != RunActionPreparedRuntimeDirectory.CONTENT_NAMESPACE
-        or prepared.kind is not RunActionPreparedFileKind.RESULT
-        or observed.mount_id != prepared.mount_id
-        or metadata.st_dev != prepared.device
-        or metadata.st_ino != prepared.inode
-        or metadata.st_uid != prepared.owner_user_id
-        or metadata.st_gid != prepared.owner_group_id
-        or stat.S_IMODE(metadata.st_mode) != prepared.mode
-        or metadata.st_nlink != prepared.link_count
-        or metadata.st_size != 0
-        or observed.payload
-    ):
-        raise RunActionRuntimeVolumeError(
-            "activation result file differs from its prepared inode"
-        )
-
-
 def _open_reobserved_input_file(
     descriptors: ExitStack,
     directory_descriptor: int,
@@ -3592,7 +3594,6 @@ def _open_reobserved_input_file(
         type(selected) is not RunActionActivatedFileObservation
         or slot.kind is not RunActionPreparedFileKind.INPUT
         or selected.prepared_parent_authority_id != slot.prepared_delivery_slot_id
-        or selected.prepared_file_id is not None
         or selected.parent_mount_id != slot.mount_id
         or selected.parent_device != slot.device
         or selected.parent_inode != slot.inode
@@ -3655,7 +3656,6 @@ def _open_reobserved_credential_file(
         type(selected) is not RunActionActivatedFileObservation
         or slot.kind is not RunActionPreparedFileKind.CREDENTIAL
         or selected.prepared_parent_authority_id != slot.prepared_delivery_slot_id
-        or selected.prepared_file_id is not None
         or selected.parent_mount_id != slot.mount_id
         or selected.parent_device != slot.device
         or selected.parent_inode != slot.inode
@@ -3755,7 +3755,6 @@ def _mint_activated_delivery_file(
     return RunActionActivatedFileObservation.mint(
         spawn_commit_id=spawn_commit.spawn_commit_id,
         prepared_parent_authority_id=slot.prepared_delivery_slot_id,
-        prepared_file_id=None,
         parent_mount_id=slot.mount_id,
         parent_device=slot.device,
         parent_inode=slot.inode,
@@ -3848,7 +3847,6 @@ def _plan_runtime_volume_layout(
     directory_names = _expected_directory_names(claim)
     delivery_slot_plans = _expected_delivery_slot_plans(claim)
     runtime_directory_plans = _expected_runtime_directory_plans()
-    result_file_plan = _expected_result_file_plan(claim)
     block_size = empty_volume.allocation_block_size_bytes
     nonworkspace_directory_count = len(directory_names) - (
         1 if workspace_copy_plan is not None else 0
@@ -3875,13 +3873,13 @@ def _plan_runtime_volume_layout(
         claim,
         block_size,
     )
-    current_inode_count = 1 + nonworkspace_directory_count + workspace_inode_count + 2
+    current_inode_count = 1 + nonworkspace_directory_count + workspace_inode_count + 1
     if (
         current_size_bytes + future_size_bytes >= empty_volume.available_size_bytes
         or current_inode_count
         + len(delivery_slot_plans)
         + limits.runtime_temporary_reservation_inode_count
-        + 2
+        + 3
         >= empty_volume.available_inode_count
     ):
         raise RunActionRuntimeVolumeError(
@@ -3891,7 +3889,6 @@ def _plan_runtime_volume_layout(
         directory_names=directory_names,
         delivery_slot_plans=delivery_slot_plans,
         runtime_directory_plans=runtime_directory_plans,
-        result_file_plan=result_file_plan,
         workspace_copy_plan=workspace_copy_plan,
         preparation_size_bytes=current_size_bytes,
         preparation_inode_count=current_inode_count,
@@ -3929,11 +3926,6 @@ def _materialize_layout_at_descriptor(
             )
             descriptors.callback(os.close, directory_descriptor)
             directory_descriptors[directory_name] = directory_descriptor
-        _create_empty_prepared_file(
-            directory_descriptors[plan.result_file_plan.directory_name],
-            plan.result_file_plan.file_name,
-            authority,
-        )
         workspace_frontier = None
         if plan.workspace_copy_plan is not None:
             if type(workspace_descriptor) is not int:
@@ -4017,35 +4009,6 @@ def _create_private_directory(
             "runtime volume prepared directory has unsafe metadata"
         )
     return descriptor
-
-
-def _create_empty_prepared_file(
-    parent_descriptor: int,
-    name: str,
-    authority: RunActionRuntimeVolumeAuthority,
-) -> None:
-    descriptor = os.open(
-        name,
-        os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
-        _PREPARED_FILE_MODE,
-        dir_fd=parent_descriptor,
-    )
-    with os.fdopen(descriptor, "wb") as handle:
-        os.fchmod(handle.fileno(), _PREPARED_FILE_MODE)
-        metadata = os.fstat(handle.fileno())
-        if (
-            not stat.S_ISREG(metadata.st_mode)
-            or metadata.st_uid != authority.owner_user_id
-            or metadata.st_gid != authority.owner_group_id
-            or stat.S_IMODE(metadata.st_mode) != _PREPARED_FILE_MODE
-            or metadata.st_nlink != 1
-            or metadata.st_size != 0
-        ):
-            raise RunActionRuntimeVolumeError(
-                "runtime volume prepared file has unsafe metadata"
-            )
-        os.fsync(handle.fileno())
-    os.fsync(parent_descriptor)
 
 
 def _create_staged_sentinel(
@@ -4257,7 +4220,7 @@ def _observe_prepared_layout_at_descriptor(
         expected_children = {
             "control": (),
             "input": (),
-            "result": ("result.blob",),
+            "result": (),
             "temporary": (),
             **(
                 {}
@@ -4293,27 +4256,6 @@ def _observe_prepared_layout_at_descriptor(
             )
             for slot_plan in _expected_delivery_slot_plans(claim)
         )
-        result_file_plan = _expected_result_file_plan(claim)
-        result_file_observation = _open_exact_regular_file(
-            descriptors,
-            directory_descriptors[result_file_plan.directory_name],
-            result_file_plan.file_name,
-            expected_payload=b"",
-            expected_mode=_PREPARED_FILE_MODE,
-            authority=authority,
-            root_mount_id=lease.root_mount_id,
-            root_device=lease.root_device,
-            process_snapshot_size_limit_bytes=lease.process_snapshot_size_limit_bytes,
-        )
-        result_identity = (
-            result_file_observation.metadata.st_dev,
-            result_file_observation.metadata.st_ino,
-        )
-        if result_identity in observed_identities:
-            raise RunActionRuntimeVolumeError(
-                "prepared runtime volume result repeats another layout inode"
-            )
-        observed_identities.add(result_identity)
         for slot_observation in delivery_slot_observations:
             if (
                 not stat.S_ISDIR(slot_observation.metadata.st_mode)
@@ -4368,7 +4310,6 @@ def _observe_prepared_layout_at_descriptor(
         filesystem_after = os.fstatvfs(lease.root_descriptor)
         _require_same_mounted_runtime_volume(lease, keeper)
         _require_same_exact_regular_file(sentinel_observation)
-        _require_same_exact_regular_file(result_file_observation)
         directory_metadata_after = {
             directory_name: _stable_metadata(os.fstat(directory_descriptor))
             for directory_name, directory_descriptor in directory_descriptors.items()
@@ -4392,7 +4333,6 @@ def _observe_prepared_layout_at_descriptor(
         sentinel_mount_id=sentinel_observation.mount_id,
         delivery_slot_observations=delivery_slot_observations,
         runtime_directory_observations=runtime_directory_observations,
-        result_file_observation=result_file_observation,
         workspace_directory_observation=workspace_directory_observation,
         workspace_frontier=observed_workspace_frontier,
         filesystem=filesystem_before,
@@ -4752,29 +4692,9 @@ def _mint_prepared_volume_observation(
         runtime_directory.kind: runtime_directory
         for runtime_directory in runtime_directories
     }
-    result_file_plan = _expected_result_file_plan(claim)
-    result_file_observation = observed.result_file_observation
     result_directory = runtime_directory_by_kind[
         RunActionPreparedRuntimeDirectoryKind.RESULT
     ]
-    result_file = RunActionPreparedFile.mint(
-        preparation_claim_id=claim.preparation_claim_id,
-        runtime_volume_authority_id=authority.runtime_volume_authority_id,
-        generation_nonce=authority.generation_nonce,
-        prepared_parent_directory_id=(result_directory.prepared_runtime_directory_id),
-        kind=result_file_plan.kind,
-        relative_path=result_file_plan.relative_path,
-        file_type="regular",
-        owner_user_id=authority.owner_user_id,
-        owner_group_id=authority.owner_group_id,
-        mode=_PREPARED_FILE_MODE,
-        link_count=1,
-        size_bytes=0,
-        payload_size_limit_bytes=result_file_plan.payload_size_limit_bytes,
-        mount_id=result_file_observation.mount_id,
-        device=result_file_observation.metadata.st_dev,
-        inode=result_file_observation.metadata.st_ino,
-    )
     workspace_binding = claim.reservation.frontier.workspace_before
     if (
         (workspace_binding is None) != (observed.workspace_frontier is None)
@@ -4848,7 +4768,7 @@ def _mint_prepared_volume_observation(
         allocation_block_size_bytes,
     )
     required_available_inode_count = (
-        len(delivery_slot_plans) + limits.runtime_temporary_reservation_inode_count + 2
+        len(delivery_slot_plans) + limits.runtime_temporary_reservation_inode_count + 3
     )
     if (
         required_available_size_bytes >= available_size_bytes
@@ -4893,7 +4813,6 @@ def _mint_prepared_volume_observation(
                 for directory in runtime_directories
             )
         ),
-        prepared_result_file_id=result_file.prepared_file_id,
         prepared_workspace_proof_id=(
             None
             if workspace_proof is None
@@ -4902,7 +4821,7 @@ def _mint_prepared_volume_observation(
         logical_content_size_bytes=(
             len(authority.generation_nonce) + logical_workspace_size
         ),
-        logical_entry_count=(len(expected_directories) + 2 + logical_workspace_entries),
+        logical_entry_count=(len(expected_directories) + 1 + logical_workspace_entries),
         observed_used_size_bytes=used_size_bytes,
         observed_used_inode_count=used_inode_count,
         unexpected_entry_count=0,
@@ -4915,7 +4834,6 @@ def _mint_prepared_volume_observation(
             RunActionPreparedRuntimeDirectoryKind.CONTROL
         ],
         result_directory=result_directory,
-        result_file=result_file,
         temporary_directory=runtime_directory_by_kind[
             RunActionPreparedRuntimeDirectoryKind.TEMPORARY
         ],
@@ -5037,20 +4955,6 @@ def _expected_delivery_slot_plans(
     )
 
 
-def _expected_result_file_plan(
-    claim: RunActionPreparationClaim,
-) -> _PreparedResultFilePlan:
-    return _PreparedResultFilePlan(
-        kind=RunActionPreparedFileKind.RESULT,
-        directory_name="result",
-        file_name="result.blob",
-        relative_path="result/result.blob",
-        payload_size_limit_bytes=(
-            claim.execution_policy.supervisor_limits.result_size_bytes
-        ),
-    )
-
-
 def _required_execution_headroom_size_bytes(
     claim: RunActionPreparationClaim,
     allocation_block_size_bytes: int,
@@ -5081,7 +4985,7 @@ def _expected_runtime_directory_plans() -> tuple[_PreparedRuntimeDirectoryPlan, 
         _PreparedRuntimeDirectoryPlan(
             kind=RunActionPreparedRuntimeDirectoryKind.RESULT,
             directory_name="result",
-            observed_entry_count=1,
+            observed_entry_count=0,
         ),
         _PreparedRuntimeDirectoryPlan(
             kind=RunActionPreparedRuntimeDirectoryKind.TEMPORARY,

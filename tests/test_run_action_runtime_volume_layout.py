@@ -291,7 +291,6 @@ def test_barrier_control_lease_rejects_substituted_prepared_inode(
                 prepared.input_delivery_slot.inode,
                 prepared.result_directory.inode,
                 prepared.temporary_directory.inode,
-                prepared.result_file.inode,
             )
         )
         + 1,
@@ -799,14 +798,6 @@ def test_open_result_workspace_joins_live_sentinel_and_retains_its_path(
         mount_id=root_mount_id,
         device=root_metadata.st_dev,
     )
-    physical_result_file = _remint_contract(
-        prepared.result_file,
-        prepared_parent_directory_id=(
-            physical_result_directory.prepared_runtime_directory_id
-        ),
-        mount_id=root_mount_id,
-        device=root_metadata.st_dev,
-    )
     physical_workspace = _remint_contract(
         prepared.workspace_proof,
         owner_user_id=workspace_metadata.st_uid,
@@ -838,7 +829,6 @@ def test_open_result_workspace_joins_live_sentinel_and_retains_its_path(
                 )
             )
         ),
-        prepared_result_file_id=physical_result_file.prepared_file_id,
         prepared_workspace_proof_id=(physical_workspace.prepared_workspace_proof_id),
     )
     physical_prepared = _remint_contract(
@@ -848,7 +838,6 @@ def test_open_result_workspace_joins_live_sentinel_and_retains_its_path(
         result_directory=physical_result_directory,
         control_directory=physical_control_directory,
         temporary_directory=physical_temporary_directory,
-        result_file=physical_result_file,
         workspace_proof=physical_workspace,
         layout_proof=physical_layout,
     )
@@ -857,7 +846,6 @@ def test_open_result_workspace_joins_live_sentinel_and_retains_its_path(
         prepared_parent_authority_id=(
             physical_result_directory.prepared_runtime_directory_id
         ),
-        prepared_file_id=physical_result_file.prepared_file_id,
     )
 
     opened_roots = []
@@ -917,7 +905,6 @@ def test_open_result_workspace_joins_live_sentinel_and_retains_its_path(
                 physical_prepared.result_directory.inode,
                 physical_prepared.control_directory.inode,
                 physical_prepared.temporary_directory.inode,
-                physical_prepared.result_file.inode,
                 physical_prepared.workspace_proof.inode,
             )
         )
@@ -1073,14 +1060,6 @@ def _physical_barrier_control_case(tmp_path, settings):
         mount_id=root_mount_id,
         device=root_metadata.st_dev,
     )
-    physical_result_file = _remint_contract(
-        prepared.result_file,
-        prepared_parent_directory_id=(
-            physical_result_directory.prepared_runtime_directory_id
-        ),
-        mount_id=root_mount_id,
-        device=root_metadata.st_dev,
-    )
     physical_layout = _remint_contract(
         prepared.layout_proof,
         runtime_volume_evidence_id=physical_volume.runtime_volume_evidence_id,
@@ -1094,7 +1073,6 @@ def _physical_barrier_control_case(tmp_path, settings):
                 )
             )
         ),
-        prepared_result_file_id=physical_result_file.prepared_file_id,
     )
     physical_prepared = _remint_contract(
         prepared,
@@ -1103,7 +1081,6 @@ def _physical_barrier_control_case(tmp_path, settings):
         control_directory=physical_control,
         result_directory=physical_result_directory,
         temporary_directory=physical_temporary,
-        result_file=physical_result_file,
         layout_proof=physical_layout,
     )
     return physical_prepared, root_path, root_mount_id, root_metadata
@@ -1153,9 +1130,9 @@ def _physical_result_capture_case(
     sentinel_path = root_path / ".kapso-generation"
     sentinel_path.write_bytes(sentinel_payload)
     sentinel_path.chmod(0o400)
-    result_path = directory_paths["result"] / "result.blob"
-    result_path.write_bytes(payload)
-    result_path.chmod(0o600)
+    candidate_path = directory_paths["temporary"] / "result.candidate"
+    candidate_path.write_bytes(payload)
+    candidate_path.chmod(0o600)
     with ExitStack() as descriptors:
         root_descriptor = os.open(
             root_path,
@@ -1168,7 +1145,6 @@ def _physical_result_capture_case(
         name: path.stat(follow_symlinks=False) for name, path in directory_paths.items()
     }
     sentinel_metadata = sentinel_path.stat(follow_symlinks=False)
-    result_metadata = result_path.stat(follow_symlinks=False)
     sentinel_evidence = RunActionRuntimeVolumeSentinelEvidence.mint(
         runtime_volume_authority_id=authority.runtime_volume_authority_id,
         generation_nonce=authority.generation_nonce,
@@ -1217,18 +1193,6 @@ def _physical_result_capture_case(
             ("temporary", prepared.temporary_directory),
         )
     }
-    physical_result_file = _remint_contract(
-        prepared.result_file,
-        prepared_parent_directory_id=(
-            physical_directories["result"].prepared_runtime_directory_id
-        ),
-        owner_user_id=result_metadata.st_uid,
-        owner_group_id=result_metadata.st_gid,
-        mode=stat.S_IMODE(result_metadata.st_mode),
-        mount_id=root_mount_id,
-        device=result_metadata.st_dev,
-        inode=result_metadata.st_ino,
-    )
     physical_layout = _remint_contract(
         prepared.layout_proof,
         runtime_volume_evidence_id=physical_volume.runtime_volume_evidence_id,
@@ -1239,7 +1203,6 @@ def _physical_result_capture_case(
                 for directory in physical_directories.values()
             )
         ),
-        prepared_result_file_id=physical_result_file.prepared_file_id,
     )
     physical_prepared = _remint_contract(
         prepared,
@@ -1248,7 +1211,6 @@ def _physical_result_capture_case(
         control_directory=physical_directories["control"],
         result_directory=physical_directories["result"],
         temporary_directory=physical_directories["temporary"],
-        result_file=physical_result_file,
         layout_proof=physical_layout,
     )
     spawn = _spawn_commit(physical_prepared)
@@ -1259,7 +1221,7 @@ def _physical_result_capture_case(
         volume,
         launch_settings,
         root_path,
-        result_path,
+        candidate_path,
         sentinel_path,
         root_mount_id,
         root_metadata,
@@ -1298,8 +1260,10 @@ def _patch_physical_result_capture(
     prepared_volume = prepared.runtime_volume_evidence
     block_size = prepared_volume.allocation_block_size_bytes
     added_block_count = (payload_size + block_size - 1) // block_size
-    used_block_count = prepared_volume.used_block_count + added_block_count
+    used_block_count = prepared_volume.used_block_count + 2 * added_block_count
     available_block_count = prepared_volume.effective_block_count - used_block_count
+    used_inode_count = prepared_volume.used_inode_count + 2
+    available_inode_count = prepared_volume.effective_inode_limit - used_inode_count
     filesystem = os.statvfs_result(
         (
             block_size,
@@ -1308,8 +1272,8 @@ def _patch_physical_result_capture(
             available_block_count,
             available_block_count,
             prepared_volume.effective_inode_limit,
-            prepared_volume.available_inode_count,
-            prepared_volume.available_inode_count,
+            available_inode_count,
+            available_inode_count,
             0,
             255,
         )
@@ -1331,7 +1295,7 @@ def _patch_physical_result_capture(
     )
 
 
-def test_descriptor_result_capture_reads_only_the_original_bounded_inode(
+def test_descriptor_result_capture_discovers_the_fresh_published_inode(
     layout_context,
     tmp_path,
     monkeypatch,
@@ -1344,7 +1308,7 @@ def test_descriptor_result_capture_reads_only_the_original_bounded_inode(
         volume,
         launch_settings,
         root_path,
-        _result_path,
+        _candidate_path,
         _sentinel_path,
         root_mount_id,
         root_metadata,
@@ -1375,32 +1339,40 @@ def test_descriptor_result_capture_reads_only_the_original_bounded_inode(
     assert receipt.prepared_parent_authority_id == (
         prepared.result_directory.prepared_runtime_directory_id
     )
-    assert receipt.prepared_file_id == prepared.result_file.prepared_file_id
-    assert receipt.inode == prepared.result_file.inode
+    result_metadata = (root_path / "result" / "result.blob").stat(follow_symlinks=False)
+    assert receipt.inode == result_metadata.st_ino
+    assert receipt.inode != prepared.result_directory.inode
     assert receipt.content_digest == volume_module.tree_or_blob_digest(payload)
     assert receipt.reobserved_volume_evidence.used_block_count == (
-        prepared.runtime_volume_evidence.used_block_count + expected_added_blocks
+        prepared.runtime_volume_evidence.used_block_count + 2 * expected_added_blocks
+    )
+    assert receipt.reobserved_volume_evidence.used_inode_count == (
+        prepared.runtime_volume_evidence.used_inode_count + 2
     )
 
 
-def test_descriptor_result_capture_preserves_an_exact_empty_original_inode(
+def test_descriptor_result_capture_rejects_direct_final_without_candidate(
     layout_context,
     tmp_path,
     monkeypatch,
 ):
     settings, _claim_without_workspace, _authority, _empty = layout_context
-    payload = b""
+    payload = b'{"result":"direct-final"}'
     (
         prepared,
         terminal,
         volume,
         launch_settings,
         root_path,
-        _result_path,
+        candidate_path,
         _sentinel_path,
         root_mount_id,
         root_metadata,
     ) = _physical_result_capture_case(tmp_path, settings, payload)
+    candidate_path.unlink()
+    direct_final = root_path / "result" / "result.blob"
+    direct_final.write_bytes(payload)
+    direct_final.chmod(0o600)
     _patch_physical_result_capture(
         monkeypatch,
         prepared,
@@ -1410,23 +1382,21 @@ def test_descriptor_result_capture_preserves_an_exact_empty_original_inode(
         len(payload),
     )
 
-    receipt, captured_payload = volume_module.capture_run_action_result_file(
-        prepared,
-        terminal,
-        volume,
-        settings=launch_settings,
-    )
-
-    assert captured_payload == b""
-    assert receipt.size_bytes == 0
-    assert receipt.content_digest == volume_module.tree_or_blob_digest(b"")
-    assert receipt.inode == prepared.result_file.inode
+    with pytest.raises(
+        RunActionRuntimeVolumeError,
+        match="lacks its terminal candidate",
+    ):
+        volume_module.capture_run_action_result_file(
+            prepared,
+            terminal,
+            volume,
+            settings=launch_settings,
+        )
 
 
 @pytest.mark.parametrize(
     "mutation",
     (
-        "replacement",
         "hard_link",
         "extra_result_entry",
         "mode",
@@ -1448,22 +1418,17 @@ def test_descriptor_result_capture_rejects_unsafe_physical_files(
         volume,
         launch_settings,
         root_path,
-        result_path,
+        candidate_path,
         sentinel_path,
         root_mount_id,
         root_metadata,
     ) = _physical_result_capture_case(tmp_path, settings, payload)
-    if mutation == "replacement":
-        os.link(result_path, root_path.parent / "detached-original-result")
-        result_path.unlink()
-        result_path.write_bytes(payload)
-        result_path.chmod(0o600)
-    elif mutation == "hard_link":
-        os.link(result_path, root_path.parent / "detached-result-link")
+    if mutation == "hard_link":
+        os.link(candidate_path, root_path.parent / "detached-result-link")
     elif mutation == "extra_result_entry":
-        (result_path.parent / "unexpected").write_bytes(b"unexpected")
+        (root_path / "result" / "unexpected").write_bytes(b"unexpected")
     elif mutation == "mode":
-        result_path.chmod(0o400)
+        candidate_path.chmod(0o400)
     elif mutation == "sentinel":
         sentinel_payload = prepared.runtime_volume_authority.generation_nonce.encode(
             "ascii"
@@ -1473,9 +1438,9 @@ def test_descriptor_result_capture_rejects_unsafe_physical_files(
         sentinel_path.write_bytes(sentinel_payload)
         sentinel_path.chmod(0o400)
     else:
-        result_path.unlink()
-        os.mkfifo(result_path, mode=0o600)
-    observed_size = result_path.stat(follow_symlinks=False).st_size
+        candidate_path.unlink()
+        os.mkfifo(candidate_path, mode=0o600)
+    observed_size = candidate_path.stat(follow_symlinks=False).st_size
     _patch_physical_result_capture(
         monkeypatch,
         prepared,
@@ -1508,7 +1473,7 @@ def test_descriptor_result_capture_rejects_configured_limit_and_mid_read_change(
         volume,
         launch_settings,
         root_path,
-        result_path,
+        candidate_path,
         _sentinel_path,
         root_mount_id,
         root_metadata,
@@ -1534,22 +1499,8 @@ def test_descriptor_result_capture_rejects_configured_limit_and_mid_read_change(
             settings=launch_settings,
         )
 
-    result_path.write_bytes(b"stable")
-    result_path.chmod(0o600)
-    physical_metadata = result_path.stat(follow_symlinks=False)
-    prepared_result = _remint_contract(
-        prepared.result_file,
-        inode=physical_metadata.st_ino,
-    )
-    prepared_layout = _remint_contract(
-        prepared.layout_proof,
-        prepared_result_file_id=prepared_result.prepared_file_id,
-    )
-    prepared = _remint_contract(
-        prepared,
-        result_file=prepared_result,
-        layout_proof=prepared_layout,
-    )
+    candidate_path.write_bytes(b"stable")
+    candidate_path.chmod(0o600)
     spawn = _spawn_commit(prepared)
     terminal = _terminal_observation(prepared, spawn)
     _patch_physical_result_capture(
@@ -1569,8 +1520,8 @@ def test_descriptor_result_capture_rejects_configured_limit_and_mid_read_change(
         if observed == b"stable":
             result_read_count += 1
             if result_read_count == 1:
-                result_path.write_bytes(b"mutated")
-                result_path.chmod(0o600)
+                candidate_path.write_bytes(b"mutated")
+                candidate_path.chmod(0o600)
         return observed
 
     monkeypatch.setattr(
@@ -1578,7 +1529,10 @@ def test_descriptor_result_capture_rejects_configured_limit_and_mid_read_change(
         "_read_bounded_descriptor_payload",
         mutate_after_first_result_read,
     )
-    with pytest.raises(RunActionRuntimeVolumeError, match="changed"):
+    with pytest.raises(
+        RunActionRuntimeVolumeError,
+        match="unsafe or substituted",
+    ):
         volume_module.capture_run_action_result_file(
             prepared,
             terminal,
@@ -1915,7 +1869,6 @@ def _physical_selected_activation_case(
         result_directory=prepared_volume.result_directory,
         temporary_directory=prepared_volume.temporary_directory,
         control_directory=prepared_volume.control_directory,
-        result_file=prepared_volume.result_file,
         credential_delivery_slot=prepared_volume.credential_delivery_slot,
         workspace_proof=prepared_volume.workspace_proof,
         layout_proof=prepared_volume.layout_proof,
@@ -2076,7 +2029,6 @@ def _physical_selected_activation_case(
         ),
         activated_sentinel_observation=(activated.activated_sentinel_observation),
         input_file_observation=activated.input_file_observation,
-        result_file_observation=activated.result_file_observation,
         credential_file_observation=activated.credential_file_observation,
     )
     return (
@@ -2288,7 +2240,7 @@ def test_selected_activation_rejects_docker_change_after_descriptor_observation(
         "input_content",
         "input_inode",
         "control_entry",
-        "result_content",
+        "result_entry",
         "temporary_entry",
         "main_occurrence",
         "volume_occurrence",
@@ -2321,7 +2273,7 @@ def test_selected_activation_rejects_changed_event_5_occurrence(
         detached_input_path.unlink()
     elif mutation == "control_entry":
         (root_path / "control" / "release").write_bytes(b"release")
-    elif mutation == "result_content":
+    elif mutation == "result_entry":
         (root_path / "result" / "result.blob").write_bytes(b"unexpected")
     elif mutation == "temporary_entry":
         (root_path / "temporary" / "unexpected").write_bytes(b"unexpected")
@@ -2562,13 +2514,12 @@ def test_descriptor_materializer_publishes_complete_layout_and_sentinel_last(
     assert stat.S_IMODE((root_path / ".kapso-generation").stat().st_mode) == 0o400
     assert tuple((root_path / "control").iterdir()) == ()
     assert tuple((root_path / "input").iterdir()) == ()
-    assert (root_path / "result" / "result.blob").read_bytes() == b""
+    assert tuple((root_path / "result").iterdir()) == ()
     assert tuple((root_path / "temporary").iterdir()) == ()
     assert all(
         stat.S_IMODE((root_path / name).stat().st_mode) == 0o700
         for name in ("control", "input", "result", "temporary")
     )
-    assert stat.S_IMODE((root_path / "result" / "result.blob").stat().st_mode) == 0o600
 
 
 @pytest.mark.parametrize(
@@ -2699,7 +2650,7 @@ def test_layout_plan_requires_strict_peak_and_execution_headroom(
                     slot_plan.payload_size_limit_bytes
                     for slot_plan in admitted.delivery_slot_plans
                 ),
-                admitted.result_file_plan.payload_size_limit_bytes,
+                claim.execution_policy.supervisor_limits.result_size_bytes,
                 limits.runtime_temporary_reservation_size_bytes,
                 claim.execution_policy.supervisor_limits.release_receipt_size_bytes,
                 claim.execution_policy.supervisor_limits.timeout_directive_size_bytes,
@@ -2739,7 +2690,7 @@ def test_layout_plan_requires_strict_peak_and_execution_headroom(
             admitted.preparation_inode_count
             + len(admitted.delivery_slot_plans)
             + limits.runtime_temporary_reservation_inode_count
-            + 2
+            + 3
         )
         exhausted = replace(
             empty,
@@ -2832,7 +2783,6 @@ def test_prepared_volume_aggregate_rejects_layout_splices():
         input_delivery_slot=prepared.input_delivery_slot,
         result_directory=prepared.result_directory,
         control_directory=prepared.control_directory,
-        result_file=prepared.result_file,
         temporary_directory=prepared.temporary_directory,
         credential_delivery_slot=prepared.credential_delivery_slot,
         workspace_proof=prepared.workspace_proof,
@@ -2868,7 +2818,6 @@ def test_prepared_volume_aggregate_rejects_same_graph_layout_lies(mutation):
         input_delivery_slot=prepared.input_delivery_slot,
         result_directory=prepared.result_directory,
         control_directory=prepared.control_directory,
-        result_file=prepared.result_file,
         temporary_directory=prepared.temporary_directory,
         credential_delivery_slot=prepared.credential_delivery_slot,
         workspace_proof=prepared.workspace_proof,
@@ -2898,7 +2847,6 @@ def test_prepared_volume_aggregate_rejects_claim_policy_authority_splice():
         input_delivery_slot=prepared.input_delivery_slot,
         result_directory=prepared.result_directory,
         control_directory=prepared.control_directory,
-        result_file=prepared.result_file,
         temporary_directory=prepared.temporary_directory,
         credential_delivery_slot=prepared.credential_delivery_slot,
         workspace_proof=prepared.workspace_proof,
@@ -2954,13 +2902,6 @@ def test_prepared_volume_aggregate_rejects_claim_policy_authority_splice():
             observation.control_directory,
         )
     )
-    substituted_result_file = _remint_contract(
-        observation.result_file,
-        runtime_volume_authority_id=(substituted_authority.runtime_volume_authority_id),
-        prepared_parent_directory_id=(
-            substituted_runtime_directories[0].prepared_runtime_directory_id
-        ),
-    )
     substituted_workspace = (
         None
         if observation.workspace_proof is None
@@ -2987,7 +2928,6 @@ def test_prepared_volume_aggregate_rejects_claim_policy_authority_splice():
                 for directory in substituted_runtime_directories
             )
         ),
-        prepared_result_file_id=substituted_result_file.prepared_file_id,
         prepared_workspace_proof_id=(
             None
             if substituted_workspace is None
@@ -3004,7 +2944,6 @@ def test_prepared_volume_aggregate_rejects_claim_policy_authority_splice():
             runtime_volume_evidence=substituted_evidence,
             input_delivery_slot=substituted_delivery_slots[0],
             result_directory=substituted_runtime_directories[0],
-            result_file=substituted_result_file,
             temporary_directory=substituted_runtime_directories[1],
             control_directory=substituted_runtime_directories[2],
             credential_delivery_slot=(
@@ -3034,7 +2973,6 @@ def test_prepared_volume_aggregate_rejects_delivery_slot_authority_splices(chang
         input_delivery_slot=prepared.input_delivery_slot,
         result_directory=prepared.result_directory,
         control_directory=prepared.control_directory,
-        result_file=prepared.result_file,
         temporary_directory=prepared.temporary_directory,
         credential_delivery_slot=prepared.credential_delivery_slot,
         workspace_proof=prepared.workspace_proof,
@@ -3082,7 +3020,6 @@ def test_prepared_volume_aggregate_rejects_workspace_authority_splice():
         input_delivery_slot=prepared.input_delivery_slot,
         result_directory=prepared.result_directory,
         control_directory=prepared.control_directory,
-        result_file=prepared.result_file,
         temporary_directory=prepared.temporary_directory,
         credential_delivery_slot=prepared.credential_delivery_slot,
         workspace_proof=prepared.workspace_proof,

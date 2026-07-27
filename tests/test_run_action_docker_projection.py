@@ -43,6 +43,7 @@ from test_run_action_supervisor_contracts import (
     _execution_policy,
     _remint_policy,
     _remint_resource_limits,
+    _RUN_ACTION_RESULT_SIZE_BYTES,
     _volume_authority,
 )
 
@@ -284,7 +285,8 @@ def test_volume_creation_is_one_exact_canonical_tuple(docker_settings):
         "device=tmpfs",
         "--opt",
         (
-            "o=nodev,nosuid,noswap,size=536870912,nr_inodes=4096,"
+            "o=nodev,nosuid,noswap,"
+            f"size={4 * _RUN_ACTION_RESULT_SIZE_BYTES},nr_inodes=4096,"
             "mode=0700,uid=1000,gid=1000"
         ),
         "--opt",
@@ -381,7 +383,7 @@ def test_main_creation_uses_only_sorted_bounded_volume_subpaths(docker_settings)
         "--mount",
         (
             f"type=volume,source={authority.volume_name},"
-            "target=/kapso/result,volume-nocopy,volume-subpath=result"
+            "target=/kapso/result,readonly,volume-nocopy,volume-subpath=result"
         ),
         "--mount",
         (

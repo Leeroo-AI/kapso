@@ -935,7 +935,7 @@ def _listed_exact(
         "result",
         "ambiguous_start",
         "timeout",
-        "empty",
+        "missing",
         "nonzero",
         "oom",
         "pre_release_main_loss",
@@ -1066,6 +1066,7 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             " && grep -Fqx 'credential bytes'"
             " /kapso/credentials/credentials"
             " && test -d /kapso/workspace/.git"
+            " && ! printf forbidden > /kapso/result/workload-write-denied"
         )
         if terminal_path in {
             "result",
@@ -1073,8 +1074,8 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             "timeout",
         }:
             target_command = (
-                'printf \'{"live":"captured"}\''
-                " > /kapso/result/result.blob"
+                'umask 077 && printf \'{"live":"captured"}\''
+                " > /kapso/tmp/result.candidate"
                 f" && {target_command}"
             )
         if terminal_path == "production_adapter_result":
@@ -1083,13 +1084,14 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
                 "ascii"
             )
             target_command = (
-                f"printf '%s' '{encoded_result}'"
+                f"umask 077 && printf '%s' '{encoded_result}'"
                 " | /bin/busybox base64 -d"
-                " > /kapso/result/result.blob"
+                " > /kapso/tmp/result.candidate"
                 f" && printf '%s  %s\\n' '{request_digest}'"
                 " /kapso/input/request.blob"
                 " | /bin/busybox sha256sum -c -"
                 " && test -d /kapso/workspace/.git"
+                " && ! printf forbidden > /kapso/result/workload-write-denied"
             )
         if terminal_path == "timeout":
             target_command += (
@@ -1987,7 +1989,6 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             input_delivery_slot=prepared_volume.input_delivery_slot,
             result_directory=prepared_volume.result_directory,
             control_directory=prepared_volume.control_directory,
-            result_file=prepared_volume.result_file,
             temporary_directory=prepared_volume.temporary_directory,
             credential_delivery_slot=prepared_volume.credential_delivery_slot,
             workspace_proof=prepared_volume.workspace_proof,
@@ -2137,10 +2138,6 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             activated_volume.input_file_observation.prepared_parent_authority_id
             == prepared_execution.input_delivery_slot.prepared_delivery_slot_id
         )
-        assert (
-            activated_volume.result_file_observation.prepared_parent_authority_id
-            == prepared_execution.result_directory.prepared_runtime_directory_id
-        )
         assert activated_volume.credential_file_observation is not None
         assert activated_volume.credential_file_observation.content_digest is None
         assert (
@@ -2162,6 +2159,7 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             )
         ) == (
             prepared_execution.control_directory.inode,
+            prepared_execution.result_directory.inode,
             prepared_execution.temporary_directory.inode,
         )
         activation_receipt = RunActionActivationRevalidationReceipt.mint(
@@ -2180,7 +2178,6 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
                 activated_volume.activated_sentinel_observation
             ),
             input_file_observation=activated_volume.input_file_observation,
-            result_file_observation=activated_volume.result_file_observation,
             credential_file_observation=(activated_volume.credential_file_observation),
         )
         with action_gate._action_store._recovery_session(
@@ -2439,7 +2436,7 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
                 "/kapso-supervisor/busybox",
                 "test",
                 "!",
-                "-s",
+                "-e",
                 "/kapso/runtime-volume/result/result.blob",
             )
         )
@@ -2890,7 +2887,7 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
         expected_exit_status = {
             "result": b"0\n",
             "ambiguous_start": b"0\n",
-            "empty": b"0\n",
+            "missing": b"0\n",
             "nonzero": b"23\n",
             "oom": b"137\n",
         }[terminal_path]
@@ -2953,7 +2950,7 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             layout_reservation.intent.operation_id
         )
         expected_failure_reasons = {
-            "empty": RunActionProviderTerminationReason.EMPTY_RESULT,
+            "missing": RunActionProviderTerminationReason.MISSING_RESULT,
             "nonzero": RunActionProviderTerminationReason.NONZERO_EXIT,
             "oom": RunActionProviderTerminationReason.OOM,
         }

@@ -201,6 +201,22 @@ def test_prepared_envelope_covers_maximum_cgroup_path_expansion(
     assert _count_wire_value(prepared_wire, keeper_cgroup_path) == 2
 
 
+def test_prepared_envelope_proves_an_empty_result_directory_without_a_result_file(
+    docker_settings,
+):
+    command, _claim_value, allocation = _envelope_case(docker_settings)
+
+    prepared_wire = envelope_module._prepared_execution_wire(
+        allocation,
+        command,
+        docker_settings,
+    )
+
+    assert "result_file" not in prepared_wire
+    assert prepared_wire["result_directory"]["observed_entry_count"] == 0
+    assert "prepared_result_file_id" not in prepared_wire["layout_proof"]
+
+
 def test_prepared_envelope_measures_complete_escaped_utf8_command(
     docker_settings,
 ):
@@ -310,7 +326,6 @@ def test_event_three_physical_integer_width_is_contractually_bounded(
         (prepared.runtime_volume_evidence, "keeper_process_id"),
         (prepared.input_delivery_slot, "mount_id"),
         (prepared.result_directory, "mount_id"),
-        (prepared.result_file, "mount_id"),
         (prepared.workspace_proof, "mount_id"),
         (main_projection.supervisor_helper_evidence, "mount_id"),
         (main_projection.docker_init_source_evidence, "mount_id"),

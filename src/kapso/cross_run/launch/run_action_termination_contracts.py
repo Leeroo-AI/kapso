@@ -27,15 +27,11 @@ from kapso.cross_run.launch.run_action_barrier_contracts import (
 from kapso.cross_run.launch.run_action_release_contracts import (
     RunActionWorkloadReleaseAdoption,
 )
-from kapso.cross_run.launch.run_action_result_authority import (
-    run_action_terminal_result_evidence_matches,
-)
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
     DockerRunActionCreateInspectProjection,
     RUN_ACTION_MAXIMUM_PHYSICAL_INTEGER,
     RunActionActivationRevalidationReceipt,
     RunActionPreparationAllocation,
-    RunActionResultCaptureReceipt,
     RunActionRuntimeVolumeEvidence,
     RunActionTerminalObservation,
     RunActionVolumeKeeperEvidence,
@@ -76,7 +72,7 @@ class RunActionProviderTerminationReason(str, Enum):
     TIMEOUT = "timeout"
     OOM = "oom"
     NONZERO_EXIT = "nonzero_exit"
-    EMPTY_RESULT = "empty_result"
+    MISSING_RESULT = "missing_result"
     PRE_RELEASE_MAIN_LOSS = "pre_release_main_loss"
     PRE_RELEASE_MAIN_TERMINAL = "pre_release_main_terminal"
     CREDENTIAL_EXPIRED = "credential_expired"
@@ -615,7 +611,6 @@ class RunActionProviderTerminationReceipt(StrictContract):
         RunActionTerminalObservation | RunActionPreReleaseMainTerminalObservation | None
     )
     timeout_directive_publication: RunActionTimeoutDirectivePublicationReceipt | None
-    empty_result_capture_receipt: RunActionResultCaptureReceipt | None
     pre_release_main_loss_observation: RunActionPreReleaseMainLossObservation | None
     credential_retirement_intent: RunActionCredentialRetirementIntent | None
 
@@ -667,7 +662,6 @@ class RunActionProviderTerminationReceipt(StrictContract):
             or self.workload_release_adoption is not None
             or self.terminal_observation is not None
             or self.timeout_directive_publication is not None
-            or self.empty_result_capture_receipt is not None
             or self.credential_retirement_intent is not None
         ):
             raise RunActionTerminationContractError(
@@ -681,7 +675,6 @@ class RunActionProviderTerminationReceipt(StrictContract):
             or terminal.activation_event_id != self.activation_event_id
             or self.workload_release_adoption is not None
             or self.timeout_directive_publication is not None
-            or self.empty_result_capture_receipt is not None
             or self.pre_release_main_loss_observation is not None
             or self.credential_retirement_intent is not None
         ):
@@ -707,7 +700,6 @@ class RunActionProviderTerminationReceipt(StrictContract):
             or intent.activation_event_id != self.activation_event_id
             or self.workload_release_adoption is not None
             or self.timeout_directive_publication is not None
-            or self.empty_result_capture_receipt is not None
             or not physical_evidence_is_exact
         ):
             raise RunActionTerminationContractError(
@@ -740,16 +732,13 @@ class RunActionProviderTerminationReceipt(StrictContract):
                 "released provider termination lacks its exact terminal occurrence"
             )
         if self.reason is RunActionProviderTerminationReason.TIMEOUT:
-            if (
-                type(self.timeout_directive_publication)
-                is not RunActionTimeoutDirectivePublicationReceipt
-                or self.empty_result_capture_receipt is not None
-                or not run_action_timeout_publication_evidence_matches(
-                    self.timeout_directive_publication,
-                    self.activation_event_id,
-                    activation,
-                    adoption,
-                )
+            if type(
+                self.timeout_directive_publication
+            ) is not RunActionTimeoutDirectivePublicationReceipt or not run_action_timeout_publication_evidence_matches(
+                self.timeout_directive_publication,
+                self.activation_event_id,
+                activation,
+                adoption,
             ):
                 raise RunActionTerminationContractError(
                     "timeout termination lacks its exact published directive"
@@ -760,31 +749,14 @@ class RunActionProviderTerminationReceipt(StrictContract):
                 "published timeout authority has precedence over provider failure"
             )
         if self.reason is RunActionProviderTerminationReason.OOM:
-            valid_outcome = (
-                terminal.oom_killed is True
-                and self.empty_result_capture_receipt is None
-            )
+            valid_outcome = terminal.oom_killed is True
         elif self.reason is RunActionProviderTerminationReason.NONZERO_EXIT:
-            valid_outcome = (
-                terminal.oom_killed is False
-                and terminal.exit_code != 0
-                and self.empty_result_capture_receipt is None
-            )
+            valid_outcome = terminal.oom_killed is False and terminal.exit_code != 0
         else:
-            capture = self.empty_result_capture_receipt
             valid_outcome = (
-                self.reason is RunActionProviderTerminationReason.EMPTY_RESULT
+                self.reason is RunActionProviderTerminationReason.MISSING_RESULT
                 and terminal.oom_killed is False
                 and terminal.exit_code == 0
-                and type(capture) is RunActionResultCaptureReceipt
-                and capture.size_bytes == 0
-                and capture.content_digest == tree_or_blob_digest(b"")
-                and run_action_terminal_result_evidence_matches(
-                    terminal,
-                    capture,
-                    activation,
-                    adoption,
-                )
             )
         if not valid_outcome:
             raise RunActionTerminationContractError(

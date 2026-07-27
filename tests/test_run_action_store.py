@@ -246,7 +246,6 @@ def _released_provider_termination(session, spawn, security_observation):
         workload_release_adoption=adoption,
         terminal_observation=terminal,
         timeout_directive_publication=None,
-        empty_result_capture_receipt=None,
         pre_release_main_loss_observation=None,
         credential_retirement_intent=None,
     )
@@ -262,7 +261,6 @@ def _pre_release_provider_termination(session):
         workload_release_adoption=None,
         terminal_observation=None,
         timeout_directive_publication=None,
-        empty_result_capture_receipt=None,
         pre_release_main_loss_observation=loss,
         credential_retirement_intent=None,
     )
@@ -291,7 +289,6 @@ def _pre_release_terminal_provider_termination(
         workload_release_adoption=None,
         terminal_observation=terminal,
         timeout_directive_publication=None,
-        empty_result_capture_receipt=None,
         pre_release_main_loss_observation=None,
         credential_retirement_intent=None,
     )
@@ -627,7 +624,6 @@ def test_provider_termination_rejects_event_position_and_graph_splices(
             workload_release_adoption=None,
             terminal_observation=None,
             timeout_directive_publication=None,
-            empty_result_capture_receipt=None,
             pre_release_main_loss_observation=foreign_loss,
             credential_retirement_intent=None,
         )
@@ -650,7 +646,6 @@ def test_provider_termination_rejects_event_position_and_graph_splices(
             workload_release_adoption=None,
             terminal_observation=None,
             timeout_directive_publication=None,
-            empty_result_capture_receipt=None,
             pre_release_main_loss_observation=foreign_loss_at_current_event,
             credential_retirement_intent=None,
         )
@@ -1197,18 +1192,6 @@ def test_action_store_rejects_terminal_and_capture_occurrence_splices(
                 workload_release_adoption=workload_release_adoption,
                 terminal_observation=terminal,
                 result_capture_receipt=backwards_usage_capture,
-                result_payload=payload,
-            )
-        substituted_result_inode = _remint_contract(
-            capture,
-            inode=capture.inode + 1,
-        )
-        with pytest.raises(RunActionStoreError, match="result differs from its spawn"):
-            session.record_result(
-                spawn_commit=spawn,
-                workload_release_adoption=workload_release_adoption,
-                terminal_observation=terminal,
-                result_capture_receipt=substituted_result_inode,
                 result_payload=payload,
             )
         substituted_result_parent = _remint_contract(

@@ -61,7 +61,7 @@ def resolve_run_action_natural_terminal_once(
     docker_settings: DockerRuntimeSettings,
     launch_settings: LaunchSettings,
 ) -> RunActionContinuationOutcome:
-    """Resolve result, OOM, nonzero exit, or exact empty result in one leaf."""
+    """Resolve result, OOM, nonzero exit, or exact missing result in one leaf."""
 
     if (
         type(capability) is not RunActionCommittedContinuationCapability
@@ -228,11 +228,6 @@ def resolve_run_action_natural_terminal_once(
             workload_release_adoption=adoption,
             terminal_observation=retained_terminal,
             timeout_directive_publication=None,
-            empty_result_capture_receipt=(
-                capture_receipt
-                if reason is RunActionProviderTerminationReason.EMPTY_RESULT
-                else None
-            ),
             pre_release_main_loss_observation=None,
             credential_retirement_intent=None,
         )
@@ -268,14 +263,11 @@ def _natural_termination_reason(
                 "nonzero termination unexpectedly consumed result authority"
             )
         return RunActionProviderTerminationReason.NONZERO_EXIT
-    if (
-        type(capture_receipt) is not RunActionResultCaptureReceipt
-        or result_payload != b""
-    ):
+    if capture_receipt is not None or result_payload is not None:
         raise RunActionNaturalTerminalError(
-            "zero exit lacks one exact nonempty or empty result"
+            "zero exit lacks one exact nonempty or missing result"
         )
-    return RunActionProviderTerminationReason.EMPTY_RESULT
+    return RunActionProviderTerminationReason.MISSING_RESULT
 
 
 __all__ = [

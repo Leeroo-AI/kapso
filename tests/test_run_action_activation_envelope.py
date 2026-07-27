@@ -156,6 +156,28 @@ def test_activation_envelope_maxes_every_mutable_volume_integer(docker_settings)
     ) >= _activation_event_size(prepared, spawn)
 
 
+def test_activation_envelope_revalidates_the_empty_result_directory(
+    docker_settings,
+):
+    prepared, spawn = _activation_case(
+        docker_settings,
+        workspace_access=RunFrontierWorkspaceAccess.NONE,
+        credential_mode=RunActionCredentialMode.NONE,
+    )
+
+    receipt_wire = envelope_module.activation_revalidation_receipt_wire_bound(
+        prepared,
+        spawn,
+    )
+    directory_observations = receipt_wire["activated_runtime_directory_observations"]
+
+    assert tuple(
+        observation["kind"].value for observation in directory_observations
+    ) == ("control", "result", "temporary")
+    assert directory_observations[1]["observed_entry_count"] == 0
+    assert "result_file_observation" not in receipt_wire
+
+
 def test_activation_envelope_rejects_spawn_or_predecessor_substitution(
     docker_settings,
 ):

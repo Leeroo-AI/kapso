@@ -49,40 +49,40 @@ from test_run_action_supervisor_contracts import (
 )
 
 _TOPOLOGIES = (
-    (RunFrontierWorkspaceAccess.NONE, RunActionCredentialMode.NONE, 6, 2, False),
+    (RunFrontierWorkspaceAccess.NONE, RunActionCredentialMode.NONE, 6, 1, False),
     (
         RunFrontierWorkspaceAccess.NONE,
         RunActionCredentialMode.SUPERVISOR_FILE,
         7,
-        3,
+        2,
         False,
     ),
     (
         RunFrontierWorkspaceAccess.READ_ONLY,
         RunActionCredentialMode.NONE,
         7,
-        2,
+        1,
         True,
     ),
     (
         RunFrontierWorkspaceAccess.READ_ONLY,
         RunActionCredentialMode.SUPERVISOR_FILE,
         8,
-        3,
+        2,
         True,
     ),
     (
         RunFrontierWorkspaceAccess.EDIT_WORKSPACE,
         RunActionCredentialMode.NONE,
         7,
-        2,
+        1,
         True,
     ),
     (
         RunFrontierWorkspaceAccess.EDIT_WORKSPACE,
         RunActionCredentialMode.SUPERVISOR_FILE,
         8,
-        3,
+        2,
         True,
     ),
 )

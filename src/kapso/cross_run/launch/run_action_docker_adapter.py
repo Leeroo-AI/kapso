@@ -341,7 +341,6 @@ class DockerRunActionExecutionAdapter:
             ),
             activated_sentinel_observation=(activated.activated_sentinel_observation),
             input_file_observation=activated.input_file_observation,
-            result_file_observation=activated.result_file_observation,
             credential_file_observation=activated.credential_file_observation,
         )
 

@@ -36,7 +36,7 @@ def run_action_terminal_result_evidence_matches(
         return False
     prepared = activation.prepared_execution
     spawn = activation.spawn_commit
-    prepared_result = prepared.result_file
+    prepared_result_directory = prepared.result_directory
     activation_volume = activation.reobserved_volume_evidence
     capture_volume = capture.reobserved_volume_evidence
     result_allocation_size_bytes = (
@@ -68,13 +68,10 @@ def run_action_terminal_result_evidence_matches(
         and terminal.started_at == running.started_at
         and capture.terminal_observation_id == terminal.terminal_observation_id
         and capture.prepared_parent_authority_id
-        == prepared.result_directory.prepared_runtime_directory_id
-        and capture.prepared_file_id == prepared_result.prepared_file_id
-        and capture.prepared_parent_authority_id
-        == prepared_result.prepared_parent_directory_id
-        and capture.parent_mount_id == prepared.result_directory.mount_id
-        and capture.parent_device == prepared.result_directory.device
-        and capture.parent_inode == prepared.result_directory.inode
+        == prepared_result_directory.prepared_runtime_directory_id
+        and capture.parent_mount_id == prepared_result_directory.mount_id
+        and capture.parent_device == prepared_result_directory.device
+        and capture.parent_inode == prepared_result_directory.inode
         and capture.runtime_volume_authority_id
         == prepared.runtime_volume_authority.runtime_volume_authority_id
         and run_action_runtime_volume_occurrence_matches(
@@ -87,33 +84,36 @@ def run_action_terminal_result_evidence_matches(
         )
         and capture.generation_nonce
         == prepared.runtime_volume_authority.generation_nonce
-        and capture.relative_path == prepared_result.relative_path
-        and capture.file_type == prepared_result.file_type
-        and capture.owner_user_id == prepared_result.owner_user_id
-        and capture.owner_group_id == prepared_result.owner_group_id
-        and capture.mode == prepared_result.mode
-        and capture.link_count == prepared_result.link_count
-        and capture.mount_id == prepared_result.mount_id
-        and capture.device == prepared_result.device
-        and capture.inode == prepared_result.inode
-        and capture.size_bytes <= prepared_result.payload_size_limit_bytes
+        and capture.relative_path == "result/result.blob"
+        and capture.file_type == "regular"
+        and capture.owner_user_id == prepared_result_directory.owner_user_id
+        and capture.owner_group_id == prepared_result_directory.owner_group_id
+        and capture.mode == 0o600
+        and capture.link_count == 1
+        and capture.mount_id == prepared_result_directory.mount_id
+        and capture.device == prepared_result_directory.device
+        and capture.inode != prepared_result_directory.inode
+        and capture.size_bytes
+        <= prepared.preparation_claim.execution_policy.supervisor_limits.result_size_bytes
         and (
             prepared.preparation_claim.reservation.intent.workspace_access
             is RunFrontierWorkspaceAccess.EDIT_WORKSPACE
             or (
                 capture_volume.used_size_bytes
-                >= activation_volume.used_size_bytes + result_allocation_size_bytes
+                >= activation_volume.used_size_bytes + 2 * result_allocation_size_bytes
                 and capture_volume.used_block_count
-                >= activation_volume.used_block_count + result_allocation_block_count
+                >= activation_volume.used_block_count
+                + 2 * result_allocation_block_count
                 and capture_volume.used_inode_count
-                >= activation_volume.used_inode_count
+                >= activation_volume.used_inode_count + 2
                 and capture_volume.available_block_count
                 <= activation_volume.available_block_count
-                - result_allocation_block_count
+                - 2 * result_allocation_block_count
                 and capture_volume.available_size_bytes
-                <= activation_volume.available_size_bytes - result_allocation_size_bytes
+                <= activation_volume.available_size_bytes
+                - 2 * result_allocation_size_bytes
                 and capture_volume.available_inode_count
-                <= activation_volume.available_inode_count
+                <= activation_volume.available_inode_count - 2
             )
         )
     )

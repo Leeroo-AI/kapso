@@ -22,10 +22,6 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RunActionPreparationAllocation,
     run_action_credential_lease_request,
 )
-from kapso.cross_run.launch.run_action_recovery import (
-    RunActionProviderResult,
-    RunActionRecoveryError,
-)
 from kapso.cross_run.launch.run_action_termination_contracts import (
     provider_termination_matches_durable_activation,
     run_action_pre_release_main_loss_observation_token,
@@ -44,10 +40,7 @@ from kapso.cross_run.launch.run_action_termination_contracts import (
     run_action_timeout_publication_evidence_matches,
 )
 from test_run_action_result_authority import _result_graph
-from test_run_action_supervisor_contracts import (
-    _remint_contract,
-    _result_capture_receipt,
-)
+from test_run_action_supervisor_contracts import _remint_contract
 
 
 def _remint(contract, **changes):
@@ -204,7 +197,6 @@ def _pre_release_terminal(
 def _termination_graph(reason):
     activation, adoption, successful_terminal, _nonempty_capture = _result_graph()
     timeout = None
-    capture = None
     loss = None
     retirement_intent = None
     if reason is RunActionProviderTerminationReason.TIMEOUT:
@@ -221,14 +213,8 @@ def _termination_graph(reason):
     elif reason is RunActionProviderTerminationReason.NONZERO_EXIT:
         terminal = _remint_contract(successful_terminal, exit_code=17)
         disposition = RunActionProviderTerminationDisposition.FAILED
-    elif reason is RunActionProviderTerminationReason.EMPTY_RESULT:
+    elif reason is RunActionProviderTerminationReason.MISSING_RESULT:
         terminal = successful_terminal
-        capture = _result_capture_receipt(
-            activation.prepared_execution,
-            activation,
-            terminal,
-            b"",
-        )
         disposition = RunActionProviderTerminationDisposition.FAILED
     elif reason is RunActionProviderTerminationReason.PRE_RELEASE_MAIN_LOSS:
         adoption = None
@@ -299,7 +285,6 @@ def _termination_graph(reason):
         workload_release_adoption=adoption,
         terminal_observation=terminal,
         timeout_directive_publication=timeout,
-        empty_result_capture_receipt=capture,
         pre_release_main_loss_observation=loss,
         credential_retirement_intent=retirement_intent,
     )
@@ -667,32 +652,23 @@ def test_timeout_semantic_and_physical_matchers_compose_exactly():
     )
 
 
-def test_non_timeout_failures_reject_timeout_and_unrelated_capture_evidence():
+def test_non_timeout_failures_reject_timeout_evidence():
     oom = _termination_graph(RunActionProviderTerminationReason.OOM)
     timeout = _termination_graph(
         RunActionProviderTerminationReason.TIMEOUT
     ).timeout_directive_publication
-    empty = _termination_graph(RunActionProviderTerminationReason.EMPTY_RESULT)
 
     with pytest.raises(
         RunActionTerminationContractError,
         match="precedence",
     ):
         _remint(oom, timeout_directive_publication=timeout)
-    with pytest.raises(
-        RunActionTerminationContractError,
-        match="terminal evidence",
-    ):
-        _remint(
-            oom,
-            empty_result_capture_receipt=empty.empty_result_capture_receipt,
-        )
 
 
-def test_oom_nonzero_and_empty_result_are_mutually_exclusive():
+def test_oom_nonzero_and_missing_result_are_mutually_exclusive():
     oom = _termination_graph(RunActionProviderTerminationReason.OOM)
     nonzero = _termination_graph(RunActionProviderTerminationReason.NONZERO_EXIT)
-    empty = _termination_graph(RunActionProviderTerminationReason.EMPTY_RESULT)
+    missing = _termination_graph(RunActionProviderTerminationReason.MISSING_RESULT)
 
     with pytest.raises(
         RunActionTerminationContractError,
@@ -708,29 +684,12 @@ def test_oom_nonzero_and_empty_result_are_mutually_exclusive():
         RunActionTerminationContractError,
         match="terminal evidence",
     ):
-        _remint(empty, empty_result_capture_receipt=None)
+        _remint(missing, reason=RunActionProviderTerminationReason.NONZERO_EXIT)
     with pytest.raises(
         RunActionTerminationContractError,
         match="terminal evidence",
     ):
-        _remint(
-            empty,
-            empty_result_capture_receipt=_result_graph()[3],
-        )
-
-
-def test_empty_capture_is_termination_evidence_not_a_provider_result():
-    empty = _termination_graph(RunActionProviderTerminationReason.EMPTY_RESULT)
-
-    with pytest.raises(
-        RunActionRecoveryError,
-        match="lacks exact terminal capture evidence",
-    ):
-        RunActionProviderResult(
-            terminal_observation=empty.terminal_observation,
-            result_capture_receipt=empty.empty_result_capture_receipt,
-            result_payload=b"",
-        )
+        _remint(nonzero, reason=RunActionProviderTerminationReason.MISSING_RESULT)
 
 
 def test_released_terminal_must_join_the_exact_activation_and_adoption():

@@ -58,8 +58,9 @@ implemented. Physical timeout publication now performs the sole durable
 signal authority. Exact at-least-once Docker TERM/KILL containment now preserves
 the original absolute deadline, and a trusted terminal leaf registers the
 existing timeout termination evidence graph. One unified trusted natural-terminal
-leaf now resolves nonempty result, empty result, nonzero exit, or OOM under the
-retained release. A separate pre-release path classifies main loss without
+leaf now resolves an atomically published nonempty result, a missing result,
+nonzero exit, or OOM under the retained release. A separate pre-release path
+classifies main loss without
 leaking descriptors, freshly reproves the stable loss occurrence during
 continuation, and transfers its physical fence through terminal publication.
 An exclusive sibling path now classifies the still-present event-5 main as
@@ -792,13 +793,14 @@ file by mount/device/inode, mode, digest, and absence of an interpreter or
 dynamic dependencies. The main container never sees the volume root or sentinel.
 It receives only prefix-disjoint named-volume subpaths for workspace, input,
 result, optional credential delivery, and temporary storage. Input and
-credential mounts are read-only; result and temporary mounts are writable;
-workspace access exactly follows the reservation.
+credential mounts are read-only; the result mount is also read-only to the
+workload, while only temporary storage is writable; workspace access exactly
+follows the reservation.
 Input and optional credential final names are absent before spawn; their exact
-private parent directories are the durable delivery-slot authority. Only the
-result is a pre-created empty, private, singly linked regular file.
+private parent directories are the durable delivery-slot authority. The result
+directory is likewise prepared empty; `result.blob` and its inode do not exist.
 `PreparedExecution` pins every path Docker will resolve at start: the input
-parent, optional credential parent, result parent and result inode, temporary
+parent, optional credential parent, empty result parent, temporary
 root, optional workspace root, volume root, and sentinel by mount/device/inode.
 The workspace is copied into the same bounded generation and its observed tree
 digest, Git-closure digest, entry count, and byte count must equal the durable
@@ -855,10 +857,9 @@ supervisor then populates the prepared delivery slots and derives an
 `ActivationRevalidationReceipt` after re-inspecting the volume, physical
 generation sentinel, running keeper, copied workspace,
 every prepared mounted-subpath directory, delivered input/credential files, the
-pre-created result parent and file, empty temporary root, optional workspace
-root, and still-never-started main container. The result-file observation carries
-its exact prepared parent identity; temporary and workspace roots have distinct
-activation observations. Immutable
+still-empty result publication directory, empty temporary root, optional
+workspace root, and still-never-started main container. Result, temporary, and
+workspace roots have distinct activation observations. Immutable
 volume facts must equal preparation; allocated usage and actual available
 blocks/bytes/inodes must form the exact delivery-delta `statfs` relationship, and
 the fresh observation must retain positive result-plus-temporary headroom. Workspace
@@ -941,7 +942,7 @@ Before the irrevocable release link, the supervisor sandwiches the init and
 wrapper process generations/cgroups, validates the pinned helper bind, and joins
 every actual in-container mount root to event 5 by mount/device/inode and access
 mode. It separately reproves the input digest/inode, credential inode/size and
-opaque lease authority, original empty result inode and parent, empty temporary
+opaque lease authority, empty result publication directory, empty temporary
 root, optional workspace frontier, and empty control root. The content-addressed
 workload-release receipt binds that complete resolved-mount observation, the
 durable event-5 event ID, prepared/spawn/provider identities, barrier protocol,
@@ -968,17 +969,19 @@ corrupt, also without recreation. A typed terminal-failure or resource-loss
 receipt, not a proof-free enum, is required before interruption.
 
 Provider completion has three evidence-bearing outcomes. `RESULT_CAPTURED`
-requires exit zero, no OOM, the original bounded result inode, and the exact
-prepared result-parent authority. `PROVIDER_TERMINATED` carries a
+requires exit zero, no OOM, one nonempty atomically published final inode, and
+the exact prepared result-directory authority plus the complete terminal
+candidate that authorized framework publication. `PROVIDER_TERMINATED` carries a
 content-addressed receipt whose disposition is `FAILED` for provider failures
 or `INTERRUPTED` for supervisor containment. That receipt disposition is not the
 deleted overloaded execution-event kind: the ledger event remains
-`PROVIDER_TERMINATED`. Its closed reason set is timeout, OOM, nonzero exit, empty
+`PROVIDER_TERMINATED`. Its closed reason set is timeout, OOM, nonzero exit, missing
 result, positive pre-release main loss, or positive pre-release present-exited
 main. It embeds exact released-terminal evidence, a narrowly pre-release
 resource-loss observation, or a release-independent exited-main observation;
 only released branches include the workload release receipt. Any
-wrong/unstable/oversized result inode, released resource disappearance, or mixed
+wrong/unstable/zero-length/oversized result inode, noncanonical result-directory
+topology, released resource disappearance, or mixed
 Docker inventory remains `UNKNOWN`; it is never mislabeled as a provider
 failure. Event 6 stores the complete result or termination evidence before
 cleanup.
@@ -1209,20 +1212,18 @@ Runtime-volume preparation now holds that same keeper/process/root descriptor
 lease from the empty proof through publication and final observation. It
 pre-admits physical workspace and `.git` bytes/inodes, transient staging, every
 future delivery/result/temporary reservation, and requires strict residual
-headroom. Private directories, one empty result file, and the complete workspace
-are built under an unpublished staging directory. Input and optional credential
-directories are persisted as exact empty delivery slots: their final filenames
-do not exist at preparation, so no authoritative writable payload inode can
-contain a torn write. Activation writes a complete payload into an anonymous
-`O_TMPFILE`, validates and fsyncs it, changes it to read-only mode, publishes it
-exactly once with `linkat(AT_EMPTY_PATH)` and no replacement, fsyncs the slot
-directory, and retains the exact linked descriptor through aggregate
-construction. Immediately before the candidate can return, activation joins the
-sole final pathname back to that retained mount/device/inode, metadata, and
-complete bytes, then rechecks the retained descriptor before releasing it. A
-crash before the link leaves the slot empty; a crash after the link leaves only
-the complete final file. Unsupported filesystems and collisions fail loud; there
-is no named staging or pathname-based fallback. A completed
+headroom. Private directories and the complete workspace are built under an
+unpublished staging directory. Input, optional credential, and result
+directories are persisted empty: no final payload inode exists at preparation.
+Activation atomically publishes the complete input and credential payloads while
+revalidating that the result directory is still empty before barrier start and
+release. Each delivered payload is written into an anonymous `O_TMPFILE`,
+read back byte-exactly, fsynced, changed to read-only mode, published once with
+`linkat(AT_EMPTY_PATH)` and no replacement, followed by a directory fsync and
+pathname-to-retained-inode reopen. A crash before the link leaves the delivery
+slot empty; a crash after the link leaves only the complete final file.
+Unsupported filesystems and collisions fail loud; there is no named staging or
+pathname-based fallback. A completed
 read-only sentinel inode moves through a nonce-bound pending name and is
 atomically published with `RENAME_NOREPLACE` only after every final directory is
 in place and staging is gone; that rename is the final namespace mutation.
@@ -1266,11 +1267,24 @@ Full recovery may create only after proven total absence or compose this exact
 adopted layout with the separately reobserved inert main. Partial or ambiguous
 resources remain unresolved until positive terminal cleanup exists; no path
 repairs a prefix or mints replacement allocation authority.
-The result boundary no longer admits provider bytes alone. Result event 6 now
-carries the release adoption, terminal main-container observation, and
-descriptor-capture receipt
-that binds the terminal fence, prepared result file, exact runtime generation,
-fresh physical volume evidence, file metadata, size, and digest. `RESULT_RECEIVED`
+The result boundary no longer admits provider bytes alone. A trusted
+provider-native consumer validates a complete nonempty canonical result envelope,
+writes it as private `temporary/result.candidate`, and exits zero only after the
+candidate is complete. The workload cannot write the read-only result mount.
+After the exact terminal fence, the trusted supervisor reads and revalidates the
+bounded candidate, writes those bytes to an anonymous `O_TMPFILE` in the prepared
+empty result directory, reads them back byte-exactly, fsyncs the inode, and
+atomically publishes `result.blob` with `linkat(AT_EMPTY_PATH)` and no
+replacement. It then fsyncs the result directory, reopens the final path, and
+proves that pathname, retained descriptor, metadata, and complete bytes name the
+same inode. A crash before the link leaves the result directory empty and the
+candidate recoverable; a crash after the link leaves one complete final that
+must still match the candidate. Result event 6 carries the release adoption,
+terminal main-container
+observation, and descriptor-capture receipt that binds the terminal fence,
+prepared result-directory authority, dynamically published result inode, exact
+runtime generation, fresh physical volume evidence, file metadata, nonzero size,
+and digest. `RESULT_RECEIVED`
 embeds all three authorities before the existing atomic blob-to-event publication
 and revalidates their complete prepared/spawn/container/volume/sentinel/file graph;
 durable recovery therefore replays the captured bytes without contacting the
@@ -1286,17 +1300,20 @@ inspection token exactly once. The continuation capability retains that exact
 trusted terminal: a terminal adapter cannot return even `PENDING` without
 completing the leaf, and `RESULT_CAPTURED` must carry the retained observation
 unchanged. Exit zero, nonzero, and OOM remain typed terminal facts; only the
-adopted-release result join admits zero/no-OOM capture from the same released
+adopted-release result join admits exit-zero/no-OOM capture from the same released
 container and start timestamp. Descriptor-bound result capture is now
 implemented as a descriptor-bound primitive inside the unified trusted
 natural-terminal leaf. The resolver retains the adopted release,
 same host boot, exact Docker inventory, and terminal occurrence around a
-keeper-root descriptor read; reopens the original prepared result inode without
-following links or blocking on special files; and sandwiches its parent,
-sentinel, keeper generation, root topology, and `statvfs` evidence. The
-configured result bound is checked against the policy and the complete payload
-is read through EOF. A zero-byte original inode now remains exact descriptor
-evidence for `EMPTY_RESULT`, while `RunActionProviderResult` and durable result
+keeper-root descriptor read. It accepts only an empty result directory or the
+sole final `result.blob`, never follows links or blocks on special files, and
+sandwiches the private candidate, prepared parent, dynamically observed final
+inode, sentinel, keeper generation, root topology, and `statvfs` evidence. The
+configured result bound is checked against policy and the complete candidate is
+read through EOF. A direct final without its candidate is invalid. When both the
+candidate and final are absent, capture returns no receipt and no bytes; exit zero
+then becomes `MISSING_RESULT`. A present zero-length candidate or final is
+invalid rather than absence, while `RunActionProviderResult` and durable result
 authority remain strictly nonempty. Capture authority can be taken only after
 the trusted terminal is observed under an exact retained `RELEASED` topology.
 That natural terminal is the linearization fact: if no timeout file was durably
@@ -1313,7 +1330,7 @@ release-derived deadline and a descriptor-read, no-replace `control/timeout`
 publication. A durable `TIMED_OUT` topology outranks every later exit fact; a
 natural terminal observed while topology remains `RELEASED` outranks an
 unpublished timeout attempt. Without durable timeout authority, OOM,
-nonzero exit, and descriptor-proved empty result are mutually exclusive failed
+nonzero exit, and descriptor-proved missing result are mutually exclusive failed
 outcomes. Pre-release provider failure has two mutually exclusive positive branches:
 stable same-boot proof that the exact volume and keeper remain while the main is
 absent, or stable same-boot proof that those resources and the exact main remain
@@ -1414,8 +1431,8 @@ before the link leaves `RELEASED`; any crash after the link leaves a canonical
 one-shot for its capability. No path in this publisher can stop, kill, remove,
 or otherwise mutate a provider resource.
 
-Docker containment, terminal-failure/empty-result evidence, positive
-timeout containment is now a second trusted physical leaf. It accepts only a
+Docker containment and terminal-failure/missing-result evidence are now wired.
+Positive timeout containment is a second trusted physical leaf. It accepts only a
 fresh `TIMED_OUT + RUNNING_CONTINUABLE` capability and managers whose read and
 mutation projections were issued by the same exact pinned Docker runtime.
 The retained timeout topology, boot identity, resource graph, volume, and exact
@@ -1449,7 +1466,7 @@ The BOOTTIME sample is the logical TERM-versus-KILL decision point. A synchronou
 Docker CLI cannot promise daemon delivery at an exact nanosecond; the enforceable
 contract is that recovery always uses the original never-reset decision deadline.
 
-Natural terminal-failure/empty-result evidence, positive pre-release loss, and
+Natural terminal-failure/missing-result evidence, positive pre-release loss, and
 positive pre-release present-exited inspection are now wired through trusted
 continuation leaves and exercised against real zero-exit, nonzero, OOM-killed,
 physically removed, and barrier-killed-but-present Docker occurrences. Durable
@@ -1581,11 +1598,18 @@ before paid-provider activation.
 ## Failure and trust behavior
 
 - Missing/corrupt/unauthorized/incompatible/expired artifacts fail before spend.
-- A provider-native consumer may publish `result.blob` only after complete
-  canonical-envelope and response-schema validation, using an atomic final write.
-  CLI, schema, or provider failures exit without a result and follow typed provider
-  termination; a malformed durable `RESULT_RECEIVED` is contract corruption and
-  fails loud rather than being reclassified or discarded.
+- A provider-native consumer may write only the private terminal candidate after
+  complete canonical-envelope and response-schema validation; its result mount is
+  read-only. After exit zero, the trusted supervisor writes an anonymous
+  `O_TMPFILE`, reads the complete candidate bytes back, fsyncs the inode, links it
+  into the retained empty result directory with `linkat(AT_EMPTY_PATH)` and no
+  replacement, fsyncs that directory, and reopens the sole final path to prove
+  the same inode and bytes. CLI/schema/provider failures leave no candidate;
+  supervisor write or pre-link failures leave no final and retain the candidate
+  for recovery. Exit zero with both candidate and final absent is
+  `MISSING_RESULT`; a direct final without its candidate, a present zero-length
+  candidate/final, any extra result-directory entry, or a malformed durable
+  `RESULT_RECEIVED` fails loud rather than being reclassified or discarded.
 - Network failure during fresh resolution fails; no local unpinned substitute.
 - A verified local cache may support normal offline scientific work only after one
   exact launch is resolved and pinned.
@@ -1650,6 +1674,17 @@ before paid-provider activation.
   publication, unsupported anonymous-file/link syscalls, parent/inode
   substitution, exact delivery `statfs` deltas, and retained result/temporary
   headroom.
+- In real Docker, prove the result mount is read-only and the prepared, activated,
+  and barrier-blocked result directory remains empty. The terminal workload may
+  write only `temporary/result.candidate`; inject supervisor failure after
+  anonymous-file creation, write, full readback, inode fsync, no-replace link,
+  directory fsync, and final reopen. Before the link, the candidate must remain
+  recoverable; exit zero with both candidate and final absent must become
+  `MISSING_RESULT`; after the link, capture must bind the sole complete dynamic
+  inode to the prepared result-directory authority and the exact candidate.
+  Reject a direct final without its candidate, zero-length candidate/final,
+  symlink, special file, hard link, oversized payload, collision, and every extra
+  result-directory entry.
 - Inject death before wrapper start, after an ambiguous start response, while
   barrier-blocked, after resolved-mount proof, immediately after the release
   link, while running, during deadline stop/kill, after terminal inspection, and
@@ -1679,10 +1714,11 @@ before paid-provider activation.
   and prove it remains blocked until matching generation bytes replace it.
 - After the released target exits, reopen event 5, descriptor-adopt the same
   release, parse the exact exited Docker occurrence twice, consume one sealed
-  terminal reinspection capability, descriptor-capture the original bounded
-  result inode, and prove the exact result graph is interpreted and durably
-  accepted through event 8 before ordered cleanup.
-- For accepted result, timeout, empty result, nonzero exit, OOM, pre-release main
+  terminal reinspection capability, descriptor-capture the atomically published
+  nonempty result inode under the prepared result-directory authority, and prove
+  the exact result graph is interpreted and durably accepted through event 8
+  before ordered cleanup.
+- For accepted result, timeout, missing result, nonzero exit, OOM, pre-release main
   loss, pre-release present-exited main, credential-expired inert removal and
   running-barrier kill, fully prepared frontier invalidation,
   and each admitted allocation-only partial residue, remove only the exact main →

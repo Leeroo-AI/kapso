@@ -590,12 +590,14 @@ def open_run_action_blocked_workload(
             launch_settings,
         )
         control_root = retained_roots_by_kind[RunActionResolvedMountKind.CONTROL]
+        result_root = retained_roots_by_kind[RunActionResolvedMountKind.RESULT]
         temporary_root = retained_roots_by_kind[RunActionResolvedMountKind.TEMPORARY]
         control_entries = _exact_directory_entries(control_root.descriptor)
+        result_entries = _exact_directory_entries(result_root.descriptor)
         temporary_entries = _exact_directory_entries(temporary_root.descriptor)
-        if control_entries or temporary_entries:
+        if control_entries or result_entries or temporary_entries:
             raise RunActionResolvedWorkloadError(
-                "control or temporary mount is nonempty before release"
+                "control, result, or temporary mount is nonempty before release"
             )
         resolved = RunActionResolvedWorkloadObservation.mint(
             activation_revalidation_receipt=activation,
@@ -608,6 +610,7 @@ def open_run_action_blocked_workload(
             resolved_file_observations=file_observations,
             resolved_workspace_observation=workspace_observation,
             control_entry_count=0,
+            result_entry_count=0,
             temporary_entry_count=0,
             control_directory_topology=RunActionControlDirectoryTopology.EMPTY,
         )
@@ -1301,12 +1304,8 @@ def _volume_source_authorities(
             prepared.input_delivery_slot.owner_group_id,
             prepared.input_delivery_slot.mode,
         ),
-        RunActionResolvedMountKind.RESULT: _file_parent_source(
-            prepared.result_directory.prepared_runtime_directory_id,
-            activation.result_file_observation,
-            prepared.result_directory.owner_user_id,
-            prepared.result_directory.owner_group_id,
-            prepared.result_directory.mode,
+        RunActionResolvedMountKind.RESULT: _runtime_directory_source(
+            directories[RunActionPreparedRuntimeDirectoryKind.RESULT]
         ),
         RunActionResolvedMountKind.CONTROL: _runtime_directory_source(
             directories[RunActionPreparedRuntimeDirectoryKind.CONTROL]
@@ -1489,6 +1488,9 @@ def _require_logical_mounts_current(
     control_entries = _exact_directory_entries(
         retained_by_kind[RunActionResolvedMountKind.CONTROL].descriptor
     )
+    result_entries = _exact_directory_entries(
+        retained_by_kind[RunActionResolvedMountKind.RESULT].descriptor
+    )
     temporary_entries = _exact_directory_entries(
         retained_by_kind[RunActionResolvedMountKind.TEMPORARY].descriptor
     )
@@ -1496,6 +1498,7 @@ def _require_logical_mounts_current(
         current_files != resolved.resolved_file_observations
         or current_workspace != resolved.resolved_workspace_observation
         or control_entries
+        or result_entries
         or temporary_entries
     ):
         raise RunActionResolvedWorkloadError(
@@ -1514,7 +1517,6 @@ def _resolved_file_observations(
     observations = []
     for activated in (
         activation.input_file_observation,
-        activation.result_file_observation,
         activation.credential_file_observation,
     ):
         if activated is None:

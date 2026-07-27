@@ -20,8 +20,6 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RunActionCredentialMode,
     RunActionPreparedDeliverySlot,
     RunActionPreparedExecution,
-    RunActionPreparedFile,
-    RunActionPreparedFileKind,
     RunActionPreparedRuntimeDirectory,
     RunActionPreparedWorkspaceProof,
     RunActionRuntimeVolumeEvidence,
@@ -180,6 +178,10 @@ def activation_revalidation_receipt_wire_bound(
                 spawn,
             ),
             _activated_runtime_directory_wire(
+                prepared.result_directory,
+                spawn,
+            ),
+            _activated_runtime_directory_wire(
                 prepared.temporary_directory,
                 spawn,
             ),
@@ -196,11 +198,6 @@ def activation_revalidation_receipt_wire_bound(
             content_authority_id=(
                 prepared.preparation_claim.reservation.request_blob.request_blob_id
             ),
-        ),
-        result_file_observation=_activated_result_file_wire(
-            prepared.result_file,
-            prepared.result_directory,
-            spawn,
         ),
         credential_file_observation=(
             None
@@ -342,7 +339,6 @@ def _activated_delivery_file_wire(
         ),
         spawn_commit_id=spawn.spawn_commit_id,
         prepared_parent_authority_id=prepared.prepared_delivery_slot_id,
-        prepared_file_id=None,
         parent_mount_id=prepared.mount_id,
         parent_device=prepared.device,
         parent_inode=prepared.inode,
@@ -363,44 +359,6 @@ def _activated_delivery_file_wire(
         inode=_MAXIMUM_PHYSICAL_INTEGER,
         content_digest=content_digest,
         content_authority_id=content_authority_id,
-    )
-
-
-def _activated_result_file_wire(
-    prepared: RunActionPreparedFile,
-    parent: RunActionPreparedRuntimeDirectory,
-    spawn: RunActionSpawnCommit,
-) -> dict[str, Any]:
-    if prepared.kind is not RunActionPreparedFileKind.RESULT:
-        raise RunActionActivationEnvelopeError(
-            "activation event envelope result authority is invalid"
-        )
-    return _sealed_wire(
-        RunActionActivatedFileObservation,
-        activated_file_observation_id=_content_identifier(
-            RunActionActivatedFileObservation
-        ),
-        spawn_commit_id=spawn.spawn_commit_id,
-        prepared_parent_authority_id=parent.prepared_runtime_directory_id,
-        prepared_file_id=prepared.prepared_file_id,
-        parent_mount_id=parent.mount_id,
-        parent_device=parent.device,
-        parent_inode=parent.inode,
-        runtime_volume_authority_id=prepared.runtime_volume_authority_id,
-        generation_nonce=prepared.generation_nonce,
-        kind=prepared.kind,
-        relative_path=prepared.relative_path,
-        file_type=prepared.file_type,
-        owner_user_id=prepared.owner_user_id,
-        owner_group_id=prepared.owner_group_id,
-        mode=prepared.mode,
-        link_count=prepared.link_count,
-        size_bytes=prepared.size_bytes,
-        mount_id=prepared.mount_id,
-        device=prepared.device,
-        inode=prepared.inode,
-        content_digest=None,
-        content_authority_id=None,
     )
 
 

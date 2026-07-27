@@ -374,3 +374,54 @@ def test_directory_entries_are_exact_and_sorted(tmp_path):
     with ExitStack() as opened:
         opened.callback(os.close, descriptor)
         assert workload_module._exact_directory_entries(descriptor) == ("a", "z")
+
+
+def test_logical_mount_revalidation_rejects_a_prestart_result(tmp_path, monkeypatch):
+    resolved = _resolved_graph()
+    retained_roots = []
+    with ExitStack() as opened:
+        for position, root in enumerate(resolved.resolved_mount_root_observations):
+            directory = tmp_path / str(position)
+            directory.mkdir()
+            if root.kind is workload_module.RunActionResolvedMountKind.RESULT:
+                (directory / "result.blob").write_bytes(b"premature")
+            descriptor = os.open(
+                directory,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+            )
+            opened.callback(os.close, descriptor)
+            metadata = os.fstat(descriptor)
+            retained_roots.append(
+                workload_module._RetainedResolvedRoot(
+                    destination=root.container_destination,
+                    descriptor=descriptor,
+                    metadata=workload_module._stable_metadata(metadata),
+                    mount_id=read_run_action_descriptor_mount_id(
+                        descriptor,
+                        _RUN_ACTION_PROCESS_SNAPSHOT_SIZE_BYTES,
+                    ),
+                    process_snapshot_size_limit_bytes=(
+                        _RUN_ACTION_PROCESS_SNAPSHOT_SIZE_BYTES
+                    ),
+                )
+            )
+        monkeypatch.setattr(
+            workload_module,
+            "_resolved_file_observations",
+            lambda *_arguments: resolved.resolved_file_observations,
+        )
+        monkeypatch.setattr(
+            workload_module,
+            "_resolved_workspace_observation",
+            lambda *_arguments: resolved.resolved_workspace_observation,
+        )
+
+        with pytest.raises(
+            RunActionResolvedWorkloadError,
+            match="logical files or runtime directories changed",
+        ):
+            workload_module._require_logical_mounts_current(
+                resolved,
+                tuple(retained_roots),
+                SimpleNamespace(),
+            )
