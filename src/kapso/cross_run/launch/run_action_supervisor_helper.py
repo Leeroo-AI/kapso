@@ -14,6 +14,7 @@ from typing import BinaryIO
 from kapso.cross_run.canonical import tree_or_blob_digest
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
     DockerRunActionExecutionPolicy,
+    RUN_ACTION_MAXIMUM_PHYSICAL_INTEGER,
     RUN_ACTION_SUPERVISOR_HELPER_DESTINATION,
     RunActionDockerInitSourceEvidence,
     RunActionSupervisorHelperEvidence,
@@ -66,14 +67,11 @@ class RunActionProcessStatObservation:
 
     def __post_init__(self) -> None:
         if (
-            type(self.process_id) is not int
-            or self.process_id <= 0
+            not _bounded_physical_integer(self.process_id, 1)
             or type(self.state) is not str
             or self.state not in _LIVE_PROCESS_STATES
-            or type(self.parent_process_id) is not int
-            or self.parent_process_id < 0
-            or type(self.start_time_ticks) is not int
-            or self.start_time_ticks <= 0
+            or not _bounded_physical_integer(self.parent_process_id, 0)
+            or not _bounded_physical_integer(self.start_time_ticks, 1)
         ):
             raise RunActionSupervisorHelperError(
                 "run-action process stat observation is malformed"
@@ -186,6 +184,7 @@ def observe_supervisor_helper(
         path,
         policy.supervisor_helper_executable_digest,
         "supervisor helper",
+        policy.supervisor_limits.process_snapshot_size_bytes,
     )
     return RunActionSupervisorHelperEvidence.mint(
         helper_authority_id=policy.supervisor_helper_executable_authority_id,
@@ -231,6 +230,7 @@ def observe_docker_init_source(
         path,
         policy.docker_init_executable_digest,
         "Docker init executable",
+        policy.supervisor_limits.process_snapshot_size_bytes,
     )
     return RunActionDockerInitSourceEvidence.mint(
         init_authority_id=policy.docker_init_executable_authority_id,
@@ -255,6 +255,7 @@ def observe_mounted_keeper_helper(
     *,
     container_id: str,
     process_id: int,
+    process_snapshot_size_limit_bytes: int,
 ) -> RunActionMountedKeeperHelperEvidence:
     """Prove the exact issued helper inode is mounted in the keeper process."""
 
@@ -262,8 +263,9 @@ def observe_mounted_keeper_helper(
         type(source_evidence) is not RunActionSupervisorHelperEvidence
         or type(container_id) is not str
         or _CONTAINER_ID_PATTERN.fullmatch(container_id) is None
-        or type(process_id) is not int
-        or process_id <= 0
+        or not _bounded_physical_integer(process_id, 1)
+        or type(process_snapshot_size_limit_bytes) is not int
+        or process_snapshot_size_limit_bytes <= 0
     ):
         raise RunActionSupervisorHelperError(
             "mounted supervisor helper requires exact source and process identities"
@@ -277,16 +279,19 @@ def observe_mounted_keeper_helper(
         process_stat_before = read_run_action_process_stat_from_descriptor(
             process_descriptor,
             process_id,
+            process_snapshot_size_limit_bytes,
         )
         process_cgroup_path_before = (
             read_run_action_process_cgroup_path_from_descriptor(
                 process_descriptor,
                 container_id,
+                process_snapshot_size_limit_bytes,
             )
         )
         process_root_descriptor, _ = open_run_action_process_root_descriptor(
             descriptors,
             process_descriptor,
+            process_snapshot_size_limit_bytes,
         )
         mounted_descriptor = os.open(
             RUN_ACTION_SUPERVISOR_HELPER_DESTINATION.removeprefix("/"),
@@ -297,14 +302,17 @@ def observe_mounted_keeper_helper(
             mounted_descriptor,
             source_evidence.executable_digest,
             "mounted supervisor helper",
+            process_snapshot_size_limit_bytes,
         )
         process_cgroup_path_after = read_run_action_process_cgroup_path_from_descriptor(
             process_descriptor,
             container_id,
+            process_snapshot_size_limit_bytes,
         )
         process_stat_after = read_run_action_process_stat_from_descriptor(
             process_descriptor,
             process_id,
+            process_snapshot_size_limit_bytes,
         )
     if (
         process_stat_after.process_id != process_stat_before.process_id
@@ -336,6 +344,7 @@ def _observe_static_executable_path(
     path: Path,
     expected_executable_digest: str,
     description: str,
+    process_snapshot_size_limit_bytes: int,
 ) -> tuple[os.stat_result, int]:
     descriptor = os.open(
         path,
@@ -345,6 +354,7 @@ def _observe_static_executable_path(
         descriptor,
         expected_executable_digest,
         description,
+        process_snapshot_size_limit_bytes,
     )
 
 
@@ -352,12 +362,14 @@ def _observe_static_executable_descriptor(
     descriptor: int,
     expected_executable_digest: str,
     description: str,
+    process_snapshot_size_limit_bytes: int,
 ) -> tuple[os.stat_result, int]:
     with os.fdopen(descriptor, "rb") as handle:
         observation, metadata = _verify_run_action_executable_descriptor(
             handle.fileno(),
             expected_executable_digest,
             description,
+            process_snapshot_size_limit_bytes,
         )
     return metadata, observation.mount_id
 
@@ -365,6 +377,7 @@ def _observe_static_executable_descriptor(
 def verify_run_action_executable_descriptor(
     descriptor: int,
     expected_executable_digest: str,
+    process_snapshot_size_limit_bytes: int,
 ) -> RunActionExecutableDescriptorObservation:
     """Verify retained static executable authority without consuming its descriptor."""
 
@@ -372,6 +385,7 @@ def verify_run_action_executable_descriptor(
         descriptor,
         expected_executable_digest,
         "run-action executable descriptor",
+        process_snapshot_size_limit_bytes,
     )
     return observation
 
@@ -380,6 +394,7 @@ def _verify_run_action_executable_descriptor(
     descriptor: int,
     expected_executable_digest: str,
     description: str,
+    process_snapshot_size_limit_bytes: int,
 ) -> tuple[RunActionExecutableDescriptorObservation, os.stat_result]:
     if (
         type(descriptor) is not int
@@ -388,16 +403,24 @@ def _verify_run_action_executable_descriptor(
         or _SHA256_DIGEST_PATTERN.fullmatch(expected_executable_digest) is None
         or type(description) is not str
         or not description
+        or type(process_snapshot_size_limit_bytes) is not int
+        or process_snapshot_size_limit_bytes <= 0
     ):
         raise RunActionSupervisorHelperError(
             "run-action executable descriptor authority is malformed"
         )
     metadata_before = os.fstat(descriptor)
-    mount_id_before = read_run_action_descriptor_mount_id(descriptor)
+    mount_id_before = read_run_action_descriptor_mount_id(
+        descriptor,
+        process_snapshot_size_limit_bytes,
+    )
     _require_static_executable_metadata(metadata_before, description)
     payload = os.pread(descriptor, metadata_before.st_size + 1, 0)
     metadata_after = os.fstat(descriptor)
-    mount_id_after = read_run_action_descriptor_mount_id(descriptor)
+    mount_id_after = read_run_action_descriptor_mount_id(
+        descriptor,
+        process_snapshot_size_limit_bytes,
+    )
     executable_digest = tree_or_blob_digest(payload)
     if (
         _stable_metadata(metadata_before) != _stable_metadata(metadata_after)
@@ -428,14 +451,16 @@ def _verify_run_action_executable_descriptor(
 def read_run_action_process_stat_from_descriptor(
     process_descriptor: int,
     process_id: int,
+    byte_limit: int,
 ) -> RunActionProcessStatObservation:
     """Read one live Linux process observation through an open proc directory."""
 
     if (
         type(process_descriptor) is not int
         or process_descriptor < 0
-        or type(process_id) is not int
-        or process_id <= 0
+        or not _bounded_physical_integer(process_id, 1)
+        or type(byte_limit) is not int
+        or byte_limit <= 0
     ):
         raise RunActionSupervisorHelperError("run-action process identity is malformed")
     descriptor = os.open(
@@ -444,7 +469,11 @@ def read_run_action_process_stat_from_descriptor(
         dir_fd=process_descriptor,
     )
     with os.fdopen(descriptor, "rb") as handle:
-        payload = handle.read()
+        payload = _read_complete_bounded_payload(
+            handle,
+            byte_limit,
+            "run-action process stat",
+        )
     return _parse_run_action_process_stat(payload, process_id)
 
 
@@ -452,7 +481,7 @@ def _parse_run_action_process_stat(
     payload: bytes,
     process_id: int,
 ) -> RunActionProcessStatObservation:
-    if type(payload) is not bytes or type(process_id) is not int or process_id <= 0:
+    if type(payload) is not bytes or not _bounded_physical_integer(process_id, 1):
         raise RunActionSupervisorHelperError(
             "run-action process stat identity is malformed"
         )
@@ -476,9 +505,8 @@ def _parse_run_action_process_stat(
         or any(not field for field in fields)
         or len(fields[0]) != 1
         or fields[0].decode("ascii") not in _LIVE_PROCESS_STATES
-        or not fields[1].isdigit()
-        or not fields[19].isdigit()
-        or int(fields[19]) <= 0
+        or not _canonical_unsigned_64_text(fields[1], minimum=0)
+        or not _canonical_unsigned_64_text(fields[19], minimum=1)
     ):
         raise RunActionSupervisorHelperError(
             "run-action process is not one live process generation"
@@ -493,10 +521,16 @@ def _parse_run_action_process_stat(
 
 def read_run_action_process_command_line_from_descriptor(
     process_descriptor: int,
+    byte_limit: int,
 ) -> tuple[bytes, ...]:
     """Read the complete byte-exact argv through an open proc directory."""
 
-    if type(process_descriptor) is not int or process_descriptor < 0:
+    if (
+        type(process_descriptor) is not int
+        or process_descriptor < 0
+        or type(byte_limit) is not int
+        or byte_limit <= 0
+    ):
         raise RunActionSupervisorHelperError(
             "run-action process command line requires an exact process descriptor"
         )
@@ -506,7 +540,11 @@ def read_run_action_process_command_line_from_descriptor(
         dir_fd=process_descriptor,
     )
     with os.fdopen(descriptor, "rb") as handle:
-        payload = handle.read()
+        payload = _read_complete_bounded_payload(
+            handle,
+            byte_limit,
+            "run-action process command line",
+        )
     return _parse_run_action_process_command_line(payload)
 
 
@@ -520,8 +558,7 @@ def read_run_action_process_direct_child_from_descriptor(
     if (
         type(process_descriptor) is not int
         or process_descriptor < 0
-        or type(process_id) is not int
-        or process_id <= 0
+        or not _bounded_physical_integer(process_id, 1)
         or type(byte_limit) is not int
         or byte_limit <= 0
     ):
@@ -560,23 +597,18 @@ def _parse_run_action_direct_child(payload: bytes) -> int:
         type(payload) is not bytes
         or not payload.endswith(b" ")
         or not payload[:-1]
-        or not payload[:-1].isdigit()
+        or not _canonical_unsigned_64_text(payload[:-1], minimum=1)
     ):
         raise RunActionSupervisorHelperError(
             "run-action process lacks exactly one direct child"
         )
-    child_process_id = int(payload[:-1])
-    if child_process_id <= 0:
-        raise RunActionSupervisorHelperError(
-            "run-action process lacks exactly one direct child"
-        )
-    return child_process_id
+    return int(payload[:-1])
 
 
 def read_run_action_process_mount_info_from_descriptor(
     process_descriptor: int,
     byte_limit: int,
-) -> str:
+) -> bytes:
     """Read one complete bounded mountinfo snapshot through a retained proc PID."""
 
     if (
@@ -599,17 +631,11 @@ def read_run_action_process_mount_info_from_descriptor(
             byte_limit,
             "run-action mountinfo",
         )
-    if (
-        not payload
-        or not payload.isascii()
-        or not payload.endswith(b"\n")
-        or b"\x00" in payload
-        or b"\r" in payload
-    ):
+    if not payload or not payload.endswith(b"\n") or b"\x00" in payload:
         raise RunActionSupervisorHelperError(
-            "run-action mountinfo is not exact full-EOF ASCII text"
+            "run-action mountinfo is not exact full-EOF bytes"
         )
-    return payload.decode("ascii")
+    return payload
 
 
 def read_run_action_host_boot_id(proc_root_descriptor: int) -> str:
@@ -687,6 +713,7 @@ def _parse_run_action_process_command_line(
 def read_run_action_process_cgroup_path_from_descriptor(
     process_descriptor: int,
     container_id: str,
+    byte_limit: int,
 ) -> str:
     """Read one container cgroup through an already-open proc process directory."""
 
@@ -695,6 +722,8 @@ def read_run_action_process_cgroup_path_from_descriptor(
         or process_descriptor < 0
         or type(container_id) is not str
         or _CONTAINER_ID_PATTERN.fullmatch(container_id) is None
+        or type(byte_limit) is not int
+        or byte_limit <= 0
     ):
         raise RunActionSupervisorHelperError(
             "run-action cgroup read requires exact process and container identities"
@@ -705,17 +734,26 @@ def read_run_action_process_cgroup_path_from_descriptor(
         dir_fd=process_descriptor,
     )
     with os.fdopen(descriptor, "rb") as handle:
-        payload = handle.read()
+        payload = _read_complete_bounded_payload(
+            handle,
+            byte_limit,
+            "run-action process cgroup",
+        )
     return _parse_run_action_process_cgroup_path(payload, container_id)
 
 
 def open_run_action_process_root_descriptor(
     descriptors: ExitStack,
     process_descriptor: int,
+    process_snapshot_size_limit_bytes: int,
 ) -> tuple[int, RunActionProcessDescriptorMetadata]:
     """Open and identify the process root relative to its proc descriptor."""
 
-    _require_process_descriptor_open_arguments(descriptors, process_descriptor)
+    _require_process_descriptor_open_arguments(
+        descriptors,
+        process_descriptor,
+        process_snapshot_size_limit_bytes,
+    )
     descriptor = os.open(
         "root",
         os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC,
@@ -725,16 +763,22 @@ def open_run_action_process_root_descriptor(
     return descriptor, _observe_run_action_process_descriptor_metadata(
         descriptor,
         "root",
+        process_snapshot_size_limit_bytes,
     )
 
 
 def open_run_action_process_executable_descriptor(
     descriptors: ExitStack,
     process_descriptor: int,
+    process_snapshot_size_limit_bytes: int,
 ) -> tuple[int, RunActionProcessDescriptorMetadata]:
     """Open and identify the process executable relative to its proc descriptor."""
 
-    _require_process_descriptor_open_arguments(descriptors, process_descriptor)
+    _require_process_descriptor_open_arguments(
+        descriptors,
+        process_descriptor,
+        process_snapshot_size_limit_bytes,
+    )
     descriptor = os.open(
         "exe",
         os.O_RDONLY | os.O_CLOEXEC,
@@ -744,6 +788,7 @@ def open_run_action_process_executable_descriptor(
     return descriptor, _observe_run_action_process_descriptor_metadata(
         descriptor,
         "exe",
+        process_snapshot_size_limit_bytes,
     )
 
 
@@ -751,10 +796,15 @@ def open_run_action_process_namespace_descriptor(
     descriptors: ExitStack,
     process_descriptor: int,
     namespace_name: str,
+    process_snapshot_size_limit_bytes: int,
 ) -> tuple[int, RunActionProcessDescriptorMetadata]:
     """Open and identify one admitted namespace relative to a proc descriptor."""
 
-    _require_process_descriptor_open_arguments(descriptors, process_descriptor)
+    _require_process_descriptor_open_arguments(
+        descriptors,
+        process_descriptor,
+        process_snapshot_size_limit_bytes,
+    )
     if (
         type(namespace_name) is not str
         or namespace_name not in _PROCESS_NAMESPACE_NAMES
@@ -779,17 +829,21 @@ def open_run_action_process_namespace_descriptor(
     return descriptor, _observe_run_action_process_descriptor_metadata(
         descriptor,
         descriptor_name,
+        process_snapshot_size_limit_bytes,
     )
 
 
 def _require_process_descriptor_open_arguments(
     descriptors: ExitStack,
     process_descriptor: int,
+    process_snapshot_size_limit_bytes: int,
 ) -> None:
     if (
         type(descriptors) is not ExitStack
         or type(process_descriptor) is not int
         or process_descriptor < 0
+        or type(process_snapshot_size_limit_bytes) is not int
+        or process_snapshot_size_limit_bytes <= 0
     ):
         raise RunActionSupervisorHelperError(
             "run-action process resource open requires exact descriptors"
@@ -799,20 +853,29 @@ def _require_process_descriptor_open_arguments(
 def _observe_run_action_process_descriptor_metadata(
     descriptor: int,
     descriptor_name: str,
+    process_snapshot_size_limit_bytes: int,
 ) -> RunActionProcessDescriptorMetadata:
     if (
         type(descriptor) is not int
         or descriptor < 0
         or type(descriptor_name) is not str
         or descriptor_name not in _PROCESS_DESCRIPTOR_FILE_TYPES
+        or type(process_snapshot_size_limit_bytes) is not int
+        or process_snapshot_size_limit_bytes <= 0
     ):
         raise RunActionSupervisorHelperError(
             "run-action process descriptor observation is malformed"
         )
     metadata_before = os.fstat(descriptor)
-    mount_id_before = read_run_action_descriptor_mount_id(descriptor)
+    mount_id_before = read_run_action_descriptor_mount_id(
+        descriptor,
+        process_snapshot_size_limit_bytes,
+    )
     metadata_after = os.fstat(descriptor)
-    mount_id_after = read_run_action_descriptor_mount_id(descriptor)
+    mount_id_after = read_run_action_descriptor_mount_id(
+        descriptor,
+        process_snapshot_size_limit_bytes,
+    )
     expected_file_type = _PROCESS_DESCRIPTOR_FILE_TYPES[descriptor_name]
     file_type = (
         "directory"
@@ -902,10 +965,18 @@ def _require_static_executable_metadata(
         )
 
 
-def read_run_action_descriptor_mount_id(descriptor: int) -> int:
+def read_run_action_descriptor_mount_id(
+    descriptor: int,
+    byte_limit: int,
+) -> int:
     """Read the kernel mount identity for one already-open descriptor."""
 
-    if type(descriptor) is not int or descriptor < 0:
+    if (
+        type(descriptor) is not int
+        or descriptor < 0
+        or type(byte_limit) is not int
+        or byte_limit <= 0
+    ):
         raise RunActionSupervisorHelperError(
             "run-action descriptor mount identity requires an exact descriptor"
         )
@@ -933,23 +1004,43 @@ def read_run_action_descriptor_mount_id(descriptor: int) -> int:
             dir_fd=fdinfo_directory_descriptor,
         )
         with os.fdopen(fdinfo_descriptor, "rb") as handle:
-            payload = handle.read()
+            payload = _read_complete_bounded_payload(
+                handle,
+                byte_limit,
+                "run-action descriptor fdinfo",
+            )
     prefix = _FDINFO_MOUNT_ID_PREFIX.encode("ascii")
     values = tuple(
         line.removeprefix(prefix)
         for line in payload.splitlines()
         if line.startswith(prefix)
     )
-    if (
-        len(values) != 1
-        or not values[0]
-        or not values[0].isdigit()
-        or int(values[0]) <= 0
-    ):
+    if len(values) != 1 or not _canonical_unsigned_64_text(values[0], minimum=1):
         raise RunActionSupervisorHelperError(
             "supervisor helper descriptor lacks one mount identity"
         )
     return int(values[0])
+
+
+def _canonical_unsigned_64_text(value: bytes, *, minimum: int) -> bool:
+    maximum_text = str(RUN_ACTION_MAXIMUM_PHYSICAL_INTEGER).encode("ascii")
+    return (
+        type(value) is bytes
+        and bool(value)
+        and value.isdigit()
+        and (
+            len(value) < len(maximum_text)
+            or (len(value) == len(maximum_text) and value <= maximum_text)
+        )
+        and value == str(int(value)).encode("ascii")
+        and int(value) >= minimum
+    )
+
+
+def _bounded_physical_integer(value: object, minimum: int) -> bool:
+    return (
+        type(value) is int and minimum <= value <= RUN_ACTION_MAXIMUM_PHYSICAL_INTEGER
+    )
 
 
 def _require_static_elf(payload: bytes, description: str) -> None:

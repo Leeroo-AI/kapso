@@ -2247,6 +2247,43 @@ def test_execution_envelope_rejects_timeout_policy_config_mismatch(
     )
 
 
+def test_spawn_committed_process_bound_drift_rejects_before_adapter_inspection(
+    publisher_case,
+) -> None:
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
+    adapter = _FakeExecutionAdapter(reservation.intent.boundary_identity)
+    with gate._action_store._recovery_session(
+        reservation,
+        _authority=_RUN_ACTION_RECOVERY_AUTHORITY,
+    ) as session:
+        allocation = session.allocate_preparation(adapter.execution_policy)
+        prepared = adapter._prepared_for_allocation(allocation)
+        session.commit_prepared_execution(prepared)
+        session.commit_spawn(
+            security_observation_id=reservation.frontier.security_observation_id,
+            boundary_identity=reservation.intent.boundary_identity,
+        )
+    coordinator = _recovery_coordinator(gate, adapter)
+    settings = gate._publisher._settings
+    object.__setattr__(
+        settings,
+        "run_action_process_snapshot_size_bytes",
+        settings.run_action_process_snapshot_size_bytes - 1,
+    )
+
+    with pytest.raises(
+        RunActionRecoveryError,
+        match="release-receipt envelope",
+    ):
+        coordinator.recover(frontier)
+
+    events = gate._action_store.inspect().events_for(reservation.intent.operation_id)
+    assert events[-1].event_kind is RunActionExecutionEventKind.SPAWN_COMMITTED
+    assert not adapter.inspect_calls
+    assert not adapter.stage_calls
+    assert not adapter.continuation_calls
+
+
 def test_activation_bound_must_leave_resolved_release_envelope(
     publisher_case,
 ) -> None:

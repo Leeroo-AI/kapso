@@ -215,6 +215,9 @@ def publish_run_action_timeout_once(
                 payload_size_limit_bytes=(
                     prepared.preparation_claim.execution_policy.supervisor_limits.timeout_directive_size_bytes
                 ),
+                process_snapshot_size_limit_bytes=(
+                    prepared.preparation_claim.execution_policy.supervisor_limits.process_snapshot_size_bytes
+                ),
                 payload=directive.to_json_bytes(),
                 _authority=_CONTROL_FILE_CANDIDATE_ISSUANCE_AUTHORITY,
             )

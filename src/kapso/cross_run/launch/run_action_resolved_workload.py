@@ -117,6 +117,7 @@ class _RetainedProcess:
     mount_namespace_metadata: RunActionProcessDescriptorMetadata
     process_id_namespace_descriptor: int
     process_id_namespace_metadata: RunActionProcessDescriptorMetadata
+    process_snapshot_size_limit_bytes: int
 
 
 @dataclass(frozen=True)
@@ -125,6 +126,7 @@ class _RetainedResolvedRoot:
     descriptor: int
     metadata: tuple[int, ...]
     mount_id: int
+    process_snapshot_size_limit_bytes: int
 
 
 class RunActionBlockedWorkloadLease:
@@ -274,11 +276,13 @@ class RunActionBlockedWorkloadLease:
             self._init_process,
             self._proc_root_descriptor,
             expected_container.container_id,
+            self._process_snapshot_size_limit_bytes,
         )
         _require_retained_process_current(
             self._wrapper_process,
             self._proc_root_descriptor,
             expected_container.container_id,
+            self._process_snapshot_size_limit_bytes,
         )
         if (
             read_run_action_process_direct_child_from_descriptor(
@@ -339,11 +343,13 @@ class RunActionBlockedWorkloadLease:
             self._wrapper_process,
             self._proc_root_descriptor,
             expected_container.container_id,
+            self._process_snapshot_size_limit_bytes,
         )
         _require_retained_process_current(
             self._init_process,
             self._proc_root_descriptor,
             expected_container.container_id,
+            self._process_snapshot_size_limit_bytes,
         )
         current_container = _observe_running_container(
             self._resource_manager,
@@ -462,6 +468,7 @@ def open_run_action_blocked_workload(
     activation = activation_event.activation_revalidation_receipt
     prepared = activation.prepared_execution
     spawn = activation.spawn_commit
+    policy = prepared.preparation_claim.execution_policy
     projection = prepared.inert_container_evidence.issued_create_projection
     if (
         activation_event.event_number != 5
@@ -474,6 +481,8 @@ def open_run_action_blocked_workload(
         != prepared.runtime_volume_authority.runtime_volume_authority_id
         or helper_evidence != projection.supervisor_helper_evidence
         or init_source_evidence != projection.docker_init_source_evidence
+        or policy.supervisor_limits.process_snapshot_size_bytes
+        != launch_settings.run_action_process_snapshot_size_bytes
     ):
         raise RunActionResolvedWorkloadError(
             "blocked workload inputs differ from exact durable event 5"
@@ -518,6 +527,7 @@ def open_run_action_blocked_workload(
             proc_root_descriptor,
             running.init_process_id,
             running.container_id,
+            process_snapshot_size_limit_bytes,
             expected_executable_digest=init_source_evidence.executable_digest,
         )
         child_process_id = read_run_action_process_direct_child_from_descriptor(
@@ -530,6 +540,7 @@ def open_run_action_blocked_workload(
             proc_root_descriptor,
             child_process_id,
             running.container_id,
+            process_snapshot_size_limit_bytes,
             expected_executable_digest=helper_evidence.executable_digest,
         )
         if (
@@ -700,6 +711,7 @@ def _open_retained_process(
     proc_root_descriptor: int,
     process_id: int,
     container_id: str,
+    process_snapshot_size_limit_bytes: int,
     *,
     expected_executable_digest: str,
 ) -> _RetainedProcess:
@@ -713,6 +725,7 @@ def _open_retained_process(
     stat_observation = read_run_action_process_stat_from_descriptor(
         process_descriptor,
         process_id,
+        process_snapshot_size_limit_bytes,
     )
     if stat_observation.state not in _BLOCKED_PROCESS_STATES:
         raise RunActionResolvedWorkloadError(
@@ -721,23 +734,30 @@ def _open_retained_process(
     cgroup_path = read_run_action_process_cgroup_path_from_descriptor(
         process_descriptor,
         container_id,
+        process_snapshot_size_limit_bytes,
     )
     command_line = _decode_command_line(
-        read_run_action_process_command_line_from_descriptor(process_descriptor)
+        read_run_action_process_command_line_from_descriptor(
+            process_descriptor,
+            process_snapshot_size_limit_bytes,
+        )
     )
     root_descriptor, root_metadata = open_run_action_process_root_descriptor(
         descriptors,
         process_descriptor,
+        process_snapshot_size_limit_bytes,
     )
     executable_descriptor, executable_metadata = (
         open_run_action_process_executable_descriptor(
             descriptors,
             process_descriptor,
+            process_snapshot_size_limit_bytes,
         )
     )
     executable_observation = verify_run_action_executable_descriptor(
         executable_descriptor,
         expected_executable_digest,
+        process_snapshot_size_limit_bytes,
     )
     if (
         executable_observation.mount_id != executable_metadata.mount_id
@@ -757,6 +777,7 @@ def _open_retained_process(
             descriptors,
             process_descriptor,
             "mnt",
+            process_snapshot_size_limit_bytes,
         )
     )
     process_id_namespace_descriptor, process_id_namespace_metadata = (
@@ -764,6 +785,7 @@ def _open_retained_process(
             descriptors,
             process_descriptor,
             "pid",
+            process_snapshot_size_limit_bytes,
         )
     )
     retained = _RetainedProcess(
@@ -781,11 +803,13 @@ def _open_retained_process(
         mount_namespace_metadata=mount_namespace_metadata,
         process_id_namespace_descriptor=process_id_namespace_descriptor,
         process_id_namespace_metadata=process_id_namespace_metadata,
+        process_snapshot_size_limit_bytes=process_snapshot_size_limit_bytes,
     )
     _require_retained_process_current(
         retained,
         proc_root_descriptor,
         container_id,
+        process_snapshot_size_limit_bytes,
     )
     return retained
 
@@ -794,6 +818,7 @@ def _require_retained_process_current(
     retained: _RetainedProcess,
     proc_root_descriptor: int,
     container_id: str,
+    process_snapshot_size_limit_bytes: int,
 ) -> None:
     process_id = retained.stat_observation.process_id
     with ExitStack() as current_descriptors:
@@ -809,35 +834,42 @@ def _require_retained_process_current(
         current_stat = read_run_action_process_stat_from_descriptor(
             current_process_descriptor,
             process_id,
+            process_snapshot_size_limit_bytes,
         )
         current_cgroup = read_run_action_process_cgroup_path_from_descriptor(
             current_process_descriptor,
             container_id,
+            process_snapshot_size_limit_bytes,
         )
         current_command_line = _decode_command_line(
             read_run_action_process_command_line_from_descriptor(
-                current_process_descriptor
+                current_process_descriptor,
+                process_snapshot_size_limit_bytes,
             )
         )
         _, current_root_metadata = open_run_action_process_root_descriptor(
             current_descriptors,
             current_process_descriptor,
+            process_snapshot_size_limit_bytes,
         )
         current_executable_descriptor, current_executable_metadata = (
             open_run_action_process_executable_descriptor(
                 current_descriptors,
                 current_process_descriptor,
+                process_snapshot_size_limit_bytes,
             )
         )
         current_executable_observation = verify_run_action_executable_descriptor(
             current_executable_descriptor,
             retained.executable_digest,
+            process_snapshot_size_limit_bytes,
         )
         _, current_mount_namespace_metadata = (
             open_run_action_process_namespace_descriptor(
                 current_descriptors,
                 current_process_descriptor,
                 "mnt",
+                process_snapshot_size_limit_bytes,
             )
         )
         _, current_process_id_namespace_metadata = (
@@ -845,20 +877,34 @@ def _require_retained_process_current(
                 current_descriptors,
                 current_process_descriptor,
                 "pid",
+                process_snapshot_size_limit_bytes,
             )
         )
     if (
         _stable_metadata(os.fstat(retained.process_descriptor))
         != retained.process_metadata
-        or _descriptor_metadata(retained.root_descriptor, "root")
+        or _descriptor_metadata(
+            retained.root_descriptor,
+            "root",
+            process_snapshot_size_limit_bytes,
+        )
         != retained.root_metadata
-        or _descriptor_metadata(retained.executable_descriptor, "exe")
+        or _descriptor_metadata(
+            retained.executable_descriptor,
+            "exe",
+            process_snapshot_size_limit_bytes,
+        )
         != retained.executable_metadata
-        or _descriptor_metadata(retained.mount_namespace_descriptor, "ns/mnt")
+        or _descriptor_metadata(
+            retained.mount_namespace_descriptor,
+            "ns/mnt",
+            process_snapshot_size_limit_bytes,
+        )
         != retained.mount_namespace_metadata
         or _descriptor_metadata(
             retained.process_id_namespace_descriptor,
             "ns/pid",
+            process_snapshot_size_limit_bytes,
         )
         != retained.process_id_namespace_metadata
         or current_process_metadata != retained.process_metadata
@@ -929,11 +975,18 @@ def _same_running_container_occurrence(
 def _descriptor_metadata(
     descriptor: int,
     descriptor_name: str,
+    process_snapshot_size_limit_bytes: int,
 ) -> RunActionProcessDescriptorMetadata:
     metadata_before = os.fstat(descriptor)
-    mount_id_before = read_run_action_descriptor_mount_id(descriptor)
+    mount_id_before = read_run_action_descriptor_mount_id(
+        descriptor,
+        process_snapshot_size_limit_bytes,
+    )
     metadata_after = os.fstat(descriptor)
-    mount_id_after = read_run_action_descriptor_mount_id(descriptor)
+    mount_id_after = read_run_action_descriptor_mount_id(
+        descriptor,
+        process_snapshot_size_limit_bytes,
+    )
     if (
         _stable_metadata(metadata_before) != _stable_metadata(metadata_after)
         or mount_id_before != mount_id_after
@@ -1131,9 +1184,15 @@ def _open_resolved_roots(
             directory=file_type == "directory",
         )
         metadata_before = os.fstat(descriptor)
-        mount_id_before = read_run_action_descriptor_mount_id(descriptor)
+        mount_id_before = read_run_action_descriptor_mount_id(
+            descriptor,
+            init_process.process_snapshot_size_limit_bytes,
+        )
         metadata_after = os.fstat(descriptor)
-        mount_id_after = read_run_action_descriptor_mount_id(descriptor)
+        mount_id_after = read_run_action_descriptor_mount_id(
+            descriptor,
+            init_process.process_snapshot_size_limit_bytes,
+        )
         mount_record = _one_mount_record(mount_info_snapshot, destination)
         observed_file_type = (
             "directory"
@@ -1173,6 +1232,9 @@ def _open_resolved_roots(
                 descriptor=descriptor,
                 metadata=_stable_metadata(metadata_before),
                 mount_id=mount_id_before,
+                process_snapshot_size_limit_bytes=(
+                    init_process.process_snapshot_size_limit_bytes
+                ),
             )
         )
         observations.append(
@@ -1350,7 +1412,10 @@ def _require_retained_root_current(
     retained: _RetainedResolvedRoot,
 ) -> None:
     retained_before = os.fstat(retained.descriptor)
-    retained_mount_id_before = read_run_action_descriptor_mount_id(retained.descriptor)
+    retained_mount_id_before = read_run_action_descriptor_mount_id(
+        retained.descriptor,
+        retained.process_snapshot_size_limit_bytes,
+    )
     with ExitStack() as descriptors:
         current_descriptor = _open_nofollow_container_path(
             descriptors,
@@ -1359,10 +1424,16 @@ def _require_retained_root_current(
             directory=stat.S_ISDIR(retained_before.st_mode),
         )
         current_before = os.fstat(current_descriptor)
-        current_mount_id = read_run_action_descriptor_mount_id(current_descriptor)
+        current_mount_id = read_run_action_descriptor_mount_id(
+            current_descriptor,
+            retained.process_snapshot_size_limit_bytes,
+        )
         current_after = os.fstat(current_descriptor)
     retained_after = os.fstat(retained.descriptor)
-    retained_mount_id_after = read_run_action_descriptor_mount_id(retained.descriptor)
+    retained_mount_id_after = read_run_action_descriptor_mount_id(
+        retained.descriptor,
+        retained.process_snapshot_size_limit_bytes,
+    )
     if (
         _stable_metadata(retained_before) != retained.metadata
         or _stable_metadata(retained_after) != retained.metadata
@@ -1464,7 +1535,10 @@ def _resolved_file_observations(
         )
         with os.fdopen(descriptor, "rb") as handle:
             metadata_before = os.fstat(handle.fileno())
-            mount_id_before = read_run_action_descriptor_mount_id(handle.fileno())
+            mount_id_before = read_run_action_descriptor_mount_id(
+                handle.fileno(),
+                retained_root.process_snapshot_size_limit_bytes,
+            )
             content_digest = None
             if activated.kind is RunActionPreparedFileKind.INPUT:
                 payload = handle.read(activated.size_bytes + 1)
@@ -1474,7 +1548,10 @@ def _resolved_file_observations(
                     )
                 content_digest = tree_or_blob_digest(payload)
             metadata_after = os.fstat(handle.fileno())
-            mount_id_after = read_run_action_descriptor_mount_id(handle.fileno())
+            mount_id_after = read_run_action_descriptor_mount_id(
+                handle.fileno(),
+                retained_root.process_snapshot_size_limit_bytes,
+            )
         if (
             _stable_metadata(metadata_before) != _stable_metadata(metadata_after)
             or mount_id_before != mount_id_after

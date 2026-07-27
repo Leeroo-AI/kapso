@@ -54,6 +54,7 @@ class RunActionReleaseInspectionLease:
         release_descriptor: int | None,
         release_identity: tuple[int, ...] | None,
         release_payload: bytes | None,
+        process_snapshot_size_limit_bytes: int,
     ) -> None:
         if (
             type(descriptors) is not ExitStack
@@ -67,6 +68,8 @@ class RunActionReleaseInspectionLease:
             != (type(release_identity) is tuple)
             or (topology is not RunActionControlDirectoryTopology.EMPTY)
             != (type(release_payload) is bytes)
+            or type(process_snapshot_size_limit_bytes) is not int
+            or process_snapshot_size_limit_bytes <= 0
         ):
             raise RunActionReleaseAdoptionError(
                 "release inspection lease lacks exact retained authority"
@@ -78,6 +81,7 @@ class RunActionReleaseInspectionLease:
         self._release_descriptor = release_descriptor
         self._release_identity = release_identity
         self._release_payload = release_payload
+        self._process_snapshot_size_limit_bytes = process_snapshot_size_limit_bytes
         self._owner_process_id = os.getpid()
         self._owner_thread_id = get_ident()
         self._closed = False
@@ -114,7 +118,10 @@ class RunActionReleaseInspectionLease:
         if self._topology is RunActionControlDirectoryTopology.EMPTY:
             return
         before = os.fstat(self._release_descriptor)
-        mount_id_before = read_run_action_descriptor_mount_id(self._release_descriptor)
+        mount_id_before = read_run_action_descriptor_mount_id(
+            self._release_descriptor,
+            self._process_snapshot_size_limit_bytes,
+        )
         retained_payload_before = _read_complete_bounded_payload(
             self._release_descriptor,
             len(self._release_payload),
@@ -130,13 +137,19 @@ class RunActionReleaseInspectionLease:
                 len(self._release_payload),
             )
             path_metadata = os.fstat(path_file.fileno())
-            path_mount_id = read_run_action_descriptor_mount_id(path_file.fileno())
+            path_mount_id = read_run_action_descriptor_mount_id(
+                path_file.fileno(),
+                self._process_snapshot_size_limit_bytes,
+            )
         retained_payload_after = _read_complete_bounded_payload(
             self._release_descriptor,
             len(self._release_payload),
         )
         after = os.fstat(self._release_descriptor)
-        mount_id_after = read_run_action_descriptor_mount_id(self._release_descriptor)
+        mount_id_after = read_run_action_descriptor_mount_id(
+            self._release_descriptor,
+            self._process_snapshot_size_limit_bytes,
+        )
         if (
             _release_identity(before, mount_id_before) != self._release_identity
             or _release_identity(path_metadata, path_mount_id) != self._release_identity
@@ -247,6 +260,8 @@ def open_run_action_release_inspection(
         policy_bound.release_receipt_size_bytes != configured_bound
         or policy_bound.timeout_directive_size_bytes
         != launch_settings.run_action_timeout_directive_size_bytes
+        or policy_bound.process_snapshot_size_bytes
+        != launch_settings.run_action_process_snapshot_size_bytes
     ):
         raise RunActionReleaseAdoptionError(
             "release inspection policy differs from configured control bounds"
@@ -264,6 +279,9 @@ def open_run_action_release_inspection(
                 release_descriptor=None,
                 release_identity=None,
                 release_payload=None,
+                process_snapshot_size_limit_bytes=(
+                    launch_settings.run_action_process_snapshot_size_bytes
+                ),
             )
             inspection._descriptors = descriptors.pop_all()
             return inspection
@@ -274,13 +292,19 @@ def open_run_action_release_inspection(
         )
         descriptors.callback(os.close, release_descriptor)
         metadata_before = os.fstat(release_descriptor)
-        mount_id_before = read_run_action_descriptor_mount_id(release_descriptor)
+        mount_id_before = read_run_action_descriptor_mount_id(
+            release_descriptor,
+            launch_settings.run_action_process_snapshot_size_bytes,
+        )
         payload = _read_complete_bounded_payload(
             release_descriptor,
             configured_bound,
         )
         metadata_after = os.fstat(release_descriptor)
-        mount_id_after = read_run_action_descriptor_mount_id(release_descriptor)
+        mount_id_after = read_run_action_descriptor_mount_id(
+            release_descriptor,
+            launch_settings.run_action_process_snapshot_size_bytes,
+        )
         identity = _release_identity(metadata_after, mount_id_after)
         control = prepared.control_directory
         if (
@@ -336,6 +360,9 @@ def open_run_action_release_inspection(
             release_descriptor=release_descriptor,
             release_identity=identity,
             release_payload=payload,
+            process_snapshot_size_limit_bytes=(
+                launch_settings.run_action_process_snapshot_size_bytes
+            ),
         )
         inspection._descriptors = descriptors.pop_all()
     return inspection

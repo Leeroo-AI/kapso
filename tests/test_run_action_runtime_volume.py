@@ -35,6 +35,9 @@ from test_run_action_supervisor_contracts import _claim, _prepared_execution
 
 _CANONICAL_CONFIG_PATH = "src/kapso/config.yaml"
 _KEEPER_CONTAINER_ID = "a" * 64
+_PROCESS_SNAPSHOT_SIZE_BYTES = CrossRunSettings.from_dict(
+    load_config(_CANONICAL_CONFIG_PATH)["cross_run"]
+).launch.run_action_process_snapshot_size_bytes
 
 
 @pytest.fixture(scope="module")
@@ -154,6 +157,15 @@ def test_runtime_volume_mountinfo_parses_and_proves_exact_tmpfs_authority(
         ),
         (
             lambda payload: payload.replace(
+                b"1232 1223",
+                b"1232 " + b"9" * 4301,
+                1,
+            ),
+            1232,
+            "/kapso/runtime-volume",
+        ),
+        (
+            lambda payload: payload.replace(
                 b"/ /kapso/runtime-volume",
                 b"/subtree /kapso/runtime-volume",
                 1,
@@ -217,7 +229,18 @@ def test_runtime_volume_mount_authority_rejects_every_policy_substitution(
 
 @pytest.mark.parametrize(
     "value",
-    ("0", "-1", "1kb", "1K", "1.5m", " 1m", "1m ", "1,m", ""),
+    (
+        "0",
+        "-1",
+        "1kb",
+        "1K",
+        "1.5m",
+        " 1m",
+        "1m ",
+        "1,m",
+        "",
+        "9" * 4301,
+    ),
 )
 def test_runtime_volume_size_parser_rejects_ambiguous_values(value):
     with pytest.raises(
@@ -243,6 +266,7 @@ def test_runtime_volume_process_lease_parses_one_live_generation(tmp_path):
             read_run_action_process_stat_from_descriptor(
                 process_descriptor,
                 process_id,
+                _PROCESS_SNAPSHOT_SIZE_BYTES,
             ).start_time_ticks
             == 123456
         )
@@ -263,6 +287,7 @@ def test_runtime_volume_process_lease_parses_one_live_generation(tmp_path):
             read_run_action_process_stat_from_descriptor(
                 process_descriptor,
                 process_id,
+                _PROCESS_SNAPSHOT_SIZE_BYTES,
             )
 
 
@@ -303,7 +328,8 @@ def test_mounted_volume_lease_reopens_current_process_root(
         descriptors.callback(os.close, retained_root_descriptor)
         retained_metadata = os.fstat(retained_root_descriptor)
         retained_mount_id = volume_module.read_run_action_descriptor_mount_id(
-            retained_root_descriptor
+            retained_root_descriptor,
+            _PROCESS_SNAPSHOT_SIZE_BYTES,
         )
         lease = volume_module._MountedRuntimeVolumeLease(
             process_descriptor=process_descriptor,
@@ -315,10 +341,11 @@ def test_mounted_volume_lease_reopens_current_process_root(
             root_mount_id=retained_mount_id,
             root_device=retained_metadata.st_dev,
             root_inode=retained_metadata.st_ino,
+            process_snapshot_size_limit_bytes=_PROCESS_SNAPSHOT_SIZE_BYTES,
         )
         observed_process_states = iter(process_states)
 
-        def observe_process_stat(_descriptor, _process_id):
+        def observe_process_stat(_descriptor, _process_id, _byte_limit):
             return RunActionProcessStatObservation(
                 process_id=keeper.process_id,
                 state=next(observed_process_states),
@@ -334,7 +361,7 @@ def test_mounted_volume_lease_reopens_current_process_root(
         monkeypatch.setattr(
             volume_module,
             "read_run_action_process_cgroup_path_from_descriptor",
-            lambda _descriptor, _container_id: (
+            lambda _descriptor, _container_id, _byte_limit: (
                 keeper.mounted_helper_evidence.process_cgroup_path
             ),
         )
@@ -342,7 +369,7 @@ def test_mounted_volume_lease_reopens_current_process_root(
         monkeypatch.setattr(
             volume_module,
             "_read_mount_info",
-            lambda _descriptor, _mount_id, _destination: mount_info,
+            lambda _descriptor, _mount_id, _destination, _byte_limit: mount_info,
         )
         monkeypatch.setattr(
             volume_module,

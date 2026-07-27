@@ -470,7 +470,7 @@ def test_physical_timeout_link_is_freshly_adopted_end_to_end(
         monkeypatch.setattr(
             module,
             "read_run_action_descriptor_mount_id",
-            lambda _descriptor: control.mount_id,
+            lambda _descriptor, _byte_limit: control.mount_id,
         )
         monkeypatch.setattr(module, "os", projected_os)
     monkeypatch.setattr(

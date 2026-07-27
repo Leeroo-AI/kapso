@@ -22,6 +22,9 @@ from kapso.cross_run.launch.run_action_control_candidate import (
     _RunActionFrozenControlFileCandidate,
     RunActionControlCandidateError,
 )
+from test_run_action_supervisor_contracts import (
+    _RUN_ACTION_PROCESS_SNAPSHOT_SIZE_BYTES,
+)
 
 _PAYLOAD_SIZE_LIMIT_BYTES = 4096
 
@@ -64,6 +67,7 @@ def _candidate(
         owner_user_id=os.getuid(),
         owner_group_id=os.getgid(),
         payload_size_limit_bytes=_PAYLOAD_SIZE_LIMIT_BYTES,
+        process_snapshot_size_limit_bytes=(_RUN_ACTION_PROCESS_SNAPSHOT_SIZE_BYTES),
         payload=payload,
         _authority=_CONTROL_FILE_CANDIDATE_ISSUANCE_AUTHORITY,
     )
@@ -166,6 +170,9 @@ def test_transition_shape_rejects_the_wrong_predecessor_requirement(
                 owner_user_id=os.getuid(),
                 owner_group_id=os.getgid(),
                 payload_size_limit_bytes=_PAYLOAD_SIZE_LIMIT_BYTES,
+                process_snapshot_size_limit_bytes=(
+                    _RUN_ACTION_PROCESS_SNAPSHOT_SIZE_BYTES
+                ),
                 payload=b"candidate",
                 _authority=_CONTROL_FILE_CANDIDATE_ISSUANCE_AUTHORITY,
             )

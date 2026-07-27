@@ -28,6 +28,7 @@ from kapso.cross_run.launch.run_action_result_authority import (
 )
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
     DockerRunActionCreateInspectProjection,
+    RUN_ACTION_MAXIMUM_PHYSICAL_INTEGER,
     RunActionActivationRevalidationReceipt,
     RunActionPreparationAllocation,
     RunActionResultCaptureReceipt,
@@ -48,6 +49,10 @@ _DOCKER_TIMESTAMP_PATTERN = re.compile(
     r"(?:[.](?P<fraction>[0-9]{1,9}))?Z$"
 )
 _ZERO_DOCKER_TIMESTAMP = "0001-01-01T00:00:00Z"
+
+
+def _bounded_positive_physical_integer(value: object) -> bool:
+    return type(value) is int and 1 <= value <= RUN_ACTION_MAXIMUM_PHYSICAL_INTEGER
 
 
 class RunActionTerminationContractError(ValueError):
@@ -111,7 +116,7 @@ class RunActionTimeoutDirective(StrictContract):
             or type(self.running_container_observation)
             is not RunActionBarrierRunningContainerObservation
             or any(
-                type(value) is not int or value <= 0
+                not _bounded_positive_physical_integer(value)
                 for value in (
                     self.execution_deadline_boottime_nanoseconds,
                     self.containment_deadline_boottime_nanoseconds,
@@ -202,7 +207,7 @@ class RunActionTimeoutDirectivePublicationReceipt(StrictContract):
             )
             != 3
             or any(
-                type(value) is not int or value <= 0
+                not _bounded_positive_physical_integer(value)
                 for value in (
                     self.control_mount_id,
                     self.control_device,
@@ -283,9 +288,12 @@ class RunActionPreReleaseMainLossObservation(StrictContract):
             is None
             or self.first_complete_inventory_digest
             != self.second_complete_inventory_digest
-            or type(self.observed_before_boottime_nanoseconds) is not int
-            or self.observed_before_boottime_nanoseconds <= 0
-            or type(self.observed_after_boottime_nanoseconds) is not int
+            or not _bounded_positive_physical_integer(
+                self.observed_before_boottime_nanoseconds
+            )
+            or not _bounded_positive_physical_integer(
+                self.observed_after_boottime_nanoseconds
+            )
             or self.observed_after_boottime_nanoseconds
             < self.observed_before_boottime_nanoseconds
             or allocation.preparation_claim != prepared.preparation_claim
@@ -503,9 +511,12 @@ class RunActionPreReleaseMainTerminalObservation(StrictContract):
             is None
             or self.first_complete_inventory_digest
             != self.second_complete_inventory_digest
-            or type(self.observed_before_boottime_nanoseconds) is not int
-            or self.observed_before_boottime_nanoseconds <= 0
-            or type(self.observed_after_boottime_nanoseconds) is not int
+            or not _bounded_positive_physical_integer(
+                self.observed_before_boottime_nanoseconds
+            )
+            or not _bounded_positive_physical_integer(
+                self.observed_after_boottime_nanoseconds
+            )
             or self.observed_after_boottime_nanoseconds
             < self.observed_before_boottime_nanoseconds
             or allocation.preparation_claim != prepared.preparation_claim

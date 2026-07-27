@@ -15,6 +15,7 @@ from kapso.cross_run.launch.run_action_barrier_contracts import (
 )
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RUN_ACTION_CREDENTIAL_LEASE_AUTHORITY_NAMESPACE,
+    RUN_ACTION_MAXIMUM_PHYSICAL_INTEGER,
     RunActionCredentialMode,
     RunActionSupervisorLimits,
 )
@@ -55,9 +56,8 @@ class RunActionCredentialValidityObservation(StrictContract):
             "credential validity lease authority",
         )
         if (
-            type(self.observed_at_realtime_nanoseconds) is not int
-            or self.observed_at_realtime_nanoseconds <= 0
-            or type(self.valid_until_realtime_nanoseconds) is not int
+            not _bounded_clock(self.observed_at_realtime_nanoseconds)
+            or not _bounded_clock(self.valid_until_realtime_nanoseconds)
             or self.valid_until_realtime_nanoseconds
             <= self.observed_at_realtime_nanoseconds
         ):
@@ -83,10 +83,8 @@ class RunActionReleaseAuthorizationObservation(StrictContract):
         if (
             type(self.security_observation) is not SecurityDenylistObservation
             or self.security_observation.matched_revocations
-            or type(self.authorized_at_boottime_nanoseconds) is not int
-            or self.authorized_at_boottime_nanoseconds <= 0
-            or type(self.authorized_at_realtime_nanoseconds) is not int
-            or self.authorized_at_realtime_nanoseconds <= 0
+            or not _bounded_clock(self.authorized_at_boottime_nanoseconds)
+            or not _bounded_clock(self.authorized_at_realtime_nanoseconds)
             or (
                 self.credential_validity_observation is not None
                 and type(self.credential_validity_observation)
@@ -142,7 +140,14 @@ class RunActionWorkloadReleaseReceipt(StrictContract):
         )
         credential_mode = policy.credential_policy.mode
         if (
-            authorization.security_observation.observation_id
+            containment_realtime_deadline > RUN_ACTION_MAXIMUM_PHYSICAL_INTEGER
+            or self.execution_deadline_boottime_nanoseconds
+            > RUN_ACTION_MAXIMUM_PHYSICAL_INTEGER
+            or self.release_commit_deadline_boottime_nanoseconds
+            > RUN_ACTION_MAXIMUM_PHYSICAL_INTEGER
+            or self.containment_deadline_boottime_nanoseconds
+            > RUN_ACTION_MAXIMUM_PHYSICAL_INTEGER
+            or authorization.security_observation.observation_id
             != reservation.frontier.security_observation_id
             or (credential_validity is None)
             != (credential_mode is RunActionCredentialMode.NONE)
@@ -211,6 +216,16 @@ class RunActionWorkloadReleaseReceipt(StrictContract):
         )
 
 
+def _bounded_clock(value: object) -> bool:
+    return _bounded_physical_integer(value, minimum=1)
+
+
+def _bounded_physical_integer(value: object, *, minimum: int) -> bool:
+    return (
+        type(value) is int and minimum <= value <= RUN_ACTION_MAXIMUM_PHYSICAL_INTEGER
+    )
+
+
 @dataclass(frozen=True)
 class RunActionWorkloadReleaseAdoption(StrictContract):
     """Descriptor-read proof of the exact release inode linked after event 5."""
@@ -245,7 +260,18 @@ class RunActionWorkloadReleaseAdoption(StrictContract):
         control = prepared.control_directory
         authority = prepared.runtime_volume_authority
         if (
-            (self.control_mount_id, self.control_device, self.control_inode)
+            any(
+                not _bounded_physical_integer(value, minimum=1)
+                for value in (
+                    self.control_mount_id,
+                    self.control_device,
+                    self.control_inode,
+                    self.release_mount_id,
+                    self.release_device,
+                    self.release_inode,
+                )
+            )
+            or (self.control_mount_id, self.control_device, self.control_inode)
             != (control.mount_id, control.device, control.inode)
             or self.owner_user_id != authority.owner_user_id
             or self.owner_group_id != authority.owner_group_id
@@ -255,7 +281,6 @@ class RunActionWorkloadReleaseAdoption(StrictContract):
             or self.content_digest != tree_or_blob_digest(receipt_payload)
             or self.release_mount_id != control.mount_id
             or self.release_device != control.device
-            or self.release_inode <= 0
             or self.release_inode == control.inode
         ):
             raise RunActionReleaseContractError(

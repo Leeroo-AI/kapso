@@ -28,6 +28,7 @@ from kapso.cross_run.launch.run_action_release_contracts import (
     RunActionWorkloadReleaseReceipt,
 )
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
+    RUN_ACTION_MAXIMUM_PHYSICAL_INTEGER,
     RunActionCredentialMode,
     RunActionSupervisorContractError,
 )
@@ -465,6 +466,39 @@ def test_release_adoption_binds_exact_receipt_and_control_inode():
         _remint(adoption, release_inode=control.inode)
 
 
+@pytest.mark.parametrize(
+    "field",
+    (
+        "control_mount_id",
+        "control_device",
+        "control_inode",
+        "release_mount_id",
+        "release_device",
+        "release_inode",
+    ),
+)
+def test_release_adoption_rejects_physical_identity_above_unsigned_64(field):
+    security = _security_observation()
+    resolved = _resolved_for_security(
+        security,
+        credential_mode=RunActionCredentialMode.NONE,
+    )
+    event = _activation_event(resolved)
+    adoption = _release_adoption_for_event(
+        event,
+        security,
+    )
+
+    with pytest.raises(
+        RunActionReleaseContractError,
+        match="linked receipt inode",
+    ):
+        _remint(
+            adoption,
+            **{field: RUN_ACTION_MAXIMUM_PHYSICAL_INTEGER + 1},
+        )
+
+
 def test_release_receipt_rejects_missing_or_unexpected_credential_validity():
     security = _security_observation()
     credentialed = _resolved_for_security(security)
@@ -588,4 +622,53 @@ def test_release_authorization_rejects_matched_revocation():
             authorized_at_boottime_nanoseconds=_AUTHORIZED_BOOTTIME_NANOSECONDS,
             authorized_at_realtime_nanoseconds=_AUTHORIZED_REALTIME_NANOSECONDS,
             credential_validity_observation=None,
+        )
+
+
+@pytest.mark.parametrize(
+    "field",
+    (
+        "authorized_at_boottime_nanoseconds",
+        "authorized_at_realtime_nanoseconds",
+    ),
+)
+def test_release_authorization_rejects_clock_above_unsigned_64(field):
+    security = _security_observation()
+    values = {
+        "security_observation": security,
+        "authorized_at_boottime_nanoseconds": _AUTHORIZED_BOOTTIME_NANOSECONDS,
+        "authorized_at_realtime_nanoseconds": _AUTHORIZED_REALTIME_NANOSECONDS,
+        "credential_validity_observation": None,
+    }
+    values[field] = RUN_ACTION_MAXIMUM_PHYSICAL_INTEGER + 1
+
+    with pytest.raises(RunActionReleaseContractError, match="unsafe or invalid"):
+        RunActionReleaseAuthorizationObservation.mint(**values)
+
+
+def test_release_receipt_rejects_unsigned_64_deadline_overflow():
+    security = _security_observation()
+    resolved = _resolved_for_security(
+        security,
+        credential_mode=RunActionCredentialMode.NONE,
+    )
+    authorization = RunActionReleaseAuthorizationObservation.mint(
+        security_observation=security,
+        authorized_at_boottime_nanoseconds=(
+            RUN_ACTION_MAXIMUM_PHYSICAL_INTEGER - _NANOSECONDS_PER_SECOND
+        ),
+        authorized_at_realtime_nanoseconds=(
+            RUN_ACTION_MAXIMUM_PHYSICAL_INTEGER - _NANOSECONDS_PER_SECOND
+        ),
+        credential_validity_observation=None,
+    )
+
+    with pytest.raises(
+        RunActionReleaseContractError,
+        match="differs from event-5 authority",
+    ):
+        mint_run_action_workload_release_receipt(
+            activation_event=_activation_event(resolved),
+            resolved_workload_observation=resolved,
+            release_authorization_observation=authorization,
         )

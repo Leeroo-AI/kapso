@@ -27,7 +27,10 @@ from kapso.cross_run.launch.run_action_supervisor_helper import (
     read_run_action_descriptor_mount_id,
 )
 from test_run_action_barrier_contracts import _resolved_graph
-from test_run_action_supervisor_contracts import _remint_contract
+from test_run_action_supervisor_contracts import (
+    _remint_contract,
+    _RUN_ACTION_PROCESS_SNAPSHOT_SIZE_BYTES,
+)
 
 
 def _ownership_only_lease() -> RunActionBlockedWorkloadLease:
@@ -138,7 +141,11 @@ def test_retained_root_detects_path_splice_while_original_fd_survives(tmp_path):
             destination="/mounted",
             descriptor=mounted_descriptor,
             metadata=workload_module._stable_metadata(metadata),
-            mount_id=read_run_action_descriptor_mount_id(mounted_descriptor),
+            mount_id=read_run_action_descriptor_mount_id(
+                mounted_descriptor,
+                _RUN_ACTION_PROCESS_SNAPSHOT_SIZE_BYTES,
+            ),
+            process_snapshot_size_limit_bytes=(_RUN_ACTION_PROCESS_SNAPSHOT_SIZE_BYTES),
         )
         mounted.rename(root / "old-mounted")
         (root / "mounted").mkdir()
@@ -266,7 +273,11 @@ def test_require_current_reverse_check_detects_splice_during_logical_read(
             destination="/mounted",
             descriptor=mounted_descriptor,
             metadata=workload_module._stable_metadata(metadata),
-            mount_id=read_run_action_descriptor_mount_id(mounted_descriptor),
+            mount_id=read_run_action_descriptor_mount_id(
+                mounted_descriptor,
+                _RUN_ACTION_PROCESS_SNAPSHOT_SIZE_BYTES,
+            ),
+            process_snapshot_size_limit_bytes=(_RUN_ACTION_PROCESS_SNAPSHOT_SIZE_BYTES),
         )
         init_process = SimpleNamespace(
             process_descriptor=31,

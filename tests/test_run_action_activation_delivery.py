@@ -19,7 +19,7 @@ import kapso.cross_run.launch.run_action_atomic_publication as atomic_publicatio
 from kapso.cross_run.canonical import content_id, tree_or_blob_digest
 from kapso.cross_run.launch.run_action_activation_delivery import (
     RunActionActivationDeliveryError,
-    publish_or_adopt_run_action_delivery,
+    publish_or_adopt_run_action_delivery as _publish_or_adopt_run_action_delivery,
 )
 from kapso.cross_run.launch.run_action_atomic_publication import (
     RunActionAtomicPublicationError,
@@ -31,9 +31,25 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RunActionPreparedDeliverySlot,
     RunActionPreparedFileKind,
 )
+from test_run_action_supervisor_contracts import (
+    _RUN_ACTION_PROCESS_SNAPSHOT_SIZE_BYTES,
+)
 
 _INPUT_PAYLOAD = b'{"action":"research"}'
 _CREDENTIAL_PAYLOAD = b"provider-token"
+
+
+def publish_or_adopt_run_action_delivery(
+    slot: RunActionPreparedDeliverySlot,
+    slot_directory_descriptor: int,
+    payload: bytes,
+):
+    return _publish_or_adopt_run_action_delivery(
+        slot,
+        slot_directory_descriptor,
+        payload,
+        _RUN_ACTION_PROCESS_SNAPSHOT_SIZE_BYTES,
+    )
 
 
 @dataclass(frozen=True)
@@ -105,7 +121,10 @@ def _mint_slot(
         mode=0o700,
         observed_entry_count=0,
         payload_size_limit_bytes=128,
-        mount_id=read_run_action_descriptor_mount_id(slot_descriptor),
+        mount_id=read_run_action_descriptor_mount_id(
+            slot_descriptor,
+            _RUN_ACTION_PROCESS_SNAPSHOT_SIZE_BYTES,
+        ),
         device=metadata.st_dev,
         inode=metadata.st_ino,
     )

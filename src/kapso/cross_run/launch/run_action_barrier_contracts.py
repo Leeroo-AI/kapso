@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import os
 import re
 from dataclasses import dataclass
@@ -21,6 +22,7 @@ from kapso.cross_run.launch.run_action_control_topology import (
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
     DockerRunActionCreateInspectProjection,
     RUN_ACTION_DOCKER_INIT_DESTINATION,
+    RUN_ACTION_MAXIMUM_PHYSICAL_INTEGER,
     RUN_ACTION_SUPERVISOR_HELPER_DESTINATION,
     RunActionActivatedFileObservation,
     RunActionActivatedRuntimeDirectoryObservation,
@@ -94,8 +96,7 @@ class RunActionBarrierRunningContainerObservation(StrictContract):
             is not DockerRunActionCreateInspectProjection
             or _SHA256_DIGEST_PATTERN.fullmatch(self.complete_inspection_digest) is None
             or self.container_status != "running"
-            or type(self.init_process_id) is not int
-            or self.init_process_id <= 0
+            or not _bounded_physical_integer(self.init_process_id, 1)
             or type(self.restart_count) is not int
             or self.restart_count != 0
             or not _is_docker_timestamp(self.started_at)
@@ -168,11 +169,11 @@ class RunActionBarrierInitProcessObservation(StrictContract):
         )
         if (
             any(
-                type(value) is not int or value <= 0
+                not _bounded_physical_integer(value, 1)
                 for value in (self.root_mount_id, self.root_device, self.root_inode)
             )
             or any(
-                type(value) is not int or value < 0
+                not _bounded_physical_integer(value, 0)
                 for value in (self.root_device_major, self.root_device_minor)
             )
             or (
@@ -249,7 +250,7 @@ class RunActionBarrierWrapperProcessObservation(StrictContract):
         )
         if (
             any(
-                type(value) is not int or value <= 0
+                not _bounded_physical_integer(value, 1)
                 for value in (
                     self.root_mount_id,
                     self.root_device,
@@ -257,7 +258,7 @@ class RunActionBarrierWrapperProcessObservation(StrictContract):
                 )
             )
             or any(
-                type(value) is not int or value < 0
+                not _bounded_physical_integer(value, 0)
                 for value in (self.root_device_major, self.root_device_minor)
             )
             or (
@@ -306,11 +307,11 @@ class RunActionMountInfoObservation(StrictContract):
         _require_mount_tokens(self.super_options, "mountinfo super options")
         if (
             any(
-                type(value) is not int or value <= 0
+                not _bounded_physical_integer(value, 1)
                 for value in (self.mount_id, self.parent_mount_id)
             )
             or any(
-                type(value) is not int or value < 0
+                not _bounded_physical_integer(value, 0)
                 for value in (self.device_major, self.device_minor)
             )
             or ("ro" in self.mount_options) == ("rw" in self.mount_options)
@@ -318,7 +319,7 @@ class RunActionMountInfoObservation(StrictContract):
             or any(character.isspace() for character in self.filesystem_type)
             or not isinstance(self.mount_source, str)
             or not self.mount_source
-            or not self.mount_source.isascii()
+            or any(ord(character) > 255 for character in self.mount_source)
             or "\x00" in self.mount_source
         ):
             raise RunActionBarrierContractError(
@@ -328,52 +329,72 @@ class RunActionMountInfoObservation(StrictContract):
 
 @dataclass(frozen=True)
 class RunActionMountInfoSnapshot(StrictContract):
-    """Exact full-EOF mountinfo payload and its parsed canonical records."""
+    """Base64-carried full-EOF mountinfo bytes with records derived on demand."""
 
     mount_info_snapshot_id: str
-    raw_payload: str
+    raw_payload_base64: str
     raw_byte_length: int
     raw_payload_digest: str
-    records: tuple[RunActionMountInfoObservation, ...]
 
     CONTENT_NAMESPACE: ClassVar[str] = "run-action-mount-info-snapshot"
     IDENTITY_FIELD: ClassVar[str] = "mount_info_snapshot_id"
 
     def _validate(self) -> None:
         if (
-            not isinstance(self.raw_payload, str)
-            or not self.raw_payload
-            or not self.raw_payload.isascii()
-            or "\x00" in self.raw_payload
-            or "\r" in self.raw_payload
-            or type(self.raw_byte_length) is not int
-            or self.raw_byte_length != len(self.raw_payload.encode("ascii"))
-            or self.raw_payload_digest
-            != tree_or_blob_digest(self.raw_payload.encode("ascii"))
-            or type(self.records) is not tuple
-            or any(
-                type(record) is not RunActionMountInfoObservation
-                for record in self.records
+            not isinstance(self.raw_payload_base64, str)
+            or not self.raw_payload_base64
+            or not self.raw_payload_base64.isascii()
+            or len(self.raw_payload_base64) % 4 != 0
+            or re.fullmatch(
+                r"[A-Za-z0-9+/]*={0,2}",
+                self.raw_payload_base64,
             )
-            or self.records != parse_run_action_mount_info_payload(self.raw_payload)
+            is None
         ):
             raise RunActionBarrierContractError(
-                "mountinfo snapshot differs from its exact full-EOF payload"
+                "mountinfo snapshot base64 payload is malformed"
             )
+        raw_payload = base64.b64decode(
+            self.raw_payload_base64.encode("ascii"),
+            validate=True,
+        )
+        if (
+            base64.b64encode(raw_payload).decode("ascii") != self.raw_payload_base64
+            or not _bounded_physical_integer(self.raw_byte_length, 1)
+            or self.raw_byte_length != len(raw_payload)
+            or self.raw_payload_digest != tree_or_blob_digest(raw_payload)
+        ):
+            raise RunActionBarrierContractError(
+                "mountinfo snapshot differs from its exact full-EOF bytes"
+            )
+        parse_run_action_mount_info_payload(raw_payload)
+
+    @property
+    def raw_payload(self) -> bytes:
+        """Return the exact full-EOF mountinfo bytes."""
+
+        return base64.b64decode(
+            self.raw_payload_base64.encode("ascii"),
+            validate=True,
+        )
+
+    @property
+    def records(self) -> tuple[RunActionMountInfoObservation, ...]:
+        """Derive canonical records from the sole durable evidence payload."""
+
+        return parse_run_action_mount_info_payload(self.raw_payload)
 
     @classmethod
-    def from_raw_payload(cls, raw_payload: str) -> "RunActionMountInfoSnapshot":
-        """Parse and content-address one exact full-EOF mountinfo payload."""
-        if not isinstance(raw_payload, str) or not raw_payload.isascii():
+    def from_raw_payload(cls, raw_payload: bytes) -> "RunActionMountInfoSnapshot":
+        """Parse and content-address exact full-EOF mountinfo bytes."""
+        if type(raw_payload) is not bytes:
             raise RunActionBarrierContractError(
-                "mountinfo raw payload must be exact ASCII text"
+                "mountinfo raw payload must be exact bytes"
             )
-        encoded = raw_payload.encode("ascii")
         return cls.mint(
-            raw_payload=raw_payload,
-            raw_byte_length=len(encoded),
-            raw_payload_digest=tree_or_blob_digest(encoded),
-            records=parse_run_action_mount_info_payload(raw_payload),
+            raw_payload_base64=base64.b64encode(raw_payload).decode("ascii"),
+            raw_byte_length=len(raw_payload),
+            raw_payload_digest=tree_or_blob_digest(raw_payload),
         )
 
 
@@ -430,7 +451,7 @@ class RunActionResolvedMountRootObservation(StrictContract):
             type(self.kind) is not RunActionResolvedMountKind
             or type(self.container_access) is not RunActionPreparedMountAccess
             or any(
-                type(value) is not int or value <= 0
+                not _bounded_physical_integer(value, 1)
                 for value in (
                     self.source_mount_id,
                     self.source_device,
@@ -515,7 +536,7 @@ class RunActionResolvedFileObservation(StrictContract):
             or type(self.parent_entry_count) is not int
             or self.parent_entry_count != 1
             or any(
-                type(value) is not int or value <= 0
+                not _bounded_physical_integer(value, 1)
                 for value in (self.mount_id, self.device, self.inode)
             )
             or self.file_type != "regular"
@@ -661,6 +682,8 @@ class RunActionResolvedWorkloadObservation(StrictContract):
             or self.temporary_entry_count != 0
             or self.control_directory_topology
             is not RunActionControlDirectoryTopology.EMPTY
+            or self.mount_info_snapshot.raw_byte_length
+            > self.activation_revalidation_receipt.prepared_execution.preparation_claim.execution_policy.supervisor_limits.process_snapshot_size_bytes
             or not _resolved_workload_graph_matches(self)
         ):
             raise RunActionBarrierContractError(
@@ -1067,22 +1090,20 @@ def _resolved_files_match_activation(
 
 
 def parse_run_action_mount_info_payload(
-    raw_payload: str,
+    raw_payload: bytes,
 ) -> tuple[RunActionMountInfoObservation, ...]:
     """Parse one exact full-EOF Linux mountinfo payload."""
     if (
-        not isinstance(raw_payload, str)
+        type(raw_payload) is not bytes
         or not raw_payload
-        or not raw_payload.isascii()
-        or not raw_payload.endswith("\n")
-        or "\x00" in raw_payload
-        or "\r" in raw_payload
+        or not raw_payload.endswith(b"\n")
+        or b"\x00" in raw_payload
     ):
         raise RunActionBarrierContractError(
             "mountinfo raw payload is malformed or incomplete"
         )
-    lines = raw_payload.split("\n")
-    if lines[-1] != "" or any(not line for line in lines[:-1]):
+    lines = raw_payload.split(b"\n")
+    if lines[-1] != b"" or any(not line for line in lines[:-1]):
         raise RunActionBarrierContractError(
             "mountinfo raw payload has an invalid line boundary"
         )
@@ -1096,10 +1117,10 @@ def parse_run_action_mount_info_payload(
     return tuple(sorted(records, key=lambda record: record.mount_id))
 
 
-def _parse_mount_info_line(line: str) -> RunActionMountInfoObservation:
-    fields = line.split(" ")
+def _parse_mount_info_line(line: bytes) -> RunActionMountInfoObservation:
+    fields = line.split(b" ")
     separators = tuple(
-        position for position, field in enumerate(fields) if field == "-"
+        position for position, field in enumerate(fields) if field == b"-"
     )
     if (
         any(not field for field in fields)
@@ -1109,7 +1130,7 @@ def _parse_mount_info_line(line: str) -> RunActionMountInfoObservation:
     ):
         raise RunActionBarrierContractError("mountinfo line shape is malformed")
     separator = separators[0]
-    device_fields = fields[2].split(":")
+    device_fields = fields[2].split(b":")
     if len(device_fields) != 2:
         raise RunActionBarrierContractError("mountinfo device field is malformed")
     return RunActionMountInfoObservation.mint(
@@ -1147,10 +1168,12 @@ def _parse_mount_info_line(line: str) -> RunActionMountInfoObservation:
         filesystem_type=_decode_mount_info_field(
             fields[separator + 1],
             "mountinfo filesystem type",
+            allow_hash_escape=True,
         ),
         mount_source=_decode_mount_info_field(
             fields[separator + 2],
             "mountinfo mount source",
+            allow_hash_escape=True,
         ),
         super_options=_parse_mount_info_options(
             fields[separator + 3],
@@ -1160,25 +1183,32 @@ def _parse_mount_info_line(line: str) -> RunActionMountInfoObservation:
 
 
 def _parse_mount_info_integer(
-    value: str,
+    value: bytes,
     name: str,
     *,
     positive: bool,
 ) -> int:
-    if not value.isdigit():
+    maximum_text = str(RUN_ACTION_MAXIMUM_PHYSICAL_INTEGER).encode("ascii")
+    if (
+        not value.isdigit()
+        or len(value) > len(maximum_text)
+        or (len(value) == len(maximum_text) and value > maximum_text)
+    ):
         raise RunActionBarrierContractError(f"{name} is malformed")
     parsed = int(value)
-    if str(parsed) != value or (parsed <= 0 if positive else parsed < 0):
+    if str(parsed).encode("ascii") != value or (
+        parsed <= 0 if positive else parsed < 0
+    ):
         raise RunActionBarrierContractError(f"{name} is noncanonical")
     return parsed
 
 
-def _parse_mount_info_options(value: str, name: str) -> tuple[str, ...]:
-    return _parse_mount_info_tokens(tuple(value.split(",")), name)
+def _parse_mount_info_options(value: bytes, name: str) -> tuple[str, ...]:
+    return _parse_mount_info_tokens(tuple(value.split(b",")), name)
 
 
 def _parse_mount_info_tokens(
-    values: tuple[str, ...],
+    values: tuple[bytes, ...],
     name: str,
     *,
     allow_empty: bool = False,
@@ -1191,18 +1221,25 @@ def _parse_mount_info_tokens(
     return tuple(sorted(decoded))
 
 
-def _decode_mount_info_field(value: str, name: str) -> str:
+def _decode_mount_info_field(
+    value: bytes,
+    name: str,
+    *,
+    allow_hash_escape: bool = False,
+) -> str:
     decoded: list[str] = []
     position = 0
     escapes = {
-        "011": "\t",
-        "012": "\n",
-        "040": " ",
-        "134": "\\",
+        b"011": "\t",
+        b"012": "\n",
+        b"040": " ",
+        b"134": "\\",
     }
+    if allow_hash_escape:
+        escapes[b"043"] = "#"
     while position < len(value):
-        if value[position] != "\\":
-            decoded.append(value[position])
+        if value[position] != ord("\\"):
+            decoded.append(chr(value[position]))
             position += 1
             continue
         escape = value[position + 1 : position + 4]
@@ -1269,13 +1306,10 @@ def _require_process_identity(
 ) -> None:
     if (
         _DOCKER_CONTAINER_ID_PATTERN.fullmatch(provider_execution_id) is None
-        or type(process_id) is not int
-        or process_id <= 0
-        or type(parent_process_id) is not int
-        or parent_process_id <= 0
+        or not _bounded_physical_integer(process_id, 1)
+        or not _bounded_physical_integer(parent_process_id, 1)
         or parent_process_id == process_id
-        or type(process_start_time_ticks) is not int
-        or process_start_time_ticks <= 0
+        or not _bounded_physical_integer(process_start_time_ticks, 1)
         or process_state not in _RUNNING_PROCESS_STATES
         or not isinstance(process_cgroup_path, str)
         or not process_cgroup_path.isascii()
@@ -1285,7 +1319,7 @@ def _require_process_identity(
         or ".." in PurePosixPath(process_cgroup_path).parts
         or not process_cgroup_path.endswith(f"/docker-{provider_execution_id}.scope")
         or any(
-            type(value) is not int or value <= 0
+            not _bounded_physical_integer(value, 1)
             for value in (
                 mount_namespace_device,
                 mount_namespace_inode,
@@ -1308,6 +1342,12 @@ def _require_process_identity(
     _require_absolute_container_path(
         command_line[0],
         f"{name} executable argument",
+    )
+
+
+def _bounded_physical_integer(value: object, minimum: int) -> bool:
+    return (
+        type(value) is int and minimum <= value <= RUN_ACTION_MAXIMUM_PHYSICAL_INTEGER
     )
 
 
@@ -1352,7 +1392,7 @@ def _is_mount_text(value: object) -> bool:
     return (
         isinstance(value, str)
         and bool(value)
-        and value.isascii()
+        and all(ord(character) <= 255 for character in value)
         and not any(character in value for character in ("\x00", "\n", "\r"))
     )
 

@@ -88,6 +88,7 @@ class _CleanupEntry:
 class _CleanupPlan:
     root: _CleanupEntry
     mount_id: int
+    process_snapshot_size_limit_bytes: int
 
 
 @dataclass
@@ -733,7 +734,11 @@ def _plan_staging_cleanup(
     *,
     expected_root_identity: tuple[int, int] | None,
 ) -> _CleanupPlan:
-    staging_mount_id = read_run_action_descriptor_mount_id(staging_descriptor)
+    process_snapshot_size_limit_bytes = settings.run_action_process_snapshot_size_bytes
+    staging_mount_id = read_run_action_descriptor_mount_id(
+        staging_descriptor,
+        process_snapshot_size_limit_bytes,
+    )
     metadata = os.stat(
         name,
         dir_fd=staging_descriptor,
@@ -764,12 +769,14 @@ def _plan_staging_cleanup(
             metadata.st_ino,
             descriptors,
             staging_mount_id,
+            process_snapshot_size_limit_bytes,
         )
         children = _plan_cleanup_directory(
             descriptor,
             staging_device,
             staging_mount_id,
             state,
+            process_snapshot_size_limit_bytes,
         )
     return _CleanupPlan(
         root=_CleanupEntry(
@@ -781,6 +788,7 @@ def _plan_staging_cleanup(
             children=children,
         ),
         mount_id=staging_mount_id,
+        process_snapshot_size_limit_bytes=process_snapshot_size_limit_bytes,
     )
 
 
@@ -789,6 +797,7 @@ def _plan_cleanup_directory(
     staging_device: int,
     staging_mount_id: int,
     state: _CleanupScanState,
+    process_snapshot_size_limit_bytes: int,
 ) -> tuple[_CleanupEntry, ...]:
     with os.scandir(descriptor) as iterator:
         observed = tuple(
@@ -834,12 +843,14 @@ def _plan_cleanup_directory(
                     metadata.st_ino,
                     descriptors,
                     staging_mount_id,
+                    process_snapshot_size_limit_bytes,
                 )
                 children = _plan_cleanup_directory(
                     child_descriptor,
                     staging_device,
                     staging_mount_id,
                     state,
+                    process_snapshot_size_limit_bytes,
                 )
             planned.append(
                 _CleanupEntry(
@@ -885,7 +896,13 @@ def _remove_staging_cleanup(
     staging_descriptor: int,
     plan: _CleanupPlan,
 ) -> None:
-    if read_run_action_descriptor_mount_id(staging_descriptor) != plan.mount_id:
+    if (
+        read_run_action_descriptor_mount_id(
+            staging_descriptor,
+            plan.process_snapshot_size_limit_bytes,
+        )
+        != plan.mount_id
+    ):
         raise RunActionWorkspacePromotionError(
             "workspace staging cleanup mount changed before removal"
         )
@@ -898,11 +915,13 @@ def _remove_staging_cleanup(
             root.identity[1],
             descriptors,
             plan.mount_id,
+            plan.process_snapshot_size_limit_bytes,
         )
         _remove_cleanup_directory_contents(
             root_descriptor,
             root.children,
             plan.mount_id,
+            plan.process_snapshot_size_limit_bytes,
         )
         if tuple(os.listdir(root_descriptor)):
             raise RunActionWorkspacePromotionError(
@@ -920,8 +939,15 @@ def _remove_cleanup_directory_contents(
     descriptor: int,
     entries: tuple[_CleanupEntry, ...],
     staging_mount_id: int,
+    process_snapshot_size_limit_bytes: int,
 ) -> None:
-    if read_run_action_descriptor_mount_id(descriptor) != staging_mount_id:
+    if (
+        read_run_action_descriptor_mount_id(
+            descriptor,
+            process_snapshot_size_limit_bytes,
+        )
+        != staging_mount_id
+    ):
         raise RunActionWorkspacePromotionError(
             "workspace staging cleanup crossed a mount boundary"
         )
@@ -936,11 +962,13 @@ def _remove_cleanup_directory_contents(
                     entry.identity[1],
                     descriptors,
                     staging_mount_id,
+                    process_snapshot_size_limit_bytes,
                 )
                 _remove_cleanup_directory_contents(
                     child_descriptor,
                     entry.children,
                     staging_mount_id,
+                    process_snapshot_size_limit_bytes,
                 )
                 if tuple(os.listdir(child_descriptor)):
                     raise RunActionWorkspacePromotionError(
@@ -969,6 +997,7 @@ def _open_cleanup_directory(
     expected_inode: int,
     descriptors: ExitStack,
     expected_mount_id: int,
+    process_snapshot_size_limit_bytes: int,
 ) -> int:
     descriptor = os.open(
         name,
@@ -982,7 +1011,13 @@ def _open_cleanup_directory(
         expected_device,
         expected_identity=(expected_device, expected_inode),
     )
-    if read_run_action_descriptor_mount_id(descriptor) != expected_mount_id:
+    if (
+        read_run_action_descriptor_mount_id(
+            descriptor,
+            process_snapshot_size_limit_bytes,
+        )
+        != expected_mount_id
+    ):
         raise RunActionWorkspacePromotionError(
             "workspace staging cleanup crossed a mount boundary"
         )

@@ -58,6 +58,7 @@ class RunActionTimeoutInspectionLease:
         timeout_descriptor: int | None,
         timeout_identity: tuple[int, ...] | None,
         timeout_payload: bytes | None,
+        process_snapshot_size_limit_bytes: int,
         _authority: object,
     ) -> None:
         timed_out = topology is RunActionControlDirectoryTopology.TIMED_OUT
@@ -76,6 +77,8 @@ class RunActionTimeoutInspectionLease:
             or timed_out != (type(timeout_descriptor) is int)
             or timed_out != (type(timeout_identity) is tuple)
             or timed_out != (type(timeout_payload) is bytes)
+            or type(process_snapshot_size_limit_bytes) is not int
+            or process_snapshot_size_limit_bytes <= 0
             or _authority is not _TIMEOUT_INSPECTION_AUTHORITY
         ):
             raise RunActionTimeoutAdoptionError(
@@ -103,6 +106,7 @@ class RunActionTimeoutInspectionLease:
         self._timeout_descriptor = timeout_descriptor
         self._timeout_identity = timeout_identity
         self._timeout_payload = timeout_payload
+        self._process_snapshot_size_limit_bytes = process_snapshot_size_limit_bytes
         self._owner_process_id = os.getpid()
         self._owner_thread_id = get_ident()
         self._closed = False
@@ -144,7 +148,10 @@ class RunActionTimeoutInspectionLease:
         if self._topology is not RunActionControlDirectoryTopology.TIMED_OUT:
             return
         before = os.fstat(self._timeout_descriptor)
-        mount_id_before = read_run_action_descriptor_mount_id(self._timeout_descriptor)
+        mount_id_before = read_run_action_descriptor_mount_id(
+            self._timeout_descriptor,
+            self._process_snapshot_size_limit_bytes,
+        )
         retained_payload_before = _read_complete_bounded_payload(
             self._timeout_descriptor,
             len(self._timeout_payload),
@@ -160,13 +167,19 @@ class RunActionTimeoutInspectionLease:
                 len(self._timeout_payload),
             )
             path_metadata = os.fstat(path_file.fileno())
-            path_mount_id = read_run_action_descriptor_mount_id(path_file.fileno())
+            path_mount_id = read_run_action_descriptor_mount_id(
+                path_file.fileno(),
+                self._process_snapshot_size_limit_bytes,
+            )
         retained_payload_after = _read_complete_bounded_payload(
             self._timeout_descriptor,
             len(self._timeout_payload),
         )
         after = os.fstat(self._timeout_descriptor)
-        mount_id_after = read_run_action_descriptor_mount_id(self._timeout_descriptor)
+        mount_id_after = read_run_action_descriptor_mount_id(
+            self._timeout_descriptor,
+            self._process_snapshot_size_limit_bytes,
+        )
         if (
             _timeout_identity(before, mount_id_before) != self._timeout_identity
             or _timeout_identity(path_metadata, path_mount_id) != self._timeout_identity
@@ -275,6 +288,9 @@ def open_run_action_timeout_inspection(
                 timeout_descriptor=None,
                 timeout_identity=None,
                 timeout_payload=None,
+                process_snapshot_size_limit_bytes=(
+                    launch_settings.run_action_process_snapshot_size_bytes
+                ),
                 _authority=_TIMEOUT_INSPECTION_AUTHORITY,
             )
             inspection._descriptors = descriptors.pop_all()
@@ -305,13 +321,19 @@ def open_run_action_timeout_inspection(
         )
         descriptors.callback(os.close, timeout_descriptor)
         metadata_before = os.fstat(timeout_descriptor)
-        mount_id_before = read_run_action_descriptor_mount_id(timeout_descriptor)
+        mount_id_before = read_run_action_descriptor_mount_id(
+            timeout_descriptor,
+            launch_settings.run_action_process_snapshot_size_bytes,
+        )
         payload = _read_complete_bounded_payload(
             timeout_descriptor,
             timeout_size_bound,
         )
         metadata_after = os.fstat(timeout_descriptor)
-        mount_id_after = read_run_action_descriptor_mount_id(timeout_descriptor)
+        mount_id_after = read_run_action_descriptor_mount_id(
+            timeout_descriptor,
+            launch_settings.run_action_process_snapshot_size_bytes,
+        )
         identity = _timeout_identity(metadata_after, mount_id_after)
         if (
             not stat.S_ISREG(metadata_before.st_mode)
@@ -387,6 +409,9 @@ def open_run_action_timeout_inspection(
             timeout_descriptor=timeout_descriptor,
             timeout_identity=identity,
             timeout_payload=payload,
+            process_snapshot_size_limit_bytes=(
+                launch_settings.run_action_process_snapshot_size_bytes
+            ),
             _authority=_TIMEOUT_INSPECTION_AUTHORITY,
         )
         inspection._descriptors = descriptors.pop_all()

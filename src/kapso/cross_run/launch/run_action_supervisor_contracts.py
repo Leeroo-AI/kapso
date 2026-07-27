@@ -359,6 +359,7 @@ class RunActionSupervisorLimits(StrictContract):
     result_size_bytes: int
     release_receipt_size_bytes: int
     timeout_directive_size_bytes: int
+    process_snapshot_size_bytes: int
 
     CONTENT_NAMESPACE: ClassVar[str] = "run-action-supervisor-limits"
     IDENTITY_FIELD: ClassVar[str] = "supervisor_limits_id"
@@ -371,9 +372,10 @@ class RunActionSupervisorLimits(StrictContract):
             self.result_size_bytes,
             self.release_receipt_size_bytes,
             self.timeout_directive_size_bytes,
+            self.process_snapshot_size_bytes,
         )
         if (
-            any(type(value) is not int or value <= 0 for value in values)
+            any(not _bounded_physical_integer(value, 1) for value in values)
             or self.termination_grace_seconds >= self.execution_timeout_seconds
             or self.release_commit_timeout_seconds >= self.execution_timeout_seconds
         ):
@@ -2940,7 +2942,7 @@ class RunActionResultCaptureReceipt(StrictContract):
                 self.reobserved_volume_evidence.sentinel_evidence.inode,
             }
             or any(
-                type(value) is not int or value <= 0
+                not _bounded_physical_integer(value, 1)
                 for value in (
                     self.parent_mount_id,
                     self.parent_device,

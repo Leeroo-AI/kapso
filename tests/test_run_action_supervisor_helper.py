@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import struct
 from contextlib import ExitStack
+from pathlib import Path
 
 import pytest
 
@@ -15,6 +16,9 @@ from kapso.cross_run.settings import CrossRunSettings
 
 _CANONICAL_CONFIG_PATH = "src/kapso/config.yaml"
 _CONTAINER_ID = "a" * 64
+_PROCESS_SNAPSHOT_SIZE_BYTES = CrossRunSettings.from_dict(
+    load_config(_CANONICAL_CONFIG_PATH)["cross_run"]
+).launch.run_action_process_snapshot_size_bytes
 
 
 @pytest.fixture(scope="module")
@@ -135,7 +139,16 @@ def test_process_stat_parser_rejects_non_live_or_malformed_state(state):
         )
 
 
-@pytest.mark.parametrize("parent_process_id", ("-1", "+1", "parent"))
+@pytest.mark.parametrize(
+    "parent_process_id",
+    (
+        "-1",
+        "+1",
+        "parent",
+        str((1 << 64)),
+        "9" * 4301,
+    ),
+)
 def test_process_stat_parser_rejects_malformed_parent_process_id(
     parent_process_id,
 ):
@@ -152,7 +165,17 @@ def test_process_stat_parser_rejects_malformed_parent_process_id(
         )
 
 
-@pytest.mark.parametrize("start_time_ticks", ("0", "-1", "+1", "ticks"))
+@pytest.mark.parametrize(
+    "start_time_ticks",
+    (
+        "0",
+        "-1",
+        "+1",
+        "ticks",
+        str((1 << 64)),
+        "9" * 4301,
+    ),
+)
 def test_process_stat_parser_rejects_malformed_start_time(start_time_ticks):
     with pytest.raises(
         RunActionSupervisorHelperError,
@@ -208,10 +231,12 @@ def test_process_stat_and_command_line_readers_use_one_open_process_descriptor()
         process_stat = helper_module.read_run_action_process_stat_from_descriptor(
             process_descriptor,
             process_id,
+            _PROCESS_SNAPSHOT_SIZE_BYTES,
         )
         command_line = (
             helper_module.read_run_action_process_command_line_from_descriptor(
                 process_descriptor,
+                _PROCESS_SNAPSHOT_SIZE_BYTES,
             )
         )
 
@@ -220,6 +245,66 @@ def test_process_stat_and_command_line_readers_use_one_open_process_descriptor()
     assert process_stat.start_time_ticks > 0
     assert command_line
     assert command_line[0]
+
+
+@pytest.mark.parametrize(
+    ("file_name", "reader"),
+    (
+        (
+            "stat",
+            lambda descriptor, limit: (
+                helper_module.read_run_action_process_stat_from_descriptor(
+                    descriptor,
+                    42,
+                    limit,
+                )
+            ),
+        ),
+        (
+            "cmdline",
+            lambda descriptor, limit: (
+                helper_module.read_run_action_process_command_line_from_descriptor(
+                    descriptor,
+                    limit,
+                )
+            ),
+        ),
+        (
+            "cgroup",
+            lambda descriptor, limit: (
+                helper_module.read_run_action_process_cgroup_path_from_descriptor(
+                    descriptor,
+                    _CONTAINER_ID,
+                    limit,
+                )
+            ),
+        ),
+    ),
+)
+def test_variable_process_readers_reject_one_byte_above_budget(
+    tmp_path,
+    file_name,
+    reader,
+):
+    payloads = {
+        "stat": _process_stat_payload(42),
+        "cmdline": b"/kapso/helper\x00",
+        "cgroup": f"0::/kapso.slice/docker-{_CONTAINER_ID}.scope\n".encode("ascii"),
+    }
+    payload = payloads[file_name]
+    (tmp_path / file_name).write_bytes(payload)
+    process_descriptor = os.open(
+        tmp_path,
+        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+    )
+    with ExitStack() as descriptors:
+        descriptors.callback(os.close, process_descriptor)
+        assert reader(process_descriptor, len(payload)) is not None
+        with pytest.raises(
+            RunActionSupervisorHelperError,
+            match="complete-payload byte limit",
+        ):
+            reader(process_descriptor, len(payload) - 1)
 
 
 @pytest.mark.parametrize(
@@ -276,6 +361,8 @@ def test_direct_child_reader_uses_retained_process_descriptor(tmp_path):
         b"17  ",
         b"17 \n",
         b"17\x00 ",
+        b"18446744073709551616 ",
+        b"100000000000000000000 ",
     ),
 )
 def test_direct_child_parser_rejects_empty_malformed_multiple_or_duplicate_snapshot(
@@ -357,7 +444,7 @@ def test_direct_child_reader_requires_positive_integer_byte_limit(
             )
 
 
-def test_mountinfo_reader_returns_exact_full_eof_ascii_payload(tmp_path):
+def test_mountinfo_reader_returns_exact_full_eof_bytes(tmp_path):
     payload = b"41 28 0:37 / /workspace rw - tmpfs tmpfs rw\n"
     process_directory = tmp_path / "retained-process"
     process_directory.mkdir()
@@ -369,10 +456,41 @@ def test_mountinfo_reader_returns_exact_full_eof_ascii_payload(tmp_path):
     with ExitStack() as descriptors:
         descriptors.callback(os.close, process_descriptor)
 
-        assert helper_module.read_run_action_process_mount_info_from_descriptor(
-            process_descriptor,
-            len(payload),
-        ) == payload.decode("ascii")
+        assert (
+            helper_module.read_run_action_process_mount_info_from_descriptor(
+                process_descriptor,
+                len(payload),
+            )
+            == payload
+        )
+
+
+def test_descriptor_mount_id_reader_honors_exact_fdinfo_byte_bound(tmp_path):
+    file_path = tmp_path / "observed"
+    file_path.write_bytes(b"fdinfo")
+    descriptor = os.open(
+        file_path,
+        os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
+    )
+    with ExitStack() as descriptors:
+        descriptors.callback(os.close, descriptor)
+        payload = Path(f"/proc/{os.getpid()}/fdinfo/{descriptor}").read_bytes()
+
+        assert (
+            helper_module.read_run_action_descriptor_mount_id(
+                descriptor,
+                len(payload),
+            )
+            > 0
+        )
+        with pytest.raises(
+            RunActionSupervisorHelperError,
+            match="complete-payload byte limit",
+        ):
+            helper_module.read_run_action_descriptor_mount_id(
+                descriptor,
+                len(payload) - 1,
+            )
 
 
 def test_mountinfo_reader_fails_when_full_payload_exceeds_byte_limit(tmp_path):
@@ -424,8 +542,6 @@ def test_mountinfo_reader_requires_positive_integer_byte_limit(
     (
         b"",
         b"41 28 0:37 / /workspace rw - tmpfs tmpfs rw",
-        b"41 28 0:37 / /workspace rw - tmpfs tmpfs rw\r\n",
-        b"41 28 0:37 / /workspace rw - tmpfs tmpfs \xff\n",
         b"41 28 0:37 / /workspace rw - tmpfs tmpfs rw\x00\n",
     ),
 )
@@ -444,7 +560,7 @@ def test_mountinfo_reader_rejects_payload_unsuitable_for_exact_snapshot(
         descriptors.callback(os.close, process_descriptor)
         with pytest.raises(
             RunActionSupervisorHelperError,
-            match="full-EOF ASCII",
+            match="full-EOF bytes",
         ):
             helper_module.read_run_action_process_mount_info_from_descriptor(
                 process_descriptor,
@@ -549,6 +665,7 @@ def test_executable_descriptor_verification_is_stable_and_nonclosing(
         observation = helper_module.verify_run_action_executable_descriptor(
             descriptor,
             expected_digest,
+            _PROCESS_SNAPSHOT_SIZE_BYTES,
         )
 
         assert observation.executable_digest == expected_digest
@@ -571,6 +688,7 @@ def test_executable_descriptor_remains_open_after_digest_failure(docker_settings
             helper_module.verify_run_action_executable_descriptor(
                 descriptor,
                 "sha256:" + "0" * 64,
+                _PROCESS_SNAPSHOT_SIZE_BYTES,
             )
 
         assert os.fstat(descriptor).st_ino > 0
@@ -590,7 +708,7 @@ def test_executable_descriptor_mount_identity_race_fails_without_closing(
     monkeypatch.setattr(
         helper_module,
         "read_run_action_descriptor_mount_id",
-        lambda _descriptor: next(mount_ids),
+        lambda _descriptor, _byte_limit: next(mount_ids),
     )
     with ExitStack() as descriptors:
         descriptors.callback(os.close, descriptor)
@@ -601,6 +719,7 @@ def test_executable_descriptor_mount_identity_race_fails_without_closing(
             helper_module.verify_run_action_executable_descriptor(
                 descriptor,
                 expected_digest,
+                _PROCESS_SNAPSHOT_SIZE_BYTES,
             )
 
         assert os.fstat(descriptor).st_ino > 0
@@ -618,12 +737,14 @@ def test_process_root_executable_and_namespace_metadata_are_descriptor_bound():
             helper_module.open_run_action_process_root_descriptor(
                 descriptors,
                 process_descriptor,
+                _PROCESS_SNAPSHOT_SIZE_BYTES,
             )
         )
         executable_descriptor, executable_metadata = (
             helper_module.open_run_action_process_executable_descriptor(
                 descriptors,
                 process_descriptor,
+                _PROCESS_SNAPSHOT_SIZE_BYTES,
             )
         )
         mount_namespace_descriptor, mount_namespace_metadata = (
@@ -631,6 +752,7 @@ def test_process_root_executable_and_namespace_metadata_are_descriptor_bound():
                 descriptors,
                 process_descriptor,
                 "mnt",
+                _PROCESS_SNAPSHOT_SIZE_BYTES,
             )
         )
         pid_namespace_descriptor, pid_namespace_metadata = (
@@ -638,6 +760,7 @@ def test_process_root_executable_and_namespace_metadata_are_descriptor_bound():
                 descriptors,
                 process_descriptor,
                 "pid",
+                _PROCESS_SNAPSHOT_SIZE_BYTES,
             )
         )
 
@@ -683,6 +806,7 @@ def test_process_namespace_open_rejects_unadmitted_name(namespace_name):
                 descriptors,
                 process_descriptor,
                 namespace_name,
+                _PROCESS_SNAPSHOT_SIZE_BYTES,
             )
 
 
@@ -700,6 +824,7 @@ def test_process_descriptor_metadata_rejects_wrong_file_type(tmp_path):
             helper_module._observe_run_action_process_descriptor_metadata(
                 descriptor,
                 "exe",
+                _PROCESS_SNAPSHOT_SIZE_BYTES,
             )
 
 

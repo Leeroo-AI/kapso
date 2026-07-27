@@ -80,6 +80,9 @@ def publish_run_action_workload_release_once(
                 payload_size_limit_bytes=(
                     policy.supervisor_limits.release_receipt_size_bytes
                 ),
+                process_snapshot_size_limit_bytes=(
+                    policy.supervisor_limits.process_snapshot_size_bytes
+                ),
                 payload=receipt.to_json_bytes(),
                 _authority=_CONTROL_FILE_CANDIDATE_ISSUANCE_AUTHORITY,
             )

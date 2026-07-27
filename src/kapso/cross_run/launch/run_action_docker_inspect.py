@@ -842,6 +842,9 @@ def observe_running_keeper(
         helper_evidence,
         container_id=container_id,
         process_id=state["Pid"],
+        process_snapshot_size_limit_bytes=(
+            claim.execution_policy.supervisor_limits.process_snapshot_size_bytes
+        ),
     )
     return RunActionVolumeKeeperEvidence.mint(
         preparation_claim_id=claim.preparation_claim_id,

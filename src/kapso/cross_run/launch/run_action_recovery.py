@@ -92,6 +92,7 @@ from kapso.cross_run.launch.run_action_store import (
 )
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
     DockerRunActionExecutionPolicy,
+    RUN_ACTION_MAXIMUM_PHYSICAL_INTEGER,
     RunActionActivationRevalidationReceipt,
     RunActionCredentialMode,
     RunActionPreparationAllocation,
@@ -2832,6 +2833,10 @@ def _observe_release_credential_validity(
         )
         * _NANOSECONDS_PER_SECOND
     )
+    if required_valid_until > RUN_ACTION_MAXIMUM_PHYSICAL_INTEGER:
+        raise RunActionRecoveryError(
+            "credential validity deadline exceeds its unsigned-64 clock domain"
+        )
     if (
         type(validity) is not RunActionCredentialValidityObservation
         or validity.activated_credential_file_observation_id
@@ -2902,6 +2907,10 @@ def _revalidate_release_credential_validity(
         )
         * _NANOSECONDS_PER_SECOND
     )
+    if containment_deadline_realtime > RUN_ACTION_MAXIMUM_PHYSICAL_INTEGER:
+        raise RunActionRecoveryError(
+            "credential revalidation deadline exceeds its unsigned-64 clock domain"
+        )
     if (
         type(current) is not RunActionCredentialValidityObservation
         or current.activated_credential_file_observation_id
@@ -2924,7 +2933,11 @@ def _revalidate_release_credential_validity(
 
 
 def _read_positive_release_clock(value: int, name: str) -> int:
-    if type(value) is not int or value <= 0:
+    if (
+        type(value) is not int
+        or value <= 0
+        or value > RUN_ACTION_MAXIMUM_PHYSICAL_INTEGER
+    ):
         raise RunActionRecoveryError(f"{name} is invalid")
     return value
 
@@ -3768,6 +3781,10 @@ class RunActionRecoveryCoordinator:
         if tail_kind is RunActionExecutionEventKind.SPAWN_COMMITTED:
             execution_adapter = self._resolve_execution_adapter(
                 self._implementation_registry,
+                reservation,
+            )
+            self._release_receipt_size_bound(
+                execution_adapter,
                 reservation,
             )
             prepared_execution = events[2].prepared_execution
@@ -4739,6 +4756,9 @@ class RunActionRecoveryCoordinator:
         configured_timeout_directive_bound = (
             self._publisher._settings.run_action_timeout_directive_size_bytes
         )
+        configured_process_snapshot_bound = (
+            self._publisher._settings.run_action_process_snapshot_size_bytes
+        )
         first = execution_adapter.release_receipt_size_bound(
             reservation=reservation,
         )
@@ -4752,6 +4772,8 @@ class RunActionRecoveryCoordinator:
             or policy_bound != configured_bound
             or policy_commit_timeout != configured_commit_timeout
             or policy_timeout_directive_bound != configured_timeout_directive_bound
+            or execution_adapter.execution_policy.supervisor_limits.process_snapshot_size_bytes
+            != configured_process_snapshot_bound
             or first > policy_bound
         ):
             raise RunActionRecoveryError(

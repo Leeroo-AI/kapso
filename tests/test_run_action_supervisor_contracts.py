@@ -41,6 +41,7 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RUN_ACTION_BARRIER_SCRIPT,
     RUN_ACTION_CREDENTIAL_LEASE_AUTHORITY_NAMESPACE,
     RUN_ACTION_DOCKER_INIT_DESTINATION,
+    RUN_ACTION_MAXIMUM_PHYSICAL_INTEGER,
     RUN_ACTION_SUPERVISOR_HELPER_DESTINATION,
     RunActionActivatedFileObservation,
     RunActionActivatedSentinelObservation,
@@ -109,6 +110,9 @@ _RUN_ACTION_TIMEOUT_DIRECTIVE_SIZE_BYTES = CrossRunSettings.from_dict(
 _RUN_ACTION_RELEASE_COMMIT_TIMEOUT_SECONDS = CrossRunSettings.from_dict(
     load_config(_CANONICAL_CONFIG_PATH)["cross_run"]
 ).launch.run_action_release_commit_timeout_seconds
+_RUN_ACTION_PROCESS_SNAPSHOT_SIZE_BYTES = CrossRunSettings.from_dict(
+    load_config(_CANONICAL_CONFIG_PATH)["cross_run"]
+).launch.run_action_process_snapshot_size_bytes
 
 
 def _fixture_content_id(namespace: str, label: str) -> str:
@@ -355,6 +359,7 @@ def _execution_policy(
             result_size_bytes=268435456,
             release_receipt_size_bytes=_RUN_ACTION_RELEASE_RECEIPT_SIZE_BYTES,
             timeout_directive_size_bytes=_RUN_ACTION_TIMEOUT_DIRECTIVE_SIZE_BYTES,
+            process_snapshot_size_bytes=_RUN_ACTION_PROCESS_SNAPSHOT_SIZE_BYTES,
         ),
     )
 
@@ -1694,6 +1699,39 @@ def test_terminal_observation_and_result_capture_bind_the_physical_result():
         replace(capture, parent_inode=capture.inode)
 
 
+@pytest.mark.parametrize(
+    "field",
+    (
+        "parent_mount_id",
+        "parent_device",
+        "parent_inode",
+        "mount_id",
+        "device",
+        "inode",
+    ),
+)
+def test_result_capture_rejects_physical_identity_above_unsigned_64(field):
+    prepared = _prepared_execution()
+    spawn = _spawn_commit(prepared)
+    activation = _activation_revalidation_receipt(prepared, spawn)
+    terminal = _terminal_observation(prepared, spawn)
+    capture = _result_capture_receipt(
+        prepared,
+        activation,
+        terminal,
+        b'{"provider":"complete"}',
+    )
+
+    with pytest.raises(
+        RunActionSupervisorContractError,
+        match="result capture receipt is invalid",
+    ):
+        _remint_contract(
+            capture,
+            **{field: RUN_ACTION_MAXIMUM_PHYSICAL_INTEGER + 1},
+        )
+
+
 def _activated_workspace_observation(prepared, spawn):
     workspace = prepared.workspace_proof
     if workspace is None:
@@ -2381,6 +2419,20 @@ def test_supervisor_timeout_directive_bound_is_positive_and_config_sourced():
         match="supervisor limits",
     ):
         _remint_contract(limits, timeout_directive_size_bytes=0)
+
+
+def test_supervisor_process_snapshot_bound_is_config_sourced_and_unsigned_64():
+    limits = _execution_policy().supervisor_limits
+
+    assert limits.process_snapshot_size_bytes == _RUN_ACTION_PROCESS_SNAPSHOT_SIZE_BYTES
+    with pytest.raises(
+        RunActionSupervisorContractError,
+        match="supervisor limits",
+    ):
+        _remint_contract(
+            limits,
+            process_snapshot_size_bytes=RUN_ACTION_MAXIMUM_PHYSICAL_INTEGER + 1,
+        )
 
 
 @pytest.mark.parametrize(

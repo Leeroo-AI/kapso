@@ -95,6 +95,7 @@ class _RunActionFrozenControlFileCandidate:
         owner_user_id: int,
         owner_group_id: int,
         payload_size_limit_bytes: int,
+        process_snapshot_size_limit_bytes: int,
         payload: bytes,
         _authority: object,
     ) -> None:
@@ -124,6 +125,8 @@ class _RunActionFrozenControlFileCandidate:
             or owner_group_id <= 0
             or type(payload_size_limit_bytes) is not int
             or payload_size_limit_bytes <= 0
+            or type(process_snapshot_size_limit_bytes) is not int
+            or process_snapshot_size_limit_bytes <= 0
             or type(payload) is not bytes
             or not payload
             or len(payload) > payload_size_limit_bytes
@@ -140,6 +143,7 @@ class _RunActionFrozenControlFileCandidate:
         self._owner_user_id = owner_user_id
         self._owner_group_id = owner_group_id
         self._payload_size_limit_bytes = payload_size_limit_bytes
+        self._process_snapshot_size_limit_bytes = process_snapshot_size_limit_bytes
         self._payload = payload
         self._owner_process_id = os.getpid()
         self._owner_thread_id = get_ident()
@@ -267,12 +271,14 @@ class _RunActionFrozenControlFileCandidate:
     ) -> tuple[int, ...]:
         before = os.fstat(self._control_directory_descriptor)
         mount_id_before = read_run_action_descriptor_mount_id(
-            self._control_directory_descriptor
+            self._control_directory_descriptor,
+            self._process_snapshot_size_limit_bytes,
         )
         entries = tuple(sorted(os.listdir(self._control_directory_descriptor)))
         after = os.fstat(self._control_directory_descriptor)
         mount_id_after = read_run_action_descriptor_mount_id(
-            self._control_directory_descriptor
+            self._control_directory_descriptor,
+            self._process_snapshot_size_limit_bytes,
         )
         identity = _directory_authority_identity(after, mount_id_after)
         if (
@@ -308,7 +314,8 @@ class _RunActionFrozenControlFileCandidate:
             return None
         retained_before = os.fstat(self._predecessor_descriptor)
         retained_mount_id_before = read_run_action_descriptor_mount_id(
-            self._predecessor_descriptor
+            self._predecessor_descriptor,
+            self._process_snapshot_size_limit_bytes,
         )
         descriptor = os.open(
             predecessor_file_name,
@@ -318,11 +325,13 @@ class _RunActionFrozenControlFileCandidate:
         with os.fdopen(descriptor, "rb", buffering=0) as predecessor_file:
             path_metadata = os.fstat(predecessor_file.fileno())
             path_mount_id = read_run_action_descriptor_mount_id(
-                predecessor_file.fileno()
+                predecessor_file.fileno(),
+                self._process_snapshot_size_limit_bytes,
             )
         retained_after = os.fstat(self._predecessor_descriptor)
         retained_mount_id_after = read_run_action_descriptor_mount_id(
-            self._predecessor_descriptor
+            self._predecessor_descriptor,
+            self._process_snapshot_size_limit_bytes,
         )
         identity = _stable_predecessor_identity(
             retained_after,
@@ -357,14 +366,18 @@ class _RunActionFrozenControlFileCandidate:
     def _require_anonymous_file(self, *, link_count: int) -> tuple[int, ...]:
         before = os.fstat(self._anonymous_descriptor)
         mount_id_before = read_run_action_descriptor_mount_id(
-            self._anonymous_descriptor
+            self._anonymous_descriptor,
+            self._process_snapshot_size_limit_bytes,
         )
         require_run_action_descriptor_payload(
             self._anonymous_descriptor,
             self._payload,
         )
         after = os.fstat(self._anonymous_descriptor)
-        mount_id_after = read_run_action_descriptor_mount_id(self._anonymous_descriptor)
+        mount_id_after = read_run_action_descriptor_mount_id(
+            self._anonymous_descriptor,
+            self._process_snapshot_size_limit_bytes,
+        )
         identity = _publication_file_identity(after, mount_id_after)
         control_metadata = os.fstat(self._control_directory_descriptor)
         predecessor_inode = (
@@ -401,7 +414,8 @@ class _RunActionFrozenControlFileCandidate:
             )
         retained = os.fstat(self._anonymous_descriptor)
         retained_mount_id = read_run_action_descriptor_mount_id(
-            self._anonymous_descriptor
+            self._anonymous_descriptor,
+            self._process_snapshot_size_limit_bytes,
         )
         descriptor = os.open(
             self._spec.final_file_name,
@@ -414,7 +428,10 @@ class _RunActionFrozenControlFileCandidate:
                 self._payload,
             )
             path_metadata = os.fstat(published_file.fileno())
-            path_mount_id = read_run_action_descriptor_mount_id(published_file.fileno())
+            path_mount_id = read_run_action_descriptor_mount_id(
+                published_file.fileno(),
+                self._process_snapshot_size_limit_bytes,
+            )
             os.fsync(published_file.fileno())
         retained_identity = _publication_file_identity(
             retained,

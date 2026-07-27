@@ -32,6 +32,7 @@ from kapso.cross_run.launch.run_action_docker_resources import (
 from kapso.cross_run.launch.run_action_supervisor_helper import (
     read_run_action_descriptor_mount_id,
     read_run_action_process_cgroup_path_from_descriptor,
+    read_run_action_process_mount_info_from_descriptor,
     read_run_action_process_stat_from_descriptor,
 )
 from kapso.cross_run.launch.run_action_contracts import RunFrontierWorkspaceAccess
@@ -41,6 +42,7 @@ from kapso.cross_run.launch.run_action_control_topology import (
 from kapso.cross_run.launch.run_action_spawn_contracts import RunActionSpawnCommit
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RUN_ACTION_CREDENTIAL_LEASE_AUTHORITY_NAMESPACE,
+    RUN_ACTION_MAXIMUM_PHYSICAL_INTEGER,
     RUN_ACTION_RUNTIME_VOLUME_KEEPER_DESTINATION,
     RunActionActivatedFileObservation,
     RunActionActivatedSentinelObservation,
@@ -185,6 +187,7 @@ class RunActionControlDirectoryLease:
             self._prepared.control_directory,
             self._mounted_volume.root_descriptor,
             self._control_descriptor,
+            self._mounted_volume.process_snapshot_size_limit_bytes,
             expected_entries=self._topology.entries,
         )
 
@@ -215,6 +218,7 @@ class RunActionControlDirectoryLease:
             self._mounted_volume.process_descriptor,
             self._mounted_volume.root_mount_id,
             RUN_ACTION_RUNTIME_VOLUME_KEEPER_DESTINATION,
+            self._mounted_volume.process_snapshot_size_limit_bytes,
         )
         _require_mount_authority(mount_info_before, root_metadata_before, authority)
         self.require_current()
@@ -224,6 +228,7 @@ class RunActionControlDirectoryLease:
             self._mounted_volume.process_descriptor,
             self._mounted_volume.root_mount_id,
             RUN_ACTION_RUNTIME_VOLUME_KEEPER_DESTINATION,
+            self._mounted_volume.process_snapshot_size_limit_bytes,
         )
         if (
             _stable_filesystem(filesystem_after)
@@ -324,7 +329,8 @@ class RunActionResultWorkspaceLease:
         _require_same_exact_regular_file(self._sentinel_observation)
         opened_before = os.fstat(self._workspace_descriptor)
         opened_mount_id = read_run_action_descriptor_mount_id(
-            self._workspace_descriptor
+            self._workspace_descriptor,
+            self._mounted_volume.process_snapshot_size_limit_bytes,
         )
         with ExitStack() as descriptors:
             current_descriptor = os.open(
@@ -334,7 +340,10 @@ class RunActionResultWorkspaceLease:
             )
             descriptors.callback(os.close, current_descriptor)
             current_before = os.fstat(current_descriptor)
-            current_mount_id = read_run_action_descriptor_mount_id(current_descriptor)
+            current_mount_id = read_run_action_descriptor_mount_id(
+                current_descriptor,
+                self._mounted_volume.process_snapshot_size_limit_bytes,
+            )
             path_before = os.stat(
                 self._workspace_proof.volume_subpath,
                 dir_fd=self._mounted_volume.root_descriptor,
@@ -998,6 +1007,7 @@ class _MountedRuntimeVolumeLease:
     root_mount_id: int
     root_device: int
     root_inode: int
+    process_snapshot_size_limit_bytes: int
 
 
 @dataclass(frozen=True)
@@ -1047,6 +1057,7 @@ class _ExactRegularFileObservation:
     metadata: os.stat_result
     mount_id: int
     payload: bytes
+    process_snapshot_size_limit_bytes: int
 
 
 @dataclass(frozen=True)
@@ -1056,6 +1067,7 @@ class _ExactRegularFileShapeObservation:
     name: str
     metadata: os.stat_result
     mount_id: int
+    process_snapshot_size_limit_bytes: int
 
 
 @dataclass(frozen=True)
@@ -1129,13 +1141,18 @@ def _open_mounted_runtime_volume(
         os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
     )
     descriptors.callback(os.close, process_descriptor)
+    process_snapshot_size_limit_bytes = (
+        keeper.issued_create_projection.execution_policy.supervisor_limits.process_snapshot_size_bytes
+    )
     process_start_time_ticks = read_run_action_process_stat_from_descriptor(
         process_descriptor,
         keeper.process_id,
+        process_snapshot_size_limit_bytes,
     ).start_time_ticks
     process_cgroup_path = read_run_action_process_cgroup_path_from_descriptor(
         process_descriptor,
         keeper.container_id,
+        process_snapshot_size_limit_bytes,
     )
     process_root_descriptor = os.open(
         "root",
@@ -1157,9 +1174,13 @@ def _open_mounted_runtime_volume(
         keeper_process_id=keeper.process_id,
         process_start_time_ticks=process_start_time_ticks,
         process_cgroup_path=process_cgroup_path,
-        root_mount_id=read_run_action_descriptor_mount_id(root_descriptor),
+        root_mount_id=read_run_action_descriptor_mount_id(
+            root_descriptor,
+            process_snapshot_size_limit_bytes,
+        ),
         root_device=root_metadata.st_dev,
         root_inode=root_metadata.st_ino,
+        process_snapshot_size_limit_bytes=process_snapshot_size_limit_bytes,
     )
     _require_same_mounted_runtime_volume(lease, keeper)
     return lease
@@ -1177,17 +1198,23 @@ def _require_same_mounted_runtime_volume(
             "runtime volume lease changed process or physical root"
         )
     authority = keeper.issued_create_projection.volume_authority
+    process_snapshot_size_limit_bytes = (
+        keeper.issued_create_projection.execution_policy.supervisor_limits.process_snapshot_size_bytes
+    )
     process_stat_before = read_run_action_process_stat_from_descriptor(
         lease.process_descriptor,
         lease.keeper_process_id,
+        process_snapshot_size_limit_bytes,
     )
     process_cgroup_before = read_run_action_process_cgroup_path_from_descriptor(
         lease.process_descriptor,
         lease.keeper_container_id,
+        process_snapshot_size_limit_bytes,
     )
     retained_root_before = os.fstat(lease.root_descriptor)
     retained_mount_id_before = read_run_action_descriptor_mount_id(
-        lease.root_descriptor
+        lease.root_descriptor,
+        process_snapshot_size_limit_bytes,
     )
     with ExitStack() as descriptors:
         process_root_descriptor = os.open(
@@ -1204,12 +1231,14 @@ def _require_same_mounted_runtime_volume(
         descriptors.callback(os.close, current_root_descriptor)
         current_root_before = os.fstat(current_root_descriptor)
         current_mount_id_before = read_run_action_descriptor_mount_id(
-            current_root_descriptor
+            current_root_descriptor,
+            process_snapshot_size_limit_bytes,
         )
         mount_info_before = _read_mount_info(
             lease.process_descriptor,
             current_mount_id_before,
             RUN_ACTION_RUNTIME_VOLUME_KEEPER_DESTINATION,
+            process_snapshot_size_limit_bytes,
         )
         _require_mount_authority(
             mount_info_before,
@@ -1218,22 +1247,29 @@ def _require_same_mounted_runtime_volume(
         )
         current_root_after = os.fstat(current_root_descriptor)
         current_mount_id_after = read_run_action_descriptor_mount_id(
-            current_root_descriptor
+            current_root_descriptor,
+            process_snapshot_size_limit_bytes,
         )
         mount_info_after = _read_mount_info(
             lease.process_descriptor,
             current_mount_id_after,
             RUN_ACTION_RUNTIME_VOLUME_KEEPER_DESTINATION,
+            process_snapshot_size_limit_bytes,
         )
     retained_root_after = os.fstat(lease.root_descriptor)
-    retained_mount_id_after = read_run_action_descriptor_mount_id(lease.root_descriptor)
+    retained_mount_id_after = read_run_action_descriptor_mount_id(
+        lease.root_descriptor,
+        process_snapshot_size_limit_bytes,
+    )
     process_cgroup_after = read_run_action_process_cgroup_path_from_descriptor(
         lease.process_descriptor,
         lease.keeper_container_id,
+        process_snapshot_size_limit_bytes,
     )
     process_stat_after = read_run_action_process_stat_from_descriptor(
         lease.process_descriptor,
         lease.keeper_process_id,
+        process_snapshot_size_limit_bytes,
     )
     if (
         keeper.container_id != lease.keeper_container_id
@@ -1299,6 +1335,9 @@ def open_run_action_control_directory(
             authority=authority,
             root_mount_id=mounted_volume.root_mount_id,
             root_device=mounted_volume.root_device,
+            process_snapshot_size_limit_bytes=(
+                mounted_volume.process_snapshot_size_limit_bytes
+            ),
         )
         _require_exact_sentinel_observation(
             sentinel_observation,
@@ -1318,6 +1357,7 @@ def open_run_action_control_directory(
             prepared.control_directory,
             mounted_volume.root_descriptor,
             control_descriptor,
+            mounted_volume.process_snapshot_size_limit_bytes,
             expected_entries=None,
         )
         entries_before = tuple(sorted(os.listdir(control_descriptor)))
@@ -1325,6 +1365,7 @@ def open_run_action_control_directory(
             prepared.control_directory,
             mounted_volume.root_descriptor,
             control_descriptor,
+            mounted_volume.process_snapshot_size_limit_bytes,
             expected_entries=None,
         )
         entries_after = tuple(sorted(os.listdir(control_descriptor)))
@@ -1343,6 +1384,7 @@ def open_run_action_control_directory(
             prepared.control_directory,
             mounted_volume.root_descriptor,
             control_descriptor,
+            mounted_volume.process_snapshot_size_limit_bytes,
             expected_entries=entries_before,
         )
         lease = RunActionControlDirectoryLease(
@@ -1427,6 +1469,9 @@ def open_run_action_result_workspace(
             authority=prepared.runtime_volume_authority,
             root_mount_id=mounted_volume.root_mount_id,
             root_device=mounted_volume.root_device,
+            process_snapshot_size_limit_bytes=(
+                mounted_volume.process_snapshot_size_limit_bytes
+            ),
         )
         _require_exact_sentinel_observation(
             sentinel_observation,
@@ -1439,7 +1484,10 @@ def open_run_action_result_workspace(
         )
         descriptors.callback(os.close, workspace_descriptor)
         workspace_metadata = os.fstat(workspace_descriptor)
-        workspace_mount_id = read_run_action_descriptor_mount_id(workspace_descriptor)
+        workspace_mount_id = read_run_action_descriptor_mount_id(
+            workspace_descriptor,
+            mounted_volume.process_snapshot_size_limit_bytes,
+        )
         if not _result_workspace_matches_prepared(
             workspace_metadata,
             workspace_mount_id,
@@ -1535,6 +1583,9 @@ def capture_run_action_result_file(
             authority=authority,
             root_mount_id=mounted_volume.root_mount_id,
             root_device=mounted_volume.root_device,
+            process_snapshot_size_limit_bytes=(
+                mounted_volume.process_snapshot_size_limit_bytes
+            ),
         )
         _require_exact_sentinel_observation(
             sentinel_observation,
@@ -1553,6 +1604,7 @@ def capture_run_action_result_file(
             result_parent,
             mounted_volume.root_descriptor,
             result_parent_descriptor,
+            mounted_volume.process_snapshot_size_limit_bytes,
             expected_entries=("result.blob",),
         )
         result_descriptor = os.open(
@@ -1562,7 +1614,10 @@ def capture_run_action_result_file(
         )
         descriptors.callback(os.close, result_descriptor)
         result_metadata_before = os.fstat(result_descriptor)
-        result_mount_id_before = read_run_action_descriptor_mount_id(result_descriptor)
+        result_mount_id_before = read_run_action_descriptor_mount_id(
+            result_descriptor,
+            mounted_volume.process_snapshot_size_limit_bytes,
+        )
         if (
             not stat.S_ISREG(result_metadata_before.st_mode)
             or result_metadata_before.st_uid != result_file.owner_user_id
@@ -1581,7 +1636,8 @@ def capture_run_action_result_file(
         os.fsync(result_parent_descriptor)
         result_metadata_after_sync = os.fstat(result_descriptor)
         result_mount_id_after_sync = read_run_action_descriptor_mount_id(
-            result_descriptor
+            result_descriptor,
+            mounted_volume.process_snapshot_size_limit_bytes,
         )
         filesystem_before = os.fstatvfs(mounted_volume.root_descriptor)
         _require_consistent_filesystem(filesystem_before)
@@ -1611,12 +1667,16 @@ def capture_run_action_result_file(
             metadata=result_metadata_before,
             mount_id=result_mount_id_before,
             payload=payload,
+            process_snapshot_size_limit_bytes=(
+                mounted_volume.process_snapshot_size_limit_bytes
+            ),
         )
         _require_same_exact_regular_file(captured_file)
         _require_exact_activation_directory(
             result_parent,
             mounted_volume.root_descriptor,
             result_parent_descriptor,
+            mounted_volume.process_snapshot_size_limit_bytes,
             expected_entries=("result.blob",),
         )
         _require_same_exact_regular_file(sentinel_observation)
@@ -1832,6 +1892,7 @@ def observe_empty_runtime_volume(
             lease.process_descriptor,
             lease.root_mount_id,
             RUN_ACTION_RUNTIME_VOLUME_KEEPER_DESTINATION,
+            lease.process_snapshot_size_limit_bytes,
         )
         filesystem_before = os.fstatvfs(lease.root_descriptor)
         entries = tuple(sorted(os.listdir(lease.root_descriptor)))
@@ -1840,6 +1901,7 @@ def observe_empty_runtime_volume(
             lease.process_descriptor,
             lease.root_mount_id,
             RUN_ACTION_RUNTIME_VOLUME_KEEPER_DESTINATION,
+            lease.process_snapshot_size_limit_bytes,
         )
         metadata_after = os.fstat(lease.root_descriptor)
         _require_same_mounted_runtime_volume(lease, keeper)
@@ -2358,6 +2420,7 @@ def deliver_and_reobserve_runtime_volume_activation(
             lease.process_descriptor,
             lease.root_mount_id,
             RUN_ACTION_RUNTIME_VOLUME_KEEPER_DESTINATION,
+            lease.process_snapshot_size_limit_bytes,
         )
         _require_mount_authority(mount_info_before, root_metadata_before, authority)
         if tuple(sorted(os.listdir(lease.root_descriptor))) != expected_root_entries:
@@ -2437,6 +2500,7 @@ def deliver_and_reobserve_runtime_volume_activation(
             authority=authority,
             root_mount_id=lease.root_mount_id,
             root_device=lease.root_device,
+            process_snapshot_size_limit_bytes=(lease.process_snapshot_size_limit_bytes),
         )
         _require_exact_sentinel_observation(
             sentinel_observation,
@@ -2451,6 +2515,7 @@ def deliver_and_reobserve_runtime_volume_activation(
             authority=authority,
             root_mount_id=lease.root_mount_id,
             root_device=lease.root_device,
+            process_snapshot_size_limit_bytes=(lease.process_snapshot_size_limit_bytes),
         )
         _require_activation_result_file(
             result_file_observation,
@@ -2460,18 +2525,21 @@ def deliver_and_reobserve_runtime_volume_activation(
             prepared.control_directory,
             lease.root_descriptor,
             control_directory_descriptor,
+            lease.process_snapshot_size_limit_bytes,
             expected_entries=(),
         )
         _require_exact_activation_directory(
             prepared.result_directory,
             lease.root_descriptor,
             result_directory_descriptor,
+            lease.process_snapshot_size_limit_bytes,
             expected_entries=("result.blob",),
         )
         _require_exact_activation_directory(
             prepared.temporary_directory,
             lease.root_descriptor,
             temporary_directory_descriptor,
+            lease.process_snapshot_size_limit_bytes,
             expected_entries=(),
         )
         input_delivery = descriptors.enter_context(
@@ -2479,6 +2547,7 @@ def deliver_and_reobserve_runtime_volume_activation(
                 prepared.input_delivery_slot,
                 input_directory_descriptor,
                 request_payload,
+                lease.process_snapshot_size_limit_bytes,
             )
         )
         credential_delivery = None
@@ -2495,6 +2564,7 @@ def deliver_and_reobserve_runtime_volume_activation(
                     prepared.credential_delivery_slot,
                     credential_directory_descriptor,
                     credential_payload,
+                    lease.process_snapshot_size_limit_bytes,
                 )
             )
         filesystem_before = os.fstatvfs(lease.root_descriptor)
@@ -2506,24 +2576,28 @@ def deliver_and_reobserve_runtime_volume_activation(
             prepared.control_directory,
             lease.root_descriptor,
             control_directory_descriptor,
+            lease.process_snapshot_size_limit_bytes,
             expected_entries=(),
         )
         _require_exact_activation_directory(
             prepared.input_delivery_slot,
             lease.root_descriptor,
             input_directory_descriptor,
+            lease.process_snapshot_size_limit_bytes,
             expected_entries=(prepared.input_delivery_slot.final_file_name,),
         )
         _require_exact_activation_directory(
             prepared.result_directory,
             lease.root_descriptor,
             result_directory_descriptor,
+            lease.process_snapshot_size_limit_bytes,
             expected_entries=("result.blob",),
         )
         _require_exact_activation_directory(
             prepared.temporary_directory,
             lease.root_descriptor,
             temporary_directory_descriptor,
+            lease.process_snapshot_size_limit_bytes,
             expected_entries=(),
         )
         if prepared.credential_delivery_slot is not None:
@@ -2535,6 +2609,7 @@ def deliver_and_reobserve_runtime_volume_activation(
                 prepared.credential_delivery_slot,
                 lease.root_descriptor,
                 credential_directory_descriptor,
+                lease.process_snapshot_size_limit_bytes,
                 expected_entries=(prepared.credential_delivery_slot.final_file_name,),
             )
         if prepared.workspace_proof is not None:
@@ -2551,6 +2626,7 @@ def deliver_and_reobserve_runtime_volume_activation(
                 prepared.workspace_proof,
                 lease.root_descriptor,
                 workspace_directory_descriptor,
+                lease.process_snapshot_size_limit_bytes,
                 expected_entries=None,
             )
             if not _same_workspace_semantics(
@@ -2571,6 +2647,7 @@ def deliver_and_reobserve_runtime_volume_activation(
             lease.process_descriptor,
             lease.root_mount_id,
             RUN_ACTION_RUNTIME_VOLUME_KEEPER_DESTINATION,
+            lease.process_snapshot_size_limit_bytes,
         )
         if (
             _stable_filesystem(filesystem_after)
@@ -2729,6 +2806,7 @@ def _open_selected_activation_descriptors(
         lease.process_descriptor,
         lease.root_mount_id,
         RUN_ACTION_RUNTIME_VOLUME_KEEPER_DESTINATION,
+        lease.process_snapshot_size_limit_bytes,
     )
     _require_mount_authority(mount_info_before, root_metadata_before, authority)
     expected_root_entries = tuple(
@@ -2811,6 +2889,7 @@ def _open_selected_activation_descriptors(
         authority=authority,
         root_mount_id=lease.root_mount_id,
         root_device=lease.root_device,
+        process_snapshot_size_limit_bytes=lease.process_snapshot_size_limit_bytes,
     )
     _require_exact_sentinel_observation(
         sentinel_observation,
@@ -2824,6 +2903,7 @@ def _open_selected_activation_descriptors(
         authority,
         root_mount_id=lease.root_mount_id,
         root_device=lease.root_device,
+        process_snapshot_size_limit_bytes=lease.process_snapshot_size_limit_bytes,
     )
     result_file_observation = _open_exact_regular_file(
         descriptors,
@@ -2834,6 +2914,7 @@ def _open_selected_activation_descriptors(
         authority=authority,
         root_mount_id=lease.root_mount_id,
         root_device=lease.root_device,
+        process_snapshot_size_limit_bytes=lease.process_snapshot_size_limit_bytes,
     )
     _require_activation_result_file(
         result_file_observation,
@@ -2856,6 +2937,7 @@ def _open_selected_activation_descriptors(
             authority,
             root_mount_id=lease.root_mount_id,
             root_device=lease.root_device,
+            process_snapshot_size_limit_bytes=lease.process_snapshot_size_limit_bytes,
         )
     elif selected_receipt.credential_file_observation is not None:
         raise RunActionRuntimeVolumeError(
@@ -2900,6 +2982,7 @@ def _open_selected_activation_descriptors(
             prepared_directory,
             lease.root_descriptor,
             descriptor,
+            lease.process_snapshot_size_limit_bytes,
             expected_entries=expected_entries,
         )
     filesystem_before = os.fstatvfs(lease.root_descriptor)
@@ -2933,6 +3016,7 @@ def _open_selected_activation_descriptors(
         lease.process_descriptor,
         lease.root_mount_id,
         RUN_ACTION_RUNTIME_VOLUME_KEEPER_DESTINATION,
+        lease.process_snapshot_size_limit_bytes,
     )
     if (
         _stable_filesystem(filesystem_after) != _stable_filesystem(filesystem_before)
@@ -3061,6 +3145,7 @@ def _require_selected_activation_lease_current(
             prepared_directory,
             lease._mounted_volume.root_descriptor,
             descriptor,
+            lease._mounted_volume.process_snapshot_size_limit_bytes,
             expected_entries=expected_entries,
         )
     if prepared.workspace_proof is not None:
@@ -3091,6 +3176,7 @@ def _require_selected_activation_lease_current(
         lease._mounted_volume.process_descriptor,
         lease._mounted_volume.root_mount_id,
         RUN_ACTION_RUNTIME_VOLUME_KEEPER_DESTINATION,
+        lease._mounted_volume.process_snapshot_size_limit_bytes,
     )
     expected_root_entries = tuple(
         sorted((*_expected_directory_names(prepared.preparation_claim), _SENTINEL_NAME))
@@ -3319,7 +3405,10 @@ def _open_activation_subpath_directory(
     )
     descriptors.callback(os.close, descriptor)
     metadata = os.fstat(descriptor)
-    mount_id = read_run_action_descriptor_mount_id(descriptor)
+    mount_id = read_run_action_descriptor_mount_id(
+        descriptor,
+        lease.process_snapshot_size_limit_bytes,
+    )
     if (
         not stat.S_ISDIR(metadata.st_mode)
         or metadata.st_uid != authority.owner_user_id
@@ -3345,6 +3434,7 @@ def _require_exact_activation_directory(
     ),
     root_descriptor: int,
     directory_descriptor: int,
+    process_snapshot_size_limit_bytes: int,
     *,
     expected_entries: tuple[str, ...] | None,
 ) -> None:
@@ -3360,7 +3450,10 @@ def _require_exact_activation_directory(
             "activation directory proof uses an unknown authority"
         )
     metadata_before = os.fstat(directory_descriptor)
-    mount_id_before = read_run_action_descriptor_mount_id(directory_descriptor)
+    mount_id_before = read_run_action_descriptor_mount_id(
+        directory_descriptor,
+        process_snapshot_size_limit_bytes,
+    )
     entries = tuple(sorted(os.listdir(directory_descriptor)))
     path_descriptor = os.open(
         relative_path,
@@ -3370,12 +3463,21 @@ def _require_exact_activation_directory(
     with ExitStack() as path_descriptors:
         path_descriptors.callback(os.close, path_descriptor)
         path_metadata_before = os.fstat(path_descriptor)
-        path_mount_id_before = read_run_action_descriptor_mount_id(path_descriptor)
+        path_mount_id_before = read_run_action_descriptor_mount_id(
+            path_descriptor,
+            process_snapshot_size_limit_bytes,
+        )
         path_entries = tuple(sorted(os.listdir(path_descriptor)))
         path_metadata_after = os.fstat(path_descriptor)
-        path_mount_id_after = read_run_action_descriptor_mount_id(path_descriptor)
+        path_mount_id_after = read_run_action_descriptor_mount_id(
+            path_descriptor,
+            process_snapshot_size_limit_bytes,
+        )
     metadata_after = os.fstat(directory_descriptor)
-    mount_id_after = read_run_action_descriptor_mount_id(directory_descriptor)
+    mount_id_after = read_run_action_descriptor_mount_id(
+        directory_descriptor,
+        process_snapshot_size_limit_bytes,
+    )
     if (
         not stat.S_ISDIR(metadata_before.st_mode)
         or _stable_metadata(metadata_after) != _stable_metadata(metadata_before)
@@ -3460,6 +3562,7 @@ def _open_reobserved_input_file(
     *,
     root_mount_id: int,
     root_device: int,
+    process_snapshot_size_limit_bytes: int,
 ) -> _ExactRegularFileObservation:
     if (
         type(selected) is not RunActionActivatedFileObservation
@@ -3492,6 +3595,7 @@ def _open_reobserved_input_file(
         authority=authority,
         root_mount_id=root_mount_id,
         root_device=root_device,
+        process_snapshot_size_limit_bytes=process_snapshot_size_limit_bytes,
     )
     metadata = observed.metadata
     observed_digest = tree_or_blob_digest(observed.payload)
@@ -3521,6 +3625,7 @@ def _open_reobserved_credential_file(
     *,
     root_mount_id: int,
     root_device: int,
+    process_snapshot_size_limit_bytes: int,
 ) -> _ExactRegularFileShapeObservation:
     if (
         type(selected) is not RunActionActivatedFileObservation
@@ -3554,6 +3659,7 @@ def _open_reobserved_credential_file(
         authority=authority,
         root_mount_id=root_mount_id,
         root_device=root_device,
+        process_snapshot_size_limit_bytes=process_snapshot_size_limit_bytes,
     )
     metadata = observed.metadata
     if (
@@ -4004,6 +4110,7 @@ def _require_empty_volume_lease(
         lease.process_descriptor,
         lease.root_mount_id,
         RUN_ACTION_RUNTIME_VOLUME_KEEPER_DESTINATION,
+        lease.process_snapshot_size_limit_bytes,
     )
     filesystem = os.fstatvfs(lease.root_descriptor)
     _require_mount_authority(
@@ -4058,6 +4165,7 @@ def _observe_prepared_layout_at_descriptor(
         lease.process_descriptor,
         lease.root_mount_id,
         RUN_ACTION_RUNTIME_VOLUME_KEEPER_DESTINATION,
+        lease.process_snapshot_size_limit_bytes,
     )
     filesystem_before = os.fstatvfs(lease.root_descriptor)
     _require_mount_authority(mount_info_before, metadata_before, authority)
@@ -4081,7 +4189,8 @@ def _observe_prepared_layout_at_descriptor(
             descriptors.callback(os.close, directory_descriptor)
             directory_metadata = os.fstat(directory_descriptor)
             directory_mount_id = read_run_action_descriptor_mount_id(
-                directory_descriptor
+                directory_descriptor,
+                lease.process_snapshot_size_limit_bytes,
             )
             identity = (directory_metadata.st_dev, directory_metadata.st_ino)
             if (
@@ -4110,6 +4219,7 @@ def _observe_prepared_layout_at_descriptor(
             authority=authority,
             root_mount_id=lease.root_mount_id,
             root_device=lease.root_device,
+            process_snapshot_size_limit_bytes=lease.process_snapshot_size_limit_bytes,
         )
         sentinel_identity = (
             sentinel_observation.metadata.st_dev,
@@ -4143,7 +4253,8 @@ def _observe_prepared_layout_at_descriptor(
             _ExactDirectoryObservation(
                 metadata=os.fstat(directory_descriptors[directory_plan.directory_name]),
                 mount_id=read_run_action_descriptor_mount_id(
-                    directory_descriptors[directory_plan.directory_name]
+                    directory_descriptors[directory_plan.directory_name],
+                    lease.process_snapshot_size_limit_bytes,
                 ),
             )
             for directory_plan in _expected_runtime_directory_plans()
@@ -4152,7 +4263,8 @@ def _observe_prepared_layout_at_descriptor(
             _ExactDirectoryObservation(
                 metadata=os.fstat(directory_descriptors[slot_plan.directory_name]),
                 mount_id=read_run_action_descriptor_mount_id(
-                    directory_descriptors[slot_plan.directory_name]
+                    directory_descriptors[slot_plan.directory_name],
+                    lease.process_snapshot_size_limit_bytes,
                 ),
             )
             for slot_plan in _expected_delivery_slot_plans(claim)
@@ -4167,6 +4279,7 @@ def _observe_prepared_layout_at_descriptor(
             authority=authority,
             root_mount_id=lease.root_mount_id,
             root_device=lease.root_device,
+            process_snapshot_size_limit_bytes=lease.process_snapshot_size_limit_bytes,
         )
         result_identity = (
             result_file_observation.metadata.st_dev,
@@ -4199,7 +4312,10 @@ def _observe_prepared_layout_at_descriptor(
             workspace_descriptor = directory_descriptors["workspace"]
             workspace_directory_observation = _ExactDirectoryObservation(
                 metadata=os.fstat(workspace_descriptor),
-                mount_id=read_run_action_descriptor_mount_id(workspace_descriptor),
+                mount_id=read_run_action_descriptor_mount_id(
+                    workspace_descriptor,
+                    lease.process_snapshot_size_limit_bytes,
+                ),
             )
             observed_workspace_frontier = inspect_run_workspace_frontier(
                 workspace_descriptor,
@@ -4223,6 +4339,7 @@ def _observe_prepared_layout_at_descriptor(
             lease.process_descriptor,
             lease.root_mount_id,
             RUN_ACTION_RUNTIME_VOLUME_KEEPER_DESTINATION,
+            lease.process_snapshot_size_limit_bytes,
         )
         filesystem_after = os.fstatvfs(lease.root_descriptor)
         _require_same_mounted_runtime_volume(lease, keeper)
@@ -4268,6 +4385,7 @@ def _open_exact_regular_file(
     authority: RunActionRuntimeVolumeAuthority,
     root_mount_id: int,
     root_device: int,
+    process_snapshot_size_limit_bytes: int,
 ) -> _ExactRegularFileObservation:
     descriptor = os.open(
         name,
@@ -4276,13 +4394,19 @@ def _open_exact_regular_file(
     )
     descriptors.callback(os.close, descriptor)
     metadata_before = os.fstat(descriptor)
-    mount_id_before = read_run_action_descriptor_mount_id(descriptor)
+    mount_id_before = read_run_action_descriptor_mount_id(
+        descriptor,
+        process_snapshot_size_limit_bytes,
+    )
     payload = _read_bounded_descriptor_payload(
         descriptor,
         len(expected_payload) + 1,
     )
     metadata_after = os.fstat(descriptor)
-    mount_id_after = read_run_action_descriptor_mount_id(descriptor)
+    mount_id_after = read_run_action_descriptor_mount_id(
+        descriptor,
+        process_snapshot_size_limit_bytes,
+    )
     if (
         _stable_metadata(metadata_after) != _stable_metadata(metadata_before)
         or mount_id_after != mount_id_before
@@ -4306,6 +4430,7 @@ def _open_exact_regular_file(
         metadata=metadata_before,
         mount_id=mount_id_before,
         payload=payload,
+        process_snapshot_size_limit_bytes=process_snapshot_size_limit_bytes,
     )
 
 
@@ -4319,6 +4444,7 @@ def _open_regular_file_by_shape(
     authority: RunActionRuntimeVolumeAuthority,
     root_mount_id: int,
     root_device: int,
+    process_snapshot_size_limit_bytes: int,
 ) -> _ExactRegularFileObservation:
     if type(expected_size_bytes) is not int or expected_size_bytes <= 0:
         raise RunActionRuntimeVolumeError(
@@ -4331,13 +4457,19 @@ def _open_regular_file_by_shape(
     )
     descriptors.callback(os.close, descriptor)
     metadata_before = os.fstat(descriptor)
-    mount_id_before = read_run_action_descriptor_mount_id(descriptor)
+    mount_id_before = read_run_action_descriptor_mount_id(
+        descriptor,
+        process_snapshot_size_limit_bytes,
+    )
     payload = _read_bounded_descriptor_payload(
         descriptor,
         expected_size_bytes + 1,
     )
     metadata_after = os.fstat(descriptor)
-    mount_id_after = read_run_action_descriptor_mount_id(descriptor)
+    mount_id_after = read_run_action_descriptor_mount_id(
+        descriptor,
+        process_snapshot_size_limit_bytes,
+    )
     if (
         _stable_metadata(metadata_after) != _stable_metadata(metadata_before)
         or mount_id_after != mount_id_before
@@ -4361,6 +4493,7 @@ def _open_regular_file_by_shape(
         metadata=metadata_before,
         mount_id=mount_id_before,
         payload=payload,
+        process_snapshot_size_limit_bytes=process_snapshot_size_limit_bytes,
     )
 
 
@@ -4374,6 +4507,7 @@ def _open_regular_file_shape_without_content(
     authority: RunActionRuntimeVolumeAuthority,
     root_mount_id: int,
     root_device: int,
+    process_snapshot_size_limit_bytes: int,
 ) -> _ExactRegularFileShapeObservation:
     if type(expected_size_bytes) is not int or expected_size_bytes <= 0:
         raise RunActionRuntimeVolumeError("selected credential lacks a positive size")
@@ -4384,9 +4518,15 @@ def _open_regular_file_shape_without_content(
     )
     descriptors.callback(os.close, descriptor)
     metadata_before = os.fstat(descriptor)
-    mount_id_before = read_run_action_descriptor_mount_id(descriptor)
+    mount_id_before = read_run_action_descriptor_mount_id(
+        descriptor,
+        process_snapshot_size_limit_bytes,
+    )
     metadata_after = os.fstat(descriptor)
-    mount_id_after = read_run_action_descriptor_mount_id(descriptor)
+    mount_id_after = read_run_action_descriptor_mount_id(
+        descriptor,
+        process_snapshot_size_limit_bytes,
+    )
     if (
         _stable_metadata(metadata_after) != _stable_metadata(metadata_before)
         or mount_id_after != mount_id_before
@@ -4408,6 +4548,7 @@ def _open_regular_file_shape_without_content(
         name=name,
         metadata=metadata_before,
         mount_id=mount_id_before,
+        process_snapshot_size_limit_bytes=process_snapshot_size_limit_bytes,
     )
 
 
@@ -4420,7 +4561,10 @@ def _require_same_exact_regular_file(
         len(observation.payload) + 1,
     )
     metadata = os.fstat(observation.descriptor)
-    mount_id = read_run_action_descriptor_mount_id(observation.descriptor)
+    mount_id = read_run_action_descriptor_mount_id(
+        observation.descriptor,
+        observation.process_snapshot_size_limit_bytes,
+    )
     path_descriptor = os.open(
         observation.name,
         os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW | os.O_CLOEXEC,
@@ -4429,13 +4573,19 @@ def _require_same_exact_regular_file(
     with ExitStack() as path_descriptors:
         path_descriptors.callback(os.close, path_descriptor)
         path_metadata_before = os.fstat(path_descriptor)
-        path_mount_id_before = read_run_action_descriptor_mount_id(path_descriptor)
+        path_mount_id_before = read_run_action_descriptor_mount_id(
+            path_descriptor,
+            observation.process_snapshot_size_limit_bytes,
+        )
         path_payload = _read_bounded_descriptor_payload(
             path_descriptor,
             len(observation.payload) + 1,
         )
         path_metadata_after = os.fstat(path_descriptor)
-        path_mount_id_after = read_run_action_descriptor_mount_id(path_descriptor)
+        path_mount_id_after = read_run_action_descriptor_mount_id(
+            path_descriptor,
+            observation.process_snapshot_size_limit_bytes,
+        )
         if (
             payload != observation.payload
             or _stable_metadata(metadata) != _stable_metadata(observation.metadata)
@@ -4457,7 +4607,10 @@ def _require_same_exact_regular_file_shape(
     observation: _ExactRegularFileShapeObservation,
 ) -> None:
     metadata = os.fstat(observation.descriptor)
-    mount_id = read_run_action_descriptor_mount_id(observation.descriptor)
+    mount_id = read_run_action_descriptor_mount_id(
+        observation.descriptor,
+        observation.process_snapshot_size_limit_bytes,
+    )
     path_descriptor = os.open(
         observation.name,
         os.O_PATH | os.O_NOFOLLOW | os.O_CLOEXEC,
@@ -4466,9 +4619,15 @@ def _require_same_exact_regular_file_shape(
     with ExitStack() as path_descriptors:
         path_descriptors.callback(os.close, path_descriptor)
         path_metadata_before = os.fstat(path_descriptor)
-        path_mount_id_before = read_run_action_descriptor_mount_id(path_descriptor)
+        path_mount_id_before = read_run_action_descriptor_mount_id(
+            path_descriptor,
+            observation.process_snapshot_size_limit_bytes,
+        )
         path_metadata_after = os.fstat(path_descriptor)
-        path_mount_id_after = read_run_action_descriptor_mount_id(path_descriptor)
+        path_mount_id_after = read_run_action_descriptor_mount_id(
+            path_descriptor,
+            observation.process_snapshot_size_limit_bytes,
+        )
     if (
         _stable_metadata(metadata) != _stable_metadata(observation.metadata)
         or mount_id != observation.mount_id
@@ -4975,14 +5134,12 @@ def _read_mount_info(
     process_descriptor: int,
     mount_id: int,
     destination: str,
+    byte_limit: int,
 ) -> _MountInfo:
-    descriptor = os.open(
-        "mountinfo",
-        os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
-        dir_fd=process_descriptor,
+    payload = read_run_action_process_mount_info_from_descriptor(
+        process_descriptor,
+        byte_limit,
     )
-    with os.fdopen(descriptor, "rb") as handle:
-        payload = handle.read()
     return _parse_mount_info_payload(payload, mount_id, destination)
 
 
@@ -4997,7 +5154,7 @@ def _parse_mount_info_payload(
         or not payload.endswith(b"\n")
         or b"\x00" in payload
         or type(mount_id) is not int
-        or mount_id <= 0
+        or not 0 < mount_id <= RUN_ACTION_MAXIMUM_PHYSICAL_INTEGER
         or type(destination) is not str
         or destination != RUN_ACTION_RUNTIME_VOLUME_KEEPER_DESTINATION
     ):
@@ -5023,8 +5180,8 @@ def _parse_mount_info_payload(
     if (
         len(mount_fields) < 6
         or len(filesystem_fields) != 3
-        or not mount_fields[0].isdigit()
-        or not mount_fields[1].isdigit()
+        or not _canonical_unsigned_64_text(mount_fields[0], minimum=1)
+        or not _canonical_unsigned_64_text(mount_fields[1], minimum=1)
     ):
         raise RunActionRuntimeVolumeError(
             "keeper runtime-volume mountinfo fields are malformed"
@@ -5032,7 +5189,9 @@ def _parse_mount_info_payload(
     device_parts = mount_fields[2].split(":")
     if (
         len(device_parts) != 2
-        or any(not part.isdigit() for part in device_parts)
+        or any(
+            not _canonical_unsigned_64_text(part, minimum=0) for part in device_parts
+        )
         or mount_fields[3] != "/"
         or mount_fields[4] != destination
     ):
@@ -5113,11 +5272,34 @@ def _require_mount_authority(
 
 def _parse_size_option(value: str) -> int:
     match = _SIZE_OPTION_PATTERN.fullmatch(value)
-    if match is None:
+    if match is None or not _canonical_unsigned_64_text(
+        match.group(1),
+        minimum=1,
+    ):
         raise RunActionRuntimeVolumeError(
             "keeper runtime-volume size option is malformed"
         )
-    return int(match.group(1)) * _SIZE_MULTIPLIERS[match.group(2)]
+    parsed = int(match.group(1)) * _SIZE_MULTIPLIERS[match.group(2)]
+    if parsed > RUN_ACTION_MAXIMUM_PHYSICAL_INTEGER:
+        raise RunActionRuntimeVolumeError(
+            "keeper runtime-volume size option is malformed"
+        )
+    return parsed
+
+
+def _canonical_unsigned_64_text(value: str, *, minimum: int) -> bool:
+    maximum_text = str(RUN_ACTION_MAXIMUM_PHYSICAL_INTEGER)
+    return (
+        type(value) is str
+        and bool(value)
+        and value.isdigit()
+        and (
+            len(value) < len(maximum_text)
+            or (len(value) == len(maximum_text) and value <= maximum_text)
+        )
+        and value == str(int(value))
+        and int(value) >= minimum
+    )
 
 
 def _stable_metadata(metadata: os.stat_result) -> tuple[int, ...]:

@@ -80,7 +80,14 @@ def docker_settings():
 
 @pytest.fixture(autouse=True)
 def mounted_helper_observer(monkeypatch):
-    def observe(source_evidence, *, container_id, process_id):
+    def observe(
+        source_evidence,
+        *,
+        container_id,
+        process_id,
+        process_snapshot_size_limit_bytes,
+    ):
+        assert process_snapshot_size_limit_bytes > 0
         return RunActionMountedKeeperHelperEvidence.mint(
             source_helper_evidence=source_evidence,
             container_id=container_id,

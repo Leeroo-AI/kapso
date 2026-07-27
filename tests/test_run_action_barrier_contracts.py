@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import os
 from dataclasses import fields
 from pathlib import PurePosixPath
@@ -33,6 +34,7 @@ from kapso.cross_run.launch.run_action_barrier_contracts import (
 )
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RUN_ACTION_DOCKER_INIT_DESTINATION,
+    RUN_ACTION_MAXIMUM_PHYSICAL_INTEGER,
     RUN_ACTION_SUPERVISOR_HELPER_DESTINATION,
     RunActionCredentialMode,
     RunActionPreparedFileKind,
@@ -252,7 +254,7 @@ def _mount_info_raw_payload(observations):
             f"{','.join(_encode_mount_info_field(option) for option in observation.super_options)}\n"
         )
         for observation in observations
-    )
+    ).encode("latin-1")
 
 
 def _encode_mount_info_field(value):
@@ -550,11 +552,11 @@ def test_resolved_workload_graph_round_trips_with_exact_canonical_sets():
     )
     assert "activation_event_id" not in resolved.to_dict()
     snapshot = resolved.mount_info_snapshot
-    assert snapshot.raw_byte_length == len(snapshot.raw_payload.encode("ascii"))
-    assert snapshot.raw_payload_digest == tree_or_blob_digest(
-        snapshot.raw_payload.encode("ascii")
-    )
+    assert snapshot.raw_byte_length == len(snapshot.raw_payload)
+    assert snapshot.raw_payload_digest == tree_or_blob_digest(snapshot.raw_payload)
     assert snapshot.records == parse_run_action_mount_info_payload(snapshot.raw_payload)
+    assert "records" not in snapshot.to_dict()
+    assert "raw_payload" not in snapshot.to_dict()
     escaped = next(
         record for record in snapshot.records if record.mount_point == "/escaped path"
     )
@@ -809,66 +811,34 @@ def test_complete_mountinfo_rejects_nested_and_stacked_mount_overlays(
         )
 
 
-def test_full_eof_mountinfo_remains_authoritative_when_a_record_is_omitted():
-    resolved = _resolved_graph()
-    root = resolved.resolved_mount_root_observations[0]
-    selected = {
-        record.mount_info_observation_id: record
-        for record in resolved.mount_info_snapshot.records
-    }[root.mount_info_observation_id]
-    overlay = _remint(
-        selected,
-        mount_id=max(record.mount_id for record in resolved.mount_info_snapshot.records)
-        + 1,
-        parent_mount_id=selected.mount_id,
-        mount_point=f"{root.container_destination}/nested",
-    )
-    complete_records = tuple(
-        sorted(
-            (*resolved.mount_info_snapshot.records, overlay),
-            key=lambda record: record.mount_id,
-        )
-    )
-    snapshot = RunActionMountInfoSnapshot.from_raw_payload(
-        _mount_info_raw_payload(complete_records)
-    )
-    omitted_records = tuple(
-        record for record in snapshot.records if record.mount_id != overlay.mount_id
-    )
-
-    with pytest.raises(RunActionBarrierContractError, match="full-EOF payload"):
-        _remint(snapshot, records=omitted_records)
-
-
-def test_mountinfo_snapshot_rejects_independent_raw_and_record_mutations():
+def test_mountinfo_snapshot_rejects_independent_raw_mutation():
     snapshot = _resolved_graph().mount_info_snapshot
     first_record = snapshot.records[0]
     mutated_raw = snapshot.raw_payload.replace(
-        f"{first_record.mount_id} ",
-        f"{first_record.mount_id + 100000} ",
+        f"{first_record.mount_id} ".encode("ascii"),
+        f"{first_record.mount_id + 100000} ".encode("ascii"),
         1,
     )
 
-    with pytest.raises(RunActionBarrierContractError, match="full-EOF payload"):
+    with pytest.raises(RunActionBarrierContractError, match="full-EOF bytes"):
         _remint(
             snapshot,
-            raw_payload=mutated_raw,
-            raw_payload_digest=tree_or_blob_digest(mutated_raw.encode("ascii")),
+            raw_payload_base64=base64.b64encode(mutated_raw).decode("ascii"),
+            raw_payload_digest=tree_or_blob_digest(mutated_raw),
         )
-    with pytest.raises(RunActionBarrierContractError, match="full-EOF payload"):
-        _remint(snapshot, records=snapshot.records[:-1])
 
 
 @pytest.mark.parametrize(
     "mutate",
     (
-        lambda raw: raw.removesuffix("\n"),
-        lambda raw: raw.replace("\n", "\n\n", 1),
+        lambda raw: raw.removesuffix(b"\n"),
+        lambda raw: raw.replace(b"\n", b"\n\n", 1),
         lambda raw: raw + raw.splitlines(keepends=True)[0],
-        lambda raw: raw.replace("\\040", "\\041", 1),
-        lambda raw: raw.replace("nosuid,ro", "nosuid,ro,ro", 1),
-        lambda raw: f"0{raw}",
-        lambda raw: raw.replace(" ", "  ", 1),
+        lambda raw: raw.replace(b"\\040", b"\\041", 1),
+        lambda raw: raw.replace(b"nosuid,ro", b"nosuid,ro,ro", 1),
+        lambda raw: b"0" + raw,
+        lambda raw: raw.replace(b" ", b"  ", 1),
+        lambda raw: raw.replace(b" ", b"\t", 1),
     ),
 )
 def test_mountinfo_parser_rejects_malformed_and_duplicate_payloads(mutate):
@@ -876,6 +846,106 @@ def test_mountinfo_parser_rejects_malformed_and_duplicate_payloads(mutate):
 
     with pytest.raises(RunActionBarrierContractError):
         parse_run_action_mount_info_payload(mutate(raw_payload))
+
+
+@pytest.mark.parametrize(
+    "field",
+    (
+        "process_id",
+        "parent_process_id",
+        "process_start_time_ticks",
+        "mount_namespace_device",
+        "mount_namespace_inode",
+        "process_id_namespace_device",
+        "process_id_namespace_inode",
+        "root_mount_id",
+        "root_device_major",
+        "root_device_minor",
+        "root_device",
+        "root_inode",
+        "executable_mount_id",
+        "executable_device",
+        "executable_inode",
+    ),
+)
+def test_process_observations_reject_values_above_unsigned_64(field):
+    resolved = _resolved_graph()
+
+    with pytest.raises(RunActionBarrierContractError):
+        _remint(
+            resolved.init_process_observation,
+            **{field: RUN_ACTION_MAXIMUM_PHYSICAL_INTEGER + 1},
+        )
+
+
+@pytest.mark.parametrize(
+    "replacement",
+    (
+        str(RUN_ACTION_MAXIMUM_PHYSICAL_INTEGER + 1).encode("ascii"),
+        b"9" * 4301,
+    ),
+)
+def test_mountinfo_parser_rejects_integer_above_unsigned_64_before_conversion(
+    replacement,
+):
+    raw_payload = _resolved_graph().mount_info_snapshot.raw_payload
+    first_mount_id = raw_payload.split(b" ", 1)[0]
+
+    with pytest.raises(RunActionBarrierContractError, match="malformed"):
+        parse_run_action_mount_info_payload(
+            raw_payload.replace(
+                first_mount_id,
+                replacement,
+                1,
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    ("source_bytes", "expected_source"),
+    (
+        (b"\xff", "/source-\u00ff"),
+        ("\u00e9".encode("utf-8"), "/source-\u00c3\u00a9"),
+    ),
+)
+def test_mountinfo_snapshot_preserves_non_ascii_path_bytes_exactly(
+    source_bytes,
+    expected_source,
+):
+    raw_payload = b"1 1 0:1 / / rw - overlay /source-" + source_bytes + b" rw\n"
+
+    snapshot = RunActionMountInfoSnapshot.from_raw_payload(raw_payload)
+
+    assert snapshot.raw_payload == raw_payload
+    assert snapshot.records[0].mount_source == expected_source
+    round_tripped = RunActionMountInfoSnapshot.from_json_bytes(snapshot.to_json_bytes())
+    assert round_tripped == snapshot
+    assert round_tripped.raw_payload == raw_payload
+
+
+def test_mountinfo_snapshot_accepts_kernel_hash_escape_in_mount_source():
+    raw_payload = b"1 1 0:1 / / rw - overlay source\\043name rw\n"
+
+    snapshot = RunActionMountInfoSnapshot.from_raw_payload(raw_payload)
+
+    assert snapshot.raw_payload == raw_payload
+    assert snapshot.records[0].mount_source == "source#name"
+    round_tripped = RunActionMountInfoSnapshot.from_json_bytes(snapshot.to_json_bytes())
+    assert round_tripped.raw_payload == raw_payload
+
+
+def test_resolved_workload_rejects_mountinfo_above_pinned_snapshot_budget():
+    policy = _execution_policy()
+    limits = _remint(policy.supervisor_limits, process_snapshot_size_bytes=1)
+    bounded_policy = _remint(policy, supervisor_limits=limits)
+
+    with pytest.raises(
+        RunActionBarrierContractError,
+        match="activation receipt graph",
+    ):
+        _resolved_graph(
+            prepared=_prepared_execution(claim=_claim(policy=bounded_policy))
+        )
 
 
 def test_mountinfo_access_is_derived_from_the_selected_namespace_record():

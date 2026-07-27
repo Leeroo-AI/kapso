@@ -614,11 +614,20 @@ fixed-width credential lease authority are complete. Six workspace/credential
 topologies, exact-event dominance, unsigned-64 physical observations, schema
 drift, early credential-authority rejection, and a one-byte-before-delivery
 coordinator gate are covered. Validation includes 208 focused
-contract/layout/recovery checks, all 87 recovery tests, 44 release/timeout
+contract/layout/recovery checks, all 88 recovery tests, 44 release/timeout
 regressions, a credentialed real-Docker result lifecycle, and three independent
-approvals with no P0–P2 findings. The next production-adapter prerequisites are
-an idempotent credential issue/validity authority and a formal release-receipt
-envelope; closed event-4/event-5 routing and final adapter composition follow.
+approvals with no P0–P2 findings. The release-envelope prerequisites are now
+finite: mountinfo stores one bounded byte-exact payload in canonical base64 and
+reparses records on demand; the snapshot limit is pinned in durable supervisor
+policy; variable-width process and descriptor reads use that limit; and process,
+mount, inode, release clock, and derived-deadline values are unsigned-64 bounded.
+The frozen prerequisite checkpoint passed all 959 other run-action tests, the
+complete recovery suite, and the real-Docker result lifecycle; three independent
+reviews found no P0–P2 defect.
+The next slice is
+the formal release-receipt envelope, followed by the idempotent credential
+issue/validity authority, closed event-4/event-5 routing, and final adapter
+composition.
 
 ## Plan-maintenance protocol
 

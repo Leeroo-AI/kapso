@@ -132,7 +132,7 @@ def _timeout_case(
     monkeypatch.setattr(
         timeout_adoption_module,
         "read_run_action_descriptor_mount_id",
-        lambda _descriptor: control.mount_id,
+        lambda _descriptor, _byte_limit: control.mount_id,
     )
     monkeypatch.setattr(
         timeout_adoption_module,

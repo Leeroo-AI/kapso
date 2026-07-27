@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import stat
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -129,7 +130,7 @@ def _install_control_projection(monkeypatch, control_path, activation_event, lea
     monkeypatch.setattr(
         adoption_module,
         "read_run_action_descriptor_mount_id",
-        lambda _descriptor: control.mount_id,
+        lambda _descriptor, _byte_limit: control.mount_id,
     )
     monkeypatch.setattr(
         adoption_module,
@@ -164,6 +165,35 @@ def test_empty_control_directory_is_classified_absent(tmp_path, monkeypatch):
             match="absent release inspection has no adoption",
         ):
             inspection.adoption
+
+
+def test_process_snapshot_policy_mismatch_fails_before_control_inspection(
+    monkeypatch,
+):
+    activation_event, _adoption = _release_case()
+    settings = _launch_settings()
+    mismatched_settings = replace(
+        settings,
+        run_action_process_snapshot_size_bytes=(
+            settings.run_action_process_snapshot_size_bytes + 1
+        ),
+    )
+    monkeypatch.setattr(
+        adoption_module,
+        "open_run_action_control_directory",
+        lambda _prepared: pytest.fail(
+            "control inspection preceded process-bound validation"
+        ),
+    )
+
+    with pytest.raises(
+        RunActionReleaseAdoptionError,
+        match="policy differs from configured control bounds",
+    ):
+        open_run_action_release_inspection(
+            activation_event=activation_event,
+            launch_settings=mismatched_settings,
+        )
 
 
 @pytest.mark.parametrize(

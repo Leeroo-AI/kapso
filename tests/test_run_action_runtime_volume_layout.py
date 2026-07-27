@@ -39,7 +39,7 @@ from kapso.cross_run.launch.run_action_runtime_volume import (
     adopt_prepared_runtime_volume_layout,
 )
 from kapso.cross_run.launch.run_action_supervisor_helper import (
-    read_run_action_descriptor_mount_id,
+    read_run_action_descriptor_mount_id as _read_run_action_descriptor_mount_id,
 )
 from kapso.cross_run.launch.run_action_reservation_contracts import (
     RunActionWorkspaceBinding,
@@ -78,12 +78,22 @@ from test_run_action_supervisor_contracts import (
 from test_run_state_publisher import publisher_case
 
 _CANONICAL_CONFIG_PATH = "src/kapso/config.yaml"
+_RUN_ACTION_PROCESS_SNAPSHOT_SIZE_BYTES = CrossRunSettings.from_dict(
+    load_config(_CANONICAL_CONFIG_PATH)["cross_run"]
+).launch.run_action_process_snapshot_size_bytes
 _GENERATION_NONCE = "9" * 32
 _TEST_DOCKER_BYTES = b"prepared-layout adoption Docker"
 _CREDENTIAL_LEASE_AUTHORITY_ID = _fixture_content_id(
     RUN_ACTION_CREDENTIAL_LEASE_AUTHORITY_NAMESPACE,
     "credential lease",
 )
+
+
+def read_run_action_descriptor_mount_id(descriptor: int) -> int:
+    return _read_run_action_descriptor_mount_id(
+        descriptor,
+        _RUN_ACTION_PROCESS_SNAPSHOT_SIZE_BYTES,
+    )
 
 
 @pytest.mark.parametrize(
@@ -119,6 +129,9 @@ def test_barrier_control_lease_retains_exact_empty_generation(
             root_mount_id=root_mount_id,
             root_device=root_metadata.st_dev,
             root_inode=root_metadata.st_ino,
+            process_snapshot_size_limit_bytes=(
+                keeper.issued_create_projection.execution_policy.supervisor_limits.process_snapshot_size_bytes
+            ),
         )
 
     monkeypatch.setattr(
@@ -218,6 +231,9 @@ def test_barrier_control_lease_admits_only_closed_semantic_topologies(
             root_mount_id=root_mount_id,
             root_device=root_metadata.st_dev,
             root_inode=root_metadata.st_ino,
+            process_snapshot_size_limit_bytes=(
+                keeper.issued_create_projection.execution_policy.supervisor_limits.process_snapshot_size_bytes
+            ),
         )
 
     monkeypatch.setattr(
@@ -311,6 +327,9 @@ def test_barrier_control_lease_rejects_substituted_prepared_inode(
             root_mount_id=root_mount_id,
             root_device=root_metadata.st_dev,
             root_inode=root_metadata.st_ino,
+            process_snapshot_size_limit_bytes=(
+                keeper.issued_create_projection.execution_policy.supervisor_limits.process_snapshot_size_bytes
+            ),
         )
 
     monkeypatch.setattr(
@@ -517,6 +536,7 @@ def test_result_workspace_lease_retains_exact_event_6_sentinel(
         authority=authority,
         root_mount_id=root_mount_id,
         root_device=root_metadata.st_dev,
+        process_snapshot_size_limit_bytes=_RUN_ACTION_PROCESS_SNAPSHOT_SIZE_BYTES,
     )
     sentinel_metadata = sentinel_observation.metadata
     sentinel_evidence = RunActionRuntimeVolumeSentinelEvidence.mint(
@@ -571,6 +591,9 @@ def test_result_workspace_lease_retains_exact_event_6_sentinel(
         root_mount_id=root_mount_id,
         root_device=root_metadata.st_dev,
         root_inode=root_metadata.st_ino,
+        process_snapshot_size_limit_bytes=(
+            keeper.issued_create_projection.execution_policy.supervisor_limits.process_snapshot_size_bytes
+        ),
     )
     monkeypatch.setattr(
         volume_module,
@@ -827,6 +850,9 @@ def test_open_result_workspace_joins_live_sentinel_and_retains_its_path(
             root_mount_id=root_mount_id,
             root_device=root_metadata.st_dev,
             root_inode=root_metadata.st_ino,
+            process_snapshot_size_limit_bytes=(
+                keeper.issued_create_projection.execution_policy.supervisor_limits.process_snapshot_size_bytes
+            ),
         )
 
     monkeypatch.setattr(
@@ -1235,6 +1261,9 @@ def _patch_physical_result_capture(
             root_mount_id=root_mount_id,
             root_device=root_metadata.st_dev,
             root_inode=root_metadata.st_ino,
+            process_snapshot_size_limit_bytes=(
+                keeper.issued_create_projection.execution_policy.supervisor_limits.process_snapshot_size_bytes
+            ),
         )
 
     prepared_volume = prepared.runtime_volume_evidence
@@ -1704,6 +1733,9 @@ def _physical_prepared_adoption_case(
             root_mount_id=root_mount_id,
             root_device=root_metadata.st_dev,
             root_inode=root_metadata.st_ino,
+            process_snapshot_size_limit_bytes=(
+                keeper.issued_create_projection.execution_policy.supervisor_limits.process_snapshot_size_bytes
+            ),
         )
 
     def observe_filesystem(_descriptor):
@@ -1755,7 +1787,7 @@ def _physical_prepared_adoption_case(
     monkeypatch.setattr(
         volume_module,
         "_read_mount_info",
-        lambda _process, _mount_id, destination: volume_module._MountInfo(
+        lambda _process, _mount_id, destination, _byte_limit: volume_module._MountInfo(
             mount_id=root_mount_id,
             parent_mount_id=root_mount_id,
             device_major=os.major(root_metadata.st_dev),
@@ -1909,9 +1941,13 @@ def _physical_selected_activation_case(
     monkeypatch.setattr(
         docker_inspect_module,
         "observe_mounted_keeper_helper",
-        lambda _helper, *, container_id, process_id: (
+        lambda _helper, *, container_id, process_id, process_snapshot_size_limit_bytes: (
             keeper.mounted_helper_evidence
-            if (container_id == keeper.container_id and process_id == keeper.process_id)
+            if (
+                container_id == keeper.container_id
+                and process_id == keeper.process_id
+                and process_snapshot_size_limit_bytes > 0
+            )
             else None
         ),
     )
@@ -3066,6 +3102,7 @@ def test_exact_file_observation_detects_mutation_after_initial_read(
             authority=authority,
             root_mount_id=read_run_action_descriptor_mount_id(root_descriptor),
             root_device=os.fstat(root_descriptor).st_dev,
+            process_snapshot_size_limit_bytes=(_RUN_ACTION_PROCESS_SNAPSHOT_SIZE_BYTES),
         )
 
         if mutation == "sentinel_content":

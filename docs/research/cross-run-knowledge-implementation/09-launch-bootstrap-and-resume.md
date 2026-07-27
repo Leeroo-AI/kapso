@@ -1003,9 +1003,12 @@ PID/state/parent/start generation, full byte-exact NUL-separated argv, unified
 cgroup, process root, executable, and mount/PID namespace identities without
 pathname fallback. The canonical resolved-workload graph now preserves the
 complete validated Docker-inspection digest, exact init/wrapper generations and
-argv, exact full-EOF mountinfo payload/length/digest and reparsed normalized
-records, derived effective access, source-to-resolved inode joins, and logical
-file/workspace observations; it rejects stacked or nested overlays and
+argv, and one exact full-EOF byte-exact mountinfo payload carried as canonical
+base64 with its decoded length and digest. Normalized records are
+deterministically reparsed from those bytes on demand and are not duplicated in
+the durable snapshot. The graph also preserves derived effective access,
+source-to-resolved inode joins, and logical file/workspace observations;
+it rejects stacked or nested overlays and
 intentionally carries the exact activation receipt rather than an unverified
 event-ID string. The runtime assembly now consumes only the recovery coordinator's
 active, one-shot `RUNNING_CONTINUABLE` capability, joins its token-sealed Docker
@@ -1016,8 +1019,21 @@ forward/reverse sandwich around the logical mount proof, admits only scheduler
 `R`/`S` movement within the same PID/parent/start generation, and revalidates the
 closed Docker semantics while treating changes limited to enumerated
 nonauthoritative raw fields as new audit observations rather than new container
-occurrences. The process-snapshot bound comes only from `LaunchSettings`; executable
-authority uses its independent configured content digest and static-ELF proof.
+occurrences. The process-snapshot bound is single-sourced from launch
+configuration, pinned inside the durable supervisor policy, and required to
+agree before inspection or release adoption. It bounds full-EOF stat, argv,
+cgroup, child, mountinfo, and descriptor-fdinfo reads, including repeated keeper
+mountinfo revalidation; the resolved graph independently rejects an oversized
+decoded mountinfo snapshot. Every serialized process, namespace, mount, inode,
+and release-clock integer is confined to the unsigned-64 physical domain;
+mountinfo, proc-stat, and fdinfo parsers reject oversized decimal tokens before
+integer conversion, and every derived release/containment deadline must remain
+in that domain. Executable authority uses its independent configured content
+digest and static-ELF proof.
+This frozen process-evidence checkpoint passed all 959 non-recovery run-action
+tests, all 88 recovery tests, and one credentialed real-Docker result lifecycle.
+Three independent reviews found no P0–P2 defect; Black, compilation, and diff
+checks also passed.
 The release authority contracts now join the complete resolved graph to the
 actual typed durable event 5, bind the exact denylist observation and a
 credential-validity interval that spans containment without exceeding broker
@@ -1330,6 +1346,13 @@ durable field, uses fixed-width content identities, and upper-bounds every new
 physical integer with the shared unsigned-64 contract. Recovery calls the bound
 twice and rejects even a one-byte-short configured event limit before entering
 the staging callback. Production adapters remain unwired.
+The release-envelope prerequisite now has one finite representation: mountinfo
+persists only bounded byte-exact evidence in canonical base64, while parsed
+records remain a pure view. The same decoded-byte budget is durable policy, and
+process/mount/clock evidence plus derived deadlines are finite-width. The next
+slice replaces the adapter-declared release ceiling with a schema-sealed
+framework proof computed before event-5 delivery and rechecked before every
+start and release publication.
 The start manager exposes no generic Docker command surface, and the raw pinned
 runtime is process-bound. One real-Docker lifecycle now routes the durable main
 through two coordinator passes: exact `INERT` classification and sealed barrier

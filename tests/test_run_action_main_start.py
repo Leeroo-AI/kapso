@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 import kapso.cross_run.launch.run_action_main_start as main_start
+import kapso.cross_run.launch.run_action_resolved_workload as resolved_workload
 from kapso.cross_run.launch.run_action_clock import _SystemRunActionClock
 from kapso.cross_run.launch.run_action_docker_inspect import observe_runtime_volume
 from kapso.cross_run.launch.run_action_recovery import (
@@ -20,6 +21,9 @@ from kapso.cross_run.launch.run_action_recovery import (
     RunActionContinuationOutcome,
     RunActionContinuationState,
     RunActionRecoveryError,
+)
+from kapso.cross_run.launch.run_action_resolved_workload import (
+    RunActionResolvedWorkloadError,
 )
 from kapso.cross_run.process import (
     BoundedProcessOutcome,
@@ -262,6 +266,48 @@ def _start(case, capability):
         docker_settings=case.docker_settings,
         launch_settings=case.launch_settings,
     )
+
+
+def test_blocked_workload_process_bound_mismatch_fails_before_proc_inspection(
+    monkeypatch,
+):
+    case = _case(monkeypatch)
+    capability = _capability(case)
+    mismatched_settings = replace(
+        case.launch_settings,
+        run_action_process_snapshot_size_bytes=(
+            case.launch_settings.run_action_process_snapshot_size_bytes + 1
+        ),
+    )
+    monkeypatch.setattr(
+        resolved_workload.os,
+        "open",
+        lambda *_arguments, **_keywords: pytest.fail(
+            "proc inspection preceded process-bound validation"
+        ),
+    )
+
+    def open_with_mismatched_bound(active_capability):
+        resolved_workload.open_run_action_blocked_workload(
+            active_capability,
+            committed_running_observation=case.running,
+            resource_manager=case.resource_manager,
+            preparation_allocation=case.query.preparation_allocation,
+            command=case.command,
+            volume_observation=case.volume,
+            helper_evidence=case.helper,
+            init_source_evidence=case.init,
+            docker_settings=case.docker_settings,
+            launch_settings=mismatched_settings,
+        )
+
+    with pytest.raises(
+        RunActionResolvedWorkloadError,
+        match="inputs differ from exact durable event 5",
+    ):
+        capability._invoke_once(
+            _StartAdapter(open_with_mismatched_bound),
+        )
 
 
 def test_inert_inspection_and_start_bind_one_exact_event_5(monkeypatch):

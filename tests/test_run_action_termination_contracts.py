@@ -11,6 +11,7 @@ from kapso.cross_run.launch.run_action_control_topology import (
     RunActionControlDirectoryTopology,
 )
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
+    RUN_ACTION_MAXIMUM_PHYSICAL_INTEGER,
     RunActionPreparationAllocation,
 )
 from kapso.cross_run.launch.run_action_recovery import (
@@ -266,6 +267,89 @@ def test_each_termination_branch_round_trips_with_one_exact_evidence_graph(reaso
         RunActionProviderTerminationReceipt.from_json_bytes(receipt.to_json_bytes())
         == receipt
     )
+
+
+@pytest.mark.parametrize(
+    "field",
+    (
+        "execution_deadline_boottime_nanoseconds",
+        "containment_deadline_boottime_nanoseconds",
+        "observed_before_boottime_nanoseconds",
+        "observed_after_boottime_nanoseconds",
+    ),
+)
+def test_timeout_directive_rejects_clock_above_unsigned_64(field):
+    receipt = _termination_graph(RunActionProviderTerminationReason.TIMEOUT)
+    directive = receipt.timeout_directive_publication.timeout_directive
+
+    with pytest.raises(
+        RunActionTerminationContractError,
+        match="valid deadline observation",
+    ):
+        _remint(
+            directive,
+            **{field: RUN_ACTION_MAXIMUM_PHYSICAL_INTEGER + 1},
+        )
+
+
+@pytest.mark.parametrize(
+    "field",
+    (
+        "control_mount_id",
+        "control_device",
+        "control_inode",
+        "release_mount_id",
+        "release_device",
+        "release_inode",
+        "timeout_mount_id",
+        "timeout_device",
+        "timeout_inode",
+    ),
+)
+def test_timeout_publication_rejects_physical_identity_above_unsigned_64(field):
+    receipt = _termination_graph(RunActionProviderTerminationReason.TIMEOUT)
+    publication = receipt.timeout_directive_publication
+
+    with pytest.raises(
+        RunActionTerminationContractError,
+        match="exact linked directive",
+    ):
+        _remint(
+            publication,
+            **{field: RUN_ACTION_MAXIMUM_PHYSICAL_INTEGER + 1},
+        )
+
+
+@pytest.mark.parametrize(
+    "reason",
+    (
+        RunActionProviderTerminationReason.PRE_RELEASE_MAIN_LOSS,
+        RunActionProviderTerminationReason.PRE_RELEASE_MAIN_TERMINAL,
+    ),
+)
+@pytest.mark.parametrize(
+    "field",
+    (
+        "observed_before_boottime_nanoseconds",
+        "observed_after_boottime_nanoseconds",
+    ),
+)
+def test_pre_release_observation_rejects_clock_above_unsigned_64(reason, field):
+    receipt = _termination_graph(reason)
+    observation = (
+        receipt.pre_release_main_loss_observation
+        if reason is RunActionProviderTerminationReason.PRE_RELEASE_MAIN_LOSS
+        else receipt.terminal_observation
+    )
+
+    with pytest.raises(
+        RunActionTerminationContractError,
+        match="incomplete or spliced",
+    ):
+        _remint(
+            observation,
+            **{field: RUN_ACTION_MAXIMUM_PHYSICAL_INTEGER + 1},
+        )
 
 
 @pytest.mark.parametrize(

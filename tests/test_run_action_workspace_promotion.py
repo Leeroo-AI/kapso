@@ -738,8 +738,8 @@ def test_cleanup_rejects_same_device_bind_mount_boundary_before_removal(
     )
     original_mount_id = promotion_module.read_run_action_descriptor_mount_id
 
-    def observe_same_device_bind_mount(descriptor):
-        mount_id = original_mount_id(descriptor)
+    def observe_same_device_bind_mount(descriptor, byte_limit):
+        mount_id = original_mount_id(descriptor, byte_limit)
         descriptor_path = os.readlink(f"/proc/self/fd/{descriptor}")
         if descriptor_path.endswith("/workspace/.git"):
             return mount_id + 1

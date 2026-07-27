@@ -63,6 +63,7 @@ class RunActionDeliveredFileLease:
         delivered_file_descriptor: int,
         physical_observation: RunActionDeliveredFilePhysicalObservation,
         exact_file: "_ExactPublishedFile",
+        process_snapshot_size_limit_bytes: int,
         _authority: object,
     ) -> None:
         if (
@@ -74,6 +75,8 @@ class RunActionDeliveredFileLease:
             or type(physical_observation)
             is not RunActionDeliveredFilePhysicalObservation
             or type(exact_file) is not _ExactPublishedFile
+            or type(process_snapshot_size_limit_bytes) is not int
+            or process_snapshot_size_limit_bytes <= 0
             or _authority is not _DELIVERED_FILE_LEASE_AUTHORITY
         ):
             raise RunActionActivationDeliveryError(
@@ -84,6 +87,7 @@ class RunActionDeliveredFileLease:
         self._delivered_file_descriptor = delivered_file_descriptor
         self._physical_observation = physical_observation
         self._exact_file = exact_file
+        self._process_snapshot_size_limit_bytes = process_snapshot_size_limit_bytes
         self._owner_process_id = os.getpid()
         self._closed = False
         self._require_retained_descriptor()
@@ -103,23 +107,27 @@ class RunActionDeliveredFileLease:
             self._slot,
             self._slot_directory_descriptor,
             payload,
+            self._process_snapshot_size_limit_bytes,
         )
         retained_before = self._observe_retained_descriptor(payload)
         _require_same_published_file(retained_before, self._exact_file)
         _require_exact_slot_directory(
             self._slot,
             self._slot_directory_descriptor,
+            self._process_snapshot_size_limit_bytes,
             expected_entries=(self._slot.final_file_name,),
         )
         path_observation = _observe_exact_published_file(
             self._slot,
             self._slot_directory_descriptor,
             payload,
+            self._process_snapshot_size_limit_bytes,
         )
         _require_same_published_file(path_observation, retained_before)
         _require_exact_slot_directory(
             self._slot,
             self._slot_directory_descriptor,
+            self._process_snapshot_size_limit_bytes,
             expected_entries=(self._slot.final_file_name,),
         )
         retained_after = self._observe_retained_descriptor(payload)
@@ -139,6 +147,7 @@ class RunActionDeliveredFileLease:
             self._slot,
             self._delivered_file_descriptor,
             payload,
+            self._process_snapshot_size_limit_bytes,
         )
 
     def _require_retained_descriptor(self) -> None:
@@ -147,7 +156,10 @@ class RunActionDeliveredFileLease:
                 "delivered file lease is closed or belongs to another process"
             )
         metadata = os.fstat(self._delivered_file_descriptor)
-        mount_id = read_run_action_descriptor_mount_id(self._delivered_file_descriptor)
+        mount_id = read_run_action_descriptor_mount_id(
+            self._delivered_file_descriptor,
+            self._process_snapshot_size_limit_bytes,
+        )
         if (
             _stable_file_metadata(metadata)
             != _stable_file_metadata(self._exact_file.metadata)
@@ -183,19 +195,27 @@ def publish_or_adopt_run_action_delivery(
     slot: RunActionPreparedDeliverySlot,
     slot_directory_descriptor: int,
     payload: bytes,
+    process_snapshot_size_limit_bytes: int,
 ) -> RunActionDeliveredFileLease:
     """Publish once through O_TMPFILE or adopt the exact completed publication."""
 
-    _require_delivery_inputs(slot, slot_directory_descriptor, payload)
+    _require_delivery_inputs(
+        slot,
+        slot_directory_descriptor,
+        payload,
+        process_snapshot_size_limit_bytes,
+    )
     entries = _require_exact_slot_directory(
         slot,
         slot_directory_descriptor,
+        process_snapshot_size_limit_bytes,
     )
     if entries == (slot.final_file_name,):
         return _adopt_published_delivery(
             slot,
             slot_directory_descriptor,
             payload,
+            process_snapshot_size_limit_bytes,
         )
     if entries:
         raise RunActionActivationDeliveryError(
@@ -205,6 +225,7 @@ def publish_or_adopt_run_action_delivery(
         slot,
         slot_directory_descriptor,
         payload,
+        process_snapshot_size_limit_bytes,
     )
 
 
@@ -212,6 +233,7 @@ def _publish_anonymous_delivery(
     slot: RunActionPreparedDeliverySlot,
     slot_directory_descriptor: int,
     payload: bytes,
+    process_snapshot_size_limit_bytes: int,
 ) -> RunActionDeliveredFileLease:
     with ExitStack() as descriptors:
         descriptor = open_run_action_anonymous_file(
@@ -237,6 +259,7 @@ def _publish_anonymous_delivery(
             slot,
             descriptor,
             payload,
+            process_snapshot_size_limit_bytes,
         )
         link_run_action_anonymous_file_no_replace(
             descriptor,
@@ -244,7 +267,10 @@ def _publish_anonymous_delivery(
             slot.final_file_name,
         )
         linked_metadata = os.fstat(descriptor)
-        linked_mount_id = read_run_action_descriptor_mount_id(descriptor)
+        linked_mount_id = read_run_action_descriptor_mount_id(
+            descriptor,
+            process_snapshot_size_limit_bytes,
+        )
         if (
             _stable_file_identity(linked_metadata)
             != _stable_file_identity(anonymous_file_state.metadata)
@@ -258,12 +284,14 @@ def _publish_anonymous_delivery(
         _require_exact_slot_directory(
             slot,
             slot_directory_descriptor,
+            process_snapshot_size_limit_bytes,
             expected_entries=(slot.final_file_name,),
         )
         reopened = _observe_exact_published_file(
             slot,
             slot_directory_descriptor,
             payload,
+            process_snapshot_size_limit_bytes,
         )
         _require_same_published_file(
             reopened,
@@ -275,10 +303,14 @@ def _publish_anonymous_delivery(
         _require_exact_slot_directory(
             slot,
             slot_directory_descriptor,
+            process_snapshot_size_limit_bytes,
             expected_entries=(slot.final_file_name,),
         )
         final_metadata = os.fstat(descriptor)
-        final_mount_id = read_run_action_descriptor_mount_id(descriptor)
+        final_mount_id = read_run_action_descriptor_mount_id(
+            descriptor,
+            process_snapshot_size_limit_bytes,
+        )
         if (
             _stable_file_metadata(final_metadata)
             != _stable_file_metadata(reopened.metadata)
@@ -291,6 +323,7 @@ def _publish_anonymous_delivery(
             slot,
             descriptor,
             payload,
+            process_snapshot_size_limit_bytes,
         )
         _require_same_published_file(retained, reopened)
         lease = _mint_delivered_file_lease(
@@ -299,6 +332,7 @@ def _publish_anonymous_delivery(
             descriptor,
             payload,
             retained,
+            process_snapshot_size_limit_bytes,
         )
         descriptors.pop_all()
         return lease
@@ -308,33 +342,39 @@ def _adopt_published_delivery(
     slot: RunActionPreparedDeliverySlot,
     slot_directory_descriptor: int,
     payload: bytes,
+    process_snapshot_size_limit_bytes: int,
 ) -> RunActionDeliveredFileLease:
     first = _observe_exact_published_file(
         slot,
         slot_directory_descriptor,
         payload,
+        process_snapshot_size_limit_bytes,
     )
     synchronized = _synchronize_exact_published_file(
         slot,
         slot_directory_descriptor,
         payload,
         first,
+        process_snapshot_size_limit_bytes,
     )
     _require_exact_slot_directory(
         slot,
         slot_directory_descriptor,
+        process_snapshot_size_limit_bytes,
         expected_entries=(slot.final_file_name,),
     )
     second = _observe_exact_published_file(
         slot,
         slot_directory_descriptor,
         payload,
+        process_snapshot_size_limit_bytes,
     )
     _require_same_published_file(second, first)
     _require_same_published_file(second, synchronized)
     _require_exact_slot_directory(
         slot,
         slot_directory_descriptor,
+        process_snapshot_size_limit_bytes,
         expected_entries=(slot.final_file_name,),
     )
     with ExitStack() as descriptors:
@@ -347,6 +387,7 @@ def _adopt_published_delivery(
             slot,
             retained_descriptor,
             payload,
+            process_snapshot_size_limit_bytes,
         )
         _require_same_published_file(retained, second)
         lease = _mint_delivered_file_lease(
@@ -355,6 +396,7 @@ def _adopt_published_delivery(
             retained_descriptor,
             payload,
             retained,
+            process_snapshot_size_limit_bytes,
         )
         descriptors.pop_all()
         return lease
@@ -365,6 +407,7 @@ def _synchronize_exact_published_file(
     slot_directory_descriptor: int,
     payload: bytes,
     expected: _ExactPublishedFile,
+    process_snapshot_size_limit_bytes: int,
 ) -> _ExactPublishedFile:
     descriptor = _open_published_file(
         slot,
@@ -375,6 +418,7 @@ def _synchronize_exact_published_file(
             slot,
             published_file.fileno(),
             payload,
+            process_snapshot_size_limit_bytes,
         )
         _require_same_published_file(observed, expected)
         os.fsync(published_file.fileno())
@@ -382,6 +426,7 @@ def _synchronize_exact_published_file(
             slot,
             published_file.fileno(),
             payload,
+            process_snapshot_size_limit_bytes,
         )
         _require_same_published_file(synchronized, observed)
         os.fsync(slot_directory_descriptor)
@@ -392,6 +437,7 @@ def _require_delivery_inputs(
     slot: RunActionPreparedDeliverySlot,
     slot_directory_descriptor: int,
     payload: bytes,
+    process_snapshot_size_limit_bytes: int,
 ) -> None:
     if (
         type(slot) is not RunActionPreparedDeliverySlot
@@ -400,6 +446,8 @@ def _require_delivery_inputs(
         or type(payload) is not bytes
         or not payload
         or len(payload) > slot.payload_size_limit_bytes
+        or type(process_snapshot_size_limit_bytes) is not int
+        or process_snapshot_size_limit_bytes <= 0
     ):
         raise RunActionActivationDeliveryError(
             "activation delivery requires one bounded nonempty payload and exact slot"
@@ -409,14 +457,21 @@ def _require_delivery_inputs(
 def _require_exact_slot_directory(
     slot: RunActionPreparedDeliverySlot,
     slot_directory_descriptor: int,
+    process_snapshot_size_limit_bytes: int,
     *,
     expected_entries: tuple[str, ...] | None = None,
 ) -> tuple[str, ...]:
     metadata_before = os.fstat(slot_directory_descriptor)
-    mount_id_before = read_run_action_descriptor_mount_id(slot_directory_descriptor)
+    mount_id_before = read_run_action_descriptor_mount_id(
+        slot_directory_descriptor,
+        process_snapshot_size_limit_bytes,
+    )
     entries = tuple(sorted(os.listdir(slot_directory_descriptor)))
     metadata_after = os.fstat(slot_directory_descriptor)
-    mount_id_after = read_run_action_descriptor_mount_id(slot_directory_descriptor)
+    mount_id_after = read_run_action_descriptor_mount_id(
+        slot_directory_descriptor,
+        process_snapshot_size_limit_bytes,
+    )
     if (
         not stat.S_ISDIR(metadata_before.st_mode)
         or _stable_directory_metadata(metadata_before)
@@ -447,12 +502,19 @@ def _require_exact_anonymous_file(
     slot: RunActionPreparedDeliverySlot,
     descriptor: int,
     payload: bytes,
+    process_snapshot_size_limit_bytes: int,
 ) -> _ExactPublishedFile:
     metadata_before = os.fstat(descriptor)
-    mount_id_before = read_run_action_descriptor_mount_id(descriptor)
+    mount_id_before = read_run_action_descriptor_mount_id(
+        descriptor,
+        process_snapshot_size_limit_bytes,
+    )
     require_run_action_descriptor_payload(descriptor, payload)
     metadata_after = os.fstat(descriptor)
-    mount_id_after = read_run_action_descriptor_mount_id(descriptor)
+    mount_id_after = read_run_action_descriptor_mount_id(
+        descriptor,
+        process_snapshot_size_limit_bytes,
+    )
     if (
         not stat.S_ISREG(metadata_before.st_mode)
         or _stable_file_metadata(metadata_before)
@@ -480,6 +542,7 @@ def _observe_exact_published_file(
     slot: RunActionPreparedDeliverySlot,
     slot_directory_descriptor: int,
     payload: bytes,
+    process_snapshot_size_limit_bytes: int,
 ) -> _ExactPublishedFile:
     descriptor = _open_published_file(
         slot,
@@ -490,6 +553,7 @@ def _observe_exact_published_file(
             slot,
             published_file.fileno(),
             payload,
+            process_snapshot_size_limit_bytes,
         )
 
 
@@ -508,12 +572,19 @@ def _observe_exact_published_descriptor(
     slot: RunActionPreparedDeliverySlot,
     descriptor: int,
     payload: bytes,
+    process_snapshot_size_limit_bytes: int,
 ) -> _ExactPublishedFile:
     metadata_before = os.fstat(descriptor)
-    mount_id_before = read_run_action_descriptor_mount_id(descriptor)
+    mount_id_before = read_run_action_descriptor_mount_id(
+        descriptor,
+        process_snapshot_size_limit_bytes,
+    )
     require_run_action_descriptor_payload(descriptor, payload)
     metadata_after = os.fstat(descriptor)
-    mount_id_after = read_run_action_descriptor_mount_id(descriptor)
+    mount_id_after = read_run_action_descriptor_mount_id(
+        descriptor,
+        process_snapshot_size_limit_bytes,
+    )
     if (
         not stat.S_ISREG(metadata_before.st_mode)
         or _stable_file_metadata(metadata_before)
@@ -586,6 +657,7 @@ def _mint_delivered_file_lease(
     delivered_file_descriptor: int,
     payload: bytes,
     exact_file: _ExactPublishedFile,
+    process_snapshot_size_limit_bytes: int,
 ) -> RunActionDeliveredFileLease:
     return RunActionDeliveredFileLease(
         slot=slot,
@@ -597,6 +669,7 @@ def _mint_delivered_file_lease(
             exact_file,
         ),
         exact_file=exact_file,
+        process_snapshot_size_limit_bytes=process_snapshot_size_limit_bytes,
         _authority=_DELIVERED_FILE_LEASE_AUTHORITY,
     )
 
