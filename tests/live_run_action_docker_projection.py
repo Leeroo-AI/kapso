@@ -94,6 +94,9 @@ from kapso.cross_run.launch.run_action_release_contracts import (
 from kapso.cross_run.launch.run_action_release_adoption import (
     open_run_action_release_inspection,
 )
+from kapso.cross_run.launch.run_action_release_envelope import (
+    workload_release_receipt_size_bound,
+)
 from kapso.cross_run.launch.run_action_release_publisher import (
     publish_run_action_workload_release_once,
 )
@@ -293,11 +296,6 @@ class _LiveInertStartAdapter:
     def activation_event_size_bound(self, **_arguments):
         raise AssertionError("durable event 5 must not replay activation")
 
-    def release_receipt_size_bound(self, *, reservation):
-        if reservation != self._preparation_allocation.preparation_claim.reservation:
-            raise AssertionError("start bound differs from durable reservation")
-        return self.execution_policy.supervisor_limits.release_receipt_size_bytes
-
     def prepare(self, _capability):
         raise AssertionError("durable event 5 must not replay preparation")
 
@@ -374,11 +372,6 @@ class _LiveBlockedWorkloadAdapter:
 
     def activation_event_size_bound(self, **_arguments):
         raise AssertionError("durable event 5 must not replay activation")
-
-    def release_receipt_size_bound(self, *, reservation):
-        if reservation != self._preparation_allocation.preparation_claim.reservation:
-            raise AssertionError("release bound differs from durable reservation")
-        return self.execution_policy.supervisor_limits.release_receipt_size_bytes
 
     def prepare(self, _capability):
         raise AssertionError("durable event 5 must not replay preparation")
@@ -483,11 +476,6 @@ class _LiveNaturalTerminalWorkloadAdapter:
     def activation_event_size_bound(self, **_arguments):
         raise AssertionError("durable event 5 must not replay activation")
 
-    def release_receipt_size_bound(self, *, reservation):
-        if reservation != self._preparation_allocation.preparation_claim.reservation:
-            raise AssertionError("terminal bound differs from durable reservation")
-        return self.execution_policy.supervisor_limits.release_receipt_size_bytes
-
     def prepare(self, _capability):
         raise AssertionError("durable event 5 must not replay preparation")
 
@@ -573,11 +561,6 @@ class _LivePreReleaseMainLossAdapter:
 
     def activation_event_size_bound(self, **_arguments):
         raise AssertionError("durable event 5 must not replay activation")
-
-    def release_receipt_size_bound(self, *, reservation):
-        if reservation != self._preparation_allocation.preparation_claim.reservation:
-            raise AssertionError("main-loss bound differs from durable reservation")
-        return self.execution_policy.supervisor_limits.release_receipt_size_bytes
 
     def prepare(self, _capability):
         raise AssertionError("durable event 5 must not replay preparation")
@@ -727,11 +710,6 @@ class _LiveTimeoutWorkloadAdapter:
 
     def activation_event_size_bound(self, **_arguments):
         raise AssertionError("durable event 5 must not replay activation")
-
-    def release_receipt_size_bound(self, *, reservation):
-        if reservation != self._preparation_allocation.preparation_claim.reservation:
-            raise AssertionError("timeout bound differs from durable reservation")
-        return self.execution_policy.supervisor_limits.release_receipt_size_bytes
 
     def prepare(self, _capability):
         raise AssertionError("durable event 5 must not replay preparation")
@@ -2328,6 +2306,24 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             assert start_dispatches == [layout_main_id]
         assert adapter.lease is not None
         assert adapter.release_receipt is not None
+        required_security_observation = (
+            action_frontier.checkpoint.safety_state.security_observation
+        )
+        first_release_bound = workload_release_receipt_size_bound(
+            prepared_execution=prepared_execution,
+            spawn_commit=spawn_commit,
+            required_security_observation=required_security_observation,
+        )
+        second_release_bound = workload_release_receipt_size_bound(
+            prepared_execution=prepared_execution,
+            spawn_commit=spawn_commit,
+            required_security_observation=required_security_observation,
+        )
+        assert first_release_bound == second_release_bound
+        assert len(adapter.release_receipt.to_json_bytes()) <= first_release_bound
+        assert first_release_bound <= (
+            layout_policy.supervisor_limits.release_receipt_size_bytes
+        )
         assert (
             adapter.release_receipt.release_authorization_observation.security_observation.observation_id
             == layout_reservation.frontier.security_observation_id
@@ -2356,6 +2352,9 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
         }
         assert resolved.control_entry_count == 0
         assert resolved.temporary_entry_count == 0
+        assert resolved.mount_info_snapshot.raw_byte_length == len(
+            resolved.mount_info_snapshot.raw_payload
+        )
         assert (
             resolved.control_directory_topology
             is RunActionControlDirectoryTopology.EMPTY

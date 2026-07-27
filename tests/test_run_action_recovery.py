@@ -451,13 +451,6 @@ class _FakeExecutionAdapter:
         )
         return len(event.to_json_bytes())
 
-    def release_receipt_size_bound(self, *, reservation):
-        assert (
-            reservation.intent.boundary_identity.execution_lifecycle_identity
-            == self.execution_lifecycle_identity
-        )
-        return self.execution_policy.supervisor_limits.release_receipt_size_bytes
-
     def prepare(self, capability):
         self.preparation_capabilities.append(capability)
         allocation = capability.preparation_allocation
@@ -1166,24 +1159,6 @@ class _ProductionActivationEnvelopeAuditAdapter(_FakeExecutionAdapter):
         )
 
 
-class _InvalidReleaseEnvelopeAdapter(_FakeExecutionAdapter):
-    def __init__(self, boundary_identity, release_receipt_size_bound) -> None:
-        super().__init__(boundary_identity)
-        self.invalid_release_receipt_size_bound = release_receipt_size_bound
-
-    def release_receipt_size_bound(self, **_arguments):
-        return self.invalid_release_receipt_size_bound
-
-
-class _ActivationCrowdingReleaseEnvelopeAdapter(_FakeExecutionAdapter):
-    def __init__(self, boundary_identity, activation_event_size_bound) -> None:
-        super().__init__(boundary_identity)
-        self.crowding_activation_event_size_bound = activation_event_size_bound
-
-    def activation_event_size_bound(self, **_arguments):
-        return self.crowding_activation_event_size_bound
-
-
 class _NonExactPreparationAdapter(_FakeExecutionAdapter):
     def __init__(self, boundary_identity, state, modes) -> None:
         super().__init__(boundary_identity)
@@ -1241,7 +1216,6 @@ class _AccessGuardedExecutionAdapter(_FakeExecutionAdapter):
             "inspect_committed",
             "inspect_unactivated",
             "prepared_event_size_bound",
-            "release_receipt_size_bound",
             "prepare",
             "stage_activation",
         }
@@ -1833,6 +1807,10 @@ def test_legacy_direct_spawn_interfaces_are_removed() -> None:
         run_action_recovery_module.RunActionExecutionAdapter,
         "reattach",
     )
+    assert not hasattr(
+        run_action_recovery_module.RunActionExecutionAdapter,
+        "release_receipt_size_bound",
+    )
     assert not hasattr(RunFrontierActionGate, "claim")
     assert not hasattr(RunFrontierActionGate, "claim_preparation")
     assert not hasattr(
@@ -2198,25 +2176,21 @@ def test_production_activation_envelope_rejects_one_byte_before_delivery(
     assert not adapter.continuation_calls
 
 
-@pytest.mark.parametrize("case", ("oversized", "snapshot_equal"))
-def test_release_receipt_envelope_rejects_before_allocation(
+def test_release_receipt_policy_mismatch_rejects_before_allocation(
     publisher_case,
-    case,
 ) -> None:
     frontier, gate, reservation, _payload = _reserved_case(publisher_case)
     settings = publisher_case["settings"]
-    invalid_bound = (
-        settings.run_action_release_receipt_size_bytes + 1
-        if case == "oversized"
-        else settings.run_action_process_snapshot_size_bytes
-    )
-    adapter = _InvalidReleaseEnvelopeAdapter(
-        reservation.intent.boundary_identity,
-        invalid_bound,
+    adapter = _FakeExecutionAdapter(reservation.intent.boundary_identity)
+    coordinator = _recovery_coordinator(gate, adapter)
+    object.__setattr__(
+        settings,
+        "run_action_release_receipt_size_bytes",
+        settings.run_action_release_receipt_size_bytes + 1,
     )
 
-    with pytest.raises(RunActionRecoveryError, match="release-receipt envelope"):
-        _recovery_coordinator(gate, adapter).recover(frontier)
+    with pytest.raises(RunActionRecoveryError, match="policy differs"):
+        coordinator.recover(frontier)
 
     events = gate._action_store.inspect().events_for(reservation.intent.operation_id)
     assert events[-1].event_kind is RunActionExecutionEventKind.INTENT_RESERVED
@@ -2240,8 +2214,8 @@ def test_execution_envelope_rejects_timeout_policy_config_mismatch(
         ),
     )
 
-    with pytest.raises(RunActionRecoveryError, match="timeout envelope"):
-        coordinator._release_receipt_size_bound(adapter, reservation)
+    with pytest.raises(RunActionRecoveryError, match="policy differs"):
+        coordinator._require_release_receipt_policy(adapter)
     assert coordinator.inspect(frontier).pending_operation_id == (
         reservation.intent.operation_id
     )
@@ -2273,7 +2247,7 @@ def test_spawn_committed_process_bound_drift_rejects_before_adapter_inspection(
 
     with pytest.raises(
         RunActionRecoveryError,
-        match="release-receipt envelope",
+        match="policy differs",
     ):
         coordinator.recover(frontier)
 
@@ -2284,27 +2258,107 @@ def test_spawn_committed_process_bound_drift_rejects_before_adapter_inspection(
     assert not adapter.continuation_calls
 
 
-def test_activation_bound_must_leave_resolved_release_envelope(
+def test_formal_release_envelope_rejects_one_byte_over_policy_before_event_4_inspection(
     publisher_case,
+    monkeypatch,
 ) -> None:
     frontier, gate, reservation, _payload = _reserved_case(publisher_case)
-    settings = publisher_case["settings"]
-    adapter = _ActivationCrowdingReleaseEnvelopeAdapter(
-        reservation.intent.boundary_identity,
-        (
-            settings.run_action_release_receipt_size_bytes
-            - settings.run_action_process_snapshot_size_bytes
-        ),
+    _append_spawn_committed(gate, reservation)
+    adapter = _FakeExecutionAdapter(reservation.intent.boundary_identity)
+    calls = []
+
+    def one_byte_over_policy(**arguments):
+        calls.append(arguments)
+        return adapter.execution_policy.supervisor_limits.release_receipt_size_bytes + 1
+
+    monkeypatch.setattr(
+        run_action_recovery_module,
+        "workload_release_receipt_size_bound",
+        one_byte_over_policy,
     )
 
     with pytest.raises(
         RunActionRecoveryError,
-        match="cannot fit the release-receipt envelope",
+        match="formal release-receipt envelope",
     ):
         _recovery_coordinator(gate, adapter).recover(frontier)
 
     events = gate._action_store.inspect().events_for(reservation.intent.operation_id)
     assert events[-1].event_kind is RunActionExecutionEventKind.SPAWN_COMMITTED
+    assert len(calls) == 2
+    assert not adapter.inspect_calls
+    assert not adapter.stage_calls
+    assert not adapter.continuation_calls
+
+
+def test_formal_release_envelope_rejects_fresh_spawn_before_delivery(
+    publisher_case,
+    monkeypatch,
+) -> None:
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
+    adapter = _FakeExecutionAdapter(reservation.intent.boundary_identity)
+    with gate._action_store._recovery_session(
+        reservation,
+        _authority=_RUN_ACTION_RECOVERY_AUTHORITY,
+    ) as session:
+        allocation = session.allocate_preparation(adapter.execution_policy)
+        prepared = adapter._prepared_for_allocation(allocation)
+        session.commit_prepared_execution(prepared)
+    calls = []
+
+    def one_byte_over_policy(**arguments):
+        calls.append(arguments)
+        return adapter.execution_policy.supervisor_limits.release_receipt_size_bytes + 1
+
+    monkeypatch.setattr(
+        run_action_recovery_module,
+        "workload_release_receipt_size_bound",
+        one_byte_over_policy,
+    )
+
+    with pytest.raises(
+        RunActionRecoveryError,
+        match="formal release-receipt envelope",
+    ):
+        _recovery_coordinator(gate, adapter).recover(frontier)
+
+    events = gate._action_store.inspect().events_for(reservation.intent.operation_id)
+    assert events[-1].event_kind is RunActionExecutionEventKind.SPAWN_COMMITTED
+    assert len(calls) == 2
+    assert not adapter.inspect_calls
+    assert not adapter.stage_calls
+    assert not adapter.continuation_calls
+
+
+def test_formal_release_envelope_rejects_event_5_empty_before_adapter_inspection(
+    publisher_case,
+    monkeypatch,
+) -> None:
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
+    _append_activation_committed(gate, reservation)
+    adapter = _FakeExecutionAdapter(reservation.intent.boundary_identity)
+    calls = []
+
+    def one_byte_over_policy(**arguments):
+        calls.append(arguments)
+        return adapter.execution_policy.supervisor_limits.release_receipt_size_bytes + 1
+
+    monkeypatch.setattr(
+        run_action_recovery_module,
+        "workload_release_receipt_size_bound",
+        one_byte_over_policy,
+    )
+
+    with pytest.raises(
+        RunActionRecoveryError,
+        match="formal release-receipt envelope",
+    ):
+        _recovery_coordinator(gate, adapter).recover(frontier)
+
+    events = gate._action_store.inspect().events_for(reservation.intent.operation_id)
+    assert events[-1].event_kind is RunActionExecutionEventKind.ACTIVATION_COMMITTED
+    assert len(calls) == 2
+    assert not adapter.inspect_calls
     assert not adapter.stage_calls
     assert not adapter.continuation_calls
 
@@ -3019,6 +3073,15 @@ def test_published_release_is_adopted_after_security_advance(
         "open_run_action_timeout_inspection",
         lambda **_arguments: _PresentReleaseInspection(adoption),
     )
+
+    def reject_pre_release_envelope(**_arguments):
+        raise AssertionError("linked release re-entered the pre-release envelope")
+
+    monkeypatch.setattr(
+        run_action_recovery_module,
+        "workload_release_receipt_size_bound",
+        reject_pre_release_envelope,
+    )
     _advance_security(publisher_case, gate, frontier)
     adapter = _AdoptionAwarePendingAdapter(
         reservation.intent.boundary_identity,
@@ -3506,6 +3569,15 @@ def test_existing_timeout_is_adopted_once_persisted_and_replayed(
         run_action_recovery_module,
         "open_run_action_timeout_inspection",
         inspect_existing_timeout,
+    )
+
+    def reject_hypothetical_pre_release_envelope(**_arguments):
+        raise AssertionError("linked timeout must dominate pre-release envelope")
+
+    monkeypatch.setattr(
+        run_action_recovery_module,
+        "workload_release_receipt_size_bound",
+        reject_hypothetical_pre_release_envelope,
     )
     adapter = _TrustedTimeoutTerminationAdapter(
         reservation.intent.boundary_identity,

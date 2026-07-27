@@ -65,6 +65,9 @@ from kapso.cross_run.launch.run_action_release_contracts import (
     RunActionWorkloadReleaseAdoption,
     RunActionWorkloadReleaseReceipt,
 )
+from kapso.cross_run.launch.run_action_release_envelope import (
+    workload_release_receipt_size_bound,
+)
 from kapso.cross_run.launch.run_action_result_authority import (
     run_action_terminal_result_evidence_matches,
 )
@@ -178,7 +181,6 @@ _TERMINAL_KINDS = {
 _EXECUTION_ADAPTER_METHOD_NAMES = (
     "prepared_event_size_bound",
     "activation_event_size_bound",
-    "release_receipt_size_bound",
     "prepare",
     "stage_activation",
     "inspect_unactivated",
@@ -202,6 +204,7 @@ class _RunActionIssuedReleaseAuthorities:
     security_authority: object
     credential_validity_authority: object | None
     clock: _SystemRunActionClock
+    release_receipt_size_bound_bytes: int | None
 
     def __post_init__(self) -> None:
         if (
@@ -216,6 +219,13 @@ class _RunActionIssuedReleaseAuthorities:
                 )
             )
             or type(self.clock) is not _SystemRunActionClock
+            or (
+                self.release_receipt_size_bound_bytes is not None
+                and (
+                    type(self.release_receipt_size_bound_bytes) is not int
+                    or self.release_receipt_size_bound_bytes <= 0
+                )
+            )
         ):
             raise RunActionRecoveryError(
                 "issued release authorities are incomplete or unsafe"
@@ -901,6 +911,9 @@ class RunActionCommittedContinuationCapability:
             )
         activation = activation_event.activation_revalidation_receipt
         reservation = activation.prepared_execution.preparation_claim.reservation
+        release_bound_required = (
+            query.control_directory_topology is RunActionControlDirectoryTopology.EMPTY
+        )
         if (
             activation_event.reservation != reservation
             or type(observation) is not RunActionCommittedSpawnObservation
@@ -939,6 +952,33 @@ class RunActionCommittedContinuationCapability:
         ):
             raise RunActionRecoveryError(
                 "committed continuation capability lacks exact authority"
+            )
+        release_receipt_size_bound_bytes = (
+            workload_release_receipt_size_bound(
+                prepared_execution=activation.prepared_execution,
+                spawn_commit=activation.spawn_commit,
+                required_security_observation=required_security_observation,
+            )
+            if release_bound_required
+            else None
+        )
+        if (release_receipt_size_bound_bytes is not None) != release_bound_required or (
+            release_receipt_size_bound_bytes is not None
+            and (
+                type(release_receipt_size_bound_bytes) is not int
+                or release_receipt_size_bound_bytes <= 0
+                or release_receipt_size_bound_bytes
+                > activation.prepared_execution.preparation_claim.execution_policy.supervisor_limits.release_receipt_size_bytes
+                or release_receipt_size_bound_bytes
+                != workload_release_receipt_size_bound(
+                    prepared_execution=activation.prepared_execution,
+                    spawn_commit=activation.spawn_commit,
+                    required_security_observation=(required_security_observation),
+                )
+            )
+        ):
+            raise RunActionRecoveryError(
+                "committed continuation formal release envelope is invalid"
             )
         self._query = query
         self._observation = observation
@@ -981,6 +1021,7 @@ class RunActionCommittedContinuationCapability:
                     security_authority=security_authority,
                     credential_validity_authority=credential_validity_authority,
                     clock=release_clock,
+                    release_receipt_size_bound_bytes=(release_receipt_size_bound_bytes),
                 )
             )
 
@@ -1021,6 +1062,36 @@ class RunActionCommittedContinuationCapability:
         self._require_active_invocation()
         return self._query.workload_release_adoption
 
+    def _require_current_release_receipt_size_bound(self) -> int:
+        with _COMMITTED_CONTINUATION_CAPABILITY_LOCK:
+            authorities = _ISSUED_COMMITTED_CONTINUATION_RELEASE_AUTHORITIES.get(self)
+            if (
+                _ISSUED_COMMITTED_CONTINUATION_CAPABILITIES.get(id(self)) is not self
+                or type(authorities) is not _RunActionIssuedReleaseAuthorities
+                or authorities.release_receipt_size_bound_bytes is None
+            ):
+                raise RunActionRecoveryError(
+                    "committed continuation lacks its formal release envelope"
+                )
+            required_security_observation = authorities.required_security_observation
+            expected_bound = authorities.release_receipt_size_bound_bytes
+            activation = self._query.activation_revalidation_receipt
+        current_bound = workload_release_receipt_size_bound(
+            prepared_execution=activation.prepared_execution,
+            spawn_commit=activation.spawn_commit,
+            required_security_observation=required_security_observation,
+        )
+        with _COMMITTED_CONTINUATION_CAPABILITY_LOCK:
+            if (
+                _ISSUED_COMMITTED_CONTINUATION_RELEASE_AUTHORITIES.get(self)
+                is not authorities
+                or current_bound != expected_bound
+            ):
+                raise RunActionRecoveryError(
+                    "committed continuation release envelope changed"
+                )
+        return current_bound
+
     def _take_start_authority(
         self,
         observation_token: str,
@@ -1029,10 +1100,17 @@ class RunActionCommittedContinuationCapability:
     ) -> tuple["RunActionCommittedSpawnQuery", str]:
         """Consume the trusted start leaf's exact event-5 inert seal."""
 
+        release_receipt_size_bound_bytes = (
+            self._require_current_release_receipt_size_bound()
+        )
         with _COMMITTED_CONTINUATION_CAPABILITY_LOCK:
             query = self._query
+            authorities = _ISSUED_COMMITTED_CONTINUATION_RELEASE_AUTHORITIES.get(self)
             if (
                 _ISSUED_COMMITTED_CONTINUATION_CAPABILITIES.get(id(self)) is not self
+                or type(authorities) is not _RunActionIssuedReleaseAuthorities
+                or authorities.release_receipt_size_bound_bytes
+                != release_receipt_size_bound_bytes
                 or self._owner_process_id != os.getpid()
                 or self._state != "invoking"
                 or self._invoking_thread_id != get_ident()
@@ -1109,6 +1187,9 @@ class RunActionCommittedContinuationCapability:
     ) -> "_RunActionReleasePublicationAuthorization":
         """Open the trusted publisher's sole event-5 release authorization."""
 
+        release_receipt_size_bound_bytes = (
+            self._require_current_release_receipt_size_bound()
+        )
         with _COMMITTED_CONTINUATION_CAPABILITY_LOCK:
             issued = _ISSUED_COMMITTED_CONTINUATION_CAPABILITIES.get(id(self))
             release_authority = _ISSUED_COMMITTED_CONTINUATION_RELEASE_AUTHORITIES.get(
@@ -1117,6 +1198,8 @@ class RunActionCommittedContinuationCapability:
             if (
                 issued is not self
                 or release_authority is None
+                or release_authority.release_receipt_size_bound_bytes
+                != release_receipt_size_bound_bytes
                 or self._owner_process_id != os.getpid()
                 or self._state != "invoking"
                 or self._invoking_thread_id != get_ident()
@@ -1153,6 +1236,7 @@ class RunActionCommittedContinuationCapability:
             required_security_observation=(
                 release_authority.required_security_observation
             ),
+            release_receipt_size_bound_bytes=release_receipt_size_bound_bytes,
             _authority=_RUN_ACTION_RELEASE_PUBLISHER_AUTHORITY,
         )
 
@@ -2071,6 +2155,7 @@ class _RunActionReleasePublicationAuthorization:
         capability: RunActionCommittedContinuationCapability,
         resolved_workload_observation: RunActionResolvedWorkloadObservation,
         required_security_observation: SecurityDenylistObservation,
+        release_receipt_size_bound_bytes: int,
         _authority: object,
     ) -> None:
         if (
@@ -2078,6 +2163,8 @@ class _RunActionReleasePublicationAuthorization:
             or type(resolved_workload_observation)
             is not RunActionResolvedWorkloadObservation
             or type(required_security_observation) is not SecurityDenylistObservation
+            or type(release_receipt_size_bound_bytes) is not int
+            or release_receipt_size_bound_bytes <= 0
             or _authority is not _RUN_ACTION_RELEASE_PUBLISHER_AUTHORITY
         ):
             raise RunActionRecoveryError(
@@ -2086,6 +2173,7 @@ class _RunActionReleasePublicationAuthorization:
         self._capability = capability
         self._resolved_workload_observation = resolved_workload_observation
         self._required_security_observation = required_security_observation
+        self._release_receipt_size_bound_bytes = release_receipt_size_bound_bytes
         self._owner_process_id = os.getpid()
         self._owner_thread_id = get_ident()
         self._receipt = None
@@ -2122,12 +2210,25 @@ class _RunActionReleasePublicationAuthorization:
             authorized_at_realtime_nanoseconds=anchor_realtime,
             credential_validity_observation=credential_validity,
         )
-        self._receipt = mint_run_action_workload_release_receipt(
+        receipt = mint_run_action_workload_release_receipt(
             activation_event=self._capability.activation_event,
             resolved_workload_observation=self._resolved_workload_observation,
             release_authorization_observation=release_authorization,
         )
+        if len(receipt.to_json_bytes()) > self._release_receipt_size_bound_bytes:
+            raise RunActionRecoveryError(
+                "workload release receipt exceeded its formal envelope"
+            )
+        self._receipt = receipt
         return self._receipt
+
+    def _receipt_size_bound(
+        self,
+        *,
+        _authority: object,
+    ) -> int:
+        self._require_preparing(_authority)
+        return self._release_receipt_size_bound_bytes
 
     def _authorize_frozen_release_once(
         self,
@@ -3101,12 +3202,6 @@ class RunActionExecutionAdapter(Protocol):
         predecessor_event_id: str,
     ) -> int: ...
 
-    def release_receipt_size_bound(
-        self,
-        *,
-        reservation: RunActionReservation,
-    ) -> int: ...
-
     def prepare(
         self,
         capability: RunActionPreparationCapability,
@@ -3641,10 +3736,7 @@ class RunActionRecoveryCoordinator:
                 self._implementation_registry,
                 reservation,
             )
-            release_receipt_size_bound = self._release_receipt_size_bound(
-                execution_adapter,
-                reservation,
-            )
+            self._require_release_receipt_policy(execution_adapter)
             if tail_kind is RunActionExecutionEventKind.INTENT_RESERVED:
                 preparation_allocation = session.allocate_preparation(
                     execution_adapter.execution_policy,
@@ -3756,13 +3848,7 @@ class RunActionRecoveryCoordinator:
             if not self._security_is_current(frontier):
                 session.invalidate_frontier()
                 return
-            if release_receipt_size_bound != self._release_receipt_size_bound(
-                execution_adapter,
-                reservation,
-            ):
-                raise RunActionRecoveryError(
-                    "run action release-receipt envelope changed before spawn"
-                )
+            self._require_release_receipt_policy(execution_adapter)
             spawn_commit = session.commit_spawn(
                 security_observation_id=(reservation.frontier.security_observation_id),
                 boundary_identity=reservation.intent.boundary_identity,
@@ -3783,12 +3869,14 @@ class RunActionRecoveryCoordinator:
                 self._implementation_registry,
                 reservation,
             )
-            self._release_receipt_size_bound(
-                execution_adapter,
-                reservation,
-            )
             prepared_execution = events[2].prepared_execution
             spawn_commit = events[-1].spawn_commit
+            self._formal_release_receipt_size_bound(
+                execution_adapter,
+                prepared_execution,
+                spawn_commit,
+                frontier.checkpoint.safety_state.security_observation,
+            )
             query = RunActionUnactivatedSpawnQuery(
                 prepared_execution=prepared_execution,
                 spawn_commit=spawn_commit,
@@ -3886,19 +3974,12 @@ class RunActionRecoveryCoordinator:
             raise RunActionRecoveryError(
                 "run action activation event envelope is invalid or too large"
             )
-        release_receipt_size_bound = self._release_receipt_size_bound(
+        self._formal_release_receipt_size_bound(
             execution_adapter,
-            session.reservation,
+            prepared_execution,
+            spawn_commit,
+            frontier.checkpoint.safety_state.security_observation,
         )
-        if (
-            activation_event_size_bound
-            + self._publisher._settings.run_action_process_snapshot_size_bytes
-            >= release_receipt_size_bound
-        ):
-            raise RunActionRecoveryError(
-                "run action activation and resolved evidence cannot fit "
-                "the release-receipt envelope"
-            )
         capability = RunActionActivationCapability(
             prepared_execution=prepared_execution,
             spawn_commit=spawn_commit,
@@ -3953,6 +4034,7 @@ class RunActionRecoveryCoordinator:
             raise RunActionRecoveryError(
                 "provider continuation requires the durable activation tail"
             )
+        activation = activation_event.activation_revalidation_receipt
         with open_run_action_timeout_inspection(
             activation_event=activation_event,
             launch_settings=self._publisher._settings,
@@ -3970,6 +4052,16 @@ class RunActionRecoveryCoordinator:
             if query.control_directory_topology is not control_inspection.topology:
                 raise RunActionRecoveryError(
                     "committed query differs from retained control topology"
+                )
+            if (
+                query.control_directory_topology
+                is RunActionControlDirectoryTopology.EMPTY
+            ):
+                self._formal_release_receipt_size_bound(
+                    execution_adapter,
+                    activation.prepared_execution,
+                    activation.spawn_commit,
+                    frontier.checkpoint.safety_state.security_observation,
                 )
             observation = execution_adapter.inspect_committed(query)
             control_inspection.require_current()
@@ -4733,11 +4825,10 @@ class RunActionRecoveryCoordinator:
             )
         return current == required
 
-    def _release_receipt_size_bound(
+    def _require_release_receipt_policy(
         self,
         execution_adapter: RunActionExecutionAdapter,
-        reservation: RunActionReservation,
-    ) -> int:
+    ) -> None:
         policy_bound = (
             execution_adapter.execution_policy.supervisor_limits.release_receipt_size_bytes
         )
@@ -4759,26 +4850,52 @@ class RunActionRecoveryCoordinator:
         configured_process_snapshot_bound = (
             self._publisher._settings.run_action_process_snapshot_size_bytes
         )
-        first = execution_adapter.release_receipt_size_bound(
-            reservation=reservation,
-        )
-        second = execution_adapter.release_receipt_size_bound(
-            reservation=reservation,
-        )
         if (
-            type(first) is not int
-            or first <= self._publisher._settings.run_action_process_snapshot_size_bytes
-            or second != first
-            or policy_bound != configured_bound
+            policy_bound != configured_bound
             or policy_commit_timeout != configured_commit_timeout
             or policy_timeout_directive_bound != configured_timeout_directive_bound
             or execution_adapter.execution_policy.supervisor_limits.process_snapshot_size_bytes
             != configured_process_snapshot_bound
-            or first > policy_bound
         ):
             raise RunActionRecoveryError(
-                "run action release-receipt envelope or timeout envelope is invalid "
-                "or too large"
+                "run action release-receipt or timeout policy differs from "
+                "launch configuration"
+            )
+
+    def _formal_release_receipt_size_bound(
+        self,
+        execution_adapter: RunActionExecutionAdapter,
+        prepared_execution: RunActionPreparedExecution,
+        spawn_commit: RunActionSpawnCommit,
+        required_security_observation: SecurityDenylistObservation,
+    ) -> int:
+        self._require_release_receipt_policy(execution_adapter)
+        if (
+            execution_adapter.execution_policy
+            != prepared_execution.preparation_claim.execution_policy
+        ):
+            raise RunActionRecoveryError(
+                "run action formal release envelope uses another execution policy"
+            )
+        first = workload_release_receipt_size_bound(
+            prepared_execution=prepared_execution,
+            spawn_commit=spawn_commit,
+            required_security_observation=required_security_observation,
+        )
+        second = workload_release_receipt_size_bound(
+            prepared_execution=prepared_execution,
+            spawn_commit=spawn_commit,
+            required_security_observation=required_security_observation,
+        )
+        if (
+            type(first) is not int
+            or first <= 0
+            or second != first
+            or first
+            > execution_adapter.execution_policy.supervisor_limits.release_receipt_size_bytes
+        ):
+            raise RunActionRecoveryError(
+                "run action formal release-receipt envelope is invalid or too large"
             )
         return first
 

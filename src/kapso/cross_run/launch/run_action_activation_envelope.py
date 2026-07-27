@@ -93,7 +93,10 @@ def activation_execution_event_size_bound(
             "activation event envelope predecessor is not a run-action event"
         )
     _require_spawn_join(prepared_execution, spawn_commit)
-    receipt = _activation_receipt_wire(prepared_execution, spawn_commit)
+    receipt = activation_revalidation_receipt_wire_bound(
+        prepared_execution,
+        spawn_commit,
+    )
     event = _sealed_wire(
         RunActionExecutionEvent,
         event_id=_content_identifier(RunActionExecutionEvent),
@@ -131,10 +134,20 @@ def _require_spawn_join(
         )
 
 
-def _activation_receipt_wire(
+def activation_revalidation_receipt_wire_bound(
     prepared: RunActionPreparedExecution,
     spawn: RunActionSpawnCommit,
 ) -> dict[str, Any]:
+    """Return the schema-sealed maximal wire for this future receipt."""
+
+    if (
+        type(prepared) is not RunActionPreparedExecution
+        or type(spawn) is not RunActionSpawnCommit
+    ):
+        raise RunActionActivationEnvelopeError(
+            "activation receipt envelope requires exact prepared and spawn authority"
+        )
+    _require_spawn_join(prepared, spawn)
     credential_slot = prepared.credential_delivery_slot
     credential_required = (
         prepared.preparation_claim.execution_policy.credential_policy.mode
@@ -419,5 +432,6 @@ def _sealed_wire(
 
 __all__ = [
     "RunActionActivationEnvelopeError",
+    "activation_revalidation_receipt_wire_bound",
     "activation_execution_event_size_bound",
 ]

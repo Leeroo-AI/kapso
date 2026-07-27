@@ -1038,14 +1038,29 @@ The release authority contracts now join the complete resolved graph to the
 actual typed durable event 5, bind the exact denylist observation and a
 credential-validity interval that spans containment without exceeding broker
 policy, and derive same-boot execution and containment deadlines from one
-authorization instant. The independently configured canonical receipt bound
-strictly contains the process-snapshot bound and leaves event-envelope space;
-it is carried in the supervisor policy and reserved in both pre-mutation and
-post-materialization tmpfs capacity proofs. Before allocation, the sealed
-lifecycle adapter must repeat one deterministic conservative release-envelope
-bound. Recovery joins it to the canonical policy/config cap before spawn and
-requires the actual activation-event bound plus the complete process-snapshot
-bound to fit strictly before delivery or event 5.
+authorization instant. The independently configured canonical receipt cap
+strictly contains the process-snapshot bound and leaves event-envelope space; it
+is carried in the supervisor policy and reserved in both pre-mutation and
+post-materialization tmpfs capacity proofs. It is only a broad admission cap.
+The adapter declares no receipt bound. From the exact durable prepared
+execution, spawn commit, and complete denylist observation, the framework builds
+one schema-sealed canonical-wire witness for the entire future workload-release
+receipt. The witness preserves every exact prepared/projection/security string,
+derives the exact optional workspace/credential cardinality, gives every future
+physical integer its unsigned-64 maximum, and represents a decoded mountinfo
+budget `P` without allocating it by adding exactly `4 * ceil(P / 3)` canonical
+base64 bytes.
+
+Recovery computes that bound twice before the fresh post-spawn delivery callback
+and again before provider inspection after event 4. At event 5 it first retains
+and classifies the physical control topology: only `EMPTY` needs the
+hypothetical pre-release bound, while a linked `RELEASED` or `TIMED_OUT`
+occurrence is canonical and wins without recomputation. The coordinator stores
+the bound only in a private continuation authority. The start and publication
+leaves recompute it from their exact sealed inputs; the publisher requires the
+actual receipt bytes to fit before it opens the anonymous candidate inode. A
+one-byte-short bound therefore fails before delivery, inspection, start, or
+publication according to the recovery point.
 The committed continuation's release security, broker-validity authority, and
 system clock live in a private coordinator-issued registry, never in
 adapter-supplied publication arguments. Only the trusted leaf publisher may open
@@ -1346,13 +1361,21 @@ durable field, uses fixed-width content identities, and upper-bounds every new
 physical integer with the shared unsigned-64 contract. Recovery calls the bound
 twice and rejects even a one-byte-short configured event limit before entering
 the staging callback. Production adapters remain unwired.
-The release-envelope prerequisite now has one finite representation: mountinfo
-persists only bounded byte-exact evidence in canonical base64, while parsed
-records remain a pure view. The same decoded-byte budget is durable policy, and
-process/mount/clock evidence plus derived deadlines are finite-width. The next
-slice replaces the adapter-declared release ceiling with a schema-sealed
-framework proof computed before event-5 delivery and rechecked before every
-start and release publication.
+The formal release envelope now completes that proof. Mountinfo persists only
+bounded byte-exact evidence in canonical base64, while parsed records remain a
+pure view. The decoded-byte budget is durable policy, process/mount/clock
+evidence plus derived deadlines are finite-width, and the framework's
+schema-sealed full-receipt witness is computed before fresh event-5 delivery and
+rechecked before every start and release publication. The adapter-declared
+ceiling and its protocol surface are deleted. Six optional topologies,
+schema-field changes, full escaped/UTF-8 security observations, base64 remainder
+classes, unsigned-64/no-proportional-allocation arithmetic, one-byte
+fresh/restart rejection, actual-before-anonymous-inode rejection, and linked
+release/timeout dominance are pinned by focused tests. The full 981-test
+non-recovery run-action suite and 89-test recovery suite pass, and a
+credentialed real-Docker result lifecycle proves that its actual serialized
+receipt is no larger than two repeated formal computations. Production adapter
+composition remains unwired.
 The start manager exposes no generic Docker command surface, and the raw pinned
 runtime is process-bound. One real-Docker lifecycle now routes the durable main
 through two coordinator passes: exact `INERT` classification and sealed barrier

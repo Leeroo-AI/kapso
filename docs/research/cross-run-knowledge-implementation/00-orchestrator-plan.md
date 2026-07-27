@@ -624,10 +624,29 @@ mount, inode, release clock, and derived-deadline values are unsigned-64 bounded
 The frozen prerequisite checkpoint passed all 959 other run-action tests, the
 complete recovery suite, and the real-Docker result lifecycle; three independent
 reviews found no P0–P2 defect.
-The next slice is
-the formal release-receipt envelope, followed by the idempotent credential
-issue/validity authority, closed event-4/event-5 routing, and final adapter
-composition.
+The formal release-receipt envelope is now complete. The framework, not an
+adapter, derives one deterministic canonical-wire bound from the exact durable
+prepared execution, spawn commit, and complete security observation. Its
+schema-sealed witness contains all six workspace/credential topologies, the
+entire future resolved-workload and authorization graph, unsigned-64 physical
+maxima, and allocation-free canonical base64 growth
+`4 * ceil(process_snapshot_bytes / 3)`. Recovery computes it twice before fresh
+post-spawn delivery and before event-4/event-5-`EMPTY` provider inspection;
+private start/publication capabilities recompute it, and publication rejects an
+oversized actual receipt before opening an anonymous inode. Already-linked
+`RELEASED` or `TIMED_OUT` state remains dominant and is adopted without
+re-evaluating a hypothetical pre-release envelope. The adapter-declared ceiling
+and every call site were deleted. Focused unit, recovery-order, publication, and
+capability regressions cover topology, schema drift, exact escaped/UTF-8
+security, near-unsigned-64 arithmetic, one-byte rejection at both fresh and
+restart gates, and presence dominance; the complete 981-test non-recovery
+run-action regression and 89-test recovery regression pass, as does the
+credentialed real-Docker result lifecycle with its actual receipt checked
+against two independent computations of the bound. Production adapter
+composition remains pending.
+
+The next slice is the idempotent credential issue/validity authority, followed
+by closed event-4/event-5 routing and final adapter composition.
 
 ## Plan-maintenance protocol
 

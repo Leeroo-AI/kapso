@@ -10,6 +10,8 @@ from types import SimpleNamespace
 
 import pytest
 
+import kapso.cross_run.launch.run_action_recovery as recovery_module
+import kapso.cross_run.launch.run_action_release_publisher as publisher_module
 import kapso.cross_run.launch.run_action_resolved_workload as workload_module
 from kapso.cross_run.launch.run_action_recovery import (
     _RUN_ACTION_COMMITTED_CONTINUATION_AUTHORITY,
@@ -309,6 +311,59 @@ def test_publication_api_has_no_adapter_supplied_authority_inputs():
             blocked_workload_lease=None,
             clock=_Clock(),
         )
+
+
+def test_actual_receipt_exceeding_issued_bound_precedes_anonymous_file(
+    tmp_path,
+    monkeypatch,
+):
+    security = _security_observation()
+    resolved = _resolved_for_security(
+        security,
+        credential_mode=RunActionCredentialMode.NONE,
+    )
+    authority = _SecurityAuthority(security)
+    monkeypatch.setattr(
+        recovery_module,
+        "workload_release_receipt_size_bound",
+        lambda **_arguments: 1,
+    )
+    anonymous_file_calls = []
+
+    def reject_anonymous_file(*_arguments):
+        anonymous_file_calls.append(True)
+        raise AssertionError("oversized receipt reached anonymous-file creation")
+
+    monkeypatch.setattr(
+        publisher_module,
+        "open_run_action_anonymous_file",
+        reject_anonymous_file,
+    )
+    capability = _capability(
+        resolved,
+        security,
+        authority,
+        clock=_Clock(),
+    )
+    (tmp_path / "control").mkdir(mode=0o700, exist_ok=True)
+    lease, descriptor = _lease(resolved, tmp_path / "control")
+
+    def release(active_capability):
+        publish_run_action_workload_release_once(
+            capability=active_capability,
+            blocked_workload_lease=lease,
+        )
+
+    with pytest.raises(
+        RunActionRecoveryError,
+        match="exceeded its formal envelope",
+    ):
+        capability._invoke_once(_ReleaseAdapter(release))
+
+    assert not anonymous_file_calls
+    assert not (tmp_path / "control" / "release").exists()
+    assert not authority.calls
+    _close_test_lease(lease, descriptor)
 
 
 def test_unissued_frozen_candidate_cannot_consume_final_security():

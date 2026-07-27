@@ -58,6 +58,9 @@ def publish_run_action_workload_release_once(
         receipt = authorization._mint_receipt(
             _authority=_RUN_ACTION_RELEASE_PUBLISHER_AUTHORITY,
         )
+        receipt_size_bound_bytes = authorization._receipt_size_bound(
+            _authority=_RUN_ACTION_RELEASE_PUBLISHER_AUTHORITY,
+        )
         with ExitStack() as descriptors:
             control_descriptor = (
                 blocked_workload_lease._duplicate_release_control_descriptor(
@@ -77,9 +80,7 @@ def publish_run_action_workload_release_once(
                 predecessor_file_descriptor=None,
                 owner_user_id=control.owner_user_id,
                 owner_group_id=control.owner_group_id,
-                payload_size_limit_bytes=(
-                    policy.supervisor_limits.release_receipt_size_bytes
-                ),
+                payload_size_limit_bytes=receipt_size_bound_bytes,
                 process_snapshot_size_limit_bytes=(
                     policy.supervisor_limits.process_snapshot_size_bytes
                 ),
