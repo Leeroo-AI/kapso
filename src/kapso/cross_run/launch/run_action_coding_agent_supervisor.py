@@ -44,6 +44,8 @@ def coding_agent_supervisor_command(
         str(policy.provider_user_id),
         "--provider-group-id",
         str(policy.provider_group_id),
+        "--maximum-request-bytes",
+        str(policy.maximum_request_bytes),
     )
 
 
@@ -55,6 +57,7 @@ def main() -> None:
     parser.add_argument("--supervisor-group-id", type=int, required=True)
     parser.add_argument("--provider-user-id", type=int, required=True)
     parser.add_argument("--provider-group-id", type=int, required=True)
+    parser.add_argument("--maximum-request-bytes", type=int, required=True)
     arguments = parser.parse_args()
     identity_values = (
         arguments.supervisor_user_id,
@@ -98,6 +101,8 @@ def main() -> None:
         f"--ambient-caps={capability_names}",
         "--no-new-privs",
         CODING_AGENT_CONSUMER_EXECUTABLE,
+        "--maximum-request-bytes",
+        str(arguments.maximum_request_bytes),
     )
     os.execve(_SETPRIV_EXECUTABLE, command, {"PATH": "/usr/bin:/bin"})
 

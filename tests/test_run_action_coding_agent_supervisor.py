@@ -28,6 +28,8 @@ def test_supervisor_command_threads_all_request_bound_identities():
         "1300",
         "--provider-group-id",
         "1400",
+        "--maximum-request-bytes",
+        str(policy.maximum_request_bytes),
     )
 
 

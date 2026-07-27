@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
+import argparse
 import fcntl
 import os
-import re
 import selectors
 import signal
 import stat
 import subprocess
-import sys
 import time
 from contextlib import ExitStack
 from dataclasses import dataclass
@@ -87,7 +86,6 @@ NATIVE_CODING_AGENT_CONSUMER_ID = "kapso.native_coding_agent_consumer"
 NATIVE_CODING_AGENT_CONSUMER_VERSION = "kapso.native_coding_agent_consumer.v1"
 
 _REQUEST_PATH = "/kapso/input/request.blob"
-_REQUEST_SIZE_LIMIT_PATH = "/kapso/input/request.maximum_bytes"
 _GIT_EXECUTABLE = "/usr/bin/git"
 _KILL_EXECUTABLE = "/bin/kill"
 _GIT_COMMIT_TIME = "@0 +0000"
@@ -612,13 +610,16 @@ def consume_coding_agent_run_action(
 def main() -> None:
     """Execute only the fixed container projection and propagate every failure."""
 
-    if len(sys.argv) != 1:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--maximum-request-bytes", type=int, required=True)
+    arguments = parser.parse_args()
+    request_size_limit = arguments.maximum_request_bytes
+    if not 0 < request_size_limit <= _MAXIMUM_UNSIGNED_64:
         raise RunActionCodingAgentConsumerError(
-            "coding-agent consumer accepts no arguments"
+            "coding-agent projected request bound exceeds its wire integer"
         )
     os.umask(0o077)
     with ExitStack() as descriptors:
-        request_size_limit = _read_native_consumer_request_size_limit()
         request_descriptor = os.open(
             _REQUEST_PATH,
             os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW | os.O_CLOEXEC,
@@ -723,33 +724,6 @@ def _require_process_inputs(
         raise RunActionCodingAgentConsumerError(
             "coding-agent inherited process authority is invalid"
         )
-
-
-def _read_native_consumer_request_size_limit() -> int:
-    descriptor = os.open(
-        _REQUEST_SIZE_LIMIT_PATH,
-        os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW | os.O_CLOEXEC,
-    )
-    with ExitStack() as descriptors:
-        descriptors.callback(os.close, descriptor)
-        payload = _read_exact_regular_descriptor(
-            descriptor,
-            maximum_bytes=21,
-            name="coding-agent projected request bound",
-            allowed_modes={0o600},
-            allowed_user_ids=frozenset({os.geteuid()}),
-            allowed_group_id=os.getegid(),
-        )
-    if re.fullmatch(rb"[1-9][0-9]{0,19}\n", payload) is None:
-        raise RunActionCodingAgentConsumerError(
-            "coding-agent projected request bound is not canonical"
-        )
-    maximum_request_bytes = int(payload[:-1])
-    if maximum_request_bytes > _MAXIMUM_UNSIGNED_64:
-        raise RunActionCodingAgentConsumerError(
-            "coding-agent projected request bound exceeds its wire integer"
-        )
-    return maximum_request_bytes
 
 
 def _wait_and_signal_process(

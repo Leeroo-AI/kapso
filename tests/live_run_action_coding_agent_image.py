@@ -72,12 +72,6 @@ def test_offline_coding_agent_runs_through_real_image(tmp_path, workspace_access
     request_path = input_directory / "request.blob"
     request_path.write_bytes(request.to_json_bytes())
     request_path.chmod(0o600)
-    request_bound = input_directory / "request.maximum_bytes"
-    request_bound.write_text(
-        f"{policy.maximum_request_bytes}\n",
-        encoding="ascii",
-    )
-    request_bound.chmod(0o600)
 
     completed = subprocess.run(
         (
@@ -128,6 +122,8 @@ def test_offline_coding_agent_runs_through_real_image(tmp_path, workspace_access
             str(policy.provider_user_id),
             "--provider-group-id",
             str(policy.provider_group_id),
+            "--maximum-request-bytes",
+            str(policy.maximum_request_bytes),
         ),
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,

@@ -394,16 +394,13 @@ def test_fixed_path_main_bounds_request_before_parsing_self_declared_policy(
     monkeypatch,
 ):
     request_blob = tmp_path / "request.blob"
-    request_bound = tmp_path / "request.maximum_bytes"
     _write_private(request_blob, b"untrusted")
-    _write_private(request_bound, b"8\n")
     monkeypatch.setattr(consumer_module, "_REQUEST_PATH", str(request_blob))
     monkeypatch.setattr(
-        consumer_module,
-        "_REQUEST_SIZE_LIMIT_PATH",
-        str(request_bound),
+        sys,
+        "argv",
+        ["kapso-run-action-coding-agent-consumer", "--maximum-request-bytes", "8"],
     )
-    monkeypatch.setattr(sys, "argv", ["kapso-run-action-coding-agent-consumer"])
 
     with pytest.raises(
         RunActionCodingAgentConsumerError,
