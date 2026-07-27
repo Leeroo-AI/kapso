@@ -174,6 +174,14 @@ a substitute for this copy because it does not mediate every metadata mutation.
 The trusted parent must supply these exact leaf descriptors from the still-
 pending scratch preparation. No provider-visible parent directory or trusted
 workspace descriptor is admitted.
+The descriptor-safe source-only copy foundation is also complete. It plans from
+an exact clean frontier, inventories the bounded physical source and Git trees,
+excludes exactly root `.git`, copies only regular source bytes into an empty
+owner-private detached root, and sandwiches both source and destination physical
+and semantic identities. Source mutation before copy, injected Git metadata,
+unsafe topology, and nonempty destinations fail before an accepted detached
+tree exists. The provider group-sharing modes, descendant-quiescence gate, and
+sanitized edit ingestion remain the next scratch-composition slice.
 The framework-owned credential broker and pre-release expiry path are also
 implemented. The broker response transfers secret bytes into coordinator-private
 single-use authority before adapter access. Before broker issue, credential

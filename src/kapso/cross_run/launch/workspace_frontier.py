@@ -214,6 +214,81 @@ class RunWorkspaceCopyPlan:
         )
 
 
+@dataclass(frozen=True)
+class RunWorkspaceSourceCopyPlan:
+    """Bounded physical source-only topology with root Git explicitly excluded."""
+
+    source_frontier: RunWorkspaceFrontierIdentity
+    source_root_metadata: tuple[int, ...]
+    entries: tuple[_RunWorkspaceCopyEntry, ...]
+    directory_count: int
+    regular_file_count: int
+    physical_entry_count: int
+    regular_file_size_bytes: int
+    regular_file_sizes: tuple[int, ...]
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.source_frontier) is not RunWorkspaceFrontierIdentity
+            or len(self.source_root_metadata) != 9
+            or any(type(value) is not int for value in self.source_root_metadata)
+            or self.source_root_metadata[:2] != self.source_frontier.workspace_identity
+            or not self.entries
+            or any(type(entry) is not _RunWorkspaceCopyEntry for entry in self.entries)
+            or any(entry.name == ".git" for entry in self.entries)
+            or type(self.directory_count) is not int
+            or self.directory_count <= 0
+            or type(self.regular_file_count) is not int
+            or self.regular_file_count <= 0
+            or type(self.physical_entry_count) is not int
+            or self.physical_entry_count <= 0
+            or type(self.regular_file_size_bytes) is not int
+            or self.regular_file_size_bytes < 0
+            or type(self.regular_file_sizes) is not tuple
+            or any(
+                type(size_bytes) is not int or size_bytes < 0
+                for size_bytes in self.regular_file_sizes
+            )
+        ):
+            raise RunWorkspaceFrontierError(
+                "run workspace source copy plan is incomplete or unsafe"
+            )
+        directory_count, regular_file_count, regular_file_sizes = (
+            _workspace_copy_entry_summary(
+                self.entries,
+                PurePosixPath("."),
+                self.source_root_metadata[0],
+            )
+        )
+        if (
+            self.directory_count != directory_count + 1
+            or self.regular_file_count != regular_file_count
+            or self.physical_entry_count
+            != self.directory_count + self.regular_file_count
+            or self.regular_file_sizes != regular_file_sizes
+            or self.regular_file_size_bytes != sum(regular_file_sizes)
+        ):
+            raise RunWorkspaceFrontierError(
+                "run workspace source copy plan bounds are inconsistent"
+            )
+
+    def allocated_size_bytes(self, block_size_bytes: int) -> int:
+        """Conservatively reserve one block per directory and rounded file bytes."""
+
+        if (
+            type(block_size_bytes) is not int
+            or block_size_bytes <= 0
+            or block_size_bytes & (block_size_bytes - 1) != 0
+        ):
+            raise RunWorkspaceFrontierError(
+                "run workspace source copy allocation block size is invalid"
+            )
+        return self.directory_count * block_size_bytes + sum(
+            ((size_bytes + block_size_bytes - 1) // block_size_bytes) * block_size_bytes
+            for size_bytes in self.regular_file_sizes
+        )
+
+
 def _workspace_copy_entry_summary(
     entries: tuple[_RunWorkspaceCopyEntry, ...],
     parent_path: PurePosixPath,
@@ -429,6 +504,43 @@ def inspect_run_workspace_source_tree(
         maximum_entries=maximum_entries,
         maximum_bytes=maximum_bytes,
         root_git_required=True,
+        empty_directories_allowed=False,
+        allowed_file_permissions=frozenset({0o600, 0o644, 0o700, 0o755}),
+    )
+    return RunWorkspaceSourceTreeIdentity(
+        workspace_identity=(workspace_metadata.st_dev, workspace_metadata.st_ino),
+        source_tree_digest=source_tree_digest(
+            {
+                path: (descriptor.digest, descriptor.mode, descriptor.size)
+                for path, descriptor in descriptors_by_path.items()
+            }
+        ),
+        source_entry_count=state.entry_count,
+        source_size_bytes=state.size_bytes,
+    )
+
+
+def inspect_detached_run_workspace_source_tree(
+    workspace_descriptor: int,
+    *,
+    maximum_entries: int,
+    maximum_bytes: int,
+) -> RunWorkspaceSourceTreeIdentity:
+    """Digest one owner-private source tree that contains no root Git metadata."""
+
+    (
+        workspace_metadata,
+        state,
+        descriptors_by_path,
+        _blob_ids,
+        _directory_modes,
+        _regular_file_permissions,
+        _physical_metadata,
+    ) = _scan_run_workspace_regular_tree(
+        workspace_descriptor,
+        maximum_entries=maximum_entries,
+        maximum_bytes=maximum_bytes,
+        root_git_required=False,
         empty_directories_allowed=False,
         allowed_file_permissions=frozenset({0o600, 0o644, 0o700, 0o755}),
     )
@@ -896,6 +1008,91 @@ def plan_run_workspace_frontier_copy(
     )
 
 
+def plan_run_workspace_source_copy(
+    workspace_descriptor: int,
+    *,
+    expected: RunWorkspaceFrontierIdentity,
+    maximum_source_entries: int,
+    maximum_source_bytes: int,
+    maximum_git_entries: int,
+    maximum_git_bytes: int,
+) -> RunWorkspaceSourceCopyPlan:
+    """Prove and inventory the source tree while excluding exactly root `.git`."""
+
+    if type(expected) is not RunWorkspaceFrontierIdentity or any(
+        type(value) is not int or value <= 0
+        for value in (
+            maximum_source_entries,
+            maximum_source_bytes,
+            maximum_git_entries,
+            maximum_git_bytes,
+        )
+    ):
+        raise RunWorkspaceFrontierError("run workspace source copy limits are invalid")
+    observed_before = inspect_run_workspace_frontier_with_limits(
+        workspace_descriptor,
+        workspace_git_branch=expected.branch,
+        maximum_source_entries=maximum_source_entries,
+        maximum_source_bytes=maximum_source_bytes,
+        maximum_git_entries=maximum_git_entries,
+        maximum_git_bytes=maximum_git_bytes,
+        expected_commit_sha=expected.commit_sha,
+    )
+    if observed_before != expected:
+        raise RunWorkspaceFrontierError(
+            "run workspace source copy differs from its durable frontier"
+        )
+    root_metadata = os.fstat(workspace_descriptor)
+    state = _WorkspaceCopyScanState(
+        entry_limit=maximum_source_entries + maximum_git_entries + 2,
+        size_limit_bytes=maximum_source_bytes + maximum_git_bytes,
+    )
+    state.reserve_directory(root_metadata)
+    complete_entries = _plan_workspace_copy_directory(
+        workspace_descriptor,
+        PurePosixPath("."),
+        root_metadata.st_dev,
+        state,
+    )
+    if sum(entry.name == ".git" for entry in complete_entries) != 1:
+        raise RunWorkspaceFrontierError(
+            "run workspace source copy lacks exact root Git exclusion"
+        )
+    entries = tuple(entry for entry in complete_entries if entry.name != ".git")
+    directory_count, regular_file_count, regular_file_sizes = (
+        _workspace_copy_entry_summary(
+            entries,
+            PurePosixPath("."),
+            root_metadata.st_dev,
+        )
+    )
+    observed_after = inspect_run_workspace_frontier_with_limits(
+        workspace_descriptor,
+        workspace_git_branch=expected.branch,
+        maximum_source_entries=maximum_source_entries,
+        maximum_source_bytes=maximum_source_bytes,
+        maximum_git_entries=maximum_git_entries,
+        maximum_git_bytes=maximum_git_bytes,
+        expected_commit_sha=expected.commit_sha,
+    )
+    if observed_after != expected or _copy_metadata_observation(
+        os.fstat(workspace_descriptor)
+    ) != _copy_metadata_observation(root_metadata):
+        raise RunWorkspaceFrontierError(
+            "run workspace source changed during copy planning"
+        )
+    return RunWorkspaceSourceCopyPlan(
+        source_frontier=expected,
+        source_root_metadata=_copy_metadata_observation(root_metadata),
+        entries=entries,
+        directory_count=directory_count + 1,
+        regular_file_count=regular_file_count,
+        physical_entry_count=directory_count + regular_file_count + 1,
+        regular_file_size_bytes=sum(regular_file_sizes),
+        regular_file_sizes=regular_file_sizes,
+    )
+
+
 def copy_run_workspace_frontier(
     workspace_descriptor: int,
     destination_descriptor: int,
@@ -932,17 +1129,20 @@ def copy_run_workspace_frontier(
         workspace_descriptor,
         destination_descriptor,
         plan.entries,
+        excluded_source_names=frozenset(),
     )
     os.fsync(destination_descriptor)
     source_physical_before = _require_workspace_copy_tree(
         workspace_descriptor,
         plan,
         source=True,
+        excluded_root_names=frozenset(),
     )
     destination_physical_before = _require_workspace_copy_tree(
         destination_descriptor,
         plan,
         source=False,
+        excluded_root_names=frozenset(),
     )
     observed_after = inspect_run_workspace_frontier(
         workspace_descriptor,
@@ -962,11 +1162,13 @@ def copy_run_workspace_frontier(
         workspace_descriptor,
         plan,
         source=True,
+        excluded_root_names=frozenset(),
     )
     destination_physical_after = _require_workspace_copy_tree(
         destination_descriptor,
         plan,
         source=False,
+        excluded_root_names=frozenset(),
     )
     if (
         observed_after != plan.source_frontier
@@ -982,6 +1184,115 @@ def copy_run_workspace_frontier(
             "run workspace copy differs from its stable source frontier"
         )
     return destination_frontier
+
+
+def copy_run_workspace_source_tree(
+    workspace_descriptor: int,
+    destination_descriptor: int,
+    *,
+    plan: RunWorkspaceSourceCopyPlan,
+    maximum_source_entries: int,
+    maximum_source_bytes: int,
+    maximum_git_entries: int,
+    maximum_git_bytes: int,
+) -> RunWorkspaceSourceTreeIdentity:
+    """Copy one planned source tree into an empty owner-private Git-free root."""
+
+    if type(plan) is not RunWorkspaceSourceCopyPlan:
+        raise RunWorkspaceFrontierError(
+            "run workspace source copy requires its exact physical plan"
+        )
+    observed_before = inspect_run_workspace_frontier_with_limits(
+        workspace_descriptor,
+        workspace_git_branch=plan.source_frontier.branch,
+        maximum_source_entries=maximum_source_entries,
+        maximum_source_bytes=maximum_source_bytes,
+        maximum_git_entries=maximum_git_entries,
+        maximum_git_bytes=maximum_git_bytes,
+        expected_commit_sha=plan.source_frontier.commit_sha,
+    )
+    source_metadata = os.fstat(workspace_descriptor)
+    destination_metadata = os.fstat(destination_descriptor)
+    if (
+        observed_before != plan.source_frontier
+        or _copy_metadata_observation(source_metadata) != plan.source_root_metadata
+        or not stat.S_ISDIR(destination_metadata.st_mode)
+        or destination_metadata.st_uid != os.geteuid()
+        or destination_metadata.st_gid != os.getegid()
+        or stat.S_IMODE(destination_metadata.st_mode) != 0o700
+        or tuple(os.listdir(destination_descriptor))
+    ):
+        raise RunWorkspaceFrontierError(
+            "run workspace source copy endpoints differ from the admitted plan"
+        )
+    _copy_workspace_directory_entries(
+        workspace_descriptor,
+        destination_descriptor,
+        plan.entries,
+        excluded_source_names=frozenset({".git"}),
+    )
+    os.fsync(destination_descriptor)
+    source_physical_before = _require_workspace_copy_tree(
+        workspace_descriptor,
+        plan,
+        source=True,
+        excluded_root_names=frozenset({".git"}),
+    )
+    destination_physical_before = _require_workspace_copy_tree(
+        destination_descriptor,
+        plan,
+        source=False,
+        excluded_root_names=frozenset(),
+    )
+    destination_source_before = inspect_detached_run_workspace_source_tree(
+        destination_descriptor,
+        maximum_entries=maximum_source_entries,
+        maximum_bytes=maximum_source_bytes,
+    )
+    observed_after = inspect_run_workspace_frontier_with_limits(
+        workspace_descriptor,
+        workspace_git_branch=plan.source_frontier.branch,
+        maximum_source_entries=maximum_source_entries,
+        maximum_source_bytes=maximum_source_bytes,
+        maximum_git_entries=maximum_git_entries,
+        maximum_git_bytes=maximum_git_bytes,
+        expected_commit_sha=plan.source_frontier.commit_sha,
+    )
+    source_physical_after = _require_workspace_copy_tree(
+        workspace_descriptor,
+        plan,
+        source=True,
+        excluded_root_names=frozenset({".git"}),
+    )
+    destination_physical_after = _require_workspace_copy_tree(
+        destination_descriptor,
+        plan,
+        source=False,
+        excluded_root_names=frozenset(),
+    )
+    destination_source_after = inspect_detached_run_workspace_source_tree(
+        destination_descriptor,
+        maximum_entries=maximum_source_entries,
+        maximum_bytes=maximum_source_bytes,
+    )
+    if (
+        observed_after != plan.source_frontier
+        or source_physical_after != source_physical_before
+        or destination_physical_after != destination_physical_before
+        or destination_source_after != destination_source_before
+        or destination_source_after.source_tree_digest
+        != plan.source_frontier.source_tree_digest
+        or destination_source_after.source_entry_count
+        != plan.source_frontier.source_entry_count
+        or destination_source_after.source_size_bytes
+        != plan.source_frontier.source_size_bytes
+        or tuple(sorted(os.listdir(destination_descriptor)))
+        != tuple(entry.name for entry in plan.entries)
+    ):
+        raise RunWorkspaceFrontierError(
+            "run workspace source copy differs from its stable source frontier"
+        )
+    return destination_source_after
 
 
 def _plan_workspace_copy_directory(
@@ -1095,9 +1406,15 @@ def _copy_workspace_directory_entries(
     source_descriptor: int,
     destination_descriptor: int,
     entries: tuple[_RunWorkspaceCopyEntry, ...],
+    *,
+    excluded_source_names: frozenset[str],
 ) -> None:
-    if tuple(sorted(os.listdir(source_descriptor))) != tuple(
-        entry.name for entry in entries
+    source_names = set(os.listdir(source_descriptor))
+    if (
+        type(excluded_source_names) is not frozenset
+        or source_names & excluded_source_names != excluded_source_names
+        or tuple(sorted(source_names - excluded_source_names))
+        != tuple(entry.name for entry in entries)
     ):
         raise RunWorkspaceFrontierError(
             "run workspace copy source topology changed before copying"
@@ -1137,6 +1454,7 @@ def _copy_workspace_directory_entries(
                     source_child,
                     destination_child,
                     entry.children,
+                    excluded_source_names=frozenset(),
                 )
                 os.fchmod(destination_child, entry.mode)
                 os.fsync(destination_child)
@@ -1166,9 +1484,10 @@ def _copy_workspace_directory_entries(
             raise RunWorkspaceFrontierError(
                 "run workspace copy source entry changed during copying"
             )
-    if tuple(sorted(os.listdir(source_descriptor))) != tuple(
-        entry.name for entry in entries
-    ):
+    rebound_names = set(os.listdir(source_descriptor))
+    if rebound_names & excluded_source_names != excluded_source_names or tuple(
+        sorted(rebound_names - excluded_source_names)
+    ) != tuple(entry.name for entry in entries):
         raise RunWorkspaceFrontierError(
             "run workspace copy source topology changed during copying"
         )
@@ -1259,9 +1578,10 @@ def _require_copied_regular_file(
 
 def _require_workspace_copy_tree(
     root_descriptor: int,
-    plan: RunWorkspaceCopyPlan,
+    plan: RunWorkspaceCopyPlan | RunWorkspaceSourceCopyPlan,
     *,
     source: bool,
+    excluded_root_names: frozenset[str],
 ) -> tuple[tuple[str, tuple[int, ...]], ...]:
     root_metadata = os.fstat(root_descriptor)
     if source:
@@ -1284,6 +1604,7 @@ def _require_workspace_copy_tree(
         root_descriptor,
         plan.entries,
         source=source,
+        excluded_names=excluded_root_names,
         root_device=root_metadata.st_dev,
         identities=identities,
         observations=observations,
@@ -1300,12 +1621,17 @@ def _require_workspace_copy_entries(
     entries: tuple[_RunWorkspaceCopyEntry, ...],
     *,
     source: bool,
+    excluded_names: frozenset[str],
     root_device: int,
     identities: set[tuple[int, int]],
     observations: list[tuple[str, tuple[int, ...]]],
 ) -> int:
-    if tuple(sorted(os.listdir(directory_descriptor))) != tuple(
-        entry.name for entry in entries
+    observed_names = set(os.listdir(directory_descriptor))
+    if (
+        type(excluded_names) is not frozenset
+        or observed_names & excluded_names != excluded_names
+        or tuple(sorted(observed_names - excluded_names))
+        != tuple(entry.name for entry in entries)
     ):
         raise RunWorkspaceFrontierError("run workspace copy final topology changed")
     observed_entry_count = 0
@@ -1354,6 +1680,7 @@ def _require_workspace_copy_entries(
                     descriptor,
                     entry.children,
                     source=source,
+                    excluded_names=frozenset(),
                     root_device=root_device,
                     identities=identities,
                     observations=observations,
@@ -2183,13 +2510,17 @@ def _copy_metadata_observation(
 
 __all__ = [
     "copy_run_workspace_frontier",
+    "copy_run_workspace_source_tree",
+    "inspect_detached_run_workspace_source_tree",
     "inspect_run_workspace_frontier",
     "inspect_run_workspace_frontier_with_limits",
     "inspect_run_workspace_regular_tree",
     "inspect_run_workspace_source_regular_tree",
     "inspect_run_workspace_source_tree",
     "plan_run_workspace_frontier_copy",
+    "plan_run_workspace_source_copy",
     "RunWorkspaceCopyPlan",
+    "RunWorkspaceSourceCopyPlan",
     "RunWorkspaceFrontierError",
     "RunWorkspaceFrontierIdentity",
     "RunWorkspaceRegularTreeIdentity",

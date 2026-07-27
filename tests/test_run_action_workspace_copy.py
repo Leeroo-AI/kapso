@@ -11,9 +11,12 @@ from kapso.cross_run.launch import workspace_frontier as workspace_frontier_modu
 from kapso.cross_run.launch.workspace_frontier import (
     RunWorkspaceFrontierError,
     copy_run_workspace_frontier,
+    copy_run_workspace_source_tree,
+    inspect_detached_run_workspace_source_tree,
     inspect_run_workspace_frontier,
     inspect_run_workspace_source_tree,
     plan_run_workspace_frontier_copy,
+    plan_run_workspace_source_copy,
 )
 from test_launch_resolver import resolver_case
 from test_run_state_publisher import publisher_case
@@ -123,6 +126,125 @@ def test_source_only_inspection_enforces_exact_bounds(
                 maximum_entries=maximum_entries,
                 maximum_bytes=maximum_bytes,
             )
+
+
+def test_source_copy_excludes_git_and_reproves_the_detached_tree(
+    publisher_case,
+    tmp_path,
+):
+    destination_path = tmp_path / "detached-source"
+    settings = publisher_case["settings"]
+    with ExitStack() as descriptors:
+        source_descriptor, source_frontier = _open_source(
+            publisher_case,
+            descriptors,
+        )
+        plan = plan_run_workspace_source_copy(
+            source_descriptor,
+            expected=source_frontier,
+            maximum_source_entries=settings.run_workspace_entry_limit,
+            maximum_source_bytes=settings.run_workspace_size_bytes,
+            maximum_git_entries=settings.run_workspace_git_entry_limit,
+            maximum_git_bytes=settings.run_workspace_git_metadata_size_bytes,
+        )
+        destination_descriptor = _open_destination(destination_path, descriptors)
+
+        destination_source = copy_run_workspace_source_tree(
+            source_descriptor,
+            destination_descriptor,
+            plan=plan,
+            maximum_source_entries=settings.run_workspace_entry_limit,
+            maximum_source_bytes=settings.run_workspace_size_bytes,
+            maximum_git_entries=settings.run_workspace_git_entry_limit,
+            maximum_git_bytes=settings.run_workspace_git_metadata_size_bytes,
+        )
+
+    assert destination_source.workspace_identity != source_frontier.workspace_identity
+    assert destination_source.source_tree_digest == source_frontier.source_tree_digest
+    assert destination_source.source_entry_count == source_frontier.source_entry_count
+    assert destination_source.source_size_bytes == source_frontier.source_size_bytes
+    assert plan.physical_entry_count == source_frontier.source_entry_count + 1
+    assert plan.regular_file_size_bytes == source_frontier.source_size_bytes
+    assert plan.allocated_size_bytes(4096) >= plan.regular_file_size_bytes
+    assert not (destination_path / ".git").exists()
+
+
+def test_detached_source_inspection_rejects_git_metadata(
+    publisher_case,
+    tmp_path,
+):
+    destination_path = tmp_path / "detached-source"
+    settings = publisher_case["settings"]
+    with ExitStack() as descriptors:
+        source_descriptor, source_frontier = _open_source(
+            publisher_case,
+            descriptors,
+        )
+        plan = plan_run_workspace_source_copy(
+            source_descriptor,
+            expected=source_frontier,
+            maximum_source_entries=settings.run_workspace_entry_limit,
+            maximum_source_bytes=settings.run_workspace_size_bytes,
+            maximum_git_entries=settings.run_workspace_git_entry_limit,
+            maximum_git_bytes=settings.run_workspace_git_metadata_size_bytes,
+        )
+        destination_descriptor = _open_destination(destination_path, descriptors)
+        copy_run_workspace_source_tree(
+            source_descriptor,
+            destination_descriptor,
+            plan=plan,
+            maximum_source_entries=settings.run_workspace_entry_limit,
+            maximum_source_bytes=settings.run_workspace_size_bytes,
+            maximum_git_entries=settings.run_workspace_git_entry_limit,
+            maximum_git_bytes=settings.run_workspace_git_metadata_size_bytes,
+        )
+        (destination_path / ".git").mkdir(mode=0o700)
+
+        with pytest.raises(RunWorkspaceFrontierError, match="denied source path"):
+            inspect_detached_run_workspace_source_tree(
+                destination_descriptor,
+                maximum_entries=settings.run_workspace_entry_limit,
+                maximum_bytes=settings.run_workspace_size_bytes,
+            )
+
+
+def test_source_copy_rejects_trusted_source_change_after_plan(
+    publisher_case,
+    tmp_path,
+):
+    destination_path = tmp_path / "detached-source"
+    settings = publisher_case["settings"]
+    with ExitStack() as descriptors:
+        source_descriptor, source_frontier = _open_source(
+            publisher_case,
+            descriptors,
+        )
+        plan = plan_run_workspace_source_copy(
+            source_descriptor,
+            expected=source_frontier,
+            maximum_source_entries=settings.run_workspace_entry_limit,
+            maximum_source_bytes=settings.run_workspace_size_bytes,
+            maximum_git_entries=settings.run_workspace_git_entry_limit,
+            maximum_git_bytes=settings.run_workspace_git_metadata_size_bytes,
+        )
+        _same_size_content_substitution(_source_file(publisher_case))
+        destination_descriptor = _open_destination(destination_path, descriptors)
+
+        with pytest.raises(
+            RunWorkspaceFrontierError,
+            match="differ from the checkpointed commit tree",
+        ):
+            copy_run_workspace_source_tree(
+                source_descriptor,
+                destination_descriptor,
+                plan=plan,
+                maximum_source_entries=settings.run_workspace_entry_limit,
+                maximum_source_bytes=settings.run_workspace_size_bytes,
+                maximum_git_entries=settings.run_workspace_git_entry_limit,
+                maximum_git_bytes=settings.run_workspace_git_metadata_size_bytes,
+            )
+
+    assert tuple(destination_path.iterdir()) == ()
 
 
 def test_workspace_copy_includes_git_and_reproves_both_frontiers(
