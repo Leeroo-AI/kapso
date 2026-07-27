@@ -600,11 +600,19 @@ after the event-2 fsync. A same-process/same-thread preparation capability
 distinguishes first materialization, allocation reopen, and exact prepared-
 occurrence revalidation; it carries the live
 workspace descriptor and daemon-visible source path when the policy requires a
-workspace. Before physical allocation, the exact lifecycle adapter must twice produce the
-same conservative bound for the complete prepared-event encoding; the coordinator
-rejects a nonpositive, nondeterministic, or over-limit envelope. The returned
-prepared event must then fit that declared bound. Prepared evidence is persisted
-before spawn. Security and workspace are checked again immediately before the
+workspace. Before physical allocation, the exact lifecycle adapter must twice
+produce the same conservative bound for the complete prepared-event encoding;
+the coordinator rejects a nonpositive, nondeterministic, or over-limit envelope.
+The production bound is the canonical byte size of a schema-sealed event-3 wire
+image. It copies the exact allocation and predecessor, renders the adapter-held
+command through the exact digest-verified Docker settings, preserves the
+credential/workspace topology, uses fixed-width content IDs, digests, and
+container IDs, and widens every runtime-only physical scalar to unsigned-64
+width. Every synthesized object is checked against the current dataclass fields,
+so a contract field addition fails loud instead of silently escaping the proof.
+The bound path performs no Docker observation or mutation. The returned prepared
+event must then fit that declared bound. Prepared evidence is persisted before
+spawn. Security and workspace are checked again immediately before the
 durable spawn commit, and the reservation boundary must still equal the
 checkpoint safety boundary. Only after that commit does a separate single-use
 staging capability expose the complete request and a capability-owned duplicate
@@ -753,7 +761,12 @@ irreversible spawn solely because the store later reaches its configured byte or
 entry bound. This capacity proof is separate from the lifecycle adapter's
 pre-allocation serialization envelope: the former reserves store space, while the
 latter proves that the complete concrete prepared record can occupy one event
-file before any Docker resource is created. Before `SpawnCommit`, the
+file before any Docker resource is created. Runtime-derived mount, device, inode,
+PID, start-tick, filesystem-capacity, and projected raw-field-count contracts are
+explicitly limited to unsigned 64-bit integers; allocation-derived values remain
+exact and the only variable runtime string—the keeper cgroup path—is derived in
+full from the allocation-bound systemd slice and fixed-width container ID.
+Before `SpawnCommit`, the
 production supervisor may only create or reopen that exact inert resource;
 request bytes and credential leases remain absent. A post-spawn, single-use
 staging capability binds the whole `PreparedExecution`, spawn commit, and either
@@ -1428,6 +1441,11 @@ this path is activated.
   allocation and live volume/keeper occurrence, and require byte-identical,
   repeatable evidence. Reject every pending, partial, extra, corrupt, or foreign
   topology without mutation.
+- Bound event 3 for all workspace/credential topologies, JSON-escaped and UTF-8
+  command arguments, a maximally expanding 255-byte cgroup slice, and maximum
+  physical integer widths. Set the event limit one byte below that production
+  bound after events 1–2 are durable and prove recovery calls the pure bound
+  twice but never invokes preparation, activation, or continuation.
 - Prove embeddings receive no workspace capability; prove edits exclude parallel
   edits/readers across processes, poison stale reservations/publication candidates, and
   become usable only after an exact branch-advance checkpoint successor.

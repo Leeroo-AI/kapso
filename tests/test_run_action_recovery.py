@@ -14,6 +14,7 @@ import pytest
 
 import kapso.cross_run.launch.run_action_recovery as run_action_recovery_module
 import kapso.cross_run.launch.run_action_workspace_promotion as promotion_module
+from kapso.core.config import load_config
 from kapso.cross_run.canonical import tree_or_blob_digest
 from kapso.cross_run.launch.checkpoint_contracts import (
     RunCheckpointStatus,
@@ -38,6 +39,9 @@ from kapso.cross_run.launch.run_action_barrier_contracts import (
     RunActionBarrierRunningContainerObservation,
 )
 from kapso.cross_run.launch.run_action_gate import RunFrontierActionGate
+from kapso.cross_run.launch.run_action_docker_projection import (
+    DockerRunActionCommand,
+)
 from kapso.cross_run.launch.run_action_ledger import (
     RunActionExecutionEventKind,
 )
@@ -74,6 +78,9 @@ from kapso.cross_run.launch.run_action_store import (
     RunActionResultDisposition,
     RunActionStoreError,
 )
+from kapso.cross_run.launch.run_action_prepared_envelope import (
+    prepared_execution_event_size_bound,
+)
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
     issue_runtime_volume_authority,
     RunActionPreparationAllocation,
@@ -93,6 +100,7 @@ from kapso.cross_run.launch.workspace_frontier import (
     inspect_run_workspace_frontier,
     RunWorkspaceFrontierError,
 )
+from kapso.cross_run.settings import CrossRunSettings
 from test_launch_resolver import resolver_case
 from test_launch_resume_contracts import (
     _remint_evidence,
@@ -113,6 +121,7 @@ from test_run_state_publisher import publisher_case
 from test_run_action_release_contracts import _release_adoption_for_event
 from test_run_action_supervisor_contracts import (
     _activation_revalidation_receipt,
+    _boundary,
     _execution_policy,
     _prepared_execution,
     _remint_contract,
@@ -120,11 +129,14 @@ from test_run_action_supervisor_contracts import (
     _spawn_commit,
     _terminal_observation,
 )
+from test_run_action_docker_projection import _policy as _docker_projection_policy
 from test_run_action_termination_contracts import (
     _pre_release_loss,
     _termination_graph,
     _timeout_publication,
 )
+
+_CANONICAL_CONFIG_PATH = "src/kapso/config.yaml"
 
 
 class _AbsentReleaseInspection:
@@ -346,15 +358,15 @@ class _FakeExecutionAdapter:
         operation_digest = hashlib.sha256(
             claim.reservation.intent.operation_id.encode("utf-8")
         ).hexdigest()
-        inode_offset = (
-            int(
-                allocation.runtime_volume_authority.generation_nonce,
-                16,
-            )
-            - 1
+        inode_offset = int(
+            hashlib.sha256(
+                allocation.runtime_volume_authority.generation_nonce.encode("ascii")
+            ).hexdigest()[:12],
+            16,
         )
         return _prepared_execution(
             claim=claim,
+            authority=allocation.runtime_volume_authority,
             container_id=operation_digest,
             inode_offset=inode_offset,
         )
@@ -1071,6 +1083,53 @@ class _OversizedPreparationEnvelopeAdapter(_FakeExecutionAdapter):
 
     def prepared_event_size_bound(self, **_arguments):
         return self.oversized_event_size_bytes
+
+
+class _ProductionPreparationEnvelopeAuditAdapter(_FakeExecutionAdapter):
+    def __init__(
+        self,
+        boundary_identity,
+        execution_policy,
+        command,
+        runtime_settings,
+    ) -> None:
+        super().__init__(
+            _boundary_identity(
+                boundary_identity.kind,
+                execution_policy.filesystem_policy.workspace_access,
+            )
+        )
+        self.execution_lifecycle_identity = (
+            boundary_identity.execution_lifecycle_identity
+        )
+        self.execution_policy = execution_policy
+        self.result_interpreter = _FakeResultInterpreter(
+            boundary_identity.result_interpreter_identity
+        )
+        self.command = command
+        self.runtime_settings = runtime_settings
+        self.prepared_envelope_calls = []
+        self.materialization_attempts = []
+
+    def prepared_event_size_bound(
+        self,
+        *,
+        preparation_allocation,
+        predecessor_event_id,
+    ):
+        self.prepared_envelope_calls.append(
+            (preparation_allocation, predecessor_event_id)
+        )
+        return prepared_execution_event_size_bound(
+            preparation_allocation=preparation_allocation,
+            predecessor_event_id=predecessor_event_id,
+            command=self.command,
+            runtime_settings=self.runtime_settings,
+        )
+
+    def prepare(self, capability):
+        self.materialization_attempts.append(capability)
+        raise AssertionError("production envelope admitted provider materialization")
 
 
 class _OversizedActivationEnvelopeAdapter(_FakeExecutionAdapter):
@@ -1957,6 +2016,87 @@ def test_preparation_envelope_rejects_oversize_before_materialization(
     events = gate._action_store.inspect().events_for(reservation.intent.operation_id)
     assert events[-1].event_kind is (RunActionExecutionEventKind.PREPARATION_ALLOCATED)
     assert not adapter.prepare_calls
+    assert not adapter.continuation_calls
+
+
+def test_production_preparation_envelope_rejects_one_byte_before_mutation(
+    publisher_case,
+) -> None:
+    _publisher, frontier, _security, gate = _action_case(publisher_case)
+    docker_settings = CrossRunSettings.from_dict(
+        load_config(_CANONICAL_CONFIG_PATH)["cross_run"]
+    ).docker
+    command = DockerRunActionCommand.build(
+        entrypoint="/bin/tool",
+        arguments=("default",),
+    )
+    execution_policy = _docker_projection_policy(
+        docker_settings,
+        workspace_access=RunFrontierWorkspaceAccess.READ_ONLY,
+        command_template_id=command.command_template_id,
+    )
+    boundary_identity = _boundary(
+        RunFrontierActionKind.CODING_AGENT,
+        execution_policy_id=execution_policy.docker_execution_policy_id,
+    )
+    reservation = gate.reserve(
+        frontier,
+        kind=RunFrontierActionKind.CODING_AGENT,
+        boundary=RunSafetyBoundary.IDEATION,
+        operation_id="agent_call_fedcba9876543210fedcba9876543210",
+        request_payload=b'{"prompt":"production envelope"}',
+        workspace_access=RunFrontierWorkspaceAccess.READ_ONLY,
+        boundary_identity=boundary_identity,
+    )
+    with gate._action_store._recovery_session(
+        reservation,
+        _authority=_RUN_ACTION_RECOVERY_AUTHORITY,
+    ) as session:
+        allocation = session.allocate_preparation(execution_policy)
+        predecessor_event_id = session.events[-1].event_id
+    durable_events = gate._action_store.inspect().events_for(
+        reservation.intent.operation_id
+    )
+    bound = prepared_execution_event_size_bound(
+        preparation_allocation=allocation,
+        predecessor_event_id=predecessor_event_id,
+        command=command,
+        runtime_settings=docker_settings,
+    )
+    assert max(len(event.to_json_bytes()) for event in durable_events) < bound
+    adapter = _ProductionPreparationEnvelopeAuditAdapter(
+        boundary_identity,
+        execution_policy,
+        command,
+        docker_settings,
+    )
+    coordinator = _recovery_coordinator(gate, adapter)
+    object.__setattr__(
+        publisher_case["settings"],
+        "run_action_event_size_bytes",
+        bound - 1,
+    )
+
+    with pytest.raises(
+        RunActionRecoveryError,
+        match="preparation event envelope",
+    ):
+        coordinator.recover(frontier)
+
+    final_events = gate._action_store.inspect().events_for(
+        reservation.intent.operation_id
+    )
+    assert tuple(event.event_kind for event in final_events) == (
+        RunActionExecutionEventKind.INTENT_RESERVED,
+        RunActionExecutionEventKind.PREPARATION_ALLOCATED,
+    )
+    assert adapter.prepared_envelope_calls == [
+        (allocation, predecessor_event_id),
+        (allocation, predecessor_event_id),
+    ]
+    assert not adapter.materialization_attempts
+    assert not adapter.prepare_calls
+    assert not adapter.stage_calls
     assert not adapter.continuation_calls
 
 

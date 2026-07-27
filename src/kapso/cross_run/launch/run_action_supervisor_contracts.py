@@ -81,6 +81,7 @@ _DOCKER_29_1_3_READ_ONLY_SYSTEM_PATHS = (
 )
 _DOCKER_MINIMUM_MEMORY_BYTES = 6 * 1024 * 1024
 _DOCKER_MAXIMUM_USER_OR_GROUP_ID = 2_147_483_647
+RUN_ACTION_MAXIMUM_PHYSICAL_INTEGER = (1 << 64) - 1
 _ZERO_DOCKER_TIMESTAMP = "0001-01-01T00:00:00Z"
 _CONTAINER_NAME_PREFIX = "kapso-run-action-"
 _KEEPER_CONTAINER_NAME_PREFIX = "kapso-run-action-keeper-"
@@ -111,6 +112,12 @@ _RUNTIME_VOLUME_SUBPATHS = {
 
 class RunActionSupervisorContractError(ValueError):
     """A prepared execution cannot prove the exact inert Docker occurrence."""
+
+
+def _bounded_physical_integer(value: object, minimum: int) -> bool:
+    return (
+        type(value) is int and minimum <= value <= RUN_ACTION_MAXIMUM_PHYSICAL_INTEGER
+    )
 
 
 class RunActionCredentialMode(str, Enum):
@@ -838,10 +845,8 @@ class RunActionRuntimeVolumeAuthority(StrictContract):
             or type(self.owner_group_id) is not int
             or self.owner_group_id <= 0
             or self.root_mode != 0o700
-            or type(self.size_limit_bytes) is not int
-            or self.size_limit_bytes <= 0
-            or type(self.inode_limit) is not int
-            or self.inode_limit <= 0
+            or not _bounded_physical_integer(self.size_limit_bytes, 1)
+            or not _bounded_physical_integer(self.inode_limit, 1)
             or self.nosuid is not True
             or self.nodev is not True
             or self.noswap is not True
@@ -927,12 +932,8 @@ class RunActionRuntimeVolumeSentinelEvidence(StrictContract):
             or self.content_digest
             != tree_or_blob_digest(self.generation_nonce.encode("ascii"))
             or any(
-                type(value) is not int or value <= 0
-                for value in (
-                    self.mount_id,
-                    self.device,
-                    self.inode,
-                )
+                not _bounded_physical_integer(value, 1)
+                for value in (self.mount_id, self.device, self.inode)
             )
         ):
             raise RunActionSupervisorContractError(
@@ -1000,10 +1001,11 @@ class RunActionRuntimeVolumeEvidence(StrictContract):
             _SHA256_DIGEST_PATTERN.fullmatch(self.docker_volume_occurrence_digest)
             is None
             or _DOCKER_CONTAINER_ID_PATTERN.fullmatch(self.keeper_container_id) is None
-            or type(self.keeper_process_id) is not int
-            or self.keeper_process_id <= 0
-            or type(self.keeper_process_start_time_ticks) is not int
-            or self.keeper_process_start_time_ticks <= 0
+            or not _bounded_physical_integer(self.keeper_process_id, 1)
+            or not _bounded_physical_integer(
+                self.keeper_process_start_time_ticks,
+                1,
+            )
             or keeper_cgroup_path is None
             or not self.keeper_process_cgroup_path.isascii()
             or "\x00" in self.keeper_process_cgroup_path
@@ -1014,7 +1016,7 @@ class RunActionRuntimeVolumeEvidence(StrictContract):
                 f"/docker-{self.keeper_container_id}.scope"
             )
             or any(
-                type(value) is not int or value <= 0
+                not _bounded_physical_integer(value, 1)
                 for value in (
                     self.root_mount_id,
                     self.root_device,
@@ -1031,37 +1033,36 @@ class RunActionRuntimeVolumeEvidence(StrictContract):
             or self.observed_owner_user_id != authority.owner_user_id
             or self.observed_owner_group_id != authority.owner_group_id
             or self.observed_root_mode != authority.root_mode
-            or type(self.allocation_block_size_bytes) is not int
-            or self.allocation_block_size_bytes <= 0
+            or not _bounded_physical_integer(
+                self.allocation_block_size_bytes,
+                1,
+            )
             or self.allocation_block_size_bytes & (self.allocation_block_size_bytes - 1)
             != 0
-            or type(self.effective_block_count) is not int
-            or self.effective_block_count <= 0
-            or type(self.effective_size_bytes) is not int
+            or not _bounded_physical_integer(self.effective_block_count, 1)
+            or not _bounded_physical_integer(self.effective_size_bytes, 1)
             or not 0 < self.effective_size_bytes <= authority.size_limit_bytes
             or self.effective_size_bytes
             != self.effective_block_count * self.allocation_block_size_bytes
-            or type(self.effective_inode_limit) is not int
+            or not _bounded_physical_integer(self.effective_inode_limit, 1)
             or not 0 < self.effective_inode_limit <= authority.inode_limit
-            or type(self.used_block_count) is not int
+            or not _bounded_physical_integer(self.used_block_count, 0)
             or not 0 <= self.used_block_count < self.effective_block_count
-            or type(self.used_size_bytes) is not int
+            or not _bounded_physical_integer(self.used_size_bytes, 0)
             or not 0 <= self.used_size_bytes < self.effective_size_bytes
             or self.used_size_bytes
             != self.used_block_count * self.allocation_block_size_bytes
-            or type(self.used_inode_count) is not int
+            or not _bounded_physical_integer(self.used_inode_count, 0)
             or not 0 <= self.used_inode_count < self.effective_inode_limit
-            or type(self.available_block_count) is not int
-            or self.available_block_count <= 0
+            or not _bounded_physical_integer(self.available_block_count, 1)
             or self.used_block_count + self.available_block_count
             != self.effective_block_count
-            or type(self.available_size_bytes) is not int
+            or not _bounded_physical_integer(self.available_size_bytes, 1)
             or self.available_size_bytes
             != self.available_block_count * self.allocation_block_size_bytes
             or self.used_size_bytes + self.available_size_bytes
             != self.effective_size_bytes
-            or type(self.available_inode_count) is not int
-            or self.available_inode_count <= 0
+            or not _bounded_physical_integer(self.available_inode_count, 1)
             or self.used_inode_count + self.available_inode_count
             != self.effective_inode_limit
             or type(self.sentinel_evidence)
@@ -1140,7 +1141,7 @@ class RunActionPreparedDeliverySlot(StrictContract):
             or type(self.payload_size_limit_bytes) is not int
             or self.payload_size_limit_bytes <= 0
             or any(
-                type(value) is not int or value <= 0
+                not _bounded_physical_integer(value, 1)
                 for value in (self.mount_id, self.device, self.inode)
             )
         ):
@@ -1205,7 +1206,7 @@ class RunActionPreparedRuntimeDirectory(StrictContract):
             or self.owner_group_id <= 0
             or self.mode != 0o700
             or any(
-                type(value) is not int or value <= 0
+                not _bounded_physical_integer(value, 1)
                 for value in (self.mount_id, self.device, self.inode)
             )
         ):
@@ -1270,7 +1271,7 @@ class RunActionPreparedFile(StrictContract):
             or type(self.payload_size_limit_bytes) is not int
             or self.payload_size_limit_bytes <= 0
             or any(
-                type(value) is not int or value <= 0
+                not _bounded_physical_integer(value, 1)
                 for value in (self.mount_id, self.device, self.inode)
             )
         ):
@@ -1334,7 +1335,7 @@ class RunActionPreparedWorkspaceProof(StrictContract):
             or self.root_mode != 0o700
             or self.unexpected_entry_count != 0
             or any(
-                type(value) is not int or value <= 0
+                not _bounded_physical_integer(value, 1)
                 for value in (self.mount_id, self.device, self.inode)
             )
         ):
@@ -1426,9 +1427,11 @@ class RunActionRuntimeVolumeLayoutProof(StrictContract):
             or self.logical_content_size_bytes < len(self.generation_nonce)
             or type(self.logical_entry_count) is not int
             or self.logical_entry_count <= 0
-            or type(self.observed_used_size_bytes) is not int
-            or self.observed_used_size_bytes <= 0
-            or type(self.observed_used_inode_count) is not int
+            or not _bounded_physical_integer(self.observed_used_size_bytes, 1)
+            or not _bounded_physical_integer(
+                self.observed_used_inode_count,
+                1,
+            )
             or self.observed_used_inode_count < self.logical_entry_count
             or self.unexpected_entry_count != 0
         ):
@@ -1588,8 +1591,10 @@ class DockerRunActionCreateInspectProjection(StrictContract):
                 )
             )
             or self.unclassified_raw_field_count != 0
-            or type(self.nonauthoritative_raw_field_count) is not int
-            or self.nonauthoritative_raw_field_count < 0
+            or not _bounded_physical_integer(
+                self.nonauthoritative_raw_field_count,
+                0,
+            )
         ):
             raise RunActionSupervisorContractError(
                 "Docker create/inspect projection is incomplete or noncanonical"
@@ -1653,7 +1658,7 @@ class RunActionSupervisorHelperEvidence(StrictContract):
             or self.elf_interpreter_present is not False
             or _SHA256_DIGEST_PATTERN.fullmatch(self.executable_digest) is None
             or any(
-                type(value) is not int or value <= 0
+                not _bounded_physical_integer(value, 1)
                 for value in (self.mount_id, self.device, self.inode)
             )
         ):
@@ -1711,7 +1716,7 @@ class RunActionDockerInitSourceEvidence(StrictContract):
             or self.elf_interpreter_present is not False
             or _SHA256_DIGEST_PATTERN.fullmatch(self.executable_digest) is None
             or any(
-                type(value) is not int or value <= 0
+                not _bounded_physical_integer(value, 1)
                 for value in (self.mount_id, self.device, self.inode)
             )
         ):
@@ -1743,10 +1748,11 @@ class RunActionMountedKeeperHelperEvidence(StrictContract):
         if (
             type(self.source_helper_evidence) is not RunActionSupervisorHelperEvidence
             or _DOCKER_CONTAINER_ID_PATTERN.fullmatch(self.container_id) is None
-            or type(self.process_id) is not int
-            or self.process_id <= 0
-            or type(self.process_start_time_ticks) is not int
-            or self.process_start_time_ticks <= 0
+            or not _bounded_physical_integer(self.process_id, 1)
+            or not _bounded_physical_integer(
+                self.process_start_time_ticks,
+                1,
+            )
             or not isinstance(self.process_cgroup_path, str)
             or not self.process_cgroup_path.isascii()
             or "\x00" in self.process_cgroup_path
@@ -1758,11 +1764,10 @@ class RunActionMountedKeeperHelperEvidence(StrictContract):
                 f"/docker-{self.container_id}.scope"
             )
             or self.destination != RUN_ACTION_SUPERVISOR_HELPER_DESTINATION
-            or type(self.mount_id) is not int
-            or self.mount_id <= 0
+            or not _bounded_physical_integer(self.mount_id, 1)
             or self.mount_id == self.source_helper_evidence.mount_id
-            or type(self.device) is not int
-            or type(self.inode) is not int
+            or not _bounded_physical_integer(self.device, 1)
+            or not _bounded_physical_integer(self.inode, 1)
             or self.device != self.source_helper_evidence.device
             or self.inode != self.source_helper_evidence.inode
             or self.executable_digest != self.source_helper_evidence.executable_digest
@@ -1840,8 +1845,10 @@ class DockerRunActionKeeperCreateInspectProjection(StrictContract):
             or self.healthcheck_present is not False
             or self.docker_socket_mounted is not False
             or self.unclassified_raw_field_count != 0
-            or type(self.nonauthoritative_raw_field_count) is not int
-            or self.nonauthoritative_raw_field_count < 0
+            or not _bounded_physical_integer(
+                self.nonauthoritative_raw_field_count,
+                0,
+            )
         ):
             raise RunActionSupervisorContractError(
                 "Docker keeper create/inspect projection is incomplete or unsafe"
@@ -1905,10 +1912,11 @@ class RunActionVolumeKeeperEvidence(StrictContract):
                 self.container_id,
             )
             or self.container_status != "running"
-            or type(self.process_id) is not int
-            or self.process_id <= 0
-            or type(self.process_start_time_ticks) is not int
-            or self.process_start_time_ticks <= 0
+            or not _bounded_physical_integer(self.process_id, 1)
+            or not _bounded_physical_integer(
+                self.process_start_time_ticks,
+                1,
+            )
             or self.restart_count != 0
             or self.restart_policy_name != "no"
             or self.auto_remove is not False
@@ -3881,6 +3889,7 @@ __all__ = [
     "RUN_ACTION_BARRIER_RELEASE_DESTINATION",
     "RUN_ACTION_BARRIER_SCRIPT",
     "RUN_ACTION_DOCKER_INIT_DESTINATION",
+    "RUN_ACTION_MAXIMUM_PHYSICAL_INTEGER",
     "RUN_ACTION_RUNTIME_VOLUME_KEEPER_DESTINATION",
     "RUN_ACTION_SUPERVISOR_HELPER_DESTINATION",
     "RunActionActivatedFileObservation",
