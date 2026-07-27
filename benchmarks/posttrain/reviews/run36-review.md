@@ -92,3 +92,59 @@ cap even the attempts that reason correctly. This mirrors the arena-gemma
 finding — recipe/knowledge transfers cleanly; the residual gap is a
 capability/data wall, not a process deficit. iter-2's anti-truncation Stage-B
 is the last real shot at ≥1/30; P3 has the official.
+
+## P3 (close-out: RUN_DONE 08:19Z → rescore) — EXPERIMENT VERDICT
+
+**FINAL: official 0.0 (0/30) via rescore (clean full-30, 0 retries) · both
+judges clean · 3 iterations, ALL 0/30 · final_model = exp1 (not demoted on a
+tie).** Identical official score to run #28 (no seed). The shared-learning
+intervention did NOT move the number.
+
+But the experiment answered its question cleanly, and the answer is
+informative:
+
+- **Uptake: total.** Gemma Read the offered doc twice, built iteration 1 on
+  it, and carried the recipe through all 3 iterations (rep_penalty 1.1,
+  MATH-500/AIME-24 dev gating, conciseness, corpus-sizing, arch-trap
+  pre-emption). Every seeded lever was adopted; nothing was ignored.
+- **Process: transformed vs run #28.** #28 spent early iterations
+  discovering the multimodal/processor-config traps (live OOM crash) and
+  got 1 undertrained epoch before finding the corpus/truncation defects.
+  #36 pre-empted all of that from the seed, dev-gated from the start, and
+  spent iters 2-3 attacking the RIGHT wall — anti-truncation Stage-B cut
+  truncation from ~73% to ≤30%. Same destination, reached faster and
+  cleaner, budget spent on the real problem.
+- **Score: unchanged — the wall is CAPABILITY, not knowledge.** The model
+  measured ~29% on MATH-500 (real capability, rp 1.1 optimal) and solved
+  exactly 1/30 on the AIME-24 dev proxy, but 0/30 on AIME-25 across every
+  checkpoint and both decode configs. Reducing truncation didn't help
+  because the underlying competition-AIME capability of a 4B simply isn't
+  there — MATH-500 (~29%) does not transfer to AIME difficulty. A knowledge
+  doc transfers recipe and process; it cannot transfer capability.
+- **R36-P3-1 — promotion discipline exemplary.** iter-3's 0/30 fell below
+  the ≥1/30 gate → NOT promoted; incumbent exp1 kept ("never demote on a
+  tie"); best_score.log unchanged; final_model integrity verified
+  (Gemma3ForConditionalGeneration, vocab 262208, 13 serving files);
+  GPU 0 MiB, all jobs consumed, clean close.
+- **R36-P3-2 — runner.py:344 repr bloat, worst instance yet.** solve_out.txt
+  is ~100 MB (one end-of-run SearchNode dump line ≈ 99 MB). The documented
+  fix is overdue; forensics now require line-truncated greps to avoid OOM.
+- **R36-P3-3 — serving failure 8/8, gemma rescore clean.** metrics.json
+  MISSING post-solve (model-agnostic bug); fresh-VM rescore served gemma
+  first-try (only SmolLM3's arch crashes the rescore container). Official
+  0.0 confirmed on a clean 30/30 read.
+- Zero session-limit events / swaps across the full run (main token had
+  headroom; failover idle).
+
+## Verdict on the cross-run-knowledge hypothesis
+
+This is the controlled result the arena-gemma postmortem predicted:
+**offered cross-run knowledge transfers completely and improves process
+quality decisively, but cannot overcome a capability/data wall.** On a cell
+with real headroom (the sibling AIME cells, or GPQA) the same mechanism
+would plausibly convert to score — here it hit gemma-AIME, the one cell
+where the ceiling is capability, not recipe. The seeding mechanism itself is
+validated end-to-end (delivery + uptake + faithful execution); the null
+score result is a property of the cell, not the intervention. Future
+gemma-AIME attempts: do NOT expect a recipe/knowledge doc to move 0/30 — the
+bar is a bigger/stronger base or a fundamentally different capability source.
