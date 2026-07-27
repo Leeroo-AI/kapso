@@ -123,6 +123,7 @@ class FeedbackGenerator:
         evaluation_script_path: str,
         evaluation_result: str,
         workspace_dir: str,
+        design_axes: str = "",
         session_end_facts: str = "",
         timeout_seconds: Optional[float] = None,
     ) -> FeedbackResult:
@@ -163,6 +164,7 @@ class FeedbackGenerator:
             evaluation_script_path=evaluation_script_path,
             evaluation_result=evaluation_result,
             workspace_dir=workspace_dir,
+            design_axes=design_axes,
             session_end_facts=session_end_facts,
         )
         
@@ -214,6 +216,7 @@ class FeedbackGenerator:
         evaluation_script_path: str,
         evaluation_result: str,
         workspace_dir: str,
+        design_axes: str = "",
         session_end_facts: str = "",
     ) -> str:
         """Build the prompt for the feedback generator."""
@@ -230,6 +233,7 @@ class FeedbackGenerator:
                 "evaluation_script_path": evaluation_script_path,
                 "evaluation_result": evaluation_result,
                 "workspace_dir": workspace_dir,
+                "design_axes": design_axes or "(none declared)",
                 "session_end_facts": session_end_facts
                 or "(not recorded)",
             }

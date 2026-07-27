@@ -618,3 +618,30 @@ class TestDataAccessRules:
         assert "WEIGHTS only" in rules
         assert "cloning a method's" in rules
         assert "do NOT look up this problem's published solution" in rules
+
+
+class TestDesignAxes:
+    def test_design_axes_configured_and_fe_standing_direction(self):
+        """Anti-freeze integration (user-directed 2026-07-27): the relbench
+        mode declares task-specific design axes with feature engineering as
+        the first axis, and the problem context carries the standing
+        feature-engineering note (matrix never finished; unchanged only on
+        measured saturation evidence)."""
+        import yaml
+
+        cfg = yaml.safe_load(
+            (Path(__file__).parents[1] / "benchmarks/relbench/config.yaml").read_text()
+        )
+        axes = cfg["modes"]["RELBENCH_GENERIC"]["search_strategy"]["params"][
+            "design_axes"
+        ]
+        assert isinstance(axes, list) and len(axes) == 5
+        assert "feature engineering" in axes[0]
+        assert any("training distribution" in axis for axis in axes)
+
+        from benchmarks.relbench.context import FEATURE_ENGINEERING_NOTE
+
+        assert "standing" in FEATURE_ENGINEERING_NOTE
+        assert "never finished" in FEATURE_ENGINEERING_NOTE
+        assert "saturation" in FEATURE_ENGINEERING_NOTE
+        assert "freezing the feature matrix" in FEATURE_ENGINEERING_NOTE

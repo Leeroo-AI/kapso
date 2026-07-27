@@ -483,6 +483,22 @@ Experimentation notes for this search:
 # Top-level assembly
 # ---------------------------------------------------------------------------
 
+FEATURE_ENGINEERING_NOTE = (
+    "Feature engineering over the relational database is a standing "
+    "high-value direction on this benchmark, not a one-time setup step. "
+    "Representation work — new joins across tables, temporally-censored "
+    "transforms, cohort-level priors, interaction and trend encodings — "
+    "repeatedly decides these tasks, and a documented failure mode of "
+    "past campaigns is freezing the feature matrix once an early "
+    "champion emerges and never re-widening it while later iterations "
+    "swap model mechanisms. Treat the feature matrix as never finished: "
+    "keep probing for columns that improve the metric, and let an "
+    "iteration leave the matrix unchanged only on measured saturation "
+    "evidence (an ablation or importance study showing no headroom), "
+    "never by default."
+)
+
+
 def build_problem_context(
     task,
     dataset,
@@ -516,6 +532,8 @@ def build_problem_context(
         "\n## Playbook (battle-tested guidance — use it)\n"
         + _COMMON_PLAYBOOK
         + _FAMILY_PLAYBOOKS[spec.family],
+        "\n## Feature engineering (standing high-value direction)\n"
+        + FEATURE_ENGINEERING_NOTE,
         "\n## Iteration protocol\n" + _iteration_protocol(spec),
     ]
     if sota_note:

@@ -18,6 +18,14 @@ pool contains genuine alternatives, not paraphrases of one idea.
 
 {{shared_artifacts_brief}}
 
+## Design axes of the solution space
+
+{{design_axes}}
+
+Lenses are how the ensemble moves these axes. Across your {{lens_count}}
+lenses, cover the axes with the highest credible headroom for THIS task —
+and never let the lens set collapse onto a single axis by default.
+
 ## How to work
 
 1. **Research before you write.** Use WebSearch/WebFetch to survey how this

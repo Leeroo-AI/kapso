@@ -166,3 +166,50 @@ def test_return_economics_and_scoped_invariants_in_prompt():
     assert "is a LOSS" in prompt
     assert "STRONG PRIOR, not an invariant" in prompt
     assert 'blanket "do NOT reopen' in prompt
+
+
+def test_axis_frontier_duty_and_design_axes_render():
+    """Anti-freeze contract (user-directed 2026-07-27): the feedback prompt
+    must carry the per-axis frontier duty (headroom evidence + untried moves
+    per non-saturated axis) and render the strategy-supplied axis map."""
+    from kapso.core.prompt_loader import load_prompt
+
+    from kapso.execution.search_strategies.generic.feedback_generator.feedback_generator import (
+        FeedbackGenerator,
+    )
+
+    prompt = load_prompt(FeedbackGenerator.PROMPT_PATH)
+    assert "Report the axis frontier" in prompt
+    assert "Design axes of the solution space" in prompt
+    assert "saturation claim needs cited" in prompt.lower() or (
+        "saturation claim needs cited measurement" in prompt
+    )
+
+    generator = FeedbackGenerator.__new__(FeedbackGenerator)
+    rendered = FeedbackGenerator._build_prompt(
+        generator,
+        goal="g",
+        idea="i",
+        code_changes_summary="c",
+        base_branch="b",
+        head_branch="h",
+        commit_message="m",
+        evaluation_script_path="e",
+        evaluation_result="r",
+        workspace_dir="w",
+        design_axes="1. input representation — features",
+    )
+    assert "1. input representation — features" in rendered
+    rendered_default = FeedbackGenerator._build_prompt(
+        generator,
+        goal="g",
+        idea="i",
+        code_changes_summary="c",
+        base_branch="b",
+        head_branch="h",
+        commit_message="m",
+        evaluation_script_path="e",
+        evaluation_result="r",
+        workspace_dir="w",
+    )
+    assert "(none declared)" in rendered_default

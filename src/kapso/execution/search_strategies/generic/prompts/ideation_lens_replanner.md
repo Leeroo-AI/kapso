@@ -38,6 +38,24 @@ Prior decision rationale: {{previous_rationale}}
 
 {{shared_artifacts_brief}}
 
+## Design axes of the solution space
+
+{{design_axes}}
+
+## Axis-coverage contract (anti-freeze)
+
+Campaigns measurably fail by silently freezing an axis once a champion
+exists (e.g. a feature matrix never widened again while every iteration
+swaps mechanisms). Whether you KEEP or REVISE, your paragraph must assign
+each axis above exactly one status:
+- ACTIVE — a lens moves it this iteration (say which lens);
+- SATURATED — cite the measured evidence (an ablation/importance study, or
+  the specific gated attempts on that axis that failed);
+- DEFERRED — one-line reason plus the concrete condition that reopens it.
+A paragraph that leaves an axis unmentioned is malformed. Statuses are
+dated claims, not verdicts: re-defend a SATURATED or DEFERRED claim
+whenever new evidence contradicts it.
+
 ## How to decide (return economics)
 
 - The campaign is rewarded ONLY for closing the gap to the GOAL's bar. A

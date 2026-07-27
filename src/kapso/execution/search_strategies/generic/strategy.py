@@ -226,6 +226,34 @@ LENS_PLAN_FILENAME = "lens_plan.json"
 LENS_PLAN_HISTORY_FILENAME = "lens_plan_history.jsonl"
 
 
+DESIGN_AXES_DEFAULT: Tuple[str, ...] = (
+    "input representation — the features/joins/encodings fed to the model",
+    "training distribution — example construction, augmentation, weighting",
+    "model mechanism — estimator family, objectives, ensembling",
+    "decoding / post-processing — calibration, constraints, blending",
+    "validation protocol — splits/origins, gates, generalization estimation",
+)
+
+
+def normalize_design_axes(value: Any) -> Tuple[str, ...]:
+    """Task-declared design axes of the solution space.
+
+    The axes feed the lens planner/replanner axis-coverage contract and the
+    feedback generator's axis-frontier report. None selects the generic
+    default set; a task supplies its own vocabulary via the mode config.
+    """
+    if value is None:
+        return DESIGN_AXES_DEFAULT
+    if not isinstance(value, list) or not value:
+        raise ValueError("design_axes must be a non-empty list of strings")
+    axes: List[str] = []
+    for item in value:
+        if not isinstance(item, str) or not item.strip():
+            raise ValueError("design_axes entries must be non-empty strings")
+        axes.append(item.strip())
+    return tuple(axes)
+
+
 def normalize_ideation_lens_planner(value: Any) -> Optional[Dict[str, Any]]:
     """Validate the optional task-aware lens planner config block."""
     if value is None:
@@ -552,6 +580,13 @@ class GenericSearch(SearchStrategy):
         )
         validate_lens_planner_against_ensemble(
             self.ideation_lens_planner, self.ideation_ensemble
+        )
+        # Design axes of the solution space (anti-freeze contract): the lens
+        # replanner must status every axis each iteration and the feedback
+        # generator reports the per-axis frontier. Task vocabulary comes
+        # from the mode config; the generic default covers common ML axes.
+        self.design_axes = normalize_design_axes(
+            self.params.get("design_axes")
         )
         # K-way node expansion: the selector emits top-K solutions and each
         # is implemented/evaluated/fed-back on its own branch, in parallel,
@@ -1047,6 +1082,11 @@ class GenericSearch(SearchStrategy):
             finally:
                 agent.cleanup()
     
+    def _design_axes_brief(self) -> str:
+        return "\n".join(
+            f"{i}. {axis}" for i, axis in enumerate(self.design_axes, 1)
+        )
+
     def _member_roster_brief(self) -> str:
         return "\n".join(
             f"- member {i + 1}: cli={m['cli']}, model={m['model']}"
@@ -1153,6 +1193,7 @@ class GenericSearch(SearchStrategy):
                     "member_roster": roster,
                     "lens_count": str(expected),
                     "shared_artifacts_brief": self.shared_artifacts_brief,
+                    "design_axes": self._design_axes_brief(),
                 },
             )
             result, cost = self._run_lens_planner_session(prompt, ideation_dir)
@@ -1206,6 +1247,7 @@ class GenericSearch(SearchStrategy):
                 "member_roster": roster,
                 "lens_count": str(expected),
                 "shared_artifacts_brief": self.shared_artifacts_brief,
+                "design_axes": self._design_axes_brief(),
                 "campaign_state": self._campaign_state_brief(),
                 "plan_iteration": str(plan.get("iteration", "?")),
                 "previous_lenses": previous_lenses,
@@ -2661,6 +2703,7 @@ Problem: {problem}"""
                 evaluation_script_path=node.evaluation_script_path,
                 evaluation_result=node.evaluation_output,
                 workspace_dir=node.workspace_dir,
+                design_axes=self._design_axes_brief(),
                 session_end_facts=getattr(
                     self, "_pending_session_end_facts", ""
                 ),

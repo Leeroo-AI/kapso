@@ -17,9 +17,11 @@ import pytest
 
 from kapso.execution.search_strategies.base import SearchNode
 from kapso.execution.search_strategies.generic.strategy import (
+    DESIGN_AXES_DEFAULT,
     GenericSearch,
     LENS_PLAN_FILENAME,
     LENS_PLAN_HISTORY_FILENAME,
+    normalize_design_axes,
     normalize_ideation_lens_planner,
     parse_lens_plan,
     parse_lens_revision,
@@ -144,6 +146,7 @@ def make_stub(tmp_path, planner=PLANNER, iteration=1, node_history=()):
     strategy.shared_artifacts_brief = "No shared-cache artifacts registered yet."
     # Mirror __init__-set attributes the planner-session path reads (stub
     # gotcha: new GenericSearch instance attributes must be added here too).
+    strategy.design_axes = DESIGN_AXES_DEFAULT
     strategy.ideation_web_search = True
     strategy._web_disallowed_tools = []
     strategy._claude_auth_settings = {"auth_mode": "oauth"}
@@ -325,3 +328,46 @@ def test_failed_revision_session_falls_back_loudly(tmp_path, fake_planner):
     assert lenses == ["alpha", "beta"]
     assert _history(tmp_path)[-1]["decision"] == "failed"
     assert "rate limited" in _history(tmp_path)[-1]["reason"]
+
+
+def test_normalize_design_axes():
+    assert normalize_design_axes(None) == DESIGN_AXES_DEFAULT
+    assert normalize_design_axes(["a", " b "]) == ("a", "b")
+    with pytest.raises(ValueError):
+        normalize_design_axes([])
+    with pytest.raises(ValueError):
+        normalize_design_axes(["ok", ""])
+    with pytest.raises(ValueError):
+        normalize_design_axes("not-a-list")
+
+
+def test_planner_and_replanner_prompts_carry_design_axes(
+    tmp_path, fake_planner
+):
+    """Anti-freeze contract (user-directed 2026-07-27): both lens sessions
+    receive the design-axis map, and the replanner additionally carries the
+    axis-status contract (ACTIVE / SATURATED-with-evidence / DEFERRED) so
+    freezing an axis becomes a dated, evidence-bearing claim — never a
+    silent default (the run4 feature-matrix freeze, run_0003..run_0011)."""
+    strategy = make_stub(tmp_path)
+    fake_planner.outputs = [
+        {
+            "output": (
+                "<lens_1>a</lens_1><lens_2>b</lens_2><sources>- s</sources>"
+            )
+        }
+    ]
+    strategy._resolve_member_lenses("problem", str(tmp_path))
+    planner_prompt = fake_planner.calls[0]["prompt"]
+    assert "Design axes of the solution space" in planner_prompt
+    assert "input representation" in planner_prompt
+
+    strategy2 = make_stub(tmp_path, iteration=2)
+    _write_plan(tmp_path, ["alpha", "beta"], iteration=1)
+    fake_planner.outputs = [{"output": "<keep>still paying</keep>"}]
+    strategy2._resolve_member_lenses("problem", str(tmp_path))
+    replanner_prompt = fake_planner.calls[-1]["prompt"]
+    assert "Design axes of the solution space" in replanner_prompt
+    assert "Axis-coverage contract" in replanner_prompt
+    assert "SATURATED" in replanner_prompt
+    assert "DEFERRED" in replanner_prompt

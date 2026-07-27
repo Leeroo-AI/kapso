@@ -173,6 +173,16 @@ modes:
           cli: "codex"
           model: "gpt-5.6-sol"
           effort: "xhigh"
+        # Design axes for the anti-freeze contract: the lens replanner must
+        # status each axis (ACTIVE / SATURATED-with-evidence / DEFERRED)
+        # every iteration, and the feedback generator reports the per-axis
+        # frontier. Task-specific vocabulary for relational-table tasks.
+        design_axes:
+          - "input features / representation — joins, temporally-censored transforms, encodings, cohort priors over the relational database (feature engineering)"
+          - "training distribution — episode/window construction, staleness augmentation, sample weighting"
+          - "model mechanism — estimator family, objectives, ensembling"
+          - "decoding / post-processing — calibration, roster/structure constraints, blending"
+          - "validation protocol — origin design, gates, drift estimation"
 
     # Time-budgeted campaigns: the search decides its own iteration count;
     # launch with a high -i so the clock, not the counter, is binding.

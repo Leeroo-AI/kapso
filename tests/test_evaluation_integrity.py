@@ -299,6 +299,8 @@ def test_feedback_invalidity_cannot_stop_or_retain_a_score() -> None:
     strategy.budget_snapshot = None
     strategy.budget_snapshot_monotonic = None
     strategy.registered_evaluation_command = ""
+    # Stub gotcha: _generate_feedback threads the design-axis brief.
+    strategy.design_axes = ("input representation — features",)
     strategy.feedback_generator = SimpleNamespace(
         configured_timeout_seconds=120.0,
         generate=lambda **kwargs: SimpleNamespace(
