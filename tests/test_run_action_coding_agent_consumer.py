@@ -29,6 +29,9 @@ from kapso.cross_run.launch.run_action_coding_agent_contracts import (
     RunActionCodingAgentContractError,
     read_canonical_coding_agent_result,
 )
+from kapso.cross_run.launch.run_action_coding_agent_scratch import (
+    RunActionCodingAgentScratchError,
+)
 from kapso.cross_run.launch.run_action_contracts import (
     RunFrontierWorkspaceAccess,
 )
@@ -66,6 +69,7 @@ class ScriptedProcessRunner:
         maximum_output_bytes,
         maximum_diagnostic_bytes,
         environment,
+        inherited_descriptors,
     ):
         call = {
             "command": command,
@@ -77,6 +81,7 @@ class ScriptedProcessRunner:
             "maximum_output_bytes": maximum_output_bytes,
             "maximum_diagnostic_bytes": maximum_diagnostic_bytes,
             "environment": environment,
+            "inherited_descriptors": inherited_descriptors,
         }
         self.calls.append(call)
         if command[0] == "/usr/bin/git":
@@ -227,9 +232,18 @@ def _claude_payload(output=None):
 
 
 def _native_policy(**overrides):
+    provider_groups = tuple(
+        group_id for group_id in os.getgroups() if group_id != os.getegid()
+    )
+    if not provider_groups:
+        raise AssertionError("consumer tests require one supplemental provider group")
     return interpretation_policy(
         consumer_id=NATIVE_CODING_AGENT_CONSUMER_ID,
         consumer_version=NATIVE_CODING_AGENT_CONSUMER_VERSION,
+        supervisor_user_id=os.geteuid(),
+        supervisor_group_id=os.getegid(),
+        provider_user_id=os.geteuid() + 1,
+        provider_group_id=provider_groups[0],
         **overrides,
     )
 
@@ -282,12 +296,21 @@ def _write_private(path, payload):
     path.chmod(0o600)
 
 
+def _write_provider_file(path, payload):
+    path.write_bytes(payload)
+    path.chmod(0o660)
+    provider_group_id = next(
+        group_id for group_id in os.getgroups() if group_id != os.getegid()
+    )
+    os.chown(path, -1, provider_group_id)
+
+
 def _codex_provider_step(temporary, output=None):
     structured_output = {"answer": "Use evidence."} if output is None else output
 
     def run(_call):
-        _write_private(
-            temporary / "provider.final.json",
+        _write_provider_file(
+            temporary / "provider-output" / "provider.final.json",
             canonical_json_bytes(structured_output),
         )
         return _completion(
@@ -336,24 +359,33 @@ def test_consumer_executes_codex_read_only_and_publishes_one_canonical_result(
     assert published.content_digest == tree_or_blob_digest(candidate.read_bytes())
     assert stat.S_IMODE(candidate.stat().st_mode) == 0o600
     assert len(runner.calls) == 2
-    assert runner.calls[0]["command"] == ("/usr/bin/codex", "--version")
+    assert runner.calls[0]["command"][runner.calls[0]["command"].index("--") + 1 :] == (
+        "/usr/bin/codex",
+        "--version",
+    )
     assert runner.calls[0]["stdin_payload"] is None
     assert runner.calls[1]["stdin_payload"] == request.prompt.encode("utf-8")
     assert runner.calls[1]["stdin_directory"] == "/kapso/tmp"
-    assert runner.calls[1]["working_directory"] == "/kapso/workspace"
+    assert runner.calls[1]["working_directory"] == "/kapso/tmp/provider-workspace"
     assert request.prompt not in runner.calls[1]["command"]
     assert (
         runner.calls[0]["environment"]
         == runner.calls[1]["environment"]
         == {
             "GIT_OPTIONAL_LOCKS": "0",
-            "HOME": "/kapso/tmp/home",
+            "HOME": "/kapso/tmp/provider-home",
             "LANG": "C",
             "LC_ALL": "C",
             "NO_COLOR": "1",
             "PATH": "/usr/local/bin:/usr/bin:/bin",
             "TERM": "dumb",
+            "TMPDIR": "/kapso/tmp/provider-home",
         }
+    )
+    assert len(runner.calls[0]["inherited_descriptors"]) == 4
+    assert (
+        runner.calls[0]["inherited_descriptors"]
+        == runner.calls[1]["inherited_descriptors"]
     )
 
 
@@ -425,8 +457,9 @@ def test_consumer_executes_claude_edit_and_binds_the_observed_successor(tmp_path
         ).source_tree_digest
 
         def edit_workspace(_call):
-            source.write_bytes(b"score = 2\n")
-            source.chmod(0o600)
+            scratch_source = temporary / "provider-workspace" / source.name
+            scratch_source.write_bytes(b"score = 2\n")
+            scratch_source.chmod(0o660)
             return _completion(output=_claude_payload())
 
         request = run_action_request(
@@ -466,7 +499,8 @@ def test_consumer_executes_claude_edit_and_binds_the_observed_successor(tmp_path
     assert successor != predecessor
     assert result.edited_source_tree_digest == successor
     assert result.cost_usd == "0.125"
-    assert runner.calls[0]["command"] == (
+    command = runner.calls[0]["command"]
+    assert command[command.index("--") + 1 :] == (
         "/usr/local/bin/claude",
         "--version",
     )
@@ -506,12 +540,12 @@ def test_consumer_translates_ordered_prior_knowledge_mcp_audit(tmp_path):
     }
 
     def provider_with_audit(call):
-        _write_private(
-            temporary / "prior_knowledge.audit.jsonl",
+        _write_provider_file(
+            temporary / "provider-output" / "prior_knowledge.audit.jsonl",
             canonical_json_bytes(event) + b"\n",
         )
-        _write_private(
-            temporary / "provider.final.json",
+        _write_provider_file(
+            temporary / "provider-output" / "provider.final.json",
             canonical_json_bytes({"answer": "Use evidence."}),
         )
         return _completion(
@@ -573,12 +607,12 @@ def test_consumer_rejects_prior_knowledge_audit_substitution(tmp_path):
     }
 
     def provider_with_substituted_audit(_call):
-        _write_private(
-            temporary / "prior_knowledge.audit.jsonl",
+        _write_provider_file(
+            temporary / "provider-output" / "prior_knowledge.audit.jsonl",
             canonical_json_bytes(event) + b"\n",
         )
-        _write_private(
-            temporary / "provider.final.json",
+        _write_provider_file(
+            temporary / "provider-output" / "provider.final.json",
             canonical_json_bytes({"answer": "Use evidence."}),
         )
         return _completion(
@@ -614,16 +648,21 @@ def test_consumer_rejects_prior_knowledge_audit_substitution(tmp_path):
     ("failure_kind", "expected_exception", "message"),
     (
         ("preflight", RunActionCodingAgentCliError, "preflight failed"),
+        (
+            "preflight_state",
+            RunActionCodingAgentConsumerError,
+            "preflight left mutable provider state",
+        ),
         ("provider", RunActionCodingAgentCliError, "exact success"),
         (
             "read_only_mutation",
             RunActionCodingAgentConsumerError,
-            "physical workspace changed",
+            "changed disposable scratch",
         ),
         (
             "read_only_mode_mutation",
-            RunActionCodingAgentConsumerError,
-            "physical workspace changed",
+            RunActionCodingAgentScratchError,
+            "inaccessible or unsafe",
         ),
         (
             "read_only_git_mode_mutation",
@@ -632,18 +671,13 @@ def test_consumer_rejects_prior_knowledge_audit_substitution(tmp_path):
         ),
         (
             "unchanged_edit",
-            RunActionCodingAgentConsumerError,
+            RunActionCodingAgentScratchError,
             "did not change the source tree",
         ),
         (
             "support_mutation",
-            RunActionCodingAgentConsumerError,
-            "support file changed",
-        ),
-        (
-            "git_metadata_mutation",
-            RunActionCodingAgentConsumerError,
-            "changed trusted Git metadata",
+            RunActionCodingAgentScratchError,
+            "support inode changed",
         ),
     ),
 )
@@ -665,7 +699,7 @@ def test_consumer_failures_never_publish_a_terminal_candidate(
             maximum_entries=10_000,
             maximum_bytes=1_073_741_824,
         ).source_tree_digest
-        editing = failure_kind in {"unchanged_edit", "git_metadata_mutation"}
+        editing = failure_kind == "unchanged_edit"
         request = run_action_request(
             _native_policy(
                 workspace_access=(
@@ -680,24 +714,19 @@ def test_consumer_failures_never_publish_a_terminal_candidate(
 
         def provider(_call):
             if failure_kind == "read_only_mutation":
-                source.write_bytes(b"score = 3\n")
-                source.chmod(0o600)
+                scratch_source = temporary / "provider-workspace" / source.name
+                scratch_source.write_bytes(b"score = 3\n")
+                scratch_source.chmod(0o660)
             if failure_kind == "read_only_mode_mutation":
-                source.chmod(0o644)
+                (temporary / "provider-workspace" / source.name).chmod(0o600)
             if failure_kind == "read_only_git_mode_mutation":
                 (workspace / ".git" / "objects").chmod(0o500)
             if failure_kind == "support_mutation":
-                _write_private(
-                    temporary / "response.schema.json",
-                    b'{"substituted":true}',
-                )
-            if failure_kind == "git_metadata_mutation":
-                source.write_bytes(b"score = 4\n")
-                source.chmod(0o600)
-                git_config = workspace / ".git" / "config"
-                git_config.write_bytes(git_config.read_bytes() + b"# changed\n")
-            _write_private(
-                temporary / "provider.final.json",
+                support = temporary / "provider-support" / "response.schema.json"
+                support.chmod(0o660)
+                support.write_bytes(b'{"substituted":true}')
+            _write_provider_file(
+                temporary / "provider-output" / "provider.final.json",
                 canonical_json_bytes({"answer": "Use evidence."}),
             )
             return _completion(
@@ -705,15 +734,23 @@ def test_consumer_failures_never_publish_a_terminal_candidate(
                 return_code=1 if failure_kind == "provider" else 0,
             )
 
+        def preflight(_call):
+            if failure_kind == "preflight_state":
+                _write_provider_file(
+                    temporary / "provider-home" / "ambient.config",
+                    b"untrusted",
+                )
+            return _completion(
+                output=(
+                    b"codex-cli 0.143.0\n"
+                    if failure_kind == "preflight"
+                    else b"codex-cli 0.144.1\n"
+                )
+            )
+
         runner = ScriptedProcessRunner(
             (
-                lambda _call: _completion(
-                    output=(
-                        b"codex-cli 0.143.0\n"
-                        if failure_kind == "preflight"
-                        else b"codex-cli 0.144.1\n"
-                    )
-                ),
+                preflight,
                 provider,
             )
         )
@@ -726,7 +763,7 @@ def test_consumer_failures_never_publish_a_terminal_candidate(
             )
 
     assert not (temporary / "result.candidate").exists()
-    if failure_kind == "preflight":
+    if failure_kind in {"preflight", "preflight_state"}:
         assert len(runner.calls) == 1
 
 
@@ -757,6 +794,7 @@ def test_bounded_runner_passes_complete_stdin_from_writable_scratch(
         maximum_output_bytes=1_024,
         maximum_diagnostic_bytes=4_096,
         environment=None,
+        inherited_descriptors=(),
     )
 
     assert completion.return_code == 0
@@ -791,6 +829,7 @@ def test_bounded_runner_accepts_exact_complete_dual_stream_limits(tmp_path):
         maximum_output_bytes=len(output_payload),
         maximum_diagnostic_bytes=len(diagnostic_payload),
         environment=None,
+        inherited_descriptors=(),
     )
 
     assert completion.output_payload == output_payload
@@ -814,6 +853,7 @@ def test_bounded_runner_rejects_diagnostic_overflow(tmp_path):
             maximum_output_bytes=8,
             maximum_diagnostic_bytes=8,
             environment=None,
+            inherited_descriptors=(),
         )
 
 
@@ -842,6 +882,7 @@ def test_bounded_runner_times_out_after_leader_closes_provider_streams(tmp_path)
             maximum_output_bytes=8,
             maximum_diagnostic_bytes=8,
             environment=None,
+            inherited_descriptors=(),
         )
 
     assert time.monotonic() - started < 2
@@ -871,6 +912,7 @@ def test_bounded_runner_kills_descendant_that_retains_provider_streams(tmp_path)
         maximum_output_bytes=8,
         maximum_diagnostic_bytes=8,
         environment=None,
+        inherited_descriptors=(),
     )
 
     assert time.monotonic() - started < 2
@@ -908,6 +950,7 @@ def test_bounded_runner_kills_descendant_that_closes_provider_streams(tmp_path):
         maximum_output_bytes=8,
         maximum_diagnostic_bytes=8,
         environment=None,
+        inherited_descriptors=(),
     )
 
     assert completion == _completion()
@@ -961,6 +1004,7 @@ def test_bounded_runner_kills_oversized_and_timed_out_processes(
             maximum_output_bytes=maximum_output_bytes,
             maximum_diagnostic_bytes=1_024,
             environment=None,
+            inherited_descriptors=(),
         )
 
     assert tuple(stdin_directory.iterdir()) == ()

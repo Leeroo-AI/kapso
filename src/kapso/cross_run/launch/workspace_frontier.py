@@ -1295,6 +1295,103 @@ def copy_run_workspace_source_tree(
     return destination_source_after
 
 
+def replace_run_workspace_source_tree(
+    workspace_descriptor: int,
+    successor_descriptor: int,
+    *,
+    predecessor: RunWorkspaceFrontierIdentity,
+    maximum_source_entries: int,
+    maximum_source_bytes: int,
+    maximum_git_entries: int,
+    maximum_git_bytes: int,
+) -> RunWorkspaceSourceTreeIdentity:
+    """Replace only trusted source files from one sanitized private successor."""
+
+    predecessor_plan = plan_run_workspace_source_copy(
+        workspace_descriptor,
+        expected=predecessor,
+        maximum_source_entries=maximum_source_entries,
+        maximum_source_bytes=maximum_source_bytes,
+        maximum_git_entries=maximum_git_entries,
+        maximum_git_bytes=maximum_git_bytes,
+    )
+    successor_before = inspect_detached_run_workspace_source_tree(
+        successor_descriptor,
+        maximum_entries=maximum_source_entries,
+        maximum_bytes=maximum_source_bytes,
+    )
+    successor_root = os.fstat(successor_descriptor)
+    state = _WorkspaceCopyScanState(
+        entry_limit=maximum_source_entries + 1,
+        size_limit_bytes=maximum_source_bytes,
+    )
+    state.reserve_directory(successor_root)
+    successor_entries = _plan_workspace_copy_directory(
+        successor_descriptor,
+        PurePosixPath("."),
+        successor_root.st_dev,
+        state,
+    )
+    successor_after_plan = inspect_detached_run_workspace_source_tree(
+        successor_descriptor,
+        maximum_entries=maximum_source_entries,
+        maximum_bytes=maximum_source_bytes,
+    )
+    if successor_after_plan != successor_before or _copy_metadata_observation(
+        os.fstat(successor_descriptor)
+    ) != _copy_metadata_observation(successor_root):
+        raise RunWorkspaceFrontierError(
+            "sanitized run workspace successor changed during planning"
+        )
+    observed_predecessor = inspect_run_workspace_frontier_with_limits(
+        workspace_descriptor,
+        workspace_git_branch=predecessor.branch,
+        maximum_source_entries=maximum_source_entries,
+        maximum_source_bytes=maximum_source_bytes,
+        maximum_git_entries=maximum_git_entries,
+        maximum_git_bytes=maximum_git_bytes,
+        expected_commit_sha=predecessor.commit_sha,
+    )
+    if observed_predecessor != predecessor:
+        raise RunWorkspaceFrontierError(
+            "trusted run workspace changed before successor replacement"
+        )
+    _remove_workspace_directory_entries(
+        workspace_descriptor,
+        predecessor_plan.entries,
+        excluded_names=frozenset({".git"}),
+    )
+    _copy_workspace_directory_entries(
+        successor_descriptor,
+        workspace_descriptor,
+        successor_entries,
+        excluded_source_names=frozenset(),
+    )
+    os.fsync(workspace_descriptor)
+    trusted_successor = inspect_run_workspace_source_tree(
+        workspace_descriptor,
+        maximum_entries=maximum_source_entries,
+        maximum_bytes=maximum_source_bytes,
+    )
+    successor_after_copy = inspect_detached_run_workspace_source_tree(
+        successor_descriptor,
+        maximum_entries=maximum_source_entries,
+        maximum_bytes=maximum_source_bytes,
+    )
+    if (
+        successor_after_copy != successor_before
+        or trusted_successor.source_tree_digest != successor_before.source_tree_digest
+        or trusted_successor.source_entry_count != successor_before.source_entry_count
+        or trusted_successor.source_size_bytes != successor_before.source_size_bytes
+        or set(os.listdir(workspace_descriptor))
+        != {".git", *(entry.name for entry in successor_entries)}
+    ):
+        raise RunWorkspaceFrontierError(
+            "trusted run workspace differs from its sanitized successor"
+        )
+    return trusted_successor
+
+
 def _plan_workspace_copy_directory(
     directory_descriptor: int,
     relative_root: PurePosixPath,
@@ -1400,6 +1497,59 @@ def _plan_workspace_copy_directory(
             "run workspace copy directory changed while listing"
         )
     return tuple(entries)
+
+
+def _remove_workspace_directory_entries(
+    directory_descriptor: int,
+    entries: tuple[_RunWorkspaceCopyEntry, ...],
+    *,
+    excluded_names: frozenset[str],
+) -> None:
+    observed_names = set(os.listdir(directory_descriptor))
+    if observed_names & excluded_names != excluded_names or tuple(
+        sorted(observed_names - excluded_names)
+    ) != tuple(entry.name for entry in entries):
+        raise RunWorkspaceFrontierError(
+            "run workspace source topology changed before replacement"
+        )
+    for entry in entries:
+        expected = os.stat(
+            entry.name,
+            dir_fd=directory_descriptor,
+            follow_symlinks=False,
+        )
+        if _copy_metadata_observation(expected) != entry.source_metadata:
+            raise RunWorkspaceFrontierError(
+                "run workspace source entry changed before replacement"
+            )
+        if entry.file_type == "directory":
+            child_descriptor = os.open(
+                entry.name,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                dir_fd=directory_descriptor,
+            )
+            with ExitStack() as descriptors:
+                descriptors.callback(os.close, child_descriptor)
+                _remove_workspace_directory_entries(
+                    child_descriptor,
+                    entry.children,
+                    excluded_names=frozenset(),
+                )
+                if os.fstat(child_descriptor).st_ino != expected.st_ino:
+                    raise RunWorkspaceFrontierError(
+                        "run workspace source directory changed during replacement"
+                    )
+            os.rmdir(entry.name, dir_fd=directory_descriptor)
+        elif entry.file_type == "regular":
+            os.unlink(entry.name, dir_fd=directory_descriptor)
+        else:
+            raise RunWorkspaceFrontierError(
+                "run workspace replacement plan contains an unknown entry type"
+            )
+    if set(os.listdir(directory_descriptor)) != excluded_names:
+        raise RunWorkspaceFrontierError(
+            "run workspace source removal left unexpected authority"
+        )
 
 
 def _copy_workspace_directory_entries(
@@ -2519,6 +2669,7 @@ __all__ = [
     "inspect_run_workspace_source_tree",
     "plan_run_workspace_frontier_copy",
     "plan_run_workspace_source_copy",
+    "replace_run_workspace_source_tree",
     "RunWorkspaceCopyPlan",
     "RunWorkspaceSourceCopyPlan",
     "RunWorkspaceFrontierError",

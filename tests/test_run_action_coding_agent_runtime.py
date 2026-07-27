@@ -9,11 +9,15 @@ from dataclasses import replace
 import pytest
 
 from kapso.core.config import load_config
+from kapso.cross_run.canonical import tree_or_blob_digest
 from kapso.cross_run.launch.run_action_coding_agent_contracts import (
     RunActionCodingAgentContractError,
 )
 from kapso.cross_run.launch.run_action_coding_agent_cli import (
     coding_agent_cli_preflight_command,
+)
+from kapso.cross_run.launch.run_action_coding_agent_layout import (
+    coding_agent_provider_environment,
 )
 from kapso.cross_run.launch.run_action_coding_agent_runtime import (
     PROVIDER_SANDBOX_EXECUTABLE,
@@ -21,9 +25,9 @@ from kapso.cross_run.launch.run_action_coding_agent_runtime import (
     ProviderSandboxDescriptors,
     RunActionCodingAgentRuntimeError,
     apply_provider_landlock,
-    coding_agent_provider_sandbox_environment,
     coding_agent_provider_sandbox_command,
 )
+from kapso.cross_run.launch.run_action_contracts import RunFrontierWorkspaceAccess
 from test_run_action_coding_agent_contracts import (
     interpretation_policy,
     run_action_request,
@@ -50,7 +54,7 @@ def sandbox_descriptors(tmp_path):
 
 
 def test_provider_environment_is_complete_and_contains_no_ambient_authority():
-    assert dict(coding_agent_provider_sandbox_environment()) == {
+    assert dict(coding_agent_provider_environment()) == {
         "GIT_OPTIONAL_LOCKS": "0",
         "HOME": "/kapso/tmp/provider-home",
         "LANG": "C",
@@ -99,6 +103,25 @@ def test_sandbox_command_binds_complete_policy_and_provider_argv(
         "--",
         *command,
     )
+
+
+def test_editing_preflight_receives_read_only_workspace_authority(
+    sandbox_descriptors,
+):
+    request = run_action_request(
+        interpretation_policy(
+            workspace_access=RunFrontierWorkspaceAccess.EDIT_WORKSPACE,
+        ),
+        predecessor_digest=tree_or_blob_digest(b"predecessor"),
+    )
+
+    projected = coding_agent_provider_sandbox_command(
+        request,
+        coding_agent_cli_preflight_command(request),
+        sandbox_descriptors,
+    )
+
+    assert projected[projected.index("--workspace-access") + 1] == "read_only"
 
 
 def test_sandbox_command_enforces_the_complete_argv_bound(sandbox_descriptors):

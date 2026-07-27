@@ -24,7 +24,6 @@ from kapso.cross_run.canonical import (
 )
 from kapso.cross_run.knowledge.access import PriorKnowledgeAccess
 from kapso.cross_run.launch.run_action_atomic_publication import (
-    link_run_action_anonymous_file_no_replace,
     open_run_action_anonymous_file,
     require_run_action_descriptor_payload,
     write_run_action_full_payload,
@@ -54,6 +53,22 @@ from kapso.cross_run.launch.run_action_coding_agent_contracts import (
     CodingAgentRunActionResultEnvelope,
     read_canonical_coding_agent_request,
 )
+from kapso.cross_run.launch.run_action_coding_agent_layout import (
+    PROVIDER_OUTPUT_PATH,
+    TRUSTED_WORKSPACE_PATH,
+)
+from kapso.cross_run.launch.run_action_coding_agent_runtime import (
+    ProviderSandboxDescriptors,
+    coding_agent_provider_sandbox_command,
+)
+from kapso.cross_run.launch.run_action_coding_agent_scratch import (
+    CodingAgentScratchLayout,
+    inspect_coding_agent_scratch_source_tree,
+    prepare_coding_agent_scratch_layout,
+    require_coding_agent_scratch_support,
+    require_coding_agent_supervisor_identity,
+    sanitize_coding_agent_scratch_successor,
+)
 from kapso.cross_run.launch.run_action_contracts import (
     RunFrontierWorkspaceAccess,
 )
@@ -65,6 +80,7 @@ from kapso.cross_run.launch.workspace_frontier import (
     inspect_run_workspace_regular_tree,
     inspect_run_workspace_source_regular_tree,
     inspect_run_workspace_source_tree,
+    replace_run_workspace_source_tree,
 )
 
 NATIVE_CODING_AGENT_CONSUMER_ID = "kapso.native_coding_agent_consumer"
@@ -82,7 +98,6 @@ _TRUSTED_GIT_CONFIGURATION_ARGUMENTS = (
     "core.fsmonitor=false",
 )
 _SUPPORT_FILE_MODE = 0o600
-_PRIVATE_DIRECTORY_MODE = 0o700
 _MAXIMUM_UNSIGNED_64 = (1 << 64) - 1
 
 
@@ -109,14 +124,6 @@ class BoundedCodingAgentProcessCompletion:
             )
 
 
-@dataclass(frozen=True)
-class _CodingAgentSupportFileObservation:
-    name: str
-    descriptor: int
-    payload: bytes
-    metadata: tuple[int, ...]
-
-
 class CodingAgentProcessRunner(Protocol):
     """The bounded process seam used by the fixed consumer and process tests."""
 
@@ -132,6 +139,7 @@ class CodingAgentProcessRunner(Protocol):
         maximum_output_bytes: int,
         maximum_diagnostic_bytes: int,
         environment: Mapping[str, str] | None,
+        inherited_descriptors: tuple[int, ...],
     ) -> BoundedCodingAgentProcessCompletion: ...
 
 
@@ -151,6 +159,7 @@ class BoundedCodingAgentProcessRunner:
         maximum_output_bytes: int,
         maximum_diagnostic_bytes: int,
         environment: Mapping[str, str] | None,
+        inherited_descriptors: tuple[int, ...],
     ) -> BoundedCodingAgentProcessCompletion:
         _require_process_inputs(
             command,
@@ -162,6 +171,7 @@ class BoundedCodingAgentProcessRunner:
             maximum_output_bytes,
             maximum_diagnostic_bytes,
             environment,
+            inherited_descriptors,
         )
         deadline = time.monotonic_ns() + timeout_nanoseconds
         with ExitStack() as resources:
@@ -191,6 +201,8 @@ class BoundedCodingAgentProcessRunner:
                 stderr=subprocess.PIPE,
                 start_new_session=True,
                 env=environment,
+                close_fds=True,
+                pass_fds=inherited_descriptors,
             )
             resources.callback(_terminate_process_group, process)
             if process.stdout is None or process.stderr is None:
@@ -355,37 +367,71 @@ def consume_coding_agent_run_action(
             "editable coding-agent workspace differs from its predecessor"
         )
     git_metadata_before = _inspect_git_metadata(workspace_descriptor, request)
-    _require_empty_temporary_directory(temporary_directory_descriptor)
-    preflight = process_runner.run(
-        coding_agent_cli_preflight_command(request),
-        stdin_payload=None,
-        stdin_directory=coding_agent_cli_temporary_path(),
-        working_directory=coding_agent_cli_workspace_path(),
-        timeout_nanoseconds=policy.timeout_nanoseconds,
-        termination_grace_nanoseconds=policy.termination_grace_nanoseconds,
-        maximum_output_bytes=policy.maximum_provider_output_bytes,
-        maximum_diagnostic_bytes=policy.maximum_provider_diagnostic_bytes,
-        environment=coding_agent_cli_provider_environment(),
-    )
-    validate_coding_agent_cli_preflight(
-        request=request,
-        return_code=preflight.return_code,
-        output_payload=preflight.output_payload,
-        diagnostic_payload=preflight.diagnostic_payload,
-    )
-    with ExitStack() as support_file_resources:
-        support_files = _materialize_cli_support(
-            temporary_directory_descriptor,
-            request,
-            support_file_resources,
+    with ExitStack() as scratch_resources:
+        scratch = prepare_coding_agent_scratch_layout(
+            trusted_workspace_descriptor=workspace_descriptor,
+            temporary_root_descriptor=temporary_directory_descriptor,
+            trusted_frontier=baseline,
+            request=request,
+            support_payloads=coding_agent_cli_support_payloads(request),
+            resources=scratch_resources,
         )
-        _require_cli_support_unchanged(
-            temporary_directory_descriptor,
-            support_files,
+        sandbox_descriptors = ProviderSandboxDescriptors(
+            workspace_descriptor=scratch.workspace_descriptor,
+            home_descriptor=scratch.home_descriptor,
+            output_descriptor=scratch.output_descriptor,
+            support_descriptor=scratch.support_descriptor,
         )
+        inherited_descriptors = tuple(sorted(sandbox_descriptors.all))
+        require_coding_agent_scratch_support(scratch)
+        preflight = process_runner.run(
+            coding_agent_provider_sandbox_command(
+                request,
+                coding_agent_cli_preflight_command(request),
+                sandbox_descriptors,
+            ),
+            stdin_payload=None,
+            stdin_directory=coding_agent_cli_temporary_path(),
+            working_directory=coding_agent_cli_workspace_path(),
+            timeout_nanoseconds=policy.timeout_nanoseconds,
+            termination_grace_nanoseconds=policy.termination_grace_nanoseconds,
+            maximum_output_bytes=policy.maximum_provider_output_bytes,
+            maximum_diagnostic_bytes=policy.maximum_provider_diagnostic_bytes,
+            environment=coding_agent_cli_provider_environment(),
+            inherited_descriptors=inherited_descriptors,
+        )
+        validate_coding_agent_cli_preflight(
+            request=request,
+            return_code=preflight.return_code,
+            output_payload=preflight.output_payload,
+            diagnostic_payload=preflight.diagnostic_payload,
+        )
+        if os.listdir(scratch.home_descriptor) or os.listdir(scratch.output_descriptor):
+            raise RunActionCodingAgentConsumerError(
+                "coding-agent preflight left mutable provider state"
+            )
+        if (
+            inspect_coding_agent_scratch_source_tree(
+                scratch.workspace_descriptor,
+                supervisor_user_id=policy.supervisor_user_id,
+                provider_user_id=policy.provider_user_id,
+                provider_group_id=policy.provider_group_id,
+                maximum_entries=policy.maximum_workspace_entries,
+                maximum_bytes=policy.maximum_workspace_bytes,
+            )
+            != scratch.baseline
+        ):
+            raise RunActionCodingAgentConsumerError(
+                "coding-agent preflight changed disposable scratch"
+            )
+        require_coding_agent_scratch_support(scratch)
         started_nanoseconds = time.monotonic_ns()
         process = process_runner.run(
-            coding_agent_cli_command(request),
+            coding_agent_provider_sandbox_command(
+                request,
+                coding_agent_cli_command(request),
+                sandbox_descriptors,
+            ),
             stdin_payload=request.prompt.encode("utf-8"),
             stdin_directory=coding_agent_cli_temporary_path(),
             working_directory=coding_agent_cli_workspace_path(),
@@ -394,10 +440,12 @@ def consume_coding_agent_run_action(
             maximum_output_bytes=policy.maximum_provider_output_bytes,
             maximum_diagnostic_bytes=policy.maximum_provider_diagnostic_bytes,
             environment=coding_agent_cli_provider_environment(),
+            inherited_descriptors=inherited_descriptors,
         )
         duration_nanoseconds = time.monotonic_ns() - started_nanoseconds
+        scratch.restore_temporary_root()
         final_output_payload = _read_provider_final(
-            temporary_directory_descriptor,
+            scratch,
             request,
         )
         outcome = interpret_coding_agent_cli_completion(
@@ -408,7 +456,7 @@ def consume_coding_agent_run_action(
             final_output_payload=final_output_payload,
         )
         prior_knowledge_accesses = _read_prior_knowledge_accesses(
-            temporary_directory_descriptor,
+            scratch,
             request,
         )
         validate_coding_agent_cli_prior_knowledge_trace(
@@ -416,20 +464,18 @@ def consume_coding_agent_run_action(
             outcome=outcome,
             accesses=prior_knowledge_accesses,
         )
-        _require_cli_support_unchanged(
-            temporary_directory_descriptor,
-            support_files,
-        )
+        require_coding_agent_scratch_support(scratch)
         if editing:
-            uncommitted_successor = _inspect_workspace(
-                workspace_descriptor,
-                request,
+            sanitized_descriptor, sanitized_successor = (
+                sanitize_coding_agent_scratch_successor(
+                    scratch,
+                    request=request,
+                    resources=scratch_resources,
+                )
             )
-            if uncommitted_successor.source_tree_digest == (
-                baseline.source_tree_digest
-            ):
+            if _inspect_clean_workspace(workspace_descriptor, request) != baseline:
                 raise RunActionCodingAgentConsumerError(
-                    "coding-agent edit did not change the source tree"
+                    "coding-agent changed trusted workspace before reprojection"
                 )
             if (
                 _inspect_git_metadata(workspace_descriptor, request)
@@ -437,6 +483,21 @@ def consume_coding_agent_run_action(
             ):
                 raise RunActionCodingAgentConsumerError(
                     "coding-agent changed trusted Git metadata"
+                )
+            uncommitted_successor = replace_run_workspace_source_tree(
+                workspace_descriptor,
+                sanitized_descriptor,
+                predecessor=baseline,
+                maximum_source_entries=policy.maximum_workspace_entries,
+                maximum_source_bytes=policy.maximum_workspace_bytes,
+                maximum_git_entries=policy.maximum_workspace_git_entries,
+                maximum_git_bytes=policy.maximum_workspace_git_bytes,
+            )
+            if uncommitted_successor.source_tree_digest != (
+                sanitized_successor.source_tree_digest
+            ):
+                raise RunActionCodingAgentConsumerError(
+                    "trusted coding-agent successor differs from sanitized scratch"
                 )
             _commit_coding_agent_workspace(
                 request=request,
@@ -456,6 +517,18 @@ def consume_coding_agent_run_action(
                     "trusted coding-agent commit is not the exact direct successor"
                 )
         else:
+            observed_scratch = inspect_coding_agent_scratch_source_tree(
+                scratch.workspace_descriptor,
+                supervisor_user_id=policy.supervisor_user_id,
+                provider_user_id=policy.provider_user_id,
+                provider_group_id=policy.provider_group_id,
+                maximum_entries=policy.maximum_workspace_entries,
+                maximum_bytes=policy.maximum_workspace_bytes,
+            )
+            if observed_scratch != scratch.baseline:
+                raise RunActionCodingAgentConsumerError(
+                    "read-only coding-agent changed disposable scratch"
+                )
             if (
                 read_only_physical_baseline is None
                 or _inspect_source_physical_workspace(workspace_descriptor, request)
@@ -556,14 +629,17 @@ def main() -> None:
             maximum_bytes=request_size_limit,
             name="coding-agent request",
             allowed_modes={0o600},
+            allowed_user_ids=frozenset({os.geteuid()}),
+            allowed_group_id=os.getegid(),
         )
         request = read_canonical_coding_agent_request(request_payload)
         if request.interpretation_policy.maximum_request_bytes != request_size_limit:
             raise RunActionCodingAgentConsumerError(
                 "coding-agent request bound differs from its trusted projection"
             )
+        require_coding_agent_supervisor_identity(request)
         workspace_descriptor = os.open(
-            coding_agent_cli_workspace_path(),
+            TRUSTED_WORKSPACE_PATH,
             os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
         )
         descriptors.callback(os.close, workspace_descriptor)
@@ -590,11 +666,12 @@ def _require_process_inputs(
     maximum_output_bytes: int,
     maximum_diagnostic_bytes: int,
     environment: Mapping[str, str] | None,
+    inherited_descriptors: tuple[int, ...],
 ) -> None:
     if (
         type(command) is not tuple
         or not command
-        or any(not isinstance(value, str) or not value for value in command)
+        or any(not isinstance(value, str) or "\x00" in value for value in command)
         or (stdin_payload is not None and type(stdin_payload) is not bytes)
         or not isinstance(stdin_directory, str)
         or not PurePosixPath(stdin_directory).is_absolute()
@@ -608,6 +685,12 @@ def _require_process_inputs(
         or maximum_output_bytes <= 0
         or type(maximum_diagnostic_bytes) is not int
         or maximum_diagnostic_bytes <= 0
+        or type(inherited_descriptors) is not tuple
+        or any(
+            type(descriptor) is not int or descriptor <= 2
+            for descriptor in inherited_descriptors
+        )
+        or tuple(sorted(set(inherited_descriptors))) != inherited_descriptors
         or (
             environment is not None
             and (
@@ -627,6 +710,19 @@ def _require_process_inputs(
         raise RunActionCodingAgentConsumerError(
             "coding-agent process inputs are invalid or unbounded"
         )
+    inherited_metadata = tuple(
+        os.fstat(descriptor) for descriptor in inherited_descriptors
+    )
+    if any(
+        not stat.S_ISDIR(metadata.st_mode) for metadata in inherited_metadata
+    ) or len(
+        {(metadata.st_dev, metadata.st_ino) for metadata in inherited_metadata}
+    ) != (
+        len(inherited_metadata)
+    ):
+        raise RunActionCodingAgentConsumerError(
+            "coding-agent inherited process authority is invalid"
+        )
 
 
 def _read_native_consumer_request_size_limit() -> int:
@@ -641,6 +737,8 @@ def _read_native_consumer_request_size_limit() -> int:
             maximum_bytes=21,
             name="coding-agent projected request bound",
             allowed_modes={0o600},
+            allowed_user_ids=frozenset({os.geteuid()}),
+            allowed_group_id=os.getegid(),
         )
     if re.fullmatch(rb"[1-9][0-9]{0,19}\n", payload) is None:
         raise RunActionCodingAgentConsumerError(
@@ -799,7 +897,7 @@ def _commit_coding_agent_workspace(
                 _GIT_EXECUTABLE,
                 *_TRUSTED_GIT_CONFIGURATION_ARGUMENTS,
                 "-C",
-                coding_agent_cli_workspace_path(),
+                TRUSTED_WORKSPACE_PATH,
                 "add",
                 "--all",
                 "--",
@@ -807,12 +905,13 @@ def _commit_coding_agent_workspace(
             ),
             stdin_payload=None,
             stdin_directory=coding_agent_cli_temporary_path(),
-            working_directory=coding_agent_cli_workspace_path(),
+            working_directory=TRUSTED_WORKSPACE_PATH,
             timeout_nanoseconds=policy.timeout_nanoseconds,
             termination_grace_nanoseconds=policy.termination_grace_nanoseconds,
             maximum_output_bytes=policy.maximum_provider_output_bytes,
             maximum_diagnostic_bytes=policy.maximum_provider_diagnostic_bytes,
             environment=environment,
+            inherited_descriptors=(),
         ),
         expected_output=b"",
         name="Git index update",
@@ -823,17 +922,18 @@ def _commit_coding_agent_workspace(
                 _GIT_EXECUTABLE,
                 *_TRUSTED_GIT_CONFIGURATION_ARGUMENTS,
                 "-C",
-                coding_agent_cli_workspace_path(),
+                TRUSTED_WORKSPACE_PATH,
                 "write-tree",
             ),
             stdin_payload=None,
             stdin_directory=coding_agent_cli_temporary_path(),
-            working_directory=coding_agent_cli_workspace_path(),
+            working_directory=TRUSTED_WORKSPACE_PATH,
             timeout_nanoseconds=policy.timeout_nanoseconds,
             termination_grace_nanoseconds=policy.termination_grace_nanoseconds,
             maximum_output_bytes=policy.maximum_provider_output_bytes,
             maximum_diagnostic_bytes=policy.maximum_provider_diagnostic_bytes,
             environment=environment,
+            inherited_descriptors=(),
         ),
         name="Git tree creation",
     )
@@ -843,7 +943,7 @@ def _commit_coding_agent_workspace(
                 _GIT_EXECUTABLE,
                 *_TRUSTED_GIT_CONFIGURATION_ARGUMENTS,
                 "-C",
-                coding_agent_cli_workspace_path(),
+                TRUSTED_WORKSPACE_PATH,
                 "commit-tree",
                 tree,
                 "-p",
@@ -853,12 +953,13 @@ def _commit_coding_agent_workspace(
                 f"Kapso coding-agent action {request.operation_id}\n".encode("ascii")
             ),
             stdin_directory=coding_agent_cli_temporary_path(),
-            working_directory=coding_agent_cli_workspace_path(),
+            working_directory=TRUSTED_WORKSPACE_PATH,
             timeout_nanoseconds=policy.timeout_nanoseconds,
             termination_grace_nanoseconds=policy.termination_grace_nanoseconds,
             maximum_output_bytes=policy.maximum_provider_output_bytes,
             maximum_diagnostic_bytes=policy.maximum_provider_diagnostic_bytes,
             environment=environment,
+            inherited_descriptors=(),
         ),
         name="Git commit creation",
     )
@@ -868,7 +969,7 @@ def _commit_coding_agent_workspace(
                 _GIT_EXECUTABLE,
                 *_TRUSTED_GIT_CONFIGURATION_ARGUMENTS,
                 "-C",
-                coding_agent_cli_workspace_path(),
+                TRUSTED_WORKSPACE_PATH,
                 "update-ref",
                 f"refs/heads/{policy.workspace_git_branch}",
                 commit,
@@ -876,12 +977,13 @@ def _commit_coding_agent_workspace(
             ),
             stdin_payload=None,
             stdin_directory=coding_agent_cli_temporary_path(),
-            working_directory=coding_agent_cli_workspace_path(),
+            working_directory=TRUSTED_WORKSPACE_PATH,
             timeout_nanoseconds=policy.timeout_nanoseconds,
             termination_grace_nanoseconds=policy.termination_grace_nanoseconds,
             maximum_output_bytes=policy.maximum_provider_output_bytes,
             maximum_diagnostic_bytes=policy.maximum_provider_diagnostic_bytes,
             environment=environment,
+            inherited_descriptors=(),
         ),
         expected_output=b"",
         name="Git branch advance",
@@ -928,159 +1030,22 @@ def _require_git_completion(
         raise RunActionCodingAgentConsumerError(f"{name} did not complete exactly")
 
 
-def _require_empty_temporary_directory(directory_descriptor: int) -> None:
-    metadata = os.fstat(directory_descriptor)
-    if (
-        not stat.S_ISDIR(metadata.st_mode)
-        or metadata.st_uid != os.geteuid()
-        or metadata.st_gid != os.getegid()
-        or stat.S_IMODE(metadata.st_mode) != _PRIVATE_DIRECTORY_MODE
-        or metadata.st_nlink < 2
-        or tuple(os.listdir(directory_descriptor))
-    ):
-        raise RunActionCodingAgentConsumerError(
-            "coding-agent temporary directory is not empty private authority"
-        )
-
-
-def _materialize_cli_support(
-    directory_descriptor: int,
-    request: CodingAgentRunActionRequest,
-    resources: ExitStack,
-) -> tuple[_CodingAgentSupportFileObservation, ...]:
-    os.mkdir("home", mode=_PRIVATE_DIRECTORY_MODE, dir_fd=directory_descriptor)
-    with ExitStack() as descriptors:
-        home_descriptor = os.open(
-            "home",
-            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
-            dir_fd=directory_descriptor,
-        )
-        descriptors.callback(os.close, home_descriptor)
-        os.fchmod(home_descriptor, _PRIVATE_DIRECTORY_MODE)
-        os.fsync(home_descriptor)
-    observations = []
-    for absolute_path, payload in coding_agent_cli_support_payloads(request).items():
-        path = PurePosixPath(absolute_path)
-        if path.parent.as_posix() != coding_agent_cli_temporary_path():
-            raise RunActionCodingAgentConsumerError(
-                "coding-agent support path escapes its temporary authority"
-            )
-        observations.append(
-            _publish_support_file(
-                directory_descriptor,
-                path.name,
-                payload,
-                resources,
-            )
-        )
-    os.fsync(directory_descriptor)
-    return tuple(observations)
-
-
-def _publish_support_file(
-    directory_descriptor: int,
-    name: str,
-    payload: bytes,
-    resources: ExitStack,
-) -> _CodingAgentSupportFileObservation:
-    if (
-        not name
-        or "/" in name
-        or name in {".", "..", "result.candidate"}
-        or name in os.listdir(directory_descriptor)
-    ):
-        raise RunActionCodingAgentConsumerError(
-            "coding-agent support file target is invalid or occupied"
-        )
-    descriptor = open_run_action_anonymous_file(
-        directory_descriptor,
-        _SUPPORT_FILE_MODE,
-    )
-    resources.callback(os.close, descriptor)
-    write_run_action_full_payload(descriptor, payload)
-    require_run_action_descriptor_payload(descriptor, payload)
-    os.fchmod(descriptor, _SUPPORT_FILE_MODE)
-    os.fsync(descriptor)
-    link_run_action_anonymous_file_no_replace(
-        descriptor,
-        directory_descriptor,
-        name,
-    )
-    os.fsync(directory_descriptor)
-    metadata = os.fstat(descriptor)
-    if (
-        not stat.S_ISREG(metadata.st_mode)
-        or metadata.st_uid != os.geteuid()
-        or metadata.st_gid != os.getegid()
-        or metadata.st_nlink != 1
-        or stat.S_IMODE(metadata.st_mode) != _SUPPORT_FILE_MODE
-        or metadata.st_size != len(payload)
-    ):
-        raise RunActionCodingAgentConsumerError(
-            "coding-agent support file publication is invalid"
-        )
-    return _CodingAgentSupportFileObservation(
-        name=name,
-        descriptor=descriptor,
-        payload=payload,
-        metadata=_stable_regular_file(metadata),
-    )
-
-
-def _require_cli_support_unchanged(
-    directory_descriptor: int,
-    observations: tuple[_CodingAgentSupportFileObservation, ...],
-) -> None:
-    if not observations:
-        raise RunActionCodingAgentConsumerError(
-            "coding-agent support-file observation is empty"
-        )
-    for observation in observations:
-        if (
-            _stable_regular_file(os.fstat(observation.descriptor))
-            != observation.metadata
-        ):
-            raise RunActionCodingAgentConsumerError(
-                "coding-agent support file changed during provider execution"
-            )
-        descriptor = os.open(
-            observation.name,
-            os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW | os.O_CLOEXEC,
-            dir_fd=directory_descriptor,
-        )
-        with ExitStack() as descriptors:
-            descriptors.callback(os.close, descriptor)
-            payload = _read_exact_regular_descriptor(
-                descriptor,
-                maximum_bytes=len(observation.payload),
-                name="coding-agent support file",
-                allowed_modes={_SUPPORT_FILE_MODE},
-            )
-            if (
-                payload != observation.payload
-                or _stable_regular_file(os.fstat(descriptor)) != observation.metadata
-            ):
-                raise RunActionCodingAgentConsumerError(
-                    "coding-agent support path was substituted"
-                )
-
-
 def _read_provider_final(
-    temporary_directory_descriptor: int,
+    scratch: CodingAgentScratchLayout,
     request: CodingAgentRunActionRequest,
 ) -> bytes | None:
     absolute_path = coding_agent_cli_final_output_path(request)
     if absolute_path is None:
         return None
     path = PurePosixPath(absolute_path)
-    if path.parent.as_posix() != coding_agent_cli_temporary_path():
+    if path.parent.as_posix() != PROVIDER_OUTPUT_PATH:
         raise RunActionCodingAgentConsumerError(
             "coding-agent provider final path escapes temporary authority"
         )
     descriptor = os.open(
         path.name,
         os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW | os.O_CLOEXEC,
-        dir_fd=temporary_directory_descriptor,
+        dir_fd=scratch.output_descriptor,
     )
     with ExitStack() as descriptors:
         descriptors.callback(os.close, descriptor)
@@ -1088,21 +1053,28 @@ def _read_provider_final(
             descriptor,
             maximum_bytes=request.interpretation_policy.maximum_raw_result_bytes,
             name="Codex final output",
-            allowed_modes={0o600},
+            allowed_modes={0o660},
+            allowed_user_ids=frozenset(
+                {
+                    request.interpretation_policy.supervisor_user_id,
+                    request.interpretation_policy.provider_user_id,
+                }
+            ),
+            allowed_group_id=request.interpretation_policy.provider_group_id,
         )
 
 
 def _read_prior_knowledge_accesses(
-    temporary_directory_descriptor: int,
+    scratch: CodingAgentScratchLayout,
     request: CodingAgentRunActionRequest,
 ) -> tuple[CodingAgentPriorKnowledgeAccessEvent, ...]:
     absolute_path = coding_agent_cli_prior_knowledge_audit_path()
     path = PurePosixPath(absolute_path)
-    if path.parent.as_posix() != coding_agent_cli_temporary_path():
+    if path.parent.as_posix() != PROVIDER_OUTPUT_PATH:
         raise RunActionCodingAgentConsumerError(
             "prior-knowledge audit path escapes temporary authority"
         )
-    entries = set(os.listdir(temporary_directory_descriptor))
+    entries = set(os.listdir(scratch.output_descriptor))
     if path.name not in entries:
         return ()
     if request.prior_knowledge is None:
@@ -1112,7 +1084,7 @@ def _read_prior_knowledge_accesses(
     descriptor = os.open(
         path.name,
         os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW | os.O_CLOEXEC,
-        dir_fd=temporary_directory_descriptor,
+        dir_fd=scratch.output_descriptor,
     )
     with ExitStack() as descriptors:
         descriptors.callback(os.close, descriptor)
@@ -1122,7 +1094,14 @@ def _read_prior_knowledge_accesses(
                 request.interpretation_policy.maximum_prior_knowledge_audit_bytes
             ),
             name="prior-knowledge audit",
-            allowed_modes={0o600},
+            allowed_modes={0o660},
+            allowed_user_ids=frozenset(
+                {
+                    request.interpretation_policy.supervisor_user_id,
+                    request.interpretation_policy.provider_user_id,
+                }
+            ),
+            allowed_group_id=request.interpretation_policy.provider_group_id,
         )
     return _interpret_prior_knowledge_audit(request, payload)
 
@@ -1221,14 +1200,21 @@ def _read_exact_regular_descriptor(
     maximum_bytes: int,
     name: str,
     allowed_modes: set[int],
+    allowed_user_ids: frozenset[int],
+    allowed_group_id: int,
 ) -> bytes:
     before = os.fstat(descriptor)
     if (
         type(maximum_bytes) is not int
         or maximum_bytes <= 0
+        or type(allowed_user_ids) is not frozenset
+        or not allowed_user_ids
+        or any(type(user_id) is not int or user_id <= 0 for user_id in allowed_user_ids)
+        or type(allowed_group_id) is not int
+        or allowed_group_id <= 0
         or not stat.S_ISREG(before.st_mode)
-        or before.st_uid != os.geteuid()
-        or before.st_gid != os.getegid()
+        or before.st_uid not in allowed_user_ids
+        or before.st_gid != allowed_group_id
         or before.st_nlink != 1
         or stat.S_IMODE(before.st_mode) not in allowed_modes
         or before.st_size <= 0

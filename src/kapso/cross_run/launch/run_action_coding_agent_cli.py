@@ -28,30 +28,23 @@ from kapso.cross_run.launch.run_action_coding_agent_schema import (
 from kapso.cross_run.launch.run_action_contracts import (
     RunFrontierWorkspaceAccess,
 )
+from kapso.cross_run.launch.run_action_coding_agent_layout import (
+    coding_agent_provider_environment,
+    PROVIDER_FINAL_PATH,
+    PROVIDER_MCP_CONFIGURATION_PATH,
+    PROVIDER_PRIOR_KNOWLEDGE_AUDIT_PATH,
+    PROVIDER_PRIOR_KNOWLEDGE_PATH,
+    PROVIDER_RESPONSE_SCHEMA_PATH,
+    PROVIDER_WORKSPACE_PATH,
+    TEMPORARY_ROOT_PATH,
+)
 
 _CODEX_EXECUTABLE = "/usr/bin/codex"
 _CLAUDE_EXECUTABLE = "/usr/local/bin/claude"
 _CODEX_VERSION_OUTPUT = b"codex-cli 0.144.1\n"
 _CLAUDE_VERSION_OUTPUT = b"2.1.220 (Claude Code)\n"
-_WORKSPACE_PATH = "/kapso/workspace"
-_RESPONSE_SCHEMA_PATH = "/kapso/tmp/response.schema.json"
-_PROVIDER_FINAL_PATH = "/kapso/tmp/provider.final.json"
-_MCP_CONFIGURATION_PATH = "/kapso/tmp/mcp.config.json"
-_PRIOR_KNOWLEDGE_PATH = "/kapso/tmp/prior_knowledge.json"
-_PRIOR_KNOWLEDGE_AUDIT_PATH = "/kapso/tmp/prior_knowledge.audit.jsonl"
 _EMPTY_ENVIRONMENT_EXECUTABLE = "/usr/bin/env"
 _PRIOR_KNOWLEDGE_MCP_EXECUTABLE = "/usr/local/bin/kapso-prior-knowledge-mcp"
-_PROVIDER_ENVIRONMENT = MappingProxyType(
-    {
-        "GIT_OPTIONAL_LOCKS": "0",
-        "HOME": "/kapso/tmp/home",
-        "LANG": "C",
-        "LC_ALL": "C",
-        "NO_COLOR": "1",
-        "PATH": "/usr/local/bin:/usr/bin:/bin",
-        "TERM": "dumb",
-    }
-)
 _CODEX_EVENT_TYPES = frozenset(
     {
         "thread.started",
@@ -212,19 +205,19 @@ def coding_agent_cli_command(
 def coding_agent_cli_workspace_path() -> str:
     """Return the fixed workspace path used by both native CLIs."""
 
-    return _WORKSPACE_PATH
+    return PROVIDER_WORKSPACE_PATH
 
 
 def coding_agent_cli_provider_environment() -> Mapping[str, str]:
     """Return the complete ambient authority admitted to either native CLI."""
 
-    return _PROVIDER_ENVIRONMENT
+    return coding_agent_provider_environment()
 
 
 def coding_agent_cli_temporary_path() -> str:
     """Return the sole writable support/candidate directory."""
 
-    return "/kapso/tmp"
+    return TEMPORARY_ROOT_PATH
 
 
 def coding_agent_cli_final_output_path(
@@ -233,15 +226,13 @@ def coding_agent_cli_final_output_path(
     """Return Codex's scratch final path; Claude returns its final on stdout."""
 
     _require_request(request)
-    return (
-        _PROVIDER_FINAL_PATH if request.interpretation_policy.cli == "codex" else None
-    )
+    return PROVIDER_FINAL_PATH if request.interpretation_policy.cli == "codex" else None
 
 
 def coding_agent_cli_prior_knowledge_audit_path() -> str:
     """Return the fixed semantic MCP audit path."""
 
-    return _PRIOR_KNOWLEDGE_AUDIT_PATH
+    return PROVIDER_PRIOR_KNOWLEDGE_AUDIT_PATH
 
 
 def coding_agent_cli_support_payloads(
@@ -251,12 +242,14 @@ def coding_agent_cli_support_payloads(
 
     _require_request(request)
     payloads = (
-        {_RESPONSE_SCHEMA_PATH: canonical_json_bytes(request.response_schema)}
+        {PROVIDER_RESPONSE_SCHEMA_PATH: canonical_json_bytes(request.response_schema)}
         if request.interpretation_policy.cli == "codex"
-        else {_MCP_CONFIGURATION_PATH: _claude_mcp_configuration(request)}
+        else {PROVIDER_MCP_CONFIGURATION_PATH: _claude_mcp_configuration(request)}
     )
     if request.prior_knowledge is not None:
-        payloads[_PRIOR_KNOWLEDGE_PATH] = request.prior_knowledge.to_json_bytes()
+        payloads[PROVIDER_PRIOR_KNOWLEDGE_PATH] = (
+            request.prior_knowledge.to_json_bytes()
+        )
     return MappingProxyType(payloads)
 
 
@@ -418,11 +411,11 @@ def _codex_command(request: CodingAgentRunActionRequest) -> tuple[str, ...]:
         "--ignore-user-config",
         "--ignore-rules",
         "--cd",
-        _WORKSPACE_PATH,
+        PROVIDER_WORKSPACE_PATH,
         "--output-schema",
-        _RESPONSE_SCHEMA_PATH,
+        PROVIDER_RESPONSE_SCHEMA_PATH,
         "--output-last-message",
-        _PROVIDER_FINAL_PATH,
+        PROVIDER_FINAL_PATH,
         "--json",
         "--color",
         "never",
@@ -448,7 +441,7 @@ def _codex_command(request: CodingAgentRunActionRequest) -> tuple[str, ...]:
             + "{"
             + ",".join(
                 f"{key}={json.dumps(value)}"
-                for key, value in sorted(_PROVIDER_ENVIRONMENT.items())
+                for key, value in sorted(coding_agent_provider_environment().items())
             )
             + "}"
         ),
@@ -498,11 +491,11 @@ def _prior_knowledge_mcp_arguments(
         "-i",
         _PRIOR_KNOWLEDGE_MCP_EXECUTABLE,
         "--prior-knowledge-path",
-        _PRIOR_KNOWLEDGE_PATH,
+        PROVIDER_PRIOR_KNOWLEDGE_PATH,
         "--prior-knowledge-maximum-bytes",
         str(len(request.prior_knowledge.to_json_bytes())),
         "--prior-knowledge-audit-path",
-        _PRIOR_KNOWLEDGE_AUDIT_PATH,
+        PROVIDER_PRIOR_KNOWLEDGE_AUDIT_PATH,
         "--prior-knowledge-audit-maximum-bytes",
         str(request.interpretation_policy.maximum_prior_knowledge_audit_bytes),
         "--operation-id",
@@ -551,7 +544,7 @@ def _claude_command(request: CodingAgentRunActionRequest) -> tuple[str, ...]:
         _claude_security_settings(editing),
         "--strict-mcp-config",
         "--mcp-config",
-        _MCP_CONFIGURATION_PATH,
+        PROVIDER_MCP_CONFIGURATION_PATH,
         "--permission-mode",
         "acceptEdits" if editing else "plan",
         "--no-session-persistence",
@@ -592,7 +585,7 @@ def _claude_security_settings(editing: bool) -> str:
                 "failIfUnavailable": True,
                 "filesystem": {
                     "denyRead": ["/"],
-                    "allowRead": [_WORKSPACE_PATH],
+                    "allowRead": [PROVIDER_WORKSPACE_PATH],
                 },
             },
         }

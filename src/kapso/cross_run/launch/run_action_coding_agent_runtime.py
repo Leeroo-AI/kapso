@@ -11,8 +11,6 @@ import stat
 from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import PurePosixPath
-from types import MappingProxyType
-from typing import Mapping
 
 from kapso.cross_run.coding_agent_compatibility import (
     CODING_AGENT_LANDLOCK_POLICY_ABI_VERSION,
@@ -24,6 +22,13 @@ from kapso.cross_run.launch.run_action_coding_agent_cli import (
 from kapso.cross_run.launch.run_action_coding_agent_contracts import (
     CodingAgentRunActionRequest,
 )
+from kapso.cross_run.launch.run_action_coding_agent_layout import (
+    coding_agent_provider_environment,
+    PROVIDER_HOME_PATH,
+    PROVIDER_OUTPUT_PATH,
+    PROVIDER_SUPPORT_PATH,
+    PROVIDER_WORKSPACE_PATH,
+)
 from kapso.cross_run.launch.run_action_contracts import (
     RunFrontierWorkspaceAccess,
 )
@@ -32,23 +37,6 @@ PROVIDER_SANDBOX_EXECUTABLE = (
     "/usr/local/bin/kapso-run-action-coding-agent-provider-sandbox"
 )
 PROVIDER_SETPRIV_EXECUTABLE = "/usr/bin/setpriv"
-PROVIDER_WORKSPACE_PATH = "/kapso/tmp/provider-workspace"
-PROVIDER_HOME_PATH = "/kapso/tmp/provider-home"
-PROVIDER_OUTPUT_PATH = "/kapso/tmp/provider-output"
-PROVIDER_SUPPORT_PATH = "/kapso/tmp/provider-support"
-
-_PROVIDER_ENVIRONMENT = MappingProxyType(
-    {
-        "GIT_OPTIONAL_LOCKS": "0",
-        "HOME": PROVIDER_HOME_PATH,
-        "LANG": "C",
-        "LC_ALL": "C",
-        "NO_COLOR": "1",
-        "PATH": "/usr/local/bin:/usr/bin:/bin",
-        "TERM": "dumb",
-        "TMPDIR": PROVIDER_HOME_PATH,
-    }
-)
 
 _LANDLOCK_CREATE_RULESET_SYSCALL = 444
 _LANDLOCK_ADD_RULE_SYSCALL = 445
@@ -169,12 +157,6 @@ class ProviderSandboxDescriptorRule:
             )
 
 
-def coding_agent_provider_sandbox_environment() -> Mapping[str, str]:
-    """Return the provider's complete post-boundary process environment."""
-
-    return _PROVIDER_ENVIRONMENT
-
-
 def coding_agent_provider_sandbox_command(
     request: CodingAgentRunActionRequest,
     command: tuple[str, ...],
@@ -187,7 +169,9 @@ def coding_agent_provider_sandbox_command(
         or type(command) is not tuple
         or type(descriptors) is not ProviderSandboxDescriptors
         or not command
-        or any(not isinstance(argument, str) or not argument for argument in command)
+        or any(
+            not isinstance(argument, str) or "\x00" in argument for argument in command
+        )
         or not PurePosixPath(command[0]).is_absolute()
     ):
         raise RunActionCodingAgentRuntimeError(
@@ -201,6 +185,11 @@ def coding_agent_provider_sandbox_command(
             "provider sandbox command differs from its request-derived projection"
         )
     policy = request.interpretation_policy
+    workspace_access = (
+        RunFrontierWorkspaceAccess.READ_ONLY.value
+        if command == coding_agent_cli_preflight_command(request)
+        else policy.workspace_access.value
+    )
     projected = (
         PROVIDER_SANDBOX_EXECUTABLE,
         "--landlock-abi-version",
@@ -214,7 +203,7 @@ def coding_agent_provider_sandbox_command(
         "--provider-group-id",
         str(policy.provider_group_id),
         "--workspace-access",
-        policy.workspace_access.value,
+        workspace_access,
         "--workspace-descriptor",
         str(descriptors.workspace_descriptor),
         "--home-descriptor",
@@ -368,10 +357,11 @@ def main() -> None:
     _require_launcher_arguments(arguments, command, inherited_descriptors)
     if arguments.verify_and_exec:
         _require_provider_identity_and_privilege(arguments)
+        os.umask(0o007)
         os.execve(
             command[0],
             command,
-            dict(coding_agent_provider_sandbox_environment()),
+            dict(coding_agent_provider_environment()),
         )
     if (
         os.geteuid() != arguments.supervisor_user_id
@@ -435,7 +425,7 @@ def main() -> None:
     os.execve(
         PROVIDER_SETPRIV_EXECUTABLE,
         privilege_drop_command,
-        dict(coding_agent_provider_sandbox_environment()),
+        dict(coding_agent_provider_environment()),
     )
 
 
@@ -679,7 +669,6 @@ def _raise_system_call_error(action: str) -> None:
 
 __all__ = [
     "apply_provider_landlock",
-    "coding_agent_provider_sandbox_environment",
     "coding_agent_provider_sandbox_command",
     "main",
     "PROVIDER_HOME_PATH",

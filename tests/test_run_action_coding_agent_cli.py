@@ -103,12 +103,12 @@ def test_codex_command_is_fixed_self_contained_and_disables_ambient_authority():
     assert "--ephemeral" in command
     assert "--ignore-user-config" in command
     assert "--ignore-rules" in command
-    assert command[command.index("--cd") + 1] == "/kapso/workspace"
+    assert command[command.index("--cd") + 1] == "/kapso/tmp/provider-workspace"
     assert command[command.index("--output-schema") + 1] == (
-        "/kapso/tmp/response.schema.json"
+        "/kapso/tmp/provider-support/response.schema.json"
     )
     assert command[command.index("--output-last-message") + 1] == (
-        "/kapso/tmp/provider.final.json"
+        "/kapso/tmp/provider-output/provider.final.json"
     )
     assert 'web_search="disabled"' in command
     assert 'shell_environment_policy.inherit="none"' in command
@@ -147,10 +147,10 @@ def test_cli_support_files_are_provider_specific_complete_and_close_mcp_authorit
     )
     codex_payloads = coding_agent_cli_support_payloads(codex_request)
 
-    assert set(codex_payloads) == {"/kapso/tmp/response.schema.json"}
-    assert codex_payloads["/kapso/tmp/response.schema.json"] == canonical_json_bytes(
-        codex_request.response_schema
-    )
+    assert set(codex_payloads) == {"/kapso/tmp/provider-support/response.schema.json"}
+    assert codex_payloads[
+        "/kapso/tmp/provider-support/response.schema.json"
+    ] == canonical_json_bytes(codex_request.response_schema)
 
     prior_knowledge = empty_prior_knowledge()
     request_with_prior = run_action_request(
@@ -159,15 +159,15 @@ def test_cli_support_files_are_provider_specific_complete_and_close_mcp_authorit
     )
     with_prior = coding_agent_cli_support_payloads(request_with_prior)
     assert set(with_prior) == {
-        "/kapso/tmp/mcp.config.json",
-        "/kapso/tmp/prior_knowledge.json",
+        "/kapso/tmp/provider-support/mcp.config.json",
+        "/kapso/tmp/provider-support/prior_knowledge.json",
     }
-    assert with_prior["/kapso/tmp/prior_knowledge.json"] == (
+    assert with_prior["/kapso/tmp/provider-support/prior_knowledge.json"] == (
         prior_knowledge.to_json_bytes()
     )
-    server = json.loads(with_prior["/kapso/tmp/mcp.config.json"])["mcpServers"][
-        "prior_knowledge"
-    ]
+    server = json.loads(with_prior["/kapso/tmp/provider-support/mcp.config.json"])[
+        "mcpServers"
+    ]["prior_knowledge"]
     assert server["command"] == "/usr/bin/env"
     assert server["args"][:2] == [
         "-i",
