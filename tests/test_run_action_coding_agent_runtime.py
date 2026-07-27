@@ -21,6 +21,7 @@ from kapso.cross_run.launch.run_action_coding_agent_layout import (
 )
 from kapso.cross_run.launch.run_action_coding_agent_runtime import (
     PROVIDER_SANDBOX_EXECUTABLE,
+    PROVIDER_SANDBOX_MODULE,
     ProviderSandboxDescriptorRule,
     ProviderSandboxDescriptors,
     RunActionCodingAgentRuntimeError,
@@ -81,6 +82,8 @@ def test_sandbox_command_binds_complete_policy_and_provider_argv(
 
     assert projected == (
         PROVIDER_SANDBOX_EXECUTABLE,
+        "-m",
+        PROVIDER_SANDBOX_MODULE,
         "--landlock-abi-version",
         "7",
         "--supervisor-user-id",

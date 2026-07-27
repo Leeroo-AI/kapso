@@ -9,10 +9,12 @@ import re
 from kapso.cross_run.launch.run_action_coding_agent_contracts import (
     CodingAgentInterpretationPolicy,
 )
+from kapso.cross_run.launch.run_action_coding_agent_consumer import (
+    consume_coding_agent_main,
+)
 
 CODING_AGENT_SUPERVISOR_EXECUTABLE = "/usr/local/bin/kapso-coding-agent-supervisor"
 CODING_AGENT_CONSUMER_EXECUTABLE = "/usr/local/bin/kapso-coding-agent-consumer"
-_SETPRIV_EXECUTABLE = "/usr/bin/setpriv"
 _CAPABILITY_STATUS_PATTERN = re.compile(
     rb"^(CapInh|CapPrm|CapEff|CapBnd|CapAmb):[\t ]+([0-9a-f]{16})$"
 )
@@ -50,7 +52,7 @@ def coding_agent_supervisor_command(
 
 
 def main() -> None:
-    """Verify the four-capability root state and irreversibly enter the supervisor."""
+    """Verify the four-capability file transition and run the trusted consumer."""
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--supervisor-user-id", type=int, required=True)
@@ -69,9 +71,10 @@ def main() -> None:
         any(not 0 < value <= _LINUX_IDENTITY_MAXIMUM for value in identity_values)
         or arguments.supervisor_user_id == arguments.provider_user_id
         or arguments.supervisor_group_id == arguments.provider_group_id
-        or os.geteuid() != 0
-        or os.getegid() != 0
-        or os.getgroups() != [0, arguments.provider_group_id]
+        or os.geteuid() != arguments.supervisor_user_id
+        or os.getegid() != arguments.supervisor_group_id
+        or os.getgroups()
+        != sorted({arguments.supervisor_group_id, arguments.provider_group_id})
     ):
         raise RunActionCodingAgentSupervisorError(
             "coding-agent supervisor bootstrap identity is not exact"
@@ -91,20 +94,7 @@ def main() -> None:
         raise RunActionCodingAgentSupervisorError(
             "coding-agent supervisor bootstrap capability set is not exact"
         )
-    capability_names = "+kill,+setgid,+setpcap,+setuid"
-    command = (
-        _SETPRIV_EXECUTABLE,
-        f"--reuid={arguments.supervisor_user_id}",
-        f"--regid={arguments.supervisor_group_id}",
-        (f"--groups={arguments.supervisor_group_id}," f"{arguments.provider_group_id}"),
-        f"--inh-caps={capability_names}",
-        f"--ambient-caps={capability_names}",
-        "--no-new-privs",
-        CODING_AGENT_CONSUMER_EXECUTABLE,
-        "--maximum-request-bytes",
-        str(arguments.maximum_request_bytes),
-    )
-    os.execve(_SETPRIV_EXECUTABLE, command, {"PATH": "/usr/bin:/bin"})
+    consume_coding_agent_main(arguments.maximum_request_bytes)
 
 
 __all__ = [

@@ -2122,6 +2122,8 @@ def test_coding_agent_policy_admits_only_the_exact_provider_privilege_transition
         policy.sandbox_spec,
         capability_additions=("KILL", "SETGID", "SETPCAP", "SETUID"),
         supplementary_group_ids=(1001,),
+        no_new_privileges=False,
+        security_option_ids=("apparmor:docker-default", "seccomp:builtin"),
     )
 
     transitioned = _remint_policy(policy, sandbox_spec=sandbox)
@@ -2136,6 +2138,8 @@ def test_provider_privilege_transition_is_rejected_for_every_other_action_kind()
         policy.sandbox_spec,
         capability_additions=("KILL", "SETGID", "SETPCAP", "SETUID"),
         supplementary_group_ids=(1001,),
+        no_new_privileges=False,
+        security_option_ids=("apparmor:docker-default", "seccomp:builtin"),
     )
 
     with pytest.raises(

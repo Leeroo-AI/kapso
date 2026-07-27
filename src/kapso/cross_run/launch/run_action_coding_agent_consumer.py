@@ -607,13 +607,9 @@ def consume_coding_agent_run_action(
         )
 
 
-def main() -> None:
-    """Execute only the fixed container projection and propagate every failure."""
+def consume_coding_agent_main(request_size_limit: int) -> None:
+    """Consume the fixed container projection under an already-proven supervisor."""
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--maximum-request-bytes", type=int, required=True)
-    arguments = parser.parse_args()
-    request_size_limit = arguments.maximum_request_bytes
     if not 0 < request_size_limit <= _MAXIMUM_UNSIGNED_64:
         raise RunActionCodingAgentConsumerError(
             "coding-agent projected request bound exceeds its wire integer"
@@ -629,7 +625,7 @@ def main() -> None:
             request_descriptor,
             maximum_bytes=request_size_limit,
             name="coding-agent request",
-            allowed_modes={0o600},
+            allowed_modes={0o400},
             allowed_user_ids=frozenset({os.geteuid()}),
             allowed_group_id=os.getegid(),
         )
@@ -655,6 +651,15 @@ def main() -> None:
             temporary_directory_descriptor=temporary_directory_descriptor,
             process_runner=BoundedCodingAgentProcessRunner(),
         )
+
+
+def main() -> None:
+    """Parse the immutable command projection and run the trusted consumer."""
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--maximum-request-bytes", type=int, required=True)
+    arguments = parser.parse_args()
+    consume_coding_agent_main(arguments.maximum_request_bytes)
 
 
 def _require_process_inputs(
@@ -1235,5 +1240,6 @@ __all__ = [
     "NATIVE_CODING_AGENT_CONSUMER_VERSION",
     "RunActionCodingAgentConsumerError",
     "consume_coding_agent_run_action",
+    "consume_coding_agent_main",
     "main",
 ]

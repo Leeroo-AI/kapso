@@ -133,6 +133,8 @@ def _provider_transition_policy(docker_settings, command_template_id):
             policy.sandbox_spec,
             capability_additions=("KILL", "SETGID", "SETPCAP", "SETUID"),
             supplementary_group_ids=(1001,),
+            no_new_privileges=False,
+            security_option_ids=("apparmor:docker-default", "seccomp:builtin"),
         ),
     )
 
@@ -476,7 +478,8 @@ def test_coding_agent_privilege_transition_exists_only_on_the_main_occurrence(
         if argument == "--cap-add"
     ) == ("KILL", "SETGID", "SETPCAP", "SETUID")
     assert main[main.index("--group-add") + 1] == "1001"
-    assert main[main.index("--user") + 1] == "0:0"
+    assert main[main.index("--user") + 1] == "1000:1000"
+    assert "no-new-privileges" not in main
 
 
 def test_barrier_rejects_a_readable_release_from_another_generation(

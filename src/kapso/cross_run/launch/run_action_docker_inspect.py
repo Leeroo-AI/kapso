@@ -1092,9 +1092,6 @@ def _expected_container_config(
     working_directory: str,
 ) -> dict[str, Any]:
     policy = claim.execution_policy
-    provider_transition = labels == preparation_container_labels(claim) and bool(
-        policy.sandbox_spec.capability_additions
-    )
     return {
         "AttachStderr": True,
         "AttachStdin": False,
@@ -1113,7 +1110,7 @@ def _expected_container_config(
         "StopSignal": "SIGTERM",
         "StopTimeout": policy.supervisor_limits.termination_grace_seconds,
         "Tty": False,
-        "User": "0:0" if provider_transition else f"{policy.user_id}:{policy.group_id}",
+        "User": f"{policy.user_id}:{policy.group_id}",
         "Volumes": None,
         "WorkingDir": working_directory,
     }
@@ -1137,6 +1134,15 @@ def _expected_host_config(
         _DockerContainerLifecycle.RUNNING_MAIN,
         _DockerContainerLifecycle.EXITED_MAIN,
     } and bool(sandbox.capability_additions)
+    security_options = (
+        sandbox.security_option_ids
+        if provider_transition or not sandbox.capability_additions
+        else (
+            "apparmor:docker-default",
+            "no-new-privileges",
+            "seccomp:builtin",
+        )
+    )
     has_started = lifecycle in {
         _DockerContainerLifecycle.RUNNING_KEEPER,
         _DockerContainerLifecycle.RUNNING_MAIN,
@@ -1209,7 +1215,7 @@ def _expected_host_config(
         "ReadonlyRootfs": True,
         "RestartPolicy": {"MaximumRetryCount": 0, "Name": "no"},
         "Runtime": sandbox.runtime_id,
-        "SecurityOpt": list(sandbox.security_option_ids),
+        "SecurityOpt": list(security_options),
         "ShmSize": limits.shared_memory_size_bytes,
         "UTSMode": "",
         "Ulimits": [],

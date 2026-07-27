@@ -4,31 +4,36 @@ RUN apt-get update \
     && apt-get install --yes --no-install-recommends \
         ca-certificates \
         git \
+        libcap2-bin \
         procps \
         python3 \
         python3-zstandard \
-        util-linux \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 1001 kapso-provider \
-    && useradd --uid 1001 --gid 1001 --no-create-home --shell /usr/sbin/nologin kapso-provider
+    && useradd --uid 1001 --gid 1001 --no-create-home --shell /usr/sbin/nologin kapso-provider \
+    && test "$(readlink /sbin)" = 'usr/sbin' \
+    && unlink /sbin \
+    && mkdir --mode=0755 /sbin
 
 COPY src/kapso /usr/lib/python3/dist-packages/kapso
 
 RUN chmod --recursive a+rX /usr/lib/python3/dist-packages/kapso \
+    && cp /usr/bin/python3.11 /usr/local/bin/kapso-provider-python \
     && printf '%s\n' '#!/usr/bin/python3' \
         'from kapso.cross_run.launch.run_action_coding_agent_consumer import main' \
         'main()' > /usr/local/bin/kapso-coding-agent-consumer \
-    && printf '%s\n' '#!/usr/bin/python3' \
-        'from kapso.cross_run.launch.run_action_coding_agent_runtime import main' \
-        'main()' > /usr/local/bin/kapso-run-action-coding-agent-provider-sandbox \
     && printf '%s\n' '#!/usr/bin/python3' \
         'from kapso.cross_run.launch.run_action_coding_agent_supervisor import main' \
         'main()' \
         > /usr/local/bin/kapso-coding-agent-supervisor \
     && chmod 0755 \
         /usr/local/bin/kapso-coding-agent-consumer \
+        /usr/local/bin/kapso-provider-python \
         /usr/local/bin/kapso-coding-agent-supervisor \
-        /usr/local/bin/kapso-run-action-coding-agent-provider-sandbox
+    && setcap cap_kill,cap_setgid,cap_setpcap,cap_setuid=ep /usr/bin/python3.11 \
+    && test -z "$(getcap /usr/local/bin/kapso-provider-python)" \
+    && test "$(getcap /usr/bin/python3.11)" = \
+        '/usr/bin/python3.11 cap_kill,cap_setgid,cap_setuid,cap_setpcap=ep'
 
 FROM common AS offline-build
 

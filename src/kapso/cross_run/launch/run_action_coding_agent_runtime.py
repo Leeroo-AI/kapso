@@ -33,10 +33,9 @@ from kapso.cross_run.launch.run_action_contracts import (
     RunFrontierWorkspaceAccess,
 )
 
-PROVIDER_SANDBOX_EXECUTABLE = (
-    "/usr/local/bin/kapso-run-action-coding-agent-provider-sandbox"
-)
-PROVIDER_SETPRIV_EXECUTABLE = "/usr/bin/setpriv"
+PROVIDER_SANDBOX_EXECUTABLE = "/usr/bin/python3"
+PROVIDER_VERIFICATION_EXECUTABLE = "/usr/local/bin/kapso-provider-python"
+PROVIDER_SANDBOX_MODULE = "kapso.cross_run.launch.run_action_coding_agent_runtime"
 
 _LANDLOCK_CREATE_RULESET_SYSCALL = 444
 _LANDLOCK_ADD_RULE_SYSCALL = 445
@@ -46,6 +45,8 @@ _LANDLOCK_RULE_PATH_BENEATH = 1
 _LANDLOCK_SCOPE_SIGNAL = 1 << 1
 _PR_SET_NO_NEW_PRIVS = 38
 _PR_GET_PDEATHSIG = 2
+_PR_SET_PDEATHSIG = 1
+_PR_CAPBSET_DROP = 24
 _PR_SET_SECCOMP = 22
 _SECCOMP_MODE_FILTER = 2
 _BPF_LOAD_WORD_ABSOLUTE = 0x20
@@ -101,6 +102,10 @@ _IDENTITY_STATUS_PATTERN = re.compile(
     rb"^(Uid|Gid):[\t ]+([0-9]+)[\t ]+([0-9]+)[\t ]+([0-9]+)[\t ]+([0-9]+)$"
 )
 _LINUX_IDENTITY_MAXIMUM = 2_147_483_647
+_ZERO_CAPABILITIES = b"0000000000000000"
+_TRANSITION_CAPABILITIES = b"00000000000001e0"
+_TRANSITION_CAPABILITY_NUMBERS = (5, 6, 7, 8)
+_LINUX_CAPABILITY_VERSION_3 = 0x20080522
 
 
 class RunActionCodingAgentRuntimeError(RuntimeError):
@@ -136,6 +141,21 @@ class _SocketFilterProgram(ctypes.Structure):
     _fields_ = (
         ("length", ctypes.c_ushort),
         ("filters", ctypes.POINTER(_SocketFilter)),
+    )
+
+
+class _UserCapabilityHeader(ctypes.Structure):
+    _fields_ = (
+        ("version", ctypes.c_uint32),
+        ("process_id", ctypes.c_int),
+    )
+
+
+class _UserCapabilityData(ctypes.Structure):
+    _fields_ = (
+        ("effective", ctypes.c_uint32),
+        ("permitted", ctypes.c_uint32),
+        ("inheritable", ctypes.c_uint32),
     )
 
 
@@ -221,6 +241,8 @@ def coding_agent_provider_sandbox_command(
     )
     projected = (
         PROVIDER_SANDBOX_EXECUTABLE,
+        "-m",
+        PROVIDER_SANDBOX_MODULE,
         "--landlock-abi-version",
         str(policy.landlock_abi_version),
         "--supervisor-user-id",
@@ -473,6 +495,7 @@ def main() -> None:
             "provider launcher lacks its supervisor identity"
         )
     _require_exact_inherited_descriptor_table(inherited_descriptors)
+    _require_supervisor_transition_privilege()
     with ExitStack() as fixed_descriptors:
         descriptor_rules = _provider_descriptor_rules(
             arguments.workspace_access,
@@ -488,7 +511,9 @@ def main() -> None:
     for descriptor in inherited_descriptors.all:
         os.close(descriptor)
     verification_command = (
-        PROVIDER_SANDBOX_EXECUTABLE,
+        PROVIDER_VERIFICATION_EXECUTABLE,
+        "-m",
+        PROVIDER_SANDBOX_MODULE,
         "--verify-and-exec",
         "--landlock-abi-version",
         str(arguments.landlock_abi_version),
@@ -513,23 +538,50 @@ def main() -> None:
         "--",
         *command,
     )
-    privilege_drop_command = (
-        PROVIDER_SETPRIV_EXECUTABLE,
-        f"--reuid={arguments.provider_user_id}",
-        f"--regid={arguments.provider_group_id}",
-        "--clear-groups",
-        "--inh-caps=-all",
-        "--ambient-caps=-all",
-        "--bounding-set=-all",
-        "--no-new-privs",
-        "--pdeathsig=SIGKILL",
-        *verification_command,
-    )
+    _drop_provider_privilege(arguments)
     os.execve(
-        PROVIDER_SETPRIV_EXECUTABLE,
-        privilege_drop_command,
+        PROVIDER_VERIFICATION_EXECUTABLE,
+        verification_command,
         dict(coding_agent_provider_environment()),
     )
+
+
+def _drop_provider_privilege(arguments: argparse.Namespace) -> None:
+    """Erase the exact temporary capability set without an intervening exec."""
+
+    libc = ctypes.CDLL(None, use_errno=True)
+    parent_process_id = os.getppid()
+    if parent_process_id <= 1:
+        raise RunActionCodingAgentRuntimeError(
+            "provider launcher lacks its trusted parent"
+        )
+    for capability_number in _TRANSITION_CAPABILITY_NUMBERS:
+        if libc.prctl(_PR_CAPBSET_DROP, capability_number, 0, 0, 0) != 0:
+            _raise_system_call_error("drop provider capability bound")
+    os.setgroups([])
+    os.setresgid(
+        arguments.provider_group_id,
+        arguments.provider_group_id,
+        arguments.provider_group_id,
+    )
+    os.setresuid(
+        arguments.provider_user_id,
+        arguments.provider_user_id,
+        arguments.provider_user_id,
+    )
+    header = _UserCapabilityHeader(
+        version=_LINUX_CAPABILITY_VERSION_3,
+        process_id=0,
+    )
+    capability_data = (_UserCapabilityData * 2)()
+    if libc.capset(ctypes.byref(header), ctypes.byref(capability_data)) != 0:
+        _raise_system_call_error("erase provider capability sets")
+    if libc.prctl(_PR_SET_PDEATHSIG, signal.SIGKILL, 0, 0, 0) != 0:
+        _raise_system_call_error("set provider parent-death signal")
+    if os.getppid() != parent_process_id:
+        raise RunActionCodingAgentRuntimeError(
+            "provider trusted parent changed during privilege erasure"
+        )
 
 
 def _provider_descriptor_rules(
@@ -737,6 +789,30 @@ def _require_provider_identity_and_privilege(arguments: argparse.Namespace) -> N
         )
 
 
+def _require_supervisor_transition_privilege() -> None:
+    descriptor = os.open(
+        "/proc/self/status",
+        os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
+    )
+    with os.fdopen(descriptor, "rb") as handle:
+        payload = handle.read()
+    capability_fields = {
+        match.group(1): match.group(2)
+        for line in payload.splitlines()
+        if (match := _CAPABILITY_STATUS_PATTERN.fullmatch(line)) is not None
+    }
+    if capability_fields != {
+        b"CapInh": _ZERO_CAPABILITIES,
+        b"CapPrm": _TRANSITION_CAPABILITIES,
+        b"CapEff": _TRANSITION_CAPABILITIES,
+        b"CapBnd": _TRANSITION_CAPABILITIES,
+        b"CapAmb": _ZERO_CAPABILITIES,
+    }:
+        raise RunActionCodingAgentRuntimeError(
+            "provider launcher lacks its exact transition capabilities"
+        )
+
+
 def _access_for_file_type(allowed_access: int, mode: int) -> int:
     if stat.S_ISDIR(mode):
         return allowed_access
@@ -774,10 +850,12 @@ __all__ = [
     "apply_provider_landlock",
     "apply_provider_process_group_containment",
     "coding_agent_provider_sandbox_command",
+    "PROVIDER_SANDBOX_MODULE",
     "main",
     "PROVIDER_HOME_PATH",
     "PROVIDER_OUTPUT_PATH",
     "PROVIDER_SANDBOX_EXECUTABLE",
+    "PROVIDER_VERIFICATION_EXECUTABLE",
     "PROVIDER_SUPPORT_PATH",
     "PROVIDER_WORKSPACE_PATH",
     "ProviderSandboxDescriptorRule",

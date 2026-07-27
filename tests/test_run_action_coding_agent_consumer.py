@@ -395,6 +395,7 @@ def test_fixed_path_main_bounds_request_before_parsing_self_declared_policy(
 ):
     request_blob = tmp_path / "request.blob"
     _write_private(request_blob, b"untrusted")
+    request_blob.chmod(0o400)
     monkeypatch.setattr(consumer_module, "_REQUEST_PATH", str(request_blob))
     monkeypatch.setattr(
         sys,

@@ -787,11 +787,20 @@ def _common_container_arguments(
         sandbox.capability_additions if provider_transition else ()
     )
     transition_groups = sandbox.supplementary_group_ids if provider_transition else ()
+    security_options = (
+        sandbox.security_option_ids
+        if provider_transition or not sandbox.capability_additions
+        else (
+            "apparmor:docker-default",
+            "no-new-privileges",
+            "seccomp:builtin",
+        )
+    )
     for capability in transition_capabilities:
         arguments.extend(("--cap-add", capability))
     for group_id in transition_groups:
         arguments.extend(("--group-add", str(group_id)))
-    for security_option in sandbox.security_option_ids:
+    for security_option in security_options:
         arguments.extend(("--security-opt", security_option))
     arguments.extend(
         (
@@ -811,7 +820,7 @@ def _common_container_arguments(
             "--hostname",
             policy.hostname,
             "--user",
-            ("0:0" if provider_transition else f"{policy.user_id}:{policy.group_id}"),
+            f"{policy.user_id}:{policy.group_id}",
             "--workdir",
             working_directory,
             "--stop-signal",

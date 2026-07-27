@@ -71,7 +71,7 @@ def test_offline_coding_agent_runs_through_real_image(tmp_path, workspace_access
         request = replace(request, prompt=f"OFFLINE_EDIT\n{request.prompt}")
     request_path = input_directory / "request.blob"
     request_path.write_bytes(request.to_json_bytes())
-    request_path.chmod(0o600)
+    request_path.chmod(0o400)
 
     completed = subprocess.run(
         (
@@ -96,14 +96,12 @@ def test_offline_coding_agent_runs_through_real_image(tmp_path, workspace_access
             "--security-opt",
             "apparmor=docker-default",
             "--security-opt",
-            "no-new-privileges",
-            "--security-opt",
             "seccomp=builtin",
             "--pids-limit",
             "128",
             "--init",
             "--user",
-            "0:0",
+            "1000:1000",
             "--workdir",
             "/kapso/workspace",
             "--mount",

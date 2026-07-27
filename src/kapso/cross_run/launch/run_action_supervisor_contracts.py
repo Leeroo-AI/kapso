@@ -425,6 +425,20 @@ class DockerRunActionSandboxSpec(StrictContract):
             and type(self.supplementary_group_ids[0]) is int
             and 0 < self.supplementary_group_ids[0] <= _DOCKER_MAXIMUM_USER_OR_GROUP_ID
         )
+        baseline_security = (
+            self.no_new_privileges is True
+            and self.security_option_ids
+            == (
+                "apparmor:docker-default",
+                "no-new-privileges",
+                "seccomp:builtin",
+            )
+        )
+        provider_transition_security = (
+            self.no_new_privileges is False
+            and self.security_option_ids
+            == ("apparmor:docker-default", "seccomp:builtin")
+        )
         if (
             self.read_only_root_filesystem is not True
             or self.privileged is not False
@@ -445,15 +459,13 @@ class DockerRunActionSandboxSpec(StrictContract):
             or len(self.cgroup_parent_id.encode("ascii")) > 255
             or _SYSTEMD_CGROUP_SLICE_PATTERN.fullmatch(self.cgroup_parent_id) is None
             or self.sysctl_ids
-            or self.no_new_privileges is not True
+            or not (
+                provider_transition_security
+                if provider_transition
+                else baseline_security
+            )
             or self.seccomp_profile_id != "builtin"
             or self.apparmor_profile_id != "docker-default"
-            or self.security_option_ids
-            != (
-                "apparmor:docker-default",
-                "no-new-privileges",
-                "seccomp:builtin",
-            )
             or self.masked_system_paths != _DOCKER_29_1_3_MASKED_SYSTEM_PATHS
             or self.read_only_system_paths != _DOCKER_29_1_3_READ_ONLY_SYSTEM_PATHS
             or self.runtime_id != "runc"

@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/local/bin/kapso-provider-python
 """Deterministic offline Codex wire fixture for the real container boundary."""
 
 from __future__ import annotations
@@ -49,18 +49,18 @@ def main() -> None:
     }
     if set(capabilities.values()) != {"0000000000000000"}:
         raise RuntimeError("offline provider retained a capability")
-    write_probe = subprocess.run(
-        ("/usr/bin/touch", str(workspace / "read-only-probe")),
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
-    )
     if "OFFLINE_EDIT" in prompt:
-        proposal = workspace / "proposal.py"
-        proposal.write_bytes(proposal.read_bytes() + b"# offline edit\n")
-    elif write_probe.returncode == 0:
-        raise RuntimeError("offline read-only provider wrote its workspace")
+        (workspace / "offline-edit.py").write_bytes(b"# offline edit\n")
+    else:
+        write_probe = subprocess.run(
+            ("/usr/bin/touch", str(workspace / "read-only-probe")),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        if write_probe.returncode == 0:
+            raise RuntimeError("offline read-only provider wrote its workspace")
     structured = {"answer": "offline boundary passed"}
     final_path.write_text(
         json.dumps(structured, sort_keys=True, separators=(",", ":")),
