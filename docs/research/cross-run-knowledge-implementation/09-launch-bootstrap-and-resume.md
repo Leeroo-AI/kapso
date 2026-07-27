@@ -128,7 +128,12 @@ src/kapso/cross_run/launch/
   run_action_credential_contracts.py
   run_action_credential_expiry_envelope.py
   run_action_credential_retirement.py
-  run_action_docker_barrier.py
+  run_action_main_start.py
+  run_action_resolved_workload.py
+  run_action_release_publisher.py
+  run_action_timeout_publisher.py
+  run_action_timeout_containment.py
+  run_action_timeout_termination.py
   run_action_result_authority.py
   run_action_natural_terminal.py
   run_action_pre_release_main_loss.py
@@ -165,6 +170,40 @@ tests/
   test_cross_run_resume.py
   test_cross_run_kapso_api.py
 ```
+
+`DockerRunActionExecutionAdapter` is the sole production supervisor composition.
+One immutable instance binds one lifecycle identity, content-addressed Docker
+policy, fixed command, pinned runtime, and launch settings. Its private
+process-bound issuance retains only narrow observation/preparation/start/
+containment/credential-retirement managers; it does not retain the broad runtime,
+a capability, or a physical observation. Its responsibilities are limited to:
+
+- deterministic event-3/event-5 bounds;
+- exact preparation and crash-replayable activation delivery;
+- fresh closed classification of inert, running, exited, and pre-release loss;
+- deterministic dispatch through the already trusted release, timeout,
+  result-capture, termination, and credential-retirement leaves.
+
+Scientific/task semantics, request construction, result interpretation, model and
+tool selection, provider credentials, and egress do not belong to this adapter.
+They must be fixed by the boundary composition before reservation; opaque request
+bytes never select them.
+
+| Durable topology | Fresh exact main state | Sole admitted continuation |
+|---|---|---|
+| event 4 | inert | deliver/revalidate activation |
+| `EMPTY` | inert | start barrier |
+| `EMPTY` | running | resolve mounts and publish release |
+| `EMPTY` | absent/exited | publish pre-release termination |
+| `RELEASED` | running | publish timeout when due |
+| `RELEASED` | exited | capture result or typed natural failure |
+| `TIMED_OUT` | running | apply absolute-deadline TERM/KILL containment |
+| `TIMED_OUT` | exited | publish timeout termination |
+| credential retirement | inert/running | remove or KILL, then reobserve |
+| credential retirement | absent/exited | publish `CREDENTIAL_EXPIRED` |
+
+Credential retirement takes precedence over ordinary `EMPTY` behavior. Partial,
+substituted, contradictory, or unadmitted states never select a mutation.
 
 ## Launch request and resolver
 
@@ -1412,7 +1451,9 @@ or workspace delivery. It preserves the exact optional topology, copies every
 durable field, uses fixed-width content identities, and upper-bounds every new
 physical integer with the shared unsigned-64 contract. Recovery calls the bound
 twice and rejects even a one-byte-short configured event limit before entering
-the staging callback. Production adapters remain unwired.
+the staging callback. One sealed, domain-neutral Docker supervisor adapter now
+composes that bound, preparation, activation, classification, and continuation
+without retaining a physical observation between calls.
 The formal release envelope now completes that proof. Mountinfo persists only
 bounded byte-exact evidence in canonical base64, while parsed records remain a
 pure view. The decoded-byte budget is durable policy, process/mount/clock
@@ -1427,7 +1468,9 @@ release/timeout dominance are pinned by focused tests. The full 981-test
 non-recovery run-action suite and 89-test recovery suite pass, and a
 credentialed real-Docker result lifecycle proves that its actual serialized
 receipt is no larger than two repeated formal computations. Production adapter
-composition remains unwired.
+composition is now one exact lifecycle object; provider-specific consumers,
+result interpreters, credential formats, and egress remain separate boundary
+composition.
 The start manager exposes no generic Docker command surface, and the raw pinned
 runtime is process-bound. One real-Docker lifecycle now routes the durable main
 through two coordinator passes: exact `INERT` classification and sealed barrier
@@ -1477,10 +1520,11 @@ its event kind, and a distinct `FRONTIER_INVALIDATED` event can close only an
 allocated or prepared pre-spawn prefix after its unchanged workspace is
 re-proved. A workspace mismatch remains unresolved. After durable event 5, the
 continuation admits only `PENDING`, a privately registered descriptor-captured
-result, or a privately registered typed termination. Because no normal adapter
-yet owns the physical termination leaf, current production behavior still
-selects only the first two branches. A complete pre-existing event-6 termination
-receipt is terminal and replayable; ambiguity cannot become terminal.
+result, or a privately registered typed termination. The concrete supervisor
+adapter owns only the narrow physical leaves and selects all three branches from
+durable control topology plus fresh exact Docker state. A complete pre-existing
+event-6 termination receipt is terminal and replayable; ambiguity cannot become
+terminal.
 
 The coordinator owns one process-bound, non-clonable implementation catalog fixed
 at composition; `recover()` accepts no caller-selected implementation. Each
@@ -1496,25 +1540,25 @@ durable decision. A `RESULT_DECIDED` tail invokes neither adapter nor interprete
 it revalidates the workspace and appends only terminal acceptance. A crash after
 spawn commit therefore reopens only as committed work; a crash after raw-result
 persistence re-runs only local interpretation; a crash after the decision reruns
-only workspace completion. Successful editing results remain at
-`RESULT_RECEIVED` until the isolated staging/promotion protocol lands.
+only workspace completion. A successful editing result stages an isolated,
+content-bound workspace promotion before `RESULT_DECIDED`; recovery completes
+the exact decided exchange without provider or interpreter access.
 
 Publication takes the locks in checkpoint → workspace → registry order and
 retains them through bundle/checkpoint/view commit. The candidate `ACTION_LEDGER`
 must equal the live store exactly, every new prefix must be terminal and bind the
 current frontier, and old terminal prefixes are immutable. Zero workspace edits
-requires unchanged branch evidence. The current eight-event foundation admits
-only workspace-free actions, unchanged read-only actions, and failed unchanged
-editing actions. A successful editing result cannot mutate or advance the live
-host; it remains nonterminal until the isolated promotion slice supplies exact
-write-ahead authority. Missing post-crash workspace identity stays blocked rather
-than being guessed. Read-only
+requires unchanged branch evidence. Successful editing accepts only the exact
+staged promotion joined to the prepared workspace and result receipt; the
+decided exchange is replayable after a crash. Missing post-crash workspace
+identity stays blocked rather than being guessed. Read-only
 and otherwise unchanged terminals still form one exact full workspace-identity
 chain, including source and admitted Git closure digests, whose final identity
 must equal the live workspace. Resume can now classify and reconcile each
-nonterminal prefix without blindly reinvoking a committed provider. Production
-adapter/supervisor implementations and their OS isolation remain required before
-this path is activated.
+nonterminal prefix without blindly reinvoking a committed provider. The
+network-free supervisor implementation is concrete; provider consumer/result
+envelopes, exact egress, native credential consumption, API composition, and
+execution-permit OS isolation remain required before paid-provider activation.
 
 ## Failure and trust behavior
 
@@ -1587,6 +1631,12 @@ this path is activated.
   barrier-blocked, after resolved-mount proof, immediately after the release
   link, while running, during deadline stop/kill, after terminal inspection, and
   during result capture. Every mutation requires a fresh inspection.
+- With one immutable production supervisor adapter and one fixed offline command,
+  inject death after event 4 before activation delivery, then resume through
+  unactivated inspection, event-5 activation, barrier start, release, terminal
+  result capture, deterministic interpretation, event-8 acceptance, and
+  report-gated physical cleanup. Do not swap branch-specific adapters at any
+  point in this lifecycle.
 - Substitute every Docker `VolumeSubpath` after event 5 but before start and
   require the generation-bound barrier to reject a stale/preseeded release and
   the post-start namespace proof to leave release absent. Prove stale

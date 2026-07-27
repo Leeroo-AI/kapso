@@ -155,7 +155,6 @@ from kapso.cross_run.security_authority_contracts import (
 )
 
 _RUN_ACTION_RECOVERY_COORDINATOR_AUTHORITY = object()
-_RUN_ACTION_RECOVERY_IMPLEMENTATION_REGISTRY_AUTHORITY = object()
 _RUN_ACTION_PREPARATION_AUTHORITY = object()
 _RUN_ACTION_ACTIVATION_AUTHORITY = object()
 _RUN_ACTION_COMMITTED_CONTINUATION_AUTHORITY = object()
@@ -4594,16 +4593,10 @@ class RunActionRecoveryImplementationRegistry:
     def __init__(
         self,
         implementations: tuple[RunActionRecoveryImplementation, ...],
-        *,
-        _authority: object,
     ) -> None:
-        if (
-            type(implementations) is not tuple
-            or not implementations
-            or _authority is not _RUN_ACTION_RECOVERY_IMPLEMENTATION_REGISTRY_AUTHORITY
-        ):
+        if type(implementations) is not tuple or not implementations:
             raise RunActionRecoveryError(
-                "run action recovery implementation registry lacks issuance authority"
+                "run action recovery implementation registry is empty or malformed"
             )
         indexed = {}
         bindings = []

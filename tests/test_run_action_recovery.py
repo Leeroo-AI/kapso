@@ -54,7 +54,6 @@ from kapso.cross_run.launch.run_action_ledger import (
     RunActionExecutionEventKind,
 )
 from kapso.cross_run.launch.run_action_recovery import (
-    _RUN_ACTION_RECOVERY_IMPLEMENTATION_REGISTRY_AUTHORITY,
     RunActionCommittedContinuationCapability,
     RunActionCommittedSpawnObservation,
     RunActionCommittedSpawnQuery,
@@ -873,7 +872,6 @@ def _recovery_registry(
             )
             for execution_adapter in execution_adapters
         ),
-        _authority=_RUN_ACTION_RECOVERY_IMPLEMENTATION_REGISTRY_AUTHORITY,
     )
 
 
