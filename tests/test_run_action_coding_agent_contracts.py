@@ -171,6 +171,7 @@ def test_nested_request_and_result_inputs_are_recursively_frozen():
         "type": "object",
         "required": ["answer"],
         "properties": {"answer": {"type": "string", "enum": ["first"]}},
+        "additionalProperties": False,
     }
     output = {"answer": "first", "evidence": ["record-a"]}
     policy = interpretation_policy()

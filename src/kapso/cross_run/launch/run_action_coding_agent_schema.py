@@ -66,6 +66,15 @@ def validate_run_action_coding_agent_schema(schema: Mapping[str, Any]) -> None:
         )
 
 
+def validate_run_action_coding_agent_provider_schema(
+    schema: Mapping[str, Any],
+) -> None:
+    """Require the provider-portable strict subset used before model spend."""
+
+    validate_run_action_coding_agent_schema(schema)
+    _require_strict_object_nodes(schema, "$")
+
+
 def validate_run_action_coding_agent_output(
     schema: Mapping[str, Any],
     output: Any,
@@ -79,6 +88,29 @@ def validate_run_action_coding_agent_output(
         )
     _validate_json_value(output, "$")
     _apply_schema_node(schema, output, "$")
+
+
+def _require_strict_object_nodes(schema: Mapping[str, Any], path: str) -> None:
+    declared_types = _declared_types(schema["type"], path)
+    if "object" in declared_types:
+        properties = schema.get("properties", {})
+        required = schema.get("required")
+        if schema.get("additionalProperties") is not False:
+            raise RunActionCodingAgentSchemaError(
+                f"{path} object schema must set additionalProperties to false"
+            )
+        if (
+            not isinstance(required, (list, tuple))
+            or len(required) != len(properties)
+            or set(required) != set(properties)
+        ):
+            raise RunActionCodingAgentSchemaError(
+                f"{path} object schema must require every declared property"
+            )
+        for name, child in properties.items():
+            _require_strict_object_nodes(child, f"{path}.properties[{name!r}]")
+    if "array" in declared_types and "items" in schema:
+        _require_strict_object_nodes(schema["items"], f"{path}.items")
 
 
 def _validate_schema_node(schema: Mapping[str, Any], path: str) -> None:

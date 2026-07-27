@@ -71,8 +71,10 @@ release or experiment result.
 Coding-agent actions now have one path-free canonical request that embeds its
 complete content-addressed interpretation policy, one canonical raw result
 envelope, and a dependency-pure interpreter. Request admission validates the
-closed response-schema subset before reservation. The raw envelope joins the
-exact durable operation and request,
+closed response-schema subset and requires every object to be closed with every
+declared property required before reservation. Nullable types, rather than
+provider-incompatible optional keys, express optional values. The raw envelope
+joins the exact durable operation and request,
 consumer, telemetry, semantic prior-knowledge accesses, and optional edited
 source-tree digest. Interpretation accepts only canonical structured output,
 repeats deterministically after `RESULT_RECEIVED`, and exact-joins edit predecessor

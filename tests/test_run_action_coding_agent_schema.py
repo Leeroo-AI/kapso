@@ -9,6 +9,7 @@ from kapso.cross_run.launch.run_action_coding_agent_schema import (
     CODING_AGENT_JSON_SCHEMA_DIALECT,
     RunActionCodingAgentSchemaError,
     validate_run_action_coding_agent_output,
+    validate_run_action_coding_agent_provider_schema,
     validate_run_action_coding_agent_schema,
 )
 from kapso.execution.search_strategies.generic.ideation.evidence_author import (
@@ -34,6 +35,88 @@ from kapso.execution.search_strategies.generic.ideation.selector import (
 )
 def test_current_coding_agent_schema_shapes_are_in_the_closed_subset(schema) -> None:
     validate_run_action_coding_agent_schema(schema)
+
+
+@pytest.mark.parametrize(
+    "schema",
+    (
+        CANDIDATE_RESPONSE_SCHEMA,
+        EVIDENCE_AUTHOR_RESPONSE_SCHEMA,
+        SELECTOR_RESPONSE_SCHEMA,
+    ),
+)
+def test_current_ideation_schemas_are_provider_portable(schema) -> None:
+    validate_run_action_coding_agent_provider_schema(schema)
+
+
+@pytest.mark.parametrize(
+    "operation_kind",
+    (
+        ExpertCandidateOperationKind.BOOTSTRAP,
+        ExpertCandidateOperationKind.GENERALIZE,
+    ),
+)
+def test_expert_free_form_maps_are_rejected_from_provider_strict_requests(
+    operation_kind,
+) -> None:
+    with pytest.raises(
+        RunActionCodingAgentSchemaError,
+        match="additionalProperties",
+    ):
+        validate_run_action_coding_agent_provider_schema(
+            expert_proposal_response_schema(operation_kind)
+        )
+
+
+@pytest.mark.parametrize(
+    "schema",
+    (
+        {"type": "object"},
+        {"type": "object", "additionalProperties": False},
+        {
+            "type": "object",
+            "properties": {"answer": {"type": "string"}},
+            "required": [],
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "properties": {
+                "nested": {
+                    "type": "object",
+                    "properties": {},
+                    "required": [],
+                }
+            },
+            "required": ["nested"],
+            "additionalProperties": False,
+        },
+    ),
+)
+def test_provider_schema_requires_every_object_to_be_closed_and_fully_required(
+    schema,
+) -> None:
+    validate_run_action_coding_agent_schema(schema)
+    with pytest.raises(
+        RunActionCodingAgentSchemaError,
+        match="additionalProperties|require every",
+    ):
+        validate_run_action_coding_agent_provider_schema(schema)
+
+
+def test_provider_schema_accepts_nullable_properties_instead_of_optional_keys() -> None:
+    validate_run_action_coding_agent_provider_schema(
+        {
+            "type": "object",
+            "properties": {
+                "answer": {
+                    "type": ["string", "null"],
+                }
+            },
+            "required": ["answer"],
+            "additionalProperties": False,
+        }
+    )
 
 
 def test_current_ideation_candidate_output_validates() -> None:

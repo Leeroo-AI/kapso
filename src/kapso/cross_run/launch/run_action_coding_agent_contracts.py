@@ -26,7 +26,7 @@ from kapso.cross_run.launch.run_action_contracts import (
     RunFrontierWorkspaceAccess,
 )
 from kapso.cross_run.launch.run_action_coding_agent_schema import (
-    validate_run_action_coding_agent_schema,
+    validate_run_action_coding_agent_provider_schema,
 )
 
 CODING_AGENT_REQUEST_PROTOCOL_VERSION = "kapso.run_action.coding_agent_request.v1"
@@ -195,7 +195,7 @@ class CodingAgentRunActionRequest(StrictContract):
             raise RunActionCodingAgentContractError(
                 "coding-agent response schema must be an object"
             )
-        validate_run_action_coding_agent_schema(self.response_schema)
+        validate_run_action_coding_agent_provider_schema(self.response_schema)
         if self.prior_knowledge is not None and type(self.prior_knowledge) is not (
             PriorKnowledgeAccessMaterialization
         ):
