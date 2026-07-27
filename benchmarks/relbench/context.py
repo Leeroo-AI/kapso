@@ -376,12 +376,14 @@ Data access (read carefully — violations invalidate the run):
   released checkpoints of the methods this run is compared against on the
   RelBench leaderboard: KumoRFM / KumoRFM-2, Relational Transformer (RT),
   PluRel, Griffin, Rel-LLM, or any other published RelBench-leaderboard
-  method — nor any checkpoint pretrained on RelBench databases. Beating a
-  baseline by running the baseline is not a result; it voids the run. Their
-  published ARCHITECTURES may be reimplemented and trained from scratch —
-  the exclusion is their weights. General-purpose pretrained models NOT
-  built on RelBench (text/tabular encoders, generic embedding models) are
-  allowed.
+  method — nor any checkpoint pretrained on RelBench databases (public
+  RelBench copies are un-truncated, so such checkpoints carry post-cutoff
+  facts). Beating a baseline by running the baseline is not a result; it
+  voids the run. The exclusion is their WEIGHTS only: their published
+  architectures and public code are fair game — cloning a method's
+  repository and training it from scratch on this task's sanctioned data
+  is legal and encouraged (disable and document any checkpoint
+  auto-download path in the cloned repo).
 - Load data ONLY through the relbench API with download=False:
     from relbench.datasets import get_dataset
     from relbench.tasks import get_task
@@ -396,15 +398,22 @@ Data access (read carefully — violations invalidate the run):
   RELBENCH_CACHE_DIR, never read or write ~/.cache/relbench, and never re-fetch
   the OFFICIAL RelBench distribution from the network — the raw distribution
   contains post-cutoff rows, so fetching it is test leakage by definition.
-- EXTERNAL DATA — downloading additional external datasets IS allowed, under
-  one absolute condition: ZERO leakage into this task's test windows. ANY
-  kind of leakage voids the experiment. Be warned: on these tasks the test
-  labels are public real-world history (e.g. actual race results after the
-  test cutoff) — an external source that contains, or lets you derive,
-  post-cutoff facts about this database's domain is leakage. The
-  temporal-censoring rule below applies to external rows exactly as to db
-  rows, and every external source must be documented in changes.log with its
-  provenance and the argument for why it is leak-free.
+- PRETRAINED MODELS (encouraged) — any pretrained model may be downloaded
+  and used: fine-tune it, distill it, use it as a feature extractor, or
+  build on it however helps. Leveraging the pretrained ecosystem is
+  encouraged, not merely tolerated — on this leaderboard the entries that
+  leverage pretraining form a tier above every from-scratch entry, so do
+  not rebuild what the ecosystem already provides. (The only carve-out is
+  the compared-baselines rule above.)
+- EXTERNAL DATASETS (encouraged) — downloading additional datasets is
+  allowed and encouraged, under one condition: ZERO leakage into this
+  task's test windows — ANY kind of leakage voids the experiment. The test
+  labels here are public real-world history (e.g. actual race results
+  after the cutoff), so a source that contains, or lets you derive,
+  post-cutoff facts about this database's domain must be truncated at the
+  cutoff before any feature touches it — the temporal-censoring rule
+  applies to external rows exactly as to db rows. Document each external
+  source in changes.log (provenance + why it is leak-free).
 - SYNTHETIC DATA — generating synthetic relational data yourself (e.g.
   procedurally generated databases for pretraining) is legal and optionally
   useful: it involves no external facts at all.

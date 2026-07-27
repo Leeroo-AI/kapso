@@ -32,9 +32,13 @@ their best parts — and output it.
 - Rule-safety: reject anything that touches benchmark test data, disallowed
   models, or third-party LLM APIs for task artifacts.
 - Groundedness: consistent with the actual repository state and evaluation
-  mechanics — Read files to verify claims when in doubt. Groundedness vets
-  a candidate's CLAIMS; it is not a reason to prefer familiar approaches
-  over structurally new ones whose claims check out.
+  mechanics — Read files to verify claims when in doubt, and use web search
+  to verify external claims: a cited repository, pretrained model, or
+  dataset must actually exist, be obtainable, and plausibly do what the
+  candidate claims — a candidate resting on a hallucinated or abandoned
+  artifact is ungrounded. Groundedness vets a candidate's CLAIMS; it is
+  not a reason to prefer familiar approaches over structurally new ones
+  whose claims check out.
 - Expected RETURN against the bar — the deciding criterion: value each
   candidate by its credible path toward the GOAL's target score
   (probability × distance moved toward the bar), using the campaign state

@@ -1610,8 +1610,9 @@ class GenericSearch(SearchStrategy):
             )
             from kapso.execution.coding_agents.base import CodingResult
 
-            # web off: parity with the claude selector's Read-only toolset —
-            # selection judges the pooled candidates, it does not research.
+            # web on: selection verifies candidate claims — a cited repo,
+            # pretrained model, or dataset must exist and plausibly do what
+            # the candidate says before it can win selection.
             output, timed_out, _duration, _meta = run_codex_ideation(
                 prompt=prompt,
                 model=selector["model"],
@@ -1619,7 +1620,7 @@ class GenericSearch(SearchStrategy):
                 timeout_seconds=selector_deadline,
                 effort=selector.get("effort"),
                 artifacts_dir=os.path.join(ideation_dir, ".kapso", "selector"),
-                web_search=False,
+                web_search=True,
             )
             result = CodingResult(
                 success=not timed_out and bool(output.strip()),
@@ -1637,7 +1638,7 @@ class GenericSearch(SearchStrategy):
                     "env_strip": self.env_strip,
                     "env_defaults": self.env_defaults,
                     "aws_region": self.aws_region,
-                    "allowed_tools": ["Read"],
+                    "allowed_tools": ["Read", "WebSearch", "WebFetch"],
                     "timeout": selector_deadline,
                     "streaming": True,
                     "planning_mode": False,

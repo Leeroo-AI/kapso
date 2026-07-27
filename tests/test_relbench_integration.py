@@ -578,13 +578,17 @@ class TestFinalEvaluateTestFill:
 
 
 class TestDataAccessRules:
-    def test_external_data_conditional_baseline_weights_named_synthetic_legal(self):
-        """User-directed data policy (2026-07-27): external downloads are
-        legal ONLY leak-free (any leakage voids), synthetic pretraining is
-        explicitly legal, and the compared leaderboard methods' weights are
-        excluded BY NAME (comparing against something we run ourselves is
-        not a result). The old blanket network ban is gone; the official
-        RelBench distribution stays unfetchable (contains post-cutoff rows)."""
+    def test_external_leverage_relaxed_models_free_datasets_censored(self):
+        """User-directed data policy (2026-07-27, relaxed same day):
+        pretrained models are unconditionally allowed and ENCOURAGED — no
+        classification procedure, no constraint clauses on models; the
+        leakage condition attaches to EXTERNAL DATASETS only (test labels
+        are public real-world history, so domain sources are truncated at
+        the cutoff and documented). Compared leaderboard methods stay
+        excluded BY NAME but weights-only: cloning their public code and
+        retraining from scratch is explicitly legal and encouraged. The
+        official RelBench distribution stays unfetchable (contains
+        post-cutoff rows)."""
         from types import SimpleNamespace
 
         from benchmarks.relbench.context import _data_access_rules
@@ -597,13 +601,20 @@ class TestDataAccessRules:
             is_recommendation=False,
         )
         rules = _data_access_rules(spec)
-        assert "EXTERNAL DATA" in rules and "ZERO leakage" in rules
-        assert "voids the experiment" in rules
+        assert "PRETRAINED MODELS (encouraged)" in rules
+        assert "EXTERNAL DATASETS (encouraged)" in rules
+        assert "ZERO leakage" in rules and "voids the experiment" in rules
+        assert "changes.log" in rules
+        # Relaxation pins: no per-asset classification, no model constraints.
+        assert "WORLD-KNOWLEDGE" not in rules
+        assert "NEEDS CENSORING" not in rules
+        assert "opaque ids" not in rules
         assert "never fetch dataset files from the network" not in rules
         assert "OFFICIAL RelBench distribution" in rules
         assert "SYNTHETIC DATA" in rules and "legal" in rules
         for name in ("KumoRFM", "Relational Transformer", "PluRel",
                      "Griffin", "Rel-LLM"):
             assert name in rules, name
-        assert "ARCHITECTURES may be reimplemented" in rules
+        assert "WEIGHTS only" in rules
+        assert "cloning a method's" in rules
         assert "do NOT look up this problem's published solution" in rules

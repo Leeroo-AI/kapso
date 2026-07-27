@@ -13,6 +13,12 @@ Produce exactly {{candidate_count}} candidate solutions. Each candidate must:
 - be fully self-contained (no references to your other candidate or to
   "the parent" without restating what is kept),
 - state concrete, codable steps and a runtime expectation,
+- when it builds on a published method, pretrained model, or external
+  dataset, name the concrete public artifact it starts from (repository,
+  package, model card, dataset) — use web search to find one; a located,
+  working implementation turns a paper-scale build into a clone-and-adapt
+  job and raises the candidate's credible ceiling per hour. Reimplement
+  from scratch only when nothing usable exists,
 - include a `# Coverage` section: the observable axes along which the
   evaluation inputs vary (input distribution — format/length/category/
   domain/locale/difficulty; reference/output register; metric mechanics

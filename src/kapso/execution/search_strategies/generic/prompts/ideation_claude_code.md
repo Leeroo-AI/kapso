@@ -106,7 +106,7 @@ rebuilding them — say so explicitly in the solution.
      or train on.
    Mark every claim MEASURED (cite its source) or ASSUMED — the implementor
    verifies ASSUMED claims in recon before building on them.
-4. **Search for ideas**: Use wiki_idea_search first (curated, high-quality), then research tools if needed
+4. **Search for ideas AND implementations**: Use wiki_idea_search first (curated, high-quality), then research tools if needed. When a proposal leans on a published method, pretrained model, or external dataset, also use research_implementation / web search to locate an existing public implementation (official repository, maintained package, model card) and cite it in the solution as the starting point — leveraging working public code beats reimplementing it.
 5. **Synthesize a solution**: Combine insights into a concrete, implementable proposal that IMPROVES on past attempts
 
 ## Output Format

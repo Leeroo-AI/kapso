@@ -573,8 +573,10 @@ def test_codex_selector_runs_web_off_and_choice_wins(tmp_path, monkeypatch):
 
     (solution,), _, _ = strategy._generate_solution("problem", "main")
     assert solution == _plan("the winner")
+    # Selector web is ON (user-directed 2026-07-27): selection verifies that
+    # cited repos/models/datasets exist before a candidate can win.
     assert selector_calls == [
-        {"web_search": False, "model": "gpt-5.6-sol", "effort": "xhigh"}
+        {"web_search": True, "model": "gpt-5.6-sol", "effort": "xhigh"}
     ]
     assert not [p for is_sel, p in events["claude_prompts"] if is_sel]
 
