@@ -98,6 +98,13 @@ normalizes total versus cached-read input, and exactly reconciles total decimal
 cost with per-model costs.
 Both paths revalidate the structured object locally and retain digests of the
 complete provider event and diagnostic streams.
+The workload-side candidate publisher is independently concrete. Under an
+exclusive temporary-directory lease it writes the bounded canonical envelope to
+an anonymous inode, reads it back byte-exactly, fsyncs it, links
+`result.candidate` without replacement, fsyncs the directory, and reopens the
+same private inode. Pre-link failure exposes nothing; post-link failure can
+expose only the complete candidate that supervisor recovery already understands.
+An existing path of any type is rejected rather than adopted.
 The framework-owned credential broker and pre-release expiry path are also
 implemented. The broker response transfers secret bytes into coordinator-private
 single-use authority before adapter access. Before broker issue, credential
