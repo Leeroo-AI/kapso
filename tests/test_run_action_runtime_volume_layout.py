@@ -25,7 +25,9 @@ from kapso.cross_run.launch.run_action_docker_inspect import (
 from kapso.cross_run.launch.run_action_docker_resources import (
     DockerRunActionResourceManager,
 )
-from kapso.cross_run.launch.run_action_docker_projection import DockerRunActionCommand
+from kapso.cross_run.launch.run_action_docker_projection import (
+    target_command_from_main_projection,
+)
 from kapso.cross_run.launch.run_action_runtime_volume import (
     DockerRunActionEmptyVolumeObservation,
     DockerRunActionPreparedVolumeObservation,
@@ -1807,10 +1809,7 @@ def _physical_selected_activation_case(
         inert_container_evidence=inert_container_evidence,
     )
     projection = prepared.inert_container_evidence.issued_create_projection
-    command = DockerRunActionCommand.build(
-        entrypoint=projection.command_arguments[8],
-        arguments=projection.command_arguments[9:],
-    )
+    command = target_command_from_main_projection(projection)
     volume = observe_runtime_volume(
         _volume_raw(allocation.runtime_volume_authority, docker_settings),
         allocation.preparation_claim,

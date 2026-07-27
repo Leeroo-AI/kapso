@@ -10,6 +10,7 @@ from typing import Any, Mapping
 
 from kapso.cross_run.canonical import content_id, tree_or_blob_digest
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
+    DockerRunActionCreateInspectProjection,
     DockerRunActionExecutionPolicy,
     RUN_ACTION_BARRIER_DUMMY_ARGUMENT,
     RUN_ACTION_BARRIER_RELEASE_DESTINATION,
@@ -31,8 +32,9 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
 from kapso.cross_run.settings import DockerRuntimeSettings
 
 DOCKER_RUN_ACTION_PROJECTION_PROTOCOL_VERSION = (
-    "kapso.docker_run_action_create_inspect.v4"
+    "kapso.docker_run_action_create_inspect.v5"
 )
+_RUN_ACTION_BARRIER_TARGET_POSITION = 9
 
 _CONTAINER_ROOT_FIELDS = (
     "AppArmorProfile",
@@ -394,12 +396,15 @@ def docker_run_action_command_template_id(
 
 def main_barrier_command(
     command: DockerRunActionCommand,
+    generation_nonce: str,
     settings: DockerRuntimeSettings,
 ) -> tuple[str, tuple[str, ...]]:
     """Render the fixed barrier while keeping the target as positional data."""
 
     if (
         type(command) is not DockerRunActionCommand
+        or not isinstance(generation_nonce, str)
+        or re.fullmatch(r"[0-9a-f]{32}", generation_nonce) is None
         or type(settings) is not DockerRuntimeSettings
     ):
         raise DockerRunActionProjectionError(
@@ -416,9 +421,30 @@ def main_barrier_command(
             RUN_ACTION_BARRIER_RELEASE_DESTINATION,
             RUN_ACTION_SUPERVISOR_HELPER_DESTINATION,
             str(settings.run_action_barrier_poll_interval_seconds),
+            f'"generation_nonce":"{generation_nonce}"',
             command.entrypoint,
             *command.arguments,
         ),
+    )
+
+
+def target_command_from_main_projection(
+    projection: DockerRunActionCreateInspectProjection,
+) -> DockerRunActionCommand:
+    """Recover the policy-bound target from one validated barrier projection."""
+
+    if (
+        type(projection) is not DockerRunActionCreateInspectProjection
+        or len(projection.command_arguments) <= _RUN_ACTION_BARRIER_TARGET_POSITION
+    ):
+        raise DockerRunActionProjectionError(
+            "run action main projection lacks its target command"
+        )
+    return DockerRunActionCommand.build(
+        entrypoint=projection.command_arguments[_RUN_ACTION_BARRIER_TARGET_POSITION],
+        arguments=projection.command_arguments[
+            _RUN_ACTION_BARRIER_TARGET_POSITION + 1 :
+        ],
     )
 
 
@@ -606,7 +632,11 @@ def main_create_arguments(
             "run action command differs from its execution policy template"
         )
     require_run_action_image(image, policy, settings)
-    barrier_executable, barrier_arguments = main_barrier_command(command, settings)
+    barrier_executable, barrier_arguments = main_barrier_command(
+        command,
+        authority.generation_nonce,
+        settings,
+    )
     arguments = [
         "container",
         "create",
@@ -989,5 +1019,6 @@ __all__ = [
     "main_barrier_command",
     "main_create_arguments",
     "require_run_action_image",
+    "target_command_from_main_projection",
     "volume_create_arguments",
 ]

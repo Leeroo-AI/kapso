@@ -940,6 +940,7 @@ def _prepared_execution(
         docker_init_source_evidence=init_source_evidence,
         barrier_protocol_version=RUN_ACTION_BARRIER_PROTOCOL_VERSION,
         barrier_poll_interval_seconds=_BARRIER_POLL_INTERVAL_SECONDS,
+        barrier_generation_nonce=authority.generation_nonce,
         command_executable=RUN_ACTION_SUPERVISOR_HELPER_DESTINATION,
         command_arguments=(
             "sh",
@@ -950,6 +951,7 @@ def _prepared_execution(
             RUN_ACTION_BARRIER_RELEASE_DESTINATION,
             RUN_ACTION_SUPERVISOR_HELPER_DESTINATION,
             str(_BARRIER_POLL_INTERVAL_SECONDS),
+            f'"generation_nonce":"{authority.generation_nonce}"',
             "/bin/tool",
             "default",
         ),
@@ -1007,6 +1009,7 @@ def _projection_with_mounts(projection, mounts):
         docker_init_source_evidence=projection.docker_init_source_evidence,
         barrier_protocol_version=projection.barrier_protocol_version,
         barrier_poll_interval_seconds=projection.barrier_poll_interval_seconds,
+        barrier_generation_nonce=projection.barrier_generation_nonce,
         command_executable=projection.command_executable,
         command_arguments=projection.command_arguments,
         mounts=mounts,
@@ -3102,6 +3105,29 @@ def test_prepared_execution_rejects_main_mount_substitution():
         )
 
 
+def test_prepared_execution_rejects_barrier_generation_substitution():
+    prepared = _prepared_execution()
+    evidence = prepared.inert_container_evidence
+    projection = evidence.issued_create_projection
+    substituted_nonce = "f" * 32
+    substituted_arguments = list(projection.command_arguments)
+    substituted_arguments[8] = f'"generation_nonce":"{substituted_nonce}"'
+    substituted_projection = _remint_contract(
+        projection,
+        barrier_generation_nonce=substituted_nonce,
+        command_arguments=tuple(substituted_arguments),
+    )
+
+    with pytest.raises(RunActionSupervisorContractError, match="evidence differs"):
+        replace(
+            prepared,
+            inert_container_evidence=_evidence_with_projection(
+                evidence,
+                substituted_projection,
+            ),
+        )
+
+
 def test_superseded_contract_surfaces_are_removed():
     legacy_names = {
         "RUN_ACTION_RUNTIME_VOLUME_KEEPER_HELPER_DESTINATION",
@@ -3133,6 +3159,7 @@ def test_inert_evidence_rejects_observed_projection_substitution():
         docker_init_source_evidence=observed.docker_init_source_evidence,
         barrier_protocol_version=observed.barrier_protocol_version,
         barrier_poll_interval_seconds=observed.barrier_poll_interval_seconds,
+        barrier_generation_nonce=observed.barrier_generation_nonce,
         command_executable=observed.command_executable,
         command_arguments=(*observed.command_arguments[:-1], "substituted"),
         mounts=observed.mounts,

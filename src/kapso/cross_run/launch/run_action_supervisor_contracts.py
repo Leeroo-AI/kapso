@@ -92,10 +92,11 @@ RUN_ACTION_SUPERVISOR_HELPER_DESTINATION = "/kapso-supervisor/busybox"
 RUN_ACTION_DOCKER_INIT_DESTINATION = "/sbin/docker-init"
 RUN_ACTION_BARRIER_CONTROL_DESTINATION = "/kapso-supervisor/control"
 RUN_ACTION_BARRIER_RELEASE_DESTINATION = "/kapso-supervisor/control/release"
-RUN_ACTION_BARRIER_PROTOCOL_VERSION = "kapso.run_action_barrier.v1"
+RUN_ACTION_BARRIER_PROTOCOL_VERSION = "kapso.run_action_barrier.v2"
 RUN_ACTION_BARRIER_SCRIPT = (
-    'while [ ! -f "$1" ] || [ ! -r "$1" ]; do "$2" sleep "$3"; done; '
-    'shift 3; exec "$@"'
+    'while [ ! -f "$1" ] || [ ! -r "$1" ]'
+    ' || ! "$2" grep -Fq "$4" "$1"; do "$2" sleep "$3"; done; '
+    'shift 4; exec "$@"'
 )
 RUN_ACTION_BARRIER_DUMMY_ARGUMENT = "kapso-run-action-barrier"
 _RUNTIME_VOLUME_SUBPATHS = {
@@ -1525,6 +1526,7 @@ class DockerRunActionCreateInspectProjection(StrictContract):
     docker_init_source_evidence: RunActionDockerInitSourceEvidence
     barrier_protocol_version: str
     barrier_poll_interval_seconds: int
+    barrier_generation_nonce: str
     command_executable: str
     command_arguments: tuple[str, ...]
     mounts: tuple[RunActionPreparedMount, ...]
@@ -1557,10 +1559,13 @@ class DockerRunActionCreateInspectProjection(StrictContract):
             or self.barrier_protocol_version != RUN_ACTION_BARRIER_PROTOCOL_VERSION
             or type(self.barrier_poll_interval_seconds) is not int
             or self.barrier_poll_interval_seconds <= 0
+            or _GENERATION_NONCE_PATTERN.fullmatch(self.barrier_generation_nonce)
+            is None
             or not _barrier_command_matches_policy(
                 self.command_executable,
                 self.command_arguments,
                 self.barrier_poll_interval_seconds,
+                self.barrier_generation_nonce,
                 self.execution_policy,
             )
             or self.projection_protocol_version
@@ -2337,6 +2342,7 @@ class RunActionPreparedExecution(StrictContract):
             != keeper_projection.helper_evidence
             or issued_projection.docker_init_source_evidence
             != keeper_projection.docker_init_source_evidence
+            or issued_projection.barrier_generation_nonce != authority.generation_nonce
             or issued_projection.mounts
             != _expected_prepared_mounts(claim, authority.volume_name)
         ):
@@ -3037,12 +3043,13 @@ def _barrier_command_matches_policy(
     executable: str,
     arguments: tuple[str, ...],
     poll_interval_seconds: int,
+    generation_nonce: str,
     policy: DockerRunActionExecutionPolicy,
 ) -> bool:
     if (
         executable != RUN_ACTION_SUPERVISOR_HELPER_DESTINATION
         or type(arguments) is not tuple
-        or len(arguments) < 10
+        or len(arguments) < 11
         or arguments[:8]
         != (
             "sh",
@@ -3054,13 +3061,14 @@ def _barrier_command_matches_policy(
             RUN_ACTION_SUPERVISOR_HELPER_DESTINATION,
             str(poll_interval_seconds),
         )
+        or arguments[8] != _barrier_release_generation_marker(generation_nonce)
         or any(
             not isinstance(argument, str) or not argument or "\x00" in argument
-            for argument in arguments[8:]
+            for argument in arguments[9:]
         )
     ):
         return False
-    target_entrypoint = arguments[8]
+    target_entrypoint = arguments[9]
     target_path = PurePosixPath(target_entrypoint)
     if (
         not target_path.is_absolute()
@@ -3072,10 +3080,19 @@ def _barrier_command_matches_policy(
     return policy.command_template_id == content_id(
         "docker-run-action-command-template",
         {
-            "arguments": arguments[9:],
+            "arguments": arguments[10:],
             "entrypoint": target_entrypoint,
         },
     )
+
+
+def _barrier_release_generation_marker(generation_nonce: str) -> str:
+    if (
+        not isinstance(generation_nonce, str)
+        or _GENERATION_NONCE_PATTERN.fullmatch(generation_nonce) is None
+    ):
+        return ""
+    return f'"generation_nonce":"{generation_nonce}"'
 
 
 def _activated_runtime_directory_matches_prepared(

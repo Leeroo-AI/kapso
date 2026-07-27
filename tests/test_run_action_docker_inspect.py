@@ -276,7 +276,11 @@ def _container_raw(
         storage_layer_id = _MAIN_STORAGE_LAYER_ID
         labels = preparation_container_labels(claim)
         name = preparation_container_name(claim)
-        executable, arguments = main_barrier_command(command, docker_settings)
+        executable, arguments = main_barrier_command(
+            command,
+            authority.generation_nonce,
+            docker_settings,
+        )
         working_directory = policy.filesystem_policy.working_directory
         mounts = preparation_main_mounts(claim, authority)
         host_mounts = docker_inspect._main_host_config_mounts(claim, mounts)

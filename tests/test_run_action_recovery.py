@@ -14,6 +14,7 @@ import pytest
 
 import kapso.cross_run.launch.run_action_recovery as run_action_recovery_module
 import kapso.cross_run.launch.run_action_workspace_promotion as promotion_module
+from kapso.cross_run.canonical import tree_or_blob_digest
 from kapso.cross_run.launch.checkpoint_contracts import (
     RunCheckpointStatus,
     RunCheckpointStop,
@@ -32,6 +33,9 @@ from kapso.cross_run.launch.run_action_contracts import (
 )
 from kapso.cross_run.launch.run_action_control_topology import (
     RunActionControlDirectoryTopology,
+)
+from kapso.cross_run.launch.run_action_barrier_contracts import (
+    RunActionBarrierRunningContainerObservation,
 )
 from kapso.cross_run.launch.run_action_gate import RunFrontierActionGate
 from kapso.cross_run.launch.run_action_ledger import (
@@ -489,10 +493,50 @@ class _FakeExecutionAdapter:
 
     def continue_committed_once(self, capability):
         self.continuation_calls.append(capability)
-        if capability.observation.state in {
-            RunActionCommittedSpawnState.INERT_CONTINUABLE,
-            RunActionCommittedSpawnState.RUNNING_CONTINUABLE,
-        }:
+        if (
+            capability.observation.state
+            is RunActionCommittedSpawnState.INERT_CONTINUABLE
+        ):
+            observation_token = capability.observation.observation_token
+            query, sealed_token = capability._take_start_authority(
+                observation_token,
+                _authority=run_action_recovery_module._RUN_ACTION_START_AUTHORITY,
+            )
+            assert sealed_token == observation_token
+            running = RunActionBarrierRunningContainerObservation.mint(
+                container_id=query.spawn_commit.provider_execution_id,
+                observed_inspect_projection=(
+                    query.prepared_execution.inert_container_evidence.issued_create_projection
+                ),
+                complete_inspection_digest=tree_or_blob_digest(
+                    b"fake blocked run-action barrier"
+                ),
+                container_status="running",
+                init_process_id=4242,
+                restart_count=0,
+                started_at="2026-07-25T01:02:03.123456789Z",
+                finished_at="0001-01-01T00:00:00Z",
+                paused=False,
+                restarting=False,
+                dead=False,
+                oom_killed=False,
+                state_error="",
+            )
+            capability._complete_start(
+                running,
+                sealed_token,
+                _authority=run_action_recovery_module._RUN_ACTION_START_AUTHORITY,
+            )
+            return RunActionContinuationOutcome(
+                state=RunActionContinuationState.PENDING,
+                result=None,
+                provider_termination_receipt=None,
+                timeout_directive_publication=None,
+            )
+        if (
+            capability.observation.state
+            is RunActionCommittedSpawnState.RUNNING_CONTINUABLE
+        ):
             return RunActionContinuationOutcome(
                 state=RunActionContinuationState.PENDING,
                 result=None,

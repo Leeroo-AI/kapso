@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import copy
+import subprocess
+import time
 
 import pytest
 
@@ -16,11 +18,13 @@ from kapso.cross_run.launch.run_action_docker_projection import (
     DockerRunActionCommand,
     DockerRunActionProjectionError,
     keeper_create_arguments,
+    main_barrier_command,
     main_create_arguments,
     require_run_action_image,
     volume_create_arguments,
 )
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
+    RUN_ACTION_BARRIER_PROTOCOL_VERSION,
     RunActionCredentialMode,
     RunActionRuntimeVolumeAuthority,
     preparation_container_labels,
@@ -255,13 +259,14 @@ def _common_arguments(policy, working_directory):
 
 
 def test_projection_schema_identity_is_structural_and_content_addressed():
+    assert RUN_ACTION_BARRIER_PROTOCOL_VERSION == "kapso.run_action_barrier.v2"
     assert (
         DOCKER_RUN_ACTION_PROJECTION_PROTOCOL_VERSION
-        == "kapso.docker_run_action_create_inspect.v4"
+        == "kapso.docker_run_action_create_inspect.v5"
     )
     assert DOCKER_RUN_ACTION_RAW_FIELD_SCHEMA_ID == (
         "docker-raw-field-schema:"
-        "sha256:dfe5f18d8510b8910e00b8eed87386e868230162281cd7f414144a4747a4732c"
+        "sha256:d0b1f65c3736a83d704b0037e793d274f28beb297237c2d54638f870a624a0c6"
     )
 
 
@@ -395,13 +400,15 @@ def test_main_creation_uses_only_sorted_bounded_volume_subpaths(docker_settings)
         "-eu",
         "-c",
         (
-            'while [ ! -f "$1" ] || [ ! -r "$1" ]; do "$2" sleep "$3"; done; '
-            'shift 3; exec "$@"'
+            'while [ ! -f "$1" ] || [ ! -r "$1" ]'
+            ' || ! "$2" grep -Fq "$4" "$1"; do "$2" sleep "$3"; done; '
+            'shift 4; exec "$@"'
         ),
         "kapso-run-action-barrier",
         "/kapso-supervisor/control/release",
         "/kapso-supervisor/busybox",
         str(docker_settings.run_action_barrier_poll_interval_seconds),
+        f'"generation_nonce":"{authority.generation_nonce}"',
         "/usr/bin/codex",
         "exec",
         "--json",
@@ -412,6 +419,47 @@ def test_main_creation_uses_only_sorted_bounded_volume_subpaths(docker_settings)
     assert "/kapso/runtime-volume" not in joined
     assert "complete request" not in joined
     assert "credential" in joined
+
+
+def test_barrier_rejects_a_readable_release_from_another_generation(
+    tmp_path,
+    docker_settings,
+):
+    release_path = tmp_path / "release"
+    target_marker = tmp_path / "target-started"
+    release_path.write_bytes(b'{"generation_nonce":"' + b"2" * 32 + b'"}')
+    command = DockerRunActionCommand.build(
+        entrypoint=docker_settings.helper_executable_path,
+        arguments=(
+            "sh",
+            "-c",
+            'printf started > "$1"',
+            "target",
+            str(target_marker),
+        ),
+    )
+    _executable, arguments = main_barrier_command(
+        command,
+        _GENERATION_NONCE,
+        docker_settings,
+    )
+    local_arguments = (
+        *arguments[:5],
+        str(release_path),
+        docker_settings.helper_executable_path,
+        *arguments[7:],
+    )
+    process = subprocess.Popen(
+        (docker_settings.helper_executable_path, *local_arguments)
+    )
+
+    time.sleep(2 * docker_settings.run_action_barrier_poll_interval_seconds)
+    assert not target_marker.exists()
+    release_path.write_bytes(
+        b'{"generation_nonce":"' + _GENERATION_NONCE.encode("ascii") + b'"}'
+    )
+    assert process.wait(timeout=docker_settings.command_timeout_seconds) == 0
+    assert target_marker.read_bytes() == b"started"
 
 
 @pytest.mark.parametrize(

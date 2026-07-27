@@ -12,6 +12,7 @@ import re
 import subprocess
 import time
 from contextlib import ExitStack
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -26,6 +27,7 @@ from kapso.cross_run.canonical import tree_or_blob_digest
 from kapso.cross_run.docker.runtime import (
     DockerImageAuthority,
     PinnedDockerRuntime,
+    PinnedDockerStartAuthority,
     read_verified_root_executable,
 )
 from kapso.cross_run.launch.run_action_docker_projection import (
@@ -59,6 +61,12 @@ from kapso.cross_run.launch.run_action_recovery import (
 )
 from kapso.cross_run.launch.run_action_natural_terminal import (
     resolve_run_action_natural_terminal_once,
+)
+from kapso.cross_run.launch.run_action_main_start import (
+    DockerRunActionStartManager,
+    inspect_run_action_inert_activation,
+    RunActionMainStartError,
+    start_run_action_barrier_once,
 )
 from kapso.cross_run.launch.run_action_pre_release_main_loss import (
     capture_run_action_pre_release_main_loss_termination,
@@ -116,6 +124,7 @@ from kapso.cross_run.launch.run_action_docker_cleanup import (
     issue_docker_run_action_resource_finalization_authority,
 )
 from kapso.cross_run.launch.run_action_docker_inspect import (
+    DockerRunActionInspectionError,
     observe_inert_keeper,
     observe_inert_main_container,
     observe_running_barrier_main_container,
@@ -133,7 +142,6 @@ from kapso.cross_run.launch.run_action_runtime_volume import (
     deliver_and_reobserve_runtime_volume_activation,
     materialize_runtime_volume_layout,
     observe_empty_runtime_volume,
-    open_selected_run_action_activation,
     reobserve_runtime_volume_layout,
 )
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
@@ -152,6 +160,7 @@ from kapso.cross_run.launch.workspace_frontier import (
     inspect_run_workspace_frontier,
 )
 from kapso.cross_run.settings import CrossRunSettings
+from kapso.cross_run.process import BoundedProcessOutcome
 from live_expert_replay_docker import _start_local_oci_registry
 from test_launch_resolver import resolver_case
 from test_run_action_docker_projection import (
@@ -224,6 +233,87 @@ class _LiveCredentialValidityAuthority:
             valid_until_realtime_nanoseconds=(
                 observed_at + self._maximum_lease_seconds * 1_000_000_000
             ),
+        )
+
+
+class _LiveInertStartAdapter:
+    def __init__(
+        self,
+        *,
+        boundary_identity,
+        execution_policy,
+        resource_manager,
+        start_manager,
+        preparation_allocation,
+        command,
+        volume_observation,
+        helper_evidence,
+        init_source_evidence,
+        docker_settings,
+        launch_settings,
+    ) -> None:
+        self.execution_lifecycle_identity = (
+            boundary_identity.execution_lifecycle_identity
+        )
+        self.execution_policy = execution_policy
+        self.result_interpreter = _UnusedLiveResultInterpreter(
+            boundary_identity.result_interpreter_identity
+        )
+        self._resource_manager = resource_manager
+        self._start_manager = start_manager
+        self._preparation_allocation = preparation_allocation
+        self._command = command
+        self._volume_observation = volume_observation
+        self._helper_evidence = helper_evidence
+        self._init_source_evidence = init_source_evidence
+        self._docker_settings = docker_settings
+        self._launch_settings = launch_settings
+        self.running_observation = None
+
+    def prepared_event_size_bound(self, **_arguments):
+        raise AssertionError("durable event 5 must not replay preparation")
+
+    def activation_event_size_bound(self, **_arguments):
+        raise AssertionError("durable event 5 must not replay activation")
+
+    def release_receipt_size_bound(self, *, reservation):
+        if reservation != self._preparation_allocation.preparation_claim.reservation:
+            raise AssertionError("start bound differs from durable reservation")
+        return self.execution_policy.supervisor_limits.release_receipt_size_bytes
+
+    def prepare(self, _capability):
+        raise AssertionError("durable event 5 must not replay preparation")
+
+    def stage_activation(self, _capability):
+        raise AssertionError("durable event 5 must not replay activation")
+
+    def inspect_unactivated(self, _query):
+        raise AssertionError("durable event 5 is already activated")
+
+    def inspect_committed(self, query):
+        return inspect_run_action_inert_activation(
+            query=query,
+            resource_manager=self._resource_manager,
+            launch_settings=self._launch_settings,
+        )
+
+    def continue_committed_once(self, capability):
+        self.running_observation = start_run_action_barrier_once(
+            capability=capability,
+            resource_manager=self._resource_manager,
+            start_manager=self._start_manager,
+            command=self._command,
+            volume_observation=self._volume_observation,
+            helper_evidence=self._helper_evidence,
+            init_source_evidence=self._init_source_evidence,
+            docker_settings=self._docker_settings,
+            launch_settings=self._launch_settings,
+        )
+        return RunActionContinuationOutcome(
+            state=RunActionContinuationState.PENDING,
+            result=None,
+            provider_termination_receipt=None,
+            timeout_directive_publication=None,
         )
 
 
@@ -860,6 +950,7 @@ def _listed_exact(
     "terminal_path",
     (
         "result",
+        "ambiguous_start",
         "timeout",
         "empty",
         "nonzero",
@@ -935,7 +1026,7 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             " /kapso/credentials/credentials"
             " && test -d /kapso/workspace/.git"
         )
-        if terminal_path in {"result", "timeout"}:
+        if terminal_path in {"result", "ambiguous_start", "timeout"}:
             target_command = (
                 'printf \'{"live":"captured"}\''
                 " > /kapso/result/result.blob"
@@ -1683,29 +1774,100 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             _authority=_RUN_ACTION_RECOVERY_AUTHORITY,
         ) as session:
             activation_event = session.commit_activation(activation_receipt)
-        with open_selected_run_action_activation(
-            layout_allocation,
-            activation_event.activation_revalidation_receipt,
-            resource_manager,
-            settings=cross_run_settings.launch,
-        ) as activation_revalidation:
-            assert activation_revalidation.selected_receipt == activation_receipt
-            runtime.run_control(("container", "start", layout_main_id))
-            activation_revalidation.require_volume_current()
-            time.sleep(2 * settings.run_action_barrier_poll_interval_seconds)
-            activation_revalidation.require_volume_current()
+        start_manager = DockerRunActionStartManager(runtime)
+        start_dispatches = []
+        if terminal_path == "ambiguous_start":
+            original_start = PinnedDockerStartAuthority._start_created_container_once
+
+            def lose_start_response(
+                start_authority,
+                *,
+                container_id,
+                exclusion_lease,
+                _authority,
+            ):
+                result = original_start(
+                    start_authority,
+                    container_id=container_id,
+                    exclusion_lease=exclusion_lease,
+                    _authority=_authority,
+                )
+                start_dispatches.append(container_id)
+                return replace(
+                    result,
+                    outcome=BoundedProcessOutcome.TIMED_OUT,
+                    returncode=-1,
+                )
+
+            monkeypatch.setattr(
+                PinnedDockerStartAuthority,
+                "_start_created_container_once",
+                lose_start_response,
+            )
+        start_adapter = _LiveInertStartAdapter(
+            boundary_identity=boundary_identity,
+            execution_policy=layout_policy,
+            resource_manager=resource_manager,
+            start_manager=start_manager,
+            preparation_allocation=layout_allocation,
+            command=command,
+            volume_observation=layout_volume_observation,
+            helper_evidence=helper_evidence,
+            init_source_evidence=init_source_evidence,
+            docker_settings=settings,
+            launch_settings=cross_run_settings.launch,
+        )
+        if terminal_path == "ambiguous_start":
+            with pytest.raises(
+                RunActionMainStartError,
+                match="failed or ambiguous",
+            ):
+                _recovery_coordinator(
+                    action_gate,
+                    start_adapter,
+                ).recover(action_frontier)
+            assert start_dispatches == [layout_main_id]
+            with pytest.raises(DockerRunActionInspectionError):
+                _recovery_coordinator(
+                    action_gate,
+                    start_adapter,
+                ).recover(action_frontier)
+            assert start_dispatches == [layout_main_id]
+        else:
+            start_report = _recovery_coordinator(
+                action_gate,
+                start_adapter,
+            ).recover(action_frontier)
+            assert not start_report.is_complete
+            assert (
+                start_report.unresolved_operation_id
+                == layout_reservation.intent.operation_id
+            )
+            assert start_adapter.running_observation is not None
+        assert (
+            len(
+                action_gate._action_store.inspect().events_for(
+                    layout_reservation.intent.operation_id
+                )
+            )
+            == 5
+        )
         running_layout_main = resource_manager.inspect_main(
             resource_manager.observe(layout_allocation)
         )
-        running_main_observation = observe_running_barrier_main_container(
-            running_layout_main,
-            layout_claim,
-            layout_authority,
-            layout_volume_observation,
-            command,
-            helper_evidence,
-            init_source_evidence,
-            settings,
+        running_main_observation = (
+            observe_running_barrier_main_container(
+                running_layout_main,
+                layout_claim,
+                layout_authority,
+                layout_volume_observation,
+                command,
+                helper_evidence,
+                init_source_evidence,
+                settings,
+            )
+            if terminal_path == "ambiguous_start"
+            else start_adapter.running_observation
         )
         assert running_layout_main["State"]["Running"] is True
         assert running_layout_main["State"]["Pid"] > 0
@@ -1913,6 +2075,8 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
         report = _recovery_coordinator(action_gate, adapter).recover(action_frontier)
         assert not report.is_complete
         assert report.unresolved_operation_id == layout_reservation.intent.operation_id
+        if terminal_path == "ambiguous_start":
+            assert start_dispatches == [layout_main_id]
         assert adapter.lease is not None
         assert adapter.release_receipt is not None
         assert (
@@ -2063,6 +2227,7 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
         wait_result = runtime.run_control(("container", "wait", layout_main_id))
         expected_exit_status = {
             "result": b"0\n",
+            "ambiguous_start": b"0\n",
             "empty": b"0\n",
             "nonzero": b"23\n",
             "oom": b"137\n",

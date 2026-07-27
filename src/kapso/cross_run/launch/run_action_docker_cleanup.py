@@ -28,7 +28,7 @@ from kapso.cross_run.launch.run_action_docker_inspect import (
     reobserve_terminal_main_container_for_cleanup,
 )
 from kapso.cross_run.launch.run_action_docker_projection import (
-    DockerRunActionCommand,
+    target_command_from_main_projection,
 )
 from kapso.cross_run.launch.run_action_docker_resources import (
     _run_action_observation_authority,
@@ -76,7 +76,6 @@ _CLEANUP_EXCLUSION_LOCK = Lock()
 _CLEANUP_EXCLUSION_SESSIONS: WeakKeyDictionary[
     PinnedDockerCleanupExclusionLease, object
 ] = WeakKeyDictionary()
-_BARRIER_TARGET_ENTRYPOINT_POSITION = 8
 
 
 class RunActionDockerCleanupError(RuntimeError):
@@ -764,15 +763,7 @@ def _prove_inert_main_occurrence(
             "invalidated prepared action lacks its inert main"
         )
     projection = prepared.inert_container_evidence.issued_create_projection
-    arguments = projection.command_arguments
-    if len(arguments) <= _BARRIER_TARGET_ENTRYPOINT_POSITION:
-        raise RunActionDockerCleanupError(
-            "invalidated prepared action lacks its target command"
-        )
-    command = DockerRunActionCommand.build(
-        entrypoint=arguments[_BARRIER_TARGET_ENTRYPOINT_POSITION],
-        arguments=arguments[_BARRIER_TARGET_ENTRYPOINT_POSITION + 1 :],
-    )
+    command = target_command_from_main_projection(projection)
     observed = observe_inert_main_container(
         resource_manager.inspect_main(inventory),
         prepared.preparation_claim,

@@ -253,7 +253,11 @@ def issued_main_projection(
     _require_command_policy(command, claim)
     _require_helper_evidence(helper_evidence, claim)
     _require_init_source_evidence(init_source_evidence, claim)
-    barrier_executable, barrier_arguments = main_barrier_command(command, settings)
+    barrier_executable, barrier_arguments = main_barrier_command(
+        command,
+        authority.generation_nonce,
+        settings,
+    )
     mounts = preparation_main_mounts(claim, authority)
     return DockerRunActionCreateInspectProjection.mint(
         projection_protocol_version=DOCKER_RUN_ACTION_PROJECTION_PROTOCOL_VERSION,
@@ -265,6 +269,7 @@ def issued_main_projection(
         barrier_poll_interval_seconds=(
             settings.run_action_barrier_poll_interval_seconds
         ),
+        barrier_generation_nonce=authority.generation_nonce,
         command_executable=barrier_executable,
         command_arguments=barrier_arguments,
         mounts=mounts,
@@ -298,7 +303,11 @@ def observe_inert_main_container(
     raw = _require_mapping(raw_inspection, "Docker main container inspection")
     expected_labels = preparation_container_labels(claim)
     expected_mounts = preparation_main_mounts(claim, authority)
-    barrier_executable, barrier_arguments = main_barrier_command(command, settings)
+    barrier_executable, barrier_arguments = main_barrier_command(
+        command,
+        authority.generation_nonce,
+        settings,
+    )
     container_id = _require_common_container(
         raw,
         claim=claim,
@@ -364,7 +373,11 @@ def observe_running_barrier_main_container(
     )
     labels = preparation_container_labels(claim)
     mounts = preparation_main_mounts(claim, authority)
-    barrier_executable, barrier_arguments = main_barrier_command(command, settings)
+    barrier_executable, barrier_arguments = main_barrier_command(
+        command,
+        authority.generation_nonce,
+        settings,
+    )
     container_id = _require_common_container(
         raw,
         claim=claim,
@@ -582,7 +595,11 @@ def _observe_exited_main_container_snapshot(
         )
     labels = preparation_container_labels(claim)
     mounts = preparation_main_mounts(claim, authority)
-    barrier_executable, barrier_arguments = main_barrier_command(command, settings)
+    barrier_executable, barrier_arguments = main_barrier_command(
+        command,
+        authority.generation_nonce,
+        settings,
+    )
     container_id = _require_common_container(
         raw,
         claim=claim,

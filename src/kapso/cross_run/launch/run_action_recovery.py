@@ -135,6 +135,7 @@ _RUN_ACTION_RECOVERY_IMPLEMENTATION_REGISTRY_AUTHORITY = object()
 _RUN_ACTION_PREPARATION_AUTHORITY = object()
 _RUN_ACTION_ACTIVATION_AUTHORITY = object()
 _RUN_ACTION_COMMITTED_CONTINUATION_AUTHORITY = object()
+_RUN_ACTION_START_AUTHORITY = object()
 _RUN_ACTION_RELEASE_PUBLISHER_AUTHORITY = object()
 _RUN_ACTION_TIMEOUT_PUBLISHER_AUTHORITY = object()
 _RUN_ACTION_TIMEOUT_CONTAINMENT_AUTHORITY = object()
@@ -943,6 +944,10 @@ class RunActionCommittedContinuationCapability:
         self._owner_process_id = os.getpid()
         self._invoking_thread_id = None
         self._state = "ready"
+        self._start_state = "ready"
+        self._started_running_observation: (
+            RunActionBarrierRunningContainerObservation | None
+        ) = None
         self._release_publication_state = "ready"
         self._timeout_publication_state = (
             "complete"
@@ -1014,6 +1019,86 @@ class RunActionCommittedContinuationCapability:
     ) -> RunActionWorkloadReleaseAdoption | None:
         self._require_active_invocation()
         return self._query.workload_release_adoption
+
+    def _take_start_authority(
+        self,
+        observation_token: str,
+        *,
+        _authority: object,
+    ) -> tuple["RunActionCommittedSpawnQuery", str]:
+        """Consume the trusted start leaf's exact event-5 inert seal."""
+
+        with _COMMITTED_CONTINUATION_CAPABILITY_LOCK:
+            query = self._query
+            if (
+                _ISSUED_COMMITTED_CONTINUATION_CAPABILITIES.get(id(self)) is not self
+                or self._owner_process_id != os.getpid()
+                or self._state != "invoking"
+                or self._invoking_thread_id != get_ident()
+                or self._observation.state
+                is not RunActionCommittedSpawnState.INERT_CONTINUABLE
+                or type(observation_token) is not str
+                or observation_token != self._observation.observation_token
+                or self._start_state != "ready"
+                or self._started_running_observation is not None
+                or self._release_publication_state != "ready"
+                or self._timeout_publication_state != "ready"
+                or self._timeout_directive_publication is not None
+                or self._timeout_containment_state != "ready"
+                or self._timeout_containment_result is not None
+                or self._terminal_inspection_state != "ready"
+                or self._terminal_observation is not None
+                or self._result_capture_state != "ready"
+                or self._captured_result is not None
+                or self._provider_termination_state != "ready"
+                or self._provider_termination_receipt is not None
+                or query.control_directory_topology
+                is not RunActionControlDirectoryTopology.EMPTY
+                or query.workload_release_adoption is not None
+                or query.timeout_directive_publication is not None
+                or _authority is not _RUN_ACTION_START_AUTHORITY
+            ):
+                raise RunActionRecoveryError(
+                    "container start lacks exact live event-5 authority"
+                )
+            self._start_state = "starting"
+        return query, observation_token
+
+    def _complete_start(
+        self,
+        running_observation: RunActionBarrierRunningContainerObservation,
+        observation_token: str,
+        *,
+        _authority: object,
+    ) -> None:
+        """Register the trusted start leaf's stable blocked-wrapper occurrence."""
+
+        with _COMMITTED_CONTINUATION_CAPABILITY_LOCK:
+            query = self._query
+            prepared = query.prepared_execution
+            if (
+                _ISSUED_COMMITTED_CONTINUATION_CAPABILITIES.get(id(self)) is not self
+                or self._owner_process_id != os.getpid()
+                or self._state != "invoking"
+                or self._invoking_thread_id != get_ident()
+                or self._observation.state
+                is not RunActionCommittedSpawnState.INERT_CONTINUABLE
+                or observation_token != self._observation.observation_token
+                or self._start_state != "starting"
+                or self._started_running_observation is not None
+                or type(running_observation)
+                is not RunActionBarrierRunningContainerObservation
+                or running_observation.container_id
+                != query.spawn_commit.provider_execution_id
+                or running_observation.observed_inspect_projection
+                != prepared.inert_container_evidence.issued_create_projection
+                or _authority is not _RUN_ACTION_START_AUTHORITY
+            ):
+                raise RunActionRecoveryError(
+                    "container start completion lacks its exact blocked occurrence"
+                )
+            self._started_running_observation = running_observation
+            self._start_state = "complete"
 
     def _begin_release_publication(
         self,
@@ -1646,7 +1731,9 @@ class RunActionCommittedContinuationCapability:
                 is RunActionCommittedSpawnState.TERMINAL_CONTINUABLE
             ):
                 if (
-                    outcome.state
+                    self._start_state != "ready"
+                    or self._started_running_observation is not None
+                    or outcome.state
                     not in {
                         RunActionContinuationState.PENDING,
                         RunActionContinuationState.RESULT_CAPTURED,
@@ -1715,7 +1802,9 @@ class RunActionCommittedContinuationCapability:
                 RunActionCommittedSpawnState.PRE_RELEASE_MAIN_TERMINAL_CONTINUABLE,
             }:
                 if (
-                    self._release_publication_state != "ready"
+                    self._start_state != "ready"
+                    or self._started_running_observation is not None
+                    or self._release_publication_state != "ready"
                     or self._timeout_publication_state != "ready"
                     or self._timeout_directive_publication is not None
                     or self._timeout_containment_state != "ready"
@@ -1755,6 +1844,33 @@ class RunActionCommittedContinuationCapability:
                 ):
                     raise RunActionRecoveryError(
                         "pre-release continuation lacks its trusted termination"
+                    )
+            elif (
+                self._observation.state
+                is RunActionCommittedSpawnState.INERT_CONTINUABLE
+            ):
+                started = (
+                    self._start_state == "complete"
+                    and type(self._started_running_observation)
+                    is RunActionBarrierRunningContainerObservation
+                )
+                if (
+                    outcome.state is not RunActionContinuationState.PENDING
+                    or not started
+                    or self._release_publication_state != "ready"
+                    or self._timeout_publication_state != "ready"
+                    or self._timeout_directive_publication is not None
+                    or self._timeout_containment_state != "ready"
+                    or self._timeout_containment_result is not None
+                    or self._terminal_inspection_state != "ready"
+                    or self._terminal_observation is not None
+                    or self._result_capture_state != "ready"
+                    or self._captured_result is not None
+                    or self._provider_termination_state != "ready"
+                    or self._provider_termination_receipt is not None
+                ):
+                    raise RunActionRecoveryError(
+                        "inert continuation lacks exact start authority"
                     )
             elif (
                 self._observation.state
@@ -1815,7 +1931,9 @@ class RunActionCommittedContinuationCapability:
                     is RunActionTimeoutContainmentResult
                 )
                 if (
-                    self._terminal_inspection_state != "ready"
+                    self._start_state != "ready"
+                    or self._started_running_observation is not None
+                    or self._terminal_inspection_state != "ready"
                     or self._terminal_observation is not None
                     or self._result_capture_state != "ready"
                     or self._captured_result is not None
@@ -1833,6 +1951,8 @@ class RunActionCommittedContinuationCapability:
                     )
             elif (
                 outcome.state is not RunActionContinuationState.PENDING
+                or self._start_state != "ready"
+                or self._started_running_observation is not None
                 or self._timeout_publication_state != "ready"
                 or self._timeout_directive_publication is not None
                 or self._timeout_containment_state != "ready"
@@ -1876,6 +1996,7 @@ class RunActionCommittedContinuationCapability:
                 or self._owner_process_id != os.getpid()
                 or self._state != "invoking"
                 or self._invoking_thread_id != get_ident()
+                or self._start_state == "starting"
                 or self._release_publication_state == "authorizing"
                 or self._timeout_publication_state
                 in {
@@ -1913,6 +2034,7 @@ class RunActionCommittedContinuationCapability:
             self._provider_termination_publication_fence = None
             self._state = "spent"
             self._invoking_thread_id = None
+            self._start_state = "spent"
             self._release_publication_state = "spent"
             self._timeout_publication_state = "spent"
             self._timeout_containment_state = "spent"

@@ -27,8 +27,22 @@ published event-2 layout without mutation; incomplete, pending, extra, or
 substituted topology remains non-adoptable. Full event-5 receipt assembly, a
 descriptor-retained read-only reopen that reproduces the selected receipt
 without original delivery inputs, terminal Docker inspection, and
-adopted-release result authority are implemented. Committed-container
-classification and token-sealed start remain to be composed.
+adopted-release result authority are implemented. Exact inert event-5
+classification and token-sealed barrier start are now implemented: the
+continuation token binds the durable event, selected activation, allocation,
+spawn, full three-resource inventory, inert evidence, provider ID, and `EMPTY`
+control topology. A start-only Docker projection acquires daemon-wide mutation
+exclusion before reopening and revalidating event 5, retains that exclusion
+through start and stable post-start proof, and registers the resulting running
+barrier before the single-use continuation may return `PENDING`. Barrier
+protocol v2 and Docker projection v5 also require the linked release receipt to
+contain the immutable runtime-volume generation marker; a readable stale or
+preseeded `release` from another generation cannot start the target. The typed
+projection carries that nonce explicitly, validates the exact marker argument,
+and `PreparedExecution` joins it to the selected runtime-volume authority. One
+projection-owned target-command decoder is shared by activation reopen and
+prepared-invalidation cleanup, so barrier protocol changes cannot drift between
+those authority paths.
 Descriptor-bound result capture, the closed typed-termination evidence
 contracts, terminal event-6 persistence/replay, the closed semantic control
 topology, and exact crash adoption of a published timeout directive are
@@ -770,7 +784,16 @@ therefore leave an uncloseable substitution interval. The sole path instead adds
 an empty prepared `control` subpath mounted read-only into the main container and
 uses the pinned static supervisor BusyBox as a fixed barrier entrypoint. The
 intended command remains policy-bound and is passed as positional arguments;
-the fixed shell program never interpolates it. With Docker `--init`, the daemon's
+the fixed shell program never interpolates it. The barrier does not treat
+readability alone as authority: its immutable argument vector contains the
+unguessable runtime-volume generation marker and it waits until the release
+bytes contain that exact canonical marker. The later resolved-mount proof still
+must join the mounted control inode to event 5 before the supervisor can publish
+the complete receipt. Thus an accidentally substituted or stale control subpath
+cannot run the target merely by carrying a readable `release`. An unrestricted
+same-UID host process can read the durable generation authority and forge this
+marker, but that process is already inside the explicitly trusted local
+filesystem and Docker-supervisor boundary described above. With Docker `--init`, the daemon's
 state PID names init, so the supervisor proves the exact direct BusyBox child
 rather than misidentifying init as the wrapper. The host authority pins the
 configured static `docker-init` source path and digest; both main and keeper
@@ -1037,12 +1060,13 @@ atomically published with `RENAME_NOREPLACE` only after every final directory is
 in place and staging is gone; that rename is the final namespace mutation.
 Preparation also creates a distinct empty `control` directory, reserves the
 future release inode, and binds that directory into the prepared layout and
-global subpath-identity graph. Projection protocol v4 mounts the exact control
+global subpath-identity graph. Projection protocol v5 mounts the exact control
 subpath read-only at `/kapso-supervisor/control`, mounts the same pinned static
 helper read-only and non-recursively into the main container, and replaces direct
-target execution with the fixed positional-argument barrier. Main inspection
-requires that exact helper bind, control mount, wrapper program, poll setting,
-target command, and mount count. Its running observation also closes the exact
+target execution with the generation-bound positional-argument barrier. Main
+inspection requires that exact helper bind, control mount, wrapper program,
+generation nonce, poll setting, target command, and mount count. Its running
+observation also closes the exact
 Docker lifecycle occurrence, including PID/start timestamp, zero restart count,
 and safe runtime-normalized daemon fields, without claiming proc-generation or
 resolved-mount authority. Activation proves the prepared control inode is still
@@ -1246,10 +1270,24 @@ physically removed, and barrier-killed-but-present Docker occurrences. Durable
 eligibility, role proof, cleanup, recovery-report admission,
 publication, and subsequent reservation are now one sealed authority chain.
 The allocation-only invalidation residue and production adapters remain unwired.
-No production
-caller can receive Docker start authority from the reservation gate; M9
-activation must continue to route every post-reservation transition through the
-coordinator's sealed capabilities.
+The start manager exposes no generic Docker command surface, and the raw pinned
+runtime is process-bound. One real-Docker lifecycle now routes the durable main
+through two coordinator passes: exact `INERT` classification and sealed barrier
+start first, then fresh `RUNNING` classification, resolved-mount proof, and
+release. Remaining production composition must provide adapters only the narrow
+observation/start/containment/cleanup projections and continue routing every
+post-reservation transition through coordinator-sealed capabilities.
+Every failed, interrupted, or timed-out Docker start response burns the current
+continuation. Fresh recovery reclassifies the same immutable container: an
+accepted start is adopted as `RUNNING`, while a still-`created` occurrence may
+receive a fresh start capability. Safety relies only on Docker serializing start
+for one container ID—overlapping or repeated requests cannot create a second
+container generation or a second target command. No ambiguous response is
+reinterpreted as success inside the spent continuation. The inert classifier
+itself physically reopens the selected activation and parses the main through
+the exact `created` lifecycle; after an accepted-but-lost response it fails
+before issuing another capability, and the running classifier adopts the
+blocked wrapper on the fresh pass.
 
 The timeout payload envelope is now single-sourced before physical publication
 lands. Launch configuration and the durable supervisor policy carry the same
@@ -1376,7 +1414,8 @@ this path is activated.
   link, while running, during deadline stop/kill, after terminal inspection, and
   during result capture. Every mutation requires a fresh inspection.
 - Substitute every Docker `VolumeSubpath` after event 5 but before start and
-  require the post-start namespace proof to leave release absent. Prove stale
+  require the generation-bound barrier to reject a stale/preseeded release and
+  the post-start namespace proof to leave release absent. Prove stale
   security/credentials block release but never block containment of an already
   released workload.
 - In real Docker, create the inert container before delivery, activate a complete
@@ -1386,6 +1425,11 @@ this path is activated.
   capability, resolve and revalidate the blocked workload twice, and prove the
   release, target command, and result remain absent while the ledger stays at
   five events.
+- Lose the response after Docker accepts the exact start, burn that continuation,
+  freshly adopt the running barrier, and prove one start dispatch, one target
+  execution, no pre-release target marker, and no second start. Independently
+  execute the pinned helper barrier against a readable wrong-generation release
+  and prove it remains blocked until matching generation bytes replace it.
 - After the released target exits, reopen event 5, descriptor-adopt the same
   release, parse the exact exited Docker occurrence twice, consume one sealed
   terminal reinspection capability, descriptor-capture the original bounded

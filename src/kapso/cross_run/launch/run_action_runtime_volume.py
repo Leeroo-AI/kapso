@@ -22,7 +22,9 @@ from kapso.cross_run.launch.run_action_docker_inspect import (
     observe_running_keeper,
     observe_runtime_volume,
 )
-from kapso.cross_run.launch.run_action_docker_projection import DockerRunActionCommand
+from kapso.cross_run.launch.run_action_docker_projection import (
+    target_command_from_main_projection,
+)
 from kapso.cross_run.launch.run_action_docker_resources import (
     DockerRunActionResourceManager,
     DockerRunActionResourceInventory,
@@ -92,7 +94,6 @@ _SENTINEL_MODE = 0o400
 _RESULT_WORKSPACE_LEASE_AUTHORITY = object()
 _BARRIER_CONTROL_LEASE_AUTHORITY = object()
 _ACTIVATION_REVALIDATION_LEASE_AUTHORITY = object()
-_BARRIER_COMMAND_PREFIX_LENGTH = 8
 _SIZE_MULTIPLIERS = {
     "": 1,
     "k": 1024,
@@ -2635,7 +2636,7 @@ def _observe_selected_activation_docker_resources(
         inventory,
     )
     projection = prepared.inert_container_evidence.issued_create_projection
-    command = _command_from_inert_projection(projection.command_arguments)
+    command = target_command_from_main_projection(projection)
     inert_main = observe_inert_main_container(
         resource_manager.inspect_main(inventory),
         allocation.preparation_claim,
@@ -2696,22 +2697,6 @@ def _observe_selected_activation_volume_and_keeper(
             "selected activation volume or keeper differs from event 5"
         )
     return volume, keeper
-
-
-def _command_from_inert_projection(
-    command_arguments: tuple[str, ...],
-) -> DockerRunActionCommand:
-    if (
-        type(command_arguments) is not tuple
-        or len(command_arguments) <= _BARRIER_COMMAND_PREFIX_LENGTH
-    ):
-        raise RunActionRuntimeVolumeError(
-            "selected activation lacks its policy-bound target command"
-        )
-    return DockerRunActionCommand.build(
-        entrypoint=command_arguments[_BARRIER_COMMAND_PREFIX_LENGTH],
-        arguments=command_arguments[_BARRIER_COMMAND_PREFIX_LENGTH + 1 :],
-    )
 
 
 def _open_selected_activation_descriptors(

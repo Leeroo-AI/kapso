@@ -5,6 +5,7 @@ import multiprocessing
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
+from threading import Event
 
 import pytest
 
@@ -693,6 +694,245 @@ def test_attached_execution_requires_created_occurrence_before_submit(
     )
 
 
+def test_issued_start_authority_starts_only_an_exact_created_container(
+    tmp_path,
+    provider_settings,
+):
+    container_id = "7" * 64
+    runtime, runner = _make_runtime(
+        tmp_path,
+        provider_settings,
+        (
+            {"stdout": _json_line(_version(provider_settings))},
+            {"stdout": _json_line(_info(provider_settings))},
+            {
+                "stdout": _json_line(
+                    {
+                        "Id": container_id,
+                        "State": {"Status": "created"},
+                    }
+                )
+            },
+            {"stdout": f"{container_id}\n".encode("ascii")},
+        ),
+    )
+    authority = runtime.issue_start_authority()
+
+    with authority._issue_exclusion_lease(
+        _authority=runtime_module._DOCKER_START_EXCLUSION_ISSUANCE,
+    ) as exclusion:
+        result = authority._start_created_container_once(
+            container_id=container_id,
+            exclusion_lease=exclusion,
+            _authority=runtime_module._DOCKER_START_CONTAINER_AUTHORITY,
+        )
+
+    assert result.outcome is BoundedProcessOutcome.COMPLETED
+    assert result.stdout == f"{container_id}\n".encode("ascii")
+    assert tuple(request.argv[5:] for request in runner.requests[-2:]) == (
+        ("container", "inspect", "--format", "{{json .}}", container_id),
+        ("container", "start", container_id),
+    )
+    assert not hasattr(authority, "run_control")
+    assert not hasattr(authority, "run_bounded")
+
+
+def test_issued_start_authority_rejects_noncreated_and_unissued_starts(
+    tmp_path,
+    provider_settings,
+):
+    container_id = "8" * 64
+    runtime, runner = _make_runtime(
+        tmp_path,
+        provider_settings,
+        (
+            {"stdout": _json_line(_version(provider_settings))},
+            {"stdout": _json_line(_info(provider_settings))},
+            {
+                "stdout": _json_line(
+                    {
+                        "Id": container_id,
+                        "State": {"Status": "running"},
+                    }
+                )
+            },
+        ),
+    )
+    authority = runtime.issue_start_authority()
+
+    with authority._issue_exclusion_lease(
+        _authority=runtime_module._DOCKER_START_EXCLUSION_ISSUANCE,
+    ) as exclusion:
+        with pytest.raises(
+            PinnedDockerRuntimeError,
+            match="lacks an exact created occurrence",
+        ):
+            authority._start_created_container_once(
+                container_id=container_id,
+                exclusion_lease=exclusion,
+                _authority=runtime_module._DOCKER_START_CONTAINER_AUTHORITY,
+            )
+        with pytest.raises(
+            PinnedDockerRuntimeError,
+            match="lacks exact closed authority",
+        ):
+            authority._start_created_container_once(
+                container_id=container_id,
+                exclusion_lease=exclusion,
+                _authority=object(),
+            )
+
+    assert not any(
+        request.argv[5:7] == ("container", "start") for request in runner.requests
+    )
+
+
+def test_start_authority_rejects_foreign_closed_and_reused_exclusion(
+    tmp_path,
+    monkeypatch,
+    provider_settings,
+):
+    first_root = (tmp_path / "first").resolve()
+    second_root = (tmp_path / "second").resolve()
+    first_root.mkdir(mode=0o700)
+    second_root.mkdir(mode=0o700)
+    issuance_outputs = (
+        {"stdout": _json_line(_version(provider_settings))},
+        {"stdout": _json_line(_info(provider_settings))},
+    )
+    first_runtime, first_runner = _make_runtime(
+        first_root,
+        provider_settings,
+        issuance_outputs,
+    )
+    second_runtime, second_runner = _make_runtime(
+        second_root,
+        provider_settings,
+        issuance_outputs,
+    )
+    first_authority = first_runtime.issue_start_authority()
+    second_authority = second_runtime.issue_start_authority()
+    exclusion = first_authority._issue_exclusion_lease(
+        _authority=runtime_module._DOCKER_START_EXCLUSION_ISSUANCE,
+    )
+
+    with pytest.raises(
+        PinnedDockerRuntimeError,
+        match="lacks exact closed authority",
+    ):
+        second_authority._start_created_container_once(
+            container_id="9" * 64,
+            exclusion_lease=exclusion,
+            _authority=runtime_module._DOCKER_START_CONTAINER_AUTHORITY,
+        )
+    exclusion.close()
+    with pytest.raises(
+        PinnedDockerRuntimeError,
+        match="closed or foreign",
+    ):
+        first_authority._start_created_container_once(
+            container_id="9" * 64,
+            exclusion_lease=exclusion,
+            _authority=runtime_module._DOCKER_START_CONTAINER_AUTHORITY,
+        )
+    with pytest.raises(
+        PinnedDockerRuntimeError,
+        match="closed or foreign",
+    ):
+        exclusion.close()
+
+    owner_process_id = first_authority._owner_process_id
+    monkeypatch.setattr(
+        runtime_module.os,
+        "getpid",
+        lambda: owner_process_id + 1,
+    )
+    with pytest.raises(
+        PinnedDockerRuntimeError,
+        match="unissued or foreign",
+    ):
+        first_authority.settings
+    assert len(first_runner.requests) == 4
+    assert len(second_runner.requests) == 4
+
+
+def test_observation_and_start_authorities_join_only_the_issuing_runtime(
+    tmp_path,
+    provider_settings,
+):
+    first_root = (tmp_path / "first").resolve()
+    second_root = (tmp_path / "second").resolve()
+    first_root.mkdir(mode=0o700)
+    second_root.mkdir(mode=0o700)
+    authority_outputs = (
+        {"stdout": _json_line(_version(provider_settings))},
+        {"stdout": _json_line(_info(provider_settings))},
+        {"stdout": _json_line(_version(provider_settings))},
+        {"stdout": _json_line(_info(provider_settings))},
+    )
+    first_runtime, _first_runner = _make_runtime(
+        first_root,
+        provider_settings,
+        authority_outputs,
+    )
+    second_runtime, _second_runner = _make_runtime(
+        second_root,
+        provider_settings,
+        authority_outputs[:2],
+    )
+    observation_authority = first_runtime.issue_observation_authority()
+    same_runtime_start_authority = first_runtime.issue_start_authority()
+    foreign_start_authority = second_runtime.issue_start_authority()
+
+    assert runtime_module._docker_observation_and_start_authorities_share_runtime(
+        observation_authority,
+        same_runtime_start_authority,
+    )
+    assert not runtime_module._docker_observation_and_start_authorities_share_runtime(
+        observation_authority,
+        foreign_start_authority,
+    )
+
+
+def test_start_exclusion_blocks_cleanup_exclusion_until_release(
+    tmp_path,
+    provider_settings,
+):
+    issuance_outputs = (
+        {"stdout": _json_line(_version(provider_settings))},
+        {"stdout": _json_line(_info(provider_settings))},
+        {"stdout": _json_line(_version(provider_settings))},
+        {"stdout": _json_line(_info(provider_settings))},
+    )
+    runtime, _runner = _make_runtime(
+        tmp_path,
+        provider_settings,
+        issuance_outputs,
+    )
+    start_authority = runtime.issue_start_authority()
+    cleanup_authority = runtime.issue_cleanup_authority()
+    cleanup_attempting = Event()
+
+    def hold_cleanup_exclusion_once():
+        cleanup_attempting.set()
+        with cleanup_authority._issue_exclusion_lease(
+            _authority=runtime_module._DOCKER_CLEANUP_EXCLUSION_ISSUANCE,
+        ):
+            return True
+
+    with ThreadPoolExecutor(max_workers=1) as execution:
+        with start_authority._issue_exclusion_lease(
+            _authority=runtime_module._DOCKER_START_EXCLUSION_ISSUANCE,
+        ):
+            contender = execution.submit(hold_cleanup_exclusion_once)
+            assert cleanup_attempting.wait(
+                timeout=provider_settings.command_timeout_seconds
+            )
+            time.sleep(provider_settings.run_action_barrier_poll_interval_seconds)
+            assert not contender.done()
+        assert contender.result(timeout=provider_settings.command_timeout_seconds)
+
+
 def test_independent_process_runtimes_serialize_authority_publication(
     tmp_path,
     monkeypatch,
@@ -1020,6 +1260,28 @@ def test_runtime_revalidates_pinned_cli_before_each_command(
 
     with pytest.raises(PinnedDockerRuntimeError, match="private Docker executable"):
         runtime.require_live_authority()
+
+
+def test_raw_pinned_runtime_rejects_forked_process_use(
+    tmp_path,
+    monkeypatch,
+    provider_settings,
+):
+    runtime, runner = _make_runtime(tmp_path, provider_settings)
+    owner_process_id = runtime._owner_process_id
+    monkeypatch.setattr(
+        runtime_module.os,
+        "getpid",
+        lambda: owner_process_id + 1,
+    )
+
+    with pytest.raises(
+        PinnedDockerRuntimeError,
+        match="belongs to another process",
+    ):
+        runtime.run_control(("version", "--format", "{{json .}}"))
+
+    assert len(runner.requests) == 2
 
 
 def test_runtime_rejects_provider_settings_with_an_unpinned_cli_digest(

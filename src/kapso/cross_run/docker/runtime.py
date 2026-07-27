@@ -49,6 +49,17 @@ _DOCKER_OBSERVATION_AUTHORITIES: WeakKeyDictionary[
     PinnedDockerObservationAuthority, PinnedDockerRuntime
 ] = WeakKeyDictionary()
 _DOCKER_OBSERVATION_AUTHORITY_LOCK = Lock()
+_DOCKER_START_AUTHORITY_ISSUANCE = object()
+_DOCKER_START_EXCLUSION_ISSUANCE = object()
+_DOCKER_START_CONTAINER_AUTHORITY = object()
+_DOCKER_START_AUTHORITIES: WeakKeyDictionary[
+    PinnedDockerStartAuthority, PinnedDockerRuntime
+] = WeakKeyDictionary()
+_DOCKER_START_AUTHORITY_LOCK = Lock()
+_DOCKER_START_EXCLUSION_LEASES: WeakKeyDictionary[
+    PinnedDockerStartExclusionLease, PinnedDockerStartAuthority
+] = WeakKeyDictionary()
+_DOCKER_START_EXCLUSION_LOCK = Lock()
 _DOCKER_CONTAINMENT_AUTHORITY_ISSUANCE = object()
 _DOCKER_CONTAINMENT_SIGNAL_AUTHORITY = object()
 _DOCKER_CONTAINMENT_AUTHORITIES: WeakKeyDictionary[
@@ -105,6 +116,93 @@ class PinnedDockerObservationAuthority:
 
     def run_json_control(self, arguments: tuple[str, ...]) -> Mapping[str, Any]:
         return _parse_single_json_object(self.run_control(arguments).stdout)
+
+
+class PinnedDockerStartAuthority:
+    """Issued start-only projection; the trusted launch leaf seals the exact ID."""
+
+    def __init__(self, *, _authority: object) -> None:
+        if _authority is not _DOCKER_START_AUTHORITY_ISSUANCE:
+            raise PinnedDockerRuntimeError(
+                "Docker start authority lacks issuance authority"
+            )
+        self._owner_process_id = os.getpid()
+
+    @property
+    def settings(self) -> DockerRuntimeSettings:
+        """Return the immutable settings of the issuing pinned runtime."""
+
+        return _docker_start_runtime(self).settings
+
+    def _issue_exclusion_lease(
+        self,
+        *,
+        _authority: object,
+    ) -> PinnedDockerStartExclusionLease:
+        if _authority is not _DOCKER_START_EXCLUSION_ISSUANCE:
+            raise PinnedDockerRuntimeError(
+                "Docker start exclusion lacks closed authority"
+            )
+        runtime = _docker_start_runtime(self)
+        mutation_lease = _open_docker_mutation_lease(
+            runtime,
+            timeout_seconds=runtime.settings.command_timeout_seconds,
+        )
+        lease = PinnedDockerStartExclusionLease(
+            start_authority=self,
+            mutation_lease=mutation_lease,
+            _authority=_DOCKER_START_EXCLUSION_ISSUANCE,
+        )
+        with _DOCKER_START_EXCLUSION_LOCK:
+            if _DOCKER_START_EXCLUSION_LEASES.get(lease) is not None:
+                raise PinnedDockerRuntimeError(
+                    "Docker start exclusion identity is already issued"
+                )
+            _DOCKER_START_EXCLUSION_LEASES[lease] = self
+        return lease
+
+    def _start_created_container_once(
+        self,
+        *,
+        container_id: str,
+        exclusion_lease: PinnedDockerStartExclusionLease,
+        _authority: object,
+    ) -> BoundedProcessResult:
+        """Linearize one created-state check and start under mutation exclusion."""
+
+        if (
+            type(container_id) is not str
+            or _CONTAINER_ID_PATTERN.fullmatch(container_id) is None
+            or not _docker_start_exclusion_matches(self, exclusion_lease)
+            or _authority is not _DOCKER_START_CONTAINER_AUTHORITY
+        ):
+            raise PinnedDockerRuntimeError(
+                "Docker container start lacks exact closed authority"
+            )
+        runtime = _docker_start_runtime(self)
+        settings = runtime.settings
+        before_start = runtime.run_json_control(
+            (
+                "container",
+                "inspect",
+                "--format",
+                "{{json .}}",
+                container_id,
+            )
+        )
+        if _observed_container_status(before_start, container_id) != "created":
+            raise PinnedDockerRuntimeError(
+                "Docker start lacks an exact created occurrence"
+            )
+        exclusion_lease.require_current()
+        return runtime._run_bounded_under_mutation_lease(
+            ("container", "start", container_id),
+            exclusion_lease._mutation_lease,
+            timeout_seconds=settings.command_timeout_seconds,
+            cleanup_timeout_seconds=settings.cleanup_timeout_seconds,
+            stdout_byte_limit=settings.command_output_byte_limit,
+            stderr_byte_limit=settings.command_output_byte_limit,
+        )
 
 
 class PinnedDockerContainmentAuthority:
@@ -248,6 +346,73 @@ class _PinnedDockerMutationLease:
         if not removed or integrity_changed:
             raise PinnedDockerRuntimeError(
                 "Docker mutation lock changed while retained"
+            )
+
+
+class PinnedDockerStartExclusionLease:
+    """Owner-bound proof that start retains daemon-wide mutation exclusion."""
+
+    def __init__(
+        self,
+        *,
+        start_authority: PinnedDockerStartAuthority,
+        mutation_lease: _PinnedDockerMutationLease,
+        _authority: object,
+    ) -> None:
+        if (
+            type(start_authority) is not PinnedDockerStartAuthority
+            or type(mutation_lease) is not _PinnedDockerMutationLease
+            or _authority is not _DOCKER_START_EXCLUSION_ISSUANCE
+        ):
+            raise PinnedDockerRuntimeError(
+                "Docker start exclusion lacks issuance authority"
+            )
+        self._owner_process_id = os.getpid()
+        self._owner_thread_id = get_ident()
+        self._mutation_lease = mutation_lease
+        self._closed = False
+
+    def require_current(self) -> None:
+        with _DOCKER_START_EXCLUSION_LOCK:
+            start_authority = _DOCKER_START_EXCLUSION_LEASES.get(self)
+        if (
+            self._closed
+            or self._owner_process_id != os.getpid()
+            or self._owner_thread_id != get_ident()
+            or type(start_authority) is not PinnedDockerStartAuthority
+        ):
+            raise PinnedDockerRuntimeError(
+                "Docker start exclusion is closed or foreign"
+            )
+        _docker_start_runtime(start_authority)
+        self._mutation_lease.require_current()
+
+    def __enter__(self) -> PinnedDockerStartExclusionLease:
+        self.require_current()
+        return self
+
+    def __exit__(self, *_arguments: object) -> None:
+        self.close()
+
+    def close(self) -> None:
+        with _DOCKER_START_EXCLUSION_LOCK:
+            issuing_authority = _DOCKER_START_EXCLUSION_LEASES.get(self)
+        if (
+            self._closed
+            or self._owner_process_id != os.getpid()
+            or self._owner_thread_id != get_ident()
+            or type(issuing_authority) is not PinnedDockerStartAuthority
+        ):
+            raise PinnedDockerRuntimeError(
+                "Docker start exclusion is closed or foreign"
+            )
+        self._closed = True
+        with _DOCKER_START_EXCLUSION_LOCK:
+            removed = _DOCKER_START_EXCLUSION_LEASES.pop(self, None)
+        self._mutation_lease.close()
+        if removed is not issuing_authority:
+            raise PinnedDockerRuntimeError(
+                "Docker start exclusion lost its issuing authority"
             )
 
 
@@ -546,6 +711,7 @@ class PinnedDockerRuntime:
         self._docker_path = docker_path
         self._docker_digest = settings.runtime_executable_digest
         self._docker_config_root = docker_config_root
+        self._owner_process_id = os.getpid()
         self._environment = MappingProxyType(
             {
                 "DOCKER_API_VERSION": settings.runtime_api_version,
@@ -597,6 +763,21 @@ class PinnedDockerRuntime:
                     "Docker observation authority identity is already issued"
                 )
             _DOCKER_OBSERVATION_AUTHORITIES[authority] = self
+        return authority
+
+    def issue_start_authority(self) -> PinnedDockerStartAuthority:
+        """Issue a projection limited to one exact created-container start."""
+
+        self.require_live_authority()
+        authority = PinnedDockerStartAuthority(
+            _authority=_DOCKER_START_AUTHORITY_ISSUANCE
+        )
+        with _DOCKER_START_AUTHORITY_LOCK:
+            if _DOCKER_START_AUTHORITIES.get(authority) is not None:
+                raise PinnedDockerRuntimeError(
+                    "Docker start authority identity is already issued"
+                )
+            _DOCKER_START_AUTHORITIES[authority] = self
         return authority
 
     def issue_containment_authority(self) -> PinnedDockerContainmentAuthority:
@@ -730,7 +911,7 @@ class PinnedDockerRuntime:
                         container_id,
                     )
                 )
-                if _attached_container_status(before_start, container_id) != "created":
+                if _observed_container_status(before_start, container_id) != "created":
                     raise PinnedDockerRuntimeError(
                         "attached Docker start lacks an exact created occurrence"
                     )
@@ -753,7 +934,7 @@ class PinnedDockerRuntime:
                         )
                     )
                     if (
-                        _attached_container_status(observation, container_id)
+                        _observed_container_status(observation, container_id)
                         != "created"
                     ):
                         break
@@ -845,6 +1026,10 @@ class PinnedDockerRuntime:
         return result
 
     def _require_local_authority(self) -> None:
+        if self._owner_process_id != os.getpid():
+            raise PinnedDockerRuntimeError(
+                "pinned Docker runtime belongs to another process"
+            )
         if read_verified_private_executable(self._docker_path) != self._docker_digest:
             raise PinnedDockerRuntimeError("pinned Docker executable changed")
         _require_runtime_socket(Path(self._settings.runtime_socket_path))
@@ -863,6 +1048,20 @@ def _docker_observation_runtime(
         raise PinnedDockerRuntimeError(
             "Docker observation authority is unissued or foreign"
         )
+    return runtime
+
+
+def _docker_start_runtime(
+    authority: PinnedDockerStartAuthority,
+) -> PinnedDockerRuntime:
+    with _DOCKER_START_AUTHORITY_LOCK:
+        runtime = _DOCKER_START_AUTHORITIES.get(authority)
+    if (
+        type(authority) is not PinnedDockerStartAuthority
+        or authority._owner_process_id != os.getpid()
+        or type(runtime) is not PinnedDockerRuntime
+    ):
+        raise PinnedDockerRuntimeError("Docker start authority is unissued or foreign")
     return runtime
 
 
@@ -909,6 +1108,17 @@ def _docker_authorities_share_runtime(
     ) is _docker_containment_runtime(containment_authority)
 
 
+def _docker_observation_and_start_authorities_share_runtime(
+    observation_authority: PinnedDockerObservationAuthority,
+    start_authority: PinnedDockerStartAuthority,
+) -> bool:
+    """Join read and start projections without exposing their runtime."""
+
+    return _docker_observation_runtime(observation_authority) is _docker_start_runtime(
+        start_authority
+    )
+
+
 def _docker_observation_and_cleanup_authorities_share_runtime(
     observation_authority: PinnedDockerObservationAuthority,
     cleanup_authority: PinnedDockerCleanupAuthority,
@@ -918,6 +1128,20 @@ def _docker_observation_and_cleanup_authorities_share_runtime(
     return _docker_observation_runtime(
         observation_authority
     ) is _docker_cleanup_runtime(cleanup_authority)
+
+
+def _docker_start_exclusion_matches(
+    start_authority: PinnedDockerStartAuthority,
+    exclusion_lease: PinnedDockerStartExclusionLease,
+) -> bool:
+    """Require one current mutation lease issued by the exact start authority."""
+
+    if type(exclusion_lease) is not PinnedDockerStartExclusionLease:
+        return False
+    exclusion_lease.require_current()
+    with _DOCKER_START_EXCLUSION_LOCK:
+        issuing_authority = _DOCKER_START_EXCLUSION_LEASES.get(exclusion_lease)
+    return issuing_authority is start_authority
 
 
 def _docker_cleanup_exclusion_matches(
@@ -1070,7 +1294,7 @@ def _is_docker_attached_container_start(arguments: tuple[str, ...]) -> bool:
     )
 
 
-def _attached_container_status(
+def _observed_container_status(
     observation: Mapping[str, Any],
     container_id: str,
 ) -> str:
@@ -1080,19 +1304,15 @@ def _attached_container_status(
         or _CONTAINER_ID_PATTERN.fullmatch(container_id) is None
         or observation.get("Id") != container_id
     ):
-        raise PinnedDockerRuntimeError(
-            "attached Docker container observation changed identity"
-        )
+        raise PinnedDockerRuntimeError("Docker container observation changed identity")
     state = _require_mapping(
         observation,
         "State",
-        "attached Docker container state",
+        "Docker container state",
     )
     status = state.get("Status")
     if type(status) is not str or not status:
-        raise PinnedDockerRuntimeError(
-            "attached Docker container state lacks exact status"
-        )
+        raise PinnedDockerRuntimeError("Docker container state lacks exact status")
     return status
 
 
