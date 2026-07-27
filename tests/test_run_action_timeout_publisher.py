@@ -10,6 +10,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from test_run_frontier_action_gate import _credential_broker_registry
+
 import kapso.cross_run.launch.run_action_control_candidate as control_candidate_module
 import kapso.cross_run.launch.run_action_release_adoption as release_adoption_module
 import kapso.cross_run.launch.run_action_timeout_adoption as timeout_adoption_module
@@ -398,7 +400,7 @@ def _case(
         ),
         required_security_observation=_release_security_observation(),
         security_authority=_SecurityAuthority(),
-        credential_validity_authority=None,
+        credential_broker_registry=_credential_broker_registry()[0],
         release_clock=clock,
         _authority=_RUN_ACTION_COMMITTED_CONTINUATION_AUTHORITY,
     )
@@ -547,7 +549,7 @@ def test_physical_timeout_link_is_freshly_adopted_end_to_end(
         ),
         required_security_observation=_release_security_observation(),
         security_authority=_SecurityAuthority(),
-        credential_validity_authority=None,
+        credential_broker_registry=_credential_broker_registry()[0],
         release_clock=clock,
         _authority=_RUN_ACTION_COMMITTED_CONTINUATION_AUTHORITY,
     )
@@ -817,7 +819,7 @@ def test_already_timed_out_running_occurrence_rejects_noop_pending():
         ),
         required_security_observation=_release_security_observation(),
         security_authority=_SecurityAuthority(),
-        credential_validity_authority=None,
+        credential_broker_registry=_credential_broker_registry()[0],
         release_clock=_SystemRunActionClock(),
         _authority=_RUN_ACTION_COMMITTED_CONTINUATION_AUTHORITY,
     )

@@ -21,6 +21,9 @@ from kapso.cross_run.launch.run_action_contracts import (
     RunFrontierActionKind,
     RunFrontierWorkspaceAccess,
 )
+from kapso.cross_run.launch.run_action_credential_broker import (
+    RunActionCredentialBrokerRegistry,
+)
 from kapso.cross_run.launch.run_action_ledger import RunActionExecutionEventKind
 from kapso.cross_run.launch.run_action_recovery import (
     _RUN_ACTION_RECOVERY_COORDINATOR_AUTHORITY,
@@ -119,17 +122,6 @@ class RunActionSecurityAuthority(Protocol):
     ) -> SecurityDenylistObservation: ...
 
 
-class RunActionCredentialValidityAuthority(Protocol):
-    """Trusted broker authority retained outside lifecycle adapter control."""
-
-    def observe_exact(
-        self,
-        *,
-        activated_credential_file_observation_id: str,
-        credential_lease_authority_id: str,
-    ) -> object: ...
-
-
 class RunFrontierActionGate:
     """Reserve event 1 and issue the sole coordinator for later transitions."""
 
@@ -139,7 +131,7 @@ class RunFrontierActionGate:
         active_workspace: ActiveLaunchWorkspace,
         publisher: RunStatePublisher,
         security_authority: RunActionSecurityAuthority,
-        credential_validity_authority: RunActionCredentialValidityAuthority | None,
+        credential_broker_registry: RunActionCredentialBrokerRegistry,
         resource_finalization_authority: RunActionResourceFinalizationAuthority,
     ) -> None:
         if (
@@ -147,10 +139,7 @@ class RunFrontierActionGate:
             or type(publisher) is not RunStatePublisher
             or publisher._authority is not active_workspace
             or not hasattr(security_authority, "observe_exact_descendant_of")
-            or (
-                credential_validity_authority is not None
-                and not hasattr(credential_validity_authority, "observe_exact")
-            )
+            or type(credential_broker_registry) is not RunActionCredentialBrokerRegistry
         ):
             raise RunFrontierActionError(
                 "run frontier action gate authorities are incompatible"
@@ -168,7 +157,8 @@ class RunFrontierActionGate:
         self._publisher = publisher
         self._action_store = publisher._action_store
         self._security_authority = security_authority
-        self._credential_validity_authority = credential_validity_authority
+        credential_broker_registry._require_owner_process()
+        self._credential_broker_registry = credential_broker_registry
         self._resource_finalization_authority = resource_finalization_authority
         self._owner_process_id = os.getpid()
 
@@ -186,7 +176,7 @@ class RunFrontierActionGate:
             active_workspace=self._active_workspace,
             publisher=self._publisher,
             security_authority=self._security_authority,
-            credential_validity_authority=self._credential_validity_authority,
+            credential_broker_registry=self._credential_broker_registry,
             resource_finalization_authority=self._resource_finalization_authority,
             implementation_registry=implementation_registry,
             _authority=_RUN_ACTION_RECOVERY_COORDINATOR_AUTHORITY,

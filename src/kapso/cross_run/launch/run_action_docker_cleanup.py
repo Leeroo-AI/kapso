@@ -674,10 +674,23 @@ def _terminal_cleanup_evidence(
             terminal_observation=result.terminal_observation,
             main_must_be_absent=False,
         )
-    if (
-        tail.event_kind is not RunActionExecutionEventKind.PROVIDER_TERMINATED
-        or len(events) != 6
-    ):
+    provider_terminated_at_event_6 = (
+        len(events) == 6
+        and tail.event_kind is RunActionExecutionEventKind.PROVIDER_TERMINATED
+        and tail.provider_termination_receipt.reason
+        is not RunActionProviderTerminationReason.CREDENTIAL_EXPIRED
+    )
+    credential_expired_at_event_7 = (
+        len(events) == 7
+        and events[5].event_kind
+        is RunActionExecutionEventKind.CREDENTIAL_RETIREMENT_REQUESTED
+        and tail.event_kind is RunActionExecutionEventKind.PROVIDER_TERMINATED
+        and tail.provider_termination_receipt.reason
+        is RunActionProviderTerminationReason.CREDENTIAL_EXPIRED
+        and tail.provider_termination_receipt.credential_retirement_intent
+        == events[5].credential_retirement_intent
+    )
+    if not (provider_terminated_at_event_6 or credential_expired_at_event_7):
         raise RunActionDockerCleanupError(
             "run-action cleanup is not durably terminal and eligible"
         )
@@ -688,6 +701,7 @@ def _terminal_cleanup_evidence(
     pre_release_termination = termination.reason in {
         RunActionProviderTerminationReason.PRE_RELEASE_MAIN_LOSS,
         RunActionProviderTerminationReason.PRE_RELEASE_MAIN_TERMINAL,
+        RunActionProviderTerminationReason.CREDENTIAL_EXPIRED,
     }
     topology = (
         RunActionControlDirectoryTopology.EMPTY

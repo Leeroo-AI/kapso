@@ -370,34 +370,46 @@ def capture_run_action_pre_release_main_loss_termination(
                 "pre-release main loss differs from sealed classification"
             )
         authority_query, terminal, loss_observation_token = (
-            capability._take_provider_termination_authority(
+            RunActionCommittedContinuationCapability._take_provider_termination_authority(
+                capability,
                 _authority=_RUN_ACTION_PROVIDER_TERMINATION_AUTHORITY,
             )
         )
         if (
-            authority_query is not query
+            authority_query != query
             or terminal is not None
             or loss_observation_token != observation_token
         ):
             raise RunActionPreReleaseMainLossError(
                 "pre-release main-loss capability differs from its retained lease"
             )
+        retirement_intent = authority_query.credential_retirement_intent
         receipt = RunActionProviderTerminationReceipt.mint(
-            disposition=RunActionProviderTerminationDisposition.FAILED,
-            reason=RunActionProviderTerminationReason.PRE_RELEASE_MAIN_LOSS,
-            activation_event_id=query.activation_event.event_id,
+            disposition=(
+                RunActionProviderTerminationDisposition.INTERRUPTED
+                if retirement_intent is not None
+                else RunActionProviderTerminationDisposition.FAILED
+            ),
+            reason=(
+                RunActionProviderTerminationReason.CREDENTIAL_EXPIRED
+                if retirement_intent is not None
+                else RunActionProviderTerminationReason.PRE_RELEASE_MAIN_LOSS
+            ),
+            activation_event_id=authority_query.activation_event.event_id,
             workload_release_adoption=None,
             terminal_observation=None,
             timeout_directive_publication=None,
             empty_result_capture_receipt=None,
             pre_release_main_loss_observation=observation,
+            credential_retirement_intent=retirement_intent,
         )
         loss_lease.require_current()
         publication_fence = RunActionProviderTerminationPublicationFence(
             source=loss_lease,
             _authority=(_RUN_ACTION_PROVIDER_TERMINATION_PUBLICATION_FENCE_AUTHORITY),
         )
-        capability._complete_provider_termination(
+        RunActionCommittedContinuationCapability._complete_provider_termination(
+            capability,
             receipt,
             publication_fence,
             _authority=_RUN_ACTION_PROVIDER_TERMINATION_AUTHORITY,

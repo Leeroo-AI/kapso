@@ -163,9 +163,12 @@ def contain_run_action_timeout_once(
             raise RunActionTimeoutContainmentError(
                 "timeout containment lost its retained timed-out occurrence"
             )
-        authorization = capability._begin_timeout_containment(
-            control_inspection,
-            _authority=_RUN_ACTION_TIMEOUT_CONTAINMENT_AUTHORITY,
+        authorization = (
+            RunActionCommittedContinuationCapability._begin_timeout_containment(
+                capability,
+                control_inspection,
+                _authority=_RUN_ACTION_TIMEOUT_CONTAINMENT_AUTHORITY,
+            )
         )
         with authorization:
             containment_authority = _containment_authority(containment_manager)

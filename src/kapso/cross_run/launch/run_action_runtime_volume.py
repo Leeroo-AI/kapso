@@ -11,10 +11,16 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 from threading import get_ident
 
-from kapso.cross_run.canonical import is_content_id, tree_or_blob_digest
+from kapso.cross_run.canonical import tree_or_blob_digest
 from kapso.cross_run.launch.run_action_activation_delivery import (
     RunActionDeliveredFilePhysicalObservation,
     publish_or_adopt_run_action_delivery,
+)
+from kapso.cross_run.launch.run_action_credential_broker import (
+    _RUN_ACTION_CREDENTIAL_DELIVERY_AUTHORITY,
+    consume_run_action_credential_materialization,
+    require_run_action_credential_materialization,
+    RunActionCredentialMaterialization,
 )
 from kapso.cross_run.launch.run_action_docker_inspect import (
     DockerRunActionVolumeObservation,
@@ -41,7 +47,6 @@ from kapso.cross_run.launch.run_action_control_topology import (
 )
 from kapso.cross_run.launch.run_action_spawn_contracts import RunActionSpawnCommit
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
-    RUN_ACTION_CREDENTIAL_LEASE_AUTHORITY_NAMESPACE,
     RUN_ACTION_MAXIMUM_PHYSICAL_INTEGER,
     RUN_ACTION_RUNTIME_VOLUME_KEEPER_DESTINATION,
     RunActionActivatedFileObservation,
@@ -2330,8 +2335,7 @@ def deliver_and_reobserve_runtime_volume_activation(
     keeper: RunActionVolumeKeeperEvidence,
     *,
     request_payload: bytes,
-    credential_payload: bytes | None,
-    credential_content_authority_id: str | None,
+    credential_materialization: RunActionCredentialMaterialization | None,
     workspace_descriptor: int | None,
     settings: LaunchSettings,
 ) -> DockerRunActionActivatedVolumeObservation:
@@ -2367,29 +2371,34 @@ def deliver_and_reobserve_runtime_volume_activation(
         prepared.preparation_claim.execution_policy.credential_policy.mode
         is RunActionCredentialMode.SUPERVISOR_FILE
     )
+    credential_content_authority_id = None
+    credential_payload_size_bytes = None
     if credential_required:
         if (
-            type(credential_payload) is not bytes
-            or not credential_payload
+            type(credential_materialization) is not RunActionCredentialMaterialization
             or prepared.credential_delivery_slot is None
-            or len(credential_payload)
-            > prepared.credential_delivery_slot.payload_size_limit_bytes
-            or type(credential_content_authority_id) is not str
         ):
             raise RunActionRuntimeVolumeError(
                 "credentialed activation lacks one bounded broker delivery"
             )
-        if (
-            not is_content_id(credential_content_authority_id)
-            or credential_content_authority_id.split(":sha256:", 1)[0]
-            != RUN_ACTION_CREDENTIAL_LEASE_AUTHORITY_NAMESPACE
+        (
+            credential_content_authority_id,
+            credential_payload_size_bytes,
+            _credential_valid_until,
+        ) = require_run_action_credential_materialization(
+            credential_materialization,
+            prepared,
+            spawn_commit,
+            _authority=_RUN_ACTION_CREDENTIAL_DELIVERY_AUTHORITY,
+        )
+        if credential_payload_size_bytes > (
+            prepared.credential_delivery_slot.payload_size_limit_bytes
         ):
             raise RunActionRuntimeVolumeError(
-                "credentialed activation authority is not a fixed lease content ID"
+                "credentialed activation payload exceeds its prepared delivery slot"
             )
     elif (
-        credential_payload is not None
-        or credential_content_authority_id is not None
+        credential_materialization is not None
         or prepared.credential_delivery_slot is not None
     ):
         raise RunActionRuntimeVolumeError(
@@ -2551,13 +2560,28 @@ def deliver_and_reobserve_runtime_volume_activation(
             )
         )
         credential_delivery = None
+        credential_payload = None
         if prepared.credential_delivery_slot is not None:
             if (
                 type(credential_directory_descriptor) is not int
-                or type(credential_payload) is not bytes
+                or type(credential_materialization)
+                is not RunActionCredentialMaterialization
             ):
                 raise RunActionRuntimeVolumeError(
                     "credential delivery lost its exact directory or payload"
+                )
+            credential_payload = consume_run_action_credential_materialization(
+                credential_materialization,
+                prepared,
+                spawn_commit,
+                _authority=_RUN_ACTION_CREDENTIAL_DELIVERY_AUTHORITY,
+            )
+            if (
+                type(credential_payload_size_bytes) is not int
+                or len(credential_payload) != credential_payload_size_bytes
+            ):
+                raise RunActionRuntimeVolumeError(
+                    "credential materialization size changed before delivery"
                 )
             credential_delivery = descriptors.enter_context(
                 publish_or_adopt_run_action_delivery(

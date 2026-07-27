@@ -118,6 +118,11 @@ class RunActionTimeoutInspectionLease:
         return self._topology
 
     @property
+    def activation_event(self) -> RunActionExecutionEvent:
+        self.require_current()
+        return self._activation_event
+
+    @property
     def workload_release_adoption(self) -> RunActionWorkloadReleaseAdoption | None:
         self.require_current()
         if self._topology is RunActionControlDirectoryTopology.EMPTY:

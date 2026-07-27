@@ -87,8 +87,11 @@ def reinspect_run_action_terminal(
         raise RunActionTerminalInspectionError(
             "terminal reinspection requires one exact continuation capability"
         )
-    query, observation_token = capability._take_terminal_inspection_authority(
-        _authority=_RUN_ACTION_TERMINAL_INSPECTION_AUTHORITY,
+    query, observation_token = (
+        RunActionCommittedContinuationCapability._take_terminal_inspection_authority(
+            capability,
+            _authority=_RUN_ACTION_TERMINAL_INSPECTION_AUTHORITY,
+        )
     )
     terminal = _inspect_exact_terminal(
         query=query,
@@ -103,7 +106,8 @@ def reinspect_run_action_terminal(
         raise RunActionTerminalInspectionError(
             "terminal reinspection differs from its sealed observation"
         )
-    capability._complete_terminal_inspection(
+    RunActionCommittedContinuationCapability._complete_terminal_inspection(
+        capability,
         terminal,
         _authority=_RUN_ACTION_TERMINAL_INSPECTION_AUTHORITY,
     )

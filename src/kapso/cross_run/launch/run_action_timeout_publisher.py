@@ -125,9 +125,12 @@ def publish_run_action_timeout_once(
             raise RunActionTimeoutPublicationError(
                 "timeout publication differs from its retained release occurrence"
             )
-        authorization = capability._begin_timeout_publication(
-            control_inspection,
-            _authority=_RUN_ACTION_TIMEOUT_PUBLISHER_AUTHORITY,
+        authorization = (
+            RunActionCommittedContinuationCapability._begin_timeout_publication(
+                capability,
+                control_inspection,
+                _authority=_RUN_ACTION_TIMEOUT_PUBLISHER_AUTHORITY,
+            )
         )
         if authorization is None:
             return None

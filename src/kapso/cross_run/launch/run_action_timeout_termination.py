@@ -64,7 +64,8 @@ def capture_run_action_timeout_termination(
         launch_settings=launch_settings,
     )
     query, retained_terminal, loss_observation_id = (
-        capability._take_provider_termination_authority(
+        RunActionCommittedContinuationCapability._take_provider_termination_authority(
+            capability,
             _authority=_RUN_ACTION_PROVIDER_TERMINATION_AUTHORITY,
         )
     )
@@ -88,8 +89,10 @@ def capture_run_action_timeout_termination(
         timeout_directive_publication=publication,
         empty_result_capture_receipt=None,
         pre_release_main_loss_observation=None,
+        credential_retirement_intent=None,
     )
-    capability._complete_provider_termination(
+    RunActionCommittedContinuationCapability._complete_provider_termination(
+        capability,
         receipt,
         _authority=_RUN_ACTION_PROVIDER_TERMINATION_AUTHORITY,
     )

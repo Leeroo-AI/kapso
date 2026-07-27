@@ -17,6 +17,10 @@ from kapso.cross_run.contracts import StrictContract
 from kapso.cross_run.launch.run_action_control_topology import (
     RunActionControlDirectoryTopology,
 )
+from kapso.cross_run.launch.run_action_credential_contracts import (
+    credential_retirement_intent_matches_activation,
+    RunActionCredentialRetirementIntent,
+)
 from kapso.cross_run.launch.run_action_barrier_contracts import (
     RunActionBarrierRunningContainerObservation,
 )
@@ -75,6 +79,7 @@ class RunActionProviderTerminationReason(str, Enum):
     EMPTY_RESULT = "empty_result"
     PRE_RELEASE_MAIN_LOSS = "pre_release_main_loss"
     PRE_RELEASE_MAIN_TERMINAL = "pre_release_main_terminal"
+    CREDENTIAL_EXPIRED = "credential_expired"
 
 
 @dataclass(frozen=True)
@@ -612,6 +617,7 @@ class RunActionProviderTerminationReceipt(StrictContract):
     timeout_directive_publication: RunActionTimeoutDirectivePublicationReceipt | None
     empty_result_capture_receipt: RunActionResultCaptureReceipt | None
     pre_release_main_loss_observation: RunActionPreReleaseMainLossObservation | None
+    credential_retirement_intent: RunActionCredentialRetirementIntent | None
 
     CONTENT_NAMESPACE: ClassVar[str] = "run-action-provider-termination-receipt"
     IDENTITY_FIELD: ClassVar[str] = "provider_termination_receipt_id"
@@ -631,7 +637,11 @@ class RunActionProviderTerminationReceipt(StrictContract):
         )
         expected_disposition = (
             RunActionProviderTerminationDisposition.INTERRUPTED
-            if self.reason is RunActionProviderTerminationReason.TIMEOUT
+            if self.reason
+            in {
+                RunActionProviderTerminationReason.TIMEOUT,
+                RunActionProviderTerminationReason.CREDENTIAL_EXPIRED,
+            }
             else RunActionProviderTerminationDisposition.FAILED
         )
         if self.disposition is not expected_disposition:
@@ -644,6 +654,9 @@ class RunActionProviderTerminationReceipt(StrictContract):
         if self.reason is RunActionProviderTerminationReason.PRE_RELEASE_MAIN_TERMINAL:
             self._validate_pre_release_main_terminal()
             return
+        if self.reason is RunActionProviderTerminationReason.CREDENTIAL_EXPIRED:
+            self._validate_credential_expired()
+            return
         self._validate_released_terminal()
 
     def _validate_pre_release_main_loss(self) -> None:
@@ -655,6 +668,7 @@ class RunActionProviderTerminationReceipt(StrictContract):
             or self.terminal_observation is not None
             or self.timeout_directive_publication is not None
             or self.empty_result_capture_receipt is not None
+            or self.credential_retirement_intent is not None
         ):
             raise RunActionTerminationContractError(
                 "pre-release main loss must be the sole termination evidence branch"
@@ -669,9 +683,35 @@ class RunActionProviderTerminationReceipt(StrictContract):
             or self.timeout_directive_publication is not None
             or self.empty_result_capture_receipt is not None
             or self.pre_release_main_loss_observation is not None
+            or self.credential_retirement_intent is not None
         ):
             raise RunActionTerminationContractError(
                 "pre-release main terminal must be the sole termination evidence branch"
+            )
+
+    def _validate_credential_expired(self) -> None:
+        intent = self.credential_retirement_intent
+        loss = self.pre_release_main_loss_observation
+        terminal = self.terminal_observation
+        physical_evidence_is_exact = (
+            type(loss) is RunActionPreReleaseMainLossObservation
+            and terminal is None
+            and loss.activation_event_id == self.activation_event_id
+        ) or (
+            loss is None
+            and type(terminal) is RunActionPreReleaseMainTerminalObservation
+            and terminal.activation_event_id == self.activation_event_id
+        )
+        if (
+            type(intent) is not RunActionCredentialRetirementIntent
+            or intent.activation_event_id != self.activation_event_id
+            or self.workload_release_adoption is not None
+            or self.timeout_directive_publication is not None
+            or self.empty_result_capture_receipt is not None
+            or not physical_evidence_is_exact
+        ):
+            raise RunActionTerminationContractError(
+                "credential-expired termination lacks intent and physical evidence"
             )
 
     def _validate_released_terminal(self) -> None:
@@ -681,6 +721,7 @@ class RunActionProviderTerminationReceipt(StrictContract):
             type(adoption) is not RunActionWorkloadReleaseAdoption
             or type(terminal) is not RunActionTerminalObservation
             or self.pre_release_main_loss_observation is not None
+            or self.credential_retirement_intent is not None
             or adoption.workload_release_receipt.activation_event_id
             != self.activation_event_id
         ):
@@ -770,6 +811,16 @@ class RunActionProviderTerminationReceipt(StrictContract):
                     "pre-release termination lacks activation evidence"
                 )
             return terminal.activation_revalidation_receipt
+        if self.reason is RunActionProviderTerminationReason.CREDENTIAL_EXPIRED:
+            loss = self.pre_release_main_loss_observation
+            terminal = self.terminal_observation
+            if type(loss) is RunActionPreReleaseMainLossObservation:
+                return loss.activation_revalidation_receipt
+            if type(terminal) is RunActionPreReleaseMainTerminalObservation:
+                return terminal.activation_revalidation_receipt
+            raise RunActionTerminationContractError(
+                "credential-expired termination lacks activation evidence"
+            )
         adoption = self.workload_release_adoption
         if type(adoption) is not RunActionWorkloadReleaseAdoption:
             raise RunActionTerminationContractError(
@@ -818,6 +869,27 @@ def provider_termination_matches_durable_activation(
             type(terminal) is RunActionPreReleaseMainTerminalObservation
             and terminal.activation_event_id == activation_event_id
             and terminal.preparation_allocation == preparation_allocation
+        )
+    if receipt.reason is RunActionProviderTerminationReason.CREDENTIAL_EXPIRED:
+        intent = receipt.credential_retirement_intent
+        physical = (
+            receipt.pre_release_main_loss_observation
+            if receipt.pre_release_main_loss_observation is not None
+            else receipt.terminal_observation
+        )
+        return (
+            credential_retirement_intent_matches_activation(
+                intent,
+                activation_event_id,
+                activation_revalidation_receipt,
+            )
+            and type(physical)
+            in {
+                RunActionPreReleaseMainLossObservation,
+                RunActionPreReleaseMainTerminalObservation,
+            }
+            and physical.preparation_allocation == preparation_allocation
+            and physical.activation_event_id == activation_event_id
         )
     adoption = receipt.workload_release_adoption
     return (

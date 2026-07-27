@@ -5,6 +5,8 @@ from dataclasses import replace
 
 import pytest
 
+from test_run_frontier_action_gate import _credential_broker_registry
+
 import kapso.cross_run.launch.run_action_docker_inspect as docker_inspect
 import kapso.cross_run.launch.run_action_terminal_inspection as terminal_inspection
 from kapso.core.config import load_config
@@ -94,6 +96,7 @@ def _inspection_context(docker_settings, *, timed_out=False):
     query = RunActionCommittedSpawnQuery(
         preparation_allocation=allocation,
         activation_event=activation_event,
+        credential_retirement_intent=None,
         workload_release_adoption=adoption,
         timeout_directive_publication=timeout_directive_publication,
     )
@@ -404,7 +407,7 @@ def test_terminal_reinspection_consumes_one_capability_and_seals_the_digest(
         observation=observation,
         required_security_observation=_release_security_observation(),
         security_authority=_SecurityAuthority(),
-        credential_validity_authority=None,
+        credential_broker_registry=_credential_broker_registry()[0],
         release_clock=_SystemRunActionClock(),
         _authority=_RUN_ACTION_COMMITTED_CONTINUATION_AUTHORITY,
     )
@@ -472,7 +475,7 @@ def test_terminal_continuation_rejects_an_adapter_that_skips_trusted_reinspectio
         ),
         required_security_observation=_release_security_observation(),
         security_authority=_SecurityAuthority(),
-        credential_validity_authority=None,
+        credential_broker_registry=_credential_broker_registry()[0],
         release_clock=_SystemRunActionClock(),
         _authority=_RUN_ACTION_COMMITTED_CONTINUATION_AUTHORITY,
     )

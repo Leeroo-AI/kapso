@@ -175,11 +175,12 @@ def resolve_run_action_natural_terminal_once(
         release_inspection.require_current()
         if type(result_payload) is bytes and result_payload:
             authority_query, authority_terminal = (
-                capability._take_result_capture_authority(
+                RunActionCommittedContinuationCapability._take_result_capture_authority(
+                    capability,
                     _authority=_RUN_ACTION_RESULT_CAPTURE_AUTHORITY,
                 )
             )
-            if authority_query is not query or authority_terminal != retained_terminal:
+            if authority_query != query or authority_terminal != retained_terminal:
                 raise RunActionNaturalTerminalError(
                     "natural result differs from its sealed terminal authority"
                 )
@@ -188,7 +189,8 @@ def resolve_run_action_natural_terminal_once(
                 result_capture_receipt=capture_receipt,
                 result_payload=result_payload,
             )
-            capability._complete_result_capture(
+            RunActionCommittedContinuationCapability._complete_result_capture(
+                capability,
                 result,
                 _authority=_RUN_ACTION_RESULT_CAPTURE_AUTHORITY,
             )
@@ -206,12 +208,13 @@ def resolve_run_action_natural_terminal_once(
             result_payload,
         )
         authority_query, authority_terminal, loss_observation_id = (
-            capability._take_provider_termination_authority(
+            RunActionCommittedContinuationCapability._take_provider_termination_authority(
+                capability,
                 _authority=_RUN_ACTION_PROVIDER_TERMINATION_AUTHORITY,
             )
         )
         if (
-            authority_query is not query
+            authority_query != query
             or authority_terminal != retained_terminal
             or loss_observation_id is not None
         ):
@@ -231,8 +234,10 @@ def resolve_run_action_natural_terminal_once(
                 else None
             ),
             pre_release_main_loss_observation=None,
+            credential_retirement_intent=None,
         )
-        capability._complete_provider_termination(
+        RunActionCommittedContinuationCapability._complete_provider_termination(
+            capability,
             receipt,
             _authority=_RUN_ACTION_PROVIDER_TERMINATION_AUTHORITY,
         )

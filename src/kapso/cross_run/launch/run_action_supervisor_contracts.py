@@ -2365,6 +2365,122 @@ class RunActionPreparedExecution(StrictContract):
 
 
 @dataclass(frozen=True)
+class RunActionCredentialLeaseRequest(StrictContract):
+    """Deterministic non-secret request for one spawn-bound broker lease."""
+
+    credential_lease_request_id: str
+    credential_policy: RunActionCredentialPolicy
+    reservation_id: str
+    prepared_execution_id: str
+    spawn_commit_id: str
+    credential_delivery_slot_id: str
+
+    CONTENT_NAMESPACE: ClassVar[str] = "run-action-credential-lease-request"
+    IDENTITY_FIELD: ClassVar[str] = "credential_lease_request_id"
+
+    def _validate(self) -> None:
+        if (
+            type(self.credential_policy) is not RunActionCredentialPolicy
+            or self.credential_policy.mode
+            is not RunActionCredentialMode.SUPERVISOR_FILE
+        ):
+            raise RunActionSupervisorContractError(
+                "credential lease request lacks one brokered policy"
+            )
+        for value, namespace, name in (
+            (
+                self.reservation_id,
+                RunActionReservation.CONTENT_NAMESPACE,
+                "credential lease reservation",
+            ),
+            (
+                self.prepared_execution_id,
+                RunActionPreparedExecution.CONTENT_NAMESPACE,
+                "credential lease prepared execution",
+            ),
+            (
+                self.spawn_commit_id,
+                RunActionSpawnCommit.CONTENT_NAMESPACE,
+                "credential lease spawn commit",
+            ),
+            (
+                self.credential_delivery_slot_id,
+                RunActionPreparedDeliverySlot.CONTENT_NAMESPACE,
+                "credential lease delivery slot",
+            ),
+        ):
+            _require_namespaced_content_id(value, namespace, name)
+
+
+def run_action_credential_lease_request(
+    prepared_execution: RunActionPreparedExecution,
+    spawn_commit: RunActionSpawnCommit,
+) -> RunActionCredentialLeaseRequest:
+    """Derive the sole non-secret broker request for one exact committed spawn."""
+
+    if (
+        type(prepared_execution) is not RunActionPreparedExecution
+        or type(spawn_commit) is not RunActionSpawnCommit
+    ):
+        raise RunActionSupervisorContractError(
+            "credential lease request requires exact prepared and spawn authority"
+        )
+    reservation = prepared_execution.preparation_claim.reservation
+    credential_policy = (
+        prepared_execution.preparation_claim.execution_policy.credential_policy
+    )
+    delivery_slot = prepared_execution.credential_delivery_slot
+    if (
+        credential_policy.mode is not RunActionCredentialMode.SUPERVISOR_FILE
+        or type(delivery_slot) is not RunActionPreparedDeliverySlot
+        or spawn_commit.reservation_id != reservation.reservation_id
+        or spawn_commit.prepared_execution_id
+        != prepared_execution.prepared_execution_id
+        or spawn_commit.provider_execution_id
+        != prepared_execution.inert_container_evidence.container_id
+        or spawn_commit.boundary_identity != reservation.intent.boundary_identity
+        or spawn_commit.security_observation_id
+        != reservation.frontier.security_observation_id
+    ):
+        raise RunActionSupervisorContractError(
+            "credential lease request differs from its committed spawn"
+        )
+    return RunActionCredentialLeaseRequest.mint(
+        credential_policy=credential_policy,
+        reservation_id=reservation.reservation_id,
+        prepared_execution_id=prepared_execution.prepared_execution_id,
+        spawn_commit_id=spawn_commit.spawn_commit_id,
+        credential_delivery_slot_id=delivery_slot.prepared_delivery_slot_id,
+    )
+
+
+def run_action_credential_lease_authority_id_from_request(
+    request: RunActionCredentialLeaseRequest,
+) -> str:
+    """Derive fixed-width authority from one already-validated lease request."""
+
+    if type(request) is not RunActionCredentialLeaseRequest:
+        raise RunActionSupervisorContractError(
+            "credential lease authority requires one exact request"
+        )
+    return content_id(
+        RUN_ACTION_CREDENTIAL_LEASE_AUTHORITY_NAMESPACE,
+        {"credential_lease_request_id": request.credential_lease_request_id},
+    )
+
+
+def run_action_credential_lease_authority_id(
+    prepared_execution: RunActionPreparedExecution,
+    spawn_commit: RunActionSpawnCommit,
+) -> str:
+    """Derive the fixed-width lease authority; the broker never chooses it."""
+
+    return run_action_credential_lease_authority_id_from_request(
+        run_action_credential_lease_request(prepared_execution, spawn_commit)
+    )
+
+
+@dataclass(frozen=True)
 class RunActionActivatedFileObservation(StrictContract):
     """Fresh post-delivery shape and non-secret identity of one logical file."""
 
@@ -3377,7 +3493,8 @@ def run_action_activated_volume_evidence_matches(
                     prepared.credential_delivery_slot,
                     spawn_commit_id,
                 )
-                and credential_file_observation.content_authority_id is not None
+                and credential_file_observation.content_authority_id
+                == run_action_credential_lease_authority_id(prepared, spawn_commit)
             )
         )
         and len({observed.inode for observed in delivered_files})

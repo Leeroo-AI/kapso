@@ -6,13 +6,21 @@ import fcntl
 import hashlib
 import os
 import shutil
+import time
 from copy import copy
 from contextlib import ExitStack
 from dataclasses import replace
+from threading import Event, Thread
 
 import pytest
 
+import kapso.cross_run.launch.run_action_credential_broker as credential_broker_module
 import kapso.cross_run.launch.run_action_recovery as run_action_recovery_module
+import kapso.cross_run.launch.run_action_store as run_action_store_module
+from kapso.cross_run.launch.run_action_credential_broker import (
+    RunActionCredentialBrokerError,
+    RunActionCredentialBrokerRegistry,
+)
 import kapso.cross_run.launch.run_action_workspace_promotion as promotion_module
 from kapso.core.config import load_config
 from kapso.cross_run.canonical import tree_or_blob_digest
@@ -58,6 +66,7 @@ from kapso.cross_run.launch.run_action_recovery import (
     RunActionPreparationObservation,
     RunActionPreparationOrigin,
     RunActionPreparationState,
+    RunActionPreReleaseCredentialState,
     RunActionProviderResult,
     RunActionRecoveredOperation,
     RunActionRecoveryError,
@@ -86,6 +95,7 @@ from kapso.cross_run.launch.run_action_activation_envelope import (
 )
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
     issue_runtime_volume_authority,
+    RUN_ACTION_MAXIMUM_PHYSICAL_INTEGER,
     RunActionPreparationAllocation,
 )
 from kapso.cross_run.launch.run_action_termination_contracts import (
@@ -113,11 +123,13 @@ from test_run_frontier_action_gate import (
     _action_case,
     _boundary_identity,
     _commit_workspace_edit,
+    _credential_broker_registry,
     _reserve_ideation_agent,
     _reserve_implementation_agent,
     _run_git,
     _static_resource_finalization_authority,
     _successor_at_boundary,
+    _StaticCredentialBroker,
     _StaticSecurityAuthority,
 )
 from test_run_state_publisher import publisher_case
@@ -181,6 +193,42 @@ class _TimedOutReleaseInspection(_PresentReleaseInspection):
     def __init__(self, adoption, timeout_directive_publication):
         super().__init__(adoption)
         self.timeout_directive_publication = timeout_directive_publication
+
+
+class _PoisonCredentialBroker(_StaticCredentialBroker):
+    def issue_or_replay_exact(self, _request):
+        raise AssertionError("canonical control presence must not issue credentials")
+
+    def observe_exact(self, _request):
+        raise AssertionError("canonical control presence must not query credentials")
+
+
+class _ExpiringIssueCredentialBroker(_StaticCredentialBroker):
+    def __init__(self):
+        super().__init__()
+        self.expired = True
+
+    def _valid_until(self, _request):
+        return 1 if self.expired else RUN_ACTION_MAXIMUM_PHYSICAL_INTEGER
+
+
+class _ShortLiveCredentialBroker(_StaticCredentialBroker):
+    def _valid_until(self, request):
+        return (
+            time.time_ns()
+            + (request.credential_policy.maximum_lease_seconds // 3) * 1_000_000_000
+        )
+
+
+class _RetainingCredentialBroker(_StaticCredentialBroker):
+    def __init__(self):
+        super().__init__()
+        self.responses = []
+
+    def issue_or_replay_exact(self, request):
+        response = super().issue_or_replay_exact(request)
+        self.responses.append(response)
+        return response
 
 
 class _ChangingAbsentReleaseInspection(_AbsentReleaseInspection):
@@ -321,6 +369,7 @@ class _FakeExecutionAdapter:
         observation_state=RunActionCommittedSpawnState.INERT_CONTINUABLE,
         fail_activation=False,
         disposition=RunActionResultDisposition.SUCCEEDED,
+        credential_retirement=None,
     ) -> None:
         self.execution_lifecycle_identity = (
             boundary_identity.execution_lifecycle_identity
@@ -345,12 +394,15 @@ class _FakeExecutionAdapter:
         )
         self.observation_state = observation_state
         self.fail_activation = fail_activation
+        self.credential_retirement = credential_retirement
         self.prepare_calls = []
         self.preparation_capabilities = []
         self.prepare_allocations = []
         self.prepared_bound_allocations = []
         self.prepare_modes = []
         self.stage_calls = []
+        self.credential_materializations = []
+        self.credential_retirement_calls = []
         self.continuation_calls = []
         self.inspect_calls = []
         self.security_observation = None
@@ -415,6 +467,7 @@ class _FakeExecutionAdapter:
             prepared_execution=prepared,
             spawn_commit=None,
             activation_revalidation_receipt=None,
+            credential_retirement_intent=None,
             provider_termination_receipt=None,
             result_receipt=None,
             result_decision=None,
@@ -443,6 +496,7 @@ class _FakeExecutionAdapter:
             prepared_execution=None,
             spawn_commit=None,
             activation_revalidation_receipt=activation,
+            credential_retirement_intent=None,
             provider_termination_receipt=None,
             result_receipt=None,
             result_decision=None,
@@ -492,6 +546,7 @@ class _FakeExecutionAdapter:
 
     def stage_activation(self, capability):
         self.stage_calls.append(capability)
+        self.credential_materializations.append(capability.credential_materialization)
         if self.fail_activation:
             raise RuntimeError("injected death after durable spawn commit")
         return _activation_revalidation_receipt(
@@ -501,6 +556,20 @@ class _FakeExecutionAdapter:
 
     def continue_committed_once(self, capability):
         self.continuation_calls.append(capability)
+        if capability.query.credential_retirement_intent is not None:
+            if not callable(self.credential_retirement):
+                raise AssertionError(
+                    "expired credential lacks a trusted retirement boundary"
+                )
+            self.credential_retirement_calls.append(
+                self.credential_retirement(capability)
+            )
+            return RunActionContinuationOutcome(
+                state=RunActionContinuationState.PENDING,
+                result=None,
+                provider_termination_receipt=None,
+                timeout_directive_publication=None,
+            )
         if (
             capability.observation.state
             is RunActionCommittedSpawnState.INERT_CONTINUABLE
@@ -580,6 +649,191 @@ class _FakeExecutionAdapter:
             state=self.observation_state,
             observation_token=None if token is None else f"sha256:{token}",
         )
+
+
+class _ClosingActivationWorkspaceAdapter(_FakeExecutionAdapter):
+    def stage_activation(self, capability):
+        self.stage_calls.append(capability)
+        self.credential_materializations.append(capability.credential_materialization)
+        os.close(capability.workspace_descriptor)
+        raise RuntimeError("adapter closed activation workspace descriptor")
+
+
+class _ActivationOwnershipShadowingAdapter(_FakeExecutionAdapter):
+    def stage_activation(self, capability):
+        self.stage_calls.append(capability)
+        materialization = capability.credential_materialization
+        self.credential_materializations.append(materialization)
+        with pytest.raises(AttributeError):
+            capability._credential_materialization = None
+        with pytest.raises(AttributeError):
+            object.__setattr__(capability, "_credential_issue_response", None)
+        return _activation_revalidation_receipt(
+            capability.prepared_execution,
+            capability.spawn_commit,
+        )
+
+
+class _ActivationLifecycleShadowingAdapter(_FakeExecutionAdapter):
+    def stage_activation(self, capability):
+        self.stage_calls.append(capability)
+        materialization = capability.credential_materialization
+        self.credential_materializations.append(materialization)
+        with pytest.raises(AttributeError):
+            capability._owner_process_id = 1
+        with pytest.raises(AttributeError):
+            capability._invoking_thread_id = 1
+        with pytest.raises(AttributeError):
+            capability._state = "spent"
+        return _activation_revalidation_receipt(
+            capability.prepared_execution,
+            capability.spawn_commit,
+        )
+
+
+class _CorruptNestedActivationAdapter(_FakeExecutionAdapter):
+    def stage_activation(self, capability):
+        activation = super().stage_activation(capability)
+        object.__setattr__(
+            activation.activated_sentinel_observation,
+            "activated_sentinel_observation_id",
+            "run-action-activated-sentinel-observation:sha256:" + "f" * 64,
+        )
+        return activation
+
+
+class _ActivationForkWhileLockHeldAdapter(_FakeExecutionAdapter):
+    def __init__(self, boundary_identity):
+        super().__init__(boundary_identity)
+        self.fork_rejected = False
+
+    def stage_activation(self, capability):
+        self.stage_calls.append(capability)
+        self.credential_materializations.append(capability.credential_materialization)
+        lock_held = Event()
+        release_lock = Event()
+
+        def hold_activation_lock():
+            with run_action_recovery_module._ACTIVATION_CAPABILITY_LOCK:
+                lock_held.set()
+                release_lock.wait()
+
+        holder = Thread(target=hold_activation_lock)
+        holder.start()
+        assert lock_held.wait()
+        read_descriptor, write_descriptor = os.pipe()
+        child_process_id = os.fork()
+        if child_process_id == 0:
+            os.close(read_descriptor)
+            with pytest.raises(
+                RunActionRecoveryError,
+                match="not in its one invocation",
+            ):
+                capability.request_payload
+            os.write(write_descriptor, b"invalid")
+            os._exit(0)
+        os.close(write_descriptor)
+        assert os.read(read_descriptor, len(b"invalid")) == b"invalid"
+        os.close(read_descriptor)
+        waited_process_id, status = os.waitpid(child_process_id, 0)
+        assert waited_process_id == child_process_id
+        assert os.waitstatus_to_exitcode(status) == 0
+        release_lock.set()
+        holder.join()
+        self.fork_rejected = True
+        return _activation_revalidation_receipt(
+            capability.prepared_execution,
+            capability.spawn_commit,
+        )
+
+
+class _ContinuationAuthorityShadowingAdapter(_FakeExecutionAdapter):
+    def __init__(self, boundary_identity):
+        super().__init__(boundary_identity)
+        self.shadowing_rejected = False
+
+    def continue_committed_once(self, capability):
+        with pytest.raises(AttributeError):
+            capability._query = capability.query
+        with pytest.raises(AttributeError):
+            object.__setattr__(capability, "_observation", capability.observation)
+        with pytest.raises(AttributeError):
+            object.__setattr__(
+                capability,
+                "_pre_release_credential_observation",
+                None,
+            )
+        for field_name, value in (
+            ("_start_state", "complete"),
+            ("_credential_retirement_state", "complete"),
+            ("_release_publication_state", "spent"),
+            ("_timeout_publication_state", "complete"),
+            ("_terminal_inspection_state", "complete"),
+            ("_result_capture_state", "complete"),
+        ):
+            with pytest.raises(AttributeError):
+                object.__setattr__(capability, field_name, value)
+        for mutable_registry_accessor in (
+            "_capability_lifecycle",
+            "_provider_termination_registration",
+            "_terminal_result_registration",
+            "_provider_termination_publication_fence",
+        ):
+            with pytest.raises(AttributeError):
+                getattr(capability, mutable_registry_accessor)
+        self.shadowing_rejected = True
+        return super().continue_committed_once(capability)
+
+
+class _ContinuationNestedMutationAdapter(_FakeExecutionAdapter):
+    def continue_committed_once(self, capability):
+        query = capability.query
+        object.__setattr__(
+            query.activation_event,
+            "event_id",
+            "run-action-execution-event:sha256:" + "f" * 64,
+        )
+        return super().continue_committed_once(capability)
+
+
+class _ContinuationForkWhileLockHeldAdapter(_FakeExecutionAdapter):
+    def __init__(self, boundary_identity):
+        super().__init__(boundary_identity)
+        self.fork_rejected = False
+
+    def continue_committed_once(self, capability):
+        lock_held = Event()
+        release_lock = Event()
+
+        def hold_continuation_lock():
+            with run_action_recovery_module._COMMITTED_CONTINUATION_CAPABILITY_LOCK:
+                lock_held.set()
+                release_lock.wait()
+
+        holder = Thread(target=hold_continuation_lock)
+        holder.start()
+        assert lock_held.wait()
+        read_descriptor, write_descriptor = os.pipe()
+        child_process_id = os.fork()
+        if child_process_id == 0:
+            os.close(read_descriptor)
+            with pytest.raises(
+                RunActionRecoveryError,
+                match="not in its one invocation",
+            ):
+                capability.observation
+            os.write(write_descriptor, b"invalid")
+            os._exit(0)
+        os.close(write_descriptor)
+        assert os.read(read_descriptor, len(b"invalid")) == b"invalid"
+        os.close(read_descriptor)
+        waited_process_id, status = os.waitpid(child_process_id, 0)
+        assert waited_process_id == child_process_id
+        assert os.waitstatus_to_exitcode(status) == 0
+        release_lock.set()
+        holder.join()
+        self.fork_rejected = True
+        return super().continue_committed_once(capability)
 
 
 class _PublicationLockAuditAdapter(_FakeExecutionAdapter):
@@ -725,8 +979,10 @@ class _TokenSealingExecutionAdapter(_FakeExecutionAdapter):
         return observation
 
     def continue_committed_once(self, capability):
-        assert capability.query is self.sealed_query
-        assert capability.observation is self.sealed_observation
+        assert capability.query == self.sealed_query
+        assert capability.query is not self.sealed_query
+        assert capability.observation == self.sealed_observation
+        assert capability.observation is not self.sealed_observation
         assert (
             capability.observation.observation_token
             == self.sealed_observation.observation_token
@@ -818,6 +1074,7 @@ class _TrustedPreReleaseTerminationAdapter(_FakeExecutionAdapter):
             timeout_directive_publication=None,
             empty_result_capture_receipt=None,
             pre_release_main_loss_observation=self.loss_observation,
+            credential_retirement_intent=None,
         )
         publication_fence = run_action_recovery_module.RunActionProviderTerminationPublicationFence(
             source=self.publication_fence_source,
@@ -899,6 +1156,7 @@ class _TrustedReleasedTerminationAdapter(_FakeExecutionAdapter):
             timeout_directive_publication=None,
             empty_result_capture_receipt=None,
             pre_release_main_loss_observation=None,
+            credential_retirement_intent=None,
         )
         capability._complete_provider_termination(
             self.termination_receipt,
@@ -973,6 +1231,7 @@ class _TrustedTimeoutTerminationAdapter(_FakeExecutionAdapter):
             timeout_directive_publication=query.timeout_directive_publication,
             empty_result_capture_receipt=None,
             pre_release_main_loss_observation=None,
+            credential_retirement_intent=None,
         )
         capability._complete_provider_termination(
             self.termination_receipt,
@@ -1282,8 +1541,11 @@ def test_recovery_implementation_requires_distinct_lifecycle_and_interpreter() -
         )
 
 
-def _reserved_case(case):
-    _publisher, frontier, _security, gate = _action_case(case)
+def _reserved_case(case, credential_broker_registry=None):
+    _publisher, frontier, _security, gate = _action_case(
+        case,
+        credential_broker_registry=credential_broker_registry,
+    )
     payload = b'{"prompt":"recover-completely"}'
     reservation = _reserve_ideation_agent(gate, frontier, payload)
     return frontier, gate, reservation, payload
@@ -1373,6 +1635,7 @@ def _append_provider_terminated(gate, reservation) -> None:
                 timeout_directive_publication=None,
                 empty_result_capture_receipt=None,
                 pre_release_main_loss_observation=None,
+                credential_retirement_intent=None,
             )
         )
         assert activation == session.events[4].activation_revalidation_receipt
@@ -1554,6 +1817,19 @@ def test_activation_capability_is_spent_and_clone_fork_invalid(
         capability.request_payload
     with pytest.raises(RunActionRecoveryError, match="not in its one invocation"):
         adapter.stage_activation(capability)
+    materialization = adapter.credential_materializations[0]
+    assert materialization is not None
+    assert "credential bytes" not in repr(materialization)
+    events = gate._action_store.inspect().events_for(reservation.intent.operation_id)
+    with pytest.raises(RunActionCredentialBrokerError, match="spent"):
+        credential_broker_module.require_run_action_credential_materialization(
+            materialization,
+            events[2].prepared_execution,
+            events[3].spawn_commit,
+            _authority=(
+                credential_broker_module._RUN_ACTION_CREDENTIAL_DELIVERY_AUTHORITY
+            ),
+        )
     assert not hasattr(adapter.continuation_calls[0], "workspace_descriptor")
     cloned = copy(capability)
     with pytest.raises(RunActionRecoveryError, match="not in its one invocation"):
@@ -1577,6 +1853,130 @@ def test_activation_capability_is_spent_and_clone_fork_invalid(
         committed_capability.activation_event
     with pytest.raises(RunActionRecoveryError, match="one invocation"):
         adapter.continue_committed_once(committed_capability)
+
+
+def test_activation_adapter_cannot_shadow_coordinator_owned_secret(
+    publisher_case,
+) -> None:
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
+    adapter = _ActivationOwnershipShadowingAdapter(reservation.intent.boundary_identity)
+
+    report = _recovery_coordinator(gate, adapter).recover(frontier)
+
+    assert not report.is_complete
+    materialization = adapter.credential_materializations[0]
+    events = gate._action_store.inspect().events_for(reservation.intent.operation_id)
+    with pytest.raises(RunActionCredentialBrokerError, match="spent"):
+        credential_broker_module.require_run_action_credential_materialization(
+            materialization,
+            events[2].prepared_execution,
+            events[3].spawn_commit,
+            _authority=(
+                credential_broker_module._RUN_ACTION_CREDENTIAL_DELIVERY_AUTHORITY
+            ),
+        )
+
+
+def test_activation_adapter_cannot_mutate_lifecycle_to_preserve_secret(
+    publisher_case,
+) -> None:
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
+    adapter = _ActivationLifecycleShadowingAdapter(reservation.intent.boundary_identity)
+
+    report = _recovery_coordinator(gate, adapter).recover(frontier)
+
+    assert not report.is_complete
+    materialization = adapter.credential_materializations[0]
+    events = gate._action_store.inspect().events_for(reservation.intent.operation_id)
+    with pytest.raises(RunActionCredentialBrokerError, match="spent"):
+        credential_broker_module.require_run_action_credential_materialization(
+            materialization,
+            events[2].prepared_execution,
+            events[3].spawn_commit,
+            _authority=(
+                credential_broker_module._RUN_ACTION_CREDENTIAL_DELIVERY_AUTHORITY
+            ),
+        )
+
+
+def test_activation_nested_contract_is_revalidated_before_event_five(
+    publisher_case,
+) -> None:
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
+    adapter = _CorruptNestedActivationAdapter(reservation.intent.boundary_identity)
+
+    with pytest.raises(ValueError, match="observation_id mismatch"):
+        _recovery_coordinator(gate, adapter).recover(frontier)
+
+    events = gate._action_store.inspect().events_for(reservation.intent.operation_id)
+    assert events[-1].event_kind is RunActionExecutionEventKind.SPAWN_COMMITTED
+    materialization = adapter.credential_materializations[0]
+    with pytest.raises(RunActionCredentialBrokerError, match="spent"):
+        credential_broker_module.require_run_action_credential_materialization(
+            materialization,
+            events[2].prepared_execution,
+            events[3].spawn_commit,
+            _authority=(
+                credential_broker_module._RUN_ACTION_CREDENTIAL_DELIVERY_AUTHORITY
+            ),
+        )
+
+
+def test_activation_capability_rejects_fork_before_inherited_lock_access(
+    publisher_case,
+) -> None:
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
+    adapter = _ActivationForkWhileLockHeldAdapter(reservation.intent.boundary_identity)
+
+    report = _recovery_coordinator(gate, adapter).recover(frontier)
+
+    assert not report.is_complete
+    assert adapter.fork_rejected
+
+
+def test_continuation_adapter_cannot_shadow_sealed_query_or_observations(
+    publisher_case,
+) -> None:
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
+    adapter = _ContinuationAuthorityShadowingAdapter(
+        reservation.intent.boundary_identity
+    )
+
+    report = _recovery_coordinator(gate, adapter).recover(frontier)
+
+    assert not report.is_complete
+    assert adapter.shadowing_rejected
+    assert len(adapter.continuation_calls) == 1
+
+
+def test_continuation_nested_query_mutation_cannot_change_durable_authority(
+    publisher_case,
+) -> None:
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
+    adapter = _ContinuationNestedMutationAdapter(reservation.intent.boundary_identity)
+
+    with pytest.raises(
+        RunActionRecoveryError,
+        match="query changed|not in its one invocation|inputs changed",
+    ):
+        _recovery_coordinator(gate, adapter).recover(frontier)
+
+    events = gate._action_store.inspect().events_for(reservation.intent.operation_id)
+    assert events[-1].event_kind is RunActionExecutionEventKind.ACTIVATION_COMMITTED
+
+
+def test_continuation_capability_rejects_fork_before_inherited_lock_access(
+    publisher_case,
+) -> None:
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
+    adapter = _ContinuationForkWhileLockHeldAdapter(
+        reservation.intent.boundary_identity
+    )
+
+    report = _recovery_coordinator(gate, adapter).recover(frontier)
+
+    assert not report.is_complete
+    assert adapter.fork_rejected
 
 
 def test_committed_continuation_capability_is_active_only_once(
@@ -1648,6 +2048,7 @@ def test_committed_query_rejects_allocation_and_activation_splices(
         RunActionCommittedSpawnQuery(
             preparation_allocation=replacement_allocation,
             activation_event=events[4],
+            credential_retirement_intent=None,
             workload_release_adoption=None,
             timeout_directive_publication=None,
         )
@@ -1668,6 +2069,7 @@ def test_committed_query_rejects_allocation_and_activation_splices(
         RunActionCommittedSpawnQuery(
             preparation_allocation=allocation,
             activation_event=spliced_event,
+            credential_retirement_intent=None,
             workload_release_adoption=None,
             timeout_directive_publication=None,
         )
@@ -1693,18 +2095,21 @@ def test_committed_query_derives_exact_empty_released_and_timed_out_topology(
     empty = RunActionCommittedSpawnQuery(
         preparation_allocation=allocation,
         activation_event=activation_event,
+        credential_retirement_intent=None,
         workload_release_adoption=None,
         timeout_directive_publication=None,
     )
     released = RunActionCommittedSpawnQuery(
         preparation_allocation=allocation,
         activation_event=activation_event,
+        credential_retirement_intent=None,
         workload_release_adoption=adoption,
         timeout_directive_publication=None,
     )
     timed_out = RunActionCommittedSpawnQuery(
         preparation_allocation=allocation,
         activation_event=activation_event,
+        credential_retirement_intent=None,
         workload_release_adoption=adoption,
         timeout_directive_publication=publication,
     )
@@ -1722,6 +2127,7 @@ def test_committed_query_derives_exact_empty_released_and_timed_out_topology(
         RunActionCommittedSpawnQuery(
             preparation_allocation=allocation,
             activation_event=activation_event,
+            credential_retirement_intent=None,
             workload_release_adoption=None,
             timeout_directive_publication=publication,
         )
@@ -1732,6 +2138,7 @@ def test_committed_query_derives_exact_empty_released_and_timed_out_topology(
         RunActionCommittedSpawnQuery(
             preparation_allocation=allocation,
             activation_event=activation_event,
+            credential_retirement_intent=None,
             workload_release_adoption=adoption,
             timeout_directive_publication=foreign_publication,
         )
@@ -2119,6 +2526,91 @@ def test_activation_envelope_rejects_oversize_before_delivery(
     assert events[-1].event_kind is RunActionExecutionEventKind.SPAWN_COMMITTED
     assert not adapter.stage_calls
     assert not adapter.continuation_calls
+
+
+def test_credential_retirement_envelope_rejects_before_issue_or_delivery(
+    publisher_case,
+    monkeypatch,
+) -> None:
+    credential_registry, credential_backend = _credential_broker_registry()
+    frontier, gate, reservation, _payload = _reserved_case(
+        publisher_case,
+        credential_registry,
+    )
+    adapter = _FakeExecutionAdapter(reservation.intent.boundary_identity)
+    oversized_bound = publisher_case["settings"].run_action_event_size_bytes + 1
+    monkeypatch.setattr(
+        run_action_store_module._RunActionExecutionSession,
+        "credential_retirement_event_size_bytes",
+        lambda _session, _prepared, _spawn: oversized_bound,
+    )
+
+    with pytest.raises(
+        RunActionRecoveryError,
+        match="credential expiry events",
+    ):
+        _recovery_coordinator(gate, adapter).recover(frontier)
+
+    events = gate._action_store.inspect().events_for(reservation.intent.operation_id)
+    assert events[-1].event_kind is RunActionExecutionEventKind.SPAWN_COMMITTED
+    assert credential_backend.issue_calls == []
+    assert not adapter.stage_calls
+    assert not adapter.continuation_calls
+
+
+def test_credential_expiry_termination_envelope_rejects_before_issue_or_delivery(
+    publisher_case,
+    monkeypatch,
+) -> None:
+    credential_registry, credential_backend = _credential_broker_registry()
+    frontier, gate, reservation, _payload = _reserved_case(
+        publisher_case,
+        credential_registry,
+    )
+    adapter = _FakeExecutionAdapter(reservation.intent.boundary_identity)
+    oversized_bound = publisher_case["settings"].run_action_event_size_bytes + 1
+    monkeypatch.setattr(
+        run_action_recovery_module,
+        "credential_expiry_termination_event_size_bound",
+        lambda **_arguments: oversized_bound,
+    )
+
+    with pytest.raises(
+        RunActionRecoveryError,
+        match="credential expiry events",
+    ):
+        _recovery_coordinator(gate, adapter).recover(frontier)
+
+    events = gate._action_store.inspect().events_for(reservation.intent.operation_id)
+    assert events[-1].event_kind is RunActionExecutionEventKind.SPAWN_COMMITTED
+    assert credential_backend.issue_calls == []
+    assert not adapter.stage_calls
+    assert not adapter.continuation_calls
+
+
+def test_credential_expiry_termination_envelope_accepts_exact_limit(
+    publisher_case,
+    monkeypatch,
+) -> None:
+    credential_registry, credential_backend = _credential_broker_registry()
+    frontier, gate, reservation, _payload = _reserved_case(
+        publisher_case,
+        credential_registry,
+    )
+    adapter = _FakeExecutionAdapter(reservation.intent.boundary_identity)
+    exact_limit = publisher_case["settings"].run_action_event_size_bytes
+    monkeypatch.setattr(
+        run_action_recovery_module,
+        "credential_expiry_termination_event_size_bound",
+        lambda **_arguments: exact_limit,
+    )
+
+    report = _recovery_coordinator(gate, adapter).recover(frontier)
+
+    assert not report.is_complete
+    assert len(credential_backend.issue_calls) == 1
+    assert len(adapter.stage_calls) == 1
+    assert len(adapter.continuation_calls) == 1
 
 
 def test_production_activation_envelope_rejects_one_byte_before_delivery(
@@ -2801,7 +3293,7 @@ def test_projected_acceptance_cleanup_precedes_new_pending_edit_after_restart(
         active_workspace=active,
         publisher=reopened_publisher,
         security_authority=security,
-        credential_validity_authority=None,
+        credential_broker_registry=_credential_broker_registry()[0],
         resource_finalization_authority=(
             _static_resource_finalization_authority(reopened_publisher)
         ),
@@ -3059,7 +3551,11 @@ def test_published_release_is_adopted_after_security_advance(
     publisher_case,
     monkeypatch,
 ) -> None:
-    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
+    credential_registry = RunActionCredentialBrokerRegistry(())
+    frontier, gate, reservation, _payload = _reserved_case(
+        publisher_case,
+        credential_registry,
+    )
     _append_activation_committed(gate, reservation)
     activation_event = gate._action_store.inspect().events_for(
         reservation.intent.operation_id
@@ -3545,7 +4041,13 @@ def test_existing_timeout_is_adopted_once_persisted_and_replayed(
     publisher_case,
     monkeypatch,
 ) -> None:
-    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
+    credential_registry = RunActionCredentialBrokerRegistry(
+        (_PoisonCredentialBroker(),)
+    )
+    frontier, gate, reservation, _payload = _reserved_case(
+        publisher_case,
+        credential_registry,
+    )
     _append_activation_committed(gate, reservation)
     activation_event = gate._action_store.inspect().events_for(
         reservation.intent.operation_id
@@ -3790,6 +4292,319 @@ def test_activation_staging_crash_reopens_only_as_unactivated_spawn(
     assert len(crashing.inspect_calls) == 2
 
 
+def test_activation_staging_replays_same_broker_request_without_persisting_secret(
+    publisher_case,
+) -> None:
+    credential_registry, credential_backend = _credential_broker_registry()
+    frontier, gate, reservation, _payload = _reserved_case(
+        publisher_case,
+        credential_registry,
+    )
+    crashing = _FakeExecutionAdapter(
+        reservation.intent.boundary_identity,
+        fail_activation=True,
+    )
+    coordinator = _recovery_coordinator(gate, crashing)
+
+    with pytest.raises(RuntimeError, match="durable spawn"):
+        coordinator.recover(frontier)
+
+    assert len(credential_backend.issue_calls) == 1
+    first_request = credential_backend.issue_calls[0]
+    crashing.fail_activation = False
+    report = coordinator.recover(frontier)
+
+    assert not report.is_complete
+    assert credential_backend.issue_calls == [first_request, first_request]
+    assert credential_backend.status_calls == [first_request, first_request]
+    assert all(
+        b"credential bytes" not in path.read_bytes()
+        for path in publisher_case["active"].run_root.rglob("*")
+        if path.is_file() and not path.is_symlink()
+    )
+
+
+def test_adapter_closed_workspace_does_not_mask_secret_burn_or_callback_error(
+    publisher_case,
+) -> None:
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
+    adapter = _ClosingActivationWorkspaceAdapter(reservation.intent.boundary_identity)
+
+    with pytest.raises(
+        RuntimeError,
+        match="adapter closed activation workspace descriptor",
+    ):
+        _recovery_coordinator(gate, adapter).recover(frontier)
+
+    materialization = adapter.credential_materializations[0]
+    events = gate._action_store.inspect().events_for(reservation.intent.operation_id)
+    with pytest.raises(RunActionCredentialBrokerError, match="spent"):
+        credential_broker_module.require_run_action_credential_materialization(
+            materialization,
+            events[2].prepared_execution,
+            events[3].spawn_commit,
+            _authority=(
+                credential_broker_module._RUN_ACTION_CREDENTIAL_DELIVERY_AUTHORITY
+            ),
+        )
+
+
+def test_invalid_post_issue_clock_burns_retained_secret_response(
+    publisher_case,
+) -> None:
+    credential_backend = _RetainingCredentialBroker()
+    credential_registry = RunActionCredentialBrokerRegistry((credential_backend,))
+    frontier, gate, reservation, _payload = _reserved_case(
+        publisher_case,
+        credential_registry,
+    )
+    _append_spawn_committed(gate, reservation)
+    adapter = _FakeExecutionAdapter(reservation.intent.boundary_identity)
+    coordinator = _recovery_coordinator(gate, adapter)
+    observed_clocks = iter((1, 0))
+    coordinator._release_clock.realtime_nanoseconds = lambda: next(observed_clocks)
+
+    with pytest.raises(
+        RunActionRecoveryError,
+        match="credential issuance finish",
+    ):
+        coordinator.recover(frontier)
+
+    assert len(credential_backend.responses) == 1
+    assert credential_backend.responses[0]._state == "spent"
+    assert credential_backend.responses[0]._payload is None
+    assert not adapter.stage_calls
+
+
+def test_request_read_failure_precedes_broker_issue(
+    publisher_case,
+    monkeypatch,
+) -> None:
+    credential_registry, credential_backend = _credential_broker_registry()
+    frontier, gate, reservation, _payload = _reserved_case(
+        publisher_case,
+        credential_registry,
+    )
+    _append_spawn_committed(gate, reservation)
+    adapter = _FakeExecutionAdapter(reservation.intent.boundary_identity)
+
+    def reject_request_read(_session):
+        raise RuntimeError("injected request read failure")
+
+    monkeypatch.setattr(
+        run_action_store_module._RunActionExecutionSession,
+        "read_request",
+        reject_request_read,
+    )
+
+    with pytest.raises(RuntimeError, match="request read failure"):
+        _recovery_coordinator(gate, adapter).recover(frontier)
+
+    assert credential_backend.issue_calls == []
+    assert not adapter.stage_calls
+
+
+def test_post_issue_security_advance_burns_response_before_adapter_mutation(
+    publisher_case,
+) -> None:
+    credential_backend = _RetainingCredentialBroker()
+    credential_registry = RunActionCredentialBrokerRegistry((credential_backend,))
+    frontier, gate, reservation, _payload = _reserved_case(
+        publisher_case,
+        credential_registry,
+    )
+    _append_spawn_committed(gate, reservation)
+    adapter = _FakeExecutionAdapter(reservation.intent.boundary_identity)
+    coordinator = _recovery_coordinator(gate, adapter)
+    coordinator._security_is_current = (
+        lambda _frontier: not credential_backend.issue_calls
+    )
+
+    report = coordinator.recover(frontier)
+
+    assert not report.is_complete
+    assert report.live_ledger.operation_tails[-1].tail_kind is (
+        RunActionExecutionEventKind.SPAWN_COMMITTED
+    )
+    assert len(credential_backend.responses) == 1
+    assert credential_backend.responses[0]._state == "spent"
+    assert credential_backend.responses[0]._payload is None
+    assert not adapter.stage_calls
+
+
+def test_activation_descriptor_dup_failure_burns_retained_response(
+    publisher_case,
+    monkeypatch,
+) -> None:
+    credential_backend = _RetainingCredentialBroker()
+    credential_registry = RunActionCredentialBrokerRegistry((credential_backend,))
+    frontier, gate, reservation, _payload = _reserved_case(
+        publisher_case,
+        credential_registry,
+    )
+    _append_spawn_committed(gate, reservation)
+    adapter = _FakeExecutionAdapter(reservation.intent.boundary_identity)
+    original_duplication = run_action_recovery_module.os.dup
+
+    def reject_descriptor_duplication(descriptor):
+        if credential_backend.responses:
+            raise OSError("injected activation descriptor duplication failure")
+        return original_duplication(descriptor)
+
+    monkeypatch.setattr(
+        run_action_recovery_module.os,
+        "dup",
+        reject_descriptor_duplication,
+    )
+
+    with pytest.raises(OSError, match="descriptor duplication failure"):
+        _recovery_coordinator(gate, adapter).recover(frontier)
+
+    assert len(credential_backend.responses) == 1
+    assert credential_backend.responses[0]._state == "spent"
+    assert credential_backend.responses[0]._payload is None
+    assert not adapter.stage_calls
+
+
+def test_missing_credential_broker_fails_before_preparation_allocation(
+    publisher_case,
+) -> None:
+    frontier, gate, reservation, _payload = _reserved_case(
+        publisher_case,
+        RunActionCredentialBrokerRegistry(()),
+    )
+    adapter = _FakeExecutionAdapter(reservation.intent.boundary_identity)
+
+    with pytest.raises(
+        RunActionCredentialBrokerError,
+        match="lacks one registered",
+    ):
+        _recovery_coordinator(gate, adapter).recover(frontier)
+
+    events = gate._action_store.inspect().events_for(reservation.intent.operation_id)
+    assert tuple(event.event_kind for event in events) == (
+        RunActionExecutionEventKind.INTENT_RESERVED,
+    )
+    assert not adapter.prepare_calls
+    assert not adapter.stage_calls
+
+
+def test_expired_credential_bridges_event_five_then_uses_retirement_only(
+    publisher_case,
+    monkeypatch,
+) -> None:
+    credential_backend = _ExpiringIssueCredentialBroker()
+    credential_registry = RunActionCredentialBrokerRegistry((credential_backend,))
+    frontier, gate, reservation, _payload = _reserved_case(
+        publisher_case,
+        credential_registry,
+    )
+
+    class _CredentialRetirementControlInspection:
+        def __init__(self, activation_event):
+            self.activation_event = activation_event
+            self.topology = RunActionControlDirectoryTopology.EMPTY
+            self.workload_release_adoption = None
+            self.timeout_directive_publication = None
+
+    monkeypatch.setattr(
+        run_action_recovery_module,
+        "RunActionTimeoutInspectionLease",
+        _CredentialRetirementControlInspection,
+    )
+
+    def retire_credential(capability):
+        observation_token = capability.observation.observation_token
+        control_inspection = _CredentialRetirementControlInspection(
+            capability.query.activation_event
+        )
+        query, sealed_token, retirement_intent = (
+            capability._take_credential_retirement_authority(
+                observation_token,
+                control_inspection,
+                _authority=(
+                    run_action_recovery_module._RUN_ACTION_CREDENTIAL_RETIREMENT_AUTHORITY
+                ),
+            )
+        )
+        capability._complete_credential_retirement(
+            sealed_token,
+            retirement_intent,
+            _authority=(
+                run_action_recovery_module._RUN_ACTION_CREDENTIAL_RETIREMENT_AUTHORITY
+            ),
+        )
+        return query, sealed_token, retirement_intent
+
+    adapter = _FakeExecutionAdapter(
+        reservation.intent.boundary_identity,
+        credential_retirement=retire_credential,
+    )
+
+    intent_report = _recovery_coordinator(gate, adapter).recover(frontier)
+
+    events = gate._action_store.inspect().events_for(reservation.intent.operation_id)
+    assert not intent_report.is_complete
+    assert events[-1].event_kind is (
+        RunActionExecutionEventKind.CREDENTIAL_RETIREMENT_REQUESTED
+    )
+    assert len(credential_backend.issue_calls) == 1
+    assert len(credential_backend.status_calls) == 1
+    assert len(adapter.stage_calls) == 1
+    assert adapter.continuation_calls == []
+    assert adapter.credential_retirement_calls == []
+
+    credential_backend.expired = False
+    retirement_report = _recovery_coordinator(gate, adapter).recover(frontier)
+
+    events = gate._action_store.inspect().events_for(reservation.intent.operation_id)
+    assert not retirement_report.is_complete
+    assert events[-1].event_kind is (
+        RunActionExecutionEventKind.CREDENTIAL_RETIREMENT_REQUESTED
+    )
+    assert len(credential_backend.issue_calls) == 1
+    assert len(credential_backend.status_calls) == 1
+    assert len(adapter.stage_calls) == 1
+    assert len(adapter.continuation_calls) == 1
+    assert len(adapter.credential_retirement_calls) == 1
+
+    retry_report = _recovery_coordinator(gate, adapter).recover(frontier)
+
+    events = gate._action_store.inspect().events_for(reservation.intent.operation_id)
+    assert not retry_report.is_complete
+    assert events[-1].event_kind is (
+        RunActionExecutionEventKind.CREDENTIAL_RETIREMENT_REQUESTED
+    )
+    assert len(credential_backend.issue_calls) == 1
+    assert len(credential_backend.status_calls) == 1
+    assert len(adapter.stage_calls) == 1
+    assert len(adapter.continuation_calls) == 2
+    assert len(adapter.credential_retirement_calls) == 2
+
+
+def test_short_live_credential_waits_for_renewal_without_adapter_mutation(
+    publisher_case,
+) -> None:
+    credential_backend = _ShortLiveCredentialBroker()
+    credential_registry = RunActionCredentialBrokerRegistry((credential_backend,))
+    frontier, gate, reservation, _payload = _reserved_case(
+        publisher_case,
+        credential_registry,
+    )
+    adapter = _FakeExecutionAdapter(reservation.intent.boundary_identity)
+
+    report = _recovery_coordinator(gate, adapter).recover(frontier)
+
+    events = gate._action_store.inspect().events_for(reservation.intent.operation_id)
+    assert not report.is_complete
+    assert events[-1].event_kind is RunActionExecutionEventKind.ACTIVATION_COMMITTED
+    assert len(credential_backend.issue_calls) == 1
+    assert len(credential_backend.status_calls) == 1
+    assert len(adapter.stage_calls) == 1
+    assert adapter.continuation_calls == []
+    assert adapter.credential_retirement_calls == []
+
+
 def test_security_advance_cancels_unspawned_reservation(
     publisher_case,
 ) -> None:
@@ -3881,8 +4696,21 @@ def test_security_advance_during_activation_staging_never_starts_provider(
 
 def test_security_advance_after_activation_commit_never_starts_provider(
     publisher_case,
+    monkeypatch,
 ) -> None:
-    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
+    credential_registry, credential_backend = _credential_broker_registry()
+    monkeypatch.setattr(
+        credential_backend,
+        "_valid_until",
+        lambda request: (
+            time.time_ns()
+            + request.credential_policy.maximum_lease_seconds * 1_000_000_000
+        ),
+    )
+    frontier, gate, reservation, _payload = _reserved_case(
+        publisher_case,
+        credential_registry,
+    )
     required = frontier.checkpoint.safety_state.security_observation
     pin = publisher_case["active"].bootstrap_pin
     advanced = _security_observation(
@@ -3897,7 +4725,7 @@ def test_security_advance_after_activation_commit_never_starts_provider(
     authority = _AdvancingOnCallSecurityAuthority(
         required,
         advanced,
-        advance_on_call=5,
+        advance_on_call=7,
     )
     gate._security_authority = authority
     adapter = _FakeExecutionAdapter(reservation.intent.boundary_identity)
@@ -3905,7 +4733,7 @@ def test_security_advance_after_activation_commit_never_starts_provider(
     report = _recovery_coordinator(gate, adapter).recover(frontier)
 
     assert not report.is_complete
-    assert authority.call_count == 5
+    assert authority.call_count == 7
     assert len(adapter.stage_calls) == 1
     assert not adapter.continuation_calls
     events = gate._action_store.inspect().events_for(reservation.intent.operation_id)
@@ -4194,7 +5022,7 @@ def test_result_received_recovers_after_full_runtime_restart(
         active_workspace=active,
         publisher=publisher,
         security_authority=security,
-        credential_validity_authority=None,
+        credential_broker_registry=_credential_broker_registry()[0],
         resource_finalization_authority=(
             _static_resource_finalization_authority(publisher)
         ),
@@ -4228,7 +5056,7 @@ def test_result_decided_recovers_after_full_runtime_restart_without_implementati
         active_workspace=active,
         publisher=publisher,
         security_authority=security,
-        credential_validity_authority=None,
+        credential_broker_registry=_credential_broker_registry()[0],
         resource_finalization_authority=(
             _static_resource_finalization_authority(publisher)
         ),

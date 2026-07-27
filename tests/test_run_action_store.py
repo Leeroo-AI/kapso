@@ -19,6 +19,14 @@ from kapso.cross_run.canonical import (
 )
 from kapso.cross_run.contracts import ContractValidationError
 from kapso.cross_run.launch.run_action_contracts import RunActionIntent
+from kapso.cross_run.launch.run_action_credential_broker import (
+    RunActionCredentialLeaseStatus,
+)
+from kapso.cross_run.launch.run_action_credential_contracts import (
+    RunActionCredentialRetirementIntent,
+    RunActionPreReleaseCredentialObservation,
+    RunActionPreReleaseCredentialState,
+)
 from kapso.cross_run.launch.run_action_gate import (
     bind_run_action_frontier,
     RunFrontierActionError,
@@ -47,6 +55,7 @@ from kapso.cross_run.launch.run_action_store import (
     RunActionStoreError,
 )
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
+    run_action_credential_lease_request,
     RunActionPreparationAllocation,
     RunActionPreparationClaim,
     issue_runtime_volume_authority,
@@ -239,6 +248,7 @@ def _released_provider_termination(session, spawn, security_observation):
         timeout_directive_publication=None,
         empty_result_capture_receipt=None,
         pre_release_main_loss_observation=None,
+        credential_retirement_intent=None,
     )
 
 
@@ -254,6 +264,7 @@ def _pre_release_provider_termination(session):
         timeout_directive_publication=None,
         empty_result_capture_receipt=None,
         pre_release_main_loss_observation=loss,
+        credential_retirement_intent=None,
     )
 
 
@@ -282,6 +293,7 @@ def _pre_release_terminal_provider_termination(
         timeout_directive_publication=None,
         empty_result_capture_receipt=None,
         pre_release_main_loss_observation=None,
+        credential_retirement_intent=None,
     )
 
 
@@ -295,6 +307,7 @@ def _execution_event(
     prepared_execution=None,
     spawn_commit=None,
     activation_revalidation_receipt=None,
+    credential_retirement_intent=None,
     provider_termination_receipt=None,
     result_receipt=None,
     result_decision=None,
@@ -310,6 +323,7 @@ def _execution_event(
         prepared_execution=prepared_execution,
         spawn_commit=spawn_commit,
         activation_revalidation_receipt=activation_revalidation_receipt,
+        credential_retirement_intent=credential_retirement_intent,
         provider_termination_receipt=provider_termination_receipt,
         result_receipt=result_receipt,
         result_decision=result_decision,
@@ -494,7 +508,10 @@ def test_provider_termination_is_terminal_without_result_blobs(
                 accepted_result_payload=b'{"must":"not publish"}',
                 workspace_promotion=None,
             )
-        with pytest.raises(RunActionStoreError, match="activation_committed tail"):
+        with pytest.raises(
+            RunActionStoreError,
+            match="activation or retirement authority",
+        ):
             session.terminate_provider(receipt)
 
     snapshot = store.snapshot()
@@ -583,7 +600,7 @@ def test_provider_termination_rejects_event_position_and_graph_splices(
         ):
             _execution_event(
                 reservation=reservation,
-                event_number=7,
+                event_number=8,
                 predecessor_event_id=content_id(
                     "run-action-execution-event",
                     {"fixture": "event six"},
@@ -612,6 +629,7 @@ def test_provider_termination_rejects_event_position_and_graph_splices(
             timeout_directive_publication=None,
             empty_result_capture_receipt=None,
             pre_release_main_loss_observation=foreign_loss,
+            credential_retirement_intent=None,
         )
         with pytest.raises(
             RunActionStoreError,
@@ -634,6 +652,7 @@ def test_provider_termination_rejects_event_position_and_graph_splices(
             timeout_directive_publication=None,
             empty_result_capture_receipt=None,
             pre_release_main_loss_observation=foreign_loss_at_current_event,
+            credential_retirement_intent=None,
         )
         with pytest.raises(
             RunActionStoreError,
@@ -641,6 +660,80 @@ def test_provider_termination_rejects_event_position_and_graph_splices(
         ):
             session.terminate_provider(foreign_graph_at_current_event)
         session.terminate_provider(exact)
+
+
+def test_credential_retirement_envelope_bounds_a_committable_expiry_event(
+    publisher_case,
+):
+    frontier, request_payload, reservation, _workspace = _reserved_action(
+        publisher_case,
+        operation_id="credential_retirement_envelope_0123456789abcdef",
+    )
+    store = _open_store(
+        publisher_case["active"],
+        publisher_case["settings"],
+    )
+    _reserve_action(store, reservation, request_payload)
+
+    with _open_session(store, reservation) as session:
+        prepared = _prepare_session(session)
+        spawn = session.commit_spawn(
+            security_observation_id=(
+                frontier.checkpoint.safety_state.security_observation.observation_id
+            ),
+            boundary_identity=reservation.intent.boundary_identity,
+        )
+        bound = session.credential_retirement_event_size_bytes(prepared, spawn)
+        activation_event = session.commit_activation(
+            _activation_revalidation_receipt(prepared, spawn)
+        )
+        request = run_action_credential_lease_request(prepared, spawn)
+        status = RunActionCredentialLeaseStatus.mint(
+            credential_lease_request_id=request.credential_lease_request_id,
+            valid_until_realtime_nanoseconds=1,
+        )
+        required_duration_seconds = (
+            prepared.preparation_claim.execution_policy.supervisor_limits.execution_timeout_seconds
+            + prepared.preparation_claim.execution_policy.supervisor_limits.termination_grace_seconds
+        )
+        required_valid_until = 2 + required_duration_seconds * 1_000_000_000
+        credential_observation = RunActionPreReleaseCredentialObservation.mint(
+            state=RunActionPreReleaseCredentialState.EXPIRED,
+            activation_revalidation_receipt=(
+                activation_event.activation_revalidation_receipt
+            ),
+            credential_lease_status=status,
+            observed_before_realtime_nanoseconds=1,
+            observed_after_realtime_nanoseconds=2,
+            required_valid_until_realtime_nanoseconds=required_valid_until,
+        )
+        intent = RunActionCredentialRetirementIntent.mint(
+            activation_event_id=activation_event.event_id,
+            pre_release_credential_observation_id=(
+                credential_observation.pre_release_credential_observation_id
+            ),
+            credential_lease_status=status,
+            observed_before_realtime_nanoseconds=1,
+            observed_after_realtime_nanoseconds=2,
+            required_valid_until_realtime_nanoseconds=required_valid_until,
+        )
+        with pytest.raises(
+            RunActionStoreError,
+            match="differs from durable event 5",
+        ):
+            session.commit_credential_retirement(
+                _remint_contract(
+                    intent,
+                    pre_release_credential_observation_id=content_id(
+                        RunActionPreReleaseCredentialObservation.CONTENT_NAMESPACE,
+                        {"fixture": "spliced expired credential observation"},
+                    ),
+                )
+            )
+        event = session.commit_credential_retirement(intent)
+
+    assert len(event.to_json_bytes()) <= bound
+    assert bound <= publisher_case["settings"].run_action_event_size_bytes
 
 
 @pytest.mark.parametrize("termination_event_committed", (False, True))
@@ -715,7 +808,7 @@ def test_provider_termination_publication_recovers_exactly_across_crash(
         if termination_event_committed:
             with pytest.raises(
                 RunActionStoreError,
-                match="activation_committed tail",
+                match="activation or retirement authority",
             ):
                 session.terminate_provider(receipt)
         else:
@@ -1658,6 +1751,7 @@ def test_action_store_rejects_reminted_failed_edit_with_changed_workspace(
         prepared_execution=None,
         spawn_commit=None,
         activation_revalidation_receipt=None,
+        credential_retirement_intent=None,
         provider_termination_receipt=None,
         result_receipt=None,
         result_decision=None,

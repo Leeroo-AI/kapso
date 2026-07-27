@@ -11,7 +11,6 @@ from kapso.cross_run.launch.run_action_ledger import RunActionExecutionEventKind
 from kapso.cross_run.launch.run_action_spawn_contracts import RunActionSpawnCommit
 from kapso.cross_run.launch.run_action_store import RunActionExecutionEvent
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
-    RUN_ACTION_CREDENTIAL_LEASE_AUTHORITY_NAMESPACE,
     RUN_ACTION_MAXIMUM_PHYSICAL_INTEGER,
     RunActionActivatedFileObservation,
     RunActionActivatedRuntimeDirectoryObservation,
@@ -26,6 +25,7 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RunActionPreparedRuntimeDirectory,
     RunActionPreparedWorkspaceProof,
     RunActionRuntimeVolumeEvidence,
+    run_action_credential_lease_authority_id,
 )
 
 _MAXIMUM_PHYSICAL_INTEGER = RUN_ACTION_MAXIMUM_PHYSICAL_INTEGER
@@ -108,6 +108,7 @@ def activation_execution_event_size_bound(
         prepared_execution=None,
         spawn_commit=None,
         activation_revalidation_receipt=receipt,
+        credential_retirement_intent=None,
         provider_termination_receipt=None,
         result_receipt=None,
         result_decision=None,
@@ -209,8 +210,9 @@ def activation_revalidation_receipt_wire_bound(
                 spawn,
                 size_bytes=credential_slot.payload_size_limit_bytes,
                 content_digest=None,
-                content_authority_id=_content_identifier_from_namespace(
-                    RUN_ACTION_CREDENTIAL_LEASE_AUTHORITY_NAMESPACE
+                content_authority_id=run_action_credential_lease_authority_id(
+                    prepared,
+                    spawn,
                 ),
             )
         ),

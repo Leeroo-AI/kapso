@@ -9,6 +9,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from test_run_frontier_action_gate import _credential_broker_registry
+
 import kapso.cross_run.launch.run_action_pre_release_main_terminal as main_terminal
 import kapso.cross_run.launch.run_action_pre_release_resources as pre_release_resources
 from kapso.cross_run.launch.run_action_clock import _SystemRunActionClock
@@ -53,6 +55,7 @@ def _case(monkeypatch):
     query = RunActionCommittedSpawnQuery(
         preparation_allocation=released_query.preparation_allocation,
         activation_event=released_query.activation_event,
+        credential_retirement_intent=None,
         workload_release_adoption=None,
         timeout_directive_publication=None,
     )
@@ -204,7 +207,7 @@ def _capability(case, observation):
         ),
         required_security_observation=_release_security_observation(),
         security_authority=_SecurityAuthority(),
-        credential_validity_authority=None,
+        credential_broker_registry=_credential_broker_registry()[0],
         release_clock=_SystemRunActionClock(),
         _authority=_RUN_ACTION_COMMITTED_CONTINUATION_AUTHORITY,
     )

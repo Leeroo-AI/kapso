@@ -25,6 +25,7 @@ class RunActionExecutionEventKind(str, Enum):
     EXECUTION_PREPARED = "execution_prepared"
     SPAWN_COMMITTED = "spawn_committed"
     ACTIVATION_COMMITTED = "activation_committed"
+    CREDENTIAL_RETIREMENT_REQUESTED = "credential_retirement_requested"
     RESULT_RECEIVED = "result_received"
     PROVIDER_TERMINATED = "provider_terminated"
     RESULT_DECIDED = "result_decided"
@@ -59,10 +60,14 @@ class RunActionOperationTail(StrictContract):
             },
             5: {RunActionExecutionEventKind.ACTIVATION_COMMITTED},
             6: {
+                RunActionExecutionEventKind.CREDENTIAL_RETIREMENT_REQUESTED,
                 RunActionExecutionEventKind.RESULT_RECEIVED,
                 RunActionExecutionEventKind.PROVIDER_TERMINATED,
             },
-            7: {RunActionExecutionEventKind.RESULT_DECIDED},
+            7: {
+                RunActionExecutionEventKind.PROVIDER_TERMINATED,
+                RunActionExecutionEventKind.RESULT_DECIDED,
+            },
             8: {RunActionExecutionEventKind.RESULT_ACCEPTED},
         }
         require_identifier(self.operation_id, "run action tail operation ID")

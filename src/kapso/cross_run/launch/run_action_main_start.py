@@ -167,9 +167,12 @@ def start_run_action_barrier_once(
         ) as activation_lease:
             inventory = activation_lease.inventory
             observation_token = _inert_observation_token(query, inventory)
-            sealed_query, sealed_token = capability._take_start_authority(
-                observation_token,
-                _authority=_RUN_ACTION_START_AUTHORITY,
+            sealed_query, sealed_token = (
+                RunActionCommittedContinuationCapability._take_start_authority(
+                    capability,
+                    observation_token,
+                    _authority=_RUN_ACTION_START_AUTHORITY,
+                )
             )
             if sealed_query != query or sealed_token != observation_token:
                 raise RunActionMainStartError(
@@ -177,7 +180,7 @@ def start_run_action_barrier_once(
                 )
             activation_lease.require_current()
             exclusion.require_current()
-            container_id = query.spawn_commit.provider_execution_id
+            container_id = sealed_query.spawn_commit.provider_execution_id
             result = start_authority._start_created_container_once(
                 container_id=container_id,
                 exclusion_lease=exclusion,
@@ -199,7 +202,7 @@ def start_run_action_barrier_once(
                 )
             activation_lease.require_volume_current()
             running = _observe_exact_running_barrier(
-                query=query,
+                query=sealed_query,
                 expected_inventory=inventory,
                 resource_manager=resource_manager,
                 command=command,
@@ -210,7 +213,7 @@ def start_run_action_barrier_once(
             )
             activation_lease.require_volume_current()
             repeated = _observe_exact_running_barrier(
-                query=query,
+                query=sealed_query,
                 expected_inventory=inventory,
                 resource_manager=resource_manager,
                 command=command,
@@ -225,7 +228,8 @@ def start_run_action_barrier_once(
                 )
             activation_lease.require_volume_current()
             exclusion.require_current()
-            capability._complete_start(
+            RunActionCommittedContinuationCapability._complete_start(
+                capability,
                 running,
                 observation_token,
                 _authority=_RUN_ACTION_START_AUTHORITY,

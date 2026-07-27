@@ -73,6 +73,7 @@ def _activation_event_size(prepared, spawn) -> int:
         prepared_execution=None,
         spawn_commit=None,
         activation_revalidation_receipt=receipt,
+        credential_retirement_intent=None,
         provider_termination_receipt=None,
         result_receipt=None,
         result_decision=None,

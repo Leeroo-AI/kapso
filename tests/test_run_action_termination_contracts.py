@@ -10,9 +10,17 @@ from kapso.cross_run.canonical import content_id, tree_or_blob_digest
 from kapso.cross_run.launch.run_action_control_topology import (
     RunActionControlDirectoryTopology,
 )
+from kapso.cross_run.launch.run_action_credential_broker import (
+    RunActionCredentialLeaseStatus,
+)
+from kapso.cross_run.launch.run_action_credential_contracts import (
+    RunActionCredentialRetirementIntent,
+    RunActionPreReleaseCredentialObservation,
+)
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RUN_ACTION_MAXIMUM_PHYSICAL_INTEGER,
     RunActionPreparationAllocation,
+    run_action_credential_lease_request,
 )
 from kapso.cross_run.launch.run_action_recovery import (
     RunActionProviderResult,
@@ -198,6 +206,7 @@ def _termination_graph(reason):
     timeout = None
     capture = None
     loss = None
+    retirement_intent = None
     if reason is RunActionProviderTerminationReason.TIMEOUT:
         terminal = successful_terminal
         timeout = _timeout_publication(activation, adoption)
@@ -230,6 +239,43 @@ def _termination_graph(reason):
         )
         loss = _pre_release_loss(activation, activation_event_id)
         disposition = RunActionProviderTerminationDisposition.FAILED
+    elif reason is RunActionProviderTerminationReason.CREDENTIAL_EXPIRED:
+        adoption = None
+        terminal = None
+        activation_event_id = content_id(
+            "run-action-execution-event",
+            {"fixture": "pre-release activation event"},
+        )
+        loss = _pre_release_loss(activation, activation_event_id)
+        observed_after = 80_000_000_000
+        policy = activation.prepared_execution.preparation_claim.execution_policy
+        required_valid_until = (
+            observed_after
+            + (
+                policy.supervisor_limits.execution_timeout_seconds
+                + policy.supervisor_limits.termination_grace_seconds
+            )
+            * 1_000_000_000
+        )
+        request = run_action_credential_lease_request(
+            activation.prepared_execution,
+            activation.spawn_commit,
+        )
+        retirement_intent = RunActionCredentialRetirementIntent.mint(
+            activation_event_id=activation_event_id,
+            pre_release_credential_observation_id=content_id(
+                RunActionPreReleaseCredentialObservation.CONTENT_NAMESPACE,
+                {"fixture": "expired credential observation"},
+            ),
+            credential_lease_status=RunActionCredentialLeaseStatus.mint(
+                credential_lease_request_id=request.credential_lease_request_id,
+                valid_until_realtime_nanoseconds=observed_after,
+            ),
+            observed_before_realtime_nanoseconds=observed_after,
+            observed_after_realtime_nanoseconds=observed_after,
+            required_valid_until_realtime_nanoseconds=required_valid_until,
+        )
+        disposition = RunActionProviderTerminationDisposition.INTERRUPTED
     else:
         adoption = None
         activation_event_id = content_id(
@@ -255,6 +301,7 @@ def _termination_graph(reason):
         timeout_directive_publication=timeout,
         empty_result_capture_receipt=capture,
         pre_release_main_loss_observation=loss,
+        credential_retirement_intent=retirement_intent,
     )
     return receipt
 

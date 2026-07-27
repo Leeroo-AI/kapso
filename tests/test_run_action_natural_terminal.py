@@ -8,6 +8,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from test_run_frontier_action_gate import _credential_broker_registry
+
 import kapso.cross_run.launch.run_action_docker_inspect as docker_inspect
 import kapso.cross_run.launch.run_action_natural_terminal as natural_terminal
 import kapso.cross_run.launch.run_action_terminal_inspection as terminal_inspection
@@ -128,7 +130,7 @@ def _case(
         ),
         required_security_observation=_release_security_observation(),
         security_authority=_SecurityAuthority(),
-        credential_validity_authority=None,
+        credential_broker_registry=_credential_broker_registry()[0],
         release_clock=_SystemRunActionClock(),
         _authority=_RUN_ACTION_COMMITTED_CONTINUATION_AUTHORITY,
     )
@@ -203,7 +205,8 @@ def _resolve(case, monkeypatch, result_payload):
 
     adapter = _ResolutionAdapter()
     outcome = case.capability._invoke_once(adapter)
-    assert outcome is adapter.outcome
+    assert outcome == adapter.outcome
+    assert outcome is not adapter.outcome
     return outcome, capture_calls
 
 

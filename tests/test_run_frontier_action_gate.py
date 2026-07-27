@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 
@@ -27,6 +28,12 @@ from kapso.cross_run.launch.run_action_contracts import (
     RunActionContractError,
     RunActionExecutionLifecycleIdentity,
     RunActionResultInterpreterIdentity,
+)
+from kapso.cross_run.launch.run_action_credential_broker import (
+    RunActionCredentialBrokerBackend,
+    RunActionCredentialBrokerRegistry,
+    RunActionCredentialIssueResponse,
+    RunActionCredentialLeaseStatus,
 )
 from kapso.cross_run.launch.run_action_gate import (
     RunFrontierActionError,
@@ -113,6 +120,48 @@ class _StaticSecurityAuthority:
             )
         )
         return self.observation
+
+
+class _StaticCredentialBroker(RunActionCredentialBrokerBackend):
+    def __init__(self):
+        super().__init__(
+            broker_id="test.credential.broker",
+            broker_protocol_version="test.credential.broker.v1",
+        )
+        self.issue_calls = []
+        self.status_calls = []
+        self._lease_expiries = {}
+
+    def _valid_until(self, request):
+        existing = self._lease_expiries.get(request.credential_lease_request_id)
+        if existing is not None:
+            return existing
+        valid_until = (
+            time.time_ns()
+            + (request.credential_policy.maximum_lease_seconds - 1) * 1_000_000_000
+        )
+        self._lease_expiries[request.credential_lease_request_id] = valid_until
+        return valid_until
+
+    def issue_or_replay_exact(self, request):
+        self.issue_calls.append(request)
+        return RunActionCredentialIssueResponse(
+            credential_lease_request_id=request.credential_lease_request_id,
+            payload=b"credential bytes",
+            valid_until_realtime_nanoseconds=self._valid_until(request),
+        )
+
+    def observe_exact(self, request):
+        self.status_calls.append(request)
+        return RunActionCredentialLeaseStatus.mint(
+            credential_lease_request_id=request.credential_lease_request_id,
+            valid_until_realtime_nanoseconds=self._valid_until(request),
+        )
+
+
+def _credential_broker_registry():
+    backend = _StaticCredentialBroker()
+    return RunActionCredentialBrokerRegistry((backend,)), backend
 
 
 class _StaticRunActionResourceFinalizationDriver:
@@ -238,7 +287,7 @@ def _successor_at_boundary(
 def _action_case(
     case,
     boundary=RunSafetyBoundary.IDEATION,
-    credential_validity_authority=None,
+    credential_broker_registry=None,
     resource_finalization_authority_factory=None,
 ):
     publisher, initial = _publish_genesis(case)
@@ -261,11 +310,13 @@ def _action_case(
         if resource_finalization_authority_factory is None
         else resource_finalization_authority_factory(publisher)
     )
+    if credential_broker_registry is None:
+        credential_broker_registry, _credential_backend = _credential_broker_registry()
     gate = RunFrontierActionGate(
         active_workspace=case["active"],
         publisher=publisher,
         security_authority=security,
-        credential_validity_authority=credential_validity_authority,
+        credential_broker_registry=credential_broker_registry,
         resource_finalization_authority=resource_finalization_authority,
     )
     return publisher, receipt, security, gate
@@ -466,7 +517,7 @@ def test_stopped_checkpoint_cannot_reserve_an_action(
         security_authority=_StaticSecurityAuthority(
             receipt.checkpoint.safety_state.security_observation
         ),
-        credential_validity_authority=None,
+        credential_broker_registry=_credential_broker_registry()[0],
         resource_finalization_authority=(
             _static_resource_finalization_authority(publisher)
         ),
@@ -627,7 +678,7 @@ def test_reconstructed_gate_observes_unresolved_reservation(
         active_workspace=publisher_case["active"],
         publisher=reconstructed_publisher,
         security_authority=security,
-        credential_validity_authority=None,
+        credential_broker_registry=_credential_broker_registry()[0],
         resource_finalization_authority=(
             _static_resource_finalization_authority(reconstructed_publisher)
         ),

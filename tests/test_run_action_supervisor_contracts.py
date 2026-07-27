@@ -88,6 +88,7 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
     preparation_volume_name,
     runtime_volume_driver_options,
     run_action_docker_init_authority_id,
+    run_action_credential_lease_authority_id,
     run_action_supervisor_helper_authority_id,
     runtime_volume_sentinel_identity,
     run_action_activated_volume_evidence_matches,
@@ -119,7 +120,7 @@ def _fixture_content_id(namespace: str, label: str) -> str:
     return content_id(namespace, {"fixture": label})
 
 
-_CREDENTIAL_LEASE_AUTHORITY_ID = _fixture_content_id(
+_FOREIGN_CREDENTIAL_LEASE_AUTHORITY_ID = _fixture_content_id(
     RUN_ACTION_CREDENTIAL_LEASE_AUTHORITY_NAMESPACE,
     "credential lease",
 )
@@ -1161,7 +1162,10 @@ def test_activation_revalidation_binds_fresh_exact_prepared_observations():
         spawn,
         size_bytes=32,
         content_digest=None,
-        content_authority_id=_CREDENTIAL_LEASE_AUTHORITY_ID,
+        content_authority_id=run_action_credential_lease_authority_id(
+            prepared,
+            spawn,
+        ),
     )
     reobserved_volume = _volume_with_added_blocks(
         prepared.runtime_volume_evidence,
@@ -1196,6 +1200,21 @@ def test_activation_revalidation_binds_fresh_exact_prepared_observations():
         == receipt
     )
     assert receipt.credential_file_observation.content_digest is None
+    foreign_lease_authority = run_action_credential_lease_authority_id(
+        prepared,
+        _spawn_commit(prepared, invocation_nonce="2" * 32),
+    )
+    with pytest.raises(
+        RunActionSupervisorContractError,
+        match="prepared authority",
+    ):
+        replace(
+            receipt,
+            credential_file_observation=_remint_contract(
+                receipt.credential_file_observation,
+                content_authority_id=foreign_lease_authority,
+            ),
+        )
     activated_file_fields = {field.name for field in fields(type(input_observation))}
     assert {
         "prepared_delivery_slot_id",
@@ -1519,7 +1538,10 @@ def test_activation_revalidation_requires_exact_live_volume_generation_and_keepe
             spawn,
             size_bytes=32,
             content_digest=None,
-            content_authority_id=_CREDENTIAL_LEASE_AUTHORITY_ID,
+            content_authority_id=run_action_credential_lease_authority_id(
+                prepared,
+                spawn,
+            ),
         ),
     }
     wrong_generation = _remint_contract(
@@ -1604,7 +1626,7 @@ def test_activation_revalidation_uses_absence_for_credential_free_policy():
         spawn,
         size_bytes=32,
         content_digest=None,
-        content_authority_id=_CREDENTIAL_LEASE_AUTHORITY_ID,
+        content_authority_id=_FOREIGN_CREDENTIAL_LEASE_AUTHORITY_ID,
     )
     with pytest.raises(
         RunActionSupervisorContractError,
@@ -1961,7 +1983,10 @@ def _activation_revalidation_receipt(prepared, spawn):
             spawn,
             size_bytes=32,
             content_digest=None,
-            content_authority_id=_CREDENTIAL_LEASE_AUTHORITY_ID,
+            content_authority_id=run_action_credential_lease_authority_id(
+                prepared,
+                spawn,
+            ),
         )
     delivered_block_count = sum(
         (size_bytes + block_size - 1) // block_size for size_bytes in delivered_sizes

@@ -51,7 +51,8 @@ def publish_run_action_workload_release_once(
     prepared = resolved.activation_revalidation_receipt.prepared_execution
     policy = prepared.preparation_claim.execution_policy
     control = prepared.control_directory
-    with capability._begin_release_publication(
+    with RunActionCommittedContinuationCapability._begin_release_publication(
+        capability,
         resolved,
         _authority=_RUN_ACTION_RELEASE_PUBLISHER_AUTHORITY,
     ) as authorization:

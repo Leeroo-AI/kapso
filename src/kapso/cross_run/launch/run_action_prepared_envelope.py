@@ -131,6 +131,7 @@ def prepared_execution_event_size_bound(
         prepared_execution=prepared,
         spawn_commit=None,
         activation_revalidation_receipt=None,
+        credential_retirement_intent=None,
         provider_termination_receipt=None,
         result_receipt=None,
         result_decision=None,

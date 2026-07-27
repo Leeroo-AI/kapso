@@ -60,7 +60,7 @@ class RunActionPreReleaseMainTerminalError(RuntimeError):
 
 
 class _RunActionPreReleaseMainTerminalLease:
-    """Thread-bound present-exited proof retained through event-6 publication."""
+    """Thread-bound present-exited proof retained through terminal publication."""
 
     def __init__(
         self,
@@ -407,7 +407,7 @@ def capture_run_action_pre_release_main_terminal_termination(
     docker_settings: DockerRuntimeSettings,
     launch_settings: LaunchSettings,
 ) -> RunActionContinuationOutcome:
-    """Reprove sealed present-exited state and transfer its event-6 fence."""
+    """Reprove sealed present-exited state and transfer its publication fence."""
 
     if (
         type(capability) is not RunActionCommittedContinuationCapability
@@ -444,34 +444,46 @@ def capture_run_action_pre_release_main_terminal_termination(
                 "pre-release terminal differs from sealed classification"
             )
         authority_query, released_terminal, pre_release_observation_token = (
-            capability._take_provider_termination_authority(
+            RunActionCommittedContinuationCapability._take_provider_termination_authority(
+                capability,
                 _authority=_RUN_ACTION_PROVIDER_TERMINATION_AUTHORITY,
             )
         )
         if (
-            authority_query is not query
+            authority_query != query
             or released_terminal is not None
             or pre_release_observation_token != observation_token
         ):
             raise RunActionPreReleaseMainTerminalError(
                 "pre-release terminal capability differs from retained lease"
             )
+        retirement_intent = authority_query.credential_retirement_intent
         receipt = RunActionProviderTerminationReceipt.mint(
-            disposition=RunActionProviderTerminationDisposition.FAILED,
-            reason=RunActionProviderTerminationReason.PRE_RELEASE_MAIN_TERMINAL,
-            activation_event_id=query.activation_event.event_id,
+            disposition=(
+                RunActionProviderTerminationDisposition.INTERRUPTED
+                if retirement_intent is not None
+                else RunActionProviderTerminationDisposition.FAILED
+            ),
+            reason=(
+                RunActionProviderTerminationReason.CREDENTIAL_EXPIRED
+                if retirement_intent is not None
+                else RunActionProviderTerminationReason.PRE_RELEASE_MAIN_TERMINAL
+            ),
+            activation_event_id=authority_query.activation_event.event_id,
             workload_release_adoption=None,
             terminal_observation=observation,
             timeout_directive_publication=None,
             empty_result_capture_receipt=None,
             pre_release_main_loss_observation=None,
+            credential_retirement_intent=retirement_intent,
         )
         terminal_lease.require_current()
         publication_fence = RunActionProviderTerminationPublicationFence(
             source=terminal_lease,
             _authority=(_RUN_ACTION_PROVIDER_TERMINATION_PUBLICATION_FENCE_AUTHORITY),
         )
-        capability._complete_provider_termination(
+        RunActionCommittedContinuationCapability._complete_provider_termination(
+            capability,
             receipt,
             publication_fence,
             _authority=_RUN_ACTION_PROVIDER_TERMINATION_AUTHORITY,

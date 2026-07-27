@@ -6,6 +6,7 @@ import os
 import re
 import stat
 from contextlib import ExitStack
+from copy import deepcopy
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -32,6 +33,20 @@ from kapso.cross_run.launch.run_action_containment_contracts import (
 )
 from kapso.cross_run.launch.run_action_control_topology import (
     RunActionControlDirectoryTopology,
+)
+from kapso.cross_run.launch.run_action_credential_broker import (
+    _RUN_ACTION_CREDENTIAL_LIFECYCLE_AUTHORITY,
+    burn_run_action_credential_materialization,
+    RunActionCredentialBrokerRegistry,
+    RunActionCredentialIssueResponse,
+    RunActionCredentialLeaseStatus,
+    RunActionCredentialMaterialization,
+)
+from kapso.cross_run.launch.run_action_credential_contracts import (
+    credential_retirement_intent_matches_activation,
+    RunActionCredentialRetirementIntent,
+    RunActionPreReleaseCredentialObservation,
+    RunActionPreReleaseCredentialState,
 )
 from kapso.cross_run.launch.run_action_clock import _SystemRunActionClock
 from kapso.cross_run.launch.run_action_control_candidate import (
@@ -93,6 +108,9 @@ from kapso.cross_run.launch.run_action_store import (
     RunActionResultDisposition,
     RunActionStoreInspection,
 )
+from kapso.cross_run.launch.run_action_credential_expiry_envelope import (
+    credential_expiry_termination_event_size_bound,
+)
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
     DockerRunActionExecutionPolicy,
     RUN_ACTION_MAXIMUM_PHYSICAL_INTEGER,
@@ -102,6 +120,8 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RunActionPreparedExecution,
     RunActionResultCaptureReceipt,
     RunActionTerminalObservation,
+    run_action_credential_lease_authority_id,
+    run_action_credential_lease_request,
 )
 from kapso.cross_run.launch.run_action_termination_contracts import (
     provider_termination_matches_durable_activation,
@@ -139,7 +159,9 @@ _RUN_ACTION_RECOVERY_IMPLEMENTATION_REGISTRY_AUTHORITY = object()
 _RUN_ACTION_PREPARATION_AUTHORITY = object()
 _RUN_ACTION_ACTIVATION_AUTHORITY = object()
 _RUN_ACTION_COMMITTED_CONTINUATION_AUTHORITY = object()
+_RUN_ACTION_COMMITTED_CONTINUATION_STATE_AUTHORITY = object()
 _RUN_ACTION_START_AUTHORITY = object()
+_RUN_ACTION_CREDENTIAL_RETIREMENT_AUTHORITY = object()
 _RUN_ACTION_RELEASE_PUBLISHER_AUTHORITY = object()
 _RUN_ACTION_TIMEOUT_PUBLISHER_AUTHORITY = object()
 _RUN_ACTION_TIMEOUT_CONTAINMENT_AUTHORITY = object()
@@ -160,6 +182,10 @@ _ISSUED_PREPARATION_CAPABILITIES: WeakValueDictionary[int, object] = (
 _ISSUED_ACTIVATION_CAPABILITIES: WeakValueDictionary[int, object] = (
     WeakValueDictionary()
 )
+_ISSUED_ACTIVATION_OWNERSHIP: WeakKeyDictionary[
+    object,
+    "_RunActionActivationOwnedResources",
+] = WeakKeyDictionary()
 _ISSUED_COMMITTED_CONTINUATION_CAPABILITIES: WeakValueDictionary[int, object] = (
     WeakValueDictionary()
 )
@@ -167,11 +193,16 @@ _ISSUED_COMMITTED_CONTINUATION_RELEASE_AUTHORITIES: WeakKeyDictionary[
     object,
     "_RunActionIssuedReleaseAuthorities",
 ] = WeakKeyDictionary()
+_ISSUED_PROVIDER_TERMINATION_PUBLICATION_FENCES: WeakKeyDictionary[
+    object,
+    "_RunActionProviderTerminationPublicationFenceIssuance",
+] = WeakKeyDictionary()
 _RECOVERY_COORDINATOR_LOCK = Lock()
 _RECOVERY_IMPLEMENTATION_REGISTRY_LOCK = Lock()
 _PREPARATION_CAPABILITY_LOCK = Lock()
 _ACTIVATION_CAPABILITY_LOCK = Lock()
 _COMMITTED_CONTINUATION_CAPABILITY_LOCK = Lock()
+_PROVIDER_TERMINATION_PUBLICATION_FENCE_LOCK = Lock()
 _TERMINAL_KINDS = {
     RunActionExecutionEventKind.PROVIDER_TERMINATED,
     RunActionExecutionEventKind.RESULT_ACCEPTED,
@@ -198,26 +229,51 @@ class RunActionRecoveryError(RuntimeError):
 
 @dataclass(frozen=True)
 class _RunActionIssuedReleaseAuthorities:
-    """Coordinator-held authorities never accepted at the adapter call site."""
+    """Coordinator-held continuation identity and release authorities."""
 
+    query: "RunActionCommittedSpawnQuery"
+    adapter_query: "RunActionCommittedSpawnQuery"
+    observation: RunActionCommittedSpawnObservation
+    adapter_observation: RunActionCommittedSpawnObservation
+    pre_release_credential_observation: RunActionPreReleaseCredentialObservation | None
+    adapter_pre_release_credential_observation: (
+        RunActionPreReleaseCredentialObservation | None
+    )
     required_security_observation: SecurityDenylistObservation
     security_authority: object
-    credential_validity_authority: object | None
+    credential_broker_registry: RunActionCredentialBrokerRegistry
     clock: _SystemRunActionClock
     release_receipt_size_bound_bytes: int | None
+    provider_termination_registration: "_RunActionProviderTerminationRegistration"
+    terminal_result_registration: "_RunActionTerminalResultRegistration"
+    capability_lifecycle: "_RunActionContinuationCapabilityLifecycle"
 
     def __post_init__(self) -> None:
         if (
-            type(self.required_security_observation) is not SecurityDenylistObservation
+            type(self.query) is not RunActionCommittedSpawnQuery
+            or type(self.adapter_query) is not RunActionCommittedSpawnQuery
+            or type(self.observation) is not RunActionCommittedSpawnObservation
+            or type(self.adapter_observation) is not RunActionCommittedSpawnObservation
+            or self.adapter_query != self.query
+            or self.adapter_observation != self.observation
+            or (
+                self.pre_release_credential_observation is not None
+                and type(self.pre_release_credential_observation)
+                is not RunActionPreReleaseCredentialObservation
+            )
+            or (
+                self.adapter_pre_release_credential_observation is not None
+                and type(self.adapter_pre_release_credential_observation)
+                is not RunActionPreReleaseCredentialObservation
+            )
+            or self.adapter_pre_release_credential_observation
+            != self.pre_release_credential_observation
+            or type(self.required_security_observation)
+            is not SecurityDenylistObservation
             or self.required_security_observation.matched_revocations
             or not hasattr(self.security_authority, "observe_exact_descendant_of")
-            or (
-                self.credential_validity_authority is not None
-                and not hasattr(
-                    self.credential_validity_authority,
-                    "observe_exact",
-                )
-            )
+            or type(self.credential_broker_registry)
+            is not RunActionCredentialBrokerRegistry
             or type(self.clock) is not _SystemRunActionClock
             or (
                 self.release_receipt_size_bound_bytes is not None
@@ -226,10 +282,129 @@ class _RunActionIssuedReleaseAuthorities:
                     or self.release_receipt_size_bound_bytes <= 0
                 )
             )
+            or type(self.provider_termination_registration)
+            is not _RunActionProviderTerminationRegistration
+            or type(self.terminal_result_registration)
+            is not _RunActionTerminalResultRegistration
+            or type(self.capability_lifecycle)
+            is not _RunActionContinuationCapabilityLifecycle
         ):
             raise RunActionRecoveryError(
                 "issued release authorities are incomplete or unsafe"
             )
+
+
+@dataclass
+class _RunActionProviderTerminationRegistration:
+    """Coordinator-private terminal receipt and retained publication fence."""
+
+    state: str = "ready"
+    receipt: RunActionProviderTerminationReceipt | None = None
+    publication_fence: "RunActionProviderTerminationPublicationFence | None" = None
+    publication_fence_handed_off: bool = False
+
+
+@dataclass
+class _RunActionTerminalResultRegistration:
+    """Coordinator-private canonical terminal and result evidence."""
+
+    terminal_observation: RunActionTerminalObservation | None = None
+    captured_result: "RunActionProviderResult | None" = None
+
+
+@dataclass
+class _RunActionContinuationCapabilityLifecycle:
+    """Coordinator-private invocation ownership for one callback."""
+
+    owner_process_id: int
+    invoking_thread_id: int | None = None
+    state: str = "ready"
+    start_state: str = "ready"
+    credential_retirement_state: str = "ready"
+    started_running_observation: RunActionBarrierRunningContainerObservation | None = (
+        None
+    )
+    release_publication_state: str = "ready"
+    timeout_publication_state: str = "ready"
+    timeout_directive_publication: (
+        RunActionTimeoutDirectivePublicationReceipt | None
+    ) = None
+    timeout_containment_state: str = "ready"
+    timeout_containment_result: RunActionTimeoutContainmentResult | None = None
+    terminal_inspection_state: str = "ready"
+    result_capture_state: str = "ready"
+
+
+@dataclass
+class _RunActionProviderTerminationPublicationFenceIssuance:
+    """Coordinator-private ownership of one retained physical proof."""
+
+    source: object | None
+    owner_process_id: int
+    owner_thread_id: int
+    closed: bool
+
+
+def _issued_continuation_authorities(
+    capability: object,
+    *,
+    _authority: object,
+) -> _RunActionIssuedReleaseAuthorities:
+    """Open mutable continuation state only to coordinator-internal call sites."""
+
+    if _authority is not _RUN_ACTION_COMMITTED_CONTINUATION_STATE_AUTHORITY:
+        raise RunActionRecoveryError(
+            "committed continuation private state authority is unavailable"
+        )
+    issued = _ISSUED_COMMITTED_CONTINUATION_CAPABILITIES.get(id(capability))
+    authorities = _ISSUED_COMMITTED_CONTINUATION_RELEASE_AUTHORITIES.get(capability)
+    if (
+        issued is not capability
+        or type(authorities) is not _RunActionIssuedReleaseAuthorities
+    ):
+        raise RunActionRecoveryError(
+            "committed continuation private state authority is unavailable"
+        )
+    return authorities
+
+
+def _continuation_lifecycle(
+    capability: object,
+    *,
+    _authority: object,
+) -> _RunActionContinuationCapabilityLifecycle:
+    """Open one mutable lifecycle only with coordinator-private authority."""
+
+    return _issued_continuation_authorities(
+        capability,
+        _authority=_authority,
+    ).capability_lifecycle
+
+
+def _provider_termination_registration(
+    capability: object,
+    *,
+    _authority: object,
+) -> _RunActionProviderTerminationRegistration:
+    """Open one mutable termination registration only inside the coordinator."""
+
+    return _issued_continuation_authorities(
+        capability,
+        _authority=_authority,
+    ).provider_termination_registration
+
+
+def _terminal_result_registration(
+    capability: object,
+    *,
+    _authority: object,
+) -> _RunActionTerminalResultRegistration:
+    """Open one mutable result registration only inside the coordinator."""
+
+    return _issued_continuation_authorities(
+        capability,
+        _authority=_authority,
+    ).terminal_result_registration
 
 
 def _require_workspace_source_path(path: Path, descriptor: int) -> None:
@@ -451,7 +626,9 @@ class RunActionContinuationState(str, Enum):
 
 
 class RunActionProviderTerminationPublicationFence:
-    """Coordinator-owned physical fence retained through terminal event 6."""
+    """Coordinator-owned physical fence retained through terminal publication."""
+
+    __slots__ = ("__weakref__",)
 
     def __init__(self, *, source: object, _authority: object) -> None:
         if (
@@ -463,34 +640,93 @@ class RunActionProviderTerminationPublicationFence:
             raise RunActionRecoveryError(
                 "provider termination publication fence lacks issued authority"
             )
-        self._source = source
-        self._owner_process_id = os.getpid()
-        self._owner_thread_id = get_ident()
-        self._closed = False
+        with _PROVIDER_TERMINATION_PUBLICATION_FENCE_LOCK:
+            _ISSUED_PROVIDER_TERMINATION_PUBLICATION_FENCES[self] = (
+                _RunActionProviderTerminationPublicationFenceIssuance(
+                    source=source,
+                    owner_process_id=os.getpid(),
+                    owner_thread_id=get_ident(),
+                    closed=False,
+                )
+            )
         self.require_current()
 
     def require_current(self) -> None:
+        issuance = _ISSUED_PROVIDER_TERMINATION_PUBLICATION_FENCES.get(self)
         if (
-            self._closed
-            or self._owner_process_id != os.getpid()
-            or self._owner_thread_id != get_ident()
+            type(issuance) is not _RunActionProviderTerminationPublicationFenceIssuance
+            or issuance.owner_process_id != os.getpid()
         ):
             raise RunActionRecoveryError(
                 "provider termination publication fence is closed or foreign"
             )
-        self._source.require_current()
+        with _PROVIDER_TERMINATION_PUBLICATION_FENCE_LOCK:
+            issuance = _ISSUED_PROVIDER_TERMINATION_PUBLICATION_FENCES.get(self)
+            if (
+                type(issuance)
+                is not _RunActionProviderTerminationPublicationFenceIssuance
+                or issuance.closed
+                or issuance.owner_process_id != os.getpid()
+                or issuance.owner_thread_id != get_ident()
+                or not hasattr(issuance.source, "require_current")
+            ):
+                raise RunActionRecoveryError(
+                    "provider termination publication fence is closed or foreign"
+                )
+            source = issuance.source
+        source.require_current()
+        with _PROVIDER_TERMINATION_PUBLICATION_FENCE_LOCK:
+            if (
+                _ISSUED_PROVIDER_TERMINATION_PUBLICATION_FENCES.get(self)
+                is not issuance
+                or issuance.closed
+                or issuance.source is not source
+            ):
+                raise RunActionRecoveryError(
+                    "provider termination publication fence changed during validation"
+                )
 
     def close(self) -> None:
+        issuance = _ISSUED_PROVIDER_TERMINATION_PUBLICATION_FENCES.get(self)
         if (
-            self._closed
-            or self._owner_process_id != os.getpid()
-            or self._owner_thread_id != get_ident()
+            type(issuance) is not _RunActionProviderTerminationPublicationFenceIssuance
+            or issuance.owner_process_id != os.getpid()
         ):
             raise RunActionRecoveryError(
                 "provider termination publication fence is already closed or foreign"
             )
-        self._closed = True
-        self._source.close()
+        with _PROVIDER_TERMINATION_PUBLICATION_FENCE_LOCK:
+            issuance = _ISSUED_PROVIDER_TERMINATION_PUBLICATION_FENCES.get(self)
+            if (
+                type(issuance)
+                is not _RunActionProviderTerminationPublicationFenceIssuance
+                or issuance.closed
+                or issuance.owner_process_id != os.getpid()
+                or issuance.owner_thread_id != get_ident()
+                or not hasattr(issuance.source, "close")
+            ):
+                raise RunActionRecoveryError(
+                    "provider termination publication fence is already closed or foreign"
+                )
+            source = issuance.source
+            issuance.closed = True
+            issuance.source = None
+        source.close()
+
+    def __copy__(self):
+        raise RunActionRecoveryError(
+            "provider termination publication fence cannot be copied"
+        )
+
+    def __deepcopy__(self, memo):
+        raise RunActionRecoveryError(
+            "provider termination publication fence cannot be copied"
+        )
+
+    def __reduce__(self):
+        raise RunActionRecoveryError(
+            "provider termination publication fence cannot be serialized"
+        )
 
 
 @dataclass(frozen=True)
@@ -542,6 +778,7 @@ class RunActionContinuationOutcome:
                     in {
                         RunActionProviderTerminationReason.PRE_RELEASE_MAIN_LOSS,
                         RunActionProviderTerminationReason.PRE_RELEASE_MAIN_TERMINAL,
+                        RunActionProviderTerminationReason.CREDENTIAL_EXPIRED,
                     }
                 ),
             ),
@@ -730,12 +967,33 @@ class _RunActionPreparationInvocation:
         return self._capability
 
     def __exit__(self, exception_type, exception, traceback) -> bool:
-        self._capability._finish_invocation()
+        RunActionPreparationCapability._finish_invocation(self._capability)
         return False
+
+
+@dataclass
+class _RunActionActivationOwnedResources:
+    """Coordinator-private activation inputs and resources."""
+
+    owner_process_id: int
+    invoking_thread_id: int | None
+    state: str
+    prepared_execution: RunActionPreparedExecution
+    spawn_commit: RunActionSpawnCommit
+    adapter_prepared_execution: RunActionPreparedExecution
+    adapter_spawn_commit: RunActionSpawnCommit
+    request_payload: bytes
+    credential_issue_response: RunActionCredentialIssueResponse | None
+    credential_broker_registry: RunActionCredentialBrokerRegistry
+    credential_materialization: RunActionCredentialMaterialization | None
+    workspace_descriptor: int | None
+    workspace_descriptor_identity: tuple[int, int] | None
 
 
 class RunActionActivationCapability:
     """Single-use delivery and inert-revalidation authority before event 5."""
+
+    __slots__ = ("_creation_process_id", "__weakref__")
 
     def __init__(
         self,
@@ -743,6 +1001,8 @@ class RunActionActivationCapability:
         prepared_execution: RunActionPreparedExecution,
         spawn_commit: RunActionSpawnCommit,
         request_payload: bytes,
+        credential_issue_response: RunActionCredentialIssueResponse | None,
+        credential_broker_registry: RunActionCredentialBrokerRegistry,
         workspace_descriptor: int | None,
         _authority: object,
     ) -> None:
@@ -765,6 +1025,19 @@ class RunActionActivationCapability:
             or not request_payload
             or tree_or_blob_digest(request_payload) != reservation.request_blob.digest
             or len(request_payload) != reservation.request_blob.size_bytes
+            or (
+                credential_issue_response is not None
+                and type(credential_issue_response)
+                is not RunActionCredentialIssueResponse
+            )
+            or (
+                (credential_issue_response is None)
+                != (
+                    prepared_execution.preparation_claim.execution_policy.credential_policy.mode
+                    is RunActionCredentialMode.NONE
+                )
+            )
+            or type(credential_broker_registry) is not RunActionCredentialBrokerRegistry
             or (reservation.intent.workspace_access is RunFrontierWorkspaceAccess.NONE)
             != (workspace_descriptor is None)
             or (
@@ -776,111 +1049,299 @@ class RunActionActivationCapability:
             raise RunActionRecoveryError(
                 "run action activation capability lacks exact authority"
             )
-        self._prepared_execution = prepared_execution
-        self._spawn_commit = spawn_commit
-        self._request_payload = request_payload
-        self._workspace_descriptor = (
+        credential_broker_registry.require_policy(
+            prepared_execution.preparation_claim.execution_policy.credential_policy
+        )
+        owned_workspace_descriptor = (
             None if workspace_descriptor is None else os.dup(workspace_descriptor)
         )
-        if self._workspace_descriptor is not None:
-            os.set_inheritable(self._workspace_descriptor, False)
-        self._owner_process_id = os.getpid()
-        self._invoking_thread_id = None
-        self._state = "ready"
+        workspace_status = (
+            None
+            if owned_workspace_descriptor is None
+            else os.fstat(owned_workspace_descriptor)
+        )
+        private_prepared_execution = deepcopy(prepared_execution)
+        private_spawn_commit = deepcopy(spawn_commit)
+        owned_resources = _RunActionActivationOwnedResources(
+            owner_process_id=os.getpid(),
+            invoking_thread_id=None,
+            state="ready",
+            prepared_execution=private_prepared_execution,
+            spawn_commit=private_spawn_commit,
+            adapter_prepared_execution=deepcopy(private_prepared_execution),
+            adapter_spawn_commit=deepcopy(private_spawn_commit),
+            request_payload=request_payload,
+            credential_issue_response=credential_issue_response,
+            credential_broker_registry=credential_broker_registry,
+            credential_materialization=None,
+            workspace_descriptor=owned_workspace_descriptor,
+            workspace_descriptor_identity=(
+                None
+                if workspace_status is None
+                else (workspace_status.st_dev, workspace_status.st_ino)
+            ),
+        )
+        self._creation_process_id = os.getpid()
         with _ACTIVATION_CAPABILITY_LOCK:
             _ISSUED_ACTIVATION_CAPABILITIES[id(self)] = self
+            _ISSUED_ACTIVATION_OWNERSHIP[self] = owned_resources
 
     @property
     def prepared_execution(self) -> RunActionPreparedExecution:
-        self._require_active_invocation()
-        return self._prepared_execution
+        return self._require_active_invocation().adapter_prepared_execution
 
     @property
     def spawn_commit(self) -> RunActionSpawnCommit:
-        self._require_active_invocation()
-        return self._spawn_commit
+        return self._require_active_invocation().adapter_spawn_commit
 
     @property
     def request_payload(self) -> bytes:
-        self._require_active_invocation()
-        return self._request_payload
+        return self._require_active_invocation().request_payload
+
+    @property
+    def credential_materialization(
+        self,
+    ) -> RunActionCredentialMaterialization | None:
+        return self._require_active_invocation().credential_materialization
 
     @property
     def workspace_descriptor(self) -> int | None:
-        self._require_active_invocation()
-        return self._workspace_descriptor
+        return self._require_active_invocation().workspace_descriptor
 
     def _invoke_once(
         self,
         execution_adapter: "RunActionExecutionAdapter",
     ) -> RunActionActivationRevalidationReceipt:
-        with self._begin_invocation():
-            return execution_adapter.stage_activation(self)
+        with _RunActionActivationOwnership(self):
+            with self._begin_invocation():
+                return execution_adapter.stage_activation(self)
 
     def _begin_invocation(self) -> "_RunActionActivationInvocation":
+        if self._creation_process_id != os.getpid():
+            raise RunActionRecoveryError(
+                "run action activation capability is spent, cloned, or foreign"
+            )
+        activation_inputs_changed = False
         with _ACTIVATION_CAPABILITY_LOCK:
             issued = _ISSUED_ACTIVATION_CAPABILITIES.get(id(self))
+            owned_resources = _ISSUED_ACTIVATION_OWNERSHIP.get(self)
             if (
                 issued is not self
-                or self._owner_process_id != os.getpid()
-                or self._state != "ready"
+                or type(owned_resources) is not _RunActionActivationOwnedResources
+                or owned_resources.owner_process_id != os.getpid()
+                or owned_resources.state != "ready"
             ):
                 raise RunActionRecoveryError(
                     "run action activation capability is spent, cloned, or foreign"
                 )
-            self._state = "invoking"
-            self._invoking_thread_id = get_ident()
-        return _RunActionActivationInvocation(self)
+            owned_resources.state = "invoking"
+            owned_resources.invoking_thread_id = get_ident()
+            if owned_resources.credential_issue_response is not None:
+                owned_resources.credential_materialization = (
+                    owned_resources.credential_broker_registry.materialize_exact(
+                        owned_resources.credential_issue_response,
+                        owned_resources.prepared_execution,
+                        owned_resources.spawn_commit,
+                    )
+                )
+                owned_resources.credential_issue_response = None
+        return _RunActionActivationInvocation(
+            self,
+            owner_process_id=os.getpid(),
+            invoking_thread_id=get_ident(),
+        )
 
-    def _require_active_invocation(self) -> None:
+    def _require_active_invocation(self) -> _RunActionActivationOwnedResources:
+        if self._creation_process_id != os.getpid():
+            raise RunActionRecoveryError(
+                "run action activation capability is not in its one invocation"
+            )
         with _ACTIVATION_CAPABILITY_LOCK:
             issued = _ISSUED_ACTIVATION_CAPABILITIES.get(id(self))
+            owned_resources = _ISSUED_ACTIVATION_OWNERSHIP.get(self)
             if (
                 issued is not self
-                or self._owner_process_id != os.getpid()
-                or self._state != "invoking"
-                or self._invoking_thread_id != get_ident()
+                or type(owned_resources) is not _RunActionActivationOwnedResources
+                or owned_resources.owner_process_id != os.getpid()
+                or owned_resources.state != "invoking"
+                or owned_resources.invoking_thread_id != get_ident()
             ):
                 raise RunActionRecoveryError(
                     "run action activation capability is not in its one invocation"
                 )
+            return owned_resources
 
-    def _finish_invocation(self) -> None:
+    def _finish_invocation(
+        self,
+        *,
+        owner_process_id: int,
+        invoking_thread_id: int,
+        _authority: object,
+    ) -> None:
+        if (
+            owner_process_id != os.getpid()
+            or invoking_thread_id != get_ident()
+            or _authority is not _RUN_ACTION_ACTIVATION_AUTHORITY
+        ):
+            raise RunActionRecoveryError(
+                "run action activation capability invocation changed"
+            )
         with _ACTIVATION_CAPABILITY_LOCK:
             issued = _ISSUED_ACTIVATION_CAPABILITIES.get(id(self))
+            owned_resources = _ISSUED_ACTIVATION_OWNERSHIP.get(self)
             if (
                 issued is not self
-                or self._owner_process_id != os.getpid()
-                or self._state != "invoking"
-                or self._invoking_thread_id != get_ident()
+                or type(owned_resources) is not _RunActionActivationOwnedResources
+                or owned_resources.owner_process_id != owner_process_id
+                or owned_resources.state != "invoking"
+                or owned_resources.invoking_thread_id != invoking_thread_id
             ):
                 raise RunActionRecoveryError(
                     "run action activation capability invocation changed"
                 )
-            self._state = "spent"
-            self._invoking_thread_id = None
+            activation_inputs_changed = (
+                owned_resources.adapter_prepared_execution
+                != owned_resources.prepared_execution
+                or owned_resources.adapter_spawn_commit != owned_resources.spawn_commit
+            )
+            owned_resources.state = "spent"
+            owned_resources.invoking_thread_id = None
             _ISSUED_ACTIVATION_CAPABILITIES.pop(id(self))
-        if self._workspace_descriptor is not None:
-            os.close(self._workspace_descriptor)
-            self._workspace_descriptor = None
+        RunActionActivationCapability._release_owned_resources(self)
+        if activation_inputs_changed:
+            raise RunActionRecoveryError(
+                "run action activation inputs changed during adapter invocation"
+            )
+
+    def _abandon(
+        self,
+        *,
+        owner_process_id: int,
+        owner_thread_id: int,
+        _authority: object,
+    ) -> None:
+        if (
+            owner_process_id != os.getpid()
+            or owner_thread_id != get_ident()
+            or _authority is not _RUN_ACTION_ACTIVATION_AUTHORITY
+        ):
+            raise RunActionRecoveryError(
+                "run action activation capability ownership changed"
+            )
+        with _ACTIVATION_CAPABILITY_LOCK:
+            issued = _ISSUED_ACTIVATION_CAPABILITIES.get(id(self))
+            owned_resources = _ISSUED_ACTIVATION_OWNERSHIP.get(self)
+            if issued is None and owned_resources is None:
+                return
+            if (
+                issued is not self
+                or type(owned_resources) is not _RunActionActivationOwnedResources
+                or owned_resources.owner_process_id != owner_process_id
+                or owned_resources.state not in {"ready", "invoking"}
+                or (
+                    owned_resources.state == "invoking"
+                    and owned_resources.invoking_thread_id != owner_thread_id
+                )
+            ):
+                raise RunActionRecoveryError(
+                    "run action activation capability ownership changed"
+                )
+            owned_resources.state = "spent"
+            owned_resources.invoking_thread_id = None
+            _ISSUED_ACTIVATION_CAPABILITIES.pop(id(self), None)
+        self._release_owned_resources()
+
+    def _release_owned_resources(self) -> None:
+        with _ACTIVATION_CAPABILITY_LOCK:
+            owned_resources = _ISSUED_ACTIVATION_OWNERSHIP.get(self)
+        if type(owned_resources) is not _RunActionActivationOwnedResources:
+            raise RunActionRecoveryError("run action activation ownership is missing")
+        if owned_resources.credential_materialization is not None:
+            burn_run_action_credential_materialization(
+                owned_resources.credential_materialization,
+                _authority=_RUN_ACTION_CREDENTIAL_LIFECYCLE_AUTHORITY,
+            )
+            owned_resources.credential_materialization = None
+        if owned_resources.credential_issue_response is not None:
+            owned_resources.credential_broker_registry.burn_issue_response_exact(
+                owned_resources.credential_issue_response
+            )
+            owned_resources.credential_issue_response = None
+        if owned_resources.workspace_descriptor is not None:
+            workspace_descriptor = owned_resources.workspace_descriptor
+            owned_resources.workspace_descriptor = None
+            workspace_descriptor_path = Path(f"/proc/self/fd/{workspace_descriptor}")
+            if workspace_descriptor_path.exists():
+                workspace_descriptor_status = workspace_descriptor_path.stat()
+                if owned_resources.workspace_descriptor_identity == (
+                    workspace_descriptor_status.st_dev,
+                    workspace_descriptor_status.st_ino,
+                ):
+                    os.close(workspace_descriptor)
+            owned_resources.workspace_descriptor_identity = None
+        with _ACTIVATION_CAPABILITY_LOCK:
+            if _ISSUED_ACTIVATION_OWNERSHIP.get(self) is not owned_resources:
+                raise RunActionRecoveryError(
+                    "run action activation ownership changed during close"
+                )
+            _ISSUED_ACTIVATION_OWNERSHIP.pop(self)
 
 
 class _RunActionActivationInvocation:
     """Burn one activation capability on every callback exit."""
 
-    def __init__(self, capability: RunActionActivationCapability) -> None:
+    def __init__(
+        self,
+        capability: RunActionActivationCapability,
+        *,
+        owner_process_id: int,
+        invoking_thread_id: int,
+    ) -> None:
         self._capability = capability
+        self._owner_process_id = owner_process_id
+        self._invoking_thread_id = invoking_thread_id
 
     def __enter__(self) -> RunActionActivationCapability:
         return self._capability
 
     def __exit__(self, exception_type, exception, traceback) -> bool:
-        self._capability._finish_invocation()
+        RunActionActivationCapability._finish_invocation(
+            self._capability,
+            owner_process_id=self._owner_process_id,
+            invoking_thread_id=self._invoking_thread_id,
+            _authority=_RUN_ACTION_ACTIVATION_AUTHORITY,
+        )
+        return False
+
+
+class _RunActionActivationOwnership:
+    """Close pre-invocation response, materialization, and descriptor authority."""
+
+    def __init__(self, capability: RunActionActivationCapability) -> None:
+        self._capability = capability
+        self._owner_process_id = os.getpid()
+        self._owner_thread_id = get_ident()
+
+    def __enter__(self) -> RunActionActivationCapability:
+        return self._capability
+
+    def __exit__(self, exception_type, exception, traceback) -> bool:
+        RunActionActivationCapability._abandon(
+            self._capability,
+            owner_process_id=self._owner_process_id,
+            owner_thread_id=self._owner_thread_id,
+            _authority=_RUN_ACTION_ACTIVATION_AUTHORITY,
+        )
         return False
 
 
 class RunActionCommittedContinuationCapability:
     """Single-use authority for one exact observed event-5 continuation."""
+
+    __slots__ = (
+        "_creation_process_id",
+        "__weakref__",
+    )
 
     def __init__(
         self,
@@ -889,8 +1350,11 @@ class RunActionCommittedContinuationCapability:
         observation: RunActionCommittedSpawnObservation,
         required_security_observation: SecurityDenylistObservation,
         security_authority: object,
-        credential_validity_authority: object | None,
+        credential_broker_registry: RunActionCredentialBrokerRegistry,
         release_clock: _SystemRunActionClock,
+        pre_release_credential_observation: (
+            RunActionPreReleaseCredentialObservation | None
+        ) = None,
         _authority: object,
     ) -> None:
         if type(query) is not RunActionCommittedSpawnQuery:
@@ -911,8 +1375,23 @@ class RunActionCommittedContinuationCapability:
             )
         activation = activation_event.activation_revalidation_receipt
         reservation = activation.prepared_execution.preparation_claim.reservation
+        credential_observation_required = (
+            type(observation) is RunActionCommittedSpawnObservation
+            and query.credential_retirement_intent is None
+            and query.control_directory_topology
+            is RunActionControlDirectoryTopology.EMPTY
+            and observation.state
+            in {
+                RunActionCommittedSpawnState.INERT_CONTINUABLE,
+                RunActionCommittedSpawnState.RUNNING_CONTINUABLE,
+            }
+            and activation.prepared_execution.preparation_claim.execution_policy.credential_policy.mode
+            is RunActionCredentialMode.SUPERVISOR_FILE
+        )
         release_bound_required = (
-            query.control_directory_topology is RunActionControlDirectoryTopology.EMPTY
+            query.credential_retirement_intent is None
+            and query.control_directory_topology
+            is RunActionControlDirectoryTopology.EMPTY
         )
         if (
             activation_event.reservation != reservation
@@ -938,15 +1417,28 @@ class RunActionCommittedContinuationCapability:
                     is not RunActionControlDirectoryTopology.EMPTY
                 )
             )
+            or (
+                pre_release_credential_observation is not None
+                and type(pre_release_credential_observation)
+                is not RunActionPreReleaseCredentialObservation
+            )
+            or (pre_release_credential_observation is not None)
+            != credential_observation_required
+            or (
+                pre_release_credential_observation is not None
+                and (
+                    pre_release_credential_observation.activation_revalidation_receipt
+                    != activation
+                    or pre_release_credential_observation.state
+                    is RunActionPreReleaseCredentialState.RENEWAL_PENDING
+                )
+            )
             or type(required_security_observation) is not SecurityDenylistObservation
             or required_security_observation.observation_id
             != reservation.frontier.security_observation_id
             or required_security_observation.matched_revocations
             or not hasattr(security_authority, "observe_exact_descendant_of")
-            or (
-                credential_validity_authority is not None
-                and not hasattr(credential_validity_authority, "observe_exact")
-            )
+            or type(credential_broker_registry) is not RunActionCredentialBrokerRegistry
             or type(release_clock) is not _SystemRunActionClock
             or _authority is not _RUN_ACTION_COMMITTED_CONTINUATION_AUTHORITY
         ):
@@ -980,67 +1472,258 @@ class RunActionCommittedContinuationCapability:
             raise RunActionRecoveryError(
                 "committed continuation formal release envelope is invalid"
             )
-        self._query = query
-        self._observation = observation
-        self._owner_process_id = os.getpid()
-        self._invoking_thread_id = None
-        self._state = "ready"
-        self._start_state = "ready"
-        self._started_running_observation: (
-            RunActionBarrierRunningContainerObservation | None
-        ) = None
-        self._release_publication_state = "ready"
-        self._timeout_publication_state = (
-            "complete"
-            if type(query.timeout_directive_publication)
-            is RunActionTimeoutDirectivePublicationReceipt
-            else "ready"
+        self._creation_process_id = os.getpid()
+        private_query = deepcopy(query)
+        private_observation = deepcopy(observation)
+        private_pre_release_credential_observation = deepcopy(
+            pre_release_credential_observation
         )
-        self._timeout_directive_publication = query.timeout_directive_publication
-        self._timeout_containment_state = "ready"
-        self._timeout_containment_result: RunActionTimeoutContainmentResult | None = (
-            None
-        )
-        self._terminal_inspection_state = "ready"
-        self._terminal_observation: RunActionTerminalObservation | None = None
-        self._result_capture_state = "ready"
-        self._captured_result: RunActionProviderResult | None = None
-        self._provider_termination_state = "ready"
-        self._provider_termination_receipt: (
-            RunActionProviderTerminationReceipt | None
-        ) = None
-        self._provider_termination_publication_fence: (
-            RunActionProviderTerminationPublicationFence | None
-        ) = None
-        self._provider_termination_publication_fence_handed_off = False
         with _COMMITTED_CONTINUATION_CAPABILITY_LOCK:
             _ISSUED_COMMITTED_CONTINUATION_CAPABILITIES[id(self)] = self
             _ISSUED_COMMITTED_CONTINUATION_RELEASE_AUTHORITIES[self] = (
                 _RunActionIssuedReleaseAuthorities(
+                    query=private_query,
+                    adapter_query=deepcopy(private_query),
+                    observation=private_observation,
+                    adapter_observation=deepcopy(private_observation),
+                    pre_release_credential_observation=(
+                        private_pre_release_credential_observation
+                    ),
+                    adapter_pre_release_credential_observation=deepcopy(
+                        private_pre_release_credential_observation
+                    ),
                     required_security_observation=required_security_observation,
                     security_authority=security_authority,
-                    credential_validity_authority=credential_validity_authority,
+                    credential_broker_registry=credential_broker_registry,
                     clock=release_clock,
                     release_receipt_size_bound_bytes=(release_receipt_size_bound_bytes),
+                    provider_termination_registration=(
+                        _RunActionProviderTerminationRegistration()
+                    ),
+                    terminal_result_registration=(
+                        _RunActionTerminalResultRegistration()
+                    ),
+                    capability_lifecycle=_RunActionContinuationCapabilityLifecycle(
+                        owner_process_id=os.getpid(),
+                        timeout_publication_state=(
+                            "complete"
+                            if type(query.timeout_directive_publication)
+                            is RunActionTimeoutDirectivePublicationReceipt
+                            else "ready"
+                        ),
+                        timeout_directive_publication=(
+                            deepcopy(query.timeout_directive_publication)
+                        ),
+                    ),
                 )
             )
 
     @property
+    def _query(self) -> "RunActionCommittedSpawnQuery":
+        authorities = _ISSUED_COMMITTED_CONTINUATION_RELEASE_AUTHORITIES.get(self)
+        if type(authorities) is not _RunActionIssuedReleaseAuthorities:
+            raise RunActionRecoveryError(
+                "committed continuation query authority is unavailable"
+            )
+        if authorities.adapter_query != authorities.query:
+            raise RunActionRecoveryError(
+                "committed continuation query changed during adapter invocation"
+            )
+        return deepcopy(authorities.query)
+
+    @property
+    def _observation(self) -> RunActionCommittedSpawnObservation:
+        authorities = _ISSUED_COMMITTED_CONTINUATION_RELEASE_AUTHORITIES.get(self)
+        if type(authorities) is not _RunActionIssuedReleaseAuthorities:
+            raise RunActionRecoveryError(
+                "committed continuation observation authority is unavailable"
+            )
+        if authorities.adapter_observation != authorities.observation:
+            raise RunActionRecoveryError(
+                "committed continuation observation changed during adapter invocation"
+            )
+        return deepcopy(authorities.observation)
+
+    @property
+    def _pre_release_credential_observation(
+        self,
+    ) -> RunActionPreReleaseCredentialObservation | None:
+        authorities = _ISSUED_COMMITTED_CONTINUATION_RELEASE_AUTHORITIES.get(self)
+        if type(authorities) is not _RunActionIssuedReleaseAuthorities:
+            raise RunActionRecoveryError(
+                "committed continuation credential authority is unavailable"
+            )
+        if (
+            authorities.adapter_pre_release_credential_observation
+            != authorities.pre_release_credential_observation
+        ):
+            raise RunActionRecoveryError(
+                "committed continuation credential changed during adapter invocation"
+            )
+        return deepcopy(authorities.pre_release_credential_observation)
+
+    @property
+    def _provider_termination_state(self) -> str:
+        return _issued_continuation_authorities(
+            self,
+            _authority=_RUN_ACTION_COMMITTED_CONTINUATION_STATE_AUTHORITY,
+        ).provider_termination_registration.state
+
+    @property
+    def _provider_termination_receipt(
+        self,
+    ) -> RunActionProviderTerminationReceipt | None:
+        return deepcopy(
+            _issued_continuation_authorities(
+                self,
+                _authority=_RUN_ACTION_COMMITTED_CONTINUATION_STATE_AUTHORITY,
+            ).provider_termination_registration.receipt
+        )
+
+    @property
+    def _provider_termination_publication_fence_handed_off(self) -> bool:
+        return _issued_continuation_authorities(
+            self,
+            _authority=_RUN_ACTION_COMMITTED_CONTINUATION_STATE_AUTHORITY,
+        ).provider_termination_registration.publication_fence_handed_off
+
+    @property
+    def _terminal_observation(self) -> RunActionTerminalObservation | None:
+        return deepcopy(
+            _issued_continuation_authorities(
+                self,
+                _authority=_RUN_ACTION_COMMITTED_CONTINUATION_STATE_AUTHORITY,
+            ).terminal_result_registration.terminal_observation
+        )
+
+    @property
+    def _captured_result(self) -> RunActionProviderResult | None:
+        return deepcopy(
+            _issued_continuation_authorities(
+                self,
+                _authority=_RUN_ACTION_COMMITTED_CONTINUATION_STATE_AUTHORITY,
+            ).terminal_result_registration.captured_result
+        )
+
+    @property
+    def _owner_process_id(self) -> int:
+        return _issued_continuation_authorities(
+            self,
+            _authority=_RUN_ACTION_COMMITTED_CONTINUATION_STATE_AUTHORITY,
+        ).capability_lifecycle.owner_process_id
+
+    @property
+    def _invoking_thread_id(self) -> int | None:
+        return _issued_continuation_authorities(
+            self,
+            _authority=_RUN_ACTION_COMMITTED_CONTINUATION_STATE_AUTHORITY,
+        ).capability_lifecycle.invoking_thread_id
+
+    @property
+    def _state(self) -> str:
+        return _issued_continuation_authorities(
+            self,
+            _authority=_RUN_ACTION_COMMITTED_CONTINUATION_STATE_AUTHORITY,
+        ).capability_lifecycle.state
+
+    @property
+    def _start_state(self) -> str:
+        return _issued_continuation_authorities(
+            self,
+            _authority=_RUN_ACTION_COMMITTED_CONTINUATION_STATE_AUTHORITY,
+        ).capability_lifecycle.start_state
+
+    @property
+    def _credential_retirement_state(self) -> str:
+        return _issued_continuation_authorities(
+            self,
+            _authority=_RUN_ACTION_COMMITTED_CONTINUATION_STATE_AUTHORITY,
+        ).capability_lifecycle.credential_retirement_state
+
+    @property
+    def _started_running_observation(
+        self,
+    ) -> RunActionBarrierRunningContainerObservation | None:
+        return deepcopy(
+            _issued_continuation_authorities(
+                self,
+                _authority=_RUN_ACTION_COMMITTED_CONTINUATION_STATE_AUTHORITY,
+            ).capability_lifecycle.started_running_observation
+        )
+
+    @property
+    def _release_publication_state(self) -> str:
+        return _issued_continuation_authorities(
+            self,
+            _authority=_RUN_ACTION_COMMITTED_CONTINUATION_STATE_AUTHORITY,
+        ).capability_lifecycle.release_publication_state
+
+    @property
+    def _timeout_publication_state(self) -> str:
+        return _issued_continuation_authorities(
+            self,
+            _authority=_RUN_ACTION_COMMITTED_CONTINUATION_STATE_AUTHORITY,
+        ).capability_lifecycle.timeout_publication_state
+
+    @property
+    def _timeout_directive_publication(
+        self,
+    ) -> RunActionTimeoutDirectivePublicationReceipt | None:
+        return deepcopy(
+            _issued_continuation_authorities(
+                self,
+                _authority=_RUN_ACTION_COMMITTED_CONTINUATION_STATE_AUTHORITY,
+            ).capability_lifecycle.timeout_directive_publication
+        )
+
+    @property
+    def _timeout_containment_state(self) -> str:
+        return _issued_continuation_authorities(
+            self,
+            _authority=_RUN_ACTION_COMMITTED_CONTINUATION_STATE_AUTHORITY,
+        ).capability_lifecycle.timeout_containment_state
+
+    @property
+    def _timeout_containment_result(
+        self,
+    ) -> RunActionTimeoutContainmentResult | None:
+        return deepcopy(
+            _issued_continuation_authorities(
+                self,
+                _authority=_RUN_ACTION_COMMITTED_CONTINUATION_STATE_AUTHORITY,
+            ).capability_lifecycle.timeout_containment_result
+        )
+
+    @property
+    def _terminal_inspection_state(self) -> str:
+        return _issued_continuation_authorities(
+            self,
+            _authority=_RUN_ACTION_COMMITTED_CONTINUATION_STATE_AUTHORITY,
+        ).capability_lifecycle.terminal_inspection_state
+
+    @property
+    def _result_capture_state(self) -> str:
+        return _issued_continuation_authorities(
+            self,
+            _authority=_RUN_ACTION_COMMITTED_CONTINUATION_STATE_AUTHORITY,
+        ).capability_lifecycle.result_capture_state
+
+    @property
     def activation_event(self) -> RunActionExecutionEvent:
-        self._require_active_invocation()
-        return self._query.activation_event
+        authorities = self._require_active_invocation()
+        return authorities.adapter_query.activation_event
 
     @property
     def query(self) -> "RunActionCommittedSpawnQuery":
-        self._require_active_invocation()
-        return self._query
+        authorities = self._require_active_invocation()
+        return authorities.adapter_query
 
     @property
     def activation_revalidation_receipt(
         self,
     ) -> RunActionActivationRevalidationReceipt:
-        self._require_active_invocation()
-        return self._query.activation_revalidation_receipt
+        authorities = self._require_active_invocation()
+        return authorities.adapter_query.activation_revalidation_receipt
 
     @property
     def prepared_execution(self) -> RunActionPreparedExecution:
@@ -1052,15 +1735,149 @@ class RunActionCommittedContinuationCapability:
 
     @property
     def observation(self) -> RunActionCommittedSpawnObservation:
-        self._require_active_invocation()
-        return self._observation
+        authorities = self._require_active_invocation()
+        return authorities.adapter_observation
 
     @property
     def workload_release_adoption(
         self,
     ) -> RunActionWorkloadReleaseAdoption | None:
-        self._require_active_invocation()
-        return self._query.workload_release_adoption
+        authorities = self._require_active_invocation()
+        return authorities.adapter_query.workload_release_adoption
+
+    def _pre_release_credentials_allow_workload(self) -> bool:
+        authorities = _ISSUED_COMMITTED_CONTINUATION_RELEASE_AUTHORITIES.get(self)
+        if type(authorities) is not _RunActionIssuedReleaseAuthorities:
+            return False
+        query = authorities.query
+        observation = authorities.pre_release_credential_observation
+        if query.credential_retirement_intent is not None:
+            return False
+        policy = (
+            query.prepared_execution.preparation_claim.execution_policy.credential_policy
+        )
+        if policy.mode is RunActionCredentialMode.NONE:
+            return observation is None
+        return (
+            type(observation) is RunActionPreReleaseCredentialObservation
+            and observation.state is RunActionPreReleaseCredentialState.VALID
+        )
+
+    def _take_credential_retirement_authority(
+        self,
+        observation_token: str,
+        control_inspection: RunActionTimeoutInspectionLease,
+        *,
+        _authority: object,
+    ) -> tuple[
+        "RunActionCommittedSpawnQuery",
+        str,
+        RunActionCredentialRetirementIntent,
+    ]:
+        """Consume exact durable expiry authority for one physical retirement."""
+
+        with _COMMITTED_CONTINUATION_CAPABILITY_LOCK:
+            authorities = _ISSUED_COMMITTED_CONTINUATION_RELEASE_AUTHORITIES.get(self)
+            query = (
+                authorities.query
+                if type(authorities) is _RunActionIssuedReleaseAuthorities
+                else None
+            )
+            observation = (
+                authorities.observation
+                if type(authorities) is _RunActionIssuedReleaseAuthorities
+                else None
+            )
+            retirement_intent = (
+                query.credential_retirement_intent
+                if type(query) is RunActionCommittedSpawnQuery
+                else None
+            )
+            if (
+                _ISSUED_COMMITTED_CONTINUATION_CAPABILITIES.get(id(self)) is not self
+                or type(authorities) is not _RunActionIssuedReleaseAuthorities
+                or self._query != query
+                or self._observation != observation
+                or self._pre_release_credential_observation is not None
+                or self._owner_process_id != os.getpid()
+                or self._state != "invoking"
+                or self._invoking_thread_id != get_ident()
+                or observation.state
+                not in {
+                    RunActionCommittedSpawnState.INERT_CONTINUABLE,
+                    RunActionCommittedSpawnState.RUNNING_CONTINUABLE,
+                }
+                or type(observation_token) is not str
+                or observation_token != observation.observation_token
+                or type(retirement_intent) is not RunActionCredentialRetirementIntent
+                or retirement_intent.activation_event_id
+                != query.activation_event.event_id
+                or self._credential_retirement_state != "ready"
+                or self._start_state != "ready"
+                or self._started_running_observation is not None
+                or self._release_publication_state != "ready"
+                or self._timeout_publication_state != "ready"
+                or self._timeout_directive_publication is not None
+                or self._timeout_containment_state != "ready"
+                or self._timeout_containment_result is not None
+                or self._terminal_inspection_state != "ready"
+                or self._terminal_observation is not None
+                or self._result_capture_state != "ready"
+                or self._captured_result is not None
+                or self._provider_termination_state != "ready"
+                or self._provider_termination_receipt is not None
+                or query.control_directory_topology
+                is not RunActionControlDirectoryTopology.EMPTY
+                or query.workload_release_adoption is not None
+                or query.timeout_directive_publication is not None
+                or type(control_inspection) is not RunActionTimeoutInspectionLease
+                or control_inspection.activation_event != query.activation_event
+                or control_inspection.topology
+                is not RunActionControlDirectoryTopology.EMPTY
+                or control_inspection.workload_release_adoption is not None
+                or control_inspection.timeout_directive_publication is not None
+                or _authority is not _RUN_ACTION_CREDENTIAL_RETIREMENT_AUTHORITY
+            ):
+                raise RunActionRecoveryError(
+                    "credential retirement lacks exact durable expiry authority"
+                )
+            _continuation_lifecycle(
+                self,
+                _authority=_RUN_ACTION_COMMITTED_CONTINUATION_STATE_AUTHORITY,
+            ).credential_retirement_state = "retiring"
+        return query, observation_token, retirement_intent
+
+    def _complete_credential_retirement(
+        self,
+        observation_token: str,
+        retirement_intent: RunActionCredentialRetirementIntent,
+        *,
+        _authority: object,
+    ) -> None:
+        """Record only that one exact physical retirement command was attempted."""
+
+        with _COMMITTED_CONTINUATION_CAPABILITY_LOCK:
+            authorities = _ISSUED_COMMITTED_CONTINUATION_RELEASE_AUTHORITIES.get(self)
+            if (
+                _ISSUED_COMMITTED_CONTINUATION_CAPABILITIES.get(id(self)) is not self
+                or type(authorities) is not _RunActionIssuedReleaseAuthorities
+                or self._query != authorities.query
+                or self._observation != authorities.observation
+                or authorities.query.credential_retirement_intent != retirement_intent
+                or self._owner_process_id != os.getpid()
+                or self._state != "invoking"
+                or self._invoking_thread_id != get_ident()
+                or observation_token != authorities.observation.observation_token
+                or self._credential_retirement_state != "retiring"
+                or _authority is not _RUN_ACTION_CREDENTIAL_RETIREMENT_AUTHORITY
+            ):
+                raise RunActionRecoveryError(
+                    "credential retirement completion changed authority"
+                )
+            _continuation_lifecycle(
+                self,
+                _authority=_RUN_ACTION_COMMITTED_CONTINUATION_STATE_AUTHORITY,
+            ).credential_retirement_state = "complete"
 
     def _require_current_release_receipt_size_bound(self) -> int:
         with _COMMITTED_CONTINUATION_CAPABILITY_LOCK:
@@ -1119,6 +1936,8 @@ class RunActionCommittedContinuationCapability:
                 or type(observation_token) is not str
                 or observation_token != self._observation.observation_token
                 or self._start_state != "ready"
+                or self._credential_retirement_state != "ready"
+                or not self._pre_release_credentials_allow_workload()
                 or self._started_running_observation is not None
                 or self._release_publication_state != "ready"
                 or self._timeout_publication_state != "ready"
@@ -1140,7 +1959,39 @@ class RunActionCommittedContinuationCapability:
                 raise RunActionRecoveryError(
                     "container start lacks exact live event-5 authority"
                 )
-            self._start_state = "starting"
+            _continuation_lifecycle(
+                self,
+                _authority=_RUN_ACTION_COMMITTED_CONTINUATION_STATE_AUTHORITY,
+            ).start_state = "validating_credentials"
+            credential_broker_registry = authorities.credential_broker_registry
+            clock = authorities.clock
+        credential_anchor = _read_positive_release_clock(
+            clock.realtime_nanoseconds(),
+            "pre-start credential anchor",
+        )
+        _observe_activation_credential_validity(
+            query.activation_revalidation_receipt,
+            credential_broker_registry,
+            clock,
+            credential_anchor,
+        )
+        with _COMMITTED_CONTINUATION_CAPABILITY_LOCK:
+            if (
+                _ISSUED_COMMITTED_CONTINUATION_CAPABILITIES.get(id(self)) is not self
+                or _ISSUED_COMMITTED_CONTINUATION_RELEASE_AUTHORITIES.get(self)
+                is not authorities
+                or self._owner_process_id != os.getpid()
+                or self._state != "invoking"
+                or self._invoking_thread_id != get_ident()
+                or self._start_state != "validating_credentials"
+            ):
+                raise RunActionRecoveryError(
+                    "container start credential authority changed"
+                )
+            _continuation_lifecycle(
+                self,
+                _authority=_RUN_ACTION_COMMITTED_CONTINUATION_STATE_AUTHORITY,
+            ).start_state = "starting"
         return query, observation_token
 
     def _complete_start(
@@ -1176,8 +2027,12 @@ class RunActionCommittedContinuationCapability:
                 raise RunActionRecoveryError(
                     "container start completion lacks its exact blocked occurrence"
                 )
-            self._started_running_observation = running_observation
-            self._start_state = "complete"
+            lifecycle = _continuation_lifecycle(
+                self,
+                _authority=_RUN_ACTION_COMMITTED_CONTINUATION_STATE_AUTHORITY,
+            )
+            lifecycle.started_running_observation = deepcopy(running_observation)
+            lifecycle.start_state = "complete"
 
     def _begin_release_publication(
         self,
@@ -1204,6 +2059,8 @@ class RunActionCommittedContinuationCapability:
                 or self._state != "invoking"
                 or self._invoking_thread_id != get_ident()
                 or self._release_publication_state != "ready"
+                or self._credential_retirement_state != "ready"
+                or not self._pre_release_credentials_allow_workload()
                 or self._timeout_publication_state != "ready"
                 or self._timeout_directive_publication is not None
                 or self._timeout_containment_state != "ready"
@@ -1229,7 +2086,10 @@ class RunActionCommittedContinuationCapability:
                 raise RunActionRecoveryError(
                     "workload release publication lacks exact live authority"
                 )
-            self._release_publication_state = "preparing"
+            _continuation_lifecycle(
+                self,
+                _authority=_RUN_ACTION_COMMITTED_CONTINUATION_STATE_AUTHORITY,
+            ).release_publication_state = "preparing"
         return _RunActionReleasePublicationAuthorization(
             capability=self,
             resolved_workload_observation=resolved_workload_observation,
@@ -1308,9 +2168,15 @@ class RunActionCommittedContinuationCapability:
                     "timeout publication authority changed during deadline observation"
                 )
             if observed_before < deadline:
-                self._timeout_publication_state = "checked_not_due"
+                _continuation_lifecycle(
+                    self,
+                    _authority=_RUN_ACTION_COMMITTED_CONTINUATION_STATE_AUTHORITY,
+                ).timeout_publication_state = "checked_not_due"
                 return None
-            self._timeout_publication_state = "preparing"
+            _continuation_lifecycle(
+                self,
+                _authority=_RUN_ACTION_COMMITTED_CONTINUATION_STATE_AUTHORITY,
+            ).timeout_publication_state = "preparing"
         return _RunActionTimeoutPublicationAuthorization(
             capability=self,
             observed_before_boottime_nanoseconds=observed_before,
@@ -1363,7 +2229,10 @@ class RunActionCommittedContinuationCapability:
                 raise RunActionRecoveryError(
                     "timeout containment lacks exact live timed-out authority"
                 )
-            self._timeout_containment_state = "preparing"
+            _continuation_lifecycle(
+                self,
+                _authority=_RUN_ACTION_COMMITTED_CONTINUATION_STATE_AUTHORITY,
+            ).timeout_containment_state = "preparing"
         return _RunActionTimeoutContainmentAuthorization(
             capability=self,
             _authority=_RUN_ACTION_TIMEOUT_CONTAINMENT_AUTHORITY,
@@ -1418,7 +2287,10 @@ class RunActionCommittedContinuationCapability:
                 raise RunActionRecoveryError(
                     "terminal reinspection lacks exact live continuation authority"
                 )
-            self._terminal_inspection_state = "inspecting"
+            _continuation_lifecycle(
+                self,
+                _authority=_RUN_ACTION_COMMITTED_CONTINUATION_STATE_AUTHORITY,
+            ).terminal_inspection_state = "inspecting"
         return self._query, observation_token
 
     def _complete_terminal_inspection(
@@ -1429,6 +2301,13 @@ class RunActionCommittedContinuationCapability:
     ) -> None:
         """Register the trusted terminal leaf's exact completed observation."""
 
+        if type(terminal_observation) is not RunActionTerminalObservation:
+            raise RunActionRecoveryError(
+                "terminal reinspection completion lacks exact live authority"
+            )
+        canonical_terminal_observation = RunActionTerminalObservation.from_json_bytes(
+            terminal_observation.to_json_bytes()
+        )
         with _COMMITTED_CONTINUATION_CAPABILITY_LOCK:
             issued = _ISSUED_COMMITTED_CONTINUATION_CAPABILITIES.get(id(self))
             query = self._query
@@ -1446,31 +2325,37 @@ class RunActionCommittedContinuationCapability:
                 or self._observation.state
                 is not RunActionCommittedSpawnState.TERMINAL_CONTINUABLE
                 or adoption is None
-                or type(terminal_observation) is not RunActionTerminalObservation
-                or terminal_observation.complete_inspection_digest
+                or canonical_terminal_observation.complete_inspection_digest
                 != self._observation.observation_token
-                or terminal_observation.activation_revalidation_receipt_id
+                or canonical_terminal_observation.activation_revalidation_receipt_id
                 != activation.activation_revalidation_receipt_id
-                or terminal_observation.workload_release_adoption_id
+                or canonical_terminal_observation.workload_release_adoption_id
                 != adoption.workload_release_adoption_id
-                or terminal_observation.prepared_execution_id
+                or canonical_terminal_observation.prepared_execution_id
                 != prepared.prepared_execution_id
-                or terminal_observation.spawn_commit_id != spawn.spawn_commit_id
-                or terminal_observation.provider_execution_id
+                or canonical_terminal_observation.spawn_commit_id
+                != spawn.spawn_commit_id
+                or canonical_terminal_observation.provider_execution_id
                 != spawn.provider_execution_id
-                or terminal_observation.runtime_volume_authority_id
+                or canonical_terminal_observation.runtime_volume_authority_id
                 != prepared.runtime_volume_authority.runtime_volume_authority_id
-                or terminal_observation.generation_nonce
+                or canonical_terminal_observation.generation_nonce
                 != prepared.runtime_volume_authority.generation_nonce
-                or terminal_observation.observed_inspect_projection
+                or canonical_terminal_observation.observed_inspect_projection
                 != prepared.inert_container_evidence.issued_create_projection
                 or _authority is not _RUN_ACTION_TERMINAL_INSPECTION_AUTHORITY
             ):
                 raise RunActionRecoveryError(
                     "terminal reinspection completion lacks exact live authority"
                 )
-            self._terminal_observation = terminal_observation
-            self._terminal_inspection_state = "complete"
+            _terminal_result_registration(
+                self,
+                _authority=_RUN_ACTION_COMMITTED_CONTINUATION_STATE_AUTHORITY,
+            ).terminal_observation = canonical_terminal_observation
+            _continuation_lifecycle(
+                self,
+                _authority=_RUN_ACTION_COMMITTED_CONTINUATION_STATE_AUTHORITY,
+            ).terminal_inspection_state = "complete"
 
     def _take_result_capture_authority(
         self,
@@ -1510,8 +2395,14 @@ class RunActionCommittedContinuationCapability:
                 raise RunActionRecoveryError(
                     "result capture lacks exact live terminal authority"
                 )
-            self._result_capture_state = "capturing"
-            self._provider_termination_state = "blocked_by_result_capture"
+            _continuation_lifecycle(
+                self,
+                _authority=_RUN_ACTION_COMMITTED_CONTINUATION_STATE_AUTHORITY,
+            ).result_capture_state = "capturing"
+            _provider_termination_registration(
+                self,
+                _authority=_RUN_ACTION_COMMITTED_CONTINUATION_STATE_AUTHORITY,
+            ).state = "blocked_by_result_capture"
         return self._query, terminal
 
     def _complete_result_capture(
@@ -1522,6 +2413,19 @@ class RunActionCommittedContinuationCapability:
     ) -> None:
         """Register the trusted descriptor leaf's exact captured result."""
 
+        if type(result) is not RunActionProviderResult:
+            raise RunActionRecoveryError(
+                "result capture completion lacks exact live authority"
+            )
+        canonical_result = RunActionProviderResult(
+            terminal_observation=RunActionTerminalObservation.from_json_bytes(
+                result.terminal_observation.to_json_bytes()
+            ),
+            result_capture_receipt=RunActionResultCaptureReceipt.from_json_bytes(
+                result.result_capture_receipt.to_json_bytes()
+            ),
+            result_payload=bytes(result.result_payload),
+        )
         with _COMMITTED_CONTINUATION_CAPABILITY_LOCK:
             authorities = _ISSUED_COMMITTED_CONTINUATION_RELEASE_AUTHORITIES.get(self)
             query = self._query
@@ -1544,11 +2448,10 @@ class RunActionCommittedContinuationCapability:
                 or self._timeout_publication_state != "ready"
                 or self._timeout_directive_publication is not None
                 or type(terminal) is not RunActionTerminalObservation
-                or type(result) is not RunActionProviderResult
-                or result.terminal_observation != terminal
+                or canonical_result.terminal_observation != terminal
                 or not run_action_terminal_result_evidence_matches(
                     terminal,
-                    result.result_capture_receipt,
+                    canonical_result.result_capture_receipt,
                     query.activation_revalidation_receipt,
                     adoption,
                 )
@@ -1557,8 +2460,14 @@ class RunActionCommittedContinuationCapability:
                 raise RunActionRecoveryError(
                     "result capture completion lacks exact live authority"
                 )
-            self._captured_result = result
-            self._result_capture_state = "complete"
+            _terminal_result_registration(
+                self,
+                _authority=_RUN_ACTION_COMMITTED_CONTINUATION_STATE_AUTHORITY,
+            ).captured_result = canonical_result
+            _continuation_lifecycle(
+                self,
+                _authority=_RUN_ACTION_COMMITTED_CONTINUATION_STATE_AUTHORITY,
+            ).result_capture_state = "complete"
 
     def _take_provider_termination_authority(
         self,
@@ -1650,10 +2559,19 @@ class RunActionCommittedContinuationCapability:
                 raise RunActionRecoveryError(
                     "provider termination registration lacks exact live authority"
                 )
-            self._provider_termination_state = "registering"
-            self._result_capture_state = "blocked_by_provider_termination"
+            _provider_termination_registration(
+                self,
+                _authority=_RUN_ACTION_COMMITTED_CONTINUATION_STATE_AUTHORITY,
+            ).state = "registering"
+            _continuation_lifecycle(
+                self,
+                _authority=_RUN_ACTION_COMMITTED_CONTINUATION_STATE_AUTHORITY,
+            ).result_capture_state = "blocked_by_provider_termination"
             if pre_release_termination_ready:
-                self._terminal_inspection_state = "blocked_by_provider_termination"
+                _continuation_lifecycle(
+                    self,
+                    _authority=_RUN_ACTION_COMMITTED_CONTINUATION_STATE_AUTHORITY,
+                ).terminal_inspection_state = "blocked_by_provider_termination"
         return query, terminal, pre_release_observation_token
 
     def _complete_provider_termination(
@@ -1683,6 +2601,7 @@ class RunActionCommittedContinuationCapability:
                 not in {
                     RunActionProviderTerminationReason.PRE_RELEASE_MAIN_LOSS,
                     RunActionProviderTerminationReason.PRE_RELEASE_MAIN_TERMINAL,
+                    RunActionProviderTerminationReason.CREDENTIAL_EXPIRED,
                 }
                 and receipt.workload_release_adoption == query.workload_release_adoption
                 and receipt.terminal_observation == retained_terminal
@@ -1708,13 +2627,19 @@ class RunActionCommittedContinuationCapability:
                 )
             )
             loss = receipt.pre_release_main_loss_observation
+            expected_loss_reason = (
+                RunActionProviderTerminationReason.CREDENTIAL_EXPIRED
+                if query.credential_retirement_intent is not None
+                else RunActionProviderTerminationReason.PRE_RELEASE_MAIN_LOSS
+            )
             pre_release_loss_matches = (
                 observation_state
                 is RunActionCommittedSpawnState.PRE_RELEASE_MAIN_LOSS_CONTINUABLE
                 and self._terminal_inspection_state == "blocked_by_provider_termination"
                 and retained_terminal is None
-                and receipt.reason
-                is RunActionProviderTerminationReason.PRE_RELEASE_MAIN_LOSS
+                and receipt.reason is expected_loss_reason
+                and receipt.credential_retirement_intent
+                == query.credential_retirement_intent
                 and query.control_directory_topology
                 is RunActionControlDirectoryTopology.EMPTY
                 and query.workload_release_adoption is None
@@ -1726,13 +2651,19 @@ class RunActionCommittedContinuationCapability:
                 == self._observation.observation_token
             )
             pre_release_terminal = receipt.terminal_observation
+            expected_terminal_reason = (
+                RunActionProviderTerminationReason.CREDENTIAL_EXPIRED
+                if query.credential_retirement_intent is not None
+                else RunActionProviderTerminationReason.PRE_RELEASE_MAIN_TERMINAL
+            )
             pre_release_terminal_matches = (
                 observation_state
                 is RunActionCommittedSpawnState.PRE_RELEASE_MAIN_TERMINAL_CONTINUABLE
                 and self._terminal_inspection_state == "blocked_by_provider_termination"
                 and retained_terminal is None
-                and receipt.reason
-                is RunActionProviderTerminationReason.PRE_RELEASE_MAIN_TERMINAL
+                and receipt.reason is expected_terminal_reason
+                and receipt.credential_retirement_intent
+                == query.credential_retirement_intent
                 and query.control_directory_topology
                 is RunActionControlDirectoryTopology.EMPTY
                 and query.workload_release_adoption is None
@@ -1749,6 +2680,10 @@ class RunActionCommittedContinuationCapability:
             pre_release_termination_matches = (
                 pre_release_loss_matches or pre_release_terminal_matches
             )
+            registration = _provider_termination_registration(
+                self,
+                _authority=_RUN_ACTION_COMMITTED_CONTINUATION_STATE_AUTHORITY,
+            )
             if (
                 _ISSUED_COMMITTED_CONTINUATION_CAPABILITIES.get(id(self)) is not self
                 or self._owner_process_id != os.getpid()
@@ -1756,7 +2691,7 @@ class RunActionCommittedContinuationCapability:
                 or self._invoking_thread_id != get_ident()
                 or self._provider_termination_state != "registering"
                 or self._provider_termination_receipt is not None
-                or self._provider_termination_publication_fence is not None
+                or registration.publication_fence is not None
                 or self._provider_termination_publication_fence_handed_off
                 or self._result_capture_state != "blocked_by_provider_termination"
                 or self._captured_result is not None
@@ -1780,9 +2715,9 @@ class RunActionCommittedContinuationCapability:
                 raise RunActionRecoveryError(
                     "provider termination completion lacks exact live authority"
                 )
-            self._provider_termination_receipt = receipt
-            self._provider_termination_publication_fence = publication_fence
-            self._provider_termination_state = "complete"
+            registration.receipt = deepcopy(receipt)
+            registration.publication_fence = publication_fence
+            registration.state = "complete"
 
     def _invoke_once(
         self,
@@ -1790,8 +2725,44 @@ class RunActionCommittedContinuationCapability:
     ) -> RunActionContinuationOutcome:
         with self._begin_invocation():
             outcome = execution_adapter.continue_committed_once(self)
-            self._require_continuation_outcome_authority(outcome)
-            return outcome
+            RunActionCommittedContinuationCapability._require_continuation_outcome_authority(
+                self,
+                outcome,
+            )
+            registration = _provider_termination_registration(
+                self,
+                _authority=_RUN_ACTION_COMMITTED_CONTINUATION_STATE_AUTHORITY,
+            )
+            terminal_result_registration = _terminal_result_registration(
+                self,
+                _authority=_RUN_ACTION_COMMITTED_CONTINUATION_STATE_AUTHORITY,
+            )
+            return RunActionContinuationOutcome(
+                state=outcome.state,
+                result=deepcopy(
+                    terminal_result_registration.captured_result
+                    if outcome.state is RunActionContinuationState.RESULT_CAPTURED
+                    else outcome.result
+                ),
+                provider_termination_receipt=deepcopy(
+                    registration.receipt
+                    if outcome.state is RunActionContinuationState.PROVIDER_TERMINATED
+                    else outcome.provider_termination_receipt
+                ),
+                timeout_directive_publication=deepcopy(
+                    _continuation_lifecycle(
+                        self,
+                        _authority=(_RUN_ACTION_COMMITTED_CONTINUATION_STATE_AUTHORITY),
+                    ).timeout_directive_publication
+                    if outcome.state is RunActionContinuationState.TIMEOUT_PUBLISHED
+                    else outcome.timeout_directive_publication
+                ),
+                provider_termination_publication_fence=(
+                    registration.publication_fence
+                    if outcome.state is RunActionContinuationState.PROVIDER_TERMINATED
+                    else None
+                ),
+            )
 
     def _require_continuation_outcome_authority(
         self,
@@ -1801,6 +2772,10 @@ class RunActionCommittedContinuationCapability:
 
         with _COMMITTED_CONTINUATION_CAPABILITY_LOCK:
             issued = _ISSUED_COMMITTED_CONTINUATION_CAPABILITIES.get(id(self))
+            termination_registration = _provider_termination_registration(
+                self,
+                _authority=_RUN_ACTION_COMMITTED_CONTINUATION_STATE_AUTHORITY,
+            )
             if (
                 issued is not self
                 or self._owner_process_id != os.getpid()
@@ -1817,6 +2792,7 @@ class RunActionCommittedContinuationCapability:
             ):
                 if (
                     self._start_state != "ready"
+                    or self._credential_retirement_state != "ready"
                     or self._started_running_observation is not None
                     or outcome.state
                     not in {
@@ -1875,7 +2851,7 @@ class RunActionCommittedContinuationCapability:
                             or outcome.provider_termination_receipt
                             != self._provider_termination_receipt
                             or outcome.provider_termination_publication_fence
-                            is not self._provider_termination_publication_fence
+                            is not termination_registration.publication_fence
                         )
                     )
                 ):
@@ -1888,6 +2864,7 @@ class RunActionCommittedContinuationCapability:
             }:
                 if (
                     self._start_state != "ready"
+                    or self._credential_retirement_state != "ready"
                     or self._started_running_observation is not None
                     or self._release_publication_state != "ready"
                     or self._timeout_publication_state != "ready"
@@ -1918,7 +2895,7 @@ class RunActionCommittedContinuationCapability:
                             or outcome.provider_termination_receipt
                             != self._provider_termination_receipt
                             or outcome.provider_termination_publication_fence
-                            is not self._provider_termination_publication_fence
+                            is not termination_registration.publication_fence
                         )
                     )
                     or outcome.state
@@ -1934,14 +2911,26 @@ class RunActionCommittedContinuationCapability:
                 self._observation.state
                 is RunActionCommittedSpawnState.INERT_CONTINUABLE
             ):
+                credential_expired = (
+                    type(self._query.credential_retirement_intent)
+                    is RunActionCredentialRetirementIntent
+                )
                 started = (
-                    self._start_state == "complete"
+                    not credential_expired
+                    and self._start_state == "complete"
                     and type(self._started_running_observation)
                     is RunActionBarrierRunningContainerObservation
+                    and self._credential_retirement_state == "ready"
+                )
+                retired = (
+                    credential_expired
+                    and self._start_state == "ready"
+                    and self._started_running_observation is None
+                    and self._credential_retirement_state == "complete"
                 )
                 if (
                     outcome.state is not RunActionContinuationState.PENDING
-                    or not started
+                    or not (started or retired)
                     or self._release_publication_state != "ready"
                     or self._timeout_publication_state != "ready"
                     or self._timeout_directive_publication is not None
@@ -1962,10 +2951,25 @@ class RunActionCommittedContinuationCapability:
                 is RunActionCommittedSpawnState.RUNNING_CONTINUABLE
             ):
                 topology = self._query.control_directory_topology
+                credential_expired = (
+                    type(self._query.credential_retirement_intent)
+                    is RunActionCredentialRetirementIntent
+                )
                 empty_pending = (
                     topology is RunActionControlDirectoryTopology.EMPTY
                     and outcome.state is RunActionContinuationState.PENDING
-                    and self._release_publication_state in {"ready", "spent"}
+                    and (
+                        (
+                            credential_expired
+                            and self._credential_retirement_state == "complete"
+                            and self._release_publication_state == "ready"
+                        )
+                        or (
+                            not credential_expired
+                            and self._credential_retirement_state == "ready"
+                            and self._release_publication_state in {"ready", "spent"}
+                        )
+                    )
                     and self._timeout_publication_state == "ready"
                     and self._timeout_directive_publication is None
                     and self._query.workload_release_adoption is None
@@ -1988,6 +2992,7 @@ class RunActionCommittedContinuationCapability:
                     and self._query.timeout_directive_publication is None
                     and self._timeout_containment_state == "ready"
                     and self._timeout_containment_result is None
+                    and self._credential_retirement_state == "ready"
                 )
                 released_timeout_published = (
                     topology is RunActionControlDirectoryTopology.RELEASED
@@ -2001,6 +3006,7 @@ class RunActionCommittedContinuationCapability:
                     and self._query.timeout_directive_publication is None
                     and self._timeout_containment_state == "ready"
                     and self._timeout_containment_result is None
+                    and self._credential_retirement_state == "ready"
                 )
                 timed_out_pending = (
                     topology is RunActionControlDirectoryTopology.TIMED_OUT
@@ -2014,6 +3020,7 @@ class RunActionCommittedContinuationCapability:
                     and self._timeout_containment_state == "complete"
                     and type(self._timeout_containment_result)
                     is RunActionTimeoutContainmentResult
+                    and self._credential_retirement_state == "ready"
                 )
                 if (
                     self._start_state != "ready"
@@ -2056,32 +3063,61 @@ class RunActionCommittedContinuationCapability:
                 type(outcome.provider_termination_publication_fence)
                 is RunActionProviderTerminationPublicationFence
             ):
-                self._provider_termination_publication_fence_handed_off = True
+                _provider_termination_registration(
+                    self,
+                    _authority=_RUN_ACTION_COMMITTED_CONTINUATION_STATE_AUTHORITY,
+                ).publication_fence_handed_off = True
 
     def _begin_invocation(self) -> "_RunActionCommittedContinuationInvocation":
+        if self._creation_process_id != os.getpid():
+            raise RunActionRecoveryError(
+                "committed continuation capability is spent, cloned, or foreign"
+            )
         with _COMMITTED_CONTINUATION_CAPABILITY_LOCK:
             issued = _ISSUED_COMMITTED_CONTINUATION_CAPABILITIES.get(id(self))
+            authorities = _ISSUED_COMMITTED_CONTINUATION_RELEASE_AUTHORITIES.get(self)
             if (
                 issued is not self
+                or type(authorities) is not _RunActionIssuedReleaseAuthorities
+                or self._query != authorities.query
+                or self._observation != authorities.observation
+                or self._pre_release_credential_observation
+                != authorities.pre_release_credential_observation
                 or self._owner_process_id != os.getpid()
                 or self._state != "ready"
             ):
                 raise RunActionRecoveryError(
                     "committed continuation capability is spent, cloned, or foreign"
                 )
-            self._state = "invoking"
-            self._invoking_thread_id = get_ident()
-        return _RunActionCommittedContinuationInvocation(self)
+            lifecycle = authorities.capability_lifecycle
+            lifecycle.state = "invoking"
+            lifecycle.invoking_thread_id = get_ident()
+        return _RunActionCommittedContinuationInvocation(
+            self,
+            owner_process_id=os.getpid(),
+            invoking_thread_id=get_ident(),
+        )
 
-    def _require_active_invocation(self) -> None:
+    def _require_active_invocation(self) -> _RunActionIssuedReleaseAuthorities:
+        if self._creation_process_id != os.getpid():
+            raise RunActionRecoveryError(
+                "committed continuation capability is not in its one invocation"
+            )
         with _COMMITTED_CONTINUATION_CAPABILITY_LOCK:
             issued = _ISSUED_COMMITTED_CONTINUATION_CAPABILITIES.get(id(self))
+            authorities = _ISSUED_COMMITTED_CONTINUATION_RELEASE_AUTHORITIES.get(self)
             if (
                 issued is not self
+                or type(authorities) is not _RunActionIssuedReleaseAuthorities
+                or self._query != authorities.query
+                or self._observation != authorities.observation
+                or self._pre_release_credential_observation
+                != authorities.pre_release_credential_observation
                 or self._owner_process_id != os.getpid()
                 or self._state != "invoking"
                 or self._invoking_thread_id != get_ident()
                 or self._start_state == "starting"
+                or self._credential_retirement_state == "retiring"
                 or self._release_publication_state == "authorizing"
                 or self._timeout_publication_state
                 in {
@@ -2098,51 +3134,93 @@ class RunActionCommittedContinuationCapability:
                 raise RunActionRecoveryError(
                     "committed continuation capability is not in its one invocation"
                 )
+            return authorities
 
-    def _finish_invocation(self) -> None:
+    def _finish_invocation(
+        self,
+        *,
+        owner_process_id: int,
+        invoking_thread_id: int,
+        _authority: object,
+    ) -> None:
+        if (
+            owner_process_id != os.getpid()
+            or invoking_thread_id != get_ident()
+            or _authority is not _RUN_ACTION_COMMITTED_CONTINUATION_AUTHORITY
+        ):
+            raise RunActionRecoveryError(
+                "committed continuation capability invocation changed"
+            )
         abandoned_publication_fence = None
+        continuation_inputs_changed = False
         with _COMMITTED_CONTINUATION_CAPABILITY_LOCK:
             issued = _ISSUED_COMMITTED_CONTINUATION_CAPABILITIES.get(id(self))
+            authorities = _ISSUED_COMMITTED_CONTINUATION_RELEASE_AUTHORITIES.get(self)
             if (
                 issued is not self
-                or self._owner_process_id != os.getpid()
-                or self._state != "invoking"
-                or self._invoking_thread_id != get_ident()
+                or type(authorities) is not _RunActionIssuedReleaseAuthorities
+                or authorities.capability_lifecycle.owner_process_id != owner_process_id
+                or authorities.capability_lifecycle.state != "invoking"
+                or authorities.capability_lifecycle.invoking_thread_id
+                != invoking_thread_id
             ):
                 raise RunActionRecoveryError(
                     "committed continuation capability invocation changed"
                 )
-            if not self._provider_termination_publication_fence_handed_off:
-                abandoned_publication_fence = (
-                    self._provider_termination_publication_fence
-                )
-            self._provider_termination_publication_fence = None
-            self._state = "spent"
-            self._invoking_thread_id = None
-            self._start_state = "spent"
-            self._release_publication_state = "spent"
-            self._timeout_publication_state = "spent"
-            self._timeout_containment_state = "spent"
-            self._terminal_inspection_state = "spent"
-            self._result_capture_state = "spent"
-            self._provider_termination_state = "spent"
+            continuation_inputs_changed = (
+                authorities.adapter_query != authorities.query
+                or authorities.adapter_observation != authorities.observation
+                or authorities.adapter_pre_release_credential_observation
+                != authorities.pre_release_credential_observation
+            )
+            termination_registration = authorities.provider_termination_registration
+            if not termination_registration.publication_fence_handed_off:
+                abandoned_publication_fence = termination_registration.publication_fence
+            termination_registration.publication_fence = None
+            authorities.capability_lifecycle.state = "spent"
+            authorities.capability_lifecycle.invoking_thread_id = None
+            authorities.capability_lifecycle.start_state = "spent"
+            authorities.capability_lifecycle.credential_retirement_state = "spent"
+            authorities.capability_lifecycle.release_publication_state = "spent"
+            authorities.capability_lifecycle.timeout_publication_state = "spent"
+            authorities.capability_lifecycle.timeout_containment_state = "spent"
+            authorities.capability_lifecycle.terminal_inspection_state = "spent"
+            authorities.capability_lifecycle.result_capture_state = "spent"
+            termination_registration.state = "spent"
             _ISSUED_COMMITTED_CONTINUATION_CAPABILITIES.pop(id(self))
             _ISSUED_COMMITTED_CONTINUATION_RELEASE_AUTHORITIES.pop(self, None)
         if abandoned_publication_fence is not None:
             abandoned_publication_fence.close()
+        if continuation_inputs_changed:
+            raise RunActionRecoveryError(
+                "committed continuation inputs changed during adapter invocation"
+            )
 
 
 class _RunActionCommittedContinuationInvocation:
     """Burn one committed continuation capability on every callback exit."""
 
-    def __init__(self, capability: RunActionCommittedContinuationCapability) -> None:
+    def __init__(
+        self,
+        capability: RunActionCommittedContinuationCapability,
+        *,
+        owner_process_id: int,
+        invoking_thread_id: int,
+    ) -> None:
         self._capability = capability
+        self._owner_process_id = owner_process_id
+        self._invoking_thread_id = invoking_thread_id
 
     def __enter__(self) -> RunActionCommittedContinuationCapability:
         return self._capability
 
     def __exit__(self, exception_type, exception, traceback) -> bool:
-        self._capability._finish_invocation()
+        RunActionCommittedContinuationCapability._finish_invocation(
+            self._capability,
+            owner_process_id=self._owner_process_id,
+            invoking_thread_id=self._invoking_thread_id,
+            _authority=_RUN_ACTION_COMMITTED_CONTINUATION_AUTHORITY,
+        )
         return False
 
 
@@ -2200,7 +3278,7 @@ class _RunActionReleasePublicationAuthorization:
         )
         credential_validity = _observe_release_credential_validity(
             self._resolved_workload_observation,
-            authorities.credential_validity_authority,
+            authorities.credential_broker_registry,
             authorities.clock,
             anchor_realtime,
         )
@@ -2258,12 +3336,15 @@ class _RunActionReleasePublicationAuthorization:
             )
         capability = self._capability
         with _COMMITTED_CONTINUATION_CAPABILITY_LOCK:
-            capability._release_publication_state = "authorizing"
+            _continuation_lifecycle(
+                capability,
+                _authority=_RUN_ACTION_COMMITTED_CONTINUATION_STATE_AUTHORITY,
+            ).release_publication_state = "authorizing"
         authorities = self._release_authorities()
         with _RunActionReleaseLinkInvocation(self):
             _revalidate_release_credential_validity(
                 self._resolved_workload_observation,
-                authorities.credential_validity_authority,
+                authorities.credential_broker_registry,
                 self._receipt,
                 authorities.clock,
             )
@@ -2347,7 +3428,10 @@ class _RunActionReleasePublicationAuthorization:
                     "release link authorization invocation changed"
                 )
             self._closed = True
-            capability._release_publication_state = "spent"
+            _continuation_lifecycle(
+                capability,
+                _authority=_RUN_ACTION_COMMITTED_CONTINUATION_STATE_AUTHORITY,
+            ).release_publication_state = "spent"
 
     def _close(self) -> None:
         if self._closed:
@@ -2365,7 +3449,10 @@ class _RunActionReleasePublicationAuthorization:
                     "release publication authorization close changed"
                 )
             self._closed = True
-            capability._release_publication_state = "spent"
+            _continuation_lifecycle(
+                capability,
+                _authority=_RUN_ACTION_COMMITTED_CONTINUATION_STATE_AUTHORITY,
+            ).release_publication_state = "spent"
 
     def __enter__(self) -> "_RunActionReleasePublicationAuthorization":
         self._require_preparing(_RUN_ACTION_RELEASE_PUBLISHER_AUTHORITY)
@@ -2513,7 +3600,10 @@ class _RunActionTimeoutPublicationAuthorization:
             )
         capability = self._capability
         with _COMMITTED_CONTINUATION_CAPABILITY_LOCK:
-            capability._timeout_publication_state = "authorizing"
+            _continuation_lifecycle(
+                capability,
+                _authority=_RUN_ACTION_COMMITTED_CONTINUATION_STATE_AUTHORITY,
+            ).timeout_publication_state = "authorizing"
         candidate._prepare_authorized_link_once(
             _authority=_CONTROL_FILE_CANDIDATE_PUBLICATION_AUTHORITY,
         )
@@ -2542,7 +3632,10 @@ class _RunActionTimeoutPublicationAuthorization:
                 raise RunActionRecoveryError(
                     "timeout publication authority changed across its link"
                 )
-            capability._timeout_publication_state = "published_awaiting_adoption"
+            _continuation_lifecycle(
+                capability,
+                _authority=_RUN_ACTION_COMMITTED_CONTINUATION_STATE_AUTHORITY,
+            ).timeout_publication_state = "published_awaiting_adoption"
         self._linked_evidence = evidence
         return evidence
 
@@ -2600,8 +3693,12 @@ class _RunActionTimeoutPublicationAuthorization:
                 raise RunActionRecoveryError(
                     "timeout publication completion changed before registration"
                 )
-            capability._timeout_directive_publication = publication
-            capability._timeout_publication_state = "complete"
+            lifecycle = _continuation_lifecycle(
+                capability,
+                _authority=_RUN_ACTION_COMMITTED_CONTINUATION_STATE_AUTHORITY,
+            )
+            lifecycle.timeout_directive_publication = deepcopy(publication)
+            lifecycle.timeout_publication_state = "complete"
 
     def _timeout_authorities(self) -> _RunActionIssuedReleaseAuthorities:
         with _COMMITTED_CONTINUATION_CAPABILITY_LOCK:
@@ -2661,7 +3758,10 @@ class _RunActionTimeoutPublicationAuthorization:
                     "timeout publication authorization close changed"
                 )
             if capability._timeout_publication_state != "complete":
-                capability._timeout_publication_state = "spent"
+                _continuation_lifecycle(
+                    capability,
+                    _authority=_RUN_ACTION_COMMITTED_CONTINUATION_STATE_AUTHORITY,
+                ).timeout_publication_state = "spent"
             self._closed = True
         return False
 
@@ -2749,7 +3849,10 @@ class _RunActionTimeoutContainmentAuthorization:
                 raise RunActionRecoveryError(
                     "timeout containment authority changed before signal selection"
                 )
-            capability._timeout_containment_state = "authorizing"
+            _continuation_lifecycle(
+                capability,
+                _authority=_RUN_ACTION_COMMITTED_CONTINUATION_STATE_AUTHORITY,
+            ).timeout_containment_state = "authorizing"
         self._signal = signal
         self._selected_at_boottime_nanoseconds = selected_at
         return signal, selected_at
@@ -2800,8 +3903,12 @@ class _RunActionTimeoutContainmentAuthorization:
                 raise RunActionRecoveryError(
                     "timeout containment result changed before registration"
                 )
-            capability._timeout_containment_result = result
-            capability._timeout_containment_state = "complete"
+            lifecycle = _continuation_lifecycle(
+                capability,
+                _authority=_RUN_ACTION_COMMITTED_CONTINUATION_STATE_AUTHORITY,
+            )
+            lifecycle.timeout_containment_result = deepcopy(result)
+            lifecycle.timeout_containment_state = "complete"
 
     @staticmethod
     def _post_signal_occurrence_matches(
@@ -2888,18 +3995,213 @@ class _RunActionTimeoutContainmentAuthorization:
                     "timeout containment authorization close changed"
                 )
             if capability._timeout_containment_state != "complete":
-                capability._timeout_containment_state = "spent"
+                _continuation_lifecycle(
+                    capability,
+                    _authority=_RUN_ACTION_COMMITTED_CONTINUATION_STATE_AUTHORITY,
+                ).timeout_containment_state = "spent"
             self._closed = True
         return False
 
 
 def _observe_release_credential_validity(
     resolved: RunActionResolvedWorkloadObservation,
-    credential_authority: object | None,
+    credential_broker_registry: RunActionCredentialBrokerRegistry,
     clock: _SystemRunActionClock,
     anchor_realtime_nanoseconds: int,
 ) -> RunActionCredentialValidityObservation | None:
-    activation = resolved.activation_revalidation_receipt
+    return _observe_activation_credential_validity(
+        resolved.activation_revalidation_receipt,
+        credential_broker_registry,
+        clock,
+        anchor_realtime_nanoseconds,
+    )
+
+
+def _observe_pre_release_credential_state(
+    activation: RunActionActivationRevalidationReceipt,
+    credential_broker_registry: RunActionCredentialBrokerRegistry,
+    clock: _SystemRunActionClock,
+) -> RunActionPreReleaseCredentialObservation | None:
+    if (
+        type(activation) is not RunActionActivationRevalidationReceipt
+        or type(credential_broker_registry) is not RunActionCredentialBrokerRegistry
+        or type(clock) is not _SystemRunActionClock
+    ):
+        raise RunActionRecoveryError(
+            "pre-release credential observation requires exact authority"
+        )
+    policy = activation.prepared_execution.preparation_claim.execution_policy
+    credential_file = activation.credential_file_observation
+    if policy.credential_policy.mode is RunActionCredentialMode.NONE:
+        if credential_file is not None:
+            raise RunActionRecoveryError(
+                "credential-free activation carries credential evidence"
+            )
+        return None
+    expected_authority_id = run_action_credential_lease_authority_id(
+        activation.prepared_execution,
+        activation.spawn_commit,
+    )
+    if (
+        credential_file is None
+        or credential_file.content_authority_id != expected_authority_id
+    ):
+        raise RunActionRecoveryError(
+            "pre-release activation lacks its deterministic credential authority"
+        )
+    observed_before = _read_positive_release_clock(
+        clock.realtime_nanoseconds(),
+        "pre-release credential observation start",
+    )
+    status = credential_broker_registry.observe_exact(
+        prepared_execution=activation.prepared_execution,
+        spawn_commit=activation.spawn_commit,
+        activated_credential_file_observation_id=(
+            credential_file.activated_file_observation_id
+        ),
+    )
+    observed_after = _read_positive_release_clock(
+        clock.realtime_nanoseconds(),
+        "pre-release credential observation finish",
+    )
+    required_valid_until = (
+        observed_after
+        + (
+            policy.supervisor_limits.execution_timeout_seconds
+            + policy.supervisor_limits.termination_grace_seconds
+        )
+        * _NANOSECONDS_PER_SECOND
+    )
+    if required_valid_until > RUN_ACTION_MAXIMUM_PHYSICAL_INTEGER:
+        raise RunActionRecoveryError(
+            "pre-release credential deadline exceeds its clock domain"
+        )
+    state = (
+        RunActionPreReleaseCredentialState.EXPIRED
+        if status.valid_until_realtime_nanoseconds <= observed_after
+        else (
+            RunActionPreReleaseCredentialState.VALID
+            if status.valid_until_realtime_nanoseconds >= required_valid_until
+            else RunActionPreReleaseCredentialState.RENEWAL_PENDING
+        )
+    )
+    return RunActionPreReleaseCredentialObservation.mint(
+        state=state,
+        activation_revalidation_receipt=activation,
+        credential_lease_status=status,
+        observed_before_realtime_nanoseconds=observed_before,
+        observed_after_realtime_nanoseconds=observed_after,
+        required_valid_until_realtime_nanoseconds=required_valid_until,
+    )
+
+
+class _RunActionCredentialIssueResponseOwnership:
+    """Burn one unused broker response unless its exact owner releases it."""
+
+    def __init__(
+        self,
+        registry: RunActionCredentialBrokerRegistry,
+        response: RunActionCredentialIssueResponse | None,
+    ) -> None:
+        if type(registry) is not RunActionCredentialBrokerRegistry or (
+            response is not None
+            and type(response) is not RunActionCredentialIssueResponse
+        ):
+            raise RunActionRecoveryError(
+                "credential issue response ownership lacks exact authority"
+            )
+        self._registry = registry
+        self._response = response
+        self._released = False
+
+    @property
+    def response(self) -> RunActionCredentialIssueResponse | None:
+        if self._released:
+            raise RunActionRecoveryError(
+                "credential issue response ownership is already released"
+            )
+        return self._response
+
+    def release(self) -> RunActionCredentialIssueResponse | None:
+        response = self.response
+        self._released = True
+        return response
+
+    def __enter__(self) -> "_RunActionCredentialIssueResponseOwnership":
+        return self
+
+    def __exit__(self, exception_type, exception, traceback) -> bool:
+        if not self._released and self._response is not None:
+            self._registry.burn_issue_response_exact(self._response)
+        self._released = True
+        self._response = None
+        return False
+
+
+def _issue_activation_credential_response(
+    prepared_execution: RunActionPreparedExecution,
+    spawn_commit: RunActionSpawnCommit,
+    credential_broker_registry: RunActionCredentialBrokerRegistry,
+    clock: _SystemRunActionClock,
+) -> RunActionCredentialIssueResponse | None:
+    policy = prepared_execution.preparation_claim.execution_policy
+    credential_policy = policy.credential_policy
+    credential_broker_registry.require_policy(credential_policy)
+    if credential_policy.mode is RunActionCredentialMode.NONE:
+        return None
+    observed_before = _read_positive_release_clock(
+        clock.realtime_nanoseconds(),
+        "credential issuance start",
+    )
+    response = credential_broker_registry.issue_or_replay_exact(
+        prepared_execution,
+        spawn_commit,
+    )
+    with _RunActionCredentialIssueResponseOwnership(
+        credential_broker_registry,
+        response,
+    ) as ownership:
+        observed_after = _read_positive_release_clock(
+            clock.realtime_nanoseconds(),
+            "credential issuance finish",
+        )
+        valid_until_realtime_nanoseconds = response.valid_until_realtime_nanoseconds
+        maximum_valid_until = (
+            observed_after
+            + credential_policy.maximum_lease_seconds * _NANOSECONDS_PER_SECOND
+        )
+        if (
+            observed_after < observed_before
+            or maximum_valid_until > RUN_ACTION_MAXIMUM_PHYSICAL_INTEGER
+            or (
+                valid_until_realtime_nanoseconds > observed_after
+                and valid_until_realtime_nanoseconds > maximum_valid_until
+            )
+        ):
+            raise RunActionRecoveryError(
+                "credential issuance exceeds its bounded lease interval"
+            )
+        return ownership.release()
+
+
+def _observe_activation_credential_validity(
+    activation: RunActionActivationRevalidationReceipt,
+    credential_broker_registry: RunActionCredentialBrokerRegistry,
+    clock: _SystemRunActionClock,
+    anchor_realtime_nanoseconds: int,
+) -> RunActionCredentialValidityObservation | None:
+    if (
+        type(activation) is not RunActionActivationRevalidationReceipt
+        or type(credential_broker_registry) is not RunActionCredentialBrokerRegistry
+        or type(clock) is not _SystemRunActionClock
+    ):
+        raise RunActionRecoveryError(
+            "credential validity requires exact coordinator authority"
+        )
+    anchor_realtime_nanoseconds = _read_positive_release_clock(
+        anchor_realtime_nanoseconds,
+        "credential validity anchor",
+    )
     policy = activation.prepared_execution.preparation_claim.execution_policy
     credential_file = activation.credential_file_observation
     if policy.credential_policy.mode is RunActionCredentialMode.NONE:
@@ -2908,19 +4210,27 @@ def _observe_release_credential_validity(
                 "credential-free release carries a credential file"
             )
         return None
-    if credential_file is None or not hasattr(credential_authority, "observe_exact"):
+    expected_lease_authority_id = run_action_credential_lease_authority_id(
+        activation.prepared_execution,
+        activation.spawn_commit,
+    )
+    if (
+        credential_file is None
+        or credential_file.content_authority_id != expected_lease_authority_id
+    ):
         raise RunActionRecoveryError(
-            "credentialed release lacks its coordinator-held validity authority"
+            "credentialed activation lacks its deterministic lease authority"
         )
     observed_before = _read_positive_release_clock(
         clock.realtime_nanoseconds(),
         "credential observation start",
     )
-    validity = credential_authority.observe_exact(
+    status = credential_broker_registry.observe_exact(
+        prepared_execution=activation.prepared_execution,
+        spawn_commit=activation.spawn_commit,
         activated_credential_file_observation_id=(
             credential_file.activated_file_observation_id
         ),
-        credential_lease_authority_id=credential_file.content_authority_id,
     )
     observed_after = _read_positive_release_clock(
         clock.realtime_nanoseconds(),
@@ -2938,31 +4248,36 @@ def _observe_release_credential_validity(
         raise RunActionRecoveryError(
             "credential validity deadline exceeds its unsigned-64 clock domain"
         )
-    if (
-        type(validity) is not RunActionCredentialValidityObservation
-        or validity.activated_credential_file_observation_id
-        != credential_file.activated_file_observation_id
-        or validity.credential_lease_authority_id
-        != credential_file.content_authority_id
-        or not observed_before
-        <= validity.observed_at_realtime_nanoseconds
-        <= observed_after
-        or validity.valid_until_realtime_nanoseconds < required_valid_until
-        or (
-            validity.valid_until_realtime_nanoseconds
-            - validity.observed_at_realtime_nanoseconds
+    if type(status) is not RunActionCredentialLeaseStatus:
+        raise RunActionRecoveryError(
+            "credential broker returned another validity status"
         )
-        > policy.credential_policy.maximum_lease_seconds * _NANOSECONDS_PER_SECOND
+    if (
+        observed_after < observed_before
+        or status.valid_until_realtime_nanoseconds <= observed_after
+        or status.valid_until_realtime_nanoseconds < required_valid_until
+        or (
+            status.valid_until_realtime_nanoseconds - observed_after
+            > policy.credential_policy.maximum_lease_seconds * _NANOSECONDS_PER_SECOND
+        )
     ):
         raise RunActionRecoveryError(
             "credential validity cannot authorize the release deadline"
         )
+    validity = RunActionCredentialValidityObservation.mint(
+        activated_credential_file_observation_id=(
+            credential_file.activated_file_observation_id
+        ),
+        credential_lease_authority_id=expected_lease_authority_id,
+        observed_at_realtime_nanoseconds=observed_after,
+        valid_until_realtime_nanoseconds=(status.valid_until_realtime_nanoseconds),
+    )
     return validity
 
 
 def _revalidate_release_credential_validity(
     resolved: RunActionResolvedWorkloadObservation,
-    credential_authority: object | None,
+    credential_broker_registry: RunActionCredentialBrokerRegistry,
     receipt: RunActionWorkloadReleaseReceipt,
     clock: _SystemRunActionClock,
 ) -> None:
@@ -2981,24 +4296,15 @@ def _revalidate_release_credential_validity(
     if (
         type(required_validity) is not RunActionCredentialValidityObservation
         or credential_file is None
-        or not hasattr(credential_authority, "observe_exact")
     ):
         raise RunActionRecoveryError(
             "credential revalidation lacks exact coordinator authority"
         )
-    observed_before = _read_positive_release_clock(
-        clock.realtime_nanoseconds(),
-        "credential revalidation start",
-    )
-    current = credential_authority.observe_exact(
-        activated_credential_file_observation_id=(
-            credential_file.activated_file_observation_id
-        ),
-        credential_lease_authority_id=credential_file.content_authority_id,
-    )
-    observed_after = _read_positive_release_clock(
-        clock.realtime_nanoseconds(),
-        "credential revalidation finish",
+    current = _observe_activation_credential_validity(
+        activation,
+        credential_broker_registry,
+        clock,
+        receipt.release_authorization_observation.authorized_at_realtime_nanoseconds,
     )
     containment_deadline_realtime = (
         receipt.release_authorization_observation.authorized_at_realtime_nanoseconds
@@ -3018,17 +4324,9 @@ def _revalidate_release_credential_validity(
         != required_validity.activated_credential_file_observation_id
         or current.credential_lease_authority_id
         != required_validity.credential_lease_authority_id
-        or not observed_before
-        <= current.observed_at_realtime_nanoseconds
-        <= observed_after
         or current.observed_at_realtime_nanoseconds
         < required_validity.observed_at_realtime_nanoseconds
         or current.valid_until_realtime_nanoseconds < containment_deadline_realtime
-        or (
-            current.valid_until_realtime_nanoseconds
-            - current.observed_at_realtime_nanoseconds
-        )
-        > policy.credential_policy.maximum_lease_seconds * _NANOSECONDS_PER_SECOND
     ):
         raise RunActionRecoveryError("credential authority changed before release link")
 
@@ -3083,6 +4381,7 @@ class RunActionCommittedSpawnQuery:
 
     preparation_allocation: RunActionPreparationAllocation
     activation_event: RunActionExecutionEvent
+    credential_retirement_intent: RunActionCredentialRetirementIntent | None
     workload_release_adoption: RunActionWorkloadReleaseAdoption | None
     timeout_directive_publication: RunActionTimeoutDirectivePublicationReceipt | None
 
@@ -3095,6 +4394,11 @@ class RunActionCommittedSpawnQuery:
             is not RunActionExecutionEventKind.ACTIVATION_COMMITTED
             or type(self.activation_event.activation_revalidation_receipt)
             is not RunActionActivationRevalidationReceipt
+            or (
+                self.credential_retirement_intent is not None
+                and type(self.credential_retirement_intent)
+                is not RunActionCredentialRetirementIntent
+            )
             or (
                 self.workload_release_adoption is not None
                 and type(self.workload_release_adoption)
@@ -3113,6 +4417,18 @@ class RunActionCommittedSpawnQuery:
             require_run_action_workload_release_receipt_matches_event(
                 self.workload_release_adoption.workload_release_receipt,
                 self.activation_event,
+            )
+        if self.credential_retirement_intent is not None and (
+            self.workload_release_adoption is not None
+            or self.timeout_directive_publication is not None
+            or not credential_retirement_intent_matches_activation(
+                self.credential_retirement_intent,
+                self.activation_event.event_id,
+                self.activation_revalidation_receipt,
+            )
+        ):
+            raise RunActionRecoveryError(
+                "committed run action query differs from credential retirement"
             )
         if (
             self.workload_release_adoption is None
@@ -3577,7 +4893,7 @@ class RunActionRecoveryCoordinator:
         active_workspace: ActiveLaunchWorkspace,
         publisher: RunStatePublisher,
         security_authority: object,
-        credential_validity_authority: object | None,
+        credential_broker_registry: RunActionCredentialBrokerRegistry,
         implementation_registry: RunActionRecoveryImplementationRegistry,
         resource_finalization_authority: RunActionResourceFinalizationAuthority,
         _authority: object,
@@ -3587,10 +4903,7 @@ class RunActionRecoveryCoordinator:
             or type(publisher) is not RunStatePublisher
             or publisher._authority is not active_workspace
             or not hasattr(security_authority, "observe_exact_descendant_of")
-            or (
-                credential_validity_authority is not None
-                and not hasattr(credential_validity_authority, "observe_exact")
-            )
+            or type(credential_broker_registry) is not RunActionCredentialBrokerRegistry
             or type(implementation_registry)
             is not RunActionRecoveryImplementationRegistry
             or _authority is not _RUN_ACTION_RECOVERY_COORDINATOR_AUTHORITY
@@ -3612,7 +4925,8 @@ class RunActionRecoveryCoordinator:
             settings=publisher._settings,
         )
         self._security_authority = security_authority
-        self._credential_validity_authority = credential_validity_authority
+        credential_broker_registry._require_owner_process()
+        self._credential_broker_registry = credential_broker_registry
         self._release_clock = _SystemRunActionClock()
         implementation_registry._require_owner_process()
         self._implementation_registry = implementation_registry
@@ -3881,7 +5195,12 @@ class RunActionRecoveryCoordinator:
                 prepared_execution=prepared_execution,
                 spawn_commit=spawn_commit,
             )
-            observation = execution_adapter.inspect_unactivated(query)
+            adapter_query = deepcopy(query)
+            observation = execution_adapter.inspect_unactivated(adapter_query)
+            if adapter_query != query:
+                raise RunActionRecoveryError(
+                    "execution adapter changed its unactivated-spawn query"
+                )
             if type(observation) is not RunActionUnactivatedSpawnObservation:
                 raise RunActionRecoveryError(
                     "execution adapter returned an invalid unactivated-spawn observation"
@@ -3922,6 +5241,18 @@ class RunActionRecoveryCoordinator:
                 frontier,
                 descriptors,
                 workspace_lock_descriptor,
+            )
+            return
+        if tail_kind is RunActionExecutionEventKind.CREDENTIAL_RETIREMENT_REQUESTED:
+            execution_adapter = self._resolve_execution_adapter(
+                self._implementation_registry,
+                reservation,
+            )
+            self._recover_credential_retirement(
+                session,
+                execution_adapter,
+                frontier,
+                descriptors,
             )
             return
         if tail_kind is RunActionExecutionEventKind.RESULT_RECEIVED:
@@ -3980,17 +5311,60 @@ class RunActionRecoveryCoordinator:
             spawn_commit,
             frontier.checkpoint.safety_state.security_observation,
         )
-        capability = RunActionActivationCapability(
-            prepared_execution=prepared_execution,
-            spawn_commit=spawn_commit,
-            request_payload=session.read_request(),
-            workspace_descriptor=workspace_descriptor,
-            _authority=_RUN_ACTION_ACTIVATION_AUTHORITY,
+        credential_policy = (
+            prepared_execution.preparation_claim.execution_policy.credential_policy
         )
-        activation = capability._invoke_once(execution_adapter)
+        if credential_policy.mode is RunActionCredentialMode.SUPERVISOR_FILE and (
+            session.credential_retirement_event_size_bytes(
+                prepared_execution,
+                spawn_commit,
+            )
+            > self._publisher._settings.run_action_event_size_bytes
+            or credential_expiry_termination_event_size_bound(
+                reservation=session.reservation,
+                preparation_allocation=(session.events[1].preparation_allocation),
+                prepared_execution=prepared_execution,
+                spawn_commit=spawn_commit,
+            )
+            > self._publisher._settings.run_action_event_size_bytes
+        ):
+            raise RunActionRecoveryError(
+                "credential expiry events exceed their durable envelope"
+            )
+        if not self._security_is_current(frontier):
+            return None
+        request_payload = session.read_request()
+        credential_issue_response = _issue_activation_credential_response(
+            prepared_execution,
+            spawn_commit,
+            self._credential_broker_registry,
+            self._release_clock,
+        )
+        with _RunActionCredentialIssueResponseOwnership(
+            self._credential_broker_registry,
+            credential_issue_response,
+        ) as credential_ownership:
+            if not self._security_is_current(frontier):
+                return None
+            capability = RunActionActivationCapability(
+                prepared_execution=prepared_execution,
+                spawn_commit=spawn_commit,
+                request_payload=request_payload,
+                credential_issue_response=credential_ownership.response,
+                credential_broker_registry=self._credential_broker_registry,
+                workspace_descriptor=workspace_descriptor,
+                _authority=_RUN_ACTION_ACTIVATION_AUTHORITY,
+            )
+            adapter_activation = capability._invoke_once(execution_adapter)
+        if type(adapter_activation) is not RunActionActivationRevalidationReceipt:
+            raise RunActionRecoveryError(
+                "execution adapter returned another or oversized activation"
+            )
+        activation = RunActionActivationRevalidationReceipt.from_json_bytes(
+            adapter_activation.to_json_bytes()
+        )
         if (
-            type(activation) is not RunActionActivationRevalidationReceipt
-            or activation.prepared_execution != prepared_execution
+            activation.prepared_execution != prepared_execution
             or activation.spawn_commit != spawn_commit
             or session.activation_event_size_bytes(activation)
             > activation_event_size_bound
@@ -4046,6 +5420,7 @@ class RunActionRecoveryCoordinator:
             query = RunActionCommittedSpawnQuery(
                 preparation_allocation=session.events[1].preparation_allocation,
                 activation_event=activation_event,
+                credential_retirement_intent=None,
                 workload_release_adoption=workload_release_adoption,
                 timeout_directive_publication=timeout_directive_publication,
             )
@@ -4063,12 +5438,21 @@ class RunActionRecoveryCoordinator:
                     activation.spawn_commit,
                     frontier.checkpoint.safety_state.security_observation,
                 )
-            observation = execution_adapter.inspect_committed(query)
+            adapter_query = deepcopy(query)
+            adapter_observation = execution_adapter.inspect_committed(adapter_query)
+            if adapter_query != query:
+                raise RunActionRecoveryError(
+                    "execution adapter changed its committed-spawn query"
+                )
             control_inspection.require_current()
-        if type(observation) is not RunActionCommittedSpawnObservation:
+        if type(adapter_observation) is not RunActionCommittedSpawnObservation:
             raise RunActionRecoveryError(
                 "execution adapter returned an invalid committed-spawn observation"
             )
+        observation = RunActionCommittedSpawnObservation(
+            state=adapter_observation.state,
+            observation_token=adapter_observation.observation_token,
+        )
         if observation.state is RunActionCommittedSpawnState.UNKNOWN:
             return None
         self._require_unchanged_host_workspace(
@@ -4076,6 +5460,53 @@ class RunActionRecoveryCoordinator:
             descriptors,
             "host workspace changed before committed provider continuation",
         )
+        pre_release_credential_observation = None
+        if (
+            query.control_directory_topology is RunActionControlDirectoryTopology.EMPTY
+            and observation.state
+            in {
+                RunActionCommittedSpawnState.INERT_CONTINUABLE,
+                RunActionCommittedSpawnState.RUNNING_CONTINUABLE,
+            }
+        ):
+            pre_release_credential_observation = _observe_pre_release_credential_state(
+                activation,
+                self._credential_broker_registry,
+                self._release_clock,
+            )
+            if (
+                pre_release_credential_observation is not None
+                and pre_release_credential_observation.state
+                is RunActionPreReleaseCredentialState.RENEWAL_PENDING
+            ):
+                return None
+        credential_is_expired = (
+            pre_release_credential_observation is not None
+            and pre_release_credential_observation.state
+            is RunActionPreReleaseCredentialState.EXPIRED
+        )
+        if credential_is_expired:
+            session.commit_credential_retirement(
+                RunActionCredentialRetirementIntent.mint(
+                    activation_event_id=activation_event.event_id,
+                    pre_release_credential_observation_id=(
+                        pre_release_credential_observation.pre_release_credential_observation_id
+                    ),
+                    credential_lease_status=(
+                        pre_release_credential_observation.credential_lease_status
+                    ),
+                    observed_before_realtime_nanoseconds=(
+                        pre_release_credential_observation.observed_before_realtime_nanoseconds
+                    ),
+                    observed_after_realtime_nanoseconds=(
+                        pre_release_credential_observation.observed_after_realtime_nanoseconds
+                    ),
+                    required_valid_until_realtime_nanoseconds=(
+                        pre_release_credential_observation.required_valid_until_realtime_nanoseconds
+                    ),
+                )
+            )
+            return None
         if (
             observation.state
             in {
@@ -4083,17 +5514,19 @@ class RunActionRecoveryCoordinator:
                 RunActionCommittedSpawnState.RUNNING_CONTINUABLE,
             }
             and workload_release_adoption is None
+            and not credential_is_expired
             and not self._security_is_current(frontier)
         ):
             return None
         capability = RunActionCommittedContinuationCapability(
             query=query,
             observation=observation,
+            pre_release_credential_observation=(pre_release_credential_observation),
             required_security_observation=(
                 frontier.checkpoint.safety_state.security_observation
             ),
             security_authority=self._security_authority,
-            credential_validity_authority=self._credential_validity_authority,
+            credential_broker_registry=self._credential_broker_registry,
             release_clock=self._release_clock,
             _authority=_RUN_ACTION_COMMITTED_CONTINUATION_AUTHORITY,
         )
@@ -4160,6 +5593,129 @@ class RunActionRecoveryCoordinator:
             "execution adapter returned an unknown committed continuation"
         )
 
+    def _recover_credential_retirement(
+        self,
+        session,
+        execution_adapter: RunActionExecutionAdapter,
+        frontier: ReconciledRunFrontier,
+        descriptors: ExitStack,
+    ) -> None:
+        """Enforce a durable expiry decision without consulting mutable authority."""
+
+        retirement_event = session.events[-1]
+        activation_event = session.events[4]
+        if (
+            retirement_event.event_kind
+            is not RunActionExecutionEventKind.CREDENTIAL_RETIREMENT_REQUESTED
+            or type(retirement_event.credential_retirement_intent)
+            is not RunActionCredentialRetirementIntent
+        ):
+            raise RunActionRecoveryError(
+                "credential retirement recovery requires its durable intent tail"
+            )
+        with open_run_action_timeout_inspection(
+            activation_event=activation_event,
+            launch_settings=self._publisher._settings,
+        ) as control_inspection:
+            query = RunActionCommittedSpawnQuery(
+                preparation_allocation=session.events[1].preparation_allocation,
+                activation_event=activation_event,
+                credential_retirement_intent=(
+                    retirement_event.credential_retirement_intent
+                ),
+                workload_release_adoption=None,
+                timeout_directive_publication=None,
+            )
+            if (
+                control_inspection.topology
+                is not RunActionControlDirectoryTopology.EMPTY
+                or control_inspection.workload_release_adoption is not None
+                or control_inspection.timeout_directive_publication is not None
+            ):
+                raise RunActionRecoveryError(
+                    "credential retirement lost its empty control topology"
+                )
+            adapter_query = deepcopy(query)
+            adapter_observation = execution_adapter.inspect_committed(adapter_query)
+            if adapter_query != query:
+                raise RunActionRecoveryError(
+                    "execution adapter changed its retirement query"
+                )
+            control_inspection.require_current()
+        if type(adapter_observation) is not RunActionCommittedSpawnObservation:
+            raise RunActionRecoveryError(
+                "execution adapter returned an invalid retirement observation"
+            )
+        observation = RunActionCommittedSpawnObservation(
+            state=adapter_observation.state,
+            observation_token=adapter_observation.observation_token,
+        )
+        if observation.state is RunActionCommittedSpawnState.UNKNOWN:
+            return
+        self._require_unchanged_host_workspace(
+            session.reservation,
+            descriptors,
+            "host workspace changed before credential retirement",
+        )
+        capability = RunActionCommittedContinuationCapability(
+            query=query,
+            observation=observation,
+            pre_release_credential_observation=None,
+            required_security_observation=(
+                frontier.checkpoint.safety_state.security_observation
+            ),
+            security_authority=self._security_authority,
+            credential_broker_registry=self._credential_broker_registry,
+            release_clock=self._release_clock,
+            _authority=_RUN_ACTION_COMMITTED_CONTINUATION_AUTHORITY,
+        )
+        outcome = capability._invoke_once(execution_adapter)
+        publication_fence = (
+            outcome.provider_termination_publication_fence
+            if type(outcome) is RunActionContinuationOutcome
+            else None
+        )
+        if type(publication_fence) is RunActionProviderTerminationPublicationFence:
+            descriptors.callback(publication_fence.close)
+            publication_fence.require_current()
+        if (
+            type(outcome) is not RunActionContinuationOutcome
+            or not self._continuation_outcome_allowed(observation, outcome)
+            or outcome.state
+            not in {
+                RunActionContinuationState.PENDING,
+                RunActionContinuationState.PROVIDER_TERMINATED,
+            }
+        ):
+            raise RunActionRecoveryError(
+                "credential retirement returned an unauthorized continuation"
+            )
+        self._require_unchanged_host_workspace(
+            session.reservation,
+            descriptors,
+            "host workspace changed during credential retirement",
+        )
+        if outcome.state is RunActionContinuationState.PENDING:
+            return
+        receipt = outcome.provider_termination_receipt
+        if (
+            type(receipt) is not RunActionProviderTerminationReceipt
+            or receipt.reason
+            is not RunActionProviderTerminationReason.CREDENTIAL_EXPIRED
+            or receipt.credential_retirement_intent
+            != retirement_event.credential_retirement_intent
+        ):
+            raise RunActionRecoveryError(
+                "credential retirement termination lost its durable cause"
+            )
+        self._record_provider_termination(
+            session,
+            receipt,
+            None,
+            publication_fence,
+            descriptors,
+        )
+
     @staticmethod
     def _continuation_outcome_allowed(
         observation: RunActionCommittedSpawnObservation,
@@ -4210,6 +5766,7 @@ class RunActionRecoveryCoordinator:
         ) is RunActionProviderTerminationReceipt and receipt.reason in {
             RunActionProviderTerminationReason.PRE_RELEASE_MAIN_LOSS,
             RunActionProviderTerminationReason.PRE_RELEASE_MAIN_TERMINAL,
+            RunActionProviderTerminationReason.CREDENTIAL_EXPIRED,
         }
         if type(
             receipt
@@ -4260,6 +5817,9 @@ class RunActionRecoveryCoordinator:
                 RunActionControlDirectoryTopology.EMPTY
             ),
             RunActionProviderTerminationReason.PRE_RELEASE_MAIN_TERMINAL: (
+                RunActionControlDirectoryTopology.EMPTY
+            ),
+            RunActionProviderTerminationReason.CREDENTIAL_EXPIRED: (
                 RunActionControlDirectoryTopology.EMPTY
             ),
             RunActionProviderTerminationReason.TIMEOUT: (
@@ -4861,6 +6421,9 @@ class RunActionRecoveryCoordinator:
                 "run action release-receipt or timeout policy differs from "
                 "launch configuration"
             )
+        self._credential_broker_registry.require_policy(
+            execution_adapter.execution_policy.credential_policy
+        )
 
     def _formal_release_receipt_size_bound(
         self,
@@ -4926,6 +6489,8 @@ __all__ = [
     "RunActionPreparationObservation",
     "RunActionPreparationOrigin",
     "RunActionPreparationState",
+    "RunActionPreReleaseCredentialObservation",
+    "RunActionPreReleaseCredentialState",
     "RunActionProviderResult",
     "RunActionProviderTerminationPublicationFence",
     "RunActionRecoveredOperation",

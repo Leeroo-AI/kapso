@@ -4,11 +4,15 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
+import time
 from types import SimpleNamespace
 
 import pytest
 
+from test_run_frontier_action_gate import _credential_broker_registry
+
 import kapso.cross_run.launch.run_action_main_start as main_start
+import kapso.cross_run.launch.run_action_recovery as recovery_module
 import kapso.cross_run.launch.run_action_resolved_workload as resolved_workload
 from kapso.cross_run.launch.run_action_clock import _SystemRunActionClock
 from kapso.cross_run.launch.run_action_docker_inspect import observe_runtime_volume
@@ -24,6 +28,9 @@ from kapso.cross_run.launch.run_action_recovery import (
 )
 from kapso.cross_run.launch.run_action_resolved_workload import (
     RunActionResolvedWorkloadError,
+)
+from kapso.cross_run.launch.run_action_supervisor_contracts import (
+    run_action_credential_lease_request,
 )
 from kapso.cross_run.process import (
     BoundedProcessOutcome,
@@ -135,6 +142,7 @@ def _case(monkeypatch, *, result_outcome=BoundedProcessOutcome.COMPLETED):
     query = RunActionCommittedSpawnQuery(
         preparation_allocation=released_query.preparation_allocation,
         activation_event=released_query.activation_event,
+        credential_retirement_intent=None,
         workload_release_adoption=None,
         timeout_directive_publication=None,
     )
@@ -242,14 +250,28 @@ def _case(monkeypatch, *, result_outcome=BoundedProcessOutcome.COMPLETED):
     )
 
 
-def _capability(case, observation=None):
+def _capability(case, observation=None, credential_broker_registry=None):
+    if credential_broker_registry is None:
+        credential_broker_registry = _credential_broker_registry()[0]
+    selected_observation = case.observation if observation is None else observation
+    release_clock = _SystemRunActionClock()
+    pre_release_credential_observation = (
+        None
+        if case.query.credential_retirement_intent is not None
+        else recovery_module._observe_pre_release_credential_state(
+            case.query.activation_revalidation_receipt,
+            credential_broker_registry,
+            release_clock,
+        )
+    )
     return RunActionCommittedContinuationCapability(
         query=case.query,
-        observation=case.observation if observation is None else observation,
+        observation=selected_observation,
         required_security_observation=_release_security_observation(),
         security_authority=_SecurityAuthority(),
-        credential_validity_authority=None,
-        release_clock=_SystemRunActionClock(),
+        credential_broker_registry=credential_broker_registry,
+        release_clock=release_clock,
+        pre_release_credential_observation=pre_release_credential_observation,
         _authority=_RUN_ACTION_COMMITTED_CONTINUATION_AUTHORITY,
     )
 
@@ -332,6 +354,31 @@ def test_inert_inspection_and_start_bind_one_exact_event_5(monkeypatch):
         match="spent, cloned, or foreign",
     ):
         capability._invoke_once(_StartAdapter(lambda _active: None))
+
+
+def test_expired_credential_is_rejected_before_docker_start(monkeypatch):
+    case = _case(monkeypatch)
+    credential_registry, credential_backend = _credential_broker_registry()
+    request = run_action_credential_lease_request(
+        case.query.prepared_execution,
+        case.query.spawn_commit,
+    )
+    credential_backend._lease_expiries[request.credential_lease_request_id] = (
+        time.time_ns() + 1
+    )
+    capability = _capability(
+        case,
+        credential_broker_registry=credential_registry,
+    )
+
+    with pytest.raises(
+        RunActionRecoveryError,
+        match="container start lacks exact",
+    ):
+        capability._invoke_once(_StartAdapter(lambda active: _start(case, active)))
+
+    assert credential_backend.status_calls == [request]
+    assert case.start_authority.calls == []
 
 
 def test_wrong_inert_token_rejects_before_docker_start(monkeypatch):

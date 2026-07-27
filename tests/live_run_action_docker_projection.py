@@ -23,9 +23,11 @@ from expert_live_docker_support import (
     run_setup_docker,
 )
 from kapso.core.config import load_config
-from kapso.cross_run.canonical import content_id, tree_or_blob_digest
+from kapso.cross_run.canonical import tree_or_blob_digest
 from kapso.cross_run.docker.runtime import (
     DockerImageAuthority,
+    PinnedDockerCleanupAuthority,
+    PinnedDockerContainmentAuthority,
     PinnedDockerPreparationAuthority,
     PinnedDockerRuntime,
     PinnedDockerStartAuthority,
@@ -45,6 +47,16 @@ from kapso.cross_run.launch.run_action_contracts import (
 )
 from kapso.cross_run.launch.run_action_control_topology import (
     RunActionControlDirectoryTopology,
+)
+from kapso.cross_run.launch.run_action_credential_broker import (
+    RunActionCredentialBrokerBackend,
+    RunActionCredentialBrokerRegistry,
+    RunActionCredentialIssueResponse,
+    RunActionCredentialLeaseStatus,
+)
+from kapso.cross_run.launch.run_action_credential_retirement import (
+    DockerRunActionCredentialRetirementManager,
+    retire_run_action_expired_credential_once,
 )
 from kapso.cross_run.launch.run_action_barrier_contracts import (
     RunActionResolvedMountKind,
@@ -87,9 +99,6 @@ from kapso.cross_run.launch.run_action_pre_release_main_terminal import (
 )
 from kapso.cross_run.launch.run_action_resolved_workload import (
     open_run_action_blocked_workload,
-)
-from kapso.cross_run.launch.run_action_release_contracts import (
-    RunActionCredentialValidityObservation,
 )
 from kapso.cross_run.launch.run_action_release_adoption import (
     open_run_action_release_inspection,
@@ -160,7 +169,7 @@ from kapso.cross_run.launch.run_action_runtime_volume import (
     reobserve_runtime_volume_layout,
 )
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
-    RUN_ACTION_CREDENTIAL_LEASE_AUTHORITY_NAMESPACE,
+    RUN_ACTION_MAXIMUM_PHYSICAL_INTEGER,
     RunActionActivationRevalidationReceipt,
     RunActionPreparationAllocation,
     RunActionPreparedExecution,
@@ -171,6 +180,8 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
     preparation_keeper_container_name,
     preparation_volume_labels,
     preparation_volume_name,
+    run_action_credential_lease_authority_id,
+    run_action_credential_lease_request,
 )
 from kapso.cross_run.launch.workspace_frontier import (
     inspect_run_workspace_frontier,
@@ -197,10 +208,6 @@ _CANONICAL_CONFIG_PATH = "src/kapso/config.yaml"
 _CONTAINER_ID_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 _ORIGINAL_SUBPROCESS_RUN = subprocess.run
 _LIVE_RESULT_PAYLOAD = b'{"live":"captured"}'
-_CREDENTIAL_LEASE_AUTHORITY_ID = content_id(
-    RUN_ACTION_CREDENTIAL_LEASE_AUTHORITY_NAMESPACE,
-    {"fixture": "live credential lease"},
-)
 
 
 class _UnusedLiveResultInterpreter:
@@ -226,33 +233,38 @@ class _LiveAcceptedResultInterpreter:
         )
 
 
-class _LiveCredentialValidityAuthority:
+class _LiveCredentialBrokerBackend(RunActionCredentialBrokerBackend):
     def __init__(self, maximum_lease_seconds) -> None:
-        self._maximum_lease_seconds = maximum_lease_seconds
-        self.calls = []
-
-    def observe_exact(
-        self,
-        *,
-        activated_credential_file_observation_id,
-        credential_lease_authority_id,
-    ):
-        self.calls.append(
-            (
-                activated_credential_file_observation_id,
-                credential_lease_authority_id,
-            )
+        super().__init__(
+            broker_id="test.credential.broker",
+            broker_protocol_version="test.credential.broker.v1",
         )
-        observed_at = time.time_ns()
-        return RunActionCredentialValidityObservation.mint(
-            activated_credential_file_observation_id=(
-                activated_credential_file_observation_id
-            ),
-            credential_lease_authority_id=credential_lease_authority_id,
-            observed_at_realtime_nanoseconds=observed_at,
-            valid_until_realtime_nanoseconds=(
-                observed_at + self._maximum_lease_seconds * 1_000_000_000
-            ),
+        self._maximum_lease_seconds = maximum_lease_seconds
+        self.issue_calls = []
+        self.status_calls = []
+        self._lease_expiries = {}
+
+    def _valid_until(self, request):
+        existing = self._lease_expiries.get(request.credential_lease_request_id)
+        if existing is not None:
+            return existing
+        valid_until = time.time_ns() + (self._maximum_lease_seconds - 1) * 1_000_000_000
+        self._lease_expiries[request.credential_lease_request_id] = valid_until
+        return valid_until
+
+    def issue_or_replay_exact(self, request):
+        self.issue_calls.append(request)
+        return RunActionCredentialIssueResponse(
+            credential_lease_request_id=request.credential_lease_request_id,
+            payload=b"credential bytes",
+            valid_until_realtime_nanoseconds=self._valid_until(request),
+        )
+
+    def observe_exact(self, request):
+        self.status_calls.append(request)
+        return RunActionCredentialLeaseStatus.mint(
+            credential_lease_request_id=request.credential_lease_request_id,
+            valid_until_realtime_nanoseconds=self._valid_until(request),
         )
 
 
@@ -324,6 +336,108 @@ class _LiveInertStartAdapter:
             docker_settings=self._docker_settings,
             launch_settings=self._launch_settings,
         )
+        return RunActionContinuationOutcome(
+            state=RunActionContinuationState.PENDING,
+            result=None,
+            provider_termination_receipt=None,
+            timeout_directive_publication=None,
+        )
+
+
+class _LiveExpiredCredentialRetirementAdapter:
+    def __init__(
+        self,
+        *,
+        boundary_identity,
+        execution_policy,
+        resource_manager,
+        retirement_manager,
+        preparation_allocation,
+        command,
+        helper_evidence,
+        init_source_evidence,
+        docker_settings,
+        launch_settings,
+        running,
+    ) -> None:
+        self.execution_lifecycle_identity = (
+            boundary_identity.execution_lifecycle_identity
+        )
+        self.execution_policy = execution_policy
+        self.result_interpreter = _UnusedLiveResultInterpreter(
+            boundary_identity.result_interpreter_identity
+        )
+        self._resource_manager = resource_manager
+        self._retirement_manager = retirement_manager
+        self._preparation_allocation = preparation_allocation
+        self._command = command
+        self._helper_evidence = helper_evidence
+        self._init_source_evidence = init_source_evidence
+        self._docker_settings = docker_settings
+        self._launch_settings = launch_settings
+        self._running = running
+        self.retirement_attempted = False
+
+    def prepared_event_size_bound(self, **_arguments):
+        raise AssertionError("durable event 5 must not replay preparation")
+
+    def activation_event_size_bound(self, **_arguments):
+        raise AssertionError("durable event 5 must not replay activation")
+
+    def prepare(self, _capability):
+        raise AssertionError("durable event 5 must not replay preparation")
+
+    def stage_activation(self, _capability):
+        raise AssertionError("durable event 5 must not replay activation")
+
+    def inspect_unactivated(self, _query):
+        raise AssertionError("durable event 5 is already activated")
+
+    def inspect_committed(self, query):
+        if not self._running:
+            return inspect_run_action_inert_activation(
+                query=query,
+                resource_manager=self._resource_manager,
+                launch_settings=self._launch_settings,
+            )
+        inventory = self._resource_manager.observe(self._preparation_allocation)
+        volume = observe_runtime_volume(
+            self._resource_manager.inspect_volume(inventory),
+            self._preparation_allocation.preparation_claim,
+            self._preparation_allocation.runtime_volume_authority,
+            self._docker_settings,
+        )
+        running = observe_running_barrier_main_container(
+            self._resource_manager.inspect_main(inventory),
+            self._preparation_allocation.preparation_claim,
+            self._preparation_allocation.runtime_volume_authority,
+            volume,
+            self._command,
+            self._helper_evidence,
+            self._init_source_evidence,
+            self._docker_settings,
+        )
+        if running.container_id != query.spawn_commit.provider_execution_id:
+            raise AssertionError(
+                "expired credential query differs from running container"
+            )
+        return RunActionCommittedSpawnObservation(
+            state=RunActionCommittedSpawnState.RUNNING_CONTINUABLE,
+            observation_token=running.complete_inspection_digest,
+        )
+
+    def continue_committed_once(self, capability):
+        retire_run_action_expired_credential_once(
+            capability=capability,
+            resource_manager=self._resource_manager,
+            retirement_manager=self._retirement_manager,
+            command=self._command,
+            helper_evidence=self._helper_evidence,
+            init_source_evidence=self._init_source_evidence,
+            docker_settings=self._docker_settings,
+            launch_settings=self._launch_settings,
+        )
+        self.retirement_attempted = True
         return RunActionContinuationOutcome(
             state=RunActionContinuationState.PENDING,
             result=None,
@@ -952,6 +1066,8 @@ def _listed_exact(
         "oom",
         "pre_release_main_loss",
         "pre_release_main_terminal",
+        "expired_inert_credential",
+        "expired_running_credential",
         "frontier_invalidated",
         "allocation_volume",
         "allocation_created_keeper",
@@ -1419,8 +1535,11 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
                 RunActionStaticEnvironmentVariable(key="PATH", value="/bin"),
             ),
         )
-        credential_validity_authority = _LiveCredentialValidityAuthority(
+        credential_backend = _LiveCredentialBrokerBackend(
             layout_policy.credential_policy.maximum_lease_seconds,
+        )
+        credential_broker_registry = RunActionCredentialBrokerRegistry(
+            (credential_backend,)
         )
         (
             _action_publisher,
@@ -1429,7 +1548,7 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             action_gate,
         ) = _action_case(
             publisher_case,
-            credential_validity_authority=credential_validity_authority,
+            credential_broker_registry=credential_broker_registry,
             resource_finalization_authority_factory=(
                 lambda publisher: issue_docker_run_action_resource_finalization_authority(
                     action_store=publisher._action_store,
@@ -1924,14 +2043,22 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             )
             return
         assert spawn_commit is not None
+        credential_issue_response = credential_broker_registry.issue_or_replay_exact(
+            prepared_execution,
+            spawn_commit,
+        )
+        credential_materialization = credential_broker_registry.materialize_exact(
+            credential_issue_response,
+            prepared_execution,
+            spawn_commit,
+        )
         activated_volume = deliver_and_reobserve_runtime_volume_activation(
             prepared_execution,
             spawn_commit,
             layout_volume_observation,
             layout_keeper_evidence,
             request_payload=b"complete request",
-            credential_payload=b"credential bytes",
-            credential_content_authority_id=_CREDENTIAL_LEASE_AUTHORITY_ID,
+            credential_materialization=credential_materialization,
             workspace_descriptor=workspace_descriptor,
             settings=cross_run_settings.launch,
         )
@@ -1952,7 +2079,10 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
         assert activated_volume.credential_file_observation.content_digest is None
         assert (
             activated_volume.credential_file_observation.content_authority_id
-            == _CREDENTIAL_LEASE_AUTHORITY_ID
+            == run_action_credential_lease_authority_id(
+                prepared_execution,
+                spawn_commit,
+            )
         )
         assert activated_volume.activated_workspace_observation is not None
         assert (
@@ -2001,6 +2131,122 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
                 <= activation_bound
             )
             activation_event = session.commit_activation(activation_receipt)
+        if terminal_path == "expired_inert_credential":
+            credential_request = run_action_credential_lease_request(
+                prepared_execution,
+                spawn_commit,
+            )
+            credential_backend._lease_expiries[
+                credential_request.credential_lease_request_id
+            ] = 1
+            retirement_adapter = _LiveExpiredCredentialRetirementAdapter(
+                boundary_identity=boundary_identity,
+                execution_policy=layout_policy,
+                resource_manager=resource_manager,
+                retirement_manager=(
+                    DockerRunActionCredentialRetirementManager(runtime)
+                ),
+                preparation_allocation=layout_allocation,
+                command=command,
+                helper_evidence=helper_evidence,
+                init_source_evidence=init_source_evidence,
+                docker_settings=settings,
+                launch_settings=cross_run_settings.launch,
+                running=False,
+            )
+            intent_report = _recovery_coordinator(
+                action_gate,
+                retirement_adapter,
+            ).recover(action_frontier)
+            assert not intent_report.is_complete
+            assert not retirement_adapter.retirement_attempted
+            intent_events = action_gate._action_store.inspect().events_for(
+                layout_reservation.intent.operation_id
+            )
+            assert len(intent_events) == 6
+            assert intent_events[-1].event_kind is (
+                RunActionExecutionEventKind.CREDENTIAL_RETIREMENT_REQUESTED
+            )
+            status_call_count = len(credential_backend.status_calls)
+            credential_backend._lease_expiries[
+                credential_request.credential_lease_request_id
+            ] = RUN_ACTION_MAXIMUM_PHYSICAL_INTEGER
+            remove_dispatches = []
+            original_remove = (
+                PinnedDockerCleanupAuthority._remove_stopped_container_once
+            )
+
+            def lose_remove_response(
+                cleanup_authority,
+                *,
+                container_id,
+                exclusion_lease,
+                _authority,
+            ):
+                result = original_remove(
+                    cleanup_authority,
+                    container_id=container_id,
+                    exclusion_lease=exclusion_lease,
+                    _authority=_authority,
+                )
+                remove_dispatches.append(container_id)
+                return replace(
+                    result,
+                    outcome=BoundedProcessOutcome.TIMED_OUT,
+                    returncode=-1,
+                )
+
+            monkeypatch.setattr(
+                PinnedDockerCleanupAuthority,
+                "_remove_stopped_container_once",
+                lose_remove_response,
+            )
+            retirement_report = _recovery_coordinator(
+                action_gate,
+                retirement_adapter,
+            ).recover(action_frontier)
+            assert not retirement_report.is_complete
+            assert retirement_adapter.retirement_attempted
+            assert remove_dispatches == [layout_main_id]
+            assert len(credential_backend.status_calls) == status_call_count
+            retirement_inventory = resource_manager.observe(layout_allocation)
+            assert retirement_inventory.volume_present
+            assert retirement_inventory.keeper_container_id == layout_keeper_id
+            assert retirement_inventory.main_container_id is None
+            loss_adapter = _LivePreReleaseMainLossAdapter(
+                boundary_identity=boundary_identity,
+                execution_policy=layout_policy,
+                resource_manager=resource_manager,
+                preparation_allocation=layout_allocation,
+                helper_evidence=helper_evidence,
+                init_source_evidence=init_source_evidence,
+                docker_settings=settings,
+            )
+            loss_report = _recovery_coordinator(
+                action_gate,
+                loss_adapter,
+            ).recover(action_frontier)
+            assert loss_report.is_complete
+            assert loss_adapter.termination_receipt is not None
+            assert loss_adapter.termination_receipt.reason is (
+                RunActionProviderTerminationReason.CREDENTIAL_EXPIRED
+            )
+            loss_events = action_gate._action_store.inspect().events_for(
+                layout_reservation.intent.operation_id
+            )
+            assert len(loss_events) == 7
+            assert (
+                loss_adapter.termination_receipt.credential_retirement_intent
+                == loss_events[5].credential_retirement_intent
+            )
+            assert loss_events[-1].event_kind is (
+                RunActionExecutionEventKind.PROVIDER_TERMINATED
+            )
+            assert resource_manager.observe(layout_allocation).is_absent
+            action_gate._resource_finalization_authority.require_terminal_absence(
+                layout_reservation.intent.operation_id
+            )
+            return
         start_manager = DockerRunActionStartManager(runtime)
         start_dispatches = []
         if terminal_path == "ambiguous_start":
@@ -2148,6 +2394,132 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
                 "/kapso/runtime-volume/result/result.blob",
             )
         )
+        if terminal_path == "expired_running_credential":
+            credential_request = run_action_credential_lease_request(
+                prepared_execution,
+                spawn_commit,
+            )
+            credential_backend._lease_expiries[
+                credential_request.credential_lease_request_id
+            ] = 1
+            retirement_adapter = _LiveExpiredCredentialRetirementAdapter(
+                boundary_identity=boundary_identity,
+                execution_policy=layout_policy,
+                resource_manager=resource_manager,
+                retirement_manager=(
+                    DockerRunActionCredentialRetirementManager(runtime)
+                ),
+                preparation_allocation=layout_allocation,
+                command=command,
+                helper_evidence=helper_evidence,
+                init_source_evidence=init_source_evidence,
+                docker_settings=settings,
+                launch_settings=cross_run_settings.launch,
+                running=True,
+            )
+            intent_report = _recovery_coordinator(
+                action_gate,
+                retirement_adapter,
+            ).recover(action_frontier)
+            assert not intent_report.is_complete
+            assert not retirement_adapter.retirement_attempted
+            intent_events = action_gate._action_store.inspect().events_for(
+                layout_reservation.intent.operation_id
+            )
+            assert len(intent_events) == 6
+            assert intent_events[-1].event_kind is (
+                RunActionExecutionEventKind.CREDENTIAL_RETIREMENT_REQUESTED
+            )
+            status_call_count = len(credential_backend.status_calls)
+            credential_backend._lease_expiries[
+                credential_request.credential_lease_request_id
+            ] = RUN_ACTION_MAXIMUM_PHYSICAL_INTEGER
+            signal_dispatches = []
+            original_signal = PinnedDockerContainmentAuthority._signal_container_once
+
+            def lose_signal_response(
+                containment_authority,
+                *,
+                container_id,
+                signal_name,
+                _authority,
+            ):
+                result = original_signal(
+                    containment_authority,
+                    container_id=container_id,
+                    signal_name=signal_name,
+                    _authority=_authority,
+                )
+                signal_dispatches.append((container_id, signal_name))
+                return replace(
+                    result,
+                    outcome=BoundedProcessOutcome.TIMED_OUT,
+                    returncode=-1,
+                )
+
+            monkeypatch.setattr(
+                PinnedDockerContainmentAuthority,
+                "_signal_container_once",
+                lose_signal_response,
+            )
+            retirement_report = _recovery_coordinator(
+                action_gate,
+                retirement_adapter,
+            ).recover(action_frontier)
+            assert not retirement_report.is_complete
+            assert retirement_adapter.retirement_attempted
+            assert signal_dispatches == [(layout_main_id, "SIGKILL")]
+            assert len(credential_backend.status_calls) == status_call_count
+            inspection_deadline = time.monotonic() + settings.command_timeout_seconds
+            terminal_main = resource_manager.inspect_main(
+                resource_manager.observe(layout_allocation)
+            )
+            while (
+                terminal_main["State"]["Running"] is True
+                and time.monotonic() < inspection_deadline
+            ):
+                time.sleep(settings.run_action_barrier_poll_interval_seconds)
+                terminal_main = resource_manager.inspect_main(
+                    resource_manager.observe(layout_allocation)
+                )
+            assert terminal_main["State"]["Running"] is False
+            assert terminal_main["State"]["Status"] == "exited"
+            terminal_adapter = _LivePreReleaseMainTerminalAdapter(
+                boundary_identity=boundary_identity,
+                execution_policy=layout_policy,
+                resource_manager=resource_manager,
+                preparation_allocation=layout_allocation,
+                command=command,
+                helper_evidence=helper_evidence,
+                init_source_evidence=init_source_evidence,
+                docker_settings=settings,
+                launch_settings=cross_run_settings.launch,
+            )
+            terminal_report = _recovery_coordinator(
+                action_gate,
+                terminal_adapter,
+            ).recover(action_frontier)
+            assert terminal_report.is_complete
+            assert terminal_adapter.termination_receipt is not None
+            assert terminal_adapter.termination_receipt.reason is (
+                RunActionProviderTerminationReason.CREDENTIAL_EXPIRED
+            )
+            terminal_events = action_gate._action_store.inspect().events_for(
+                layout_reservation.intent.operation_id
+            )
+            assert len(terminal_events) == 7
+            assert terminal_events[-1].event_kind is (
+                RunActionExecutionEventKind.PROVIDER_TERMINATED
+            )
+            assert (
+                terminal_adapter.termination_receipt.credential_retirement_intent
+                == terminal_events[5].credential_retirement_intent
+            )
+            assert resource_manager.observe(layout_allocation).is_absent
+            action_gate._resource_finalization_authority.require_terminal_absence(
+                layout_reservation.intent.operation_id
+            )
+            return
         if terminal_path == "pre_release_main_loss":
             runtime.run_control(
                 ("container", "rm", "--force", "--volumes", layout_main_id)
@@ -2359,7 +2731,12 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             resolved.control_directory_topology
             is RunActionControlDirectoryTopology.EMPTY
         )
-        assert len(credential_validity_authority.calls) == 2
+        credential_request = run_action_credential_lease_request(
+            prepared_execution,
+            spawn_commit,
+        )
+        assert credential_backend.issue_calls == [credential_request]
+        assert credential_backend.status_calls == [credential_request] * 5
         with open_run_action_release_inspection(
             activation_event=activation_event,
             launch_settings=cross_run_settings.launch,

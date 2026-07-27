@@ -67,6 +67,18 @@ stably exited while the control tree remains `EMPTY`; it binds two normalized
 Docker snapshots, exact surviving volume/keeper authority, inventory and host
 boot, then transfers the same retained publication fence without inventing a
 release or experiment result.
+The framework-owned credential broker and pre-release expiry path are also
+implemented. The broker response transfers secret bytes into coordinator-private
+single-use authority before adapter access. Before broker issue, credential
+delivery, or event 5, the credential-expiry envelope schema-seals the maximum
+event-6 intent and both maximum event-7 physical-proof branches against the
+configured event limit. If a fresh event-5 status observation
+proves the lease already expired, recovery first appends nonterminal
+`CREDENTIAL_RETIREMENT_REQUESTED` event 6 and performs no Docker mutation.
+Every later process treats that durable intent as dominant without consulting
+the broker or security source: an exact inert main may only be removed, an exact
+running barrier may only be sent `SIGKILL`, and fresh absence/exited proof alone
+may append `CREDENTIAL_EXPIRED` terminal event 7.
 A sealed, store-bound finalization authority now joins durable eligibility,
 role-proved Docker cleanup, recovery reporting, checkpoint publication, and the
 next reservation. OS executor activation, authenticated Docker socket/lock
@@ -112,6 +124,10 @@ src/kapso/cross_run/launch/
   run_action_supervisor_contracts.py
   run_action_activation_delivery.py
   run_action_runtime_volume.py
+  run_action_credential_broker.py
+  run_action_credential_contracts.py
+  run_action_credential_expiry_envelope.py
+  run_action_credential_retirement.py
   run_action_docker_barrier.py
   run_action_result_authority.py
   run_action_natural_terminal.py
@@ -768,14 +784,25 @@ PID, start-tick, filesystem-capacity, and projected raw-field-count contracts ar
 explicitly limited to unsigned 64-bit integers; allocation-derived values remain
 exact and the only variable runtime string—the keeper cgroup path—is derived in
 full from the allocation-bound systemd slice and fixed-width container ID.
-Before `SpawnCommit`, the
-production supervisor may only create or reopen that exact inert resource;
-request bytes and credential leases remain absent. A post-spawn, single-use
-staging capability binds the whole `PreparedExecution`, spawn commit, and either
-exact credential-lease receipts or a no-credentials proof. Only the supervisor
-may consume it to attach the admitted broker network, populate the prepared
-delivery slots, and derive an `ActivationRevalidationReceipt` after re-inspecting
-the volume, physical generation sentinel, running keeper, copied workspace,
+Before `SpawnCommit`, the production supervisor may only create or reopen that
+exact inert resource; request bytes and credential leases remain absent. After
+the formal release-envelope and current-security gates, the coordinator derives
+one content-addressed lease request from the exact credential policy,
+reservation, prepared execution, spawn commit (including invocation nonce), and
+delivery slot. It resolves the policy through its process-bound broker registry
+and asks that sealed backend to issue or replay the same external lease. The
+framework derives the fixed-width lease authority from the request; neither the
+broker nor adapter chooses it.
+
+The backend response becomes one opaque, same-process/same-thread, single-use
+materialization. It has no secret accessor, serialization, secret-derived ID, or
+secret-bearing representation. A post-spawn activation capability carries that
+object only so the adapter can pass it to the trusted descriptor-delivery leaf.
+That leaf alone consumes the bytes; unused material is burned on every callback
+exit. `NONE` carries no materialization and performs no broker call. The
+supervisor then populates the prepared delivery slots and derives an
+`ActivationRevalidationReceipt` after re-inspecting the volume, physical
+generation sentinel, running keeper, copied workspace,
 every prepared mounted-subpath directory, delivered input/credential files, the
 pre-created result parent and file, empty temporary root, optional workspace
 root, and still-never-started main container. The result-file observation carries
@@ -797,10 +824,11 @@ physical authority for the later start leaf. The distinct process-bound
 single-use continuation capability must consume that lease before start.
 It embeds the exact typed spawn commit and delivery predecessors. Request delivery
 proves the fixed regular-file name, digest, size, owner/group, read-only mode, and
-single link; credential delivery proves the same structural facts plus its opaque
-broker lease authority and size, but stores no credential digest or bytes. That
-authority is a fixed-namespace content ID rather than an unbounded string, so its
-complete durable width is knowable before the broker is invoked.
+single link; credential delivery proves the same structural facts plus its
+request-derived opaque broker lease authority and size, but stores no credential
+digest or bytes. The activation contract recomputes that exact authority from
+the durable prepared/spawn graph; a merely namespaced or provider-selected ID is
+invalid. Its complete durable width is knowable before the broker is invoked.
 Restart revalidation therefore proves the exact credential inode and structure,
 not historical secret-byte identity; the trusted-supervisor/read-only-workload
 boundary owns that invariant. A stronger host-tamper threat model would require
@@ -1061,10 +1089,16 @@ leaves recompute it from their exact sealed inputs; the publisher requires the
 actual receipt bytes to fit before it opens the anonymous candidate inode. A
 one-byte-short bound therefore fails before delivery, inspection, start, or
 publication according to the recovery point.
-The committed continuation's release security, broker-validity authority, and
-system clock live in a private coordinator-issued registry, never in
-adapter-supplied publication arguments. Only the trusted leaf publisher may open
-them, and only while the owner process/thread is inside the exact
+The committed continuation's release security, exact broker registry, and system
+clock live in private coordinator-issued authority, never in adapter-supplied
+publication arguments. Before an inert event-5 main can start, the same backend
+must prove that the request-derived lease still spans execution plus containment;
+failure occurs before Docker mutation. Receipt construction repeats that status
+lookup, and the final pre-link authorization repeats it again. The framework
+sandwiches every backend call with coordinator-owned REALTIME observations and
+mints the durable validity observation itself; a backend supplies only the exact
+lease-request ID and expiry. Only the trusted leaf publisher may open these
+authorities, and only while the owner process/thread is inside the exact
 `RUNNING_CONTINUABLE` callback. Publication also requires the exact registered
 `RunActionBlockedWorkloadLease`; an ordinary or same-token reminted resolved graph
 has no authority. The publisher serializes and fsyncs one exact receipt into a
@@ -1229,7 +1263,7 @@ publication. A durable `TIMED_OUT` topology outranks every later exit fact; a
 natural terminal observed while topology remains `RELEASED` outranks an
 unpublished timeout attempt. Without durable timeout authority, OOM,
 nonzero exit, and descriptor-proved empty result are mutually exclusive failed
-outcomes. Pre-release failure has two mutually exclusive positive branches:
+outcomes. Pre-release provider failure has two mutually exclusive positive branches:
 stable same-boot proof that the exact volume and keeper remain while the main is
 absent, or stable same-boot proof that those resources and the exact main remain
 while the main is exited. Both require `EMPTY` control and no release; neither
@@ -1240,10 +1274,27 @@ occurrence, deadlines, and publication inode. Recovery reopens the exact
 `EMPTY`, `RELEASED`, or `TIMED_OUT` control topology. A timed-out query carries
 the reconstructed publication receipt itself, joined to event 5 and its adopted
 release; it cannot collapse to an ordinary released query. The store persists a
-complete receipt only as terminal event 6 after a pure join to durable allocation
-and activation. That event publishes no result blobs, cannot be extended, reopens
-across either publication crash side, and replays through recovery without
-invoking an adapter or interpreter.
+complete ordinary receipt only as terminal event 6 after a pure join to durable
+allocation and activation. That event publishes no result blobs, cannot be
+extended, reopens across either publication crash side, and replays through
+recovery without invoking an adapter or interpreter.
+
+Credential expiry is the distinct supervisor-interruption branch. The
+coordinator sandwiches one exact broker status call with REALTIME samples and
+derives `EXPIRED` only when the lease deadline is no later than the final sample.
+Before any retirement mutation, it persists event 6 containing the request-bound
+status, both samples, required containment deadline, activation-event ID, and the
+content ID of the complete reconstructed observation. This event permanently
+forbids start and release. Fresh recovery neither re-queries the broker nor lets
+a later `VALID` answer or clock rollback reverse the decision. It reproves the
+exact empty control topology and current inert/running occurrence, then issues
+only idempotent stopped-container removal or `SIGKILL`. Command completion is
+not terminal authority: a crash, timeout, or fence loss after the request simply
+retries from event 6. A later fresh recovery must positively prove the exact main
+absent or present-exited and publishes event 7 with reason
+`CREDENTIAL_EXPIRED`, disposition `INTERRUPTED`, the exact event-6 intent, and
+that physical proof. Cleanup accepts this seven-event branch only when intent
+and termination join exactly.
 
 Recovery now has a sealed registration boundary for that receipt. Dedicated
 pre-release-main-loss and pre-release-main-terminal observation states cannot be
@@ -1265,11 +1316,12 @@ adapter raises or substitutes an outcome, and hands it to the coordinator only
 after full outcome-authority validation. Before
 terminal publication the
 coordinator reproves the unchanged host workspace and reopens the reason-specific
-topology—`EMPTY` for either pre-release failure, `TIMED_OUT` for timeout, and `RELEASED`
-for every other released failure. It retains that descriptor lease across the
+topology—`EMPTY` for either pre-release failure or credential expiry,
+`TIMED_OUT` for timeout, and `RELEASED` for every other released failure. It retains that descriptor lease across the
 event append and checks it immediately before and after. For either pre-release
 branch it also checks the transferred exact physical fence around the append and
-closes it on every success or failure path. Successful result
+closes it on every success or failure path. Credential-expiry event 7 uses the
+same fence, while its event-6 intent remains nonterminal. Successful result
 publication similarly retains `RELEASED` across its append, so a concurrent
 timeout cannot become success. A crash before either append leaves event 5 and
 requires fresh physical evidence; a crash after event 6 replays without adapter
@@ -1380,11 +1432,20 @@ The start manager exposes no generic Docker command surface, and the raw pinned
 runtime is process-bound. One real-Docker lifecycle now routes the durable main
 through two coordinator passes: exact `INERT` classification and sealed barrier
 start first, then fresh `RUNNING` classification, resolved-mount proof, and
-release. Remaining production composition must first provide an idempotent
-process-bound credential broker shared by activation delivery and release
-validity, then give adapters only the narrow observation/start/containment
-projections and continue routing every post-reservation transition through
-coordinator-sealed capabilities. Cleanup remains gate-owned.
+release. The framework-owned idempotent broker authority is now wired across
+activation, start, and release. Its external backend contract must replay
+byte-identical material for one request across supervisor restart and answer
+status from the non-secret request after event 5; Kapso never escrows the secret
+or pretends a non-idempotent issuer is recoverable. The durable expiry route now
+prevents an immutable event-5 credential from stranding an inert or blocked
+occurrence and remains irreversible across process recovery. Production
+composition must still define a provider-specific trusted consumer entrypoint and
+an exact egress authority: current Docker policy is intentionally
+network-`NONE`, and the generic read-only credential file is not itself a native
+Codex or Claude auth home. Until then host auth-status smoke tests and the real
+Docker broker/delivery/release lifecycle are honest production boundaries, but a
+networked model invocation is not. Adapters still receive only narrow
+observation/start/containment projections, and cleanup remains gate-owned.
 Every failed, interrupted, or timed-out Docker start response burns the current
 continuation. Fresh recovery reclassifies the same immutable container: an
 accepted start is adopted as `RUNNING`, while a still-`created` occurrence may
@@ -1549,13 +1610,24 @@ this path is activated.
   result inode, and prove the exact result graph is interpreted and durably
   accepted through event 8 before ordered cleanup.
 - For accepted result, timeout, empty result, nonzero exit, OOM, pre-release main
-  loss, pre-release present-exited main, fully prepared frontier invalidation,
+  loss, pre-release present-exited main, credential-expired inert removal and
+  running-barrier kill, fully prepared frontier invalidation,
   and each admitted allocation-only partial residue, remove only the exact main →
   keeper → volume suffix, accept each command only after fresh physical inventory
   proves the next suffix, then prove complete absence twice more. Reject mixed
   suffixes, runtime/role/occurrence or target-command substitution, created keeper
   beneath a main, started-main force removal, abnormal keeper state, replacement
   after removal, and cross-process authority use.
+- Prove credential expiry first persists a size-bounded nonterminal event 6
+  before mutation; crash and retry it after the broker changes to `VALID`;
+  reject observation/status/activation splices, mutable capability shadowing,
+  a changed second running observation, inherited locked authorities after fork,
+  and control-fence loss both before and after the retirement command. Admit
+  terminal event 7 only from fresh exact absence or present-exited evidence, then
+  run ordinary report-gated cleanup. In real Docker, replace the response after
+  an actually successful inert `rm` and running `SIGKILL` with `TIMED_OUT`; prove
+  that a later coordinator pass reaches event 7 only from fresh physical proof
+  and leaves no owned resource.
 - Block recovery reports, both checkpoint publication phases, and the next
   reservation while any terminal resource remains or reappears. Exercise two
   independent processes against the daemon-wide mutation `flock`.

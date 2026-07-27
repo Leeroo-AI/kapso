@@ -9,6 +9,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from test_run_frontier_action_gate import _credential_broker_registry
+
 import kapso.cross_run.docker.runtime as runtime_module
 import kapso.cross_run.launch.run_action_docker_inspect as docker_inspect
 import kapso.cross_run.launch.run_action_timeout_containment as containment_module
@@ -275,7 +277,7 @@ def _case(
         ),
         required_security_observation=_release_security_observation(),
         security_authority=_SecurityAuthority(),
-        credential_validity_authority=None,
+        credential_broker_registry=_credential_broker_registry()[0],
         release_clock=clock,
         _authority=_RUN_ACTION_COMMITTED_CONTINUATION_AUTHORITY,
     )
@@ -723,7 +725,7 @@ def test_terminal_timeout_leaf_registers_exact_provider_termination(monkeypatch)
         ),
         required_security_observation=_release_security_observation(),
         security_authority=_SecurityAuthority(),
-        credential_validity_authority=None,
+        credential_broker_registry=_credential_broker_registry()[0],
         release_clock=_SystemRunActionClock(),
         _authority=_RUN_ACTION_COMMITTED_CONTINUATION_AUTHORITY,
     )

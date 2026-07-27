@@ -9,6 +9,7 @@ import pytest
 
 import kapso.cross_run.launch.run_action_docker_cleanup as cleanup_module
 import kapso.cross_run.launch.run_action_resource_finalization as finalization_module
+import kapso.cross_run.launch.run_action_store as run_action_store_module
 from kapso.cross_run.canonical import tree_or_blob_digest
 from kapso.cross_run.launch.resume_contracts import RunSafetyBoundary
 from kapso.cross_run.launch.run_action_contracts import (
@@ -17,6 +18,14 @@ from kapso.cross_run.launch.run_action_contracts import (
 )
 from kapso.cross_run.launch.run_action_control_topology import (
     RunActionControlDirectoryTopology,
+)
+from kapso.cross_run.launch.run_action_credential_broker import (
+    RunActionCredentialLeaseStatus,
+)
+from kapso.cross_run.launch.run_action_credential_contracts import (
+    RunActionCredentialRetirementIntent,
+    RunActionPreReleaseCredentialObservation,
+    RunActionPreReleaseCredentialState,
 )
 from kapso.cross_run.launch.run_action_docker_cleanup import (
     DockerRunActionCleanupManager,
@@ -48,6 +57,7 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
     preparation_keeper_container_name,
     preparation_volume_labels,
     preparation_volume_name,
+    run_action_credential_lease_request,
 )
 from kapso.cross_run.launch.run_action_termination_contracts import (
     RunActionPreReleaseMainTerminalObservation,
@@ -236,6 +246,7 @@ def _append_cleanup_terminal(
                     timeout_directive_publication=None,
                     empty_result_capture_receipt=None,
                     pre_release_main_loss_observation=None,
+                    credential_retirement_intent=None,
                 )
             )
         elif terminal_kind == "pre_release_terminal":
@@ -257,6 +268,7 @@ def _append_cleanup_terminal(
                     timeout_directive_publication=None,
                     empty_result_capture_receipt=None,
                     pre_release_main_loss_observation=None,
+                    credential_retirement_intent=None,
                 )
             )
         elif terminal_kind == "pre_release_loss":
@@ -274,6 +286,66 @@ def _append_cleanup_terminal(
                     timeout_directive_publication=None,
                     empty_result_capture_receipt=None,
                     pre_release_main_loss_observation=loss,
+                    credential_retirement_intent=None,
+                )
+            )
+        elif terminal_kind == "credential_expired":
+            request = run_action_credential_lease_request(prepared, spawn)
+            status = RunActionCredentialLeaseStatus.mint(
+                credential_lease_request_id=request.credential_lease_request_id,
+                valid_until_realtime_nanoseconds=1,
+            )
+            supervisor_limits = (
+                prepared.preparation_claim.execution_policy.supervisor_limits
+            )
+            required_valid_until = (
+                2
+                + (
+                    supervisor_limits.execution_timeout_seconds
+                    + supervisor_limits.termination_grace_seconds
+                )
+                * 1_000_000_000
+            )
+            credential_observation = RunActionPreReleaseCredentialObservation.mint(
+                state=RunActionPreReleaseCredentialState.EXPIRED,
+                activation_revalidation_receipt=activation,
+                credential_lease_status=status,
+                observed_before_realtime_nanoseconds=1,
+                observed_after_realtime_nanoseconds=2,
+                required_valid_until_realtime_nanoseconds=(required_valid_until),
+            )
+            intent = RunActionCredentialRetirementIntent.mint(
+                activation_event_id=session.events[4].event_id,
+                pre_release_credential_observation_id=(
+                    credential_observation.pre_release_credential_observation_id
+                ),
+                credential_lease_status=status,
+                observed_before_realtime_nanoseconds=1,
+                observed_after_realtime_nanoseconds=2,
+                required_valid_until_realtime_nanoseconds=required_valid_until,
+            )
+            session.commit_credential_retirement(intent)
+            released_terminal = _terminal_observation(
+                prepared,
+                spawn,
+                adoption,
+            )
+            pre_release_terminal = _pre_release_terminal(
+                activation,
+                session.events[4].event_id,
+                released_terminal,
+            )
+            session.terminate_provider(
+                RunActionProviderTerminationReceipt.mint(
+                    disposition=(RunActionProviderTerminationDisposition.INTERRUPTED),
+                    reason=RunActionProviderTerminationReason.CREDENTIAL_EXPIRED,
+                    activation_event_id=session.events[4].event_id,
+                    workload_release_adoption=None,
+                    terminal_observation=pre_release_terminal,
+                    timeout_directive_publication=None,
+                    empty_result_capture_receipt=None,
+                    pre_release_main_loss_observation=None,
+                    credential_retirement_intent=intent,
                 )
             )
         else:
@@ -554,6 +626,7 @@ def _finalization_authority(
         ("result_accepted", RunActionExecutionEventKind.RESULT_ACCEPTED),
         ("provider_terminated", RunActionExecutionEventKind.PROVIDER_TERMINATED),
         ("pre_release_terminal", RunActionExecutionEventKind.PROVIDER_TERMINATED),
+        ("credential_expired", RunActionExecutionEventKind.PROVIDER_TERMINATED),
     ),
 )
 def test_terminal_cleanup_removes_exact_physical_suffix(

@@ -27,6 +27,11 @@ from kapso.cross_run.launch.run_action_contracts import (
     RunActionResultInterpreterIdentity,
     RunFrontierWorkspaceAccess,
 )
+from kapso.cross_run.launch.run_action_credential_contracts import (
+    credential_retirement_intent_matches_activation,
+    maximum_credential_retirement_intent,
+    RunActionCredentialRetirementIntent,
+)
 from kapso.cross_run.launch.run_action_ledger import (
     RunActionExecutionEventKind,
     RunActionLedgerSnapshot,
@@ -94,6 +99,7 @@ _FUTURE_EVENT_COUNT_BY_TAIL = {
     RunActionExecutionEventKind.EXECUTION_PREPARED: 5,
     RunActionExecutionEventKind.SPAWN_COMMITTED: 4,
     RunActionExecutionEventKind.ACTIVATION_COMMITTED: 3,
+    RunActionExecutionEventKind.CREDENTIAL_RETIREMENT_REQUESTED: 1,
     RunActionExecutionEventKind.RESULT_RECEIVED: 2,
     RunActionExecutionEventKind.PROVIDER_TERMINATED: 0,
     RunActionExecutionEventKind.RESULT_DECIDED: 1,
@@ -107,6 +113,7 @@ _FUTURE_RESULT_BLOB_COUNT_BY_TAIL = {
     RunActionExecutionEventKind.EXECUTION_PREPARED: 2,
     RunActionExecutionEventKind.SPAWN_COMMITTED: 2,
     RunActionExecutionEventKind.ACTIVATION_COMMITTED: 2,
+    RunActionExecutionEventKind.CREDENTIAL_RETIREMENT_REQUESTED: 0,
     RunActionExecutionEventKind.RESULT_RECEIVED: 1,
     RunActionExecutionEventKind.PROVIDER_TERMINATED: 0,
     RunActionExecutionEventKind.RESULT_DECIDED: 0,
@@ -294,6 +301,7 @@ class RunActionExecutionEvent(StrictContract):
     prepared_execution: RunActionPreparedExecution | None
     spawn_commit: _RunActionSpawnCommit | None
     activation_revalidation_receipt: RunActionActivationRevalidationReceipt | None
+    credential_retirement_intent: RunActionCredentialRetirementIntent | None
     provider_termination_receipt: RunActionProviderTerminationReceipt | None
     result_receipt: RunActionResultReceipt | None
     result_decision: RunActionResultDecision | None
@@ -327,6 +335,10 @@ class RunActionExecutionEvent(StrictContract):
                 RunActionActivationRevalidationReceipt,
             ),
             (
+                self.credential_retirement_intent,
+                RunActionCredentialRetirementIntent,
+            ),
+            (
                 self.provider_termination_receipt,
                 RunActionProviderTerminationReceipt,
             ),
@@ -342,141 +354,49 @@ class RunActionExecutionEvent(StrictContract):
             raise RunActionStoreError(
                 "run action execution event carries an invalid payload type"
             )
-        shape = (
-            self.preparation_allocation is not None,
-            self.prepared_execution is not None,
-            self.spawn_commit is not None,
-            self.activation_revalidation_receipt is not None,
-            self.provider_termination_receipt is not None,
-            self.result_receipt is not None,
-            self.result_decision is not None,
-            self.acceptance is not None,
-            self.workspace_after is not None,
+        payloads = {
+            "preparation_allocation": self.preparation_allocation,
+            "prepared_execution": self.prepared_execution,
+            "spawn_commit": self.spawn_commit,
+            "activation_revalidation_receipt": self.activation_revalidation_receipt,
+            "credential_retirement_intent": self.credential_retirement_intent,
+            "provider_termination_receipt": self.provider_termination_receipt,
+            "result_receipt": self.result_receipt,
+            "result_decision": self.result_decision,
+            "acceptance": self.acceptance,
+            "workspace_after": self.workspace_after,
+        }
+        present_payloads = tuple(
+            name for name, payload in payloads.items() if payload is not None
         )
-        expected = {
-            RunActionExecutionEventKind.INTENT_RESERVED: (
-                False,
-                False,
-                False,
-                False,
-                False,
-                False,
-                False,
-                False,
-                False,
-            ),
+        required_payload = {
+            RunActionExecutionEventKind.INTENT_RESERVED: None,
             RunActionExecutionEventKind.PREPARATION_ALLOCATED: (
-                True,
-                False,
-                False,
-                False,
-                False,
-                False,
-                False,
-                False,
-                False,
+                "preparation_allocation"
             ),
-            RunActionExecutionEventKind.EXECUTION_PREPARED: (
-                False,
-                True,
-                False,
-                False,
-                False,
-                False,
-                False,
-                False,
-                False,
-            ),
-            RunActionExecutionEventKind.SPAWN_COMMITTED: (
-                False,
-                False,
-                True,
-                False,
-                False,
-                False,
-                False,
-                False,
-                False,
-            ),
+            RunActionExecutionEventKind.EXECUTION_PREPARED: "prepared_execution",
+            RunActionExecutionEventKind.SPAWN_COMMITTED: "spawn_commit",
             RunActionExecutionEventKind.ACTIVATION_COMMITTED: (
-                False,
-                False,
-                False,
-                True,
-                False,
-                False,
-                False,
-                False,
-                False,
+                "activation_revalidation_receipt"
             ),
-            RunActionExecutionEventKind.RESULT_RECEIVED: (
-                False,
-                False,
-                False,
-                False,
-                False,
-                True,
-                False,
-                False,
-                False,
+            RunActionExecutionEventKind.CREDENTIAL_RETIREMENT_REQUESTED: (
+                "credential_retirement_intent"
             ),
+            RunActionExecutionEventKind.RESULT_RECEIVED: "result_receipt",
             RunActionExecutionEventKind.PROVIDER_TERMINATED: (
-                False,
-                False,
-                False,
-                False,
-                True,
-                False,
-                False,
-                False,
-                False,
+                "provider_termination_receipt"
             ),
-            RunActionExecutionEventKind.RESULT_DECIDED: (
-                False,
-                False,
-                False,
-                False,
-                False,
-                False,
-                True,
-                False,
-                False,
-            ),
-            RunActionExecutionEventKind.RESULT_ACCEPTED: (
-                False,
-                False,
-                False,
-                False,
-                False,
-                False,
-                False,
-                True,
-                False,
-            ),
-            RunActionExecutionEventKind.CANCELLED: (
-                False,
-                False,
-                False,
-                False,
-                False,
-                False,
-                False,
-                False,
-                False,
-            ),
-            RunActionExecutionEventKind.FRONTIER_INVALIDATED: (
-                False,
-                False,
-                False,
-                False,
-                False,
-                False,
-                False,
-                False,
-                self.workspace_after is not None,
-            ),
+            RunActionExecutionEventKind.RESULT_DECIDED: "result_decision",
+            RunActionExecutionEventKind.RESULT_ACCEPTED: "acceptance",
+            RunActionExecutionEventKind.CANCELLED: None,
+            RunActionExecutionEventKind.FRONTIER_INVALIDATED: None,
         }[self.event_kind]
-        if shape != expected:
+        expected_payloads = () if required_payload is None else (required_payload,)
+        frontier_payloads_are_valid = (
+            self.event_kind is RunActionExecutionEventKind.FRONTIER_INVALIDATED
+            and present_payloads in {(), ("workspace_after",)}
+        )
+        if not frontier_payloads_are_valid and present_payloads != expected_payloads:
             raise RunActionStoreError(
                 "run action execution event payload differs from its kind"
             )
@@ -491,7 +411,7 @@ class RunActionExecutionEvent(StrictContract):
             )
             or (
                 self.event_kind is RunActionExecutionEventKind.PROVIDER_TERMINATED
-                and self.event_number != 6
+                and self.event_number not in {6, 7}
             )
         ):
             raise RunActionStoreError(
@@ -773,6 +693,43 @@ class _RunActionExecutionSession:
             self._activation_event(activation_revalidation_receipt).to_json_bytes()
         )
 
+    def credential_retirement_event_size_bytes(
+        self,
+        prepared_execution: RunActionPreparedExecution,
+        spawn_commit: _RunActionSpawnCommit,
+    ) -> int:
+        """Bound the durable expiry branch before event 5 can be selected."""
+
+        self._require_tail(RunActionExecutionEventKind.SPAWN_COMMITTED)
+        if (
+            prepared_execution != self._events[2].prepared_execution
+            or spawn_commit != self._events[3].spawn_commit
+        ):
+            raise RunActionStoreError(
+                "credential retirement bound differs from durable spawn"
+            )
+        intent = maximum_credential_retirement_intent(
+            prepared_execution,
+            spawn_commit,
+        )
+        event = RunActionExecutionEvent.mint(
+            event_number=6,
+            predecessor_event_id=intent.activation_event_id,
+            event_kind=(RunActionExecutionEventKind.CREDENTIAL_RETIREMENT_REQUESTED),
+            reservation=self.reservation,
+            preparation_allocation=None,
+            prepared_execution=None,
+            spawn_commit=None,
+            activation_revalidation_receipt=None,
+            credential_retirement_intent=intent,
+            provider_termination_receipt=None,
+            result_receipt=None,
+            result_decision=None,
+            acceptance=None,
+            workspace_after=None,
+        )
+        return len(event.to_json_bytes())
+
     def commit_activation(
         self,
         activation_revalidation_receipt: RunActionActivationRevalidationReceipt,
@@ -803,6 +760,29 @@ class _RunActionExecutionSession:
             RunActionExecutionEventKind.ACTIVATION_COMMITTED,
             activation_revalidation_receipt=activation_revalidation_receipt,
         )
+
+    def commit_credential_retirement(
+        self,
+        intent: RunActionCredentialRetirementIntent,
+    ) -> RunActionExecutionEvent:
+        """Durably prevent a credential-expired activation from ever releasing."""
+
+        self._require_tail(RunActionExecutionEventKind.ACTIVATION_COMMITTED)
+        activation_event = self._events[4]
+        if not credential_retirement_intent_matches_activation(
+            intent,
+            activation_event.event_id,
+            activation_event.activation_revalidation_receipt,
+        ):
+            raise RunActionStoreError(
+                "credential retirement differs from durable event 5"
+            )
+        event = self._event(
+            RunActionExecutionEventKind.CREDENTIAL_RETIREMENT_REQUESTED,
+            credential_retirement_intent=intent,
+        )
+        self._append(event)
+        return event
 
     def record_result(
         self,
@@ -883,9 +863,16 @@ class _RunActionExecutionSession:
         self,
         receipt: RunActionProviderTerminationReceipt,
     ) -> RunActionProviderTerminationReceipt:
-        """Persist one complete typed provider termination as terminal event 6."""
+        """Persist ordinary event-6 or credential-expiry event-7 termination."""
 
-        self._require_tail(RunActionExecutionEventKind.ACTIVATION_COMMITTED)
+        tail_kind = self._events[-1].event_kind
+        if tail_kind not in {
+            RunActionExecutionEventKind.ACTIVATION_COMMITTED,
+            RunActionExecutionEventKind.CREDENTIAL_RETIREMENT_REQUESTED,
+        }:
+            raise RunActionStoreError(
+                "provider termination requires activation or retirement authority"
+            )
         if not provider_termination_matches_durable_activation(
             receipt,
             self._events[4].event_id,
@@ -894,6 +881,15 @@ class _RunActionExecutionSession:
         ):
             raise RunActionStoreError(
                 "provider termination differs from durable events 2 and 5"
+            )
+        retirement_intent = (
+            self._events[-1].credential_retirement_intent
+            if tail_kind is RunActionExecutionEventKind.CREDENTIAL_RETIREMENT_REQUESTED
+            else None
+        )
+        if receipt.credential_retirement_intent != retirement_intent:
+            raise RunActionStoreError(
+                "provider termination differs from durable credential retirement"
             )
         self._append(
             self._event(
@@ -1037,6 +1033,7 @@ class _RunActionExecutionSession:
         if not self._events or self._events[-1].event_kind not in {
             RunActionExecutionEventKind.SPAWN_COMMITTED,
             RunActionExecutionEventKind.ACTIVATION_COMMITTED,
+            RunActionExecutionEventKind.CREDENTIAL_RETIREMENT_REQUESTED,
             RunActionExecutionEventKind.PROVIDER_TERMINATED,
             RunActionExecutionEventKind.RESULT_RECEIVED,
             RunActionExecutionEventKind.RESULT_DECIDED,
@@ -1072,6 +1069,7 @@ class _RunActionExecutionSession:
         activation_revalidation_receipt: (
             RunActionActivationRevalidationReceipt | None
         ) = None,
+        credential_retirement_intent: RunActionCredentialRetirementIntent | None = None,
         provider_termination_receipt: RunActionProviderTerminationReceipt | None = None,
         result_receipt: RunActionResultReceipt | None = None,
         result_decision: RunActionResultDecision | None = None,
@@ -1089,6 +1087,7 @@ class _RunActionExecutionSession:
             prepared_execution=prepared_execution,
             spawn_commit=spawn_commit,
             activation_revalidation_receipt=activation_revalidation_receipt,
+            credential_retirement_intent=credential_retirement_intent,
             provider_termination_receipt=provider_termination_receipt,
             result_receipt=result_receipt,
             result_decision=result_decision,
@@ -1237,6 +1236,7 @@ class RunActionExecutionStore:
             prepared_execution=None,
             spawn_commit=None,
             activation_revalidation_receipt=None,
+            credential_retirement_intent=None,
             provider_termination_receipt=None,
             result_receipt=None,
             result_decision=None,
@@ -2648,8 +2648,24 @@ def _validate_event_prefix(events: tuple[RunActionExecutionEvent, ...]) -> None:
         )
     elif events[-1].event_kind is RunActionExecutionEventKind.PROVIDER_TERMINATED:
         expected_kinds = (
+            (
+                *normal_kinds[:5],
+                RunActionExecutionEventKind.PROVIDER_TERMINATED,
+            )
+            if len(events) == 6
+            else (
+                *normal_kinds[:5],
+                RunActionExecutionEventKind.CREDENTIAL_RETIREMENT_REQUESTED,
+                RunActionExecutionEventKind.PROVIDER_TERMINATED,
+            )
+        )
+    elif (
+        events[-1].event_kind
+        is RunActionExecutionEventKind.CREDENTIAL_RETIREMENT_REQUESTED
+    ):
+        expected_kinds = (
             *normal_kinds[:5],
-            RunActionExecutionEventKind.PROVIDER_TERMINATED,
+            RunActionExecutionEventKind.CREDENTIAL_RETIREMENT_REQUESTED,
         )
     elif events[-1].event_kind is RunActionExecutionEventKind.FRONTIER_INVALIDATED:
         expected_kinds = (
@@ -2762,8 +2778,20 @@ def _validate_event_prefix(events: tuple[RunActionExecutionEvent, ...]) -> None:
             raise RunActionStoreError(
                 "run action result release differs from durable event 5"
             )
-    elif len(events) == 6 and events[5].event_kind is (
-        RunActionExecutionEventKind.PROVIDER_TERMINATED
+    elif len(events) >= 6 and events[5].event_kind is (
+        RunActionExecutionEventKind.CREDENTIAL_RETIREMENT_REQUESTED
+    ):
+        if not credential_retirement_intent_matches_activation(
+            events[5].credential_retirement_intent,
+            events[4].event_id,
+            events[4].activation_revalidation_receipt,
+        ):
+            raise RunActionStoreError(
+                "credential retirement differs from durable event 5"
+            )
+    elif (
+        len(events) >= 6
+        and events[5].event_kind is RunActionExecutionEventKind.PROVIDER_TERMINATED
     ):
         if not provider_termination_matches_durable_activation(
             events[5].provider_termination_receipt,
@@ -2774,7 +2802,35 @@ def _validate_event_prefix(events: tuple[RunActionExecutionEvent, ...]) -> None:
             raise RunActionStoreError(
                 "provider termination differs from durable events 2 and 5"
             )
-    if len(events) >= 7:
+        if (
+            events[5].provider_termination_receipt.credential_retirement_intent
+            is not None
+        ):
+            raise RunActionStoreError(
+                "event-6 provider termination carries uncommitted retirement"
+            )
+    if (
+        len(events) == 7
+        and events[6].event_kind is RunActionExecutionEventKind.PROVIDER_TERMINATED
+    ):
+        receipt = events[6].provider_termination_receipt
+        intent = events[5].credential_retirement_intent
+        if (
+            receipt.credential_retirement_intent != intent
+            or not provider_termination_matches_durable_activation(
+                receipt,
+                events[4].event_id,
+                events[1].preparation_allocation,
+                events[4].activation_revalidation_receipt,
+            )
+        ):
+            raise RunActionStoreError(
+                "provider termination differs from durable credential retirement"
+            )
+    if (
+        len(events) >= 7
+        and events[6].event_kind is RunActionExecutionEventKind.RESULT_DECIDED
+    ):
         result = events[5].result_receipt
         decision = events[6].result_decision
         interpreter_identity = (

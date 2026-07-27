@@ -8,6 +8,7 @@ from dataclasses import replace
 import pytest
 
 import kapso.cross_run.docker.runtime as docker_runtime_module
+import kapso.cross_run.launch.run_action_credential_broker as broker_module
 import kapso.cross_run.launch.run_action_docker_inspect as docker_inspect_module
 from kapso.core.config import load_config
 from kapso.cross_run.canonical import tree_or_blob_digest
@@ -18,6 +19,9 @@ from kapso.cross_run.launch.run_action_contracts import (
 )
 from kapso.cross_run.launch.run_action_control_topology import (
     RunActionControlDirectoryTopology,
+)
+from kapso.cross_run.launch.run_action_credential_broker import (
+    RunActionCredentialBrokerError,
 )
 from kapso.cross_run.launch.run_action_docker_inspect import (
     observe_runtime_volume,
@@ -45,7 +49,6 @@ from kapso.cross_run.launch.run_action_reservation_contracts import (
     RunActionWorkspaceBinding,
 )
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
-    RUN_ACTION_CREDENTIAL_LEASE_AUTHORITY_NAMESPACE,
     RunActionContainerLabel,
     RunActionActivationRevalidationReceipt,
     RunActionCredentialMode,
@@ -64,6 +67,7 @@ from test_run_action_docker_inspect import _container_raw, _volume_raw
 from test_run_action_docker_projection import _policy
 from test_run_action_docker_resources import _InventoryDockerRunner
 from test_launch_resolver import resolver_case
+from test_run_frontier_action_gate import _credential_broker_registry
 from test_run_action_supervisor_contracts import (
     _claim,
     _activation_revalidation_receipt,
@@ -83,10 +87,6 @@ _RUN_ACTION_PROCESS_SNAPSHOT_SIZE_BYTES = CrossRunSettings.from_dict(
 ).launch.run_action_process_snapshot_size_bytes
 _GENERATION_NONCE = "9" * 32
 _TEST_DOCKER_BYTES = b"prepared-layout adoption Docker"
-_CREDENTIAL_LEASE_AUTHORITY_ID = _fixture_content_id(
-    RUN_ACTION_CREDENTIAL_LEASE_AUTHORITY_NAMESPACE,
-    "credential lease",
-)
 
 
 def read_run_action_descriptor_mount_id(descriptor: int) -> int:
@@ -94,6 +94,11 @@ def read_run_action_descriptor_mount_id(descriptor: int) -> int:
         descriptor,
         _RUN_ACTION_PROCESS_SNAPSHOT_SIZE_BYTES,
     )
+
+
+def _issue_credential_materialization(registry, prepared, spawn):
+    response = registry.issue_or_replay_exact(prepared, spawn)
+    return registry.materialize_exact(response, prepared, spawn)
 
 
 @pytest.mark.parametrize(
@@ -369,7 +374,14 @@ def test_substituted_spawn_is_rejected_before_any_delivery_publication(
         claim=prepared.preparation_claim,
         inode_offset=7,
     )
+    spawn = _spawn_commit(prepared)
     substituted_spawn = _spawn_commit(substituted_prepared)
+    credential_registry, _credential_backend = _credential_broker_registry()
+    credential_materialization = _issue_credential_materialization(
+        credential_registry,
+        prepared,
+        spawn,
+    )
     authority = prepared.runtime_volume_authority
     volume = observe_runtime_volume(
         _volume_raw(authority, settings.docker),
@@ -401,17 +413,20 @@ def test_substituted_spawn_is_rejected_before_any_delivery_publication(
             volume,
             prepared.volume_keeper_evidence,
             request_payload=b"complete request",
-            credential_payload=b"provider-token",
-            credential_content_authority_id=_CREDENTIAL_LEASE_AUTHORITY_ID,
+            credential_materialization=credential_materialization,
             workspace_descriptor=None,
             settings=settings.launch,
         )
+    broker_module.burn_run_action_credential_materialization(
+        credential_materialization,
+        _authority=broker_module._RUN_ACTION_CREDENTIAL_LIFECYCLE_AUTHORITY,
+    )
 
     assert input_final.exists() is False
     assert credential_final.exists() is False
 
 
-def test_unbounded_credential_authority_is_rejected_before_delivery(
+def test_substituted_credential_materialization_is_rejected_before_delivery(
     monkeypatch,
 ):
     settings = CrossRunSettings.from_dict(
@@ -424,6 +439,17 @@ def test_unbounded_credential_authority_is_rejected_before_delivery(
     )
     prepared = _prepared_execution(claim=_claim(policy=policy))
     spawn = _spawn_commit(prepared)
+    foreign_prepared = _prepared_execution(
+        claim=prepared.preparation_claim,
+        inode_offset=7,
+    )
+    foreign_spawn = _spawn_commit(foreign_prepared)
+    credential_registry, _credential_backend = _credential_broker_registry()
+    credential_materialization = _issue_credential_materialization(
+        credential_registry,
+        foreign_prepared,
+        foreign_spawn,
+    )
     authority = prepared.runtime_volume_authority
     volume = observe_runtime_volume(
         _volume_raw(authority, settings.docker),
@@ -442,8 +468,8 @@ def test_unbounded_credential_authority_is_rejected_before_delivery(
     )
 
     with pytest.raises(
-        RunActionRuntimeVolumeError,
-        match="fixed lease content ID",
+        RunActionCredentialBrokerError,
+        match="foreign",
     ):
         volume_module.deliver_and_reobserve_runtime_volume_activation(
             prepared,
@@ -451,11 +477,14 @@ def test_unbounded_credential_authority_is_rejected_before_delivery(
             volume,
             prepared.volume_keeper_evidence,
             request_payload=b"complete request",
-            credential_payload=b"provider-token",
-            credential_content_authority_id="unbounded.legacy.credential.authority",
+            credential_materialization=credential_materialization,
             workspace_descriptor=None,
             settings=settings.launch,
         )
+    broker_module.burn_run_action_credential_materialization(
+        credential_materialization,
+        _authority=broker_module._RUN_ACTION_CREDENTIAL_LIFECYCLE_AUTHORITY,
+    )
 
 
 def test_terminal_workspace_source_requires_exact_prepared_volume_occurrence():
@@ -1979,7 +2008,7 @@ def _physical_selected_activation_case(
     )
     payload = b"complete request"
     credential_payload = (
-        b"provider-token"
+        b"credential bytes"
         if credential_mode is RunActionCredentialMode.SUPERVISOR_FILE
         else None
     )
@@ -2017,16 +2046,21 @@ def _physical_selected_activation_case(
         observe_activated_filesystem,
     )
     spawn = _spawn_commit(prepared)
+    credential_materialization = None
+    if credential_payload is not None:
+        credential_registry, _credential_backend = _credential_broker_registry()
+        credential_materialization = _issue_credential_materialization(
+            credential_registry,
+            prepared,
+            spawn,
+        )
     activated = volume_module.deliver_and_reobserve_runtime_volume_activation(
         prepared,
         spawn,
         volume,
         keeper,
         request_payload=payload,
-        credential_payload=credential_payload,
-        credential_content_authority_id=(
-            _CREDENTIAL_LEASE_AUTHORITY_ID if credential_payload is not None else None
-        ),
+        credential_materialization=credential_materialization,
         workspace_descriptor=None,
         settings=layout_context[0].launch,
     )
@@ -2137,7 +2171,7 @@ def test_selected_activation_reopens_credential_by_opaque_shape_without_reading_
     )
     credential_path = root_path / "credential" / "credentials"
     credential_path.chmod(0o600)
-    credential_path.write_bytes(b"rotated-token!")
+    credential_path.write_bytes(b"rotated-token!!!")
     credential_path.chmod(0o400)
     original_read = volume_module._read_bounded_descriptor_payload
 

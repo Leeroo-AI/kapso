@@ -2,10 +2,29 @@
 
 from __future__ import annotations
 
+import copy
+import os
+import pickle
+import signal
+from dataclasses import replace
+from threading import Event, Thread
+
 import pytest
 
+from test_run_frontier_action_gate import _credential_broker_registry
+
 import kapso.cross_run.launch.run_action_recovery as recovery
+import kapso.cross_run.launch.run_action_store as run_action_store_module
+from kapso.cross_run.canonical import content_id
 from kapso.cross_run.launch.run_action_clock import _SystemRunActionClock
+from kapso.cross_run.launch.run_action_credential_broker import (
+    RunActionCredentialLeaseStatus,
+)
+from kapso.cross_run.launch.run_action_credential_contracts import (
+    RunActionCredentialRetirementIntent,
+    RunActionPreReleaseCredentialObservation,
+    RunActionPreReleaseCredentialState,
+)
 from kapso.cross_run.launch.run_action_recovery import (
     _RUN_ACTION_COMMITTED_CONTINUATION_AUTHORITY,
     RunActionCommittedContinuationCapability,
@@ -23,6 +42,9 @@ from kapso.cross_run.launch.run_action_termination_contracts import (
     RunActionProviderTerminationDisposition,
     RunActionProviderTerminationReason,
     RunActionProviderTerminationReceipt,
+)
+from kapso.cross_run.launch.run_action_supervisor_contracts import (
+    run_action_credential_lease_request,
 )
 from test_run_action_release_contracts import (
     _security_observation as _release_security_observation,
@@ -71,6 +93,60 @@ def _publication_fence():
     return fence, source
 
 
+def test_publication_fence_private_source_cannot_be_replaced_or_copied():
+    fence, source = _publication_fence()
+
+    for field_name, value in (
+        ("_source", _PublicationFenceSource()),
+        ("_closed", True),
+        ("_owner_process_id", os.getpid()),
+        ("_owner_thread_id", 1),
+    ):
+        with pytest.raises(AttributeError):
+            object.__setattr__(fence, field_name, value)
+    with pytest.raises(RunActionRecoveryError, match="cannot be copied"):
+        copy.copy(fence)
+    with pytest.raises(RunActionRecoveryError, match="cannot be copied"):
+        copy.deepcopy(fence)
+    with pytest.raises(RunActionRecoveryError, match="cannot be serialized"):
+        pickle.dumps(fence)
+
+    fence.require_current()
+    fence.close()
+    assert source.closed
+
+
+def test_publication_fence_rejects_fork_before_inherited_lock_access():
+    fence, source = _publication_fence()
+    lock_held = Event()
+    release_lock = Event()
+
+    def hold_fence_lock():
+        with recovery._PROVIDER_TERMINATION_PUBLICATION_FENCE_LOCK:
+            lock_held.set()
+            assert release_lock.wait(timeout=5)
+
+    holder = Thread(target=hold_fence_lock)
+    holder.start()
+    assert lock_held.wait(timeout=5)
+
+    child = os.fork()
+    if child == 0:
+        signal.alarm(5)
+        with pytest.raises(RunActionRecoveryError, match="foreign"):
+            fence.require_current()
+        signal.alarm(0)
+        os._exit(37)
+
+    release_lock.set()
+    holder.join()
+    _child_pid, status = os.waitpid(child, 0)
+    assert os.WIFEXITED(status)
+    assert os.WEXITSTATUS(status) == 37
+    fence.close()
+    assert source.closed
+
+
 def _capability(query, state, token):
     return RunActionCommittedContinuationCapability(
         query=query,
@@ -80,7 +156,7 @@ def _capability(query, state, token):
         ),
         required_security_observation=_release_security_observation(),
         security_authority=_SecurityAuthority(),
-        credential_validity_authority=None,
+        credential_broker_registry=_credential_broker_registry()[0],
         release_clock=_SystemRunActionClock(),
         _authority=_RUN_ACTION_COMMITTED_CONTINUATION_AUTHORITY,
     )
@@ -106,6 +182,7 @@ def _released_termination_case():
         timeout_directive_publication=None,
         empty_result_capture_receipt=None,
         pre_release_main_loss_observation=None,
+        credential_retirement_intent=None,
     )
     capability = _capability(
         query,
@@ -183,6 +260,7 @@ def test_provider_termination_registration_excludes_result_capture():
             b"",
         ),
         pre_release_main_loss_observation=None,
+        credential_retirement_intent=None,
     )
     capability = _capability(
         query,
@@ -292,6 +370,7 @@ def _pre_release_termination_case():
     query = type(released_query)(
         preparation_allocation=released_query.preparation_allocation,
         activation_event=released_query.activation_event,
+        credential_retirement_intent=None,
         workload_release_adoption=None,
         timeout_directive_publication=None,
     )
@@ -308,6 +387,79 @@ def _pre_release_termination_case():
         timeout_directive_publication=None,
         empty_result_capture_receipt=None,
         pre_release_main_loss_observation=loss,
+        credential_retirement_intent=None,
+    )
+    capability = _capability(
+        query,
+        RunActionCommittedSpawnState.PRE_RELEASE_MAIN_LOSS_CONTINUABLE,
+        run_action_pre_release_main_loss_observation_token(loss),
+    )
+    return capability, query, loss, receipt
+
+
+def _credential_expired_pre_release_termination_case():
+    released_query = _inspection_context(_configured_settings()[0])[0]
+    query_without_intent = type(released_query)(
+        preparation_allocation=released_query.preparation_allocation,
+        activation_event=released_query.activation_event,
+        credential_retirement_intent=None,
+        workload_release_adoption=None,
+        timeout_directive_publication=None,
+    )
+    request = run_action_credential_lease_request(
+        query_without_intent.prepared_execution,
+        query_without_intent.spawn_commit,
+    )
+    status = RunActionCredentialLeaseStatus.mint(
+        credential_lease_request_id=request.credential_lease_request_id,
+        valid_until_realtime_nanoseconds=1,
+    )
+    limits = (
+        query_without_intent.prepared_execution.preparation_claim.execution_policy.supervisor_limits
+    )
+    required_valid_until = (
+        2
+        + (limits.execution_timeout_seconds + limits.termination_grace_seconds)
+        * 1_000_000_000
+    )
+    credential_observation = RunActionPreReleaseCredentialObservation.mint(
+        state=RunActionPreReleaseCredentialState.EXPIRED,
+        activation_revalidation_receipt=(
+            query_without_intent.activation_revalidation_receipt
+        ),
+        credential_lease_status=status,
+        observed_before_realtime_nanoseconds=1,
+        observed_after_realtime_nanoseconds=2,
+        required_valid_until_realtime_nanoseconds=required_valid_until,
+    )
+    intent = RunActionCredentialRetirementIntent.mint(
+        activation_event_id=query_without_intent.activation_event.event_id,
+        pre_release_credential_observation_id=(
+            credential_observation.pre_release_credential_observation_id
+        ),
+        credential_lease_status=status,
+        observed_before_realtime_nanoseconds=1,
+        observed_after_realtime_nanoseconds=2,
+        required_valid_until_realtime_nanoseconds=required_valid_until,
+    )
+    query = replace(
+        query_without_intent,
+        credential_retirement_intent=intent,
+    )
+    loss = _pre_release_loss(
+        query.activation_revalidation_receipt,
+        query.activation_event.event_id,
+    )
+    receipt = RunActionProviderTerminationReceipt.mint(
+        disposition=RunActionProviderTerminationDisposition.INTERRUPTED,
+        reason=RunActionProviderTerminationReason.CREDENTIAL_EXPIRED,
+        activation_event_id=query.activation_event.event_id,
+        workload_release_adoption=None,
+        terminal_observation=None,
+        timeout_directive_publication=None,
+        empty_result_capture_receipt=None,
+        pre_release_main_loss_observation=loss,
+        credential_retirement_intent=intent,
     )
     capability = _capability(
         query,
@@ -349,6 +501,81 @@ def test_pre_release_loss_registration_requires_the_exact_observation_token():
     assert outcome.provider_termination_receipt == receipt
     outcome.provider_termination_publication_fence.close()
     assert _TrustedLossAdapter.source.closed
+
+
+def test_credential_expiry_registration_requires_exact_durable_intent():
+    capability, query, loss, receipt = (
+        _credential_expired_pre_release_termination_case()
+    )
+
+    class _TrustedCredentialExpiryAdapter:
+        @staticmethod
+        def continue_committed_once(active_capability):
+            publication_fence, source = _publication_fence()
+            registered = _register_termination(
+                active_capability,
+                receipt,
+                publication_fence,
+            )
+            assert registered == (
+                query,
+                None,
+                run_action_pre_release_main_loss_observation_token(loss),
+            )
+            _TrustedCredentialExpiryAdapter.source = source
+            return RunActionContinuationOutcome(
+                state=RunActionContinuationState.PROVIDER_TERMINATED,
+                result=None,
+                provider_termination_receipt=receipt,
+                timeout_directive_publication=None,
+                provider_termination_publication_fence=publication_fence,
+            )
+
+    outcome = capability._invoke_once(_TrustedCredentialExpiryAdapter())
+
+    assert outcome.provider_termination_receipt == receipt
+    outcome.provider_termination_publication_fence.close()
+    assert _TrustedCredentialExpiryAdapter.source.closed
+
+
+def test_credential_expiry_registration_rejects_another_valid_intent():
+    capability, _query, _loss, receipt = (
+        _credential_expired_pre_release_termination_case()
+    )
+    foreign_intent = _remint_contract(
+        receipt.credential_retirement_intent,
+        pre_release_credential_observation_id=content_id(
+            RunActionPreReleaseCredentialObservation.CONTENT_NAMESPACE,
+            {"fixture": "foreign provider termination credential"},
+        ),
+    )
+    foreign_receipt = _remint_contract(
+        receipt,
+        credential_retirement_intent=foreign_intent,
+    )
+    publication_fence, source = _publication_fence()
+
+    class _SplicingCredentialExpiryAdapter:
+        @staticmethod
+        def continue_committed_once(active_capability):
+            active_capability._take_provider_termination_authority(
+                _authority=recovery._RUN_ACTION_PROVIDER_TERMINATION_AUTHORITY,
+            )
+            active_capability._complete_provider_termination(
+                foreign_receipt,
+                publication_fence,
+                _authority=recovery._RUN_ACTION_PROVIDER_TERMINATION_AUTHORITY,
+            )
+            raise AssertionError("foreign credential intent was registered")
+
+    with pytest.raises(
+        RunActionRecoveryError,
+        match="completion lacks exact live authority",
+    ):
+        capability._invoke_once(_SplicingCredentialExpiryAdapter())
+
+    assert not source.closed
+    publication_fence.close()
 
 
 def test_pre_release_loss_rejects_substituted_publication_fence_and_closes_real():
@@ -401,6 +628,40 @@ def test_pre_release_loss_closes_registered_fence_when_adapter_raises():
         capability._invoke_once(_RaisingLossAdapter())
 
     assert registered_source.closed
+
+
+def test_registered_termination_receipt_is_private_canonical_snapshot():
+    capability, _query, _loss, receipt = _pre_release_termination_case()
+    publication_fence, source = _publication_fence()
+
+    class _MutatingRegisteredReceiptAdapter:
+        @staticmethod
+        def continue_committed_once(active_capability):
+            _register_termination(
+                active_capability,
+                receipt,
+                publication_fence,
+            )
+            object.__setattr__(
+                receipt,
+                "activation_event_id",
+                "run-action-execution-event:sha256:" + "f" * 64,
+            )
+            return RunActionContinuationOutcome(
+                state=RunActionContinuationState.PROVIDER_TERMINATED,
+                result=None,
+                provider_termination_receipt=receipt,
+                timeout_directive_publication=None,
+                provider_termination_publication_fence=publication_fence,
+            )
+
+    with pytest.raises(
+        RunActionRecoveryError,
+        match="trusted termination",
+    ):
+        capability._invoke_once(_MutatingRegisteredReceiptAdapter())
+
+    assert source.closed
 
 
 def test_result_and_termination_are_an_exact_outcome_xor():

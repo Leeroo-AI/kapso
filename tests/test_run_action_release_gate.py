@@ -13,6 +13,12 @@ import pytest
 import kapso.cross_run.launch.run_action_recovery as recovery_module
 import kapso.cross_run.launch.run_action_release_publisher as publisher_module
 import kapso.cross_run.launch.run_action_resolved_workload as workload_module
+from kapso.cross_run.launch.run_action_credential_broker import (
+    RunActionCredentialBrokerBackend,
+    RunActionCredentialBrokerRegistry,
+    RunActionCredentialIssueResponse,
+    RunActionCredentialLeaseStatus,
+)
 from kapso.cross_run.launch.run_action_recovery import (
     _RUN_ACTION_COMMITTED_CONTINUATION_AUTHORITY,
     _RUN_ACTION_RELEASE_PUBLISHER_AUTHORITY,
@@ -25,7 +31,6 @@ from kapso.cross_run.launch.run_action_recovery import (
     RunActionRecoveryError,
 )
 from kapso.cross_run.launch.run_action_release_contracts import (
-    RunActionCredentialValidityObservation,
     RunActionWorkloadReleaseReceipt,
 )
 from kapso.cross_run.launch.run_action_clock import _SystemRunActionClock
@@ -106,37 +111,39 @@ class _RaisingSecurityAuthority(_SecurityAuthority):
         raise RuntimeError("injected security authority failure")
 
 
-class _CredentialAuthority:
+class _CredentialBrokerBackend(RunActionCredentialBrokerBackend):
     def __init__(self, clock, maximum_lease_seconds, *, expire_final=False) -> None:
+        super().__init__(
+            broker_id="test.credential.broker",
+            broker_protocol_version="test.credential.broker.v1",
+        )
         self.clock = clock
         self.maximum_lease_seconds = maximum_lease_seconds
         self.expire_final = expire_final
-        self.calls = []
+        self.issue_calls = []
+        self.status_calls = []
 
-    def observe_exact(
-        self,
-        *,
-        activated_credential_file_observation_id,
-        credential_lease_authority_id,
-    ):
-        self.calls.append(
-            (
-                activated_credential_file_observation_id,
-                credential_lease_authority_id,
-            )
+    def issue_or_replay_exact(self, request):
+        self.issue_calls.append(request)
+        observed_at = self.clock.realtime_nanoseconds()
+        return RunActionCredentialIssueResponse(
+            credential_lease_request_id=request.credential_lease_request_id,
+            payload=b"credential bytes",
+            valid_until_realtime_nanoseconds=(
+                observed_at + self.maximum_lease_seconds * _NANOSECONDS_PER_SECOND
+            ),
         )
+
+    def observe_exact(self, request):
+        self.status_calls.append(request)
         observed_at = self.clock.realtime_nanoseconds()
         valid_until = (
             observed_at + _CLOCK_STEP_NANOSECONDS
-            if self.expire_final and len(self.calls) == 2
+            if self.expire_final and len(self.status_calls) == 2
             else observed_at + self.maximum_lease_seconds * _NANOSECONDS_PER_SECOND
         )
-        return RunActionCredentialValidityObservation.mint(
-            activated_credential_file_observation_id=(
-                activated_credential_file_observation_id
-            ),
-            credential_lease_authority_id=credential_lease_authority_id,
-            observed_at_realtime_nanoseconds=observed_at,
+        return RunActionCredentialLeaseStatus.mint(
+            credential_lease_request_id=request.credential_lease_request_id,
             valid_until_realtime_nanoseconds=valid_until,
         )
 
@@ -160,7 +167,7 @@ def _capability(
     security,
     authority,
     *,
-    credential_authority=None,
+    credential_broker_registry=None,
     clock=None,
     state=None,
 ):
@@ -170,31 +177,55 @@ def _capability(
     if clock is not None:
         release_clock.boottime_nanoseconds = clock.boottime_nanoseconds
         release_clock.realtime_nanoseconds = clock.realtime_nanoseconds
+    if credential_broker_registry is None:
+        policy = prepared.preparation_claim.execution_policy.credential_policy
+        credential_broker_registry = RunActionCredentialBrokerRegistry(
+            (
+                _CredentialBrokerBackend(
+                    release_clock if clock is None else clock,
+                    policy.maximum_lease_seconds,
+                ),
+            )
+        )
     allocation = RunActionPreparationAllocation.mint(
         preparation_claim=prepared.preparation_claim,
         runtime_volume_authority=prepared.runtime_volume_authority,
     )
+    query = RunActionCommittedSpawnQuery(
+        preparation_allocation=allocation,
+        activation_event=activation_event,
+        credential_retirement_intent=None,
+        workload_release_adoption=None,
+        timeout_directive_publication=None,
+    )
+    selected_state = (
+        RunActionCommittedSpawnState.RUNNING_CONTINUABLE if state is None else state
+    )
     return RunActionCommittedContinuationCapability(
-        query=RunActionCommittedSpawnQuery(
-            preparation_allocation=allocation,
-            activation_event=activation_event,
-            workload_release_adoption=None,
-            timeout_directive_publication=None,
-        ),
+        query=query,
         observation=RunActionCommittedSpawnObservation(
-            state=(
-                RunActionCommittedSpawnState.RUNNING_CONTINUABLE
-                if state is None
-                else state
-            ),
+            state=selected_state,
             observation_token=(
                 resolved.running_container_observation.complete_inspection_digest
             ),
         ),
         required_security_observation=security,
         security_authority=authority,
-        credential_validity_authority=credential_authority,
+        credential_broker_registry=credential_broker_registry,
         release_clock=release_clock,
+        pre_release_credential_observation=(
+            None
+            if selected_state
+            not in {
+                RunActionCommittedSpawnState.INERT_CONTINUABLE,
+                RunActionCommittedSpawnState.RUNNING_CONTINUABLE,
+            }
+            else recovery_module._observe_pre_release_credential_state(
+                query.activation_revalidation_receipt,
+                credential_broker_registry,
+                release_clock,
+            )
+        ),
         _authority=_RUN_ACTION_COMMITTED_CONTINUATION_AUTHORITY,
     )
 
@@ -607,17 +638,20 @@ def test_credential_revalidation_failure_prevents_security_and_link(tmp_path):
         resolved.activation_revalidation_receipt.prepared_execution.preparation_claim.execution_policy
     )
     clock = _Clock()
-    credential_authority = _CredentialAuthority(
+    credential_backend = _CredentialBrokerBackend(
         clock,
         policy.credential_policy.maximum_lease_seconds,
         expire_final=True,
+    )
+    credential_broker_registry = RunActionCredentialBrokerRegistry(
+        (credential_backend,)
     )
     security_authority = _SecurityAuthority(security)
     capability = _capability(
         resolved,
         security,
         security_authority,
-        credential_authority=credential_authority,
+        credential_broker_registry=credential_broker_registry,
         clock=clock,
     )
     control = tmp_path / "control"
@@ -627,7 +661,7 @@ def test_credential_revalidation_failure_prevents_security_and_link(tmp_path):
     def release(active_capability):
         with pytest.raises(
             RunActionRecoveryError,
-            match="credential authority changed",
+            match="credential validity cannot authorize",
         ):
             publish_run_action_workload_release_once(
                 capability=active_capability,
@@ -636,7 +670,8 @@ def test_credential_revalidation_failure_prevents_security_and_link(tmp_path):
 
     capability._invoke_once(_ReleaseAdapter(release))
 
-    assert len(credential_authority.calls) == 2
+    assert len(credential_backend.status_calls) == 2
+    assert credential_backend.issue_calls == []
     assert security_authority.calls == []
     assert tuple(control.iterdir()) == ()
     _close_test_lease(lease, descriptor)
@@ -651,16 +686,19 @@ def test_credentialed_release_revalidates_same_lease_through_containment(
         resolved.activation_revalidation_receipt.prepared_execution.preparation_claim.execution_policy
     )
     clock = _Clock()
-    credential_authority = _CredentialAuthority(
+    credential_backend = _CredentialBrokerBackend(
         clock,
         policy.credential_policy.maximum_lease_seconds,
+    )
+    credential_broker_registry = RunActionCredentialBrokerRegistry(
+        (credential_backend,)
     )
     security_authority = _SecurityAuthority(security)
     capability = _capability(
         resolved,
         security,
         security_authority,
-        credential_authority=credential_authority,
+        credential_broker_registry=credential_broker_registry,
         clock=clock,
     )
     control = tmp_path / "control"
@@ -678,7 +716,8 @@ def test_credentialed_release_revalidates_same_lease_through_containment(
 
     capability._invoke_once(_ReleaseAdapter(release))
 
-    assert len(credential_authority.calls) == 2
+    assert len(credential_backend.status_calls) == 3
+    assert credential_backend.issue_calls == []
     assert len(security_authority.calls) == 1
     assert (
         published[0].release_authorization_observation.credential_validity_observation
