@@ -3,7 +3,7 @@
 **Auto-generated — do not edit by hand.** Regenerate with:
 `PYTHONPATH=src:. python -m benchmarks.relbench.scorecard --reference`
 
-Status: **1/66 tasks run**, 0 beating the best published number. Category-level gates: run the scorecard (same module, no flags).
+Status: **2/66 tasks run**, 0 beating the best published number. Category-level gates: run the scorecard (same module, no flags).
 
 ## Benchmark version & leaderboard submission
 
@@ -29,7 +29,7 @@ Values in the best-known number's units (AUROC/acc/MAP in %, NMAE, R², raw MAE)
 | ROI# | Task | Fam | Ver | Best known (method) | RelAgent | KumoRFM-ft | KumoRFM-v1 (ic) | KumoRFM-v2 (ic) | Kapso | vs best | HW | Cap | Status |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | 1 | rel-event/user-attendance | reg | v1★ | 0.307 (KumoRFM-2) | 0.315 | 0.311 | 0.345 | 0.307 | 0.336 | below best-known | CPU-ok | 2h | ✅ done |
-| 5 | rel-f1/driver-position | reg | v1★ | 0.374 (PluRel-ft) | 0.572 | 0.389 | 0.391 | 0.406 | — | — | CPU-ok | 2h | · pending |
+| 5 | rel-f1/driver-position | reg | v1★ | 0.374 (PluRel-ft) | 0.572 | 0.389 | 0.391 | 0.406 | 0.512 | below best-known | CPU-ok | 2h | ✅ done |
 | 9 | rel-event/user-repeat | clf | v1★ | 83.6 (GelGT) | 78.2 | 80.6 | 76.1 | 81.7 | — | — | CPU-ok | 2h | · pending |
 | 10 | rel-event/user-ignore | clf | v1★ | 91.2 (PluRel-ft) | 87.2 | 89.4 | 89.2 | 90.8 | — | — | CPU-ok | 2h | · pending |
 | 11 | rel-f1/driver-dnf | clf | v1★ | 84.6 (KumoRFM-2) | 78.3 | 82.6 | 82.4 | 84.6 | — | — | CPU-ok | 2h | · pending |
