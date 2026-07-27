@@ -262,6 +262,8 @@ def coding_agent_provider_sandbox_command(
         str(policy.provider_group_id),
         "--workspace-access",
         workspace_access,
+        "--egress-relay-port",
+        str(policy.egress_relay_port or 0),
         "--workspace-descriptor",
         str(descriptors.workspace_descriptor),
         "--home-descriptor",
@@ -469,6 +471,7 @@ def main() -> None:
     parser.add_argument("--output-descriptor", type=int, required=True)
     parser.add_argument("--support-descriptor", type=int, required=True)
     parser.add_argument("--credential-descriptor", type=int, required=True)
+    parser.add_argument("--egress-relay-port", type=int, required=True)
     parser.add_argument(
         "--workspace-access",
         choices=(
@@ -500,7 +503,9 @@ def main() -> None:
         os.execve(
             command[0],
             command,
-            dict(coding_agent_provider_environment()),
+            dict(
+                coding_agent_provider_environment(arguments.egress_relay_port or None)
+            ),
         )
     if (
         os.geteuid() != arguments.supervisor_user_id
@@ -542,6 +547,8 @@ def main() -> None:
         str(arguments.provider_group_id),
         "--workspace-access",
         arguments.workspace_access,
+        "--egress-relay-port",
+        str(arguments.egress_relay_port),
         "--workspace-descriptor",
         str(arguments.workspace_descriptor),
         "--home-descriptor",
@@ -559,7 +566,7 @@ def main() -> None:
     os.execve(
         PROVIDER_VERIFICATION_EXECUTABLE,
         verification_command,
-        dict(coding_agent_provider_environment()),
+        dict(coding_agent_provider_environment(arguments.egress_relay_port or None)),
     )
 
 
@@ -783,6 +790,7 @@ def _require_launcher_arguments(
     )
     if (
         arguments.landlock_abi_version != CODING_AGENT_LANDLOCK_POLICY_ABI_VERSION
+        or not 0 <= arguments.egress_relay_port <= 65_535
         or any(not 0 < value <= _LINUX_IDENTITY_MAXIMUM for value in identity_values)
         or arguments.supervisor_user_id == arguments.provider_user_id
         or arguments.supervisor_group_id == arguments.provider_group_id

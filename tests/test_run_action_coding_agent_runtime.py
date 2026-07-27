@@ -64,7 +64,7 @@ def sandbox_descriptors(tmp_path):
 
 
 def test_provider_environment_is_complete_and_contains_no_ambient_authority():
-    assert dict(coding_agent_provider_environment()) == {
+    assert dict(coding_agent_provider_environment(None)) == {
         "CODEX_HOME": "/kapso/tmp/provider-home/.codex",
         "GIT_OPTIONAL_LOCKS": "0",
         "HOME": "/kapso/tmp/provider-home",
@@ -73,7 +73,20 @@ def test_provider_environment_is_complete_and_contains_no_ambient_authority():
         "NO_COLOR": "1",
         "PATH": "/usr/local/bin:/usr/bin:/bin",
         "TERM": "dumb",
-        "TMPDIR": "/kapso/tmp/provider-home",
+        "TMPDIR": "/kapso/tmp/provider-home/tmp",
+    }
+
+    assert dict(coding_agent_provider_environment(43_119)) == {
+        "CODEX_HOME": "/kapso/tmp/provider-home/.codex",
+        "GIT_OPTIONAL_LOCKS": "0",
+        "HOME": "/kapso/tmp/provider-home",
+        "HTTPS_PROXY": "http://127.0.0.1:43119",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "NO_COLOR": "1",
+        "PATH": "/usr/local/bin:/usr/bin:/bin",
+        "TERM": "dumb",
+        "TMPDIR": "/kapso/tmp/provider-home/tmp",
     }
 
 
@@ -105,6 +118,8 @@ def test_sandbox_command_binds_complete_policy_and_provider_argv(
         "1001",
         "--workspace-access",
         "read_only",
+        "--egress-relay-port",
+        "0",
         "--workspace-descriptor",
         str(sandbox_descriptors.workspace_descriptor),
         "--home-descriptor",
@@ -230,6 +245,8 @@ def test_launcher_rejects_a_sixth_inherited_descriptor(
             str(os.getegid() + 1),
             "--workspace-access",
             "read_only",
+            "--egress-relay-port",
+            "0",
             "--workspace-descriptor",
             str(sandbox_descriptors.workspace_descriptor),
             "--home-descriptor",

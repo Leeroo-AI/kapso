@@ -51,6 +51,7 @@ from kapso.cross_run.launch.run_action_coding_agent_contracts import (
     CODING_AGENT_SCHEMA_PROTOCOL_VERSION,
     CODING_AGENT_NATIVE_TOOL_POLICY_VERSION,
     CodingAgentInterpretationPolicy,
+    CodingAgentProviderEgressMode,
     CodingAgentRunActionRequest,
 )
 from kapso.cross_run.launch.run_action_coding_agent_interpreter import (
@@ -986,6 +987,12 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             effort="xhigh",
             native_tool_policy_version=CODING_AGENT_NATIVE_TOOL_POLICY_VERSION,
             web_search_enabled=False,
+            provider_egress_mode=CodingAgentProviderEgressMode.NONE,
+            egress_relay_port=None,
+            egress_connect_authorities=(),
+            maximum_egress_connect_header_bytes=None,
+            egress_relay_backlog=None,
+            egress_relay_chunk_size_bytes=None,
             timeout_nanoseconds=(
                 _policy(settings).supervisor_limits.execution_timeout_seconds
                 * 1_000_000_000
@@ -1028,6 +1035,9 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             ),
             maximum_prior_knowledge_audit_bytes=(
                 cross_run_settings.launch.coding_agent_prior_knowledge_audit_size_bytes
+            ),
+            maximum_native_credential_bytes=(
+                cross_run_settings.launch.coding_agent_native_credential_size_bytes
             ),
             maximum_workspace_entries=(
                 cross_run_settings.launch.run_workspace_entry_limit

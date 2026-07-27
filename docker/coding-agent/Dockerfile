@@ -15,6 +15,9 @@ RUN apt-get update \
     && unlink /sbin \
     && mkdir --mode=0755 /sbin \
     && mkdir --mode=0555 --parents /kapso/credentials \
+    && mkdir --mode=0555 --parents /kapso/egress \
+    && touch /kapso/egress/broker.sock \
+    && chmod 0000 /kapso/egress/broker.sock \
     && printf '{}\n' > /kapso/credentials/credentials \
     && chown 1000:1001 /kapso/credentials/credentials \
     && chmod 0440 /kapso/credentials/credentials

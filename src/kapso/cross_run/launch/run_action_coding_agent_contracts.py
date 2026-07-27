@@ -38,6 +38,10 @@ _INTERPRETATION_POLICY_NAMESPACE = "run-action-coding-agent-interpretation-polic
 _OPERATION_ID_PATTERN = re.compile(r"^agent_call_[0-9a-f]{32}$")
 _DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 _NORMALIZED_DECIMAL_PATTERN = re.compile(r"^(?:0|[1-9][0-9]*)(?:[.][0-9]*[1-9])?$")
+_HTTPS_CONNECT_AUTHORITY_PATTERN = re.compile(
+    r"^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?[.])+[a-z0-9]"
+    r"(?:[a-z0-9-]{0,61}[a-z0-9])?:443$"
+)
 _CODING_AGENT_WORKSPACE_ACCESS = frozenset(
     {
         RunFrontierWorkspaceAccess.READ_ONLY,
@@ -83,6 +87,13 @@ class CodingAgentPriorKnowledgeAccessKind(str, Enum):
     GET = "get"
 
 
+class CodingAgentProviderEgressMode(str, Enum):
+    """Network authority retained by one native provider."""
+
+    NONE = "none"
+    HTTPS_CONNECT_PROXY = "https_connect_proxy"
+
+
 @dataclass(frozen=True)
 class CodingAgentInterpretationPolicy(StrictContract):
     """Immutable authority for one coding-agent request/result interpretation."""
@@ -100,6 +111,12 @@ class CodingAgentInterpretationPolicy(StrictContract):
     effort: str
     native_tool_policy_version: str
     web_search_enabled: bool
+    provider_egress_mode: CodingAgentProviderEgressMode
+    egress_relay_port: int | None
+    egress_connect_authorities: tuple[str, ...]
+    maximum_egress_connect_header_bytes: int | None
+    egress_relay_backlog: int | None
+    egress_relay_chunk_size_bytes: int | None
     timeout_nanoseconds: int
     termination_grace_nanoseconds: int
     supervisor_user_id: int
@@ -159,6 +176,46 @@ class CodingAgentInterpretationPolicy(StrictContract):
         if type(self.web_search_enabled) is not bool:
             raise RunActionCodingAgentContractError(
                 "coding-agent web-search authority must be boolean"
+            )
+        if self.provider_egress_mode is CodingAgentProviderEgressMode.NONE:
+            if (
+                self.egress_relay_port is not None
+                or self.egress_connect_authorities
+                or self.maximum_egress_connect_header_bytes is not None
+                or self.egress_relay_backlog is not None
+                or self.egress_relay_chunk_size_bytes is not None
+                or self.web_search_enabled
+            ):
+                raise RunActionCodingAgentContractError(
+                    "network-disabled coding-agent policy retains egress authority"
+                )
+        elif self.provider_egress_mode is (
+            CodingAgentProviderEgressMode.HTTPS_CONNECT_PROXY
+        ):
+            if (
+                type(self.egress_relay_port) is not int
+                or not 0 < self.egress_relay_port <= 65_535
+                or self.egress_connect_authorities
+                != tuple(sorted(set(self.egress_connect_authorities)))
+                or not self.egress_connect_authorities
+                or any(
+                    not isinstance(authority, str)
+                    or _HTTPS_CONNECT_AUTHORITY_PATTERN.fullmatch(authority) is None
+                    for authority in self.egress_connect_authorities
+                )
+                or type(self.maximum_egress_connect_header_bytes) is not int
+                or self.maximum_egress_connect_header_bytes <= 0
+                or type(self.egress_relay_backlog) is not int
+                or self.egress_relay_backlog <= 0
+                or type(self.egress_relay_chunk_size_bytes) is not int
+                or self.egress_relay_chunk_size_bytes <= 0
+            ):
+                raise RunActionCodingAgentContractError(
+                    "coding-agent HTTPS CONNECT authority is invalid or unbounded"
+                )
+        else:
+            raise RunActionCodingAgentContractError(
+                "coding-agent provider egress mode is unknown"
             )
         if self.workspace_access not in _CODING_AGENT_WORKSPACE_ACCESS:
             raise RunActionCodingAgentContractError(

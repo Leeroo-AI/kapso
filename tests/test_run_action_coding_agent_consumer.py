@@ -395,7 +395,7 @@ def test_consumer_executes_codex_read_only_and_publishes_one_canonical_result(
             "NO_COLOR": "1",
             "PATH": "/usr/local/bin:/usr/bin:/bin",
             "TERM": "dumb",
-            "TMPDIR": "/kapso/tmp/provider-home",
+            "TMPDIR": "/kapso/tmp/provider-home/tmp",
         }
     )
     assert len(runner.calls[0]["inherited_descriptors"]) == 5

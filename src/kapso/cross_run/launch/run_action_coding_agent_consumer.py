@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import fcntl
 import os
+import select
 import selectors
 import signal
 import stat
@@ -48,15 +49,18 @@ from kapso.cross_run.launch.run_action_coding_agent_contracts import (
     CODING_AGENT_RESULT_PROTOCOL_VERSION,
     CodingAgentPriorKnowledgeAccessEvent,
     CodingAgentPriorKnowledgeAccessKind,
+    CodingAgentProviderEgressMode,
     CodingAgentRunActionRequest,
     CodingAgentRunActionResultEnvelope,
     read_canonical_coding_agent_request,
 )
 from kapso.cross_run.launch.run_action_coding_agent_layout import (
+    coding_agent_provider_environment,
     PROVIDER_CODEX_AUTH_PATH,
     PROVIDER_CODEX_HOME_PATH,
     PROVIDER_CREDENTIAL_PATH,
     PROVIDER_OUTPUT_PATH,
+    PROVIDER_TEMP_PATH,
     TRUSTED_WORKSPACE_PATH,
 )
 from kapso.cross_run.launch.run_action_coding_agent_runtime import (
@@ -100,6 +104,8 @@ _TRUSTED_GIT_CONFIGURATION_ARGUMENTS = (
 )
 _SUPPORT_FILE_MODE = 0o600
 _MAXIMUM_UNSIGNED_64 = (1 << 64) - 1
+_EGRESS_RELAY_EXECUTABLE = "/usr/bin/python3"
+_EGRESS_RELAY_MODULE = "kapso.cross_run.launch.run_action_coding_agent_egress_relay"
 
 
 class RunActionCodingAgentConsumerError(RuntimeError):
@@ -346,6 +352,17 @@ def _prepare_native_credential_projection(
     home_name = PurePosixPath(PROVIDER_CODEX_HOME_PATH).name
     auth_name = PurePosixPath(PROVIDER_CODEX_AUTH_PATH).name
     os.mkdir(home_name, 0o700, dir_fd=home_descriptor)
+    temporary_name = PurePosixPath(PROVIDER_TEMP_PATH).name
+    os.mkdir(temporary_name, 0o700, dir_fd=home_descriptor)
+    temporary_descriptor = os.open(
+        temporary_name,
+        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+        dir_fd=home_descriptor,
+    )
+    with ExitStack() as temporary_resources:
+        temporary_resources.callback(os.close, temporary_descriptor)
+        os.fchown(temporary_descriptor, -1, policy.provider_group_id)
+        os.fchmod(temporary_descriptor, 0o2770)
     codex_home_descriptor = os.open(
         home_name,
         os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
@@ -355,11 +372,29 @@ def _prepare_native_credential_projection(
         descriptors.callback(os.close, codex_home_descriptor)
         os.fchown(codex_home_descriptor, -1, policy.provider_group_id)
         os.fchmod(codex_home_descriptor, 0o2770)
-        os.symlink(
-            f"/proc/self/fd/{credential_descriptor}",
+        auth_descriptor = os.open(
             auth_name,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+            0o660,
             dir_fd=codex_home_descriptor,
         )
+        descriptors.callback(os.close, auth_descriptor)
+        os.fchmod(auth_descriptor, 0o660)
+        source_size = os.fstat(credential_descriptor).st_size
+        copied_size = 0
+        while copied_size < source_size:
+            copied = os.sendfile(
+                auth_descriptor,
+                credential_descriptor,
+                copied_size,
+                source_size - copied_size,
+            )
+            if copied <= 0:
+                raise RunActionCodingAgentConsumerError(
+                    "coding-agent credential copy made no progress"
+                )
+            copied_size += copied
+        os.fsync(auth_descriptor)
         os.fsync(codex_home_descriptor)
     _require_native_credential_projection(
         home_descriptor=home_descriptor,
@@ -378,7 +413,10 @@ def _require_native_credential_projection(
     _require_native_credential_source(credential_descriptor, request)
     home_name = PurePosixPath(PROVIDER_CODEX_HOME_PATH).name
     auth_name = PurePosixPath(PROVIDER_CODEX_AUTH_PATH).name
-    if tuple(os.listdir(home_descriptor)) != (home_name,):
+    temporary_name = PurePosixPath(PROVIDER_TEMP_PATH).name
+    if tuple(sorted(os.listdir(home_descriptor))) != tuple(
+        sorted((home_name, temporary_name))
+    ):
         raise RunActionCodingAgentConsumerError(
             "coding-agent native credential home has unexpected entries"
         )
@@ -395,19 +433,41 @@ def _require_native_credential_projection(
             dir_fd=codex_home_descriptor,
             follow_symlinks=False,
         )
+        temporary_metadata = os.stat(
+            temporary_name,
+            dir_fd=home_descriptor,
+            follow_symlinks=False,
+        )
         if (
             home_metadata.st_uid != policy.supervisor_user_id
             or home_metadata.st_gid != policy.provider_group_id
             or stat.S_IMODE(home_metadata.st_mode) != 0o2770
-            or tuple(os.listdir(codex_home_descriptor)) != (auth_name,)
-            or not stat.S_ISLNK(auth_metadata.st_mode)
-            or auth_metadata.st_uid != policy.supervisor_user_id
+            or not stat.S_ISDIR(temporary_metadata.st_mode)
+            or temporary_metadata.st_uid != policy.supervisor_user_id
+            or temporary_metadata.st_gid != policy.provider_group_id
+            or stat.S_IMODE(temporary_metadata.st_mode) != 0o2770
             or auth_metadata.st_gid != policy.provider_group_id
-            or os.readlink(auth_name, dir_fd=codex_home_descriptor)
-            != f"/proc/self/fd/{credential_descriptor}"
         ):
             raise RunActionCodingAgentConsumerError(
                 "coding-agent native credential projection changed"
+            )
+        if (
+            not stat.S_ISREG(auth_metadata.st_mode)
+            or auth_metadata.st_nlink != 1
+            or not 0 < auth_metadata.st_size <= policy.maximum_native_credential_bytes
+            or (
+                auth_metadata.st_uid == policy.supervisor_user_id
+                and stat.S_IMODE(auth_metadata.st_mode) != 0o660
+            )
+            or (
+                auth_metadata.st_uid == policy.provider_user_id
+                and stat.S_IMODE(auth_metadata.st_mode) != 0o600
+            )
+            or auth_metadata.st_uid
+            not in {policy.supervisor_user_id, policy.provider_user_id}
+        ):
+            raise RunActionCodingAgentConsumerError(
+                "coding-agent refreshed native credential is invalid"
             )
 
 
@@ -500,7 +560,7 @@ def consume_coding_agent_run_action(
             termination_grace_nanoseconds=policy.termination_grace_nanoseconds,
             maximum_output_bytes=policy.maximum_provider_output_bytes,
             maximum_diagnostic_bytes=policy.maximum_provider_diagnostic_bytes,
-            environment=coding_agent_cli_provider_environment(),
+            environment=coding_agent_cli_provider_environment(request),
             inherited_descriptors=inherited_descriptors,
         )
         validate_coding_agent_cli_preflight(
@@ -534,27 +594,28 @@ def consume_coding_agent_run_action(
             )
         require_coding_agent_scratch_support(scratch)
         started_nanoseconds = time.monotonic_ns()
-        process = process_runner.run(
-            coding_agent_provider_sandbox_command(
-                request,
-                coding_agent_cli_command(request),
-                sandbox_descriptors,
-            ),
-            stdin_payload=request.prompt.encode("utf-8"),
-            stdin_directory=coding_agent_cli_temporary_path(),
-            working_directory=coding_agent_cli_workspace_path(),
-            timeout_nanoseconds=policy.timeout_nanoseconds,
-            termination_grace_nanoseconds=policy.termination_grace_nanoseconds,
-            maximum_output_bytes=policy.maximum_provider_output_bytes,
-            maximum_diagnostic_bytes=policy.maximum_provider_diagnostic_bytes,
-            environment=coding_agent_cli_provider_environment(),
-            inherited_descriptors=inherited_descriptors,
-        )
+        with ExitStack() as provider_resources:
+            _start_coding_agent_egress_relay(request, provider_resources)
+            process = process_runner.run(
+                coding_agent_provider_sandbox_command(
+                    request,
+                    coding_agent_cli_command(request),
+                    sandbox_descriptors,
+                ),
+                stdin_payload=request.prompt.encode("utf-8"),
+                stdin_directory=coding_agent_cli_temporary_path(),
+                working_directory=coding_agent_cli_workspace_path(),
+                timeout_nanoseconds=policy.timeout_nanoseconds,
+                termination_grace_nanoseconds=policy.termination_grace_nanoseconds,
+                maximum_output_bytes=policy.maximum_provider_output_bytes,
+                maximum_diagnostic_bytes=policy.maximum_provider_diagnostic_bytes,
+                environment=coding_agent_cli_provider_environment(request),
+                inherited_descriptors=inherited_descriptors,
+            )
         duration_nanoseconds = time.monotonic_ns() - started_nanoseconds
         scratch.restore_temporary_root()
-        final_output_payload = _read_provider_final(
-            scratch,
-            request,
+        final_output_payload = (
+            _read_provider_final(scratch, request) if process.return_code == 0 else None
         )
         outcome = interpret_coding_agent_cli_completion(
             request=request,
@@ -714,6 +775,79 @@ def consume_coding_agent_run_action(
             temporary_directory_descriptor,
             payload,
             maximum_size_bytes=policy.maximum_raw_result_bytes,
+        )
+
+
+def _start_coding_agent_egress_relay(
+    request: CodingAgentRunActionRequest,
+    resources: ExitStack,
+) -> None:
+    policy = request.interpretation_policy
+    if policy.provider_egress_mode is CodingAgentProviderEgressMode.NONE:
+        return
+    if (
+        policy.egress_relay_port is None
+        or policy.egress_relay_backlog is None
+        or policy.egress_relay_chunk_size_bytes is None
+    ):
+        raise RunActionCodingAgentConsumerError(
+            "coding-agent egress relay policy is incomplete"
+        )
+    readiness_read_descriptor, readiness_write_descriptor = os.pipe2(os.O_CLOEXEC)
+    resources.callback(os.close, readiness_read_descriptor)
+    with os.fdopen(readiness_write_descriptor, "wb"):
+        relay = subprocess.Popen(
+            (
+                _EGRESS_RELAY_EXECUTABLE,
+                "-m",
+                _EGRESS_RELAY_MODULE,
+                "--port",
+                str(policy.egress_relay_port),
+                "--backlog",
+                str(policy.egress_relay_backlog),
+                "--chunk-size-bytes",
+                str(policy.egress_relay_chunk_size_bytes),
+                "--readiness-descriptor",
+                str(readiness_write_descriptor),
+                "--supervisor-user-id",
+                str(policy.supervisor_user_id),
+                "--supervisor-group-id",
+                str(policy.supervisor_group_id),
+                "--provider-group-id",
+                str(policy.provider_group_id),
+            ),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=None,
+            start_new_session=True,
+            close_fds=True,
+            pass_fds=(readiness_write_descriptor,),
+            env=dict(coding_agent_provider_environment(None)),
+        )
+    resources.callback(_terminate_standalone_process_group, relay)
+    readable, _writable, _exceptional = select.select(
+        (readiness_read_descriptor,),
+        (),
+        (),
+        policy.termination_grace_nanoseconds / 1_000_000_000,
+    )
+    if (
+        readable != [readiness_read_descriptor]
+        or os.read(readiness_read_descriptor, 1) != b"\x01"
+        or relay.poll() is not None
+    ):
+        raise RunActionCodingAgentConsumerError(
+            "coding-agent egress relay did not become ready exactly"
+        )
+
+
+def _terminate_standalone_process_group(process: subprocess.Popen) -> None:
+    if process.poll() is None:
+        _kill_process_group(process)
+    process.wait()
+    if type(process.returncode) is not int:
+        raise RunActionCodingAgentConsumerError(
+            "coding-agent egress relay was not exactly reaped"
         )
 
 

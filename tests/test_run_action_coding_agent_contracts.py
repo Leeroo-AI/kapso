@@ -18,6 +18,7 @@ from kapso.cross_run.launch.run_action_coding_agent_contracts import (
     CODING_AGENT_SCHEMA_PROTOCOL_VERSION,
     CODING_AGENT_NATIVE_TOOL_POLICY_VERSION,
     CodingAgentInterpretationPolicy,
+    CodingAgentProviderEgressMode,
     CodingAgentPriorKnowledgeAccessEvent,
     CodingAgentPriorKnowledgeAccessKind,
     CodingAgentRunActionRequest,
@@ -36,10 +37,12 @@ _EDITED_DIGEST = tree_or_blob_digest(b"edited")
 def interpretation_policy(
     *,
     cli="codex",
+    model="gpt-5.6",
+    effort="xhigh",
     consumer_id="kapso.coding_agent_consumer",
     consumer_version="v1",
     workspace_access=RunFrontierWorkspaceAccess.READ_ONLY,
-    web_search_enabled=True,
+    web_search_enabled=False,
     maximum_request_bytes=268_435_456,
     maximum_response_schema_bytes=65_536,
     maximum_cli_argument_bytes=131_072,
@@ -50,7 +53,25 @@ def interpretation_policy(
     supervisor_group_id=1000,
     provider_user_id=1001,
     provider_group_id=1001,
+    provider_egress_mode=None,
+    egress_relay_port=None,
+    egress_connect_authorities=(),
+    maximum_egress_connect_header_bytes=None,
+    egress_relay_backlog=None,
+    egress_relay_chunk_size_bytes=None,
 ):
+    if provider_egress_mode is None:
+        provider_egress_mode = (
+            CodingAgentProviderEgressMode.HTTPS_CONNECT_PROXY
+            if web_search_enabled
+            else CodingAgentProviderEgressMode.NONE
+        )
+        if web_search_enabled:
+            egress_relay_port = 43_119
+            egress_connect_authorities = ("api.openai.com:443",)
+            maximum_egress_connect_header_bytes = 16_384
+            egress_relay_backlog = 16
+            egress_relay_chunk_size_bytes = 65_536
     return CodingAgentInterpretationPolicy.mint(
         request_protocol_version=CODING_AGENT_REQUEST_PROTOCOL_VERSION,
         result_protocol_version=CODING_AGENT_RESULT_PROTOCOL_VERSION,
@@ -60,10 +81,16 @@ def interpretation_policy(
         principal_id="kapso.ideation.generator",
         role="candidate_generator",
         cli=cli,
-        model="gpt-5.6",
-        effort="xhigh",
+        model=model,
+        effort=effort,
         native_tool_policy_version=CODING_AGENT_NATIVE_TOOL_POLICY_VERSION,
         web_search_enabled=web_search_enabled,
+        provider_egress_mode=provider_egress_mode,
+        egress_relay_port=egress_relay_port,
+        egress_connect_authorities=egress_connect_authorities,
+        maximum_egress_connect_header_bytes=maximum_egress_connect_header_bytes,
+        egress_relay_backlog=egress_relay_backlog,
+        egress_relay_chunk_size_bytes=egress_relay_chunk_size_bytes,
         timeout_nanoseconds=300_000_000_000,
         termination_grace_nanoseconds=5_000_000_000,
         supervisor_user_id=supervisor_user_id,
@@ -339,6 +366,35 @@ def test_policy_rejects_unknown_native_tool_policy_and_non_boolean_web_search():
         match="web_search_enabled must be a boolean",
     ):
         replace(interpretation_policy(), web_search_enabled=1)
+
+
+def test_policy_binds_a_closed_https_connect_authority():
+    policy = interpretation_policy(
+        provider_egress_mode=CodingAgentProviderEgressMode.HTTPS_CONNECT_PROXY,
+        egress_relay_port=43_119,
+        egress_connect_authorities=("chatgpt.com:443",),
+        maximum_egress_connect_header_bytes=16_384,
+        egress_relay_backlog=16,
+        egress_relay_chunk_size_bytes=65_536,
+    )
+
+    assert policy.egress_connect_authorities == ("chatgpt.com:443",)
+
+    with pytest.raises(
+        RunActionCodingAgentContractError,
+        match="retains egress authority",
+    ):
+        replace(policy, provider_egress_mode=CodingAgentProviderEgressMode.NONE)
+    with pytest.raises(
+        RunActionCodingAgentContractError,
+        match="invalid or unbounded",
+    ):
+        replace(policy, egress_connect_authorities=("chatgpt.com:80",))
+    with pytest.raises(
+        RunActionCodingAgentContractError,
+        match="invalid or unbounded",
+    ):
+        replace(policy, egress_connect_authorities=("CHATGPT.COM:443",))
 
 
 def test_request_rejects_response_schema_above_the_policy_bound():

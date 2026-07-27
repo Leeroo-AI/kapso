@@ -208,10 +208,15 @@ def coding_agent_cli_workspace_path() -> str:
     return PROVIDER_WORKSPACE_PATH
 
 
-def coding_agent_cli_provider_environment() -> Mapping[str, str]:
+def coding_agent_cli_provider_environment(
+    request: CodingAgentRunActionRequest,
+) -> Mapping[str, str]:
     """Return the complete ambient authority admitted to either native CLI."""
 
-    return coding_agent_provider_environment()
+    _require_request(request)
+    return coding_agent_provider_environment(
+        request.interpretation_policy.egress_relay_port
+    )
 
 
 def coding_agent_cli_temporary_path() -> str:
@@ -441,7 +446,9 @@ def _codex_command(request: CodingAgentRunActionRequest) -> tuple[str, ...]:
             + "{"
             + ",".join(
                 f"{key}={json.dumps(value)}"
-                for key, value in sorted(coding_agent_provider_environment().items())
+                for key, value in sorted(
+                    coding_agent_cli_provider_environment(request).items()
+                )
             )
             + "}"
         ),

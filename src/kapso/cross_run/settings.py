@@ -45,6 +45,10 @@ _CONTENT_WRITE_REQUEST_POINTS = 5
 _RUN_ACTION_MAXIMUM_EVENT_COUNT = 8
 _RUN_ACTION_MAXIMUM_BLOB_COUNT = 3
 _RUN_ACTION_FIXED_ENTRY_COUNT = 2
+_HTTPS_CONNECT_AUTHORITY_PATTERN = re.compile(
+    r"^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?[.])+[a-z0-9]"
+    r"(?:[a-z0-9-]{0,61}[a-z0-9])?:443$"
+)
 
 
 class CrossRunConfigurationError(ValueError):
@@ -1615,6 +1619,13 @@ class LaunchSettings(StrictContract):
     coding_agent_provider_diagnostic_size_bytes: int
     coding_agent_prior_knowledge_audit_size_bytes: int
     coding_agent_native_credential_size_bytes: int
+    coding_agent_codex_auth_source_path: str
+    coding_agent_egress_relay_port: int
+    coding_agent_egress_connect_authorities: tuple[str, ...]
+    coding_agent_egress_connect_header_size_bytes: int
+    coding_agent_egress_relay_backlog: int
+    coding_agent_egress_relay_chunk_size_bytes: int
+    coding_agent_egress_connect_timeout_seconds: int
     coding_agent_supervisor_user_id: int
     coding_agent_supervisor_group_id: int
     coding_agent_provider_user_id: int
@@ -1853,6 +1864,47 @@ class LaunchSettings(StrictContract):
             ),
         ):
             _require_positive(value, f"launch.{name}")
+        _require_path(
+            self.coding_agent_codex_auth_source_path,
+            "launch.coding_agent_codex_auth_source_path",
+        )
+        if not PurePosixPath(self.coding_agent_codex_auth_source_path).is_absolute():
+            raise CrossRunConfigurationError(
+                "launch.coding_agent_codex_auth_source_path must be absolute"
+            )
+        for value, name in (
+            (
+                self.coding_agent_egress_connect_header_size_bytes,
+                "coding_agent_egress_connect_header_size_bytes",
+            ),
+            (
+                self.coding_agent_egress_relay_backlog,
+                "coding_agent_egress_relay_backlog",
+            ),
+            (
+                self.coding_agent_egress_relay_chunk_size_bytes,
+                "coding_agent_egress_relay_chunk_size_bytes",
+            ),
+            (
+                self.coding_agent_egress_connect_timeout_seconds,
+                "coding_agent_egress_connect_timeout_seconds",
+            ),
+        ):
+            _require_positive(value, f"launch.{name}")
+        if (
+            type(self.coding_agent_egress_relay_port) is not int
+            or not 0 < self.coding_agent_egress_relay_port <= 65_535
+            or self.coding_agent_egress_connect_authorities
+            != tuple(sorted(set(self.coding_agent_egress_connect_authorities)))
+            or not self.coding_agent_egress_connect_authorities
+            or any(
+                _HTTPS_CONNECT_AUTHORITY_PATTERN.fullmatch(authority) is None
+                for authority in self.coding_agent_egress_connect_authorities
+            )
+        ):
+            raise CrossRunConfigurationError(
+                "launch coding-agent HTTPS CONNECT authority is invalid"
+            )
         for value, name in (
             (
                 self.coding_agent_supervisor_user_id,
