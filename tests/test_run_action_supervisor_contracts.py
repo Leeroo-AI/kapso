@@ -151,6 +151,10 @@ def _boundary(
             implementation_id=f"test.{kind.value}.interpreter",
             implementation_version="test.interpreter.v1",
             interpretation_protocol_version="test.interpretation.v1",
+            interpretation_policy_id=content_id(
+                "test-run-action-interpretation-policy",
+                {"kind": kind.value},
+            ),
         ),
     )
 
@@ -177,6 +181,13 @@ def _credential_policy(mode=RunActionCredentialMode.SUPERVISOR_FILE):
         maximum_lease_seconds=900,
         maximum_delivery_size_bytes=4096,
     )
+
+
+def test_result_interpreter_identity_requires_content_policy_id():
+    identity = _boundary().result_interpreter_identity
+
+    with pytest.raises(ValueError, match="result interpreter policy"):
+        replace(identity, interpretation_policy_id="not-a-content-id")
 
 
 def _execution_policy(

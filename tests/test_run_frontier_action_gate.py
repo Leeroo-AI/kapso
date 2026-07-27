@@ -10,7 +10,7 @@ from dataclasses import replace
 
 import pytest
 
-from kapso.cross_run.canonical import tree_or_blob_digest
+from kapso.cross_run.canonical import content_id, tree_or_blob_digest
 from kapso.cross_run.launch.checkpoint_contracts import (
     RunCheckpoint,
     RunCheckpointStatus,
@@ -94,6 +94,10 @@ def _boundary_identity(
             implementation_id=f"test.{kind.value}.interpreter",
             implementation_version="test.interpreter.v1",
             interpretation_protocol_version="test.interpretation.v1",
+            interpretation_policy_id=content_id(
+                "test-run-action-interpretation-policy",
+                {"kind": kind.value},
+            ),
         ),
     )
 

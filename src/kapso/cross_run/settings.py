@@ -14,6 +14,10 @@ from kapso.cross_run.canonical import (
     to_json_value,
     tree_or_blob_digest,
 )
+from kapso.cross_run.coding_agent_compatibility import (
+    coding_agent_supported_efforts,
+    coding_agent_supported_tools,
+)
 from kapso.cross_run.contracts import (
     ContractValidationError,
     CrossRunTaskBindingSettings,
@@ -451,28 +455,18 @@ class CodingAgentSettings(StrictContract):
         if not self.model:
             raise CrossRunConfigurationError("coding agent model must not be empty")
         _require_positive(self.timeout_seconds, "coding agent timeout_seconds")
-        valid_efforts = {
-            "codex": {"minimal", "low", "medium", "high", "xhigh"},
-            "claude_code": {"low", "medium", "high", "xhigh", "max"},
-        }
-        if self.effort not in valid_efforts[self.cli]:
+        if self.effort not in coding_agent_supported_efforts(self.cli):
             raise CrossRunConfigurationError(
                 "coding agent effort is incompatible with its CLI"
             )
-        supported_tools = {
-            "codex": {"Read", "WebSearch"},
-            "claude_code": {
-                "Edit",
-                "Glob",
-                "Grep",
-                "Read",
-                "WebSearch",
-                "Write",
-            },
-        }
         if self.allowed_tools != tuple(sorted(set(self.allowed_tools))) or not set(
             self.allowed_tools
-        ).issubset(supported_tools[self.cli]):
+        ).issubset(
+            coding_agent_supported_tools(
+                self.cli,
+                edit_workspace=True,
+            )
+        ):
             raise CrossRunConfigurationError(
                 "coding agent tools must be supported, sorted, and unique"
             )

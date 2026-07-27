@@ -67,6 +67,14 @@ stably exited while the control tree remains `EMPTY`; it binds two normalized
 Docker snapshots, exact surviving volume/keeper authority, inventory and host
 boot, then transfers the same retained publication fence without inventing a
 release or experiment result.
+Coding-agent actions now have one path-free canonical request, one canonical raw
+result envelope, a content-addressed interpretation policy, and a dependency-pure
+interpreter. Request admission validates the closed response-schema subset before
+reservation. The raw envelope joins the exact durable operation and request,
+consumer, telemetry, semantic prior-knowledge accesses, and optional edited
+source-tree digest. Interpretation accepts only canonical structured output,
+repeats deterministically after `RESULT_RECEIVED`, and exact-joins edit predecessor
+and successor source trees before staging or decision.
 The framework-owned credential broker and pre-release expiry path are also
 implemented. The broker response transfers secret bytes into coordinator-private
 single-use authority before adapter access. Before broker issue, credential
@@ -139,6 +147,9 @@ src/kapso/cross_run/launch/
   run_action_pre_release_main_loss.py
   run_action_pre_release_main_terminal.py
   run_action_pre_release_resources.py
+  run_action_coding_agent_contracts.py
+  run_action_coding_agent_schema.py
+  run_action_coding_agent_interpreter.py
   run_action_docker_cleanup.py
   run_action_resource_finalization.py
   run_action_docker_adapter.py
@@ -598,7 +609,8 @@ IDs and invocation nonces are unique across the full store, not merely within
 one operation. Every reservation and spawn also pins one content-addressed
 boundary identity. The boundary jointly embeds an action-kind-bound,
 content-addressed execution-lifecycle identity and an action-kind-bound,
-content-addressed pure result-interpreter identity. A substituted lifecycle,
+content-addressed pure result-interpreter identity whose policy identity is part
+of its preimage. A substituted lifecycle,
 interpreter, implementation method, recovery protocol, or sandbox policy is
 rejected against the exact process-local composition.
 
@@ -1468,9 +1480,9 @@ release/timeout dominance are pinned by focused tests. The full 981-test
 non-recovery run-action suite and 89-test recovery suite pass, and a
 credentialed real-Docker result lifecycle proves that its actual serialized
 receipt is no larger than two repeated formal computations. Production adapter
-composition is now one exact lifecycle object; provider-specific consumers,
-result interpreters, credential formats, and egress remain separate boundary
-composition.
+composition is now one exact lifecycle object. The concrete coding-agent result
+interpreter and offline consumer contract are complete; provider-native
+consumers, credential formats, and egress remain separate boundary composition.
 The start manager exposes no generic Docker command surface, and the raw pinned
 runtime is process-bound. One real-Docker lifecycle now routes the durable main
 through two coordinator passes: exact `INERT` classification and sealed barrier
@@ -1531,18 +1543,23 @@ at composition; `recover()` accepts no caller-selected implementation. Each
 catalog entry exact-object binds one execution adapter and one result interpreter
 to the two identities in its durable boundary. Execution adapters own only
 prepare, stage, read-only inspection, and token-sealed continuation. Result
-interpreters receive only the complete
-request and raw-result bytes: no workspace binding, descriptor, provider object,
-or execution method. A `RESULT_RECEIVED` tail resolves and invokes only the
+interpreters receive only the durable operation ID plus complete request and
+raw-result bytes: no workspace binding, descriptor, provider object, or execution
+method. The coding-agent interpreter exact-joins that outer operation ID to the
+inner request/result pair and returns only the canonical schema-valid structured
+output as the accepted scientific result; the complete raw envelope remains
+durable audit evidence. A `RESULT_RECEIVED` tail resolves and invokes only the
 interpreter. Interpretation is repeated to detect nondeterminism, while the
 coordinator alone reconciles the unchanged host workspace before and after the
 durable decision. A `RESULT_DECIDED` tail invokes neither adapter nor interpreter;
 it revalidates the workspace and appends only terminal acceptance. A crash after
 spawn commit therefore reopens only as committed work; a crash after raw-result
 persistence re-runs only local interpretation; a crash after the decision reruns
-only workspace completion. A successful editing result stages an isolated,
-content-bound workspace promotion before `RESULT_DECIDED`; recovery completes
-the exact decided exchange without provider or interpreter access.
+only workspace completion. A successful editing result must name the
+reservation's exact predecessor source tree and the isolated candidate's exact
+successor source tree. A mismatch is rejected before durable staging; the
+verified candidate is staged before `RESULT_DECIDED`, and recovery completes the
+exact decided exchange without provider or interpreter access.
 
 Publication takes the locks in checkpoint → workspace → registry order and
 retains them through bundle/checkpoint/view commit. The candidate `ACTION_LEDGER`
@@ -1556,13 +1573,19 @@ and otherwise unchanged terminals still form one exact full workspace-identity
 chain, including source and admitted Git closure digests, whose final identity
 must equal the live workspace. Resume can now classify and reconcile each
 nonterminal prefix without blindly reinvoking a committed provider. The
-network-free supervisor implementation is concrete; provider consumer/result
-envelopes, exact egress, native credential consumption, API composition, and
-execution-permit OS isolation remain required before paid-provider activation.
+network-free supervisor and self-contained coding-agent result boundary are
+concrete; provider-native CLI consumption, exact egress, native credential
+consumption, API composition, and execution-permit OS isolation remain required
+before paid-provider activation.
 
 ## Failure and trust behavior
 
 - Missing/corrupt/unauthorized/incompatible/expired artifacts fail before spend.
+- A provider-native consumer may publish `result.blob` only after complete
+  canonical-envelope and response-schema validation, using an atomic final write.
+  CLI, schema, or provider failures exit without a result and follow typed provider
+  termination; a malformed durable `RESULT_RECEIVED` is contract corruption and
+  fails loud rather than being reclassified or discarded.
 - Network failure during fresh resolution fails; no local unpinned substitute.
 - A verified local cache may support normal offline scientific work only after one
   exact launch is resolved and pinned.

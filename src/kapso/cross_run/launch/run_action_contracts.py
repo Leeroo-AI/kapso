@@ -112,6 +112,7 @@ class RunActionResultInterpreterIdentity(StrictContract):
     implementation_id: str
     implementation_version: str
     interpretation_protocol_version: str
+    interpretation_policy_id: str
 
     CONTENT_NAMESPACE: ClassVar[str] = "run-action-result-interpreter-identity"
     IDENTITY_FIELD: ClassVar[str] = "result_interpreter_identity_id"
@@ -127,6 +128,10 @@ class RunActionResultInterpreterIdentity(StrictContract):
             (self.interpretation_protocol_version, "interpretation protocol version"),
         ):
             require_identifier(value, f"run action result interpreter {name}")
+        require_content_id(
+            self.interpretation_policy_id,
+            "run action result interpreter policy",
+        )
 
 
 @dataclass(frozen=True)

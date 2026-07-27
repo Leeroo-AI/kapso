@@ -7,6 +7,7 @@ Run directly:
 
 from __future__ import annotations
 
+import base64
 import json
 import re
 import subprocess
@@ -24,7 +25,7 @@ from expert_live_docker_support import (
     run_setup_docker,
 )
 from kapso.core.config import load_config
-from kapso.cross_run.canonical import tree_or_blob_digest
+from kapso.cross_run.canonical import canonical_json_bytes, tree_or_blob_digest
 from kapso.cross_run.docker.runtime import (
     DockerImageAuthority,
     PinnedDockerCleanupAuthority,
@@ -43,6 +44,18 @@ from kapso.cross_run.launch.run_action_docker_projection import (
 )
 from kapso.cross_run.launch.run_action_docker_adapter import (
     DockerRunActionExecutionAdapter,
+)
+from kapso.cross_run.launch.run_action_coding_agent_contracts import (
+    CODING_AGENT_REQUEST_PROTOCOL_VERSION,
+    CODING_AGENT_RESULT_PROTOCOL_VERSION,
+    CODING_AGENT_SCHEMA_PROTOCOL_VERSION,
+    CodingAgentInterpretationPolicy,
+    CodingAgentRunActionRequest,
+)
+from kapso.cross_run.launch.run_action_coding_agent_interpreter import (
+    CodingAgentRunActionResultInterpreter,
+    FixedOfflineCodingAgentConsumer,
+    coding_agent_result_interpreter_identity,
 )
 from kapso.cross_run.launch.run_action_contracts import (
     RunActionBoundaryIdentity,
@@ -167,6 +180,7 @@ from kapso.cross_run.launch.run_action_runtime_volume import (
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RUN_ACTION_MAXIMUM_PHYSICAL_INTEGER,
     RunActionActivationRevalidationReceipt,
+    RunActionCredentialMode,
     RunActionPreparationAllocation,
     RunActionPreparedExecution,
     RunActionStaticEnvironmentVariable,
@@ -210,7 +224,7 @@ class _UnusedLiveResultInterpreter:
     def __init__(self, result_interpreter_identity) -> None:
         self.result_interpreter_identity = result_interpreter_identity
 
-    def interpret(self, *, request_payload, result_payload):
+    def interpret(self, *, operation_id, request_payload, result_payload):
         raise AssertionError("blocked-workload proof must not interpret a result")
 
 
@@ -218,13 +232,14 @@ class _LiveAcceptedResultInterpreter:
     def __init__(self, result_interpreter_identity) -> None:
         self.result_interpreter_identity = result_interpreter_identity
 
-    def interpret(self, *, request_payload, result_payload):
+    def interpret(self, *, operation_id, request_payload, result_payload):
         if request_payload != b"complete request":
             raise AssertionError("live result interpreter received another request")
         if result_payload != _LIVE_RESULT_PAYLOAD:
             raise AssertionError("live result interpreter received another result")
         return RunActionInterpretedResult(
             disposition=RunActionResultDisposition.SUCCEEDED,
+            operation_id=operation_id,
             accepted_result_payload=result_payload,
         )
 
@@ -953,6 +968,55 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
         Path(settings.helper_executable_path),
         settings.helper_executable_digest,
     )
+    coding_agent_policy = None
+    coding_agent_request = None
+    coding_agent_result_payload = None
+    if terminal_path == "production_adapter_result":
+        coding_agent_policy = CodingAgentInterpretationPolicy.mint(
+            request_protocol_version=CODING_AGENT_REQUEST_PROTOCOL_VERSION,
+            result_protocol_version=CODING_AGENT_RESULT_PROTOCOL_VERSION,
+            schema_protocol_version=CODING_AGENT_SCHEMA_PROTOCOL_VERSION,
+            consumer_id="kapso.offline_coding_agent_consumer",
+            consumer_version="v1",
+            principal_id="kapso.live_validation",
+            role="live_coding_agent_validation",
+            cli="codex",
+            model="gpt-5.6-sol",
+            effort="xhigh",
+            allowed_tools=("Read",),
+            timeout_nanoseconds=(
+                _policy(settings).supervisor_limits.execution_timeout_seconds
+                * 1_000_000_000
+            ),
+            workspace_access=RunFrontierWorkspaceAccess.READ_ONLY,
+            maximum_raw_result_bytes=(
+                cross_run_settings.launch.run_action_result_size_bytes
+            ),
+        )
+        coding_agent_request = CodingAgentRunActionRequest(
+            protocol_version=CODING_AGENT_REQUEST_PROTOCOL_VERSION,
+            interpretation_policy_id=coding_agent_policy.interpretation_policy_id,
+            operation_id="agent_call_" + "a" * 32,
+            prompt="Return the fixed live-validation result object.",
+            response_schema={
+                "type": "object",
+                "properties": {"live": {"type": "string", "enum": ["captured"]}},
+                "required": ["live"],
+                "additionalProperties": False,
+            },
+            prior_knowledge=None,
+            edit_predecessor_source_tree_digest=None,
+        )
+        coding_agent_result_payload = FixedOfflineCodingAgentConsumer(
+            interpretation_policy=coding_agent_policy,
+            structured_output={"live": "captured"},
+            duration_nanoseconds=1,
+            input_tokens=1,
+            output_tokens=1,
+            cost_usd=None,
+            prior_knowledge_accesses=(),
+            edited_source_tree_digest=None,
+        ).consume(coding_agent_request.to_json_bytes())
 
     with ExitStack() as cleanup:
         local_registry = _start_local_oci_registry(cleanup, busybox_bytes)
@@ -1007,12 +1071,25 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             "result",
             "ambiguous_start",
             "timeout",
-            "production_adapter_result",
         }:
             target_command = (
                 'printf \'{"live":"captured"}\''
                 " > /kapso/result/result.blob"
                 f" && {target_command}"
+            )
+        if terminal_path == "production_adapter_result":
+            request_digest = coding_agent_request.request_digest.removeprefix("sha256:")
+            encoded_result = base64.b64encode(coding_agent_result_payload).decode(
+                "ascii"
+            )
+            target_command = (
+                f"printf '%s' '{encoded_result}'"
+                " | /bin/busybox base64 -d"
+                " > /kapso/result/result.blob"
+                f" && printf '%s  %s\\n' '{request_digest}'"
+                " /kapso/input/request.blob"
+                " | /bin/busybox sha256sum -c -"
+                " && test -d /kapso/workspace/.git"
             )
         if terminal_path == "timeout":
             target_command += (
@@ -1392,7 +1469,14 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
         )
         workspace_binding = RunActionWorkspaceBinding.from_identity(source_frontier)
         layout_policy = _remint_policy(
-            _policy(settings),
+            _policy(
+                settings,
+                credential_mode=(
+                    RunActionCredentialMode.NONE
+                    if terminal_path == "production_adapter_result"
+                    else RunActionCredentialMode.SUPERVISOR_FILE
+                ),
+            ),
             image_authority=image_authority,
             command_template_id=command.command_template_id,
             static_environment=(
@@ -1427,22 +1511,35 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             RunFrontierActionKind.CODING_AGENT,
             RunFrontierWorkspaceAccess.READ_ONLY,
         )
+        result_interpreter_identity = (
+            coding_agent_result_interpreter_identity(coding_agent_policy)
+            if terminal_path == "production_adapter_result"
+            else base_boundary_identity.result_interpreter_identity
+        )
         boundary_identity = RunActionBoundaryIdentity.mint(
             kind=RunFrontierActionKind.CODING_AGENT,
             execution_lifecycle_identity=_remint_contract(
                 base_boundary_identity.execution_lifecycle_identity,
                 execution_policy_id=layout_policy.docker_execution_policy_id,
             ),
-            result_interpreter_identity=(
-                base_boundary_identity.result_interpreter_identity
-            ),
+            result_interpreter_identity=result_interpreter_identity,
+        )
+        request_payload = (
+            coding_agent_request.to_json_bytes()
+            if terminal_path == "production_adapter_result"
+            else b"complete request"
+        )
+        operation_id = (
+            coding_agent_request.operation_id
+            if terminal_path == "production_adapter_result"
+            else "live_blocked_workload_0123456789abcdef"
         )
         layout_reservation = action_gate.reserve(
             action_frontier,
             kind=RunFrontierActionKind.CODING_AGENT,
             boundary=RunSafetyBoundary.IDEATION,
-            operation_id="live_blocked_workload_0123456789abcdef",
-            request_payload=b"complete request",
+            operation_id=operation_id,
+            request_payload=request_payload,
             workspace_access=RunFrontierWorkspaceAccess.READ_ONLY,
             boundary_identity=boundary_identity,
         )
@@ -1531,8 +1628,11 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
                     runtime=runtime,
                     launch_settings=cross_run_settings.launch,
                 )
-                production_interpreter = _LiveAcceptedResultInterpreter(
-                    boundary_identity.result_interpreter_identity
+                production_interpreter = CodingAgentRunActionResultInterpreter(
+                    result_interpreter_identity=(
+                        boundary_identity.result_interpreter_identity
+                    ),
+                    interpretation_policy=coding_agent_policy,
                 )
                 coordinator = _production_recovery_coordinator(
                     action_gate,
@@ -1564,6 +1664,14 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
                 assert crash_events[-1].event_kind is (
                     RunActionExecutionEventKind.SPAWN_COMMITTED
                 )
+                crash_inventory = resource_manager.observe(layout_allocation)
+                crash_main = resource_manager.inspect_main(crash_inventory)
+                assert crash_main["HostConfig"]["NetworkMode"] == "none"
+                assert all(
+                    mount.get("VolumeOptions", {}).get("Subpath") != "credential"
+                    for mount in crash_main["HostConfig"]["Mounts"]
+                )
+                assert credential_backend.issue_calls == []
                 monkeypatch.setattr(
                     docker_adapter_module,
                     "deliver_and_reobserve_runtime_volume_activation",
@@ -1588,6 +1696,25 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
                 )
                 assert terminal_events[-1].event_kind is (
                     RunActionExecutionEventKind.RESULT_ACCEPTED
+                )
+                assert terminal_report.recovered_operations[
+                    -1
+                ].accepted_result_payload == canonical_json_bytes({"live": "captured"})
+                assert terminal_events[5].result_receipt.result_blob.digest == (
+                    tree_or_blob_digest(coding_agent_result_payload)
+                )
+                assert terminal_events[5].result_receipt.result_blob.size_bytes == len(
+                    coding_agent_result_payload
+                )
+                assert terminal_events[
+                    6
+                ].result_decision.accepted_result_blob.digest == (
+                    tree_or_blob_digest(canonical_json_bytes({"live": "captured"}))
+                )
+                assert terminal_events[
+                    6
+                ].result_decision.accepted_result_blob.size_bytes == len(
+                    canonical_json_bytes({"live": "captured"})
                 )
                 assert resource_manager.observe(layout_allocation).is_absent
                 action_gate._resource_finalization_authority.require_terminal_absence(

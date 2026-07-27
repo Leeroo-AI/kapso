@@ -277,17 +277,27 @@ class _FakeResultInterpreter:
         self.result_interpreter_identity = result_interpreter_identity
         self.disposition = disposition
         self.interpret_calls = []
+        self.expected_workspace_before_source_tree_digest = None
+        self.expected_workspace_after_source_tree_digest = None
 
     def interpret(
         self,
         *,
+        operation_id,
         request_payload,
         result_payload,
     ):
         self.interpret_calls.append((request_payload, result_payload))
         return RunActionInterpretedResult(
             disposition=self.disposition,
+            operation_id=operation_id,
             accepted_result_payload=b'{"accepted":"deterministic"}',
+            expected_workspace_before_source_tree_digest=(
+                self.expected_workspace_before_source_tree_digest
+            ),
+            expected_workspace_after_source_tree_digest=(
+                self.expected_workspace_after_source_tree_digest
+            ),
         )
 
 
@@ -358,6 +368,35 @@ def _isolated_edit_candidate(
         "Apply isolated edit",
     )
     return candidate
+
+
+def _bind_successful_edit_result(
+    adapter,
+    reservation,
+    candidate,
+    settings,
+):
+    with ExitStack() as descriptors:
+        candidate_descriptor = os.open(
+            candidate,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+        )
+        descriptors.callback(os.close, candidate_descriptor)
+        candidate_frontier = inspect_run_workspace_frontier(
+            candidate_descriptor,
+            settings=settings,
+            expected_commit_sha=_run_git(
+                candidate,
+                "rev-parse",
+                "HEAD",
+            ).strip(),
+        )
+    adapter.result_interpreter.expected_workspace_before_source_tree_digest = (
+        reservation.frontier.workspace_before.source_tree_digest
+    )
+    adapter.result_interpreter.expected_workspace_after_source_tree_digest = (
+        candidate_frontier.source_tree_digest
+    )
 
 
 class _FakeExecutionAdapter:
@@ -888,7 +927,30 @@ class _NondeterministicResultInterpreter(_FakeResultInterpreter):
             return interpreted
         return RunActionInterpretedResult(
             disposition=interpreted.disposition,
+            operation_id=interpreted.operation_id,
             accepted_result_payload=b'{"accepted":"changed"}',
+            expected_workspace_before_source_tree_digest=(
+                interpreted.expected_workspace_before_source_tree_digest
+            ),
+            expected_workspace_after_source_tree_digest=(
+                interpreted.expected_workspace_after_source_tree_digest
+            ),
+        )
+
+
+class _ForeignOperationResultInterpreter(_FakeResultInterpreter):
+    def interpret(self, **arguments):
+        interpreted = super().interpret(**arguments)
+        return RunActionInterpretedResult(
+            disposition=interpreted.disposition,
+            operation_id="foreign_result_operation",
+            accepted_result_payload=interpreted.accepted_result_payload,
+            expected_workspace_before_source_tree_digest=(
+                interpreted.expected_workspace_before_source_tree_digest
+            ),
+            expected_workspace_after_source_tree_digest=(
+                interpreted.expected_workspace_after_source_tree_digest
+            ),
         )
 
 
@@ -1715,6 +1777,31 @@ def test_provider_result_rejects_payload_or_terminal_capture_splices():
         match="terminal capture evidence",
     ):
         replace(result, terminal_observation=foreign_terminal)
+
+
+@pytest.mark.parametrize(
+    ("before_digest", "after_digest"),
+    (
+        ("sha256:" + "1" * 64, None),
+        (None, "sha256:" + "2" * 64),
+        ("not-a-digest", "sha256:" + "2" * 64),
+    ),
+)
+def test_interpreted_result_requires_complete_valid_workspace_expectations(
+    before_digest,
+    after_digest,
+) -> None:
+    with pytest.raises(
+        RunActionRecoveryError,
+        match="interpreted run action result is invalid",
+    ):
+        RunActionInterpretedResult(
+            disposition=RunActionResultDisposition.SUCCEEDED,
+            operation_id="invalid_workspace_expectations",
+            accepted_result_payload=b'{"accepted":true}',
+            expected_workspace_before_source_tree_digest=before_digest,
+            expected_workspace_after_source_tree_digest=after_digest,
+        )
 
 
 def test_committed_spawn_query_rejects_security_boundary_splice():
@@ -2893,6 +2980,33 @@ def test_committed_inert_recovery_activates_same_spawn_without_repreparing(
     assert unresolved_events == durable_prefix
 
 
+def _received_edit_result_case(
+    publisher_case,
+    tmp_path,
+    monkeypatch,
+    operation_id,
+):
+    _publisher, frontier, _security, gate = _action_case(
+        publisher_case,
+        boundary=RunSafetyBoundary.IMPLEMENTATION,
+    )
+    reservation = _reserve_implementation_agent(
+        gate,
+        frontier,
+        operation_id,
+        b'{"implementation":"workspace expectation"}',
+    )
+    adapter = _FakeExecutionAdapter(reservation.intent.boundary_identity)
+    candidate = _isolated_edit_candidate(publisher_case, tmp_path)
+    monkeypatch.setattr(
+        run_action_recovery_module,
+        "open_run_action_result_workspace",
+        lambda _prepared, _capture: _FakeResultWorkspaceLease(candidate),
+    )
+    _append_result_received(gate, reservation)
+    return frontier, gate, reservation, adapter, candidate
+
+
 def test_failed_edit_recovery_terminates_with_unchanged_workspace(
     publisher_case,
 ) -> None:
@@ -2925,6 +3039,106 @@ def test_failed_edit_recovery_terminates_with_unchanged_workspace(
     )
 
 
+def test_successful_edit_result_requires_workspace_expectations(
+    publisher_case,
+    tmp_path,
+    monkeypatch,
+) -> None:
+    frontier, gate, reservation, adapter, _candidate = _received_edit_result_case(
+        publisher_case,
+        tmp_path,
+        monkeypatch,
+        "missing_edit_expectations",
+    )
+
+    with pytest.raises(
+        RunActionRecoveryError,
+        match="successful edit result lacks workspace expectations",
+    ):
+        _recovery_coordinator(gate, adapter).recover(frontier)
+
+    events = gate._action_store.inspect().events_for(reservation.intent.operation_id)
+    assert events[-1].event_kind is RunActionExecutionEventKind.RESULT_RECEIVED
+    assert len(adapter.result_interpreter.interpret_calls) == 2
+    assert not adapter.prepare_calls
+    assert not adapter.inspect_calls
+
+
+def test_successful_edit_result_rejects_wrong_workspace_predecessor(
+    publisher_case,
+    tmp_path,
+    monkeypatch,
+) -> None:
+    frontier, gate, reservation, adapter, candidate = _received_edit_result_case(
+        publisher_case,
+        tmp_path,
+        monkeypatch,
+        "wrong_edit_predecessor",
+    )
+    _bind_successful_edit_result(
+        adapter,
+        reservation,
+        candidate,
+        publisher_case["settings"],
+    )
+    adapter.result_interpreter.expected_workspace_before_source_tree_digest = (
+        "sha256:" + "0" * 64
+    )
+
+    with pytest.raises(
+        RunActionRecoveryError,
+        match="edit result expects another workspace predecessor",
+    ):
+        _recovery_coordinator(gate, adapter).recover(frontier)
+
+    events = gate._action_store.inspect().events_for(reservation.intent.operation_id)
+    assert events[-1].event_kind is RunActionExecutionEventKind.RESULT_RECEIVED
+    assert len(adapter.result_interpreter.interpret_calls) == 2
+    assert not adapter.prepare_calls
+    assert not adapter.inspect_calls
+
+
+def test_successful_edit_result_rejects_wrong_workspace_successor(
+    publisher_case,
+    tmp_path,
+    monkeypatch,
+) -> None:
+    frontier, gate, reservation, adapter, candidate = _received_edit_result_case(
+        publisher_case,
+        tmp_path,
+        monkeypatch,
+        "wrong_edit_successor",
+    )
+    _bind_successful_edit_result(
+        adapter,
+        reservation,
+        candidate,
+        publisher_case["settings"],
+    )
+    adapter.result_interpreter.expected_workspace_after_source_tree_digest = (
+        "sha256:" + "f" * 64
+    )
+
+    with pytest.raises(
+        RunActionRecoveryError,
+        match="edit result expects another workspace successor",
+    ):
+        _recovery_coordinator(gate, adapter).recover(frontier)
+
+    events = gate._action_store.inspect().events_for(reservation.intent.operation_id)
+    assert events[-1].event_kind is RunActionExecutionEventKind.RESULT_RECEIVED
+    assert len(adapter.result_interpreter.interpret_calls) == 2
+    assert not adapter.prepare_calls
+    assert not adapter.inspect_calls
+    staging = (
+        publisher_case["active"].run_root
+        / publisher_case[
+            "active"
+        ].bootstrap_pin.installation_receipt.layout.run_action_workspace_staging_relative_path
+    )
+    assert tuple(staging.iterdir()) == ()
+
+
 def test_successful_edit_recovery_promotes_isolated_result_workspace(
     publisher_case,
     tmp_path,
@@ -2942,6 +3156,12 @@ def test_successful_edit_recovery_promotes_isolated_result_workspace(
     )
     adapter = _FakeExecutionAdapter(reservation.intent.boundary_identity)
     candidate = _isolated_edit_candidate(publisher_case, tmp_path)
+    _bind_successful_edit_result(
+        adapter,
+        reservation,
+        candidate,
+        publisher_case["settings"],
+    )
     monkeypatch.setattr(
         run_action_recovery_module,
         "open_run_action_result_workspace",
@@ -2999,6 +3219,12 @@ def test_durable_edit_decision_recovers_without_provider_or_interpreter(
     )
     adapter.result_interpreter = guarded_interpreter
     candidate = _isolated_edit_candidate(publisher_case, tmp_path)
+    _bind_successful_edit_result(
+        adapter,
+        reservation,
+        candidate,
+        publisher_case["settings"],
+    )
     monkeypatch.setattr(
         run_action_recovery_module,
         "open_run_action_result_workspace",
@@ -3060,6 +3286,12 @@ def test_exchanged_edit_decision_recovers_before_acceptance_without_stale_inspec
     )
     adapter.result_interpreter = guarded_interpreter
     candidate = _isolated_edit_candidate(publisher_case, tmp_path)
+    _bind_successful_edit_result(
+        adapter,
+        reservation,
+        candidate,
+        publisher_case["settings"],
+    )
     monkeypatch.setattr(
         run_action_recovery_module,
         "open_run_action_result_workspace",
@@ -3118,6 +3350,12 @@ def test_accepted_edit_cleanup_retries_from_durable_acceptance(
     )
     adapter = _FakeExecutionAdapter(reservation.intent.boundary_identity)
     candidate = _isolated_edit_candidate(publisher_case, tmp_path)
+    _bind_successful_edit_result(
+        adapter,
+        reservation,
+        candidate,
+        publisher_case["settings"],
+    )
     monkeypatch.setattr(
         run_action_recovery_module,
         "open_run_action_result_workspace",
@@ -3191,6 +3429,12 @@ def test_projected_acceptance_cleanup_precedes_new_pending_edit_after_restart(
     )
     adapter = _FakeExecutionAdapter(reservation.intent.boundary_identity)
     candidate = _isolated_edit_candidate(publisher_case, tmp_path)
+    _bind_successful_edit_result(
+        adapter,
+        reservation,
+        candidate,
+        publisher_case["settings"],
+    )
     monkeypatch.setattr(
         run_action_recovery_module,
         "open_run_action_result_workspace",
@@ -3319,6 +3563,12 @@ def test_projected_acceptance_cleanup_precedes_new_pending_edit_after_restart(
         pending.intent.boundary_identity.result_interpreter_identity
     )
     reopened_adapter.result_interpreter = guarded_interpreter
+    _bind_successful_edit_result(
+        reopened_adapter,
+        pending,
+        next_candidate,
+        publisher_case["settings"],
+    )
     reopened_coordinator = _recovery_coordinator(
         reopened_gate,
         reopened_adapter,
@@ -3768,6 +4018,32 @@ def test_received_result_runs_only_pure_local_interpretation(
     assert adapter.result_interpreter.interpret_calls[0] == (payload, raw_result)
 
 
+def test_non_edit_result_rejects_workspace_expectations(
+    publisher_case,
+) -> None:
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
+    _append_result_received(gate, reservation)
+    adapter = _FakeExecutionAdapter(reservation.intent.boundary_identity)
+    adapter.result_interpreter.expected_workspace_before_source_tree_digest = (
+        "sha256:" + "1" * 64
+    )
+    adapter.result_interpreter.expected_workspace_after_source_tree_digest = (
+        "sha256:" + "2" * 64
+    )
+
+    with pytest.raises(
+        RunActionRecoveryError,
+        match="non-edit result carries workspace expectations",
+    ):
+        _recovery_coordinator(gate, adapter).recover(frontier)
+
+    events = gate._action_store.inspect().events_for(reservation.intent.operation_id)
+    assert events[-1].event_kind is RunActionExecutionEventKind.RESULT_RECEIVED
+    assert len(adapter.result_interpreter.interpret_calls) == 2
+    assert not adapter.prepare_calls
+    assert not adapter.inspect_calls
+
+
 def test_received_result_does_not_access_execution_adapter(
     publisher_case,
 ) -> None:
@@ -3848,6 +4124,30 @@ def test_nondeterministic_local_interpretation_never_becomes_durable(
     coordinator = _recovery_coordinator(gate, adapter)
 
     with pytest.raises(RunActionRecoveryError, match="nondeterministic"):
+        coordinator.recover(frontier)
+
+    plan = coordinator.inspect(frontier)
+    assert plan.pending_operation_id == reservation.intent.operation_id
+    assert plan.live_ledger.operation_tails[-1].tail_kind is (
+        RunActionExecutionEventKind.RESULT_RECEIVED
+    )
+
+
+def test_interpretation_for_another_operation_never_becomes_durable(
+    publisher_case,
+) -> None:
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
+    _append_result_received(gate, reservation)
+    adapter = _FakeExecutionAdapter(reservation.intent.boundary_identity)
+    adapter.result_interpreter = _ForeignOperationResultInterpreter(
+        reservation.intent.boundary_identity.result_interpreter_identity
+    )
+    coordinator = _recovery_coordinator(gate, adapter)
+
+    with pytest.raises(
+        RunActionRecoveryError,
+        match="invalid or nondeterministic",
+    ):
         coordinator.recover(frontier)
 
     plan = coordinator.inspect(frontier)

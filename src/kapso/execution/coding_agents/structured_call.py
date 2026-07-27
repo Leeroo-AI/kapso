@@ -17,6 +17,9 @@ from pathlib import Path
 from typing import Any, Mapping, Protocol
 
 from kapso.cross_run.canonical import canonical_json_bytes, tree_or_blob_digest
+from kapso.cross_run.coding_agent_compatibility import (
+    coding_agent_supported_tools,
+)
 from kapso.cross_run.contracts import CodingAgentWorkspaceDelta
 from kapso.cross_run.knowledge.access import (
     PriorKnowledgeAccess,
@@ -920,15 +923,13 @@ class SubprocessCodingAgentCallRunner:
         if shutil.which(executable) is None:
             raise RuntimeError(f"coding-agent CLI is not installed: {executable}")
         schema_bytes = coding_agent_response_schema_bytes(response_schema)
-        supported_tools = (
-            {"Read", "WebSearch"}
-            if request.cli == "codex"
-            else {"Read", "Glob", "Grep", "WebSearch"}
+        supported_tools = coding_agent_supported_tools(
+            request.cli,
+            edit_workspace=(
+                request.workspace_policy.access
+                is CodingAgentWorkspaceAccess.EDIT_WORKSPACE
+            ),
         )
-        if request.workspace_policy.access is (
-            CodingAgentWorkspaceAccess.EDIT_WORKSPACE
-        ):
-            supported_tools |= {"Edit", "Write"}
         if not set(request.allowed_tools).issubset(supported_tools):
             raise ValueError("coding-agent request contains an unsupported tool")
         schema_text = schema_bytes.decode("utf-8")

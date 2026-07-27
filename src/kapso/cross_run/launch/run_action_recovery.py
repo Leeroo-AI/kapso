@@ -571,13 +571,32 @@ class RunActionInterpretedResult:
     """Dependency-pure interpretation of one complete request and raw result."""
 
     disposition: RunActionResultDisposition
+    operation_id: str
     accepted_result_payload: bytes
+    expected_workspace_before_source_tree_digest: str | None = None
+    expected_workspace_after_source_tree_digest: str | None = None
 
     def __post_init__(self) -> None:
+        workspace_expectations = (
+            self.expected_workspace_before_source_tree_digest,
+            self.expected_workspace_after_source_tree_digest,
+        )
         if (
             type(self.disposition) is not RunActionResultDisposition
+            or not isinstance(self.operation_id, str)
+            or not self.operation_id
             or type(self.accepted_result_payload) is not bytes
             or not self.accepted_result_payload
+            or (workspace_expectations[0] is None)
+            != (workspace_expectations[1] is None)
+            or any(
+                digest is not None
+                and (
+                    type(digest) is not str
+                    or _SHA256_DIGEST_PATTERN.fullmatch(digest) is None
+                )
+                for digest in workspace_expectations
+            )
         ):
             raise RunActionRecoveryError("interpreted run action result is invalid")
 
@@ -4551,6 +4570,7 @@ class RunActionResultInterpreter(Protocol):
     def interpret(
         self,
         *,
+        operation_id: str,
         request_payload: bytes,
         result_payload: bytes,
     ) -> RunActionInterpretedResult: ...
@@ -4912,6 +4932,7 @@ class RunActionRecoveryCoordinator:
         )
         self._active_workspace = active_workspace
         self._publisher = publisher
+        self._settings = publisher._settings
         self._store = publisher._action_store
         self._workspace_promoter = RunActionWorkspacePromoter(
             active_workspace=active_workspace,
@@ -5956,16 +5977,19 @@ class RunActionRecoveryCoordinator:
             reservation,
         )
         interpreted = interpreter.interpret(
+            operation_id=reservation.intent.operation_id,
             request_payload=request_payload,
             result_payload=result_payload,
         )
         repeated_interpretation = interpreter.interpret(
+            operation_id=reservation.intent.operation_id,
             request_payload=request_payload,
             result_payload=result_payload,
         )
         if (
             type(interpreted) is not RunActionInterpretedResult
             or repeated_interpretation != interpreted
+            or interpreted.operation_id != reservation.intent.operation_id
         ):
             raise RunActionRecoveryError(
                 "run action result interpretation is invalid or nondeterministic"
@@ -5975,6 +5999,26 @@ class RunActionRecoveryCoordinator:
             is RunFrontierWorkspaceAccess.EDIT_WORKSPACE
             and interpreted.disposition is RunActionResultDisposition.SUCCEEDED
         )
+        has_workspace_expectations = (
+            interpreted.expected_workspace_before_source_tree_digest is not None
+        )
+        if successful_edit and not has_workspace_expectations:
+            raise RunActionRecoveryError(
+                "successful edit result lacks workspace expectations"
+            )
+        if not successful_edit and has_workspace_expectations:
+            raise RunActionRecoveryError(
+                "non-edit result carries workspace expectations"
+            )
+        workspace_before = reservation.frontier.workspace_before
+        if successful_edit and (
+            workspace_before is None
+            or interpreted.expected_workspace_before_source_tree_digest
+            != workspace_before.source_tree_digest
+        ):
+            raise RunActionRecoveryError(
+                "edit result expects another workspace predecessor"
+            )
         _descriptor, confirmed_workspace = self._inspect_workspace(
             reservation,
             descriptors,
@@ -5990,6 +6034,19 @@ class RunActionRecoveryCoordinator:
                 prepared_execution,
                 result_receipt.result_capture_receipt,
             ) as candidate:
+                candidate_frontier = inspect_run_workspace_frontier(
+                    candidate.workspace_descriptor,
+                    settings=self._settings,
+                    expected_commit_sha=None,
+                )
+                candidate.require_current()
+                if (
+                    interpreted.expected_workspace_after_source_tree_digest
+                    != candidate_frontier.source_tree_digest
+                ):
+                    raise RunActionRecoveryError(
+                        "edit result expects another workspace successor"
+                    )
                 workspace_promotion = self._workspace_promoter.stage(
                     result_receipt_id=result_receipt.result_receipt_id,
                     prepared_workspace_proof_id=(
@@ -6001,6 +6058,13 @@ class RunActionRecoveryCoordinator:
                     _authority=_RUN_ACTION_WORKSPACE_PROMOTION_AUTHORITY,
                 )
                 candidate.require_current()
+            if (
+                interpreted.expected_workspace_after_source_tree_digest
+                != workspace_promotion.candidate_workspace.source_tree_digest
+            ):
+                raise RunActionRecoveryError(
+                    "edit result expects another workspace successor"
+                )
         session.decide_result(
             result_interpreter_identity=interpreter.result_interpreter_identity,
             disposition=interpreted.disposition,
