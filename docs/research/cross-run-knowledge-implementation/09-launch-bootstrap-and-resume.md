@@ -144,10 +144,16 @@ right, scopes signals, applies no-new-privileges, and uses `setpriv` to erase
 supplementary groups and every capability while changing to a distinct provider
 UID/GID. The post-drop verifier requires all real/effective/saved/filesystem
 UID/GID values to equal the provider identity, all five capability sets to be
-zero, no-new-privileges to be set, and `PDEATHSIG=SIGKILL`. The primitive passes
-224 focused contract/config/runtime tests, including live Landlock path and
-signal denial, plus a real privileged-to-unprivileged `setpriv` verification on
-the production host. Independent review found no P0, but correctly forbids
+zero, no-new-privileges to be set, and `PDEATHSIG=SIGKILL`. Mutable Landlock
+authority is now descriptor-only: the launcher requires exactly four unique
+directory inodes and no fifth inherited descriptor, exact-matches every fixed
+path to its retained inode before and after restriction, and closes every rule
+descriptor before provider exec. A rename-after-open test proves Landlock follows
+the retained hierarchy rather than a later pathname. The primitive passes
+227 focused contract/config/runtime tests, including live Landlock path and
+signal denial, exact-four success and fifth-FD rejection, plus a real
+privileged-to-unprivileged `setpriv` verification on the production host.
+Independent review found no P0, but correctly forbids
 wiring the primitive through the current generic Docker policy: that policy
 runs UID 1000 with all capabilities dropped before the supervisor can perform
 the identity transition.
@@ -165,9 +171,9 @@ capabilities needed for UID/GID and bounding-set transition, prove the resulting
 zero-capability provider inside the real pinned image, and then make the
 provider-owned workspace a disposable `.git`-free scratch tree. Landlock is not
 a substitute for this copy because it does not mediate every metadata mutation.
-Prepared filesystem identities must be descriptor-retained through restriction;
-the current path-opening rule builder is inactive scaffolding, not trusted
-activation authority.
+The trusted parent must supply these exact leaf descriptors from the still-
+pending scratch preparation. No provider-visible parent directory or trusted
+workspace descriptor is admitted.
 The framework-owned credential broker and pre-release expiry path are also
 implemented. The broker response transfers secret bytes into coordinator-private
 single-use authority before adapter access. Before broker issue, credential

@@ -123,28 +123,49 @@ class _LandlockPathBeneathAttribute(ctypes.Structure):
 
 
 @dataclass(frozen=True)
-class ProviderSandboxPathRule:
-    """One descriptor-resolved hierarchy and its maximum Landlock access."""
+class ProviderSandboxDescriptors:
+    """Exact inherited mutable-directory capabilities for one provider."""
 
-    path: str
+    workspace_descriptor: int
+    home_descriptor: int
+    output_descriptor: int
+    support_descriptor: int
+
+    def __post_init__(self) -> None:
+        if any(
+            type(descriptor) is not int or descriptor <= 2 for descriptor in self.all
+        ) or len(set(self.all)) != len(self.all):
+            raise RunActionCodingAgentRuntimeError(
+                "provider sandbox descriptors are invalid or repeated"
+            )
+
+    @property
+    def all(self) -> tuple[int, ...]:
+        return (
+            self.workspace_descriptor,
+            self.home_descriptor,
+            self.output_descriptor,
+            self.support_descriptor,
+        )
+
+
+@dataclass(frozen=True)
+class ProviderSandboxDescriptorRule:
+    """One retained hierarchy descriptor and its maximum Landlock access."""
+
+    descriptor: int
     allowed_access: int
 
     def __post_init__(self) -> None:
-        if not isinstance(self.path, str):
-            raise RunActionCodingAgentRuntimeError(
-                "provider sandbox path rule is invalid"
-            )
-        parsed = PurePosixPath(self.path)
         if (
-            not parsed.is_absolute()
-            or parsed.as_posix() != self.path
-            or ".." in parsed.parts
+            type(self.descriptor) is not int
+            or self.descriptor <= 2
             or type(self.allowed_access) is not int
             or self.allowed_access <= 0
             or self.allowed_access & ~_HANDLED_FILESYSTEM_ACCESS
         ):
             raise RunActionCodingAgentRuntimeError(
-                "provider sandbox path rule is invalid"
+                "provider sandbox descriptor rule is invalid"
             )
 
 
@@ -157,12 +178,14 @@ def coding_agent_provider_sandbox_environment() -> Mapping[str, str]:
 def coding_agent_provider_sandbox_command(
     request: CodingAgentRunActionRequest,
     command: tuple[str, ...],
+    descriptors: ProviderSandboxDescriptors,
 ) -> tuple[str, ...]:
     """Wrap one exact provider argv in the fixed Landlock and identity boundary."""
 
     if (
         type(request) is not CodingAgentRunActionRequest
         or type(command) is not tuple
+        or type(descriptors) is not ProviderSandboxDescriptors
         or not command
         or any(not isinstance(argument, str) or not argument for argument in command)
         or not PurePosixPath(command[0]).is_absolute()
@@ -170,6 +193,7 @@ def coding_agent_provider_sandbox_command(
         raise RunActionCodingAgentRuntimeError(
             "provider sandbox command requires one exact absolute argv"
         )
+    _require_provider_descriptor_identities(descriptors)
     if command != coding_agent_cli_preflight_command(
         request
     ) and command != coding_agent_cli_command(request):
@@ -191,6 +215,14 @@ def coding_agent_provider_sandbox_command(
         str(policy.provider_group_id),
         "--workspace-access",
         policy.workspace_access.value,
+        "--workspace-descriptor",
+        str(descriptors.workspace_descriptor),
+        "--home-descriptor",
+        str(descriptors.home_descriptor),
+        "--output-descriptor",
+        str(descriptors.output_descriptor),
+        "--support-descriptor",
+        str(descriptors.support_descriptor),
         "--",
         *command,
     )
@@ -205,7 +237,7 @@ def coding_agent_provider_sandbox_command(
 def apply_provider_landlock(
     *,
     expected_abi_version: int,
-    path_rules: tuple[ProviderSandboxPathRule, ...],
+    descriptor_rules: tuple[ProviderSandboxDescriptorRule, ...],
 ) -> None:
     """Install one fail-closed filesystem and signal domain on this thread."""
 
@@ -217,11 +249,13 @@ def apply_provider_landlock(
             "provider Landlock ABI differs from its pinned policy"
         )
     if (
-        type(path_rules) is not tuple
-        or not path_rules
-        or any(type(rule) is not ProviderSandboxPathRule for rule in path_rules)
-        or tuple(rule.path for rule in path_rules)
-        != tuple(sorted({rule.path for rule in path_rules}))
+        type(descriptor_rules) is not tuple
+        or not descriptor_rules
+        or any(
+            type(rule) is not ProviderSandboxDescriptorRule for rule in descriptor_rules
+        )
+        or tuple(rule.descriptor for rule in descriptor_rules)
+        != tuple(sorted({rule.descriptor for rule in descriptor_rules}))
     ):
         raise RunActionCodingAgentRuntimeError(
             "provider Landlock policy is invalid or noncanonical"
@@ -253,13 +287,8 @@ def apply_provider_landlock(
         _raise_system_call_error("create provider Landlock ruleset")
     with ExitStack() as descriptors:
         descriptors.callback(os.close, ruleset_descriptor)
-        for rule in path_rules:
-            path_descriptor = os.open(
-                rule.path,
-                os.O_PATH | os.O_NOFOLLOW | os.O_CLOEXEC,
-            )
-            descriptors.callback(os.close, path_descriptor)
-            metadata = os.fstat(path_descriptor)
+        for rule in descriptor_rules:
+            metadata = os.fstat(rule.descriptor)
             allowed_access = _access_for_file_type(
                 rule.allowed_access,
                 metadata.st_mode,
@@ -270,7 +299,7 @@ def apply_provider_landlock(
                 )
             path_attribute = _LandlockPathBeneathAttribute(
                 allowed_access=allowed_access,
-                parent_fd=path_descriptor,
+                parent_fd=rule.descriptor,
             )
             if (
                 system_call(
@@ -283,6 +312,12 @@ def apply_provider_landlock(
                 != 0
             ):
                 _raise_system_call_error("add provider Landlock path rule")
+            if _stable_rule_metadata(os.fstat(rule.descriptor)) != (
+                _stable_rule_metadata(metadata)
+            ):
+                raise RunActionCodingAgentRuntimeError(
+                    "provider Landlock descriptor changed during restriction"
+                )
         libc = ctypes.CDLL(None, use_errno=True)
         if libc.prctl(_PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0:
             _raise_system_call_error("set provider no-new-privileges")
@@ -307,6 +342,10 @@ def main() -> None:
     parser.add_argument("--supervisor-group-id", type=int, required=True)
     parser.add_argument("--provider-user-id", type=int, required=True)
     parser.add_argument("--provider-group-id", type=int, required=True)
+    parser.add_argument("--workspace-descriptor", type=int, required=True)
+    parser.add_argument("--home-descriptor", type=int, required=True)
+    parser.add_argument("--output-descriptor", type=int, required=True)
+    parser.add_argument("--support-descriptor", type=int, required=True)
     parser.add_argument(
         "--workspace-access",
         choices=(
@@ -320,7 +359,13 @@ def main() -> None:
     command = tuple(arguments.command)
     if command[:1] == ("--",):
         command = command[1:]
-    _require_launcher_arguments(arguments, command)
+    inherited_descriptors = ProviderSandboxDescriptors(
+        workspace_descriptor=arguments.workspace_descriptor,
+        home_descriptor=arguments.home_descriptor,
+        output_descriptor=arguments.output_descriptor,
+        support_descriptor=arguments.support_descriptor,
+    )
+    _require_launcher_arguments(arguments, command, inherited_descriptors)
     if arguments.verify_and_exec:
         _require_provider_identity_and_privilege(arguments)
         os.execve(
@@ -335,11 +380,20 @@ def main() -> None:
         raise RunActionCodingAgentRuntimeError(
             "provider launcher lacks its supervisor identity"
         )
-    path_rules = _fixed_provider_path_rules(arguments.workspace_access)
-    apply_provider_landlock(
-        expected_abi_version=arguments.landlock_abi_version,
-        path_rules=path_rules,
-    )
+    _require_exact_inherited_descriptor_table(inherited_descriptors)
+    with ExitStack() as fixed_descriptors:
+        descriptor_rules = _provider_descriptor_rules(
+            arguments.workspace_access,
+            inherited_descriptors,
+            fixed_descriptors,
+        )
+        apply_provider_landlock(
+            expected_abi_version=arguments.landlock_abi_version,
+            descriptor_rules=descriptor_rules,
+        )
+        _require_inherited_descriptor_bindings(inherited_descriptors)
+    for descriptor in inherited_descriptors.all:
+        os.close(descriptor)
     verification_command = (
         PROVIDER_SANDBOX_EXECUTABLE,
         "--verify-and-exec",
@@ -355,6 +409,14 @@ def main() -> None:
         str(arguments.provider_group_id),
         "--workspace-access",
         arguments.workspace_access,
+        "--workspace-descriptor",
+        str(arguments.workspace_descriptor),
+        "--home-descriptor",
+        str(arguments.home_descriptor),
+        "--output-descriptor",
+        str(arguments.output_descriptor),
+        "--support-descriptor",
+        str(arguments.support_descriptor),
         "--",
         *command,
     )
@@ -377,40 +439,126 @@ def main() -> None:
     )
 
 
-def _fixed_provider_path_rules(
+def _provider_descriptor_rules(
     workspace_access: str,
-) -> tuple[ProviderSandboxPathRule, ...]:
-    workspace_rule = ProviderSandboxPathRule(
-        PROVIDER_WORKSPACE_PATH,
+    inherited: ProviderSandboxDescriptors,
+    resources: ExitStack,
+) -> tuple[ProviderSandboxDescriptorRule, ...]:
+    _require_inherited_descriptor_bindings(inherited)
+    _require_provider_descriptor_identities(inherited)
+    workspace_rule = ProviderSandboxDescriptorRule(
+        inherited.workspace_descriptor,
         (
             _READ_WRITE_REGULAR_ACCESS
             if workspace_access == RunFrontierWorkspaceAccess.EDIT_WORKSPACE.value
             else _READ_ONLY_ACCESS
         ),
     )
-    rules = (
-        ProviderSandboxPathRule("/dev/null", _DEVICE_ACCESS),
-        ProviderSandboxPathRule("/dev/urandom", _DEVICE_ACCESS),
-        ProviderSandboxPathRule("/etc/group", _READ_ONLY_ACCESS),
-        ProviderSandboxPathRule("/etc/hosts", _READ_ONLY_ACCESS),
-        ProviderSandboxPathRule("/etc/ld.so.cache", _READ_ONLY_ACCESS),
-        ProviderSandboxPathRule("/etc/nsswitch.conf", _READ_ONLY_ACCESS),
-        ProviderSandboxPathRule("/etc/passwd", _READ_ONLY_ACCESS),
-        ProviderSandboxPathRule("/etc/resolv.conf", _READ_ONLY_ACCESS),
-        ProviderSandboxPathRule("/etc/ssl", _READ_ONLY_ACCESS),
-        ProviderSandboxPathRule(PROVIDER_HOME_PATH, _READ_WRITE_REGULAR_ACCESS),
-        ProviderSandboxPathRule(PROVIDER_OUTPUT_PATH, _READ_WRITE_REGULAR_ACCESS),
-        ProviderSandboxPathRule(PROVIDER_SUPPORT_PATH, _READ_ONLY_ACCESS),
+    rules = [
+        _open_fixed_provider_rule("/dev/null", _DEVICE_ACCESS, resources),
+        _open_fixed_provider_rule("/dev/urandom", _DEVICE_ACCESS, resources),
+        _open_fixed_provider_rule("/etc/group", _READ_ONLY_ACCESS, resources),
+        _open_fixed_provider_rule("/etc/hosts", _READ_ONLY_ACCESS, resources),
+        _open_fixed_provider_rule("/etc/ld.so.cache", _READ_ONLY_ACCESS, resources),
+        _open_fixed_provider_rule("/etc/nsswitch.conf", _READ_ONLY_ACCESS, resources),
+        _open_fixed_provider_rule("/etc/passwd", _READ_ONLY_ACCESS, resources),
+        _open_fixed_provider_rule("/etc/resolv.conf", _READ_ONLY_ACCESS, resources),
+        _open_fixed_provider_rule("/etc/ssl", _READ_ONLY_ACCESS, resources),
+        ProviderSandboxDescriptorRule(
+            inherited.home_descriptor,
+            _READ_WRITE_REGULAR_ACCESS,
+        ),
+        ProviderSandboxDescriptorRule(
+            inherited.output_descriptor,
+            _READ_WRITE_REGULAR_ACCESS,
+        ),
+        ProviderSandboxDescriptorRule(
+            inherited.support_descriptor,
+            _READ_ONLY_ACCESS,
+        ),
         workspace_rule,
-        ProviderSandboxPathRule("/proc/self/status", _READ_ONLY_ACCESS),
-        ProviderSandboxPathRule("/usr", _READ_ONLY_ACCESS),
+        _open_fixed_provider_rule("/proc/self/status", _READ_ONLY_ACCESS, resources),
+        _open_fixed_provider_rule("/usr", _READ_ONLY_ACCESS, resources),
+    ]
+    return tuple(sorted(rules, key=lambda rule: rule.descriptor))
+
+
+def _require_exact_inherited_descriptor_table(
+    inherited: ProviderSandboxDescriptors,
+) -> None:
+    directory_descriptor = os.open(
+        "/proc/self/fd",
+        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
     )
-    return tuple(sorted(rules, key=lambda rule: rule.path))
+    with ExitStack() as resources:
+        resources.callback(os.close, directory_descriptor)
+        enumerated = {
+            int(name)
+            for name in os.listdir(directory_descriptor)
+            if name.isascii() and name.isdecimal()
+        }
+        observed = {
+            descriptor
+            for descriptor in enumerated
+            if os.path.lexists(f"/proc/self/fd/{descriptor}")
+        }
+        expected = {0, 1, 2, directory_descriptor, *inherited.all}
+        if observed != expected:
+            raise RunActionCodingAgentRuntimeError(
+                "provider launcher inherited an unadmitted descriptor"
+            )
+
+
+def _require_provider_descriptor_identities(
+    inherited: ProviderSandboxDescriptors,
+) -> None:
+    metadata = tuple(os.fstat(descriptor) for descriptor in inherited.all)
+    identities = tuple((item.st_dev, item.st_ino) for item in metadata)
+    if any(
+        not stat.S_ISDIR(item.st_mode) or item.st_nlink < 2 for item in metadata
+    ) or len(set(identities)) != len(identities):
+        raise RunActionCodingAgentRuntimeError(
+            "provider mutable authority is not four distinct retained directories"
+        )
+
+
+def _require_inherited_descriptor_bindings(
+    inherited: ProviderSandboxDescriptors,
+) -> None:
+    bindings = (
+        (PROVIDER_WORKSPACE_PATH, inherited.workspace_descriptor),
+        (PROVIDER_HOME_PATH, inherited.home_descriptor),
+        (PROVIDER_OUTPUT_PATH, inherited.output_descriptor),
+        (PROVIDER_SUPPORT_PATH, inherited.support_descriptor),
+    )
+    for path, descriptor in bindings:
+        path_metadata = os.stat(path, follow_symlinks=False)
+        descriptor_metadata = os.fstat(descriptor)
+        if not stat.S_ISDIR(path_metadata.st_mode) or _stable_rule_metadata(
+            path_metadata
+        ) != _stable_rule_metadata(descriptor_metadata):
+            raise RunActionCodingAgentRuntimeError(
+                "provider path differs from its inherited directory descriptor"
+            )
+
+
+def _open_fixed_provider_rule(
+    path: str,
+    allowed_access: int,
+    resources: ExitStack,
+) -> ProviderSandboxDescriptorRule:
+    parsed = PurePosixPath(path)
+    if not parsed.is_absolute() or parsed.as_posix() != path or ".." in parsed.parts:
+        raise RunActionCodingAgentRuntimeError("fixed provider path is invalid")
+    descriptor = os.open(path, os.O_PATH | os.O_NOFOLLOW | os.O_CLOEXEC)
+    resources.callback(os.close, descriptor)
+    return ProviderSandboxDescriptorRule(descriptor, allowed_access)
 
 
 def _require_launcher_arguments(
     arguments: argparse.Namespace,
     command: tuple[str, ...],
+    inherited_descriptors: ProviderSandboxDescriptors,
 ) -> None:
     identity_values = (
         arguments.supervisor_user_id,
@@ -423,6 +571,7 @@ def _require_launcher_arguments(
         or any(not 0 < value <= _LINUX_IDENTITY_MAXIMUM for value in identity_values)
         or arguments.supervisor_user_id == arguments.provider_user_id
         or arguments.supervisor_group_id == arguments.provider_group_id
+        or type(inherited_descriptors) is not ProviderSandboxDescriptors
         or not command
         or any(not isinstance(value, str) or not value for value in command)
         or not PurePosixPath(command[0]).is_absolute()
@@ -509,6 +658,20 @@ def _access_for_file_type(allowed_access: int, mode: int) -> int:
     )
 
 
+def _stable_rule_metadata(metadata: os.stat_result) -> tuple[int, ...]:
+    return (
+        metadata.st_dev,
+        metadata.st_ino,
+        metadata.st_mode,
+        metadata.st_uid,
+        metadata.st_gid,
+        metadata.st_nlink,
+        metadata.st_size,
+        metadata.st_mtime_ns,
+        metadata.st_ctime_ns,
+    )
+
+
 def _raise_system_call_error(action: str) -> None:
     error_number = ctypes.get_errno()
     raise OSError(error_number, action)
@@ -524,7 +687,8 @@ __all__ = [
     "PROVIDER_SANDBOX_EXECUTABLE",
     "PROVIDER_SUPPORT_PATH",
     "PROVIDER_WORKSPACE_PATH",
-    "ProviderSandboxPathRule",
+    "ProviderSandboxDescriptorRule",
+    "ProviderSandboxDescriptors",
     "RunActionCodingAgentRuntimeError",
 ]
 
