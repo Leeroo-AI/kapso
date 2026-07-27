@@ -16,6 +16,7 @@ from kapso.cross_run.launch.run_action_coding_agent_contracts import (
     CODING_AGENT_REQUEST_PROTOCOL_VERSION,
     CODING_AGENT_RESULT_PROTOCOL_VERSION,
     CODING_AGENT_SCHEMA_PROTOCOL_VERSION,
+    CODING_AGENT_NATIVE_TOOL_POLICY_VERSION,
     CodingAgentInterpretationPolicy,
     CodingAgentPriorKnowledgeAccessEvent,
     CodingAgentPriorKnowledgeAccessKind,
@@ -36,7 +37,8 @@ def interpretation_policy(
     *,
     cli="codex",
     workspace_access=RunFrontierWorkspaceAccess.READ_ONLY,
-    allowed_tools=("Read", "WebSearch"),
+    web_search_enabled=True,
+    maximum_response_schema_bytes=65_536,
     maximum_raw_result_bytes=65_536,
 ):
     return CodingAgentInterpretationPolicy.mint(
@@ -50,9 +52,15 @@ def interpretation_policy(
         cli=cli,
         model="gpt-5.6",
         effort="xhigh",
-        allowed_tools=allowed_tools,
+        native_tool_policy_version=CODING_AGENT_NATIVE_TOOL_POLICY_VERSION,
+        web_search_enabled=web_search_enabled,
         timeout_nanoseconds=300_000_000_000,
         workspace_access=workspace_access,
+        maximum_response_schema_bytes=maximum_response_schema_bytes,
+        maximum_provider_output_bytes=1_048_576,
+        maximum_provider_diagnostic_bytes=65_536,
+        maximum_workspace_entries=10_000,
+        maximum_workspace_bytes=1_073_741_824,
         maximum_raw_result_bytes=maximum_raw_result_bytes,
     )
 
@@ -105,8 +113,12 @@ def result_envelope(
         ),
         duration_nanoseconds=12_345,
         input_tokens=101,
+        cached_input_tokens=80,
         output_tokens=23,
+        reasoning_output_tokens=7,
         cost_usd=cost_usd,
+        provider_event_stream_digest=tree_or_blob_digest(b"provider events"),
+        provider_diagnostic_stream_digest=tree_or_blob_digest(b"provider diagnostics"),
         prior_knowledge_accesses=accesses,
         edited_source_tree_digest=edited_digest,
     )
@@ -235,27 +247,66 @@ def test_result_accepts_normalized_cost(cost):
     result.validate_against(policy=policy, request=request)
 
 
-def test_policy_rejects_unknown_unsorted_and_read_only_edit_tools():
-    with pytest.raises(
-        RunActionCodingAgentContractError,
-        match="sorted and unique",
-    ):
-        interpretation_policy(allowed_tools=("WebSearch", "Read"))
+@pytest.mark.parametrize(
+    "field_name",
+    ("cached_input_tokens", "reasoning_output_tokens"),
+)
+def test_result_rejects_invalid_optional_usage(field_name):
+    policy = interpretation_policy()
+    request = run_action_request(policy)
+
+    with pytest.raises(ValueError, match=f"{field_name} must be an integer"):
+        replace(result_envelope(request), **{field_name: 1.0})
 
     with pytest.raises(
         RunActionCodingAgentContractError,
-        match="unsupported tool",
+        match="non-negative integer",
     ):
-        interpretation_policy(allowed_tools=("Bash",))
+        replace(result_envelope(request), **{field_name: -1})
+
+
+@pytest.mark.parametrize(
+    "field_name",
+    ("provider_event_stream_digest", "provider_diagnostic_stream_digest"),
+)
+def test_result_requires_provider_stream_digests(field_name):
+    policy = interpretation_policy()
+    request = run_action_request(policy)
 
     with pytest.raises(
         RunActionCodingAgentContractError,
-        match="unsupported tool",
+        match="sha256 digest",
     ):
-        interpretation_policy(
-            cli="claude_code",
-            allowed_tools=("Edit", "Read"),
+        replace(result_envelope(request), **{field_name: "unbound"})
+
+
+def test_policy_rejects_unknown_native_tool_policy_and_non_boolean_web_search():
+    with pytest.raises(
+        RunActionCodingAgentContractError,
+        match="native-tool policy",
+    ):
+        replace(
+            interpretation_policy(),
+            native_tool_policy_version="kapso.unknown",
         )
+
+    with pytest.raises(
+        ValueError,
+        match="web_search_enabled must be a boolean",
+    ):
+        replace(interpretation_policy(), web_search_enabled=1)
+
+
+def test_request_rejects_response_schema_above_the_policy_bound():
+    policy = interpretation_policy(
+        maximum_response_schema_bytes=1,
+    )
+
+    with pytest.raises(
+        RunActionCodingAgentContractError,
+        match="response schema exceeds its exact byte limit",
+    ):
+        run_action_request(policy)
 
 
 @pytest.mark.parametrize(
@@ -324,7 +375,6 @@ def test_edit_tree_digests_are_required_joined_and_distinct():
     policy = interpretation_policy(
         cli="claude_code",
         workspace_access=RunFrontierWorkspaceAccess.EDIT_WORKSPACE,
-        allowed_tools=("Edit", "Read", "Write"),
     )
     request = run_action_request(
         policy,

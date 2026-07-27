@@ -262,10 +262,14 @@ def test_prior_knowledge_access_is_semantic_and_path_free():
         "duration_nanoseconds",
         "edited_source_tree_digest",
         "input_tokens",
+        "cached_input_tokens",
         "operation_id",
         "output_tokens",
+        "reasoning_output_tokens",
         "prior_knowledge_accesses",
         "protocol_version",
+        "provider_diagnostic_stream_digest",
+        "provider_event_stream_digest",
         "request_digest",
         "structured_output",
     }
@@ -280,7 +284,6 @@ def test_edit_result_returns_the_exact_predecessor_and_successor_join():
     policy = interpretation_policy(
         cli="claude_code",
         workspace_access=RunFrontierWorkspaceAccess.EDIT_WORKSPACE,
-        allowed_tools=("Edit", "Read", "Write"),
     )
     request = run_action_request(
         policy,

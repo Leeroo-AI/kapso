@@ -49,6 +49,7 @@ from kapso.cross_run.launch.run_action_coding_agent_contracts import (
     CODING_AGENT_REQUEST_PROTOCOL_VERSION,
     CODING_AGENT_RESULT_PROTOCOL_VERSION,
     CODING_AGENT_SCHEMA_PROTOCOL_VERSION,
+    CODING_AGENT_NATIVE_TOOL_POLICY_VERSION,
     CodingAgentInterpretationPolicy,
     CodingAgentRunActionRequest,
 )
@@ -983,12 +984,28 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             cli="codex",
             model="gpt-5.6-sol",
             effort="xhigh",
-            allowed_tools=("Read",),
+            native_tool_policy_version=CODING_AGENT_NATIVE_TOOL_POLICY_VERSION,
+            web_search_enabled=False,
             timeout_nanoseconds=(
                 _policy(settings).supervisor_limits.execution_timeout_seconds
                 * 1_000_000_000
             ),
             workspace_access=RunFrontierWorkspaceAccess.READ_ONLY,
+            maximum_response_schema_bytes=(
+                cross_run_settings.launch.coding_agent_response_schema_size_bytes
+            ),
+            maximum_provider_output_bytes=(
+                cross_run_settings.launch.coding_agent_provider_output_size_bytes
+            ),
+            maximum_provider_diagnostic_bytes=(
+                cross_run_settings.launch.coding_agent_provider_diagnostic_size_bytes
+            ),
+            maximum_workspace_entries=(
+                cross_run_settings.launch.run_workspace_entry_limit
+            ),
+            maximum_workspace_bytes=(
+                cross_run_settings.launch.run_workspace_size_bytes
+            ),
             maximum_raw_result_bytes=(
                 cross_run_settings.launch.run_action_result_size_bytes
             ),

@@ -15,7 +15,6 @@ from kapso.cross_run.canonical import (
 )
 from kapso.cross_run.coding_agent_compatibility import (
     coding_agent_supported_efforts,
-    coding_agent_supported_tools,
 )
 from kapso.cross_run.contracts import StrictContract
 from kapso.cross_run.knowledge.access import (
@@ -32,6 +31,7 @@ from kapso.cross_run.launch.run_action_coding_agent_schema import (
 CODING_AGENT_REQUEST_PROTOCOL_VERSION = "kapso.run_action.coding_agent_request.v1"
 CODING_AGENT_RESULT_PROTOCOL_VERSION = "kapso.run_action.coding_agent_result.v1"
 CODING_AGENT_SCHEMA_PROTOCOL_VERSION = "json-schema.draft-2020-12"
+CODING_AGENT_NATIVE_TOOL_POLICY_VERSION = "kapso.coding_agent_native_tools.v1"
 
 _INTERPRETATION_POLICY_NAMESPACE = "run-action-coding-agent-interpretation-policy"
 _OPERATION_ID_PATTERN = re.compile(r"^agent_call_[0-9a-f]{32}$")
@@ -97,9 +97,15 @@ class CodingAgentInterpretationPolicy(StrictContract):
     cli: str
     model: str
     effort: str
-    allowed_tools: tuple[str, ...]
+    native_tool_policy_version: str
+    web_search_enabled: bool
     timeout_nanoseconds: int
     workspace_access: RunFrontierWorkspaceAccess
+    maximum_response_schema_bytes: int
+    maximum_provider_output_bytes: int
+    maximum_provider_diagnostic_bytes: int
+    maximum_workspace_entries: int
+    maximum_workspace_bytes: int
     maximum_raw_result_bytes: int
 
     CONTENT_NAMESPACE: ClassVar[str] = _INTERPRETATION_POLICY_NAMESPACE
@@ -130,23 +136,13 @@ class CodingAgentInterpretationPolicy(StrictContract):
             raise RunActionCodingAgentContractError(
                 "coding-agent effort is incompatible with its CLI"
             )
-        if self.allowed_tools != tuple(sorted(set(self.allowed_tools))):
+        if self.native_tool_policy_version != CODING_AGENT_NATIVE_TOOL_POLICY_VERSION:
             raise RunActionCodingAgentContractError(
-                "coding-agent allowed tools must be sorted and unique"
+                "coding-agent native-tool policy version is unknown"
             )
-        if any(
-            not isinstance(tool, str)
-            or tool
-            not in coding_agent_supported_tools(
-                self.cli,
-                edit_workspace=(
-                    self.workspace_access is RunFrontierWorkspaceAccess.EDIT_WORKSPACE
-                ),
-            )
-            for tool in self.allowed_tools
-        ):
+        if type(self.web_search_enabled) is not bool:
             raise RunActionCodingAgentContractError(
-                "coding-agent policy contains an unsupported tool"
+                "coding-agent web-search authority must be boolean"
             )
         if self.workspace_access not in _CODING_AGENT_WORKSPACE_ACCESS:
             raise RunActionCodingAgentContractError(
@@ -156,10 +152,33 @@ class CodingAgentInterpretationPolicy(StrictContract):
             self.timeout_nanoseconds,
             "coding-agent timeout nanoseconds",
         )
-        _require_positive_integer(
-            self.maximum_raw_result_bytes,
-            "coding-agent maximum raw-result bytes",
-        )
+        for value, name in (
+            (
+                self.maximum_response_schema_bytes,
+                "coding-agent maximum response-schema bytes",
+            ),
+            (
+                self.maximum_provider_output_bytes,
+                "coding-agent maximum provider-output bytes",
+            ),
+            (
+                self.maximum_provider_diagnostic_bytes,
+                "coding-agent maximum provider-diagnostic bytes",
+            ),
+            (
+                self.maximum_workspace_entries,
+                "coding-agent maximum workspace entries",
+            ),
+            (
+                self.maximum_workspace_bytes,
+                "coding-agent maximum workspace bytes",
+            ),
+            (
+                self.maximum_raw_result_bytes,
+                "coding-agent maximum raw-result bytes",
+            ),
+        ):
+            _require_positive_integer(value, name)
 
 
 @dataclass(frozen=True)
@@ -196,6 +215,13 @@ class CodingAgentRunActionRequest(StrictContract):
                 "coding-agent response schema must be an object"
             )
         validate_run_action_coding_agent_provider_schema(self.response_schema)
+        if (
+            len(canonical_json_bytes(self.response_schema))
+            > self.interpretation_policy.maximum_response_schema_bytes
+        ):
+            raise RunActionCodingAgentContractError(
+                "coding-agent response schema exceeds its exact byte limit"
+            )
         if self.prior_knowledge is not None and type(self.prior_knowledge) is not (
             PriorKnowledgeAccessMaterialization
         ):
@@ -283,8 +309,12 @@ class CodingAgentRunActionResultEnvelope(StrictContract):
     structured_output: Mapping[str, Any]
     duration_nanoseconds: int
     input_tokens: int
+    cached_input_tokens: int | None
     output_tokens: int
+    reasoning_output_tokens: int | None
     cost_usd: str | None
+    provider_event_stream_digest: str
+    provider_diagnostic_stream_digest: str
     prior_knowledge_accesses: tuple[CodingAgentPriorKnowledgeAccessEvent, ...]
     edited_source_tree_digest: str | None
 
@@ -316,6 +346,12 @@ class CodingAgentRunActionResultEnvelope(StrictContract):
             (self.output_tokens, "coding-agent output tokens"),
         ):
             _require_nonnegative_integer(value, name)
+        for value, name in (
+            (self.cached_input_tokens, "coding-agent cached input tokens"),
+            (self.reasoning_output_tokens, "coding-agent reasoning output tokens"),
+        ):
+            if value is not None:
+                _require_nonnegative_integer(value, name)
         if self.cost_usd is not None and (
             not isinstance(self.cost_usd, str)
             or _NORMALIZED_DECIMAL_PATTERN.fullmatch(self.cost_usd) is None
@@ -323,6 +359,14 @@ class CodingAgentRunActionResultEnvelope(StrictContract):
             raise RunActionCodingAgentContractError(
                 "coding-agent cost must be normalized non-negative decimal text"
             )
+        _require_digest(
+            self.provider_event_stream_digest,
+            "coding-agent provider event stream",
+        )
+        _require_digest(
+            self.provider_diagnostic_stream_digest,
+            "coding-agent provider diagnostic stream",
+        )
         if self.edited_source_tree_digest is not None:
             _require_digest(
                 self.edited_source_tree_digest,
@@ -413,6 +457,7 @@ __all__ = [
     "CODING_AGENT_REQUEST_PROTOCOL_VERSION",
     "CODING_AGENT_RESULT_PROTOCOL_VERSION",
     "CODING_AGENT_SCHEMA_PROTOCOL_VERSION",
+    "CODING_AGENT_NATIVE_TOOL_POLICY_VERSION",
     "CodingAgentInterpretationPolicy",
     "CodingAgentPriorKnowledgeAccessEvent",
     "CodingAgentPriorKnowledgeAccessKind",

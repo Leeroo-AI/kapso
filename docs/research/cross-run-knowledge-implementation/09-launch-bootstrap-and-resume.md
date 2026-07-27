@@ -79,6 +79,12 @@ consumer, telemetry, semantic prior-knowledge accesses, and optional edited
 source-tree digest. Interpretation accepts only canonical structured output,
 repeats deterministically after `RESULT_RECEIVED`, and exact-joins edit predecessor
 and successor source trees before staging or decision.
+The embedded interpretation policy names one versioned native-tool policy,
+workspace authority, and explicit web-search authority instead of claiming a
+provider-neutral tool allowlist that Codex cannot enforce. It also bounds the
+response schema, provider event and diagnostic streams, workspace scan, and
+canonical result. Results preserve exact provider-stream digests and distinguish
+reported cached-input and reasoning-output usage when the CLI exposes them.
 The framework-owned credential broker and pre-release expiry path are also
 implemented. The broker response transfers secret bytes into coordinator-private
 single-use authority before adapter access. Before broker issue, credential

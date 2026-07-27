@@ -5,7 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-from kapso.cross_run.canonical import canonical_json_bytes, freeze_json
+from kapso.cross_run.canonical import (
+    canonical_json_bytes,
+    freeze_json,
+    tree_or_blob_digest,
+)
 from kapso.cross_run.launch.run_action_coding_agent_contracts import (
     CODING_AGENT_RESULT_PROTOCOL_VERSION,
     CodingAgentInterpretationPolicy,
@@ -177,8 +181,14 @@ class FixedOfflineCodingAgentConsumer:
             structured_output=self.structured_output,
             duration_nanoseconds=self.duration_nanoseconds,
             input_tokens=self.input_tokens,
+            cached_input_tokens=None,
             output_tokens=self.output_tokens,
+            reasoning_output_tokens=None,
             cost_usd=self.cost_usd,
+            provider_event_stream_digest=tree_or_blob_digest(
+                canonical_json_bytes(self.structured_output)
+            ),
+            provider_diagnostic_stream_digest=tree_or_blob_digest(b""),
             prior_knowledge_accesses=self.prior_knowledge_accesses,
             edited_source_tree_digest=self.edited_source_tree_digest,
         )
