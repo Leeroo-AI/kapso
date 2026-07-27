@@ -7,7 +7,6 @@ from typing import ClassVar
 
 from kapso.cross_run.canonical import (
     require_content_id,
-    require_identifier,
     tree_or_blob_digest,
 )
 from kapso.cross_run.contracts import StrictContract
@@ -15,6 +14,7 @@ from kapso.cross_run.launch.run_action_barrier_contracts import (
     RunActionResolvedWorkloadObservation,
 )
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
+    RUN_ACTION_CREDENTIAL_LEASE_AUTHORITY_NAMESPACE,
     RunActionCredentialMode,
     RunActionSupervisorLimits,
 )
@@ -49,8 +49,9 @@ class RunActionCredentialValidityObservation(StrictContract):
             "run-action-activated-file-observation",
             "credential validity activated file",
         )
-        require_identifier(
+        _require_namespaced_content_id(
             self.credential_lease_authority_id,
+            RUN_ACTION_CREDENTIAL_LEASE_AUTHORITY_NAMESPACE,
             "credential validity lease authority",
         )
         if (

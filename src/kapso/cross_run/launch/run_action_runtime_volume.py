@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 from threading import get_ident
 
-from kapso.cross_run.canonical import require_identifier, tree_or_blob_digest
+from kapso.cross_run.canonical import is_content_id, tree_or_blob_digest
 from kapso.cross_run.launch.run_action_activation_delivery import (
     RunActionDeliveredFilePhysicalObservation,
     publish_or_adopt_run_action_delivery,
@@ -40,6 +40,7 @@ from kapso.cross_run.launch.run_action_control_topology import (
 )
 from kapso.cross_run.launch.run_action_spawn_contracts import RunActionSpawnCommit
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
+    RUN_ACTION_CREDENTIAL_LEASE_AUTHORITY_NAMESPACE,
     RUN_ACTION_RUNTIME_VOLUME_KEEPER_DESTINATION,
     RunActionActivatedFileObservation,
     RunActionActivatedSentinelObservation,
@@ -2316,10 +2317,14 @@ def deliver_and_reobserve_runtime_volume_activation(
             raise RunActionRuntimeVolumeError(
                 "credentialed activation lacks one bounded broker delivery"
             )
-        require_identifier(
-            credential_content_authority_id,
-            "run action credential delivery authority",
-        )
+        if (
+            not is_content_id(credential_content_authority_id)
+            or credential_content_authority_id.split(":sha256:", 1)[0]
+            != RUN_ACTION_CREDENTIAL_LEASE_AUTHORITY_NAMESPACE
+        ):
+            raise RunActionRuntimeVolumeError(
+                "credentialed activation authority is not a fixed lease content ID"
+            )
     elif (
         credential_payload is not None
         or credential_content_authority_id is not None

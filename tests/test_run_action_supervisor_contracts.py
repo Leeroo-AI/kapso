@@ -39,6 +39,7 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RUN_ACTION_BARRIER_PROTOCOL_VERSION,
     RUN_ACTION_BARRIER_RELEASE_DESTINATION,
     RUN_ACTION_BARRIER_SCRIPT,
+    RUN_ACTION_CREDENTIAL_LEASE_AUTHORITY_NAMESPACE,
     RUN_ACTION_DOCKER_INIT_DESTINATION,
     RUN_ACTION_SUPERVISOR_HELPER_DESTINATION,
     RunActionActivatedFileObservation,
@@ -112,6 +113,12 @@ _RUN_ACTION_RELEASE_COMMIT_TIMEOUT_SECONDS = CrossRunSettings.from_dict(
 
 def _fixture_content_id(namespace: str, label: str) -> str:
     return content_id(namespace, {"fixture": label})
+
+
+_CREDENTIAL_LEASE_AUTHORITY_ID = _fixture_content_id(
+    RUN_ACTION_CREDENTIAL_LEASE_AUTHORITY_NAMESPACE,
+    "credential lease",
+)
 
 
 def _boundary(
@@ -1149,7 +1156,7 @@ def test_activation_revalidation_binds_fresh_exact_prepared_observations():
         spawn,
         size_bytes=32,
         content_digest=None,
-        content_authority_id="test.credential.lease",
+        content_authority_id=_CREDENTIAL_LEASE_AUTHORITY_ID,
     )
     reobserved_volume = _volume_with_added_blocks(
         prepared.runtime_volume_evidence,
@@ -1507,7 +1514,7 @@ def test_activation_revalidation_requires_exact_live_volume_generation_and_keepe
             spawn,
             size_bytes=32,
             content_digest=None,
-            content_authority_id="test.credential.lease",
+            content_authority_id=_CREDENTIAL_LEASE_AUTHORITY_ID,
         ),
     }
     wrong_generation = _remint_contract(
@@ -1592,7 +1599,7 @@ def test_activation_revalidation_uses_absence_for_credential_free_policy():
         spawn,
         size_bytes=32,
         content_digest=None,
-        content_authority_id="test.credential.lease",
+        content_authority_id=_CREDENTIAL_LEASE_AUTHORITY_ID,
     )
     with pytest.raises(
         RunActionSupervisorContractError,
@@ -1916,7 +1923,7 @@ def _activation_revalidation_receipt(prepared, spawn):
             spawn,
             size_bytes=32,
             content_digest=None,
-            content_authority_id="test.credential.lease",
+            content_authority_id=_CREDENTIAL_LEASE_AUTHORITY_ID,
         )
     delivered_block_count = sum(
         (size_bytes + block_size - 1) // block_size for size_bytes in delivered_sizes

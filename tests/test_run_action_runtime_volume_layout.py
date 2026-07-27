@@ -45,6 +45,7 @@ from kapso.cross_run.launch.run_action_reservation_contracts import (
     RunActionWorkspaceBinding,
 )
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
+    RUN_ACTION_CREDENTIAL_LEASE_AUTHORITY_NAMESPACE,
     RunActionContainerLabel,
     RunActionActivationRevalidationReceipt,
     RunActionCredentialMode,
@@ -79,6 +80,10 @@ from test_run_state_publisher import publisher_case
 _CANONICAL_CONFIG_PATH = "src/kapso/config.yaml"
 _GENERATION_NONCE = "9" * 32
 _TEST_DOCKER_BYTES = b"prepared-layout adoption Docker"
+_CREDENTIAL_LEASE_AUTHORITY_ID = _fixture_content_id(
+    RUN_ACTION_CREDENTIAL_LEASE_AUTHORITY_NAMESPACE,
+    "credential lease",
+)
 
 
 @pytest.mark.parametrize(
@@ -378,13 +383,60 @@ def test_substituted_spawn_is_rejected_before_any_delivery_publication(
             prepared.volume_keeper_evidence,
             request_payload=b"complete request",
             credential_payload=b"provider-token",
-            credential_content_authority_id="test.credential.lease",
+            credential_content_authority_id=_CREDENTIAL_LEASE_AUTHORITY_ID,
             workspace_descriptor=None,
             settings=settings.launch,
         )
 
     assert input_final.exists() is False
     assert credential_final.exists() is False
+
+
+def test_unbounded_credential_authority_is_rejected_before_delivery(
+    monkeypatch,
+):
+    settings = CrossRunSettings.from_dict(
+        load_config(_CANONICAL_CONFIG_PATH)["cross_run"]
+    )
+    policy = _policy(
+        settings.docker,
+        workspace_access=RunFrontierWorkspaceAccess.NONE,
+        credential_mode=RunActionCredentialMode.SUPERVISOR_FILE,
+    )
+    prepared = _prepared_execution(claim=_claim(policy=policy))
+    spawn = _spawn_commit(prepared)
+    authority = prepared.runtime_volume_authority
+    volume = observe_runtime_volume(
+        _volume_raw(authority, settings.docker),
+        prepared.preparation_claim,
+        authority,
+        settings.docker,
+    )
+
+    def publish_if_called(*_arguments):
+        raise AssertionError("delivery ran before credential authority validation")
+
+    monkeypatch.setattr(
+        volume_module,
+        "publish_or_adopt_run_action_delivery",
+        publish_if_called,
+    )
+
+    with pytest.raises(
+        RunActionRuntimeVolumeError,
+        match="fixed lease content ID",
+    ):
+        volume_module.deliver_and_reobserve_runtime_volume_activation(
+            prepared,
+            spawn,
+            volume,
+            prepared.volume_keeper_evidence,
+            request_payload=b"complete request",
+            credential_payload=b"provider-token",
+            credential_content_authority_id="unbounded.legacy.credential.authority",
+            workspace_descriptor=None,
+            settings=settings.launch,
+        )
 
 
 def test_terminal_workspace_source_requires_exact_prepared_volume_occurrence():
@@ -1937,7 +1989,7 @@ def _physical_selected_activation_case(
         request_payload=payload,
         credential_payload=credential_payload,
         credential_content_authority_id=(
-            "test.credential.lease" if credential_payload is not None else None
+            _CREDENTIAL_LEASE_AUTHORITY_ID if credential_payload is not None else None
         ),
         workspace_descriptor=None,
         settings=layout_context[0].launch,

@@ -23,7 +23,7 @@ from expert_live_docker_support import (
     run_setup_docker,
 )
 from kapso.core.config import load_config
-from kapso.cross_run.canonical import tree_or_blob_digest
+from kapso.cross_run.canonical import content_id, tree_or_blob_digest
 from kapso.cross_run.docker.runtime import (
     DockerImageAuthority,
     PinnedDockerPreparationAuthority,
@@ -48,6 +48,9 @@ from kapso.cross_run.launch.run_action_control_topology import (
 )
 from kapso.cross_run.launch.run_action_barrier_contracts import (
     RunActionResolvedMountKind,
+)
+from kapso.cross_run.launch.run_action_activation_envelope import (
+    activation_execution_event_size_bound,
 )
 from kapso.cross_run.launch.run_action_clock import _SystemRunActionClock
 from kapso.cross_run.launch.run_action_containment_contracts import (
@@ -154,6 +157,7 @@ from kapso.cross_run.launch.run_action_runtime_volume import (
     reobserve_runtime_volume_layout,
 )
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
+    RUN_ACTION_CREDENTIAL_LEASE_AUTHORITY_NAMESPACE,
     RunActionActivationRevalidationReceipt,
     RunActionPreparationAllocation,
     RunActionPreparedExecution,
@@ -190,6 +194,10 @@ _CANONICAL_CONFIG_PATH = "src/kapso/config.yaml"
 _CONTAINER_ID_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 _ORIGINAL_SUBPROCESS_RUN = subprocess.run
 _LIVE_RESULT_PAYLOAD = b'{"live":"captured"}'
+_CREDENTIAL_LEASE_AUTHORITY_ID = content_id(
+    RUN_ACTION_CREDENTIAL_LEASE_AUTHORITY_NAMESPACE,
+    {"fixture": "live credential lease"},
+)
 
 
 class _UnusedLiveResultInterpreter:
@@ -1945,7 +1953,7 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             layout_keeper_evidence,
             request_payload=b"complete request",
             credential_payload=b"credential bytes",
-            credential_content_authority_id="test.credential.lease",
+            credential_content_authority_id=_CREDENTIAL_LEASE_AUTHORITY_ID,
             workspace_descriptor=workspace_descriptor,
             settings=cross_run_settings.launch,
         )
@@ -1966,7 +1974,7 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
         assert activated_volume.credential_file_observation.content_digest is None
         assert (
             activated_volume.credential_file_observation.content_authority_id
-            == "test.credential.lease"
+            == _CREDENTIAL_LEASE_AUTHORITY_ID
         )
         assert activated_volume.activated_workspace_observation is not None
         assert (
@@ -2005,6 +2013,15 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             layout_reservation,
             _authority=_RUN_ACTION_RECOVERY_AUTHORITY,
         ) as session:
+            activation_bound = activation_execution_event_size_bound(
+                prepared_execution=prepared_execution,
+                spawn_commit=spawn_commit,
+                predecessor_event_id=session.events[-1].event_id,
+            )
+            assert (
+                session.activation_event_size_bytes(activation_receipt)
+                <= activation_bound
+            )
             activation_event = session.commit_activation(activation_receipt)
         start_manager = DockerRunActionStartManager(runtime)
         start_dispatches = []

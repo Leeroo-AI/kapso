@@ -91,6 +91,9 @@ _RUNTIME_VOLUME_SENTINEL_PATH = ".kapso-generation"
 RUN_ACTION_RUNTIME_VOLUME_KEEPER_DESTINATION = "/kapso/runtime-volume"
 RUN_ACTION_SUPERVISOR_HELPER_DESTINATION = "/kapso-supervisor/busybox"
 RUN_ACTION_DOCKER_INIT_DESTINATION = "/sbin/docker-init"
+RUN_ACTION_CREDENTIAL_LEASE_AUTHORITY_NAMESPACE = (
+    "run-action-credential-lease-authority"
+)
 RUN_ACTION_BARRIER_CONTROL_DESTINATION = "/kapso-supervisor/control"
 RUN_ACTION_BARRIER_RELEASE_DESTINATION = "/kapso-supervisor/control/release"
 RUN_ACTION_BARRIER_PROTOCOL_VERSION = "kapso.run_action_barrier.v2"
@@ -2409,6 +2412,12 @@ class RunActionActivatedFileObservation(StrictContract):
                 self.content_authority_id,
                 "activated file content authority",
             )
+            if self.kind is RunActionPreparedFileKind.CREDENTIAL:
+                _require_namespaced_content_id(
+                    self.content_authority_id,
+                    RUN_ACTION_CREDENTIAL_LEASE_AUTHORITY_NAMESPACE,
+                    "activated credential lease authority",
+                )
         expected_paths = {
             RunActionPreparedFileKind.INPUT: "input/request.blob",
             RunActionPreparedFileKind.RESULT: "result/result.blob",
@@ -2451,7 +2460,7 @@ class RunActionActivatedFileObservation(StrictContract):
             or type(self.size_bytes) is not int
             or self.size_bytes < 0
             or any(
-                type(value) is not int or value <= 0
+                not _bounded_physical_integer(value, 1)
                 for value in (
                     self.parent_mount_id,
                     self.parent_device,
@@ -2551,7 +2560,7 @@ class RunActionActivatedWorkspaceObservation(StrictContract):
             or self.owner_group_id <= 0
             or self.root_mode != 0o700
             or any(
-                type(value) is not int or value <= 0
+                not _bounded_physical_integer(value, 1)
                 for value in (self.mount_id, self.device, self.inode)
             )
         ):
@@ -2617,7 +2626,7 @@ class RunActionActivatedRuntimeDirectoryObservation(StrictContract):
             or self.mode != 0o700
             or self.observed_entry_count != 0
             or any(
-                type(value) is not int or value <= 0
+                not _bounded_physical_integer(value, 1)
                 for value in (self.mount_id, self.device, self.inode)
             )
         ):
@@ -2680,7 +2689,7 @@ class RunActionActivatedSentinelObservation(StrictContract):
             or self.content_digest
             != tree_or_blob_digest(self.generation_nonce.encode("ascii"))
             or any(
-                type(value) is not int or value <= 0
+                not _bounded_physical_integer(value, 1)
                 for value in (self.mount_id, self.device, self.inode)
             )
         ):
@@ -3888,6 +3897,7 @@ __all__ = [
     "RUN_ACTION_BARRIER_PROTOCOL_VERSION",
     "RUN_ACTION_BARRIER_RELEASE_DESTINATION",
     "RUN_ACTION_BARRIER_SCRIPT",
+    "RUN_ACTION_CREDENTIAL_LEASE_AUTHORITY_NAMESPACE",
     "RUN_ACTION_DOCKER_INIT_DESTINATION",
     "RUN_ACTION_MAXIMUM_PHYSICAL_INTEGER",
     "RUN_ACTION_RUNTIME_VOLUME_KEEPER_DESTINATION",

@@ -652,9 +652,11 @@ An event-4 query admits only exact inert or unknown state; running or exited sta
 cannot be adopted without durable activation. Exact inert state may restage and
 select event 5. Every event-5 path now uses the same token-sealed continuation
 protocol. Read-only inspection returns only `INERT_CONTINUABLE`,
-`RUNNING_CONTINUABLE`, `TERMINAL_CONTINUABLE`, or `UNKNOWN`, plus one exact
-observation digest for states that may continue. It cannot return result bytes
-or terminalize an operation. A distinct
+`RUNNING_CONTINUABLE`, `TERMINAL_CONTINUABLE`,
+`PRE_RELEASE_MAIN_LOSS_CONTINUABLE`,
+`PRE_RELEASE_MAIN_TERMINAL_CONTINUABLE`, or `UNKNOWN`, plus one exact observation
+digest for states that may continue. It cannot return result bytes or
+terminalize an operation. A distinct
 same-process/same-thread single-use capability binds the complete event-2
 allocation, event-5 activation event, and exact observation object. Its sole
 `continue_committed_once` call must revalidate that observation before it may
@@ -796,7 +798,9 @@ single-use continuation capability must consume that lease before start.
 It embeds the exact typed spawn commit and delivery predecessors. Request delivery
 proves the fixed regular-file name, digest, size, owner/group, read-only mode, and
 single link; credential delivery proves the same structural facts plus its opaque
-broker lease authority and size, but stores no credential digest or bytes.
+broker lease authority and size, but stores no credential digest or bytes. That
+authority is a fixed-namespace content ID rather than an unbounded string, so its
+complete durable width is knowable before the broker is invoked.
 Restart revalidation therefore proves the exact credential inode and structure,
 not historical secret-byte identity; the trusted-supervisor/read-only-workload
 boundary owns that invariant. A stronger host-tamper threat model would require
@@ -1319,14 +1323,22 @@ eligibility, role proof, cleanup, recovery-report admission,
 publication, and subsequent reservation are now one sealed authority chain.
 Allocation-only invalidation now safely reaps exact volume-only, created-keeper,
 running-keeper, and never-started-main residues without requiring an event-3
-receipt. Production adapters remain unwired.
+receipt. A schema-sealed event-5 envelope now derives the complete future
+activation event from exact prepared/spawn authority before request, credential,
+or workspace delivery. It preserves the exact optional topology, copies every
+durable field, uses fixed-width content identities, and upper-bounds every new
+physical integer with the shared unsigned-64 contract. Recovery calls the bound
+twice and rejects even a one-byte-short configured event limit before entering
+the staging callback. Production adapters remain unwired.
 The start manager exposes no generic Docker command surface, and the raw pinned
 runtime is process-bound. One real-Docker lifecycle now routes the durable main
 through two coordinator passes: exact `INERT` classification and sealed barrier
 start first, then fresh `RUNNING` classification, resolved-mount proof, and
-release. Remaining production composition must provide adapters only the narrow
-observation/start/containment/cleanup projections and continue routing every
-post-reservation transition through coordinator-sealed capabilities.
+release. Remaining production composition must first provide an idempotent
+process-bound credential broker shared by activation delivery and release
+validity, then give adapters only the narrow observation/start/containment
+projections and continue routing every post-reservation transition through
+coordinator-sealed capabilities. Cleanup remains gate-owned.
 Every failed, interrupted, or timed-out Docker start response burns the current
 continuation. Fresh recovery reclassifies the same immutable container: an
 accepted start is adopted as `RUNNING`, while a still-`created` occurrence may

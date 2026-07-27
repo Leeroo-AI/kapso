@@ -81,6 +81,9 @@ from kapso.cross_run.launch.run_action_store import (
 from kapso.cross_run.launch.run_action_prepared_envelope import (
     prepared_execution_event_size_bound,
 )
+from kapso.cross_run.launch.run_action_activation_envelope import (
+    activation_execution_event_size_bound,
+)
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
     issue_runtime_volume_authority,
     RunActionPreparationAllocation,
@@ -1141,6 +1144,28 @@ class _OversizedActivationEnvelopeAdapter(_FakeExecutionAdapter):
         return self.oversized_event_size_bytes
 
 
+class _ProductionActivationEnvelopeAuditAdapter(_FakeExecutionAdapter):
+    def __init__(self, boundary_identity) -> None:
+        super().__init__(boundary_identity)
+        self.activation_envelope_calls = []
+
+    def activation_event_size_bound(
+        self,
+        *,
+        prepared_execution,
+        spawn_commit,
+        predecessor_event_id,
+    ):
+        self.activation_envelope_calls.append(
+            (prepared_execution, spawn_commit, predecessor_event_id)
+        )
+        return activation_execution_event_size_bound(
+            prepared_execution=prepared_execution,
+            spawn_commit=spawn_commit,
+            predecessor_event_id=predecessor_event_id,
+        )
+
+
 class _InvalidReleaseEnvelopeAdapter(_FakeExecutionAdapter):
     def __init__(self, boundary_identity, release_receipt_size_bound) -> None:
         super().__init__(boundary_identity)
@@ -2114,6 +2139,61 @@ def test_activation_envelope_rejects_oversize_before_delivery(
 
     events = gate._action_store.inspect().events_for(reservation.intent.operation_id)
     assert events[-1].event_kind is RunActionExecutionEventKind.SPAWN_COMMITTED
+    assert not adapter.stage_calls
+    assert not adapter.continuation_calls
+
+
+def test_production_activation_envelope_rejects_one_byte_before_delivery(
+    publisher_case,
+) -> None:
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
+    adapter = _ProductionActivationEnvelopeAuditAdapter(
+        reservation.intent.boundary_identity
+    )
+    with gate._action_store._recovery_session(
+        reservation,
+        _authority=_RUN_ACTION_RECOVERY_AUTHORITY,
+    ) as session:
+        allocation = session.allocate_preparation(adapter.execution_policy)
+        prepared = adapter._prepared_for_allocation(allocation)
+        session.commit_prepared_execution(prepared)
+        spawn = session.commit_spawn(
+            security_observation_id=reservation.frontier.security_observation_id,
+            boundary_identity=reservation.intent.boundary_identity,
+        )
+        predecessor_event_id = session.events[-1].event_id
+    bound = activation_execution_event_size_bound(
+        prepared_execution=prepared,
+        spawn_commit=spawn,
+        predecessor_event_id=predecessor_event_id,
+    )
+    coordinator = _recovery_coordinator(gate, adapter)
+    object.__setattr__(
+        publisher_case["settings"],
+        "run_action_event_size_bytes",
+        bound - 1,
+    )
+
+    with pytest.raises(
+        RunActionRecoveryError,
+        match="activation event envelope",
+    ):
+        coordinator.recover(frontier)
+
+    final_events = gate._action_store.inspect().events_for(
+        reservation.intent.operation_id
+    )
+    assert tuple(event.event_kind for event in final_events) == (
+        RunActionExecutionEventKind.INTENT_RESERVED,
+        RunActionExecutionEventKind.PREPARATION_ALLOCATED,
+        RunActionExecutionEventKind.EXECUTION_PREPARED,
+        RunActionExecutionEventKind.SPAWN_COMMITTED,
+    )
+    expected_call = (prepared, spawn, predecessor_event_id)
+    assert adapter.activation_envelope_calls == [
+        expected_call,
+        expected_call,
+    ]
     assert not adapter.stage_calls
     assert not adapter.continuation_calls
 
