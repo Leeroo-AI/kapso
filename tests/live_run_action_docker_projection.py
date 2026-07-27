@@ -995,7 +995,7 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
         )
         coding_agent_request = CodingAgentRunActionRequest(
             protocol_version=CODING_AGENT_REQUEST_PROTOCOL_VERSION,
-            interpretation_policy_id=coding_agent_policy.interpretation_policy_id,
+            interpretation_policy=coding_agent_policy,
             operation_id="agent_call_" + "a" * 32,
             prompt="Return the fixed live-validation result object.",
             response_schema={

@@ -75,15 +75,6 @@ def _require_positive_integer(value: object, name: str) -> int:
     return value
 
 
-def _require_policy_id(value: object) -> str:
-    require_content_id(value, "coding-agent interpretation policy ID")
-    if value.split(":sha256:", 1)[0] != _INTERPRETATION_POLICY_NAMESPACE:
-        raise RunActionCodingAgentContractError(
-            "coding-agent interpretation policy ID uses the wrong namespace"
-        )
-    return value
-
-
 class CodingAgentPriorKnowledgeAccessKind(str, Enum):
     """The two semantic reads exposed by the prior-knowledge gate."""
 
@@ -176,7 +167,7 @@ class CodingAgentRunActionRequest(StrictContract):
     """Complete path-free input to one coding-agent run action."""
 
     protocol_version: str
-    interpretation_policy_id: str
+    interpretation_policy: CodingAgentInterpretationPolicy
     operation_id: str
     prompt: str
     response_schema: Mapping[str, Any]
@@ -188,7 +179,10 @@ class CodingAgentRunActionRequest(StrictContract):
             raise RunActionCodingAgentContractError(
                 "coding-agent request uses an unknown protocol"
             )
-        _require_policy_id(self.interpretation_policy_id)
+        if type(self.interpretation_policy) is not CodingAgentInterpretationPolicy:
+            raise RunActionCodingAgentContractError(
+                "coding-agent request lacks its complete interpretation policy"
+            )
         if (
             not isinstance(self.operation_id, str)
             or _OPERATION_ID_PATTERN.fullmatch(self.operation_id) is None
@@ -223,7 +217,7 @@ class CodingAgentRunActionRequest(StrictContract):
             raise RunActionCodingAgentContractError(
                 "coding-agent request requires an exact interpretation policy"
             )
-        if self.interpretation_policy_id != policy.interpretation_policy_id:
+        if self.interpretation_policy != policy:
             raise RunActionCodingAgentContractError(
                 "coding-agent request names another interpretation policy"
             )

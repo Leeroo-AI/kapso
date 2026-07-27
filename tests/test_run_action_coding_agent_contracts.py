@@ -66,7 +66,7 @@ def run_action_request(
 ):
     return CodingAgentRunActionRequest(
         protocol_version=CODING_AGENT_REQUEST_PROTOCOL_VERSION,
-        interpretation_policy_id=policy.interpretation_policy_id,
+        interpretation_policy=policy,
         operation_id=_OPERATION_ID,
         prompt="Return the complete structured proposal.",
         response_schema=(
@@ -159,6 +159,8 @@ def test_policy_request_and_result_are_content_stable_canonical_contracts():
     )
     assert request.to_json_bytes() == canonical_json_bytes(request.to_dict())
     assert result.to_json_bytes() == canonical_json_bytes(result.to_dict())
+    assert request.to_dict()["interpretation_policy"] == policy.to_dict()
+    assert "interpretation_policy_id" not in request.to_dict()
 
     with pytest.raises(ValueError, match="interpretation_policy_id mismatch"):
         replace(policy, role="candidate_reviewer")
@@ -278,6 +280,16 @@ def test_request_and_result_require_exact_digest_operation_and_consumer_joins():
     result = result_envelope(request)
 
     result.validate_against(policy=policy, request=request)
+
+    another_policy = interpretation_policy(maximum_raw_result_bytes=65_537)
+    with pytest.raises(
+        RunActionCodingAgentContractError,
+        match="another interpretation policy",
+    ):
+        replace(
+            request,
+            interpretation_policy=another_policy,
+        ).require_policy(policy)
 
     with pytest.raises(
         RunActionCodingAgentContractError,
