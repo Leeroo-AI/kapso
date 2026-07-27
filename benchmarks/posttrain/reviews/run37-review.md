@@ -52,3 +52,42 @@ falsified recipe); #37 has a banked capability-lifted model and a
 measured RFT frontier. Watch for P2: RFT round-1 outcome on the band,
 whether the schema/answer-prior stages fire, the KL question above, and
 official-read count staying disciplined.
+
+## P2 (t+2.5h → t+6.6h)
+
+Headline: **iteration 1 closed 0/30 with the first real capability ladder
+this cell has ever produced (base 0 → KD 12.3 → RFT-1 19.6% MATH-L4/5,
+AIME-24 1/30 by genuine reasoning); iteration 2 pivoted, on measured
+grounds, to long-CoT scaling — and the logit-KD lever remains untried.**
+
+- **R37-P2-1 — iter-1 close-out quality.** Four official reads, all 0/30,
+  all milestone-grade (no fishing); feedback audit verified the eval
+  untampered and "all candidates genuinely read 0/30"; RFT-2 (2× corpus)
+  measured 17.4% vs RFT-1's 19.6% → dev-gate refused promotion — RFT
+  saturates after one round on this band (useful negative). Teacher corpus
+  + pipeline registered to shared cache.
+- **R37-P2-2 — R37-P1-3 RESOLVED: the KL/logit-KD mechanism was NEVER
+  implemented.** Iter-1's "KD" was answer-verified teacher-trace SFT
+  (sequence-level); the boundary note says soft-target KD was "correctly
+  deferred to iteration 2's fresh session" — but iter-2's selector then
+  chose long-CoT SFT instead, so the playbook's #1 mechanism is still
+  virgin after two iterations. Campaign conclusion must NOT claim logit-KD
+  was falsified here; what iter-1 tested is teacher-trace SFT + RFT.
+- **R37-P2-3 — iter-2's causal pivot is well-grounded but notably close to
+  run #36's ground.** Thesis: iter-1 proved format solved (26/30 clean
+  ANSWER lines) and capability the sole bottleneck; every iter-1 target was
+  CONCISE (teacher p50=650 tok) while the eval grants 16k — so reasoning
+  LENGTH is the untapped axis → long R1-style CoT SFT (OpenR1 verified,
+  ≤8k gemma tokens, exact ANSWER register, 3 epochs guaranteed by sizing
+  arithmetic). Distinction from #36 (which also trained R1 traces and got
+  0/30): #36 length-FILTERED to ≤6k and optimized conciseness; this bets
+  the opposite end. The selector's rejection of the schema candidate was
+  causally clean ("format solved → vote engineering doesn't attack the
+  bottleneck").
+- **R37-P2-4 — discipline still campaign-best**: sizing arithmetic honored
+  (471 steps / 3 epochs / 94.5 min, loss 0.547), waits bounded and
+  productive (gate scripts syntax-checked, RFT replay pre-fixed during
+  training), zero wasted calls, zero limit events at t+6.6h.
+- State at cut: dev gate (2 decode points @16k) firing on the long-CoT
+  model; ~3h to session close; RFT top-up and final official read queued
+  behind the gate.
