@@ -463,6 +463,12 @@ class TestGenericModeConfig:
         assert mode["feedback_generator"]["type"] == "codex"
         assert mode["search_strategy"]["params"]["ideation_selector"]["cli"] == "codex"
         assert mode["models"]["utility"]["reasoning_effort"] == "xhigh"
+        # K=2 expansion (user-directed 2026-07-27): two implementation lanes,
+        # thread-capped 12/12 so parallel candidates can't starve each other.
+        assert mode["search_strategy"]["params"]["node_expansion_value"] == 2
+        lanes = mode["search_strategy"]["params"]["expansion_lane_env"]
+        assert len(lanes) == 2
+        assert all(lane["OMP_NUM_THREADS"] == "12" for lane in lanes)
 
 
 @pytest.mark.skipif(

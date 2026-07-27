@@ -115,8 +115,16 @@ modes:
         effort: "xhigh"
         gate_failure_policy: "skip"
         parent_policy: "best"
-        # K-way node expansion: 1 = sequential champion chain (default).
-        node_expansion_value: 1
+        # K-way node expansion: the selector emits a ranked top-2 (slot 1 =
+        # highest expected return, slot 2 = deliberately complementary) and
+        # each is implemented/evaluated on its own parallel lane. Lane env
+        # thread-caps split the box (26 vCPU -> 12/12) so two candidate
+        # trainings cannot starve each other's evals (the 07-17 contention
+        # lesson); both lanes share the single GPU (CUDA_DEVICE default 0).
+        node_expansion_value: 2
+        expansion_lane_env:
+          - {OMP_NUM_THREADS: "12", MKL_NUM_THREADS: "12", OPENBLAS_NUM_THREADS: "12", NUMEXPR_MAX_THREADS: "12"}
+          - {OMP_NUM_THREADS: "12", MKL_NUM_THREADS: "12", OPENBLAS_NUM_THREADS: "12", NUMEXPR_MAX_THREADS: "12"}
         ideation_timeout: 1800
         # One experiment = implement + run the registered full evaluation
         # (candidate training, up to the task's full timeout) inside the
