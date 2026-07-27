@@ -569,3 +569,35 @@ class TestFinalEvaluateTestFill:
         assert report["test_metrics"]["mae"] > 0
         on_disk = json.loads((run_dir / "private/metrics.json").read_text())
         assert on_disk["test"] == report["test_metrics"]
+
+
+class TestDataAccessRules:
+    def test_external_data_conditional_baseline_weights_named_synthetic_legal(self):
+        """User-directed data policy (2026-07-27): external downloads are
+        legal ONLY leak-free (any leakage voids), synthetic pretraining is
+        explicitly legal, and the compared leaderboard methods' weights are
+        excluded BY NAME (comparing against something we run ourselves is
+        not a result). The old blanket network ban is gone; the official
+        RelBench distribution stays unfetchable (contains post-cutoff rows)."""
+        from types import SimpleNamespace
+
+        from benchmarks.relbench.context import _data_access_rules
+
+        spec = SimpleNamespace(
+            is_autocomplete=False,
+            dataset_name="rel-f1",
+            task_name="driver-position",
+            time_col="date",
+            is_recommendation=False,
+        )
+        rules = _data_access_rules(spec)
+        assert "EXTERNAL DATA" in rules and "ZERO leakage" in rules
+        assert "voids the experiment" in rules
+        assert "never fetch dataset files from the network" not in rules
+        assert "OFFICIAL RelBench distribution" in rules
+        assert "SYNTHETIC DATA" in rules and "legal" in rules
+        for name in ("KumoRFM", "Relational Transformer", "PluRel",
+                     "Griffin", "Rel-LLM"):
+            assert name in rules, name
+        assert "ARCHITECTURES may be reimplemented" in rules
+        assert "do NOT look up this problem's published solution" in rules

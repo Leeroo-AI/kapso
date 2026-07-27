@@ -371,8 +371,17 @@ Data access (read carefully — violations invalidate the run):
   feature recipe tuned to this exact dataset. If you find such material, stop
   and do not use it. Searching for GENERAL methods, domain background, and
   library usage is fine; obtaining the specific answer to this benchmark
-  problem from the web is forbidden and voids the run. Solve it yourself from
-  the provided data.
+  problem from the web is forbidden and voids the run. Solve it yourself.
+- INTEGRITY (baseline weights) — you may NOT use the pretrained weights or
+  released checkpoints of the methods this run is compared against on the
+  RelBench leaderboard: KumoRFM / KumoRFM-2, Relational Transformer (RT),
+  PluRel, Griffin, Rel-LLM, or any other published RelBench-leaderboard
+  method — nor any checkpoint pretrained on RelBench databases. Beating a
+  baseline by running the baseline is not a result; it voids the run. Their
+  published ARCHITECTURES may be reimplemented and trained from scratch —
+  the exclusion is their weights. General-purpose pretrained models NOT
+  built on RelBench (text/tabular encoders, generic embedding models) are
+  allowed.
 - Load data ONLY through the relbench API with download=False:
     from relbench.datasets import get_dataset
     from relbench.tasks import get_task
@@ -384,8 +393,21 @@ Data access (read carefully — violations invalidate the run):
     test  = task.get_table("test")             # seed rows ONLY (labels held out)
   RELBENCH_CACHE_DIR is preset to a sanitized read-only cache prepared for this task.
 - `download=True` will fail (read-only cache) — never use it. Never change
-  RELBENCH_CACHE_DIR, never read or write ~/.cache/relbench, never fetch dataset files
-  from the network.
+  RELBENCH_CACHE_DIR, never read or write ~/.cache/relbench, and never re-fetch
+  the OFFICIAL RelBench distribution from the network — the raw distribution
+  contains post-cutoff rows, so fetching it is test leakage by definition.
+- EXTERNAL DATA — downloading additional external datasets IS allowed, under
+  one absolute condition: ZERO leakage into this task's test windows. ANY
+  kind of leakage voids the experiment. Be warned: on these tasks the test
+  labels are public real-world history (e.g. actual race results after the
+  test cutoff) — an external source that contains, or lets you derive,
+  post-cutoff facts about this database's domain is leakage. The
+  temporal-censoring rule below applies to external rows exactly as to db
+  rows, and every external source must be documented in changes.log with its
+  provenance and the argument for why it is leak-free.
+- SYNTHETIC DATA — generating synthetic relational data yourself (e.g.
+  procedurally generated databases for pretraining) is legal and optionally
+  useful: it involves no external facts at all.
 {ac_note}- Temporal censoring is YOUR responsibility inside allowed data: every feature,
   aggregation, join, or sampled neighborhood for a seed row at time t must only use
   rows with time <= t.
@@ -420,9 +442,9 @@ Resources & engineering:
   predictions there, keyed by a content/version string. Check-before-compute.
 - Install any missing pip package quietly at the top of main.py (pip install -q).
   Any library and any modeling approach is allowed — including open pretrained
-  models/checkpoints — subject only to the data-access and integrity rules above
-  (a pretrained checkpoint that is itself a published solution to THIS task remains
-  forbidden).
+  models/checkpoints and synthetic-data pretraining — subject only to the
+  data-access and integrity rules above (note the named exclusion: no weights
+  of the compared leaderboard methods).
 - Match the INSTALLED library APIs (print versions in your EDA) — modern majors have
   removed legacy kwargs. Known traps here: lightgbm 4.x (`lgb.train` takes
   callbacks=[lgb.early_stopping(N), lgb.log_evaluation(0)]; early_stopping_rounds /
