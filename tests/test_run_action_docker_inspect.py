@@ -16,6 +16,8 @@ from kapso.cross_run.launch.run_action_docker_inspect import (
     DockerRunActionInspectionError,
     issued_keeper_projection,
     issued_main_projection,
+    observe_allocation_inert_main_container,
+    observe_allocation_keeper,
     observe_inert_keeper,
     observe_inert_main_container,
     observe_running_barrier_main_container,
@@ -26,6 +28,7 @@ from kapso.cross_run.launch.run_action_docker_inspect import (
 )
 from kapso.cross_run.launch.run_action_docker_projection import (
     DockerRunActionCommand,
+    DockerRunActionProjectionError,
     main_barrier_command,
 )
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
@@ -554,6 +557,93 @@ def test_main_inspection_equals_issued_projection(docker_settings):
     assert evidence.issued_create_projection.unclassified_raw_field_count == 0
 
 
+def test_allocation_main_authenticates_raw_target_against_durable_policy(
+    docker_settings,
+):
+    claim, authority, _volume_raw, volume, command, helper, init = _context(
+        docker_settings
+    )
+    raw = _container_raw(
+        claim,
+        authority,
+        volume,
+        command,
+        docker_settings,
+        keeper=False,
+    )
+
+    assert observe_allocation_inert_main_container(
+        raw,
+        claim,
+        authority,
+        volume,
+        helper,
+        init,
+        docker_settings,
+    ) == observe_inert_main_container(
+        raw,
+        claim,
+        authority,
+        volume,
+        command,
+        helper,
+        init,
+        docker_settings,
+    )
+
+    substituted = copy.deepcopy(raw)
+    substituted["Args"][-1] = "substituted"
+    with pytest.raises(
+        DockerRunActionProjectionError,
+        match="differs from durable execution policy",
+    ):
+        observe_allocation_inert_main_container(
+            substituted,
+            claim,
+            authority,
+            volume,
+            helper,
+            init,
+            docker_settings,
+        )
+
+    malformed = copy.deepcopy(raw)
+    malformed["Args"] = "not-an-argument-vector"
+    with pytest.raises(
+        DockerRunActionInspectionError,
+        match="arguments are malformed",
+    ):
+        observe_allocation_inert_main_container(
+            malformed,
+            claim,
+            authority,
+            volume,
+            helper,
+            init,
+            docker_settings,
+        )
+
+    for position, value in (
+        (0, "not-the-barrier-shell-mode"),
+        (8, '"generation_nonce":"ffffffffffffffffffffffffffffffff"'),
+    ):
+        wrong_wrapper = copy.deepcopy(raw)
+        wrong_wrapper["Args"][position] = value
+        with pytest.raises(
+            DockerRunActionInspectionError,
+            match="differs from issued create authority",
+        ):
+            observe_allocation_inert_main_container(
+                wrong_wrapper,
+                claim,
+                authority,
+                volume,
+                helper,
+                init,
+                docker_settings,
+            )
+
+
 def test_running_main_inspection_is_closed_without_process_or_mount_claims(
     docker_settings,
 ):
@@ -981,6 +1071,97 @@ def test_inert_keeper_inspection_equals_issued_projection(docker_settings):
     assert observation.observed_inspect_projection == (
         observation.issued_create_projection
     )
+
+
+@pytest.mark.parametrize("lifecycle", ("created", "running"))
+def test_allocation_keeper_dispatches_only_closed_removable_lifecycle(
+    docker_settings,
+    lifecycle,
+):
+    claim, authority, _volume_raw, volume, command, helper, init = _context(
+        docker_settings
+    )
+    raw = (
+        _inert_keeper_raw(
+            claim,
+            authority,
+            volume,
+            command,
+            docker_settings,
+        )
+        if lifecycle == "created"
+        else _container_raw(
+            claim,
+            authority,
+            volume,
+            command,
+            docker_settings,
+            keeper=True,
+        )
+    )
+    expected = (
+        observe_inert_keeper(
+            raw,
+            claim,
+            authority,
+            volume,
+            helper,
+            init,
+            docker_settings,
+        )
+        if lifecycle == "created"
+        else observe_running_keeper(
+            raw,
+            claim,
+            authority,
+            volume,
+            helper,
+            init,
+            docker_settings,
+        )
+    )
+
+    assert (
+        observe_allocation_keeper(
+            raw,
+            claim,
+            authority,
+            volume,
+            helper,
+            init,
+            docker_settings,
+        )
+        == expected
+    )
+
+
+def test_allocation_keeper_rejects_every_other_lifecycle(docker_settings):
+    claim, authority, _volume_raw, volume, command, helper, init = _context(
+        docker_settings
+    )
+    raw = _container_raw(
+        claim,
+        authority,
+        volume,
+        command,
+        docker_settings,
+        keeper=True,
+    )
+    raw["State"]["Status"] = "exited"
+
+    with pytest.raises(
+        DockerRunActionInspectionError,
+        match="lifecycle is not removable",
+    ):
+        observe_allocation_keeper(
+            raw,
+            claim,
+            authority,
+            volume,
+            helper,
+            init,
+            docker_settings,
+        )
 
 
 def _add_field(value):

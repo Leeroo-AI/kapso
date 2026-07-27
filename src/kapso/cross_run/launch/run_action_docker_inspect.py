@@ -23,6 +23,7 @@ from kapso.cross_run.launch.run_action_docker_projection import (
     DockerRunActionCommand,
     docker_run_action_raw_field_schema,
     main_barrier_command,
+    target_command_from_barrier_invocation,
     volume_create_arguments,
 )
 from kapso.cross_run.launch.run_action_release_contracts import (
@@ -343,6 +344,45 @@ def observe_inert_main_container(
         healthcheck_present=False,
         volume_plugin_mount_count=0,
         docker_socket_mounted=False,
+    )
+
+
+def observe_allocation_inert_main_container(
+    raw_inspection: Mapping[str, Any],
+    claim: RunActionPreparationClaim,
+    authority: RunActionRuntimeVolumeAuthority,
+    volume: DockerRunActionVolumeObservation,
+    helper_evidence: RunActionSupervisorHelperEvidence,
+    init_source_evidence: RunActionDockerInitSourceEvidence,
+    settings: DockerRuntimeSettings,
+) -> RunActionInertContainerEvidence:
+    """Authenticate and parse an allocation-stage main from durable policy."""
+
+    raw = _require_mapping(
+        raw_inspection,
+        "Docker allocation-stage main inspection",
+    )
+    raw_arguments = raw["Args"]
+    if type(raw_arguments) is not list or any(
+        type(argument) is not str for argument in raw_arguments
+    ):
+        raise DockerRunActionInspectionError(
+            "Docker allocation-stage main arguments are malformed"
+        )
+    command = target_command_from_barrier_invocation(
+        raw["Path"],
+        tuple(raw_arguments),
+        claim.execution_policy,
+    )
+    return observe_inert_main_container(
+        raw,
+        claim,
+        authority,
+        volume,
+        command,
+        helper_evidence,
+        init_source_evidence,
+        settings,
     )
 
 
@@ -862,6 +902,51 @@ def observe_inert_keeper(
         container_id=container_id,
         issued_create_projection=issued,
         observed_inspect_projection=issued,
+    )
+
+
+def observe_allocation_keeper(
+    raw_inspection: Mapping[str, Any],
+    claim: RunActionPreparationClaim,
+    authority: RunActionRuntimeVolumeAuthority,
+    volume: DockerRunActionVolumeObservation,
+    helper_evidence: RunActionSupervisorHelperEvidence,
+    init_source_evidence: RunActionDockerInitSourceEvidence,
+    settings: DockerRuntimeSettings,
+) -> DockerRunActionInertKeeperObservation | RunActionVolumeKeeperEvidence:
+    """Parse only a never-started or exact running allocation-stage keeper."""
+
+    raw = _require_mapping(
+        raw_inspection,
+        "Docker allocation-stage keeper inspection",
+    )
+    state = _require_mapping(
+        raw["State"],
+        "Docker allocation-stage keeper State",
+    )
+    status = state["Status"]
+    if status == "created":
+        return observe_inert_keeper(
+            raw,
+            claim,
+            authority,
+            volume,
+            helper_evidence,
+            init_source_evidence,
+            settings,
+        )
+    if status == "running":
+        return observe_running_keeper(
+            raw,
+            claim,
+            authority,
+            volume,
+            helper_evidence,
+            init_source_evidence,
+            settings,
+        )
+    raise DockerRunActionInspectionError(
+        "Docker allocation-stage keeper lifecycle is not removable"
     )
 
 
@@ -1804,6 +1889,8 @@ __all__ = [
     "RunActionBarrierRunningContainerObservation",
     "issued_keeper_projection",
     "issued_main_projection",
+    "observe_allocation_keeper",
+    "observe_allocation_inert_main_container",
     "observe_inert_keeper",
     "observe_inert_main_container",
     "observe_running_barrier_main_container",

@@ -433,19 +433,42 @@ def target_command_from_main_projection(
 ) -> DockerRunActionCommand:
     """Recover the policy-bound target from one validated barrier projection."""
 
-    if (
-        type(projection) is not DockerRunActionCreateInspectProjection
-        or len(projection.command_arguments) <= _RUN_ACTION_BARRIER_TARGET_POSITION
-    ):
+    if type(projection) is not DockerRunActionCreateInspectProjection:
         raise DockerRunActionProjectionError(
             "run action main projection lacks its target command"
         )
-    return DockerRunActionCommand.build(
-        entrypoint=projection.command_arguments[_RUN_ACTION_BARRIER_TARGET_POSITION],
-        arguments=projection.command_arguments[
-            _RUN_ACTION_BARRIER_TARGET_POSITION + 1 :
-        ],
+    return target_command_from_barrier_invocation(
+        projection.command_executable,
+        projection.command_arguments,
+        projection.execution_policy,
     )
+
+
+def target_command_from_barrier_invocation(
+    command_executable: str,
+    command_arguments: tuple[str, ...],
+    execution_policy: DockerRunActionExecutionPolicy,
+) -> DockerRunActionCommand:
+    """Authenticate one complete barrier target preimage against durable policy."""
+
+    if (
+        command_executable != RUN_ACTION_SUPERVISOR_HELPER_DESTINATION
+        or type(command_arguments) is not tuple
+        or len(command_arguments) <= _RUN_ACTION_BARRIER_TARGET_POSITION
+        or type(execution_policy) is not DockerRunActionExecutionPolicy
+    ):
+        raise DockerRunActionProjectionError(
+            "run action barrier invocation lacks its exact target"
+        )
+    command = DockerRunActionCommand.build(
+        entrypoint=command_arguments[_RUN_ACTION_BARRIER_TARGET_POSITION],
+        arguments=command_arguments[_RUN_ACTION_BARRIER_TARGET_POSITION + 1 :],
+    )
+    if command.command_template_id != execution_policy.command_template_id:
+        raise DockerRunActionProjectionError(
+            "run action barrier target differs from durable execution policy"
+        )
+    return command
 
 
 def docker_run_action_raw_field_schema() -> Mapping[str, tuple[str, ...]]:
@@ -1019,6 +1042,7 @@ __all__ = [
     "main_barrier_command",
     "main_create_arguments",
     "require_run_action_image",
+    "target_command_from_barrier_invocation",
     "target_command_from_main_projection",
     "volume_create_arguments",
 ]

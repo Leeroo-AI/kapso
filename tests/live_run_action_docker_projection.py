@@ -958,6 +958,10 @@ def _listed_exact(
         "pre_release_main_loss",
         "pre_release_main_terminal",
         "frontier_invalidated",
+        "allocation_volume",
+        "allocation_created_keeper",
+        "allocation_running_keeper",
+        "allocation_inert_main",
     ),
 )
 def test_real_docker_accepts_only_the_issued_run_action_projection(
@@ -1467,6 +1471,34 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             _authority=_RUN_ACTION_RECOVERY_AUTHORITY,
         ) as session:
             layout_allocation = session.allocate_preparation(layout_policy)
+
+        def recover_allocation_invalidation() -> None:
+            with action_gate._action_store._recovery_session(
+                layout_reservation,
+                _authority=_RUN_ACTION_RECOVERY_AUTHORITY,
+            ) as session:
+                session.invalidate_frontier()
+            inert_adapter = _LiveNaturalTerminalWorkloadAdapter(
+                boundary_identity=boundary_identity,
+                execution_policy=layout_policy,
+                resource_manager=resource_manager,
+                preparation_allocation=layout_allocation,
+                command=command,
+                helper_evidence=helper_evidence,
+                init_source_evidence=init_source_evidence,
+                docker_settings=settings,
+                launch_settings=cross_run_settings.launch,
+            )
+            invalidated_report = _recovery_coordinator(
+                action_gate,
+                inert_adapter,
+            ).recover(action_frontier)
+            assert invalidated_report.is_complete
+            assert resource_manager.observe(layout_allocation).is_absent
+            action_gate._resource_finalization_authority.require_terminal_absence(
+                layout_reservation.intent.operation_id
+            )
+
         layout_claim = layout_allocation.preparation_claim
         layout_authority = layout_allocation.runtime_volume_authority
         layout_volume_name = preparation_volume_name(layout_claim)
@@ -1502,6 +1534,9 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             layout_authority,
             settings,
         )
+        if terminal_path == "allocation_volume":
+            recover_allocation_invalidation()
+            return
         cleanup.callback(
             _remove_owned_container,
             settings,
@@ -1518,6 +1553,9 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             )
         )
         layout_keeper_id = layout_keeper_result.stdout.decode("ascii").strip()
+        if terminal_path == "allocation_created_keeper":
+            recover_allocation_invalidation()
+            return
         runtime.run_control(("container", "start", layout_keeper_id))
         layout_keeper_inventory = resource_manager.observe(layout_allocation)
         layout_keeper_evidence = observe_running_keeper(
@@ -1529,6 +1567,9 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             init_source_evidence,
             settings,
         )
+        if terminal_path == "allocation_running_keeper":
+            recover_allocation_invalidation()
+            return
         layout_empty_volume = observe_empty_runtime_volume(
             layout_authority,
             layout_volume_observation,
@@ -1576,6 +1617,9 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             init_source_evidence,
             settings,
         )
+        if terminal_path == "allocation_inert_main":
+            recover_allocation_invalidation()
+            return
         prepared_execution = RunActionPreparedExecution.mint(
             preparation_claim=layout_claim,
             runtime_volume_authority=layout_authority,

@@ -24,6 +24,7 @@ from kapso.cross_run.launch.run_action_docker_cleanup import (
     RunActionDockerCleanupError,
 )
 from kapso.cross_run.launch.run_action_docker_inspect import (
+    DockerRunActionInertKeeperObservation,
     observe_runtime_volume,
 )
 from kapso.cross_run.launch.run_action_docker_resources import (
@@ -310,6 +311,7 @@ def _install_cleanup_resources(
         "Id": keeper.container_id,
         "Name": f"/{preparation_keeper_container_name(claim)}",
         "RoleProof": keeper.volume_keeper_evidence_id,
+        "State": {"Status": "running"},
     }
     runner.containers[main.container_id] = {
         "Config": {
@@ -324,6 +326,7 @@ def _install_cleanup_resources(
             if main_role_proof is None
             else main_role_proof
         ),
+        "State": {"Status": "created"},
     }
     runner.running_container_ids.add(keeper.container_id)
 
@@ -445,6 +448,89 @@ def _install_prepared_cleanup_proof_adapters(monkeypatch, prepared):
         lambda _prepared: _StaticCleanupControlLease(
             topology=RunActionControlDirectoryTopology.EMPTY
         ),
+    )
+
+
+def _install_allocation_cleanup_proof_adapters(
+    monkeypatch,
+    allocation,
+    prepared,
+):
+    def observe_volume(raw, claim, authority, settings):
+        assert claim == allocation.preparation_claim
+        assert authority == allocation.runtime_volume_authority
+        return SimpleNamespace(
+            volume_name=authority.volume_name,
+            volume_occurrence_digest=raw["RoleProof"],
+        )
+
+    def observe_helper(policy):
+        assert policy == allocation.preparation_claim.execution_policy
+        return SimpleNamespace(role="helper")
+
+    def observe_init(policy):
+        assert policy == allocation.preparation_claim.execution_policy
+        return SimpleNamespace(role="init")
+
+    def observe_keeper(
+        raw,
+        claim,
+        authority,
+        volume,
+        helper_evidence,
+        init_source_evidence,
+        settings,
+    ):
+        assert claim == allocation.preparation_claim
+        assert authority == allocation.runtime_volume_authority
+        if (
+            raw["RoleProof"]
+            != prepared.volume_keeper_evidence.volume_keeper_evidence_id
+        ):
+            raise RunActionDockerCleanupError(
+                "allocation-stage keeper differs from issued projection"
+            )
+        status = raw["State"]["Status"]
+        if status == "created":
+            projection = prepared.volume_keeper_evidence.issued_create_projection
+            return DockerRunActionInertKeeperObservation(
+                container_id=raw["Id"],
+                issued_create_projection=projection,
+                observed_inspect_projection=projection,
+            )
+        if status == "running":
+            return prepared.volume_keeper_evidence
+        raise RunActionDockerCleanupError(
+            "allocation-stage keeper lifecycle is not removable"
+        )
+
+    def observe_main(
+        raw,
+        claim,
+        authority,
+        volume,
+        helper_evidence,
+        init_source_evidence,
+        settings,
+    ):
+        if (
+            raw["State"]["Status"] != "created"
+            or raw["RoleProof"]
+            != prepared.inert_container_evidence.inert_container_evidence_id
+        ):
+            raise RunActionDockerCleanupError(
+                "allocation-stage main is not an exact inert occurrence"
+            )
+        return prepared.inert_container_evidence
+
+    monkeypatch.setattr(cleanup_module, "observe_runtime_volume", observe_volume)
+    monkeypatch.setattr(cleanup_module, "observe_supervisor_helper", observe_helper)
+    monkeypatch.setattr(cleanup_module, "observe_docker_init_source", observe_init)
+    monkeypatch.setattr(cleanup_module, "observe_allocation_keeper", observe_keeper)
+    monkeypatch.setattr(
+        cleanup_module,
+        "observe_allocation_inert_main_container",
+        observe_main,
     )
 
 
@@ -739,7 +825,17 @@ def test_cleanup_rejects_resource_reappearance_after_one_transition(
     assert main_id in runner.containers
 
 
-def test_allocation_only_invalidation_requires_absence_without_cleanup(
+def _append_allocation_invalidation(gate, reservation, execution_policy):
+    with gate._action_store._recovery_session(
+        reservation,
+        _authority=_RUN_ACTION_RECOVERY_AUTHORITY,
+    ) as session:
+        allocation = session.allocate_preparation(execution_policy)
+        session.invalidate_frontier()
+    return allocation
+
+
+def test_allocation_only_invalidation_proves_stable_absence(
     publisher_case,
     resource_context,
 ):
@@ -748,12 +844,7 @@ def test_allocation_only_invalidation_requires_absence_without_cleanup(
         publisher_case,
         resource_manager,
     )
-    with gate._action_store._recovery_session(
-        reservation,
-        _authority=_RUN_ACTION_RECOVERY_AUTHORITY,
-    ) as session:
-        allocation = session.allocate_preparation(execution_policy)
-        session.invalidate_frontier()
+    _append_allocation_invalidation(gate, reservation, execution_policy)
     authority = _finalization_authority(
         publisher_case,
         gate,
@@ -764,22 +855,370 @@ def test_allocation_only_invalidation_requires_absence_without_cleanup(
     authority.finalize_terminal(reservation.intent.operation_id)
 
     assert not _cleanup_commands(runner)
-    runner.volumes[allocation.runtime_volume_authority.volume_name] = {
-        "Name": allocation.runtime_volume_authority.volume_name,
-        "Labels": {
-            label.key: label.value
-            for label in preparation_volume_labels(
-                allocation.preparation_claim,
-                allocation.runtime_volume_authority.generation_nonce,
-            )
-        },
-    }
+
+
+@pytest.mark.parametrize(
+    ("residue", "expected_commands"),
+    (
+        ("volume", ("volume",)),
+        ("created_keeper", ("created_keeper", "volume")),
+        ("running_keeper", ("running_keeper", "volume")),
+        ("inert_main", ("main", "running_keeper", "volume")),
+    ),
+)
+def test_allocation_only_invalidation_reaps_exact_partial_residue(
+    publisher_case,
+    resource_context,
+    monkeypatch,
+    residue,
+    expected_commands,
+):
+    resource_manager, runner, _fixture_allocation, _claim = resource_context
+    gate, reservation, execution_policy = _reserve_cleanup_operation(
+        publisher_case,
+        resource_manager,
+    )
+    allocation = _append_allocation_invalidation(
+        gate,
+        reservation,
+        execution_policy,
+    )
+    prepared = _FakeExecutionAdapter._prepared_for_allocation(allocation)
+    _install_cleanup_resources(runner, allocation, prepared)
+    _install_allocation_cleanup_proof_adapters(
+        monkeypatch,
+        allocation,
+        prepared,
+    )
+    main_id = prepared.inert_container_evidence.container_id
+    keeper_id = prepared.volume_keeper_evidence.container_id
+    volume_name = allocation.runtime_volume_authority.volume_name
+    if residue != "inert_main":
+        runner.containers.pop(main_id)
+    if residue == "volume":
+        runner.containers.pop(keeper_id)
+        runner.running_container_ids.clear()
+    elif residue == "created_keeper":
+        runner.containers[keeper_id]["State"]["Status"] = "created"
+        runner.running_container_ids.clear()
+    authority = _finalization_authority(
+        publisher_case,
+        gate,
+        resource_manager,
+        runner,
+    )
+
     with pytest.raises(
         RunActionDockerCleanupError,
         match="stable absence requires an absent inventory",
     ):
-        authority.finalize_terminal(reservation.intent.operation_id)
+        authority.require_terminal_absence(reservation.intent.operation_id)
     assert not _cleanup_commands(runner)
+
+    authority.finalize_terminal(reservation.intent.operation_id)
+
+    commands = {
+        "main": ("container", "rm", main_id),
+        "created_keeper": ("container", "rm", keeper_id),
+        "running_keeper": ("container", "rm", "--force", keeper_id),
+        "volume": ("volume", "rm", volume_name),
+    }
+    assert _cleanup_commands(runner) == tuple(
+        commands[role] for role in expected_commands
+    )
+    assert not runner.containers
+    assert not runner.volumes
+
+
+@pytest.mark.parametrize(
+    ("invalid_state", "error_match"),
+    (
+        ("created_keeper_with_main", "main lacks one exact running keeper"),
+        ("exited_keeper", "keeper lifecycle is not removable"),
+        ("running_main", "main is not an exact inert occurrence"),
+    ),
+)
+def test_allocation_only_invalidation_rejects_unsafe_lifecycle_before_mutation(
+    publisher_case,
+    resource_context,
+    monkeypatch,
+    invalid_state,
+    error_match,
+):
+    resource_manager, runner, _fixture_allocation, _claim = resource_context
+    gate, reservation, execution_policy = _reserve_cleanup_operation(
+        publisher_case,
+        resource_manager,
+    )
+    allocation = _append_allocation_invalidation(
+        gate,
+        reservation,
+        execution_policy,
+    )
+    prepared = _FakeExecutionAdapter._prepared_for_allocation(allocation)
+    _install_cleanup_resources(runner, allocation, prepared)
+    _install_allocation_cleanup_proof_adapters(
+        monkeypatch,
+        allocation,
+        prepared,
+    )
+    keeper_id = prepared.volume_keeper_evidence.container_id
+    main_id = prepared.inert_container_evidence.container_id
+    if invalid_state == "created_keeper_with_main":
+        runner.containers[keeper_id]["State"]["Status"] = "created"
+        runner.running_container_ids.clear()
+    elif invalid_state == "exited_keeper":
+        runner.containers.pop(main_id)
+        runner.containers[keeper_id]["State"]["Status"] = "exited"
+        runner.running_container_ids.clear()
+    else:
+        runner.containers[main_id]["State"]["Status"] = "running"
+
+    with pytest.raises(RunActionDockerCleanupError, match=error_match):
+        _finalization_authority(
+            publisher_case,
+            gate,
+            resource_manager,
+            runner,
+        ).finalize_terminal(reservation.intent.operation_id)
+
+    assert not _cleanup_commands(runner)
+
+
+@pytest.mark.parametrize("removal_accepted", (True, False))
+def test_allocation_volume_removal_progress_depends_only_on_fresh_inventory(
+    publisher_case,
+    resource_context,
+    monkeypatch,
+    removal_accepted,
+):
+    resource_manager, runner, _fixture_allocation, _claim = resource_context
+    gate, reservation, execution_policy = _reserve_cleanup_operation(
+        publisher_case,
+        resource_manager,
+    )
+    allocation = _append_allocation_invalidation(
+        gate,
+        reservation,
+        execution_policy,
+    )
+    prepared = _FakeExecutionAdapter._prepared_for_allocation(allocation)
+    _install_cleanup_resources(runner, allocation, prepared)
+    runner.containers.clear()
+    runner.running_container_ids.clear()
+    runner.cleanup_returncode = 1
+    runner.cleanup_stderr = b"ambiguous Docker removal response"
+    runner.cleanup_remove_target = removal_accepted
+    _install_allocation_cleanup_proof_adapters(
+        monkeypatch,
+        allocation,
+        prepared,
+    )
+    authority = _finalization_authority(
+        publisher_case,
+        gate,
+        resource_manager,
+        runner,
+    )
+
+    if removal_accepted:
+        authority.finalize_terminal(reservation.intent.operation_id)
+        assert not runner.volumes
+    else:
+        with pytest.raises(
+            RunActionDockerCleanupError,
+            match="did not produce the exact next physical suffix",
+        ):
+            authority.finalize_terminal(reservation.intent.operation_id)
+        assert runner.volumes
+
+    assert _cleanup_commands(runner) == (
+        ("volume", "rm", allocation.runtime_volume_authority.volume_name),
+    )
+
+
+@pytest.mark.parametrize("residue", ("created_keeper", "inert_main"))
+def test_allocation_container_removals_ignore_ambiguous_responses_after_progress(
+    publisher_case,
+    resource_context,
+    monkeypatch,
+    residue,
+):
+    resource_manager, runner, _fixture_allocation, _claim = resource_context
+    gate, reservation, execution_policy = _reserve_cleanup_operation(
+        publisher_case,
+        resource_manager,
+    )
+    allocation = _append_allocation_invalidation(
+        gate,
+        reservation,
+        execution_policy,
+    )
+    prepared = _FakeExecutionAdapter._prepared_for_allocation(allocation)
+    _install_cleanup_resources(runner, allocation, prepared)
+    _install_allocation_cleanup_proof_adapters(
+        monkeypatch,
+        allocation,
+        prepared,
+    )
+    main_id = prepared.inert_container_evidence.container_id
+    keeper_id = prepared.volume_keeper_evidence.container_id
+    if residue == "created_keeper":
+        runner.containers.pop(main_id)
+        runner.containers[keeper_id]["State"]["Status"] = "created"
+        runner.running_container_ids.clear()
+    runner.cleanup_returncode = 1
+    runner.cleanup_stderr = b"ambiguous Docker removal response"
+
+    _finalization_authority(
+        publisher_case,
+        gate,
+        resource_manager,
+        runner,
+    ).finalize_terminal(reservation.intent.operation_id)
+
+    expected_prefix = (
+        (("container", "rm", keeper_id),)
+        if residue == "created_keeper"
+        else (
+            ("container", "rm", main_id),
+            ("container", "rm", "--force", keeper_id),
+        )
+    )
+    assert _cleanup_commands(runner) == (
+        *expected_prefix,
+        ("volume", "rm", allocation.runtime_volume_authority.volume_name),
+    )
+    assert not runner.containers
+    assert not runner.volumes
+
+
+def test_allocation_created_keeper_retries_only_after_unchanged_suffix(
+    publisher_case,
+    resource_context,
+    monkeypatch,
+):
+    resource_manager, runner, _fixture_allocation, _claim = resource_context
+    gate, reservation, execution_policy = _reserve_cleanup_operation(
+        publisher_case,
+        resource_manager,
+    )
+    allocation = _append_allocation_invalidation(
+        gate,
+        reservation,
+        execution_policy,
+    )
+    prepared = _FakeExecutionAdapter._prepared_for_allocation(allocation)
+    _install_cleanup_resources(runner, allocation, prepared)
+    _install_allocation_cleanup_proof_adapters(
+        monkeypatch,
+        allocation,
+        prepared,
+    )
+    main_id = prepared.inert_container_evidence.container_id
+    keeper_id = prepared.volume_keeper_evidence.container_id
+    runner.containers.pop(main_id)
+    runner.containers[keeper_id]["State"]["Status"] = "created"
+    runner.running_container_ids.clear()
+    runner.cleanup_returncode = 1
+    runner.cleanup_stderr = b"ambiguous Docker removal response"
+    runner.cleanup_remove_target = False
+    authority = _finalization_authority(
+        publisher_case,
+        gate,
+        resource_manager,
+        runner,
+    )
+
+    with pytest.raises(
+        RunActionDockerCleanupError,
+        match="did not produce the exact next physical suffix",
+    ):
+        authority.finalize_terminal(reservation.intent.operation_id)
+
+    runner.cleanup_returncode = 0
+    runner.cleanup_stderr = b""
+    runner.cleanup_remove_target = True
+    authority.finalize_terminal(reservation.intent.operation_id)
+
+    assert _cleanup_commands(runner) == (
+        ("container", "rm", keeper_id),
+        ("container", "rm", keeper_id),
+        ("volume", "rm", allocation.runtime_volume_authority.volume_name),
+    )
+    assert not runner.containers
+    assert not runner.volumes
+
+
+def test_allocation_created_keeper_cleanup_is_serialized_and_mutates_once(
+    publisher_case,
+    resource_context,
+    monkeypatch,
+):
+    resource_manager, runner, _fixture_allocation, _claim = resource_context
+    gate, reservation, execution_policy = _reserve_cleanup_operation(
+        publisher_case,
+        resource_manager,
+    )
+    allocation = _append_allocation_invalidation(
+        gate,
+        reservation,
+        execution_policy,
+    )
+    prepared = _FakeExecutionAdapter._prepared_for_allocation(allocation)
+    _install_cleanup_resources(runner, allocation, prepared)
+    _install_allocation_cleanup_proof_adapters(
+        monkeypatch,
+        allocation,
+        prepared,
+    )
+    main_id = prepared.inert_container_evidence.container_id
+    keeper_id = prepared.volume_keeper_evidence.container_id
+    runner.containers.pop(main_id)
+    runner.containers[keeper_id]["State"]["Status"] = "created"
+    runner.running_container_ids.clear()
+    authority = _finalization_authority(
+        publisher_case,
+        gate,
+        resource_manager,
+        runner,
+    )
+    first_mutation = Event()
+    release_first = Event()
+    second_completed = Event()
+    mutation_count = 0
+
+    def hold_first_mutation():
+        nonlocal mutation_count
+        mutation_count += 1
+        if mutation_count == 1:
+            first_mutation.set()
+            assert release_first.wait(runner.settings.command_timeout_seconds)
+
+    def finalize_and_mark():
+        authority.finalize_terminal(reservation.intent.operation_id)
+        second_completed.set()
+
+    runner.cleanup_post_mutation = hold_first_mutation
+    with ThreadPoolExecutor(max_workers=2) as execution:
+        first = execution.submit(
+            authority.finalize_terminal,
+            reservation.intent.operation_id,
+        )
+        assert first_mutation.wait(runner.settings.command_timeout_seconds)
+        second = execution.submit(finalize_and_mark)
+        second_was_serialized = not second_completed.wait(
+            runner.settings.run_action_barrier_poll_interval_seconds
+        )
+        release_first.set()
+        first.result(timeout=runner.settings.command_timeout_seconds)
+        second.result(timeout=runner.settings.command_timeout_seconds)
+
+    assert second_was_serialized
+    assert _cleanup_commands(runner) == (
+        ("container", "rm", keeper_id),
+        ("volume", "rm", allocation.runtime_volume_authority.volume_name),
+    )
 
 
 def test_prepared_invalidation_reaps_proved_resources(
@@ -1106,11 +1545,11 @@ def test_received_result_is_never_cleanup_eligibility(
         RunActionDockerCleanupError,
         match="not durably terminal and eligible",
     ):
-        issue_docker_run_action_resource_finalization_authority(
-            action_store=gate._action_store,
-            launch_settings=publisher_case["settings"],
-            resource_manager=resource_manager,
-            cleanup_manager=DockerRunActionCleanupManager(runner.runtime),
+        _finalization_authority(
+            publisher_case,
+            gate,
+            resource_manager,
+            runner,
         ).finalize_terminal(reservation.intent.operation_id)
 
     assert not tuple(
@@ -1171,11 +1610,11 @@ def test_finalization_authority_is_sealed_and_process_bound(
 ):
     _resource_manager, runner, _allocation, _claim = resource_context
     _frontier, gate, _reservation, _payload = _reserved_case(publisher_case)
-    authority = issue_docker_run_action_resource_finalization_authority(
-        action_store=gate._action_store,
-        launch_settings=publisher_case["settings"],
-        resource_manager=_resource_manager,
-        cleanup_manager=DockerRunActionCleanupManager(runner.runtime),
+    authority = _finalization_authority(
+        publisher_case,
+        gate,
+        _resource_manager,
+        runner,
     )
     binding = authority._require_current()
 

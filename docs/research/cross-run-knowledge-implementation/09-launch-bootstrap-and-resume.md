@@ -873,20 +873,34 @@ to the exact action store, launch settings, physical driver object, driver type,
 and captured driver methods. It accepts only an operation ID. The driver opens
 the operation's first-event `flock`, re-reads its complete durable prefix, and
 admits mutation only for event 8 `RESULT_ACCEPTED`, event 6
-`PROVIDER_TERMINATED`, or a fully prepared pre-spawn
-`FRONTIER_INVALIDATED`. `CANCELLED` must be allocation-free. An allocation-only
-invalidation is absence-only: partial resources without durable role evidence
-remain blocked rather than guessed at.
+`PROVIDER_TERMINATED`, or an allocated or fully prepared pre-spawn
+`FRONTIER_INVALIDATED`. `CANCELLED` must be allocation-free. Allocation-only
+invalidation reconstructs deletion authority from the durable event-2 claim and
+generation plus a fresh complete physical projection; it never guesses from a
+name, label, or Docker response.
 
 Terminal cleanup proves the exact durable volume occurrence, running keeper
 projection and process, retained control topology, and complete terminal main
 snapshot. Prepared invalidation instead proves `EMPTY` control, the exact
-running keeper, and the exact never-started main. Cleanup then removes only the
-stopped main without force, the running keeper with force, and the exact named
-volume. It never requests broad volume deletion. Each command is followed by a
-fresh complete inventory proving the exact next suffix; final absence is
-observed twice. Crash recovery admits keeper-plus-volume, volume-only, and fully
-absent suffixes, but rejects mixed suffixes, substitution, or reappearance.
+running keeper, and the exact never-started main. Allocation-only invalidation
+admits exactly absent, volume-only, volume plus a never-started or exact running
+keeper, or volume plus exact running keeper plus never-started main. The volume
+is rederived from the claim and unpredictable generation. Helper and Docker-init
+sources are freshly re-proved from the durable policy. For a main, the complete
+target entrypoint and argv are recovered from the observed barrier invocation,
+their content-derived template ID must equal the durable policy, and the full
+inert-container parser must then reproduce the exact wrapper, generation,
+mounts, image, sandbox, and never-started state. A main with a created keeper,
+any started or exited main, and every abnormal keeper lifecycle fail before
+mutation.
+
+Cleanup removes a stopped main or created keeper without force, a proved running
+keeper with force, and the exact named volume. It never requests broad volume
+deletion. Each command is followed by a fresh complete inventory proving the
+exact next suffix; final absence is observed twice. A failed, timed-out, or lost
+Docker response has no semantic weight: the exact next suffix alone permits
+progress. Crash recovery admits every reverse prefix of the proved removal
+order, but rejects mixed suffixes, substitution, or reappearance.
 
 Every ordinary trusted Docker mutator takes one configured daemon-wide OS
 `flock`; cleanup retains that lease across inspect, role proof, removal, and
@@ -1269,7 +1283,9 @@ continuation leaves and exercised against real zero-exit, nonzero, OOM-killed,
 physically removed, and barrier-killed-but-present Docker occurrences. Durable
 eligibility, role proof, cleanup, recovery-report admission,
 publication, and subsequent reservation are now one sealed authority chain.
-The allocation-only invalidation residue and production adapters remain unwired.
+Allocation-only invalidation now safely reaps exact volume-only, created-keeper,
+running-keeper, and never-started-main residues without requiring an event-3
+receipt. Production adapters remain unwired.
 The start manager exposes no generic Docker command surface, and the raw pinned
 runtime is process-bound. One real-Docker lifecycle now routes the durable main
 through two coordinator passes: exact `INERT` classification and sealed barrier
@@ -1436,12 +1452,13 @@ this path is activated.
   result inode, and prove the exact result graph is interpreted and durably
   accepted through event 8 before ordered cleanup.
 - For accepted result, timeout, empty result, nonzero exit, OOM, pre-release main
-  loss, pre-release present-exited main, and fully prepared frontier invalidation,
-  remove only the exact main →
+  loss, pre-release present-exited main, fully prepared frontier invalidation,
+  and each admitted allocation-only partial residue, remove only the exact main →
   keeper → volume suffix, accept each command only after fresh physical inventory
   proves the next suffix, then prove complete absence twice more. Reject mixed
-  suffixes, runtime/role/occurrence substitution, started-main force removal,
-  replacement after removal, and cross-process authority use.
+  suffixes, runtime/role/occurrence or target-command substitution, created keeper
+  beneath a main, started-main force removal, abnormal keeper state, replacement
+  after removal, and cross-process authority use.
 - Block recovery reports, both checkpoint publication phases, and the next
   reservation while any terminal resource remains or reappears. Exercise two
   independent processes against the daemon-wide mutation `flock`.

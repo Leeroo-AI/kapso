@@ -21,6 +21,7 @@ from kapso.cross_run.launch.run_action_docker_projection import (
     main_barrier_command,
     main_create_arguments,
     require_run_action_image,
+    target_command_from_barrier_invocation,
     volume_create_arguments,
 )
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
@@ -771,6 +772,40 @@ def test_command_identity_binds_every_persisted_argument():
             ),
             entrypoint=command.entrypoint,
             arguments=command.arguments,
+        )
+
+
+def test_barrier_target_preimage_is_authenticated_by_durable_policy(
+    docker_settings,
+):
+    command = _fixed_command()
+    claim, authority = _claim_and_volume(
+        docker_settings,
+        command_template_id=command.command_template_id,
+    )
+    executable, arguments = main_barrier_command(
+        command,
+        authority.generation_nonce,
+        docker_settings,
+    )
+
+    assert (
+        target_command_from_barrier_invocation(
+            executable,
+            arguments,
+            claim.execution_policy,
+        )
+        == command
+    )
+
+    with pytest.raises(
+        DockerRunActionProjectionError,
+        match="differs from durable execution policy",
+    ):
+        target_command_from_barrier_invocation(
+            executable,
+            (*arguments[:-1], "substituted"),
+            claim.execution_policy,
         )
 
 

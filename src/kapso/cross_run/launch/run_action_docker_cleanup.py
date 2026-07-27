@@ -21,6 +21,9 @@ from kapso.cross_run.launch.run_action_control_topology import (
     RunActionControlDirectoryTopology,
 )
 from kapso.cross_run.launch.run_action_docker_inspect import (
+    DockerRunActionInertKeeperObservation,
+    observe_allocation_inert_main_container,
+    observe_allocation_keeper,
     observe_inert_main_container,
     observe_running_keeper,
     observe_runtime_volume,
@@ -53,10 +56,15 @@ from kapso.cross_run.launch.run_action_store import (
     RunActionExecutionEvent,
     RunActionExecutionStore,
 )
+from kapso.cross_run.launch.run_action_supervisor_helper import (
+    observe_docker_init_source,
+    observe_supervisor_helper,
+)
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RunActionPreparationAllocation,
     RunActionPreparedExecution,
     RunActionTerminalObservation,
+    RunActionVolumeKeeperEvidence,
 )
 from kapso.cross_run.launch.run_action_termination_contracts import (
     RunActionPreReleaseMainTerminalObservation,
@@ -179,7 +187,9 @@ class _DockerRunActionResourceFinalizationDriver:
                 return
             if tail_kind is RunActionExecutionEventKind.FRONTIER_INVALIDATED:
                 allocation, prepared = _invalidated_frontier_evidence(events)
-                if prepared is None or not reap:
+                if prepared is None and reap:
+                    self._reap_invalidated_allocation(session, allocation)
+                elif prepared is None or not reap:
                     self._require_allocation_absent(session, allocation)
                 else:
                     self._reap_invalidated_prepared(
@@ -248,6 +258,137 @@ class _DockerRunActionResourceFinalizationDriver:
             protections.enter_context(exclusion)
             inventory = self._resource_manager.observe(allocation)
             _require_cleanup_suffix(inventory)
+            _require_stable_absence(
+                session=session,
+                inventory=inventory,
+                resource_manager=self._resource_manager,
+                cleanup_manager=self._cleanup_manager,
+                exclusion=exclusion,
+            )
+
+    def _reap_invalidated_allocation(
+        self,
+        session,
+        allocation: RunActionPreparationAllocation,
+    ) -> None:
+        _require_cleanup_runtime_for_allocation(
+            allocation,
+            self._resource_manager,
+            self._cleanup_manager,
+        )
+        with ExitStack() as protections:
+            exclusion = _issue_cleanup_exclusion(
+                session,
+                self._cleanup_manager,
+            )
+            protections.callback(
+                _unregister_cleanup_exclusion,
+                exclusion,
+                session,
+            )
+            protections.enter_context(exclusion)
+            inventory = self._resource_manager.observe(allocation)
+            _require_cleanup_suffix(inventory)
+            if inventory.is_absent:
+                _require_stable_absence(
+                    session=session,
+                    inventory=inventory,
+                    resource_manager=self._resource_manager,
+                    cleanup_manager=self._cleanup_manager,
+                    exclusion=exclusion,
+                )
+                return
+            volume = _prove_allocation_volume_occurrence(
+                inventory,
+                self._resource_manager,
+            )
+            if inventory.keeper_container_id is not None:
+                helper_evidence = observe_supervisor_helper(
+                    allocation.preparation_claim.execution_policy
+                )
+                init_source_evidence = observe_docker_init_source(
+                    allocation.preparation_claim.execution_policy
+                )
+                keeper = _prove_allocation_keeper_occurrence(
+                    inventory,
+                    self._resource_manager,
+                    volume,
+                    helper_evidence,
+                    init_source_evidence,
+                )
+                if inventory.main_container_id is not None:
+                    if type(keeper) is not RunActionVolumeKeeperEvidence:
+                        raise RunActionDockerCleanupError(
+                            "allocation-stage main lacks one exact running keeper"
+                        )
+                    _prove_allocation_inert_main_occurrence(
+                        inventory,
+                        self._resource_manager,
+                        volume,
+                        helper_evidence,
+                        init_source_evidence,
+                    )
+                    inventory = _remove_main_once(
+                        session=session,
+                        inventory=inventory,
+                        resource_manager=self._resource_manager,
+                        cleanup_manager=self._cleanup_manager,
+                        exclusion=exclusion,
+                    )
+                    volume = _prove_allocation_volume_occurrence(
+                        inventory,
+                        self._resource_manager,
+                    )
+                    keeper = _prove_allocation_keeper_occurrence(
+                        inventory,
+                        self._resource_manager,
+                        volume,
+                        helper_evidence,
+                        init_source_evidence,
+                    )
+                    if type(keeper) is not RunActionVolumeKeeperEvidence:
+                        raise RunActionDockerCleanupError(
+                            "allocation-stage keeper changed after main removal"
+                        )
+                if type(keeper) is DockerRunActionInertKeeperObservation:
+                    inventory = _remove_inert_keeper_once(
+                        session=session,
+                        inventory=inventory,
+                        resource_manager=self._resource_manager,
+                        cleanup_manager=self._cleanup_manager,
+                        exclusion=exclusion,
+                    )
+                elif type(keeper) is RunActionVolumeKeeperEvidence:
+                    inventory = _remove_keeper_once(
+                        session=session,
+                        inventory=inventory,
+                        resource_manager=self._resource_manager,
+                        cleanup_manager=self._cleanup_manager,
+                        exclusion=exclusion,
+                    )
+                else:
+                    raise RunActionDockerCleanupError(
+                        "allocation-stage keeper lifecycle is not removable"
+                    )
+                volume = _prove_allocation_volume_occurrence(
+                    inventory,
+                    self._resource_manager,
+                )
+            if inventory.volume_present:
+                if (
+                    volume.volume_name
+                    != allocation.runtime_volume_authority.volume_name
+                ):
+                    raise RunActionDockerCleanupError(
+                        "allocation-stage volume changed before removal"
+                    )
+                inventory = _remove_volume_once(
+                    session=session,
+                    inventory=inventory,
+                    resource_manager=self._resource_manager,
+                    cleanup_manager=self._cleanup_manager,
+                    exclusion=exclusion,
+                )
             _require_stable_absence(
                 session=session,
                 inventory=inventory,
@@ -712,6 +853,73 @@ def _prove_prepared_volume_occurrence(
     return observed
 
 
+def _prove_allocation_volume_occurrence(
+    inventory: DockerRunActionResourceInventory,
+    resource_manager: DockerRunActionResourceManager,
+):
+    if not inventory.volume_present:
+        raise RunActionDockerCleanupError(
+            "allocation-stage Docker resource lacks its exact volume"
+        )
+    allocation = inventory.preparation_allocation
+    return observe_runtime_volume(
+        resource_manager.inspect_volume(inventory),
+        allocation.preparation_claim,
+        allocation.runtime_volume_authority,
+        resource_manager.runtime_settings,
+    )
+
+
+def _prove_allocation_keeper_occurrence(
+    inventory: DockerRunActionResourceInventory,
+    resource_manager: DockerRunActionResourceManager,
+    volume,
+    helper_evidence,
+    init_source_evidence,
+) -> DockerRunActionInertKeeperObservation | RunActionVolumeKeeperEvidence:
+    if inventory.keeper_container_id is None:
+        raise RunActionDockerCleanupError(
+            "allocation-stage Docker volume lacks its keeper"
+        )
+    allocation = inventory.preparation_allocation
+    return observe_allocation_keeper(
+        resource_manager.inspect_keeper(inventory),
+        allocation.preparation_claim,
+        allocation.runtime_volume_authority,
+        volume,
+        helper_evidence,
+        init_source_evidence,
+        resource_manager.runtime_settings,
+    )
+
+
+def _prove_allocation_inert_main_occurrence(
+    inventory: DockerRunActionResourceInventory,
+    resource_manager: DockerRunActionResourceManager,
+    volume,
+    helper_evidence,
+    init_source_evidence,
+) -> None:
+    if inventory.main_container_id is None:
+        raise RunActionDockerCleanupError(
+            "allocation-stage Docker keeper lacks its main"
+        )
+    allocation = inventory.preparation_allocation
+    observed = observe_allocation_inert_main_container(
+        resource_manager.inspect_main(inventory),
+        allocation.preparation_claim,
+        allocation.runtime_volume_authority,
+        volume,
+        helper_evidence,
+        init_source_evidence,
+        resource_manager.runtime_settings,
+    )
+    if observed.container_id != inventory.main_container_id:
+        raise RunActionDockerCleanupError(
+            "allocation-stage main differs from its exact inventory"
+        )
+
+
 def _prove_keeper_occurrence(
     inventory: DockerRunActionResourceInventory,
     evidence: _RunActionTerminalCleanupEvidence,
@@ -856,6 +1064,36 @@ def _remove_keeper_once(
             "run-action cleanup inventory changed before keeper removal"
         )
     _cleanup_authority(cleanup_manager)._remove_running_keeper_once(
+        container_id=inventory.keeper_container_id,
+        exclusion_lease=exclusion,
+        _authority=_DOCKER_CLEANUP_REMOVE_AUTHORITY,
+    )
+    return _require_next_inventory(
+        resource_manager,
+        inventory,
+        replace(inventory, keeper_container_id=None),
+    )
+
+
+def _remove_inert_keeper_once(
+    *,
+    session,
+    inventory: DockerRunActionResourceInventory,
+    resource_manager: DockerRunActionResourceManager,
+    cleanup_manager: DockerRunActionCleanupManager,
+    exclusion: PinnedDockerCleanupExclusionLease,
+) -> DockerRunActionResourceInventory:
+    if inventory.keeper_container_id is None or inventory.main_container_id is not None:
+        raise RunActionDockerCleanupError(
+            "run-action inert keeper cleanup lacks its exact suffix"
+        )
+    _require_cleanup_exclusion(session, exclusion)
+    current = resource_manager.observe(inventory.preparation_allocation)
+    if current != inventory:
+        raise RunActionDockerCleanupError(
+            "run-action cleanup inventory changed before inert keeper removal"
+        )
+    _cleanup_authority(cleanup_manager)._remove_stopped_container_once(
         container_id=inventory.keeper_container_id,
         exclusion_lease=exclusion,
         _authority=_DOCKER_CLEANUP_REMOVE_AUTHORITY,
