@@ -1092,6 +1092,9 @@ def _expected_container_config(
     working_directory: str,
 ) -> dict[str, Any]:
     policy = claim.execution_policy
+    provider_transition = labels == preparation_container_labels(claim) and bool(
+        policy.sandbox_spec.capability_additions
+    )
     return {
         "AttachStderr": True,
         "AttachStdin": False,
@@ -1110,7 +1113,7 @@ def _expected_container_config(
         "StopSignal": "SIGTERM",
         "StopTimeout": policy.supervisor_limits.termination_grace_seconds,
         "Tty": False,
-        "User": f"{policy.user_id}:{policy.group_id}",
+        "User": "0:0" if provider_transition else f"{policy.user_id}:{policy.group_id}",
         "Volumes": None,
         "WorkingDir": working_directory,
     }
@@ -1129,6 +1132,11 @@ def _expected_host_config(
     policy = claim.execution_policy
     limits = policy.docker_resource_limits
     sandbox = policy.sandbox_spec
+    provider_transition = lifecycle in {
+        _DockerContainerLifecycle.CREATED_MAIN,
+        _DockerContainerLifecycle.RUNNING_MAIN,
+        _DockerContainerLifecycle.EXITED_MAIN,
+    } and bool(sandbox.capability_additions)
     has_started = lifecycle in {
         _DockerContainerLifecycle.RUNNING_KEEPER,
         _DockerContainerLifecycle.RUNNING_MAIN,
@@ -1143,7 +1151,11 @@ def _expected_host_config(
         "BlkioDeviceWriteIOps": [],
         "BlkioWeight": limits.block_io_weight,
         "BlkioWeightDevice": [],
-        "CapAdd": None,
+        "CapAdd": (
+            None
+            if not provider_transition
+            else [f"CAP_{value}" for value in sandbox.capability_additions]
+        ),
         "CapDrop": ["ALL"],
         "Cgroup": "",
         "CgroupParent": sandbox.cgroup_parent_id,
@@ -1166,7 +1178,11 @@ def _expected_host_config(
         "DnsOptions": [],
         "DnsSearch": [],
         "ExtraHosts": None,
-        "GroupAdd": None,
+        "GroupAdd": (
+            None
+            if not provider_transition
+            else [str(value) for value in sandbox.supplementary_group_ids]
+        ),
         "IOMaximumBandwidth": 0,
         "IOMaximumIOps": 0,
         "Init": True,

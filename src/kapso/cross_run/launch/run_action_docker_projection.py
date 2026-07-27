@@ -608,6 +608,7 @@ def keeper_create_arguments(
         _common_container_arguments(
             policy,
             working_directory=RUN_ACTION_RUNTIME_VOLUME_KEEPER_DESTINATION,
+            provider_transition=False,
         )
     )
     arguments.extend(
@@ -671,6 +672,7 @@ def main_create_arguments(
         _common_container_arguments(
             policy,
             working_directory=policy.filesystem_policy.working_directory,
+            provider_transition=bool(policy.sandbox_spec.capability_additions),
         )
     )
     arguments.extend(
@@ -768,6 +770,7 @@ def _common_container_arguments(
     policy: DockerRunActionExecutionPolicy,
     *,
     working_directory: str,
+    provider_transition: bool,
 ) -> tuple[str, ...]:
     limits = policy.docker_resource_limits
     sandbox = policy.sandbox_spec
@@ -780,6 +783,14 @@ def _common_container_arguments(
         "--cap-drop",
         "ALL",
     ]
+    transition_capabilities = (
+        sandbox.capability_additions if provider_transition else ()
+    )
+    transition_groups = sandbox.supplementary_group_ids if provider_transition else ()
+    for capability in transition_capabilities:
+        arguments.extend(("--cap-add", capability))
+    for group_id in transition_groups:
+        arguments.extend(("--group-add", str(group_id)))
     for security_option in sandbox.security_option_ids:
         arguments.extend(("--security-opt", security_option))
     arguments.extend(
@@ -800,7 +811,7 @@ def _common_container_arguments(
             "--hostname",
             policy.hostname,
             "--user",
-            f"{policy.user_id}:{policy.group_id}",
+            ("0:0" if provider_transition else f"{policy.user_id}:{policy.group_id}"),
             "--workdir",
             working_directory,
             "--stop-signal",

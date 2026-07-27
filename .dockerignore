@@ -1,0 +1,8 @@
+*
+!src/
+!src/kapso/
+!src/kapso/**
+!tests/
+!tests/fixtures/
+!tests/fixtures/coding_agent/
+!tests/fixtures/coding_agent/offline_codex.py

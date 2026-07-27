@@ -145,7 +145,8 @@ def require_coding_agent_supervisor_identity(
     if (
         os.geteuid() != policy.supervisor_user_id
         or os.getegid() != policy.supervisor_group_id
-        or tuple(sorted(os.getgroups())) != (policy.provider_group_id,)
+        or tuple(sorted(os.getgroups()))
+        != tuple(sorted({policy.supervisor_group_id, policy.provider_group_id}))
     ):
         raise RunActionCodingAgentScratchError(
             "coding-agent supervisor lacks its exact provider shared group"

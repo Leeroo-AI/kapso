@@ -2116,6 +2116,35 @@ def _remint_resource_limits(resource_limits, **changes):
     return DockerRunActionResourceLimits.mint(**values)
 
 
+def test_coding_agent_policy_admits_only_the_exact_provider_privilege_transition():
+    policy = _execution_policy()
+    sandbox = _remint_sandbox(
+        policy.sandbox_spec,
+        capability_additions=("KILL", "SETGID", "SETPCAP", "SETUID"),
+        supplementary_group_ids=(1001,),
+    )
+
+    transitioned = _remint_policy(policy, sandbox_spec=sandbox)
+
+    assert transitioned.kind is RunFrontierActionKind.CODING_AGENT
+    assert transitioned.sandbox_spec == sandbox
+
+
+def test_provider_privilege_transition_is_rejected_for_every_other_action_kind():
+    policy = _execution_policy(kind=RunFrontierActionKind.EMBEDDING)
+    sandbox = _remint_sandbox(
+        policy.sandbox_spec,
+        capability_additions=("KILL", "SETGID", "SETPCAP", "SETUID"),
+        supplementary_group_ids=(1001,),
+    )
+
+    with pytest.raises(
+        RunActionSupervisorContractError,
+        match="coding-agent-specific",
+    ):
+        _remint_policy(policy, sandbox_spec=sandbox)
+
+
 @pytest.mark.parametrize("delimiter", (",", "\r", "\n", '"'))
 def test_filesystem_policy_rejects_docker_mount_delimiters(delimiter):
     filesystem = _execution_policy().filesystem_policy

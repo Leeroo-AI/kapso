@@ -46,6 +46,19 @@ _LANDLOCK_RULE_PATH_BENEATH = 1
 _LANDLOCK_SCOPE_SIGNAL = 1 << 1
 _PR_SET_NO_NEW_PRIVS = 38
 _PR_GET_PDEATHSIG = 2
+_PR_SET_SECCOMP = 22
+_SECCOMP_MODE_FILTER = 2
+_BPF_LOAD_WORD_ABSOLUTE = 0x20
+_BPF_JUMP_EQUAL_CONSTANT = 0x15
+_BPF_RETURN_CONSTANT = 0x06
+_SECCOMP_RETURN_KILL_PROCESS = 0x80000000
+_SECCOMP_RETURN_ERRNO = 0x00050000
+_SECCOMP_RETURN_ALLOW = 0x7FFF0000
+_AUDIT_ARCH_X86_64 = 0xC000003E
+_SECCOMP_DATA_SYSCALL_OFFSET = 0
+_SECCOMP_DATA_ARCHITECTURE_OFFSET = 4
+_X86_64_SETPGID_SYSCALL = 109
+_X86_64_SETSID_SYSCALL = 112
 
 _ACCESS_EXECUTE = 1 << 0
 _ACCESS_WRITE_FILE = 1 << 1
@@ -107,6 +120,22 @@ class _LandlockPathBeneathAttribute(ctypes.Structure):
     _fields_ = (
         ("allowed_access", ctypes.c_uint64),
         ("parent_fd", ctypes.c_int32),
+    )
+
+
+class _SocketFilter(ctypes.Structure):
+    _fields_ = (
+        ("code", ctypes.c_ushort),
+        ("jump_true", ctypes.c_ubyte),
+        ("jump_false", ctypes.c_ubyte),
+        ("constant", ctypes.c_uint32),
+    )
+
+
+class _SocketFilterProgram(ctypes.Structure):
+    _fields_ = (
+        ("length", ctypes.c_ushort),
+        ("filters", ctypes.POINTER(_SocketFilter)),
     )
 
 
@@ -321,6 +350,79 @@ def apply_provider_landlock(
             _raise_system_call_error("enforce provider Landlock ruleset")
 
 
+def apply_provider_process_group_containment() -> None:
+    """Forbid every provider descendant from leaving its killable process group."""
+
+    if os.uname().machine != "x86_64":
+        raise RunActionCodingAgentRuntimeError(
+            "provider process containment requires the pinned x86_64 image"
+        )
+    filters = (_SocketFilter * 7)(
+        _SocketFilter(
+            _BPF_LOAD_WORD_ABSOLUTE,
+            0,
+            0,
+            _SECCOMP_DATA_ARCHITECTURE_OFFSET,
+        ),
+        _SocketFilter(
+            _BPF_JUMP_EQUAL_CONSTANT,
+            1,
+            0,
+            _AUDIT_ARCH_X86_64,
+        ),
+        _SocketFilter(_BPF_RETURN_CONSTANT, 0, 0, _SECCOMP_RETURN_KILL_PROCESS),
+        _SocketFilter(
+            _BPF_LOAD_WORD_ABSOLUTE,
+            0,
+            0,
+            _SECCOMP_DATA_SYSCALL_OFFSET,
+        ),
+        _SocketFilter(
+            _BPF_JUMP_EQUAL_CONSTANT,
+            1,
+            0,
+            _X86_64_SETPGID_SYSCALL,
+        ),
+        _SocketFilter(
+            _BPF_JUMP_EQUAL_CONSTANT,
+            0,
+            1,
+            _X86_64_SETSID_SYSCALL,
+        ),
+        _SocketFilter(
+            _BPF_RETURN_CONSTANT,
+            0,
+            0,
+            _SECCOMP_RETURN_ERRNO | 1,
+        ),
+    )
+    allow_filter = _SocketFilter(
+        _BPF_RETURN_CONSTANT,
+        0,
+        0,
+        _SECCOMP_RETURN_ALLOW,
+    )
+    complete_filters = (_SocketFilter * 8)(*filters, allow_filter)
+    program = _SocketFilterProgram(
+        length=len(complete_filters),
+        filters=complete_filters,
+    )
+    libc = ctypes.CDLL(None, use_errno=True)
+    if libc.prctl(_PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0:
+        _raise_system_call_error("set provider containment no-new-privileges")
+    if (
+        libc.prctl(
+            _PR_SET_SECCOMP,
+            _SECCOMP_MODE_FILTER,
+            ctypes.byref(program),
+            0,
+            0,
+        )
+        != 0
+    ):
+        _raise_system_call_error("install provider process containment")
+
+
 def main() -> None:
     """Apply the fixed domain, erase privilege, verify it, and exec the provider."""
 
@@ -381,6 +483,7 @@ def main() -> None:
             expected_abi_version=arguments.landlock_abi_version,
             descriptor_rules=descriptor_rules,
         )
+        apply_provider_process_group_containment()
         _require_inherited_descriptor_bindings(inherited_descriptors)
     for descriptor in inherited_descriptors.all:
         os.close(descriptor)
@@ -669,6 +772,7 @@ def _raise_system_call_error(action: str) -> None:
 
 __all__ = [
     "apply_provider_landlock",
+    "apply_provider_process_group_containment",
     "coding_agent_provider_sandbox_command",
     "main",
     "PROVIDER_HOME_PATH",

@@ -419,15 +419,23 @@ class DockerRunActionSandboxSpec(StrictContract):
     IDENTITY_FIELD: ClassVar[str] = "docker_sandbox_spec_id"
 
     def _validate(self) -> None:
+        provider_transition = (
+            self.capability_additions == ("KILL", "SETGID", "SETPCAP", "SETUID")
+            and len(self.supplementary_group_ids) == 1
+            and type(self.supplementary_group_ids[0]) is int
+            and 0 < self.supplementary_group_ids[0] <= _DOCKER_MAXIMUM_USER_OR_GROUP_ID
+        )
         if (
             self.read_only_root_filesystem is not True
             or self.privileged is not False
-            or self.capability_additions
+            or (
+                (self.capability_additions or self.supplementary_group_ids)
+                and not provider_transition
+            )
             or self.capability_drops != ("ALL",)
             or self.device_authority_ids
             or self.device_request_authority_ids
             or self.device_cgroup_rule_ids
-            or self.supplementary_group_ids
             or self.pid_namespace_mode != "private"
             or self.ipc_namespace_mode != "private"
             or self.uts_namespace_mode != "private"
@@ -667,6 +675,13 @@ class DockerRunActionExecutionPolicy(StrictContract):
         ):
             raise RunActionSupervisorContractError(
                 "Docker run action execution policy is invalid"
+            )
+        if self.sandbox_spec.capability_additions and (
+            self.kind is not RunFrontierActionKind.CODING_AGENT
+            or self.sandbox_spec.supplementary_group_ids == (self.group_id,)
+        ):
+            raise RunActionSupervisorContractError(
+                "Docker run action provider transition is not coding-agent-specific"
             )
         for value, name in (
             (self.supervisor_protocol_version, "supervisor protocol"),

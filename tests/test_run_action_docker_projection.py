@@ -43,6 +43,7 @@ from test_run_action_supervisor_contracts import (
     _execution_policy,
     _remint_policy,
     _remint_resource_limits,
+    _remint_sandbox,
     _RUN_ACTION_RESULT_SIZE_BYTES,
     _volume_authority,
 )
@@ -118,6 +119,21 @@ def _fixed_command(
     return DockerRunActionCommand.build(
         entrypoint=entrypoint,
         arguments=arguments,
+    )
+
+
+def _provider_transition_policy(docker_settings, command_template_id):
+    policy = _policy(
+        docker_settings,
+        command_template_id=command_template_id,
+    )
+    return _remint_policy(
+        policy,
+        sandbox_spec=_remint_sandbox(
+            policy.sandbox_spec,
+            capability_additions=("KILL", "SETGID", "SETPCAP", "SETUID"),
+            supplementary_group_ids=(1001,),
+        ),
     )
 
 
@@ -422,6 +438,45 @@ def test_main_creation_uses_only_sorted_bounded_volume_subpaths(docker_settings)
     assert "/kapso/runtime-volume" not in joined
     assert "complete request" not in joined
     assert "credential" in joined
+
+
+def test_coding_agent_privilege_transition_exists_only_on_the_main_occurrence(
+    docker_settings,
+):
+    command = _fixed_command(
+        entrypoint="/usr/local/bin/kapso-coding-agent-supervisor",
+    )
+    policy = _provider_transition_policy(
+        docker_settings,
+        command.command_template_id,
+    )
+    claim = _claim(policy=policy)
+    authority = _volume_authority(claim, nonce=_GENERATION_NONCE)
+
+    keeper = keeper_create_arguments(
+        claim,
+        authority,
+        _image(policy),
+        docker_settings,
+    )
+    main = main_create_arguments(
+        claim,
+        authority,
+        command,
+        _image(policy),
+        docker_settings,
+    )
+
+    assert "--cap-add" not in keeper
+    assert "--group-add" not in keeper
+    assert keeper[keeper.index("--user") + 1] == "1000:1000"
+    assert tuple(
+        main[position + 1]
+        for position, argument in enumerate(main)
+        if argument == "--cap-add"
+    ) == ("KILL", "SETGID", "SETPCAP", "SETUID")
+    assert main[main.index("--group-add") + 1] == "1001"
+    assert main[main.index("--user") + 1] == "0:0"
 
 
 def test_barrier_rejects_a_readable_release_from_another_generation(
