@@ -180,8 +180,16 @@ excludes exactly root `.git`, copies only regular source bytes into an empty
 owner-private detached root, and sandwiches both source and destination physical
 and semantic identities. Source mutation before copy, injected Git metadata,
 unsafe topology, and nonempty destinations fail before an accepted detached
-tree exists. The provider group-sharing modes, descendant-quiescence gate, and
-sanitized edit ingestion remain the next scratch-composition slice.
+tree exists. The source root can now be converted without `CAP_CHOWN` or broad
+DAC authority to the provider shared-group ABI: supervisor-owned setgid
+directories, group-read/write regular files, and normalized executable modes.
+The post-provider scanner accepts only supervisor/provider owners in the one
+provider group, rejects inaccessible modes before opening entries, forbids
+`.git`, environment files, links, special files, repeated/cross-device inodes
+and empty directories, and sandwiches every byte and metadata observation.
+Three focused tests prove stable conversion, inaccessible-file rejection, and
+injected-Git rejection. Scratch layout, descendant quiescence, and sanitized
+edit ingestion remain the next composition slice.
 The framework-owned credential broker and pre-release expiry path are also
 implemented. The broker response transfers secret bytes into coordinator-private
 single-use authority before adapter access. Before broker issue, credential
