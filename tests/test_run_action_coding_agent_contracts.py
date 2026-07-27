@@ -81,6 +81,7 @@ def interpretation_policy(
         maximum_provider_output_bytes=1_048_576,
         maximum_provider_diagnostic_bytes=65_536,
         maximum_prior_knowledge_audit_bytes=maximum_prior_knowledge_audit_bytes,
+        maximum_native_credential_bytes=1_048_576,
         maximum_workspace_entries=10_000,
         maximum_workspace_bytes=1_073_741_824,
         maximum_workspace_git_entries=50_000,

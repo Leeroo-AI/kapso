@@ -117,6 +117,7 @@ class CodingAgentInterpretationPolicy(StrictContract):
     maximum_provider_output_bytes: int
     maximum_provider_diagnostic_bytes: int
     maximum_prior_knowledge_audit_bytes: int
+    maximum_native_credential_bytes: int
     maximum_workspace_entries: int
     maximum_workspace_bytes: int
     maximum_workspace_git_entries: int
@@ -251,6 +252,10 @@ class CodingAgentInterpretationPolicy(StrictContract):
             (
                 self.maximum_prior_knowledge_audit_bytes,
                 "coding-agent maximum prior-knowledge audit bytes",
+            ),
+            (
+                self.maximum_native_credential_bytes,
+                "coding-agent maximum native-credential bytes",
             ),
             (
                 self.maximum_workspace_entries,

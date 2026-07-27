@@ -1614,6 +1614,7 @@ class LaunchSettings(StrictContract):
     coding_agent_provider_output_size_bytes: int
     coding_agent_provider_diagnostic_size_bytes: int
     coding_agent_prior_knowledge_audit_size_bytes: int
+    coding_agent_native_credential_size_bytes: int
     coding_agent_supervisor_user_id: int
     coding_agent_supervisor_group_id: int
     coding_agent_provider_user_id: int
@@ -1836,6 +1837,10 @@ class LaunchSettings(StrictContract):
             (
                 self.coding_agent_prior_knowledge_audit_size_bytes,
                 "coding_agent_prior_knowledge_audit_size_bytes",
+            ),
+            (
+                self.coding_agent_native_credential_size_bytes,
+                "coding_agent_native_credential_size_bytes",
             ),
             (
                 self.coding_agent_landlock_abi_version,

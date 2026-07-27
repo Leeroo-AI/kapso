@@ -291,6 +291,19 @@ def _open_runtime_descriptors(workspace, temporary, cleanup):
     return workspace_descriptor, temporary_descriptor
 
 
+def _open_native_credential_descriptor(root, cleanup):
+    path = root / "native-credential"
+    path.write_bytes(b"{}\n")
+    provider_group_id = next(
+        group_id for group_id in os.getgroups() if group_id != os.getegid()
+    )
+    os.chown(path, -1, provider_group_id)
+    path.chmod(0o440)
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    cleanup.callback(os.close, descriptor)
+    return descriptor
+
+
 def _write_private(path, payload):
     path.write_bytes(payload)
     path.chmod(0o600)
@@ -339,10 +352,12 @@ def test_consumer_executes_codex_read_only_and_publishes_one_canonical_result(
             temporary,
             cleanup,
         )
+        credential_descriptor = _open_native_credential_descriptor(tmp_path, cleanup)
         published = consume_coding_agent_run_action(
             request_payload=request.to_json_bytes(),
             workspace_descriptor=workspace_descriptor,
             temporary_directory_descriptor=temporary_descriptor,
+            credential_descriptor=credential_descriptor,
             process_runner=runner,
         )
 
@@ -372,6 +387,7 @@ def test_consumer_executes_codex_read_only_and_publishes_one_canonical_result(
         runner.calls[0]["environment"]
         == runner.calls[1]["environment"]
         == {
+            "CODEX_HOME": "/kapso/tmp/provider-home/.codex",
             "GIT_OPTIONAL_LOCKS": "0",
             "HOME": "/kapso/tmp/provider-home",
             "LANG": "C",
@@ -382,7 +398,7 @@ def test_consumer_executes_codex_read_only_and_publishes_one_canonical_result(
             "TMPDIR": "/kapso/tmp/provider-home",
         }
     )
-    assert len(runner.calls[0]["inherited_descriptors"]) == 4
+    assert len(runner.calls[0]["inherited_descriptors"]) == 5
     assert (
         runner.calls[0]["inherited_descriptors"]
         == runner.calls[1]["inherited_descriptors"]
@@ -408,6 +424,22 @@ def test_fixed_path_main_bounds_request_before_parsing_self_declared_policy(
         match="request is not one complete bounded private file",
     ):
         consumer_module.main()
+
+
+def test_native_credential_validation_never_reads_secret_bytes(tmp_path):
+    request = run_action_request(_native_policy(web_search_enabled=False))
+    with ExitStack() as cleanup:
+        descriptor = _open_native_credential_descriptor(tmp_path, cleanup)
+
+        consumer_module._require_native_credential_source(descriptor, request)
+
+        assert os.lseek(descriptor, 0, os.SEEK_CUR) == 0
+        os.fchmod(descriptor, 0o444)
+        with pytest.raises(
+            RunActionCodingAgentConsumerError,
+            match="credential source is not exact",
+        ):
+            consumer_module._require_native_credential_source(descriptor, request)
 
 
 def test_explicit_frontier_accepts_a_valid_nested_workspace_branch(tmp_path):
@@ -448,6 +480,7 @@ def test_consumer_executes_claude_edit_and_binds_the_observed_successor(tmp_path
             temporary,
             cleanup,
         )
+        credential_descriptor = _open_native_credential_descriptor(tmp_path, cleanup)
         predecessor = inspect_run_workspace_source_tree(
             workspace_descriptor,
             maximum_entries=10_000,
@@ -479,6 +512,7 @@ def test_consumer_executes_claude_edit_and_binds_the_observed_successor(tmp_path
             request_payload=request.to_json_bytes(),
             workspace_descriptor=workspace_descriptor,
             temporary_directory_descriptor=temporary_descriptor,
+            credential_descriptor=credential_descriptor,
             process_runner=runner,
         )
         successor = inspect_run_workspace_source_tree(
@@ -565,10 +599,12 @@ def test_consumer_translates_ordered_prior_knowledge_mcp_audit(tmp_path):
             temporary,
             cleanup,
         )
+        credential_descriptor = _open_native_credential_descriptor(tmp_path, cleanup)
         consume_coding_agent_run_action(
             request_payload=request.to_json_bytes(),
             workspace_descriptor=workspace_descriptor,
             temporary_directory_descriptor=temporary_descriptor,
+            credential_descriptor=credential_descriptor,
             process_runner=runner,
         )
 
@@ -631,11 +667,13 @@ def test_consumer_rejects_prior_knowledge_audit_substitution(tmp_path):
             temporary,
             cleanup,
         )
+        credential_descriptor = _open_native_credential_descriptor(tmp_path, cleanup)
         with pytest.raises(RunActionCodingAgentCliError, match="ordered.*audit"):
             consume_coding_agent_run_action(
                 request_payload=request.to_json_bytes(),
                 workspace_descriptor=workspace_descriptor,
                 temporary_directory_descriptor=temporary_descriptor,
+                credential_descriptor=credential_descriptor,
                 process_runner=runner,
             )
 
@@ -649,7 +687,7 @@ def test_consumer_rejects_prior_knowledge_audit_substitution(tmp_path):
         (
             "preflight_state",
             RunActionCodingAgentConsumerError,
-            "preflight left mutable provider state",
+            "credential home has unexpected entries",
         ),
         ("provider", RunActionCodingAgentCliError, "exact success"),
         (
@@ -692,6 +730,7 @@ def test_consumer_failures_never_publish_a_terminal_candidate(
             temporary,
             cleanup,
         )
+        credential_descriptor = _open_native_credential_descriptor(tmp_path, cleanup)
         predecessor = inspect_run_workspace_source_tree(
             workspace_descriptor,
             maximum_entries=10_000,
@@ -757,6 +796,7 @@ def test_consumer_failures_never_publish_a_terminal_candidate(
                 request_payload=request.to_json_bytes(),
                 workspace_descriptor=workspace_descriptor,
                 temporary_directory_descriptor=temporary_descriptor,
+                credential_descriptor=credential_descriptor,
                 process_runner=runner,
             )
 

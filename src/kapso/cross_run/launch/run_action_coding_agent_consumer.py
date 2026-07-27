@@ -53,6 +53,9 @@ from kapso.cross_run.launch.run_action_coding_agent_contracts import (
     read_canonical_coding_agent_request,
 )
 from kapso.cross_run.launch.run_action_coding_agent_layout import (
+    PROVIDER_CODEX_AUTH_PATH,
+    PROVIDER_CODEX_HOME_PATH,
+    PROVIDER_CREDENTIAL_PATH,
     PROVIDER_OUTPUT_PATH,
     TRUSTED_WORKSPACE_PATH,
 )
@@ -332,11 +335,107 @@ class BoundedCodingAgentProcessRunner:
             )
 
 
+def _prepare_native_credential_projection(
+    *,
+    home_descriptor: int,
+    credential_descriptor: int,
+    request: CodingAgentRunActionRequest,
+) -> None:
+    policy = request.interpretation_policy
+    _require_native_credential_source(credential_descriptor, request)
+    home_name = PurePosixPath(PROVIDER_CODEX_HOME_PATH).name
+    auth_name = PurePosixPath(PROVIDER_CODEX_AUTH_PATH).name
+    os.mkdir(home_name, 0o700, dir_fd=home_descriptor)
+    codex_home_descriptor = os.open(
+        home_name,
+        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+        dir_fd=home_descriptor,
+    )
+    with ExitStack() as descriptors:
+        descriptors.callback(os.close, codex_home_descriptor)
+        os.fchown(codex_home_descriptor, -1, policy.provider_group_id)
+        os.fchmod(codex_home_descriptor, 0o2770)
+        os.symlink(
+            f"/proc/self/fd/{credential_descriptor}",
+            auth_name,
+            dir_fd=codex_home_descriptor,
+        )
+        os.fsync(codex_home_descriptor)
+    _require_native_credential_projection(
+        home_descriptor=home_descriptor,
+        credential_descriptor=credential_descriptor,
+        request=request,
+    )
+
+
+def _require_native_credential_projection(
+    *,
+    home_descriptor: int,
+    credential_descriptor: int,
+    request: CodingAgentRunActionRequest,
+) -> None:
+    policy = request.interpretation_policy
+    _require_native_credential_source(credential_descriptor, request)
+    home_name = PurePosixPath(PROVIDER_CODEX_HOME_PATH).name
+    auth_name = PurePosixPath(PROVIDER_CODEX_AUTH_PATH).name
+    if tuple(os.listdir(home_descriptor)) != (home_name,):
+        raise RunActionCodingAgentConsumerError(
+            "coding-agent native credential home has unexpected entries"
+        )
+    codex_home_descriptor = os.open(
+        home_name,
+        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+        dir_fd=home_descriptor,
+    )
+    with ExitStack() as descriptors:
+        descriptors.callback(os.close, codex_home_descriptor)
+        home_metadata = os.fstat(codex_home_descriptor)
+        auth_metadata = os.stat(
+            auth_name,
+            dir_fd=codex_home_descriptor,
+            follow_symlinks=False,
+        )
+        if (
+            home_metadata.st_uid != policy.supervisor_user_id
+            or home_metadata.st_gid != policy.provider_group_id
+            or stat.S_IMODE(home_metadata.st_mode) != 0o2770
+            or tuple(os.listdir(codex_home_descriptor)) != (auth_name,)
+            or not stat.S_ISLNK(auth_metadata.st_mode)
+            or auth_metadata.st_uid != policy.supervisor_user_id
+            or auth_metadata.st_gid != policy.provider_group_id
+            or os.readlink(auth_name, dir_fd=codex_home_descriptor)
+            != f"/proc/self/fd/{credential_descriptor}"
+        ):
+            raise RunActionCodingAgentConsumerError(
+                "coding-agent native credential projection changed"
+            )
+
+
+def _require_native_credential_source(
+    descriptor: int,
+    request: CodingAgentRunActionRequest,
+) -> None:
+    policy = request.interpretation_policy
+    metadata = os.fstat(descriptor)
+    if (
+        not stat.S_ISREG(metadata.st_mode)
+        or metadata.st_uid != policy.supervisor_user_id
+        or metadata.st_gid != policy.provider_group_id
+        or metadata.st_nlink != 1
+        or stat.S_IMODE(metadata.st_mode) != 0o440
+        or not 0 < metadata.st_size <= policy.maximum_native_credential_bytes
+    ):
+        raise RunActionCodingAgentConsumerError(
+            "coding-agent native credential source is not exact"
+        )
+
+
 def consume_coding_agent_run_action(
     *,
     request_payload: bytes,
     workspace_descriptor: int,
     temporary_directory_descriptor: int,
+    credential_descriptor: int,
     process_runner: CodingAgentProcessRunner,
 ) -> CodingAgentPublishedCandidate:
     """Consume one canonical request and publish its sole terminal candidate."""
@@ -374,11 +473,17 @@ def consume_coding_agent_run_action(
             support_payloads=coding_agent_cli_support_payloads(request),
             resources=scratch_resources,
         )
+        _prepare_native_credential_projection(
+            home_descriptor=scratch.home_descriptor,
+            credential_descriptor=credential_descriptor,
+            request=request,
+        )
         sandbox_descriptors = ProviderSandboxDescriptors(
             workspace_descriptor=scratch.workspace_descriptor,
             home_descriptor=scratch.home_descriptor,
             output_descriptor=scratch.output_descriptor,
             support_descriptor=scratch.support_descriptor,
+            credential_descriptor=credential_descriptor,
         )
         inherited_descriptors = tuple(sorted(sandbox_descriptors.all))
         require_coding_agent_scratch_support(scratch)
@@ -404,7 +509,12 @@ def consume_coding_agent_run_action(
             output_payload=preflight.output_payload,
             diagnostic_payload=preflight.diagnostic_payload,
         )
-        if os.listdir(scratch.home_descriptor) or os.listdir(scratch.output_descriptor):
+        _require_native_credential_projection(
+            home_descriptor=scratch.home_descriptor,
+            credential_descriptor=credential_descriptor,
+            request=request,
+        )
+        if os.listdir(scratch.output_descriptor):
             raise RunActionCodingAgentConsumerError(
                 "coding-agent preflight left mutable provider state"
             )
@@ -645,10 +755,16 @@ def consume_coding_agent_main(request_size_limit: int) -> None:
             os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
         )
         descriptors.callback(os.close, temporary_directory_descriptor)
+        credential_descriptor = os.open(
+            PROVIDER_CREDENTIAL_PATH,
+            os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW | os.O_CLOEXEC,
+        )
+        descriptors.callback(os.close, credential_descriptor)
         consume_coding_agent_run_action(
             request_payload=request_payload,
             workspace_descriptor=workspace_descriptor,
             temporary_directory_descriptor=temporary_directory_descriptor,
+            credential_descriptor=credential_descriptor,
             process_runner=BoundedCodingAgentProcessRunner(),
         )
 
@@ -719,12 +835,16 @@ def _require_process_inputs(
     inherited_metadata = tuple(
         os.fstat(descriptor) for descriptor in inherited_descriptors
     )
-    if any(
-        not stat.S_ISDIR(metadata.st_mode) for metadata in inherited_metadata
-    ) or len(
-        {(metadata.st_dev, metadata.st_ino) for metadata in inherited_metadata}
-    ) != (
-        len(inherited_metadata)
+    if inherited_metadata and (
+        len(inherited_metadata) != 5
+        or sum(stat.S_ISDIR(metadata.st_mode) for metadata in inherited_metadata) != 4
+        or sum(
+            stat.S_ISREG(metadata.st_mode) and metadata.st_nlink == 1
+            for metadata in inherited_metadata
+        )
+        != 1
+        or len({(metadata.st_dev, metadata.st_ino) for metadata in inherited_metadata})
+        != len(inherited_metadata)
     ):
         raise RunActionCodingAgentConsumerError(
             "coding-agent inherited process authority is invalid"

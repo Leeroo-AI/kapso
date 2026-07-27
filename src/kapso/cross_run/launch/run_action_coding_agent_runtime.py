@@ -24,6 +24,7 @@ from kapso.cross_run.launch.run_action_coding_agent_contracts import (
 )
 from kapso.cross_run.launch.run_action_coding_agent_layout import (
     coding_agent_provider_environment,
+    PROVIDER_CREDENTIAL_PATH,
     PROVIDER_HOME_PATH,
     PROVIDER_OUTPUT_PATH,
     PROVIDER_SUPPORT_PATH,
@@ -161,12 +162,13 @@ class _UserCapabilityData(ctypes.Structure):
 
 @dataclass(frozen=True)
 class ProviderSandboxDescriptors:
-    """Exact inherited mutable-directory capabilities for one provider."""
+    """Exact inherited scratch and native-credential capabilities."""
 
     workspace_descriptor: int
     home_descriptor: int
     output_descriptor: int
     support_descriptor: int
+    credential_descriptor: int
 
     def __post_init__(self) -> None:
         if any(
@@ -183,7 +185,12 @@ class ProviderSandboxDescriptors:
             self.home_descriptor,
             self.output_descriptor,
             self.support_descriptor,
+            self.credential_descriptor,
         )
+
+    @property
+    def mutable_directories(self) -> tuple[int, ...]:
+        return self.all[:4]
 
 
 @dataclass(frozen=True)
@@ -263,6 +270,8 @@ def coding_agent_provider_sandbox_command(
         str(descriptors.output_descriptor),
         "--support-descriptor",
         str(descriptors.support_descriptor),
+        "--credential-descriptor",
+        str(descriptors.credential_descriptor),
         "--",
         *command,
     )
@@ -459,6 +468,7 @@ def main() -> None:
     parser.add_argument("--home-descriptor", type=int, required=True)
     parser.add_argument("--output-descriptor", type=int, required=True)
     parser.add_argument("--support-descriptor", type=int, required=True)
+    parser.add_argument("--credential-descriptor", type=int, required=True)
     parser.add_argument(
         "--workspace-access",
         choices=(
@@ -477,10 +487,15 @@ def main() -> None:
         home_descriptor=arguments.home_descriptor,
         output_descriptor=arguments.output_descriptor,
         support_descriptor=arguments.support_descriptor,
+        credential_descriptor=arguments.credential_descriptor,
     )
     _require_launcher_arguments(arguments, command, inherited_descriptors)
     if arguments.verify_and_exec:
         _require_provider_identity_and_privilege(arguments)
+        _require_exact_provider_credential_descriptor_table(
+            inherited_descriptors.credential_descriptor
+        )
+        _require_inherited_credential_binding(inherited_descriptors)
         os.umask(0o007)
         os.execve(
             command[0],
@@ -508,7 +523,7 @@ def main() -> None:
         )
         apply_provider_process_group_containment()
         _require_inherited_descriptor_bindings(inherited_descriptors)
-    for descriptor in inherited_descriptors.all:
+    for descriptor in inherited_descriptors.mutable_directories:
         os.close(descriptor)
     verification_command = (
         PROVIDER_VERIFICATION_EXECUTABLE,
@@ -535,6 +550,8 @@ def main() -> None:
         str(arguments.output_descriptor),
         "--support-descriptor",
         str(arguments.support_descriptor),
+        "--credential-descriptor",
+        str(arguments.credential_descriptor),
         "--",
         *command,
     )
@@ -621,7 +638,12 @@ def _provider_descriptor_rules(
             inherited.support_descriptor,
             _READ_ONLY_ACCESS,
         ),
+        ProviderSandboxDescriptorRule(
+            inherited.credential_descriptor,
+            _ACCESS_READ_FILE,
+        ),
         workspace_rule,
+        _open_fixed_provider_rule("/proc/self/fd", _READ_ONLY_ACCESS, resources),
         _open_fixed_provider_rule("/proc/self/status", _READ_ONLY_ACCESS, resources),
         _open_fixed_provider_rule("/usr", _READ_ONLY_ACCESS, resources),
     ]
@@ -657,13 +679,22 @@ def _require_exact_inherited_descriptor_table(
 def _require_provider_descriptor_identities(
     inherited: ProviderSandboxDescriptors,
 ) -> None:
-    metadata = tuple(os.fstat(descriptor) for descriptor in inherited.all)
+    directory_metadata = tuple(
+        os.fstat(descriptor) for descriptor in inherited.mutable_directories
+    )
+    credential_metadata = os.fstat(inherited.credential_descriptor)
+    metadata = (*directory_metadata, credential_metadata)
     identities = tuple((item.st_dev, item.st_ino) for item in metadata)
     if any(
-        not stat.S_ISDIR(item.st_mode) or item.st_nlink < 2 for item in metadata
-    ) or len(set(identities)) != len(identities):
+        not stat.S_ISDIR(item.st_mode) or item.st_nlink < 2
+        for item in directory_metadata
+    ) or (
+        not stat.S_ISREG(credential_metadata.st_mode)
+        or credential_metadata.st_nlink != 1
+        or len(set(identities)) != len(identities)
+    ):
         raise RunActionCodingAgentRuntimeError(
-            "provider mutable authority is not four distinct retained directories"
+            "provider authority is not four directories and one credential file"
         )
 
 
@@ -685,6 +716,45 @@ def _require_inherited_descriptor_bindings(
             raise RunActionCodingAgentRuntimeError(
                 "provider path differs from its inherited directory descriptor"
             )
+    _require_inherited_credential_binding(inherited)
+
+
+def _require_inherited_credential_binding(
+    inherited: ProviderSandboxDescriptors,
+) -> None:
+    path_metadata = os.stat(PROVIDER_CREDENTIAL_PATH, follow_symlinks=False)
+    descriptor_metadata = os.fstat(inherited.credential_descriptor)
+    if not stat.S_ISREG(path_metadata.st_mode) or _stable_rule_metadata(
+        path_metadata
+    ) != _stable_rule_metadata(descriptor_metadata):
+        raise RunActionCodingAgentRuntimeError(
+            "provider credential path differs from its inherited descriptor"
+        )
+
+
+def _require_exact_provider_credential_descriptor_table(
+    credential_descriptor: int,
+) -> None:
+    directory_descriptor = os.open(
+        "/proc/self/fd",
+        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+    )
+    with ExitStack() as descriptors:
+        descriptors.callback(os.close, directory_descriptor)
+        enumerated = {
+            int(name)
+            for name in os.listdir(directory_descriptor)
+            if name.isascii() and name.isdecimal()
+        }
+        observed = {
+            descriptor
+            for descriptor in enumerated
+            if os.path.lexists(f"/proc/self/fd/{descriptor}")
+        }
+    if observed != {0, 1, 2, directory_descriptor, credential_descriptor}:
+        raise RunActionCodingAgentRuntimeError(
+            "provider retained an unadmitted descriptor after privilege erasure"
+        )
 
 
 def _open_fixed_provider_rule(

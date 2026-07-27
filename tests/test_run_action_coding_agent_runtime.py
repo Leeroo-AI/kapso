@@ -52,11 +52,20 @@ def sandbox_descriptors(tmp_path):
             )
             resources.callback(os.close, descriptor)
             descriptors.append(descriptor)
-        yield ProviderSandboxDescriptors(*descriptors)
+        credential_path = tmp_path / "credentials"
+        credential_path.write_bytes(b"{}\n")
+        credential_path.chmod(0o400)
+        credential_descriptor = os.open(
+            credential_path,
+            os.O_RDONLY | os.O_CLOEXEC,
+        )
+        resources.callback(os.close, credential_descriptor)
+        yield ProviderSandboxDescriptors(*descriptors, credential_descriptor)
 
 
 def test_provider_environment_is_complete_and_contains_no_ambient_authority():
     assert dict(coding_agent_provider_environment()) == {
+        "CODEX_HOME": "/kapso/tmp/provider-home/.codex",
         "GIT_OPTIONAL_LOCKS": "0",
         "HOME": "/kapso/tmp/provider-home",
         "LANG": "C",
@@ -104,6 +113,8 @@ def test_sandbox_command_binds_complete_policy_and_provider_argv(
         str(sandbox_descriptors.output_descriptor),
         "--support-descriptor",
         str(sandbox_descriptors.support_descriptor),
+        "--credential-descriptor",
+        str(sandbox_descriptors.credential_descriptor),
         "--",
         *command,
     )
@@ -174,11 +185,18 @@ def test_sandbox_descriptors_reject_distinct_numbers_for_one_inode(tmp_path):
             )
             resources.callback(os.close, descriptor)
             descriptors.append(descriptor)
-        aliased = ProviderSandboxDescriptors(*descriptors)
+        credential_path = tmp_path / "credential"
+        credential_path.write_bytes(b"{}\n")
+        credential_descriptor = os.open(
+            credential_path,
+            os.O_RDONLY | os.O_CLOEXEC,
+        )
+        resources.callback(os.close, credential_descriptor)
+        aliased = ProviderSandboxDescriptors(*descriptors, credential_descriptor)
 
         with pytest.raises(
             RunActionCodingAgentRuntimeError,
-            match="four distinct retained directories",
+            match="four directories and one credential file",
         ):
             coding_agent_provider_sandbox_command(
                 run_action_request(interpretation_policy()),
@@ -187,7 +205,7 @@ def test_sandbox_descriptors_reject_distinct_numbers_for_one_inode(tmp_path):
             )
 
 
-def test_launcher_rejects_a_fifth_inherited_descriptor(
+def test_launcher_rejects_a_sixth_inherited_descriptor(
     tmp_path,
     sandbox_descriptors,
 ):
@@ -220,6 +238,8 @@ def test_launcher_rejects_a_fifth_inherited_descriptor(
             str(sandbox_descriptors.output_descriptor),
             "--support-descriptor",
             str(sandbox_descriptors.support_descriptor),
+            "--credential-descriptor",
+            str(sandbox_descriptors.credential_descriptor),
             "--",
             "/usr/bin/codex",
             "--version",
@@ -239,7 +259,7 @@ def test_launcher_rejects_a_fifth_inherited_descriptor(
     assert b"inherited an unadmitted descriptor" in completion.stderr
 
 
-def test_launcher_accepts_exactly_the_four_admitted_descriptors(
+def test_launcher_accepts_exactly_the_five_admitted_descriptors(
     sandbox_descriptors,
 ):
     program = (

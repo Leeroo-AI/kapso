@@ -13,7 +13,11 @@ RUN apt-get update \
     && useradd --uid 1001 --gid 1001 --no-create-home --shell /usr/sbin/nologin kapso-provider \
     && test "$(readlink /sbin)" = 'usr/sbin' \
     && unlink /sbin \
-    && mkdir --mode=0755 /sbin
+    && mkdir --mode=0755 /sbin \
+    && mkdir --mode=0555 --parents /kapso/credentials \
+    && printf '{}\n' > /kapso/credentials/credentials \
+    && chown 1000:1001 /kapso/credentials/credentials \
+    && chmod 0440 /kapso/credentials/credentials
 
 COPY src/kapso /usr/lib/python3/dist-packages/kapso
 

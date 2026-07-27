@@ -28,6 +28,8 @@ def main() -> None:
     denied_paths = (
         "/kapso/workspace/.git",
         "/kapso/input/request.blob",
+        "/home/ubuntu/.codex/auth.json",
+        "/root/.codex/auth.json",
         "/run/docker.sock",
     )
     denied_probes = tuple(
@@ -42,6 +44,9 @@ def main() -> None:
     )
     if any(probe.returncode == 0 for probe in denied_probes):
         raise RuntimeError("offline provider resolved a protected authority")
+    native_credential = Path(os.environ["CODEX_HOME"]) / "auth.json"
+    if not native_credential.read_bytes():
+        raise RuntimeError("offline provider lacks its projected native credential")
     capabilities = {
         line.split(":", 1)[0]: line.split(":", 1)[1].strip()
         for line in Path("/proc/self/status").read_text(encoding="ascii").splitlines()
