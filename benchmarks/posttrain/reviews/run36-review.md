@@ -148,3 +148,21 @@ validated end-to-end (delivery + uptake + faithful execution); the null
 score result is a property of the cell, not the intervention. Future
 gemma-AIME attempts: do NOT expect a recipe/knowledge doc to move 0/30 — the
 bar is a bigger/stronger base or a fundamentally different capability source.
+
+## Addendum (2026-07-27): the 3.3 record's provenance recalibrates this verdict
+
+We studied the record-holder's own trace (gpt-5.4-high-reprompt,
+`aime2025_google_gemma-3-4b-pt_17073334` in the public trajectories
+dataset). Findings: the same agent ran this cell 4× (0.0/0.0/0.0/3.3); in
+the scoring run every reasoning method ALSO scored 0/30 (GRPO "exact reward
+stayed dead", STaR "zero exact hits"); the shipped 3.3 artifact is an
+ANSWER-ONLY model (full-FT on 7,398 pre-2024 AIME problems mapped straight
+to integer answers, max-new-tokens 64, 3/44 on their own dev), promoted by
+checkpoint selection ON the hidden set (13 full-30 official reads + ~160
+limit-10 screens). So: run #36's 0/30-by-reasoning matches every
+reasoning-based attempt ever measured on this cell, including the record
+holder's own; the 3.3 bar is a selection artifact from a trained guesser,
+not evidence a 4B can solve an AIME problem. Capability-wall verdict
+UNCHANGED and now confirmed at the source. Next-attempt playbook (soft-
+target same-vocab KD, band-RFT, in-gen self-consistency, answer-prior
+fallback): knowledge/aime2025.md "Gemma playbook v2".
