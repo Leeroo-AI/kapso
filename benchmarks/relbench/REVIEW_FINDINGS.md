@@ -196,6 +196,50 @@ Runs reviewed:
    judge tag-retry nudge ran with empty context and correctly failed safe
    (evaluation_valid=False) — the retry wiring deserves its own look.
 
+## R9 — driver-position, GPU + codex-primary + return-economics (2026-07-26/27, COMPLETED)
+
+First GPU run (H100, box relbench-dp-gpu-0726, auto-deleted on completion),
+first codex-primary stack (impl/maintainer/feedback/selector = codex
+gpt-5.6-sol @ xhigh; ideation member2 + lens planner = fable-5 @ max on
+TOKEN2), first run under the return-economics prompts (P1/P2/P3) and the
+explicit GPU-availability line. 10h time budget, 4h eval cap. Cost $45.75
+(codex compute unmetered — real spend is luna/embeddings only).
+
+Official (COMPLETED, exit 0): **selected run_0007, val 2.62602 → TEST
+3.5631 (NMAE 0.5072)** — Kapso's best-ever on this cell (prev best R8
+3.6360; the frozen-prompt run-1 baseline on the same box 3.5713). Beats
+RelAgent (0.572) and the whole from-scratch/GNN field decisively; still
+far from KumoRFM-ft (2.731 / 0.3887) and best-known (0.374).
+
+What changed vs every prior driver-position run:
+- The lens planner (return-economics framing) produced a genuine
+  exploit/explore split — Lens 1 "latent-strength forecasting
+  (structurally different from feature-matrix GBDT)", Lens 2 rank-mechanics
+  GBDT — and the selector routed iteration 2 to the STRUCTURAL attack: the
+  campaign's FIRST GPU-using candidate (torch rating-dynamics model, ~23%
+  H100 util). The GPU line + return prompts did what CPU-era runs never
+  did: put a neural model class into the champion chain.
+- Drift bent DOWN for the first time under feedback pressure: val
+  2.713→2.626 while test held ~3.61 then improved to 3.563; drift
+  +0.90→+0.98(peak)→+0.95→+0.94→+0.937 as the judge steered toward
+  generalization ("drift"/"test era"/"structurally different" explicit in
+  transcripts). The rating/percentile-space model learns the pre-2010 era
+  hard (val plummets) but the 2010–2016 shift still caps test — the cell's
+  core pathology dented, not solved.
+- Champion is val-AND-test-consistent (run_0007 leads both) — unlike R7's
+  inversion — so the val-selected number is the honest best, not a
+  cherry-pick. Then an 8-tie plateau (runs 0008-0016 all val 2.62602):
+  once the champion was set, no candidate beat it; the run consolidated and
+  COMPLETED on budget. Zero scoreless iterations, zero credential failures,
+  codex-primary machinery clean end to end (maintainer registration,
+  selector, feedback, MCP repo-memory all worked via codex).
+
+Machinery firsts validated: codex coding agent (adapter + MCP + streaming),
+return-economics shaping (visible behavior change), GPU detection+use,
+auto-teardown (box deleted immediately on completion, 38M artifacts pulled
+first). Full traces: tmp/relbench/_gpu_run3_driver_position/ (16 archives +
+full_pull.tgz). Frozen-prompt run-1 baseline archives: $SCRATCH/gpu_results.
+
 ## R8 — driver-position under ioai config, 4h cap (2026-07-25, STOPPED BY USER at iter-10 wrap-up; all traces kept for later study)
 
 Generic, 10 iters, 4h full cap, anti-cheat live. Two infra incidents, both
