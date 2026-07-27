@@ -55,6 +55,7 @@ def materialization_byte_budget():
     (
         "kapso.cross_run.knowledge.access",
         "kapso.gated_mcp.gates.prior_knowledge_gate",
+        "kapso.gated_mcp.prior_knowledge_cli",
         "kapso.gated_mcp.server",
     ),
 )
@@ -204,6 +205,7 @@ def test_gate_serves_complete_selected_and_proof_records_with_labels_and_audit(
                 "materialization_path": str(path),
                 "maximum_bytes": materialization_byte_budget(),
                 "audit_path": str(audit_path),
+                "audit_maximum_bytes": materialization_byte_budget(),
                 "operation_id": operation_id,
             }
         )
@@ -292,7 +294,7 @@ def test_real_stdio_mcp_handshake_lists_reads_and_returns_errors(tmp_path):
         command=sys.executable,
         args=[
             "-m",
-            "kapso.gated_mcp.server",
+            "kapso.gated_mcp.prior_knowledge_cli",
             "--enabled-gates",
             "prior_knowledge",
             "--gate-failure-policy",
@@ -303,6 +305,8 @@ def test_real_stdio_mcp_handshake_lists_reads_and_returns_errors(tmp_path):
             str(materialization_byte_budget()),
             "--prior-knowledge-audit-path",
             str(audit_path),
+            "--prior-knowledge-audit-maximum-bytes",
+            str(materialization_byte_budget()),
             "--operation-id",
             operation_id,
         ],
@@ -359,6 +363,7 @@ def test_gate_rejects_noncanonical_operation_identity(tmp_path, operation_id):
                     "materialization_path": str(persist_materialization(tmp_path)),
                     "maximum_bytes": materialization_byte_budget(),
                     "audit_path": str((tmp_path / "audit.jsonl").resolve()),
+                    "audit_maximum_bytes": materialization_byte_budget(),
                     "operation_id": operation_id,
                 }
             )

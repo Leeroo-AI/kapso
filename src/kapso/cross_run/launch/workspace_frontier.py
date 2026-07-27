@@ -18,7 +18,7 @@ from kapso.cross_run.canonical import (
     tree_or_blob_digest,
 )
 from kapso.cross_run.contracts import SourceFileDescriptor
-from kapso.cross_run.git_refs import git_tree_shas
+from kapso.cross_run.git_refs import git_tree_shas, require_git_ref_name
 from kapso.cross_run.launch.workspace import StarterWorkspaceBuilder
 from kapso.cross_run.settings import LaunchSettings
 
@@ -61,6 +61,32 @@ class RunWorkspaceSourceTreeIdentity:
         ):
             raise RunWorkspaceFrontierError(
                 "run workspace source-tree identity is invalid"
+            )
+
+
+@dataclass(frozen=True)
+class RunWorkspaceRegularTreeIdentity:
+    """Bounded identity of every directory and regular file in a private tree."""
+
+    root_identity: tuple[int, int]
+    tree_digest: str
+    entry_count: int
+    regular_file_size_bytes: int
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.root_identity) is not tuple
+            or len(self.root_identity) != 2
+            or any(type(value) is not int or value <= 0 for value in self.root_identity)
+            or not isinstance(self.tree_digest, str)
+            or not self.tree_digest.startswith("sha256:")
+            or type(self.entry_count) is not int
+            or self.entry_count <= 0
+            or type(self.regular_file_size_bytes) is not int
+            or self.regular_file_size_bytes < 0
+        ):
+            raise RunWorkspaceFrontierError(
+                "run workspace regular-tree identity is invalid"
             )
 
 
@@ -390,6 +416,157 @@ def inspect_run_workspace_source_tree(
 ) -> RunWorkspaceSourceTreeIdentity:
     """Digest one bounded source tree while excluding exactly the root `.git`."""
 
+    (
+        workspace_metadata,
+        state,
+        descriptors_by_path,
+        _blob_ids,
+        _directory_modes,
+        _regular_file_permissions,
+        _physical_metadata,
+    ) = _scan_run_workspace_regular_tree(
+        workspace_descriptor,
+        maximum_entries=maximum_entries,
+        maximum_bytes=maximum_bytes,
+        root_git_required=True,
+        empty_directories_allowed=False,
+        allowed_file_permissions=frozenset({0o600, 0o644, 0o700, 0o755}),
+    )
+    return RunWorkspaceSourceTreeIdentity(
+        workspace_identity=(workspace_metadata.st_dev, workspace_metadata.st_ino),
+        source_tree_digest=source_tree_digest(
+            {
+                path: (descriptor.digest, descriptor.mode, descriptor.size)
+                for path, descriptor in descriptors_by_path.items()
+            }
+        ),
+        source_entry_count=state.entry_count,
+        source_size_bytes=state.size_bytes,
+    )
+
+
+def inspect_run_workspace_regular_tree(
+    directory_descriptor: int,
+    *,
+    maximum_entries: int,
+    maximum_bytes: int,
+) -> RunWorkspaceRegularTreeIdentity:
+    """Digest a bounded private regular tree without a Git-root special case."""
+
+    (
+        root_metadata,
+        state,
+        descriptors_by_path,
+        _blob_ids,
+        directory_modes,
+        regular_file_permissions,
+        physical_metadata,
+    ) = _scan_run_workspace_regular_tree(
+        directory_descriptor,
+        maximum_entries=maximum_entries,
+        maximum_bytes=maximum_bytes,
+        root_git_required=False,
+        empty_directories_allowed=True,
+        allowed_file_permissions=frozenset({0o400, 0o444, 0o600, 0o644, 0o700, 0o755}),
+    )
+    return _regular_tree_identity(
+        root_metadata,
+        state,
+        descriptors_by_path,
+        directory_modes,
+        regular_file_permissions,
+        physical_metadata,
+    )
+
+
+def inspect_run_workspace_source_regular_tree(
+    workspace_descriptor: int,
+    *,
+    maximum_entries: int,
+    maximum_bytes: int,
+) -> RunWorkspaceRegularTreeIdentity:
+    """Digest exact physical source authority while excluding root `.git`."""
+
+    (
+        root_metadata,
+        state,
+        descriptors_by_path,
+        _blob_ids,
+        directory_modes,
+        regular_file_permissions,
+        physical_metadata,
+    ) = _scan_run_workspace_regular_tree(
+        workspace_descriptor,
+        maximum_entries=maximum_entries,
+        maximum_bytes=maximum_bytes,
+        root_git_required=True,
+        empty_directories_allowed=True,
+        allowed_file_permissions=frozenset({0o600, 0o644, 0o700, 0o755}),
+    )
+    return _regular_tree_identity(
+        root_metadata,
+        state,
+        descriptors_by_path,
+        directory_modes,
+        regular_file_permissions,
+        physical_metadata,
+    )
+
+
+def _regular_tree_identity(
+    root_metadata: os.stat_result,
+    state: _SourceScanState,
+    descriptors_by_path: dict[str, SourceFileDescriptor],
+    directory_modes: dict[str, int],
+    regular_file_permissions: dict[str, int],
+    physical_metadata: dict[str, tuple[int, ...]],
+) -> RunWorkspaceRegularTreeIdentity:
+    if set(directory_modes) | set(regular_file_permissions) != set(physical_metadata):
+        raise RunWorkspaceFrontierError(
+            "run workspace physical-tree metadata closure is inconsistent"
+        )
+    return RunWorkspaceRegularTreeIdentity(
+        root_identity=(root_metadata.st_dev, root_metadata.st_ino),
+        tree_digest=tree_or_blob_digest(
+            canonical_json_bytes(
+                {
+                    "root": _copy_metadata_observation(root_metadata),
+                    "directories": {
+                        path: physical_metadata[path]
+                        for path in sorted(directory_modes)
+                    },
+                    "regular_files": {
+                        path: {
+                            "content_digest": descriptor.digest,
+                            "metadata": physical_metadata[path],
+                        }
+                        for path, descriptor in sorted(descriptors_by_path.items())
+                    },
+                }
+            )
+        ),
+        entry_count=state.entry_count,
+        regular_file_size_bytes=state.size_bytes,
+    )
+
+
+def _scan_run_workspace_regular_tree(
+    workspace_descriptor: int,
+    *,
+    maximum_entries: int,
+    maximum_bytes: int,
+    root_git_required: bool,
+    empty_directories_allowed: bool,
+    allowed_file_permissions: frozenset[int],
+) -> tuple[
+    os.stat_result,
+    _SourceScanState,
+    dict[str, SourceFileDescriptor],
+    dict[str, str],
+    dict[str, int],
+    dict[str, int],
+    dict[str, tuple[int, ...]],
+]:
     if (
         type(workspace_descriptor) is not int
         or workspace_descriptor < 0
@@ -417,11 +594,19 @@ def inspect_run_workspace_source_tree(
         entry_limit=maximum_entries,
         size_limit=maximum_bytes,
     )
-    descriptors_by_path, _blob_ids = _scan_source_directory(
+    (
+        descriptors_by_path,
+        blob_ids,
+        directory_modes,
+        regular_file_permissions,
+        physical_metadata,
+    ) = _scan_source_directory(
         workspace_descriptor,
         PurePosixPath("."),
         state,
-        root=True,
+        root=root_git_required,
+        empty_directories_allowed=empty_directories_allowed,
+        allowed_file_permissions=allowed_file_permissions,
     )
     if not descriptors_by_path:
         raise RunWorkspaceFrontierError("run workspace source tree is empty")
@@ -430,16 +615,14 @@ def inspect_run_workspace_source_tree(
         raise RunWorkspaceFrontierError(
             "run workspace source-tree descriptor changed during inspection"
         )
-    return RunWorkspaceSourceTreeIdentity(
-        workspace_identity=(workspace_metadata.st_dev, workspace_metadata.st_ino),
-        source_tree_digest=source_tree_digest(
-            {
-                path: (descriptor.digest, descriptor.mode, descriptor.size)
-                for path, descriptor in descriptors_by_path.items()
-            }
-        ),
-        source_entry_count=state.entry_count,
-        source_size_bytes=state.size_bytes,
+    return (
+        workspace_metadata,
+        state,
+        descriptors_by_path,
+        blob_ids,
+        directory_modes,
+        regular_file_permissions,
+        physical_metadata,
     )
 
 
@@ -454,6 +637,47 @@ def inspect_run_workspace_frontier(
         raise RunWorkspaceFrontierError(
             "run workspace inspection requires exact launch settings"
         )
+    return inspect_run_workspace_frontier_with_limits(
+        workspace_descriptor,
+        workspace_git_branch=settings.workspace_git_branch,
+        maximum_source_entries=settings.run_workspace_entry_limit,
+        maximum_source_bytes=settings.run_workspace_size_bytes,
+        maximum_git_entries=settings.run_workspace_git_entry_limit,
+        maximum_git_bytes=settings.run_workspace_git_metadata_size_bytes,
+        expected_commit_sha=expected_commit_sha,
+    )
+
+
+def inspect_run_workspace_frontier_with_limits(
+    workspace_descriptor: int,
+    *,
+    workspace_git_branch: str,
+    maximum_source_entries: int,
+    maximum_source_bytes: int,
+    maximum_git_entries: int,
+    maximum_git_bytes: int,
+    expected_commit_sha: str | None,
+) -> RunWorkspaceFrontierIdentity:
+    """Reconcile one clean Git frontier from explicit bounded authority."""
+
+    if not isinstance(workspace_git_branch, str) or any(
+        type(value) is not int or value <= 0
+        for value in (
+            maximum_source_entries,
+            maximum_source_bytes,
+            maximum_git_entries,
+            maximum_git_bytes,
+        )
+    ):
+        raise RunWorkspaceFrontierError(
+            "run workspace frontier limits or branch are invalid"
+        )
+    require_git_ref_name(
+        f"refs/heads/{workspace_git_branch}",
+        "run workspace Git branch",
+        qualified=True,
+        error_type=RunWorkspaceFrontierError,
+    )
     if expected_commit_sha is not None and (
         _GIT_SHA_PATTERN.fullmatch(expected_commit_sha) is None
     ):
@@ -466,14 +690,22 @@ def inspect_run_workspace_frontier(
     ):
         raise RunWorkspaceFrontierError("run workspace descriptor is not owner-private")
     state = _SourceScanState(
-        entry_limit=settings.run_workspace_entry_limit,
-        size_limit=settings.run_workspace_size_bytes,
+        entry_limit=maximum_source_entries,
+        size_limit=maximum_source_bytes,
     )
-    descriptors_by_path, blob_ids = _scan_source_directory(
+    (
+        descriptors_by_path,
+        blob_ids,
+        _directory_modes,
+        _source_file_permissions,
+        _physical_metadata,
+    ) = _scan_source_directory(
         workspace_descriptor,
         PurePosixPath("."),
         state,
         root=True,
+        empty_directories_allowed=False,
+        allowed_file_permissions=frozenset({0o600, 0o644, 0o700, 0o755}),
     )
     if not descriptors_by_path:
         raise RunWorkspaceFrontierError("run workspace source tree is empty")
@@ -491,18 +723,17 @@ def inspect_run_workspace_frontier(
             "run workspace Git root",
         )
         git_state = _GitClosureState(
-            entry_limit=settings.run_workspace_git_entry_limit,
-            size_limit=settings.run_workspace_git_metadata_size_bytes,
+            entry_limit=maximum_git_entries,
+            size_limit=maximum_git_bytes,
         )
         git_objects, branch_reference = _read_exact_git_closure(
             git_descriptor,
-            settings=settings,
+            workspace_git_branch=workspace_git_branch,
+            maximum_git_bytes=maximum_git_bytes,
             state=git_state,
             descriptors=descriptors,
         )
-        expected_head = f"ref: refs/heads/{settings.workspace_git_branch}\n".encode(
-            "utf-8"
-        )
+        expected_head = f"ref: refs/heads/{workspace_git_branch}\n".encode("utf-8")
         head = _read_regular_file(
             git_descriptor,
             "HEAD",
@@ -558,7 +789,7 @@ def inspect_run_workspace_frontier(
         index = _read_regular_file(
             git_descriptor,
             "index",
-            maximum_bytes=settings.run_workspace_git_metadata_size_bytes,
+            maximum_bytes=maximum_git_bytes,
             allowed_modes={0o600, 0o644},
             name="run workspace Git index",
         )
@@ -583,7 +814,7 @@ def inspect_run_workspace_frontier(
         )
     return RunWorkspaceFrontierIdentity(
         workspace_identity=(workspace_metadata.st_dev, workspace_metadata.st_ino),
-        branch=settings.workspace_git_branch,
+        branch=workspace_git_branch,
         commit_sha=commit_sha,
         parent_commit_shas=parent_commit_shas,
         git_tree_sha=git_tree_sha,
@@ -1140,7 +1371,15 @@ def _scan_source_directory(
     state: _SourceScanState,
     *,
     root: bool,
-) -> tuple[dict[str, SourceFileDescriptor], dict[str, str]]:
+    empty_directories_allowed: bool,
+    allowed_file_permissions: frozenset[int],
+) -> tuple[
+    dict[str, SourceFileDescriptor],
+    dict[str, str],
+    dict[str, int],
+    dict[str, int],
+    dict[str, tuple[int, ...]],
+]:
     observed_entries = []
     with os.scandir(directory_descriptor) as iterator:
         for entry in iterator:
@@ -1155,6 +1394,9 @@ def _scan_source_directory(
         )
     source_files: dict[str, SourceFileDescriptor] = {}
     blob_ids: dict[str, str] = {}
+    directory_modes: dict[str, int] = {}
+    regular_file_permissions: dict[str, int] = {}
+    physical_metadata: dict[str, tuple[int, ...]] = {}
     for name, expected in entries:
         current = os.stat(
             name,
@@ -1191,31 +1433,57 @@ def _scan_source_directory(
                     child_descriptors,
                     "run workspace source directory",
                 )
-                child_files, child_blobs = _scan_source_directory(
+                (
+                    child_files,
+                    child_blobs,
+                    child_directory_modes,
+                    child_regular_file_permissions,
+                    child_physical_metadata,
+                ) = _scan_source_directory(
                     child_descriptor,
                     relative_path,
                     state,
                     root=False,
+                    empty_directories_allowed=empty_directories_allowed,
+                    allowed_file_permissions=allowed_file_permissions,
                 )
-            if not child_files:
+            if not child_files and not empty_directories_allowed:
                 raise RunWorkspaceFrontierError(
                     "run workspace contains an untracked empty directory"
                 )
+            directory_modes[relative_path.as_posix()] = stat.S_IMODE(expected.st_mode)
+            directory_modes.update(child_directory_modes)
+            regular_file_permissions.update(child_regular_file_permissions)
+            physical_metadata[relative_path.as_posix()] = _copy_metadata_observation(
+                expected
+            )
+            physical_metadata.update(child_physical_metadata)
             source_files.update(child_files)
             blob_ids.update(child_blobs)
             continue
-        descriptor, blob_id = _read_source_file(
+        descriptor, blob_id, permissions = _read_source_file(
             directory_descriptor,
             name,
             relative_path.as_posix(),
             expected,
             state,
+            allowed_file_permissions,
         )
         if descriptor.relative_path in source_files:
             raise RunWorkspaceFrontierError("run workspace source path is duplicated")
         source_files[descriptor.relative_path] = descriptor
         blob_ids[descriptor.relative_path] = blob_id
-    return source_files, blob_ids
+        regular_file_permissions[descriptor.relative_path] = permissions
+        physical_metadata[descriptor.relative_path] = _copy_metadata_observation(
+            expected
+        )
+    return (
+        source_files,
+        blob_ids,
+        directory_modes,
+        regular_file_permissions,
+        physical_metadata,
+    )
 
 
 def _read_source_file(
@@ -1224,13 +1492,14 @@ def _read_source_file(
     relative_path: str,
     expected: os.stat_result,
     state: _SourceScanState,
-) -> tuple[SourceFileDescriptor, str]:
+    allowed_file_permissions: frozenset[int],
+) -> tuple[SourceFileDescriptor, str, int]:
     permissions = stat.S_IMODE(expected.st_mode)
     if (
         not stat.S_ISREG(expected.st_mode)
         or expected.st_uid != os.geteuid()
         or expected.st_nlink != 1
-        or permissions not in {0o600, 0o644, 0o700, 0o755}
+        or permissions not in allowed_file_permissions
         or expected.st_mode & (stat.S_ISUID | stat.S_ISGID)
     ):
         raise RunWorkspaceFrontierError("run workspace source entry is unsafe")
@@ -1280,6 +1549,7 @@ def _read_source_file(
             size=observed_size,
         ),
         sha1.hexdigest(),
+        permissions,
     )
 
 
@@ -1402,7 +1672,8 @@ def _regular_file_permissions(
 def _read_exact_git_closure(
     git_descriptor: int,
     *,
-    settings: LaunchSettings,
+    workspace_git_branch: str,
+    maximum_git_bytes: int,
     state: _GitClosureState,
     descriptors: ExitStack,
 ) -> tuple[dict[str, _GitObject], bytes]:
@@ -1418,7 +1689,7 @@ def _read_exact_git_closure(
         message = _read_regular_file(
             git_descriptor,
             "COMMIT_EDITMSG",
-            maximum_bytes=settings.run_workspace_git_metadata_size_bytes,
+            maximum_bytes=maximum_git_bytes,
             allowed_modes={0o600, 0o644},
             name="run workspace Git commit message",
         )
@@ -1429,8 +1700,8 @@ def _read_exact_git_closure(
         )
     branch_reference = _read_exact_branch_reference(
         git_descriptor,
-        settings.workspace_git_branch,
-        settings.run_workspace_git_metadata_size_bytes,
+        workspace_git_branch,
+        maximum_git_bytes,
         state,
         descriptors,
     )
@@ -1442,7 +1713,7 @@ def _read_exact_git_closure(
     )
     objects = _read_loose_git_objects(
         objects_descriptor,
-        settings.run_workspace_git_metadata_size_bytes,
+        maximum_git_bytes,
         state,
         descriptors,
     )
@@ -1913,10 +2184,14 @@ def _copy_metadata_observation(
 __all__ = [
     "copy_run_workspace_frontier",
     "inspect_run_workspace_frontier",
+    "inspect_run_workspace_frontier_with_limits",
+    "inspect_run_workspace_regular_tree",
+    "inspect_run_workspace_source_regular_tree",
     "inspect_run_workspace_source_tree",
     "plan_run_workspace_frontier_copy",
     "RunWorkspaceCopyPlan",
     "RunWorkspaceFrontierError",
     "RunWorkspaceFrontierIdentity",
+    "RunWorkspaceRegularTreeIdentity",
     "RunWorkspaceSourceTreeIdentity",
 ]

@@ -17,6 +17,8 @@ from kapso.cross_run.launch.run_action_coding_agent_contracts import (
     CodingAgentRunActionRequest,
     CodingAgentRunActionResultEnvelope,
     RunActionCodingAgentContractError,
+    read_canonical_coding_agent_request,
+    read_canonical_coding_agent_result,
 )
 from kapso.cross_run.launch.run_action_coding_agent_schema import (
     validate_run_action_coding_agent_output,
@@ -100,13 +102,13 @@ class CodingAgentRunActionResultInterpreter:
             raise RunActionCodingAgentContractError(
                 "coding-agent raw result exceeds its exact byte limit"
             )
-        request = _read_canonical_request(request_payload)
+        request = read_canonical_coding_agent_request(request_payload)
         request.require_policy(self.interpretation_policy)
         if request.operation_id != operation_id:
             raise RunActionCodingAgentContractError(
                 "coding-agent request names another durable operation"
             )
-        result = _read_canonical_result(result_payload)
+        result = read_canonical_coding_agent_result(result_payload)
         result.validate_against(
             policy=self.interpretation_policy,
             request=request,
@@ -166,7 +168,7 @@ class FixedOfflineCodingAgentConsumer:
     def consume(self, request_payload: bytes) -> bytes:
         """Return one canonical result bound to the complete request bytes."""
 
-        request = _read_canonical_request(request_payload)
+        request = read_canonical_coding_agent_request(request_payload)
         request.require_policy(self.interpretation_policy)
         validate_run_action_coding_agent_output(
             request.response_schema,
@@ -197,32 +199,6 @@ class FixedOfflineCodingAgentConsumer:
             request=request,
         )
         return result.to_json_bytes()
-
-
-def _read_canonical_request(payload: bytes) -> CodingAgentRunActionRequest:
-    if type(payload) is not bytes or not payload:
-        raise RunActionCodingAgentContractError(
-            "coding-agent request payload must be complete bytes"
-        )
-    request = CodingAgentRunActionRequest.from_json_bytes(payload)
-    if request.to_json_bytes() != payload:
-        raise RunActionCodingAgentContractError(
-            "coding-agent request payload is not canonical"
-        )
-    return request
-
-
-def _read_canonical_result(payload: bytes) -> CodingAgentRunActionResultEnvelope:
-    if type(payload) is not bytes or not payload:
-        raise RunActionCodingAgentContractError(
-            "coding-agent result payload must be complete bytes"
-        )
-    result = CodingAgentRunActionResultEnvelope.from_json_bytes(payload)
-    if result.to_json_bytes() != payload:
-        raise RunActionCodingAgentContractError(
-            "coding-agent result payload is not canonical"
-        )
-    return result
 
 
 __all__ = [

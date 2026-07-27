@@ -413,6 +413,7 @@ cross_run:
     coding_agent_cli_argument_size_bytes: 131072
     coding_agent_provider_output_size_bytes: 16777216
     coding_agent_provider_diagnostic_size_bytes: 16777216
+    coding_agent_prior_knowledge_audit_size_bytes: 16777216
     run_action_store_size_bytes: 107374182400
     run_action_staging_entry_limit: 64
     run_action_projection_size_bytes: 1073741824

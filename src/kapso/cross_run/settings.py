@@ -1612,6 +1612,7 @@ class LaunchSettings(StrictContract):
     coding_agent_cli_argument_size_bytes: int
     coding_agent_provider_output_size_bytes: int
     coding_agent_provider_diagnostic_size_bytes: int
+    coding_agent_prior_knowledge_audit_size_bytes: int
     run_action_store_size_bytes: int
     run_action_staging_entry_limit: int
     run_action_projection_size_bytes: int
@@ -1825,6 +1826,10 @@ class LaunchSettings(StrictContract):
             (
                 self.coding_agent_provider_diagnostic_size_bytes,
                 "coding_agent_provider_diagnostic_size_bytes",
+            ),
+            (
+                self.coding_agent_prior_knowledge_audit_size_bytes,
+                "coding_agent_prior_knowledge_audit_size_bytes",
             ),
             (self.run_action_store_size_bytes, "run_action_store_size_bytes"),
             (

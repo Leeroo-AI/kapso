@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import fcntl
 import logging
 import os
 import re
 import stat
+from contextlib import ExitStack
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional
 
@@ -56,10 +58,14 @@ class PriorKnowledgeGate(ToolGate):
             raise TypeError("prior knowledge gate access must be PriorKnowledgeAccess")
         self._access = access
         audit_path = self.get_param("audit_path")
+        audit_maximum_bytes = self.get_param("audit_maximum_bytes")
         operation_id = self.get_param("operation_id")
-        if (audit_path is None) != (operation_id is None):
+        if (audit_path is None) != (audit_maximum_bytes is None) or (
+            audit_path is None
+        ) != (operation_id is None):
             raise ValueError(
-                "prior knowledge gate audit path and operation id must appear together"
+                "prior knowledge gate audit path, bound, and operation id must "
+                "appear together"
             )
         if audit_path is not None:
             path = Path(audit_path)
@@ -70,10 +76,20 @@ class PriorKnowledgeGate(ToolGate):
                 or _OPERATION_IDENTIFIER_PATTERN.fullmatch(operation_id) is None
             ):
                 raise ValueError("prior knowledge audit operation id is invalid")
+            if (
+                isinstance(audit_maximum_bytes, bool)
+                or not isinstance(audit_maximum_bytes, int)
+                or audit_maximum_bytes <= 0
+            ):
+                raise ValueError(
+                    "prior knowledge audit requires a positive byte budget"
+                )
             self._audit_path = path
+            self._audit_maximum_bytes = audit_maximum_bytes
             self._operation_id = operation_id
         else:
             self._audit_path = None
+            self._audit_maximum_bytes = None
             self._operation_id = None
 
     def get_tools(self) -> List[Tool]:
@@ -164,29 +180,45 @@ class PriorKnowledgeGate(ToolGate):
         )
         if self._audit_path is None:
             return
+        payload = canonical_json_bytes(event) + b"\n"
         parent = self._audit_path.parent
         if parent.is_symlink() or not parent.is_dir():
             raise ValueError("prior knowledge audit parent must be a real directory")
-        parent_descriptor = os.open(
-            parent,
-            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
-        )
-        existed = self._audit_path.name in set(os.listdir(parent_descriptor))
-        descriptor = os.open(
-            self._audit_path.name,
-            os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW,
-            0o600,
-            dir_fd=parent_descriptor,
-        )
-        status = os.fstat(descriptor)
-        if not stat.S_ISREG(status.st_mode):
-            os.close(descriptor)
-            os.close(parent_descriptor)
-            raise ValueError("prior knowledge audit must be a regular file")
-        with os.fdopen(descriptor, "ab") as handle:
-            handle.write(canonical_json_bytes(event) + b"\n")
+        with ExitStack() as descriptors:
+            parent_descriptor = os.open(
+                parent,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+            )
+            descriptors.callback(os.close, parent_descriptor)
+            existed = self._audit_path.name in set(os.listdir(parent_descriptor))
+            descriptor = os.open(
+                self._audit_path.name,
+                os.O_WRONLY
+                | os.O_APPEND
+                | os.O_CREAT
+                | os.O_NOFOLLOW
+                | os.O_NONBLOCK
+                | os.O_CLOEXEC,
+                0o600,
+                dir_fd=parent_descriptor,
+            )
+            handle = descriptors.enter_context(os.fdopen(descriptor, "ab"))
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            status = os.fstat(handle.fileno())
+            if (
+                not stat.S_ISREG(status.st_mode)
+                or status.st_uid != os.geteuid()
+                or status.st_gid != os.getegid()
+                or status.st_nlink != 1
+                or stat.S_IMODE(status.st_mode) != 0o600
+                or self._audit_maximum_bytes is None
+                or status.st_size + len(payload) > self._audit_maximum_bytes
+            ):
+                raise ValueError(
+                    "prior knowledge audit is unsafe or exceeds its byte budget"
+                )
+            handle.write(payload)
             handle.flush()
             os.fsync(handle.fileno())
-        if not existed:
-            os.fsync(parent_descriptor)
-        os.close(parent_descriptor)
+            if not existed:
+                os.fsync(parent_descriptor)

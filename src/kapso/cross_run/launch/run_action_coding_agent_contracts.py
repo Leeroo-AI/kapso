@@ -17,6 +17,7 @@ from kapso.cross_run.coding_agent_compatibility import (
     coding_agent_supported_efforts,
 )
 from kapso.cross_run.contracts import StrictContract
+from kapso.cross_run.git_refs import require_git_ref_name
 from kapso.cross_run.knowledge.access import (
     PriorKnowledgeAccess,
     PriorKnowledgeAccessMaterialization,
@@ -100,12 +101,21 @@ class CodingAgentInterpretationPolicy(StrictContract):
     native_tool_policy_version: str
     web_search_enabled: bool
     timeout_nanoseconds: int
+    termination_grace_nanoseconds: int
     workspace_access: RunFrontierWorkspaceAccess
+    workspace_git_branch: str
+    git_commit_author_name: str
+    git_commit_author_email: str
+    maximum_request_bytes: int
     maximum_response_schema_bytes: int
+    maximum_cli_argument_bytes: int
     maximum_provider_output_bytes: int
     maximum_provider_diagnostic_bytes: int
+    maximum_prior_knowledge_audit_bytes: int
     maximum_workspace_entries: int
     maximum_workspace_bytes: int
+    maximum_workspace_git_entries: int
+    maximum_workspace_git_bytes: int
     maximum_raw_result_bytes: int
 
     CONTENT_NAMESPACE: ClassVar[str] = _INTERPRETATION_POLICY_NAMESPACE
@@ -152,10 +162,54 @@ class CodingAgentInterpretationPolicy(StrictContract):
             self.timeout_nanoseconds,
             "coding-agent timeout nanoseconds",
         )
+        _require_positive_integer(
+            self.termination_grace_nanoseconds,
+            "coding-agent termination-grace nanoseconds",
+        )
+        if self.termination_grace_nanoseconds >= self.timeout_nanoseconds:
+            raise RunActionCodingAgentContractError(
+                "coding-agent termination grace must be below its timeout"
+            )
+        if not isinstance(self.workspace_git_branch, str):
+            raise RunActionCodingAgentContractError(
+                "coding-agent workspace Git branch must be text"
+            )
+        require_git_ref_name(
+            f"refs/heads/{self.workspace_git_branch}",
+            "coding-agent workspace Git branch",
+            qualified=True,
+            error_type=RunActionCodingAgentContractError,
+        )
+        if not isinstance(self.git_commit_author_name, str) or (
+            not self.git_commit_author_name.strip()
+            or any(character in self.git_commit_author_name for character in "\r\n<>")
+        ):
+            raise RunActionCodingAgentContractError(
+                "coding-agent Git commit author name is invalid"
+            )
+        if (
+            not isinstance(self.git_commit_author_email, str)
+            or re.fullmatch(
+                r"[^<>\s@]+@[^<>\s@]+",
+                self.git_commit_author_email,
+            )
+            is None
+        ):
+            raise RunActionCodingAgentContractError(
+                "coding-agent Git commit author email is invalid"
+            )
         for value, name in (
+            (
+                self.maximum_request_bytes,
+                "coding-agent maximum request bytes",
+            ),
             (
                 self.maximum_response_schema_bytes,
                 "coding-agent maximum response-schema bytes",
+            ),
+            (
+                self.maximum_cli_argument_bytes,
+                "coding-agent maximum CLI argument bytes",
             ),
             (
                 self.maximum_provider_output_bytes,
@@ -166,6 +220,10 @@ class CodingAgentInterpretationPolicy(StrictContract):
                 "coding-agent maximum provider-diagnostic bytes",
             ),
             (
+                self.maximum_prior_knowledge_audit_bytes,
+                "coding-agent maximum prior-knowledge audit bytes",
+            ),
+            (
                 self.maximum_workspace_entries,
                 "coding-agent maximum workspace entries",
             ),
@@ -174,11 +232,24 @@ class CodingAgentInterpretationPolicy(StrictContract):
                 "coding-agent maximum workspace bytes",
             ),
             (
+                self.maximum_workspace_git_entries,
+                "coding-agent maximum workspace Git entries",
+            ),
+            (
+                self.maximum_workspace_git_bytes,
+                "coding-agent maximum workspace Git bytes",
+            ),
+            (
                 self.maximum_raw_result_bytes,
                 "coding-agent maximum raw-result bytes",
             ),
         ):
             _require_positive_integer(value, name)
+        if self.maximum_response_schema_bytes >= self.maximum_cli_argument_bytes:
+            raise RunActionCodingAgentContractError(
+                "coding-agent response-schema bound must fit inside its CLI "
+                "argument bound"
+            )
 
 
 @dataclass(frozen=True)
@@ -232,6 +303,10 @@ class CodingAgentRunActionRequest(StrictContract):
             _require_digest(
                 self.edit_predecessor_source_tree_digest,
                 "coding-agent edit predecessor source tree",
+            )
+        if len(self.to_json_bytes()) > self.interpretation_policy.maximum_request_bytes:
+            raise RunActionCodingAgentContractError(
+                "coding-agent request exceeds its exact byte limit"
             )
 
     @property
@@ -352,6 +427,20 @@ class CodingAgentRunActionResultEnvelope(StrictContract):
         ):
             if value is not None:
                 _require_nonnegative_integer(value, name)
+        if (
+            self.cached_input_tokens is not None
+            and self.cached_input_tokens > self.input_tokens
+        ):
+            raise RunActionCodingAgentContractError(
+                "coding-agent cached input tokens exceed total input tokens"
+            )
+        if (
+            self.reasoning_output_tokens is not None
+            and self.reasoning_output_tokens > self.output_tokens
+        ):
+            raise RunActionCodingAgentContractError(
+                "coding-agent reasoning tokens exceed total output tokens"
+            )
         if self.cost_usd is not None and (
             not isinstance(self.cost_usd, str)
             or _NORMALIZED_DECIMAL_PATTERN.fullmatch(self.cost_usd) is None
@@ -453,6 +542,40 @@ class CodingAgentRunActionResultEnvelope(StrictContract):
                 )
 
 
+def read_canonical_coding_agent_request(
+    payload: bytes,
+) -> CodingAgentRunActionRequest:
+    """Parse one complete request only when its original bytes are canonical."""
+
+    if type(payload) is not bytes or not payload:
+        raise RunActionCodingAgentContractError(
+            "coding-agent request payload must be complete bytes"
+        )
+    request = CodingAgentRunActionRequest.from_json_bytes(payload)
+    if request.to_json_bytes() != payload:
+        raise RunActionCodingAgentContractError(
+            "coding-agent request payload is not canonical"
+        )
+    return request
+
+
+def read_canonical_coding_agent_result(
+    payload: bytes,
+) -> CodingAgentRunActionResultEnvelope:
+    """Parse one complete result only when its original bytes are canonical."""
+
+    if type(payload) is not bytes or not payload:
+        raise RunActionCodingAgentContractError(
+            "coding-agent result payload must be complete bytes"
+        )
+    result = CodingAgentRunActionResultEnvelope.from_json_bytes(payload)
+    if result.to_json_bytes() != payload:
+        raise RunActionCodingAgentContractError(
+            "coding-agent result payload is not canonical"
+        )
+    return result
+
+
 __all__ = [
     "CODING_AGENT_REQUEST_PROTOCOL_VERSION",
     "CODING_AGENT_RESULT_PROTOCOL_VERSION",
@@ -464,4 +587,6 @@ __all__ = [
     "CodingAgentRunActionRequest",
     "CodingAgentRunActionResultEnvelope",
     "RunActionCodingAgentContractError",
+    "read_canonical_coding_agent_request",
+    "read_canonical_coding_agent_result",
 ]

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from dataclasses import dataclass
 from decimal import Decimal
+from pathlib import PurePosixPath
 from types import MappingProxyType
 from typing import Any, Mapping
 
@@ -16,6 +18,8 @@ from kapso.cross_run.canonical import (
     tree_or_blob_digest,
 )
 from kapso.cross_run.launch.run_action_coding_agent_contracts import (
+    CodingAgentPriorKnowledgeAccessEvent,
+    CodingAgentPriorKnowledgeAccessKind,
     CodingAgentRunActionRequest,
 )
 from kapso.cross_run.launch.run_action_coding_agent_schema import (
@@ -35,7 +39,19 @@ _PROVIDER_FINAL_PATH = "/kapso/tmp/provider.final.json"
 _MCP_CONFIGURATION_PATH = "/kapso/tmp/mcp.config.json"
 _PRIOR_KNOWLEDGE_PATH = "/kapso/tmp/prior_knowledge.json"
 _PRIOR_KNOWLEDGE_AUDIT_PATH = "/kapso/tmp/prior_knowledge.audit.jsonl"
+_EMPTY_ENVIRONMENT_EXECUTABLE = "/usr/bin/env"
 _PRIOR_KNOWLEDGE_MCP_EXECUTABLE = "/usr/local/bin/kapso-prior-knowledge-mcp"
+_PROVIDER_ENVIRONMENT = MappingProxyType(
+    {
+        "GIT_OPTIONAL_LOCKS": "0",
+        "HOME": "/kapso/tmp/home",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "NO_COLOR": "1",
+        "PATH": "/usr/local/bin:/usr/bin:/bin",
+        "TERM": "dumb",
+    }
+)
 _CODEX_EVENT_TYPES = frozenset(
     {
         "thread.started",
@@ -48,8 +64,23 @@ _CODEX_EVENT_TYPES = frozenset(
         "error",
     }
 )
+_CODEX_ITEM_TYPES = frozenset(
+    {
+        "agent_message",
+        "command_execution",
+        "file_change",
+        "mcp_tool_call",
+        "reasoning",
+        "todo_list",
+        "web_search",
+    }
+)
 _THREAD_ID_PATTERN = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+)
+_CODEX_ITEM_ID_PATTERN = re.compile(r"^item_(?:0|[1-9][0-9]*)$")
+_CODEX_WEB_SEARCH_CALL_ID_PATTERN = re.compile(
+    r"^exec-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
 )
 _DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 _NORMALIZED_DECIMAL_PATTERN = re.compile(r"^(?:0|[1-9][0-9]*)(?:[.][0-9]*[1-9])?$")
@@ -57,6 +88,36 @@ _NORMALIZED_DECIMAL_PATTERN = re.compile(r"^(?:0|[1-9][0-9]*)(?:[.][0-9]*[1-9])?
 
 class RunActionCodingAgentCliError(RuntimeError):
     """A native coding-agent command or its completion evidence is invalid."""
+
+
+@dataclass(frozen=True)
+class CodingAgentCliPriorKnowledgeCall:
+    """One provider-reported prior-knowledge call joined to MCP response bytes."""
+
+    tool_name: str
+    arguments: Mapping[str, Any]
+    response_digest: str
+
+    def __post_init__(self) -> None:
+        if self.tool_name not in {
+            "get_prior_knowledge_record",
+            "list_prior_knowledge",
+        }:
+            raise RunActionCodingAgentCliError(
+                "coding-agent prior-knowledge call names an unknown tool"
+            )
+        object.__setattr__(
+            self,
+            "arguments",
+            freeze_json(self.arguments, "coding-agent prior-knowledge arguments"),
+        )
+        if (
+            not isinstance(self.response_digest, str)
+            or _DIGEST_PATTERN.fullmatch(self.response_digest) is None
+        ):
+            raise RunActionCodingAgentCliError(
+                "coding-agent prior-knowledge response digest is invalid"
+            )
 
 
 @dataclass(frozen=True)
@@ -71,6 +132,7 @@ class CodingAgentCliOutcome:
     cost_usd: str | None
     provider_event_stream_digest: str
     provider_diagnostic_stream_digest: str
+    prior_knowledge_calls: tuple[CodingAgentCliPriorKnowledgeCall, ...] | None
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -89,6 +151,20 @@ class CodingAgentCliOutcome:
         ):
             if value is not None:
                 _require_nonnegative_integer(value, name)
+        if (
+            self.cached_input_tokens is not None
+            and self.cached_input_tokens > self.input_tokens
+        ):
+            raise RunActionCodingAgentCliError(
+                "coding-agent cached input tokens exceed total input tokens"
+            )
+        if (
+            self.reasoning_output_tokens is not None
+            and self.reasoning_output_tokens > self.output_tokens
+        ):
+            raise RunActionCodingAgentCliError(
+                "coding-agent reasoning tokens exceed total output tokens"
+            )
         if self.cost_usd is not None and (
             not isinstance(self.cost_usd, str)
             or _NORMALIZED_DECIMAL_PATTERN.fullmatch(self.cost_usd) is None
@@ -102,6 +178,16 @@ class CodingAgentCliOutcome:
         ):
             if not isinstance(value, str) or _DIGEST_PATTERN.fullmatch(value) is None:
                 raise RunActionCodingAgentCliError(f"{name} digest is invalid")
+        if self.prior_knowledge_calls is not None and (
+            type(self.prior_knowledge_calls) is not tuple
+            or any(
+                type(call) is not CodingAgentCliPriorKnowledgeCall
+                for call in self.prior_knowledge_calls
+            )
+        ):
+            raise RunActionCodingAgentCliError(
+                "coding-agent prior-knowledge call trace is invalid"
+            )
 
 
 def coding_agent_cli_command(
@@ -110,9 +196,68 @@ def coding_agent_cli_command(
     """Return the sole argv admitted for the embedded native-CLI policy."""
 
     _require_request(request)
-    if request.interpretation_policy.cli == "codex":
-        return _codex_command(request)
-    return _claude_command(request)
+    command = (
+        _codex_command(request)
+        if request.interpretation_policy.cli == "codex"
+        else _claude_command(request)
+    )
+    encoded_size = sum(len(argument.encode("utf-8")) + 1 for argument in command)
+    if encoded_size > request.interpretation_policy.maximum_cli_argument_bytes:
+        raise RunActionCodingAgentCliError(
+            "coding-agent CLI argv exceeds its exact byte limit"
+        )
+    return command
+
+
+def coding_agent_cli_workspace_path() -> str:
+    """Return the fixed workspace path used by both native CLIs."""
+
+    return _WORKSPACE_PATH
+
+
+def coding_agent_cli_provider_environment() -> Mapping[str, str]:
+    """Return the complete ambient authority admitted to either native CLI."""
+
+    return _PROVIDER_ENVIRONMENT
+
+
+def coding_agent_cli_temporary_path() -> str:
+    """Return the sole writable support/candidate directory."""
+
+    return "/kapso/tmp"
+
+
+def coding_agent_cli_final_output_path(
+    request: CodingAgentRunActionRequest,
+) -> str | None:
+    """Return Codex's scratch final path; Claude returns its final on stdout."""
+
+    _require_request(request)
+    return (
+        _PROVIDER_FINAL_PATH if request.interpretation_policy.cli == "codex" else None
+    )
+
+
+def coding_agent_cli_prior_knowledge_audit_path() -> str:
+    """Return the fixed semantic MCP audit path."""
+
+    return _PRIOR_KNOWLEDGE_AUDIT_PATH
+
+
+def coding_agent_cli_support_payloads(
+    request: CodingAgentRunActionRequest,
+) -> Mapping[str, bytes]:
+    """Return every immutable fixed-path support file required by one call."""
+
+    _require_request(request)
+    payloads = (
+        {_RESPONSE_SCHEMA_PATH: canonical_json_bytes(request.response_schema)}
+        if request.interpretation_policy.cli == "codex"
+        else {_MCP_CONFIGURATION_PATH: _claude_mcp_configuration(request)}
+    )
+    if request.prior_knowledge is not None:
+        payloads[_PRIOR_KNOWLEDGE_PATH] = request.prior_knowledge.to_json_bytes()
+    return MappingProxyType(payloads)
 
 
 def coding_agent_cli_preflight_command(
@@ -213,6 +358,53 @@ def interpret_coding_agent_cli_completion(
     )
 
 
+def validate_coding_agent_cli_prior_knowledge_trace(
+    *,
+    request: CodingAgentRunActionRequest,
+    outcome: CodingAgentCliOutcome,
+    accesses: tuple[CodingAgentPriorKnowledgeAccessEvent, ...],
+) -> None:
+    """Join Codex's typed MCP items to the ordered authenticated audit."""
+
+    _require_request(request)
+    if type(outcome) is not CodingAgentCliOutcome or type(accesses) is not tuple:
+        raise RunActionCodingAgentCliError(
+            "coding-agent prior-knowledge trace inputs are invalid"
+        )
+    if any(
+        type(access) is not CodingAgentPriorKnowledgeAccessEvent for access in accesses
+    ):
+        raise RunActionCodingAgentCliError(
+            "coding-agent prior-knowledge audit trace is invalid"
+        )
+    if request.interpretation_policy.cli == "claude_code":
+        if outcome.prior_knowledge_calls is not None:
+            raise RunActionCodingAgentCliError(
+                "Claude completion unexpectedly contains a Codex MCP trace"
+            )
+        return
+    expected_calls = tuple(
+        CodingAgentCliPriorKnowledgeCall(
+            tool_name=(
+                "list_prior_knowledge"
+                if access.access_kind is CodingAgentPriorKnowledgeAccessKind.LIST
+                else "get_prior_knowledge_record"
+            ),
+            arguments=(
+                {}
+                if access.access_kind is CodingAgentPriorKnowledgeAccessKind.LIST
+                else {"record_id": access.record_id}
+            ),
+            response_digest=access.response_digest,
+        )
+        for access in accesses
+    )
+    if outcome.prior_knowledge_calls != expected_calls:
+        raise RunActionCodingAgentCliError(
+            "Codex MCP event trace differs from the ordered prior-knowledge audit"
+        )
+
+
 def _codex_command(request: CodingAgentRunActionRequest) -> tuple[str, ...]:
     policy = request.interpretation_policy
     command = [
@@ -253,26 +445,22 @@ def _codex_command(request: CodingAgentRunActionRequest) -> tuple[str, ...]:
         "--config",
         (
             "shell_environment_policy.set="
-            '{HOME="/kapso/tmp/home",PATH="/usr/local/bin:/usr/bin:/bin"}'
+            + "{"
+            + ",".join(
+                f"{key}={json.dumps(value)}"
+                for key, value in sorted(_PROVIDER_ENVIRONMENT.items())
+            )
+            + "}"
         ),
     ]
     if request.prior_knowledge is not None:
-        mcp_arguments = [
-            "--prior-knowledge-path",
-            _PRIOR_KNOWLEDGE_PATH,
-            "--prior-knowledge-maximum-bytes",
-            str(len(request.prior_knowledge.to_json_bytes())),
-            "--prior-knowledge-audit-path",
-            _PRIOR_KNOWLEDGE_AUDIT_PATH,
-            "--operation-id",
-            request.operation_id,
-        ]
+        mcp_arguments = _prior_knowledge_mcp_arguments(request)
         command.extend(
             [
                 "--config",
                 (
                     "mcp_servers.prior_knowledge.command="
-                    + json.dumps(_PRIOR_KNOWLEDGE_MCP_EXECUTABLE)
+                    + json.dumps(_EMPTY_ENVIRONMENT_EXECUTABLE)
                 ),
                 "--config",
                 (
@@ -287,6 +475,43 @@ def _codex_command(request: CodingAgentRunActionRequest) -> tuple[str, ...]:
         command.extend(["--config", "mcp_servers={}"])
     command.append("-")
     return tuple(command)
+
+
+def _claude_mcp_configuration(request: CodingAgentRunActionRequest) -> bytes:
+    servers = {}
+    if request.prior_knowledge is not None:
+        servers["prior_knowledge"] = {
+            "command": _EMPTY_ENVIRONMENT_EXECUTABLE,
+            "args": _prior_knowledge_mcp_arguments(request),
+        }
+    return canonical_json_bytes({"mcpServers": servers})
+
+
+def _prior_knowledge_mcp_arguments(
+    request: CodingAgentRunActionRequest,
+) -> list[str]:
+    if request.prior_knowledge is None:
+        raise RunActionCodingAgentCliError(
+            "prior-knowledge MCP arguments require one materialization"
+        )
+    return [
+        "-i",
+        _PRIOR_KNOWLEDGE_MCP_EXECUTABLE,
+        "--prior-knowledge-path",
+        _PRIOR_KNOWLEDGE_PATH,
+        "--prior-knowledge-maximum-bytes",
+        str(len(request.prior_knowledge.to_json_bytes())),
+        "--prior-knowledge-audit-path",
+        _PRIOR_KNOWLEDGE_AUDIT_PATH,
+        "--prior-knowledge-audit-maximum-bytes",
+        str(request.interpretation_policy.maximum_prior_knowledge_audit_bytes),
+        "--operation-id",
+        request.operation_id,
+        "--enabled-gates",
+        "prior_knowledge",
+        "--gate-failure-policy",
+        "error",
+    ]
 
 
 def _claude_command(request: CodingAgentRunActionRequest) -> tuple[str, ...]:
@@ -389,7 +614,7 @@ def _interpret_codex_completion(
         raise RunActionCodingAgentCliError(
             "Codex event stream is empty or contains a blank event"
         )
-    events = tuple(_require_event(parse_json_bytes(line)) for line in lines)
+    events = tuple(_require_event(_parse_codex_event(line)) for line in lines)
     event_types = tuple(event["type"] for event in events)
     if any(event_type not in _CODEX_EVENT_TYPES for event_type in event_types):
         raise RunActionCodingAgentCliError(
@@ -448,7 +673,14 @@ def _interpret_codex_completion(
         usage["reasoning_output_tokens"],
         "Codex reasoning output tokens",
     )
+    if cached_input_tokens > input_tokens or reasoning_output_tokens > output_tokens:
+        raise RunActionCodingAgentCliError(
+            "Codex usage contains an impossible token decomposition"
+        )
     completed_agent_messages = []
+    prior_knowledge_calls = []
+    item_states = {}
+    next_item_number = 0
     for event in events[2:-1]:
         if event["type"].startswith("item."):
             if set(event) != {"type", "item"}:
@@ -460,25 +692,91 @@ def _interpret_codex_completion(
                 item.get("type"), str
             ):
                 raise RunActionCodingAgentCliError("Codex item identity is invalid")
-            if event["type"] == "item.completed" and item["type"] == "agent_message":
-                if not isinstance(item.get("text"), str) or not item["text"].strip():
+            if item["type"] not in _CODEX_ITEM_TYPES:
+                raise RunActionCodingAgentCliError(
+                    "Codex item type is unknown or reports a model reroute"
+                )
+            if (
+                item["type"] == "web_search"
+                and not request.interpretation_policy.web_search_enabled
+            ):
+                raise RunActionCodingAgentCliError(
+                    "Codex used web search without request authority"
+                )
+            if (
+                item["type"] == "file_change"
+                and request.interpretation_policy.workspace_access
+                is not RunFrontierWorkspaceAccess.EDIT_WORKSPACE
+            ):
+                raise RunActionCodingAgentCliError(
+                    "Codex reported a file change without edit authority"
+                )
+            if item["type"] == "mcp_tool_call" and request.prior_knowledge is None:
+                raise RunActionCodingAgentCliError(
+                    "Codex used MCP without prior-knowledge authority"
+                )
+            item_id = item["id"]
+            if _CODEX_ITEM_ID_PATTERN.fullmatch(item_id) is None:
+                raise RunActionCodingAgentCliError("Codex item ID is invalid")
+            prior_knowledge_call = _require_codex_item_fields(event["type"], item)
+            lifecycle_identity = _codex_item_lifecycle_identity(item)
+            existing_state = item_states.get(item_id)
+            if existing_state is None:
+                if item_id != f"item_{next_item_number}":
                     raise RunActionCodingAgentCliError(
-                        "Codex completed agent message is invalid"
+                        "Codex item IDs are not exact contiguous wire identities"
                     )
+                next_item_number += 1
+                if event["type"] == "item.updated":
+                    raise RunActionCodingAgentCliError(
+                        "Codex item lifecycle starts with an update"
+                    )
+            elif (
+                existing_state[0] != item["type"]
+                or existing_state[1]
+                or existing_state[2] != lifecycle_identity
+                or event["type"] == "item.started"
+            ):
+                raise RunActionCodingAgentCliError(
+                    "Codex item lifecycle changes identity or reopens a terminal item"
+                )
+            if event["type"] == "item.updated" and item["type"] != "todo_list":
+                raise RunActionCodingAgentCliError(
+                    "Codex updated an item type without an update lifecycle"
+                )
+            if prior_knowledge_call is not None:
+                prior_knowledge_calls.append(prior_knowledge_call)
+            item_states[item_id] = (
+                item["type"],
+                event["type"] == "item.completed",
+                lifecycle_identity,
+            )
+            if event["type"] == "item.completed" and item["type"] == "agent_message":
                 completed_agent_messages.append(item["text"])
         else:
             raise RunActionCodingAgentCliError(
                 "Codex successful turn contains an out-of-order lifecycle event"
             )
-    if len(completed_agent_messages) != 1:
+    if any(
+        not completed
+        for _item_type, completed, _lifecycle_identity in item_states.values()
+    ):
         raise RunActionCodingAgentCliError(
-            "Codex completion requires one final agent message"
+            "Codex successful turn contains an unterminated item"
+        )
+    if not completed_agent_messages:
+        raise RunActionCodingAgentCliError(
+            "Codex completion requires a final agent message"
         )
     structured_output = _require_structured_output(
         parse_json_bytes(final_output_payload),
         request,
     )
-    if parse_json_bytes(completed_agent_messages[0]) != structured_output:
+    structured_output_payload = canonical_json_bytes(structured_output)
+    if (
+        completed_agent_messages[-1].encode("utf-8") != structured_output_payload
+        or final_output_payload != structured_output_payload
+    ):
         raise RunActionCodingAgentCliError(
             "Codex final artifact differs from its completed agent message"
         )
@@ -493,6 +791,7 @@ def _interpret_codex_completion(
         provider_diagnostic_stream_digest=tree_or_blob_digest(
             provider_diagnostic_payload
         ),
+        prior_knowledge_calls=tuple(prior_knowledge_calls),
     )
 
 
@@ -523,9 +822,18 @@ def _interpret_claude_completion(
         "type",
         "usage",
     }
-    if not required_fields.issubset(envelope):
+    optional_fields = {
+        "api_error_status",
+        "duration_api_ms",
+        "terminal_reason",
+    }
+    if (
+        not required_fields.issubset(envelope)
+        or not set(envelope).issubset(required_fields | optional_fields)
+        or set(decimal_envelope) != set(envelope)
+    ):
         raise RunActionCodingAgentCliError(
-            "Claude success envelope is missing required evidence"
+            "Claude success envelope fields differ from the pinned ABI"
         )
     if (
         envelope["type"] != "result"
@@ -545,18 +853,30 @@ def _interpret_claude_completion(
         raise RunActionCodingAgentCliError(
             "Claude result lacks one exact successful terminal state"
         )
+    if "duration_api_ms" in envelope:
+        _require_nonnegative_integer(
+            envelope["duration_api_ms"],
+            "Claude API duration milliseconds",
+        )
     structured_output = _require_structured_output(
         envelope["structured_output"],
         request,
     )
-    if (
-        not isinstance(envelope["result"], str)
-        or parse_json_bytes(envelope["result"]) != structured_output
-    ):
+    if not isinstance(envelope["result"], str) or envelope["result"].encode(
+        "utf-8"
+    ) != canonical_json_bytes(structured_output):
         raise RunActionCodingAgentCliError(
             "Claude result text differs from its structured output"
         )
     usage = _require_mapping(envelope["usage"], "Claude usage")
+    if set(usage) != {
+        "cache_creation_input_tokens",
+        "cache_read_input_tokens",
+        "input_tokens",
+        "output_tokens",
+        "server_tool_use",
+    }:
+        raise RunActionCodingAgentCliError("Claude usage fields are invalid")
     input_tokens = _require_nonnegative_integer(
         usage.get("input_tokens"),
         "Claude input tokens",
@@ -577,6 +897,10 @@ def _interpret_claude_completion(
         usage.get("server_tool_use"),
         "Claude server-tool usage",
     )
+    if set(server_tool_use) != {"web_fetch_requests", "web_search_requests"}:
+        raise RunActionCodingAgentCliError(
+            "Claude server-tool usage fields are invalid"
+        )
     web_search_requests = _require_nonnegative_integer(
         server_tool_use.get("web_search_requests"),
         "Claude web-search requests",
@@ -601,20 +925,75 @@ def _interpret_claude_completion(
         decimal_envelope["modelUsage"],
         "Claude model usage",
     )
-    if not model_usage:
-        raise RunActionCodingAgentCliError("Claude model usage is empty")
+    if set(model_usage) != {request.interpretation_policy.model}:
+        raise RunActionCodingAgentCliError(
+            "Claude model usage differs from the sole requested model"
+        )
     model_cost = Decimal(0)
+    model_input_tokens = 0
+    model_cache_creation_input_tokens = 0
+    model_cache_read_input_tokens = 0
+    model_output_tokens = 0
+    model_web_search_requests = 0
     for model_name, model_evidence in model_usage.items():
         if not isinstance(model_name, str) or not model_name:
             raise RunActionCodingAgentCliError("Claude model identity is invalid")
         evidence = _require_mapping(model_evidence, "Claude model evidence")
+        if set(evidence) != {
+            "cacheCreationInputTokens",
+            "cacheReadInputTokens",
+            "contextWindow",
+            "costUSD",
+            "inputTokens",
+            "maxOutputTokens",
+            "outputTokens",
+            "webSearchRequests",
+        }:
+            raise RunActionCodingAgentCliError(
+                "Claude model-usage fields differ from the pinned ABI"
+            )
+        model_input_tokens += _require_nonnegative_integer(
+            evidence["inputTokens"],
+            "Claude model input tokens",
+        )
+        model_cache_creation_input_tokens += _require_nonnegative_integer(
+            evidence["cacheCreationInputTokens"],
+            "Claude model cache-creation input tokens",
+        )
+        model_cache_read_input_tokens += _require_nonnegative_integer(
+            evidence["cacheReadInputTokens"],
+            "Claude model cache-read input tokens",
+        )
+        model_output_tokens += _require_nonnegative_integer(
+            evidence["outputTokens"],
+            "Claude model output tokens",
+        )
+        model_web_search_requests += _require_nonnegative_integer(
+            evidence["webSearchRequests"],
+            "Claude model web-search requests",
+        )
+        _require_positive_integer(
+            evidence["contextWindow"],
+            "Claude model context window",
+        )
+        _require_positive_integer(
+            evidence["maxOutputTokens"],
+            "Claude model maximum output tokens",
+        )
         model_cost += _require_nonnegative_decimal(
-            evidence.get("costUSD"),
+            evidence["costUSD"],
             "Claude model cost",
         )
-    if model_cost != total_cost:
+    if (
+        model_cost != total_cost
+        or model_input_tokens != input_tokens
+        or model_cache_creation_input_tokens != cache_creation_input_tokens
+        or model_cache_read_input_tokens != cache_read_input_tokens
+        or model_output_tokens != output_tokens
+        or model_web_search_requests != web_search_requests
+    ):
         raise RunActionCodingAgentCliError(
-            "Claude total cost differs from its model-usage evidence"
+            "Claude totals differ from model-usage evidence"
         )
     return CodingAgentCliOutcome(
         structured_output=structured_output,
@@ -629,6 +1008,7 @@ def _interpret_claude_completion(
         provider_diagnostic_stream_digest=tree_or_blob_digest(
             provider_diagnostic_payload
         ),
+        prior_knowledge_calls=None,
     )
 
 
@@ -663,6 +1043,329 @@ def _require_event(value: Any) -> Mapping[str, Any]:
     if not isinstance(event.get("type"), str):
         raise RunActionCodingAgentCliError("Codex event type is invalid")
     return event
+
+
+def _parse_codex_event(payload: bytes) -> Any:
+    return json.loads(
+        payload.decode("utf-8"),
+        object_pairs_hook=_strict_codex_object,
+        parse_float=_parse_finite_provider_float,
+        parse_constant=_reject_non_finite_decimal,
+    )
+
+
+def _strict_codex_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    keys = tuple(key for key, _value in pairs)
+    if keys == ("id", "type", "id", "query", "action") and pairs[1][1] == "web_search":
+        return {
+            "id": pairs[0][1],
+            "type": pairs[1][1],
+            "web_search_call_id": pairs[2][1],
+            "query": pairs[3][1],
+            "action": pairs[4][1],
+        }
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise RunActionCodingAgentCliError(
+                f"duplicate Codex event object key: {key}"
+            )
+        result[key] = value
+    return result
+
+
+def _parse_finite_provider_float(token: str) -> float:
+    value = float(token)
+    if not math.isfinite(value):
+        raise RunActionCodingAgentCliError(f"non-finite provider JSON number: {token}")
+    return value
+
+
+def _require_codex_item_fields(
+    event_type: str,
+    item: Mapping[str, Any],
+) -> CodingAgentCliPriorKnowledgeCall | None:
+    item_type = item["type"]
+    if item_type in {"agent_message", "reasoning"}:
+        if (
+            event_type != "item.completed"
+            or set(item) != {"id", "text", "type"}
+            or not isinstance(item["text"], str)
+            or not item["text"].strip()
+        ):
+            raise RunActionCodingAgentCliError(
+                f"Codex {item_type} item fields or lifecycle are invalid"
+            )
+        return None
+    if item_type == "command_execution":
+        _require_codex_command_item(event_type, item)
+        return None
+    if item_type == "file_change":
+        _require_codex_file_change_item(event_type, item)
+        return None
+    if item_type == "mcp_tool_call":
+        return _require_codex_mcp_item(event_type, item)
+    if item_type == "web_search":
+        _require_codex_web_search_item(event_type, item)
+        return None
+    if item_type == "todo_list":
+        _require_codex_todo_item(event_type, item)
+        return None
+    raise RunActionCodingAgentCliError("Codex item type lacks a pinned schema")
+
+
+def _codex_item_lifecycle_identity(item: Mapping[str, Any]) -> bytes | str | None:
+    item_type = item["type"]
+    if item_type == "command_execution":
+        return item["command"]
+    if item_type == "mcp_tool_call":
+        return canonical_json_bytes(
+            {
+                "arguments": item["arguments"],
+                "server": item["server"],
+                "tool": item["tool"],
+            }
+        )
+    if item_type == "web_search":
+        return item["web_search_call_id"]
+    return None
+
+
+def _require_codex_command_item(
+    event_type: str,
+    item: Mapping[str, Any],
+) -> None:
+    if (
+        set(item)
+        != {
+            "aggregated_output",
+            "command",
+            "exit_code",
+            "id",
+            "status",
+            "type",
+        }
+        or not isinstance(item["command"], str)
+        or not item["command"]
+        or not isinstance(item["aggregated_output"], str)
+        or (item["exit_code"] is not None and type(item["exit_code"]) is not int)
+    ):
+        raise RunActionCodingAgentCliError(
+            "Codex command-execution item fields are invalid"
+        )
+    if event_type == "item.started":
+        valid = (
+            item["status"] == "in_progress"
+            and item["exit_code"] is None
+            and item["aggregated_output"] == ""
+        )
+    elif event_type == "item.completed":
+        valid = (
+            item["status"] == "completed"
+            and item["exit_code"] == 0
+            or item["status"] == "failed"
+            and type(item["exit_code"]) is int
+            and item["exit_code"] != 0
+            or item["status"] == "declined"
+            and item["exit_code"] is None
+        )
+    else:
+        valid = False
+    if not valid:
+        raise RunActionCodingAgentCliError(
+            "Codex command-execution lifecycle is invalid"
+        )
+
+
+def _require_codex_file_change_item(
+    event_type: str,
+    item: Mapping[str, Any],
+) -> None:
+    if (
+        event_type != "item.completed"
+        or set(item) != {"changes", "id", "status", "type"}
+        or item["status"] not in {"completed", "failed"}
+        or not isinstance(item["changes"], list)
+    ):
+        raise RunActionCodingAgentCliError(
+            "Codex file-change item fields or lifecycle are invalid"
+        )
+    for change in item["changes"]:
+        if not isinstance(change, Mapping) or set(change) != {"kind", "path"}:
+            raise RunActionCodingAgentCliError(
+                "Codex file-change entry fields are invalid"
+            )
+        path = change["path"]
+        parsed_path = PurePosixPath(path) if isinstance(path, str) else None
+        if (
+            parsed_path is None
+            or not path
+            or parsed_path.is_absolute()
+            or parsed_path.as_posix() != path
+            or ".." in parsed_path.parts
+            or parsed_path.parts[0] == ".git"
+            or change["kind"] not in {"add", "delete", "update"}
+        ):
+            raise RunActionCodingAgentCliError(
+                "Codex file-change entry is invalid or escapes source authority"
+            )
+
+
+def _require_codex_mcp_item(
+    event_type: str,
+    item: Mapping[str, Any],
+) -> CodingAgentCliPriorKnowledgeCall | None:
+    if (
+        set(item)
+        != {
+            "arguments",
+            "error",
+            "id",
+            "result",
+            "server",
+            "status",
+            "tool",
+            "type",
+        }
+        or item["server"] != "prior_knowledge"
+        or item["tool"] not in {"get_prior_knowledge_record", "list_prior_knowledge"}
+        or not isinstance(item["arguments"], Mapping)
+    ):
+        raise RunActionCodingAgentCliError(
+            "Codex MCP item differs from the prior-knowledge authority"
+        )
+    if item["tool"] == "list_prior_knowledge":
+        arguments_valid = not item["arguments"]
+    else:
+        arguments_valid = set(item["arguments"]) == {"record_id"} and isinstance(
+            item["arguments"]["record_id"], str
+        )
+    if not arguments_valid:
+        raise RunActionCodingAgentCliError("Codex MCP item arguments are invalid")
+    if event_type == "item.started":
+        valid = (
+            item["status"] == "in_progress"
+            and item["result"] is None
+            and item["error"] is None
+        )
+        response_digest = None
+    elif event_type == "item.completed":
+        response_digest = _codex_mcp_response_digest(item["result"])
+        valid = (
+            item["status"] == "completed"
+            and item["error"] is None
+            and response_digest is not None
+        )
+    else:
+        valid = False
+    if not valid:
+        raise RunActionCodingAgentCliError(
+            "Codex MCP item did not complete through the exact success lifecycle"
+        )
+    if response_digest is None:
+        return None
+    return CodingAgentCliPriorKnowledgeCall(
+        tool_name=item["tool"],
+        arguments=item["arguments"],
+        response_digest=response_digest,
+    )
+
+
+def _codex_mcp_response_digest(result: Any) -> str | None:
+    if not isinstance(result, Mapping) or set(result) not in (
+        {"content", "structured_content"},
+        {"_meta", "content", "structured_content"},
+    ):
+        return None
+    if result["structured_content"] is not None:
+        return None
+    content = result["content"]
+    if not isinstance(content, list) or len(content) != 1:
+        return None
+    block = content[0]
+    if (
+        not isinstance(block, Mapping)
+        or set(block) != {"text", "type"}
+        or block["type"] != "text"
+        or not isinstance(block["text"], str)
+    ):
+        return None
+    response_payload = block["text"].encode("utf-8")
+    if canonical_json_bytes(parse_json_bytes(response_payload)) != response_payload:
+        return None
+    return tree_or_blob_digest(response_payload)
+
+
+def _require_codex_web_search_item(
+    event_type: str,
+    item: Mapping[str, Any],
+) -> None:
+    if (
+        event_type not in {"item.started", "item.completed"}
+        or set(item) != {"action", "id", "query", "type", "web_search_call_id"}
+        or not isinstance(item["query"], str)
+        or not isinstance(item["web_search_call_id"], str)
+        or _CODEX_WEB_SEARCH_CALL_ID_PATTERN.fullmatch(item["web_search_call_id"])
+        is None
+        or not isinstance(item["action"], Mapping)
+    ):
+        raise RunActionCodingAgentCliError(
+            "Codex web-search item fields or lifecycle are invalid"
+        )
+    action = item["action"]
+    action_type = action.get("type")
+    if action_type == "other":
+        valid = set(action) == {"type"}
+    elif action_type == "search":
+        valid = set(action) in (
+            {"query", "type"},
+            {"queries", "type"},
+            {"queries", "query", "type"},
+        ) and (
+            ("query" not in action or isinstance(action["query"], str))
+            and (
+                "queries" not in action
+                or isinstance(action["queries"], list)
+                and all(isinstance(query, str) for query in action["queries"])
+            )
+        )
+    elif action_type == "open_page":
+        valid = set(action) in ({"type"}, {"type", "url"}) and (
+            "url" not in action or isinstance(action["url"], str)
+        )
+    elif action_type == "find_in_page":
+        valid = (
+            set(action).issubset({"pattern", "type", "url"})
+            and set(action).issuperset({"type"})
+            and all(isinstance(action[field], str) for field in set(action) - {"type"})
+        )
+    else:
+        valid = False
+    if not valid:
+        raise RunActionCodingAgentCliError("Codex web-search action is invalid")
+
+
+def _require_codex_todo_item(
+    event_type: str,
+    item: Mapping[str, Any],
+) -> None:
+    if (
+        event_type not in {"item.started", "item.updated", "item.completed"}
+        or set(item) != {"id", "items", "type"}
+        or not isinstance(item["items"], list)
+    ):
+        raise RunActionCodingAgentCliError(
+            "Codex to-do item fields or lifecycle are invalid"
+        )
+    for todo in item["items"]:
+        if (
+            not isinstance(todo, Mapping)
+            or set(todo) != {"completed", "text"}
+            or type(todo["completed"]) is not bool
+            or not isinstance(todo["text"], str)
+            or not todo["text"].strip()
+        ):
+            raise RunActionCodingAgentCliError("Codex to-do entry is invalid")
 
 
 def _require_mapping(value: Any, name: str) -> Mapping[str, Any]:
@@ -739,10 +1442,18 @@ def _normalize_decimal(value: Decimal) -> str:
 
 
 __all__ = [
+    "CodingAgentCliPriorKnowledgeCall",
     "CodingAgentCliOutcome",
     "RunActionCodingAgentCliError",
     "coding_agent_cli_command",
+    "coding_agent_cli_final_output_path",
     "coding_agent_cli_preflight_command",
+    "coding_agent_cli_provider_environment",
+    "coding_agent_cli_prior_knowledge_audit_path",
+    "coding_agent_cli_support_payloads",
+    "coding_agent_cli_temporary_path",
+    "coding_agent_cli_workspace_path",
     "interpret_coding_agent_cli_completion",
     "validate_coding_agent_cli_preflight",
+    "validate_coding_agent_cli_prior_knowledge_trace",
 ]

@@ -36,17 +36,23 @@ _EDITED_DIGEST = tree_or_blob_digest(b"edited")
 def interpretation_policy(
     *,
     cli="codex",
+    consumer_id="kapso.coding_agent_consumer",
+    consumer_version="v1",
     workspace_access=RunFrontierWorkspaceAccess.READ_ONLY,
     web_search_enabled=True,
+    maximum_request_bytes=268_435_456,
     maximum_response_schema_bytes=65_536,
+    maximum_cli_argument_bytes=131_072,
+    workspace_git_branch="main",
+    maximum_prior_knowledge_audit_bytes=1_048_576,
     maximum_raw_result_bytes=65_536,
 ):
     return CodingAgentInterpretationPolicy.mint(
         request_protocol_version=CODING_AGENT_REQUEST_PROTOCOL_VERSION,
         result_protocol_version=CODING_AGENT_RESULT_PROTOCOL_VERSION,
         schema_protocol_version=CODING_AGENT_SCHEMA_PROTOCOL_VERSION,
-        consumer_id="kapso.coding_agent_consumer",
-        consumer_version="v1",
+        consumer_id=consumer_id,
+        consumer_version=consumer_version,
         principal_id="kapso.ideation.generator",
         role="candidate_generator",
         cli=cli,
@@ -55,12 +61,21 @@ def interpretation_policy(
         native_tool_policy_version=CODING_AGENT_NATIVE_TOOL_POLICY_VERSION,
         web_search_enabled=web_search_enabled,
         timeout_nanoseconds=300_000_000_000,
+        termination_grace_nanoseconds=5_000_000_000,
         workspace_access=workspace_access,
+        workspace_git_branch=workspace_git_branch,
+        git_commit_author_name="Kapso Test Committer",
+        git_commit_author_email="kapso-test@example.invalid",
+        maximum_request_bytes=maximum_request_bytes,
         maximum_response_schema_bytes=maximum_response_schema_bytes,
+        maximum_cli_argument_bytes=maximum_cli_argument_bytes,
         maximum_provider_output_bytes=1_048_576,
         maximum_provider_diagnostic_bytes=65_536,
+        maximum_prior_knowledge_audit_bytes=maximum_prior_knowledge_audit_bytes,
         maximum_workspace_entries=10_000,
         maximum_workspace_bytes=1_073_741_824,
+        maximum_workspace_git_entries=50_000,
+        maximum_workspace_git_bytes=67_108_864,
         maximum_raw_result_bytes=maximum_raw_result_bytes,
     )
 
@@ -266,6 +281,25 @@ def test_result_rejects_invalid_optional_usage(field_name):
 
 
 @pytest.mark.parametrize(
+    ("field_name", "value", "message"),
+    (
+        ("cached_input_tokens", 102, "cached input tokens exceed"),
+        ("reasoning_output_tokens", 24, "reasoning tokens exceed"),
+    ),
+)
+def test_result_rejects_impossible_token_decompositions(
+    field_name,
+    value,
+    message,
+):
+    policy = interpretation_policy()
+    request = run_action_request(policy)
+
+    with pytest.raises(RunActionCodingAgentContractError, match=message):
+        replace(result_envelope(request), **{field_name: value})
+
+
+@pytest.mark.parametrize(
     "field_name",
     ("provider_event_stream_digest", "provider_diagnostic_stream_digest"),
 )
@@ -305,6 +339,35 @@ def test_request_rejects_response_schema_above_the_policy_bound():
     with pytest.raises(
         RunActionCodingAgentContractError,
         match="response schema exceeds its exact byte limit",
+    ):
+        run_action_request(policy)
+
+
+def test_policy_requires_schema_bound_below_cli_argument_bound():
+    with pytest.raises(
+        RunActionCodingAgentContractError,
+        match="schema bound must fit",
+    ):
+        interpretation_policy(
+            maximum_response_schema_bytes=512,
+            maximum_cli_argument_bytes=512,
+        )
+
+
+def test_policy_accepts_a_valid_nested_workspace_branch():
+    policy = interpretation_policy(
+        workspace_git_branch="feature/scientific-improvement",
+    )
+
+    assert policy.workspace_git_branch == "feature/scientific-improvement"
+
+
+def test_request_rejects_its_complete_canonical_payload_above_policy_bound():
+    policy = interpretation_policy(maximum_request_bytes=1)
+
+    with pytest.raises(
+        RunActionCodingAgentContractError,
+        match="request exceeds its exact byte limit",
     ):
         run_action_request(policy)
 

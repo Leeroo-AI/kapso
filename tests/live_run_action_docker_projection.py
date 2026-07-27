@@ -990,9 +990,22 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
                 _policy(settings).supervisor_limits.execution_timeout_seconds
                 * 1_000_000_000
             ),
+            termination_grace_nanoseconds=(
+                _policy(settings).supervisor_limits.termination_grace_seconds
+                * 1_000_000_000
+            ),
             workspace_access=RunFrontierWorkspaceAccess.READ_ONLY,
+            workspace_git_branch=(cross_run_settings.launch.workspace_git_branch),
+            git_commit_author_name=(cross_run_settings.github.commit_author_name),
+            git_commit_author_email=(cross_run_settings.github.commit_author_email),
+            maximum_request_bytes=(
+                cross_run_settings.launch.run_action_request_size_bytes
+            ),
             maximum_response_schema_bytes=(
                 cross_run_settings.launch.coding_agent_response_schema_size_bytes
+            ),
+            maximum_cli_argument_bytes=(
+                cross_run_settings.launch.coding_agent_cli_argument_size_bytes
             ),
             maximum_provider_output_bytes=(
                 cross_run_settings.launch.coding_agent_provider_output_size_bytes
@@ -1000,11 +1013,20 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             maximum_provider_diagnostic_bytes=(
                 cross_run_settings.launch.coding_agent_provider_diagnostic_size_bytes
             ),
+            maximum_prior_knowledge_audit_bytes=(
+                cross_run_settings.launch.coding_agent_prior_knowledge_audit_size_bytes
+            ),
             maximum_workspace_entries=(
                 cross_run_settings.launch.run_workspace_entry_limit
             ),
             maximum_workspace_bytes=(
                 cross_run_settings.launch.run_workspace_size_bytes
+            ),
+            maximum_workspace_git_entries=(
+                cross_run_settings.launch.run_workspace_git_entry_limit
+            ),
+            maximum_workspace_git_bytes=(
+                cross_run_settings.launch.run_workspace_git_metadata_size_bytes
             ),
             maximum_raw_result_bytes=(
                 cross_run_settings.launch.run_action_result_size_bytes

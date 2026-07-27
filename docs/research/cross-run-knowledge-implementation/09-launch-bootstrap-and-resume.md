@@ -107,8 +107,44 @@ expose only the complete candidate that supervisor recovery already understands.
 An existing path of any type is rejected rather than adopted.
 Editable consumers use the same descriptor-safe source scan as launch frontier
 inspection. The public bounded projection excludes exactly the root `.git`,
-preserves the canonical source digest/mode/size semantics, and observes a
-post-agent source identity without requiring the edited tree to be committed.
+preserves the canonical source digest/mode/size semantics, and observes the
+post-agent source identity. Read-only execution additionally sandwiches that
+semantic check between exact physical source-tree observations covering inode
+topology, file and directory metadata, and complete file bytes. The native
+consumer separately snapshots the complete bounded physical `.git` tree in both
+access modes and rejects provider mutation of that authority. For edits, it then
+creates the sole deterministic direct-successor commit itself with a compare-and-
+swap branch update.
+The fixed-path native consumer is implemented. It reads a trusted projected
+request-size file before parsing the request's self-declared policy, pins workspace
+and temporary-directory descriptors, installs and later revalidates every support
+file, performs the exact no-spend version preflight, and passes the full prompt on
+anonymous-file standard input. Its selector drains both provider streams to
+independent exact limits, uses one absolute timeout, kills the provider session's
+process group on timeout/overflow, and rejects descendants in that group that
+retain provider pipes after the leader exits. The CLI argv is checked against the
+durable argument-byte bound before process launch. Both provider tool environments
+disable optional Git locks so read-only inspection cannot refresh the protected
+index. It parses the complete pinned provider ABI, requires Claude telemetry to
+name only the requested model,
+translates and joins Codex's ordered MCP calls to the bounded semantic audit,
+revalidates read-only or edit workspace authority, and publishes
+`result.candidate` last. The prior-knowledge MCP command starts under an empty
+environment with only an explicit bounded packet, audit, operation, gate, and
+failure-policy projection.
+Final validation passes 118 focused consumer/CLI/prior-gate tests and 1,564
+broad affected tests with one intentional skip in 48m30s. Black, source
+compilation, and diff checks pass; independent correctness and environment/Git
+reviews found no remaining P0–P2 defect.
+This is a logical workload boundary, not yet production activation. Until the
+pinned image/composition runs the provider under a distinct filesystem/PID/user
+authority from the trusted consumer and MCP sidecar, same-UID access to the
+packet, audit path, projected credentials, or other host/container paths is not
+claimed secure, and a provider descendant that creates a new session is outside
+the in-process group fence. The projected request-bound file is part of this
+consumer ABI but is not yet delivered by the current one-file activation topology.
+Exact provider egress and native credential homes remain pending with that
+composition.
 The framework-owned credential broker and pre-release expiry path are also
 implemented. The broker response transfers secret bytes into coordinator-private
 single-use authority before adapter access. Before broker issue, credential
@@ -181,6 +217,8 @@ src/kapso/cross_run/launch/
   run_action_pre_release_main_loss.py
   run_action_pre_release_main_terminal.py
   run_action_pre_release_resources.py
+  run_action_coding_agent_cli.py
+  run_action_coding_agent_consumer.py
   run_action_coding_agent_contracts.py
   run_action_coding_agent_schema.py
   run_action_coding_agent_interpreter.py
@@ -1531,8 +1569,9 @@ non-recovery run-action suite and 89-test recovery suite pass, and a
 credentialed real-Docker result lifecycle proves that its actual serialized
 receipt is no larger than two repeated formal computations. Production adapter
 composition is now one exact lifecycle object. The concrete coding-agent result
-interpreter and offline consumer contract are complete; provider-native
-consumers, credential formats, and egress remain separate boundary composition.
+interpreter, provider-native CLI projection, and fixed-path native consumer are
+complete; the pinned image, privilege-separated credential/knowledge projection,
+and egress remain separate boundary composition.
 The start manager exposes no generic Docker command surface, and the raw pinned
 runtime is process-bound. One real-Docker lifecycle now routes the durable main
 through two coordinator passes: exact `INERT` classification and sealed barrier
@@ -1544,8 +1583,8 @@ status from the non-secret request after event 5; Kapso never escrows the secret
 or pretends a non-idempotent issuer is recoverable. The durable expiry route now
 prevents an immutable event-5 credential from stranding an inert or blocked
 occurrence and remains irreversible across process recovery. Production
-composition must still define a provider-specific trusted consumer entrypoint and
-an exact egress authority: current Docker policy is intentionally
+composition must still project the trusted consumer under provider-specific OS
+isolation and define an exact egress authority: current Docker policy is intentionally
 network-`NONE`, and the generic read-only credential file is not itself a native
 Codex or Claude auth home. Until then host auth-status smoke tests and the real
 Docker broker/delivery/release lifecycle are honest production boundaries, but a
@@ -1624,10 +1663,10 @@ chain, including source and admitted Git closure digests, whose final identity
 must equal the live workspace. Resume can now classify and reconcile each
 nonterminal prefix without blindly reinvoking a committed provider. The
 network-free supervisor and self-contained coding-agent result boundary are
-concrete, as is the pure provider-native CLI projection. Its fixed-path consumer,
-pinned CLI image, exact egress, native credential consumption, API composition,
-and execution-permit OS isolation remain required before paid-provider
-activation.
+concrete, as are the pure provider-native CLI projection and fixed-path consumer.
+The pinned CLI image, exact egress, native credential consumption, API
+composition, and execution-permit OS isolation remain required before paid-
+provider activation.
 
 ## Failure and trust behavior
 
@@ -1810,6 +1849,15 @@ activation.
   reinspection, timeout-receipt registration, and durable event 6. Independently
   require the closed signal authority to produce init-mediated SIGTERM exit 143
   and SIGKILL exit 137 with exact full-ID stdout and no leaked resources.
+- For both pinned coding-agent CLIs, prove exact version preflight, full prompt
+  stdin, bounded dual-stream draining, timeout/group cleanup, provider-specific
+  support projection, closed item/envelope schemas, exact final-output and usage
+  joins, sole requested-model attribution, policy-bound native tools, ordered
+  prior-access reconciliation, argv bounds, physical read-only immutability,
+  protected Git metadata, deterministic direct-successor commits, and
+  candidate-last failure behavior. Reject malformed, partial, substituted,
+  over-bound, lifecycle-incomplete, model-rerouted, or authority-inconsistent
+  evidence before publication.
 - Verify expert repo is writable only inside the run workspace and snapshot/adapter
   roots remain read-only.
 - Verify old `initial_repo` and checkpoint paths are absent after activation.

@@ -7,6 +7,7 @@ from kapso.cross_run.launch.run_action_coding_agent_cli import (
     RunActionCodingAgentCliError,
     coding_agent_cli_command,
     coding_agent_cli_preflight_command,
+    coding_agent_cli_support_payloads,
     interpret_coding_agent_cli_completion,
     validate_coding_agent_cli_preflight,
 )
@@ -31,7 +32,7 @@ def _codex_payload(output=None):
         {
             "type": "item.completed",
             "item": {
-                "id": "item_1",
+                "id": "item_0",
                 "type": "agent_message",
                 "text": text,
             },
@@ -69,8 +70,16 @@ def _claude_envelope(output=None):
             },
         },
         "modelUsage": {
-            "helper": {"costUSD": 0.005},
-            "requested": {"costUSD": 0.12},
+            "gpt-5.6": {
+                "inputTokens": 2,
+                "outputTokens": 53,
+                "cacheReadInputTokens": 20,
+                "cacheCreationInputTokens": 100,
+                "webSearchRequests": 0,
+                "costUSD": 0.125,
+                "contextWindow": 200_000,
+                "maxOutputTokens": 32_000,
+            },
         },
         "permission_denials": [],
         "terminal_reason": "completed",
@@ -103,6 +112,11 @@ def test_codex_command_is_fixed_self_contained_and_disables_ambient_authority():
     )
     assert 'web_search="disabled"' in command
     assert 'shell_environment_policy.inherit="none"' in command
+    assert any(
+        'GIT_OPTIONAL_LOCKS="0"' in argument
+        for argument in command
+        if argument.startswith("shell_environment_policy.set=")
+    )
     assert "mcp_servers={}" in command
     assert request.prompt not in command
 
@@ -125,6 +139,54 @@ def test_codex_command_binds_edit_web_and_prior_knowledge_authority():
     assert "mcp_servers.prior_knowledge.required=true" in command
     assert any(request.operation_id in value for value in command)
     assert "mcp_servers={}" not in command
+
+
+def test_cli_support_files_are_provider_specific_complete_and_close_mcp_authority():
+    codex_request = run_action_request(
+        interpretation_policy(cli="codex", web_search_enabled=False)
+    )
+    codex_payloads = coding_agent_cli_support_payloads(codex_request)
+
+    assert set(codex_payloads) == {"/kapso/tmp/response.schema.json"}
+    assert codex_payloads["/kapso/tmp/response.schema.json"] == canonical_json_bytes(
+        codex_request.response_schema
+    )
+
+    prior_knowledge = empty_prior_knowledge()
+    request_with_prior = run_action_request(
+        interpretation_policy(cli="claude_code", web_search_enabled=False),
+        prior_knowledge=prior_knowledge,
+    )
+    with_prior = coding_agent_cli_support_payloads(request_with_prior)
+    assert set(with_prior) == {
+        "/kapso/tmp/mcp.config.json",
+        "/kapso/tmp/prior_knowledge.json",
+    }
+    assert with_prior["/kapso/tmp/prior_knowledge.json"] == (
+        prior_knowledge.to_json_bytes()
+    )
+    server = json.loads(with_prior["/kapso/tmp/mcp.config.json"])["mcpServers"][
+        "prior_knowledge"
+    ]
+    assert server["command"] == "/usr/bin/env"
+    assert server["args"][:2] == [
+        "-i",
+        "/usr/local/bin/kapso-prior-knowledge-mcp",
+    ]
+    assert server["args"][server["args"].index("--enabled-gates") + 1] == (
+        "prior_knowledge"
+    )
+    assert server["args"][server["args"].index("--gate-failure-policy") + 1] == (
+        "error"
+    )
+    assert server["args"][server["args"].index("--operation-id") + 1] == (
+        request_with_prior.operation_id
+    )
+    assert server["args"][
+        server["args"].index("--prior-knowledge-audit-maximum-bytes") + 1
+    ] == str(
+        request_with_prior.interpretation_policy.maximum_prior_knowledge_audit_bytes
+    )
 
 
 @pytest.mark.parametrize(
@@ -192,6 +254,20 @@ def test_claude_command_has_exact_tools_schema_and_no_prompt_argument():
     assert request.prompt not in command
 
 
+def test_cli_command_enforces_the_complete_argv_byte_bound():
+    request = run_action_request(
+        interpretation_policy(
+            cli="claude_code",
+            web_search_enabled=False,
+            maximum_response_schema_bytes=512,
+            maximum_cli_argument_bytes=513,
+        )
+    )
+
+    with pytest.raises(RunActionCodingAgentCliError, match="argv exceeds"):
+        coding_agent_cli_command(request)
+
+
 def test_claude_edit_command_adds_only_versioned_native_edit_tools():
     policy = interpretation_policy(
         cli="claude_code",
@@ -249,6 +325,230 @@ def test_codex_completion_requires_closed_lifecycle_and_exact_final_join():
     )
 
 
+def test_codex_completion_uses_the_last_of_multiple_completed_agent_messages():
+    request = run_action_request(interpretation_policy())
+    events = [json.loads(line) for line in _codex_payload().splitlines()]
+    events.insert(
+        -1,
+        {
+            "type": "item.completed",
+            "item": {
+                "id": "item_1",
+                "type": "agent_message",
+                "text": canonical_json_bytes({"answer": "Use evidence."}).decode(
+                    "utf-8"
+                ),
+            },
+        },
+    )
+    events[2]["item"]["text"] = canonical_json_bytes(
+        {"answer": "Earlier draft."}
+    ).decode("utf-8")
+    payload = b"".join(canonical_json_bytes(event) + b"\n" for event in events)
+
+    outcome = interpret_coding_agent_cli_completion(
+        request=request,
+        return_code=0,
+        provider_output_payload=payload,
+        provider_diagnostic_payload=b"",
+        final_output_payload=canonical_json_bytes({"answer": "Use evidence."}),
+    )
+
+    assert outcome.structured_output == {"answer": "Use evidence."}
+
+
+def test_codex_completion_rejects_completed_error_item_as_model_reroute():
+    request = run_action_request(interpretation_policy())
+    payload = _codex_payload().replace(
+        b'"type":"agent_message"',
+        b'"type":"error"',
+    )
+
+    with pytest.raises(
+        RunActionCodingAgentCliError,
+        match="unknown or reports a model reroute",
+    ):
+        interpret_coding_agent_cli_completion(
+            request=request,
+            return_code=0,
+            provider_output_payload=payload,
+            provider_diagnostic_payload=b"",
+            final_output_payload=canonical_json_bytes({"answer": "Use evidence."}),
+        )
+
+
+def _codex_web_search_payload():
+    events = (
+        canonical_json_bytes({"type": "thread.started", "thread_id": _THREAD_ID}),
+        canonical_json_bytes({"type": "turn.started"}),
+        (
+            b'{"type":"item.started","item":{"id":"item_0",'
+            b'"type":"web_search","id":"exec-f04096cb-faab-4114-a28b-'
+            b'df928f77c76e","query":"","action":{"type":"other"}}}'
+        ),
+        (
+            b'{"type":"item.completed","item":{"id":"item_0",'
+            b'"type":"web_search","id":"exec-f04096cb-faab-4114-a28b-'
+            b'df928f77c76e","query":"current UTC date","action":'
+            b'{"type":"search","query":"current UTC date"}}}'
+        ),
+        canonical_json_bytes(
+            {
+                "type": "item.completed",
+                "item": {
+                    "id": "item_1",
+                    "type": "agent_message",
+                    "text": '{"answer":"Use evidence."}',
+                },
+            }
+        ),
+        canonical_json_bytes(
+            {
+                "type": "turn.completed",
+                "usage": {
+                    "input_tokens": 100,
+                    "cached_input_tokens": 80,
+                    "output_tokens": 20,
+                    "reasoning_output_tokens": 7,
+                },
+            }
+        ),
+    )
+    return b"\n".join(events) + b"\n"
+
+
+def test_codex_completion_accepts_the_exact_pinned_web_search_wire_shape():
+    request = run_action_request(
+        interpretation_policy(web_search_enabled=True),
+    )
+
+    outcome = interpret_coding_agent_cli_completion(
+        request=request,
+        return_code=0,
+        provider_output_payload=_codex_web_search_payload(),
+        provider_diagnostic_payload=b"",
+        final_output_payload=b'{"answer":"Use evidence."}',
+    )
+
+    assert outcome.structured_output == {"answer": "Use evidence."}
+
+
+def test_codex_completion_rejects_web_call_identity_substitution_mid_lifecycle():
+    request = run_action_request(
+        interpretation_policy(web_search_enabled=True),
+    )
+    payload = _codex_web_search_payload().replace(
+        b"exec-f04096cb-faab-4114-a28b-df928f77c76e",
+        b"exec-104096cb-faab-4114-a28b-df928f77c76e",
+        1,
+    )
+
+    with pytest.raises(RunActionCodingAgentCliError, match="changes identity"):
+        interpret_coding_agent_cli_completion(
+            request=request,
+            return_code=0,
+            provider_output_payload=payload,
+            provider_diagnostic_payload=b"",
+            final_output_payload=b'{"answer":"Use evidence."}',
+        )
+
+
+@pytest.mark.parametrize(
+    ("item_type", "message"),
+    (
+        ("web_search", "web search without request authority"),
+        ("file_change", "file change without edit authority"),
+        ("mcp_tool_call", "MCP without prior-knowledge authority"),
+    ),
+)
+def test_codex_completion_rejects_item_types_outside_request_authority(
+    item_type,
+    message,
+):
+    request = run_action_request(
+        interpretation_policy(web_search_enabled=False),
+    )
+    payload = _codex_payload().replace(
+        b'"type":"agent_message"',
+        f'"type":"{item_type}"'.encode("ascii"),
+    )
+
+    with pytest.raises(RunActionCodingAgentCliError, match=message):
+        interpret_coding_agent_cli_completion(
+            request=request,
+            return_code=0,
+            provider_output_payload=payload,
+            provider_diagnostic_payload=b"",
+            final_output_payload=b'{"answer":"Use evidence."}',
+        )
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    (
+        (
+            lambda payload: payload.replace(b'"item_0"', b'"item_1"'),
+            "contiguous wire identities",
+        ),
+        (
+            lambda payload: payload.replace(
+                b'"type":"item.completed"',
+                b'"type":"item.started"',
+                1,
+            ),
+            "fields or lifecycle",
+        ),
+        (
+            lambda payload: payload.replace(
+                b'"text":"{\\"answer\\":\\"Use evidence.\\"}"',
+                b'"extra":true,"text":"{\\"answer\\":\\"Use evidence.\\"}"',
+            ),
+            "fields or lifecycle",
+        ),
+    ),
+)
+def test_codex_completion_rejects_noncanonical_item_schemas_and_lifecycles(
+    mutation,
+    message,
+):
+    request = run_action_request(interpretation_policy())
+
+    with pytest.raises(RunActionCodingAgentCliError, match=message):
+        interpret_coding_agent_cli_completion(
+            request=request,
+            return_code=0,
+            provider_output_payload=mutation(_codex_payload()),
+            provider_diagnostic_payload=b"",
+            final_output_payload=b'{"answer":"Use evidence."}',
+        )
+
+
+@pytest.mark.parametrize(
+    ("usage_field", "value"),
+    (
+        ("cached_input_tokens", 101),
+        ("reasoning_output_tokens", 21),
+    ),
+)
+def test_codex_completion_rejects_impossible_token_decompositions(
+    usage_field,
+    value,
+):
+    request = run_action_request(interpretation_policy())
+    events = [json.loads(line) for line in _codex_payload().splitlines()]
+    events[-1]["usage"][usage_field] = value
+    payload = b"".join(canonical_json_bytes(event) + b"\n" for event in events)
+
+    with pytest.raises(RunActionCodingAgentCliError, match="impossible token"):
+        interpret_coding_agent_cli_completion(
+            request=request,
+            return_code=0,
+            provider_output_payload=payload,
+            provider_diagnostic_payload=b"",
+            final_output_payload=b'{"answer":"Use evidence."}',
+        )
+
+
 @pytest.mark.parametrize(
     ("mutation", "message"),
     (
@@ -298,6 +598,30 @@ def test_codex_completion_rejects_substituted_final_output():
             provider_output_payload=_codex_payload(),
             provider_diagnostic_payload=b"",
             final_output_payload=canonical_json_bytes({"answer": "Substituted"}),
+        )
+
+
+def test_codex_completion_rejects_numeric_type_mismatch_at_the_final_join():
+    request = run_action_request(
+        interpretation_policy(),
+        response_schema={
+            "type": "object",
+            "properties": {"score": {"type": "number"}},
+            "required": ["score"],
+            "additionalProperties": False,
+        },
+    )
+
+    with pytest.raises(
+        RunActionCodingAgentCliError,
+        match="differs from its completed agent message",
+    ):
+        interpret_coding_agent_cli_completion(
+            request=request,
+            return_code=0,
+            provider_output_payload=_codex_payload({"score": 1}),
+            provider_diagnostic_payload=b"",
+            final_output_payload=b'{"score":1.0}',
         )
 
 
@@ -367,13 +691,16 @@ def test_claude_completion_rejects_cost_permission_and_result_conflicts():
     cases = []
     cost_conflict = _claude_envelope()
     cost_conflict["total_cost_usd"] = 0.126
-    cases.append((cost_conflict, "total cost differs"))
+    cases.append((cost_conflict, "totals differ"))
     denied = _claude_envelope()
     denied["permission_denials"] = [{"tool_name": "Read"}]
     cases.append((denied, "successful terminal state"))
     result_conflict = _claude_envelope()
     result_conflict["result"] = '{"answer":"Substituted"}'
     cases.append((result_conflict, "result text differs"))
+    duration_conflict = _claude_envelope()
+    duration_conflict["duration_api_ms"] = 1.5
+    cases.append((duration_conflict, "API duration milliseconds"))
 
     for envelope, message in cases:
         with pytest.raises(RunActionCodingAgentCliError, match=message):
@@ -387,6 +714,73 @@ def test_claude_completion_rejects_cost_permission_and_result_conflicts():
                 provider_diagnostic_payload=b"",
                 final_output_payload=None,
             )
+
+
+def test_claude_completion_rejects_model_usage_token_and_schema_conflicts():
+    request = run_action_request(
+        interpretation_policy(
+            cli="claude_code",
+            web_search_enabled=False,
+        )
+    )
+    cases = []
+    token_conflict = _claude_envelope()
+    token_conflict["usage"]["input_tokens"] = 999_999
+    cases.append((token_conflict, "totals differ"))
+    nested_extra = _claude_envelope()
+    nested_extra["modelUsage"]["gpt-5.6"]["unbound"] = 1
+    cases.append((nested_extra, "pinned ABI"))
+    wrong_model = _claude_envelope()
+    wrong_model["modelUsage"]["other-model"] = wrong_model["modelUsage"].pop("gpt-5.6")
+    cases.append((wrong_model, "sole requested model"))
+    additional_model = _claude_envelope()
+    additional_model["modelUsage"]["helper"] = {
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "cacheReadInputTokens": 0,
+        "cacheCreationInputTokens": 0,
+        "webSearchRequests": 0,
+        "costUSD": 0,
+        "contextWindow": 200_000,
+        "maxOutputTokens": 32_000,
+    }
+    cases.append((additional_model, "sole requested model"))
+
+    for envelope, message in cases:
+        with pytest.raises(RunActionCodingAgentCliError, match=message):
+            interpret_coding_agent_cli_completion(
+                request=request,
+                return_code=0,
+                provider_output_payload=json.dumps(envelope).encode("utf-8"),
+                provider_diagnostic_payload=b"",
+                final_output_payload=None,
+            )
+
+
+def test_claude_completion_rejects_numeric_type_mismatch_at_the_final_join():
+    request = run_action_request(
+        interpretation_policy(
+            cli="claude_code",
+            web_search_enabled=False,
+        ),
+        response_schema={
+            "type": "object",
+            "properties": {"score": {"type": "number"}},
+            "required": ["score"],
+            "additionalProperties": False,
+        },
+    )
+    envelope = _claude_envelope({"score": 1.0})
+    envelope["result"] = '{"score":1}'
+
+    with pytest.raises(RunActionCodingAgentCliError, match="result text differs"):
+        interpret_coding_agent_cli_completion(
+            request=request,
+            return_code=0,
+            provider_output_payload=json.dumps(envelope).encode("utf-8"),
+            provider_diagnostic_payload=b"",
+            final_output_payload=None,
+        )
 
 
 @pytest.mark.parametrize("optional_field", ("api_error_status", "terminal_reason"))
@@ -409,6 +803,26 @@ def test_claude_completion_accepts_absent_optional_success_evidence(optional_fie
     )
 
     assert outcome.structured_output == {"answer": "Use evidence."}
+
+
+def test_claude_completion_rejects_unknown_outer_envelope_field():
+    request = run_action_request(
+        interpretation_policy(
+            cli="claude_code",
+            web_search_enabled=False,
+        )
+    )
+    envelope = _claude_envelope()
+    envelope["unbound_provider_field"] = True
+
+    with pytest.raises(RunActionCodingAgentCliError, match="pinned ABI"):
+        interpret_coding_agent_cli_completion(
+            request=request,
+            return_code=0,
+            provider_output_payload=json.dumps(envelope).encode("utf-8"),
+            provider_diagnostic_payload=b"",
+            final_output_payload=None,
+        )
 
 
 def test_claude_completion_rejects_unauthorized_web_search_and_duplicate_fields():
