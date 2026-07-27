@@ -49,6 +49,17 @@ _DOCKER_OBSERVATION_AUTHORITIES: WeakKeyDictionary[
     PinnedDockerObservationAuthority, PinnedDockerRuntime
 ] = WeakKeyDictionary()
 _DOCKER_OBSERVATION_AUTHORITY_LOCK = Lock()
+_DOCKER_PREPARATION_AUTHORITY_ISSUANCE = object()
+_DOCKER_PREPARATION_EXCLUSION_ISSUANCE = object()
+_DOCKER_PREPARATION_MUTATION_AUTHORITY = object()
+_DOCKER_PREPARATION_AUTHORITIES: WeakKeyDictionary[
+    PinnedDockerPreparationAuthority, PinnedDockerRuntime
+] = WeakKeyDictionary()
+_DOCKER_PREPARATION_AUTHORITY_LOCK = Lock()
+_DOCKER_PREPARATION_EXCLUSION_LEASES: WeakKeyDictionary[
+    PinnedDockerPreparationExclusionLease, PinnedDockerPreparationAuthority
+] = WeakKeyDictionary()
+_DOCKER_PREPARATION_EXCLUSION_LOCK = Lock()
 _DOCKER_START_AUTHORITY_ISSUANCE = object()
 _DOCKER_START_EXCLUSION_ISSUANCE = object()
 _DOCKER_START_CONTAINER_AUTHORITY = object()
@@ -116,6 +127,151 @@ class PinnedDockerObservationAuthority:
 
     def run_json_control(self, arguments: tuple[str, ...]) -> Mapping[str, Any]:
         return _parse_single_json_object(self.run_control(arguments).stdout)
+
+
+class PinnedDockerPreparationAuthority:
+    """Issued authority limited to closed preparation creation and start."""
+
+    def __init__(self, *, _authority: object) -> None:
+        if _authority is not _DOCKER_PREPARATION_AUTHORITY_ISSUANCE:
+            raise PinnedDockerRuntimeError(
+                "Docker preparation authority lacks issuance authority"
+            )
+        self._owner_process_id = os.getpid()
+
+    @property
+    def settings(self) -> DockerRuntimeSettings:
+        """Return the immutable settings of the issuing pinned runtime."""
+
+        return _docker_preparation_runtime(self).settings
+
+    def inspect_exact_image(
+        self,
+        authority: DockerImageAuthority,
+    ) -> Mapping[str, Any]:
+        """Inspect one exact content-pinned image without generic observation."""
+
+        return _docker_preparation_runtime(self).inspect_exact_image(authority)
+
+    def _issue_exclusion_lease(
+        self,
+        *,
+        _authority: object,
+    ) -> PinnedDockerPreparationExclusionLease:
+        if _authority is not _DOCKER_PREPARATION_EXCLUSION_ISSUANCE:
+            raise PinnedDockerRuntimeError(
+                "Docker preparation exclusion lacks closed authority"
+            )
+        runtime = _docker_preparation_runtime(self)
+        mutation_lease = _open_docker_mutation_lease(
+            runtime,
+            timeout_seconds=runtime.settings.command_timeout_seconds,
+        )
+        lease = PinnedDockerPreparationExclusionLease(
+            preparation_authority=self,
+            mutation_lease=mutation_lease,
+            _authority=_DOCKER_PREPARATION_EXCLUSION_ISSUANCE,
+        )
+        with _DOCKER_PREPARATION_EXCLUSION_LOCK:
+            if _DOCKER_PREPARATION_EXCLUSION_LEASES.get(lease) is not None:
+                raise PinnedDockerRuntimeError(
+                    "Docker preparation exclusion identity is already issued"
+                )
+            _DOCKER_PREPARATION_EXCLUSION_LEASES[lease] = self
+        return lease
+
+    def _create_volume_once(
+        self,
+        *,
+        arguments: tuple[str, ...],
+        exclusion_lease: PinnedDockerPreparationExclusionLease,
+        _authority: object,
+    ) -> BoundedProcessResult:
+        if (
+            _authority is not _DOCKER_PREPARATION_MUTATION_AUTHORITY
+            or not _docker_preparation_exclusion_matches(self, exclusion_lease)
+            or not _is_docker_preparation_volume_create(arguments)
+        ):
+            raise PinnedDockerRuntimeError(
+                "Docker volume preparation lacks exact closed authority"
+            )
+        runtime = _docker_preparation_runtime(self)
+        settings = runtime.settings
+        return runtime._run_bounded_under_mutation_lease(
+            arguments,
+            exclusion_lease._mutation_lease,
+            timeout_seconds=settings.command_timeout_seconds,
+            cleanup_timeout_seconds=settings.cleanup_timeout_seconds,
+            stdout_byte_limit=settings.command_output_byte_limit,
+            stderr_byte_limit=settings.command_output_byte_limit,
+        )
+
+    def _create_container_once(
+        self,
+        *,
+        arguments: tuple[str, ...],
+        exclusion_lease: PinnedDockerPreparationExclusionLease,
+        _authority: object,
+    ) -> BoundedProcessResult:
+        if (
+            _authority is not _DOCKER_PREPARATION_MUTATION_AUTHORITY
+            or not _docker_preparation_exclusion_matches(self, exclusion_lease)
+            or not _is_docker_preparation_container_create(arguments)
+        ):
+            raise PinnedDockerRuntimeError(
+                "Docker container preparation lacks exact closed authority"
+            )
+        runtime = _docker_preparation_runtime(self)
+        settings = runtime.settings
+        return runtime._run_bounded_under_mutation_lease(
+            arguments,
+            exclusion_lease._mutation_lease,
+            timeout_seconds=settings.command_timeout_seconds,
+            cleanup_timeout_seconds=settings.cleanup_timeout_seconds,
+            stdout_byte_limit=settings.command_output_byte_limit,
+            stderr_byte_limit=settings.command_output_byte_limit,
+        )
+
+    def _start_created_container_once(
+        self,
+        *,
+        container_id: str,
+        exclusion_lease: PinnedDockerPreparationExclusionLease,
+        _authority: object,
+    ) -> BoundedProcessResult:
+        if (
+            type(container_id) is not str
+            or _CONTAINER_ID_PATTERN.fullmatch(container_id) is None
+            or _authority is not _DOCKER_PREPARATION_MUTATION_AUTHORITY
+            or not _docker_preparation_exclusion_matches(self, exclusion_lease)
+        ):
+            raise PinnedDockerRuntimeError(
+                "Docker container preparation start lacks exact closed authority"
+            )
+        runtime = _docker_preparation_runtime(self)
+        settings = runtime.settings
+        before_start = runtime.run_json_control(
+            (
+                "container",
+                "inspect",
+                "--format",
+                "{{json .}}",
+                container_id,
+            )
+        )
+        if _observed_container_status(before_start, container_id) != "created":
+            raise PinnedDockerRuntimeError(
+                "Docker preparation start lacks an exact created occurrence"
+            )
+        exclusion_lease.require_current()
+        return runtime._run_bounded_under_mutation_lease(
+            ("container", "start", container_id),
+            exclusion_lease._mutation_lease,
+            timeout_seconds=settings.command_timeout_seconds,
+            cleanup_timeout_seconds=settings.cleanup_timeout_seconds,
+            stdout_byte_limit=settings.command_output_byte_limit,
+            stderr_byte_limit=settings.command_output_byte_limit,
+        )
 
 
 class PinnedDockerStartAuthority:
@@ -346,6 +502,73 @@ class _PinnedDockerMutationLease:
         if not removed or integrity_changed:
             raise PinnedDockerRuntimeError(
                 "Docker mutation lock changed while retained"
+            )
+
+
+class PinnedDockerPreparationExclusionLease:
+    """Owner-bound proof that preparation retains Docker mutation exclusion."""
+
+    def __init__(
+        self,
+        *,
+        preparation_authority: PinnedDockerPreparationAuthority,
+        mutation_lease: _PinnedDockerMutationLease,
+        _authority: object,
+    ) -> None:
+        if (
+            type(preparation_authority) is not PinnedDockerPreparationAuthority
+            or type(mutation_lease) is not _PinnedDockerMutationLease
+            or _authority is not _DOCKER_PREPARATION_EXCLUSION_ISSUANCE
+        ):
+            raise PinnedDockerRuntimeError(
+                "Docker preparation exclusion lacks issuance authority"
+            )
+        self._owner_process_id = os.getpid()
+        self._owner_thread_id = get_ident()
+        self._mutation_lease = mutation_lease
+        self._closed = False
+
+    def require_current(self) -> None:
+        with _DOCKER_PREPARATION_EXCLUSION_LOCK:
+            preparation_authority = _DOCKER_PREPARATION_EXCLUSION_LEASES.get(self)
+        if (
+            self._closed
+            or self._owner_process_id != os.getpid()
+            or self._owner_thread_id != get_ident()
+            or type(preparation_authority) is not PinnedDockerPreparationAuthority
+        ):
+            raise PinnedDockerRuntimeError(
+                "Docker preparation exclusion is closed or foreign"
+            )
+        _docker_preparation_runtime(preparation_authority)
+        self._mutation_lease.require_current()
+
+    def __enter__(self) -> PinnedDockerPreparationExclusionLease:
+        self.require_current()
+        return self
+
+    def __exit__(self, *_arguments: object) -> None:
+        self.close()
+
+    def close(self) -> None:
+        with _DOCKER_PREPARATION_EXCLUSION_LOCK:
+            issuing_authority = _DOCKER_PREPARATION_EXCLUSION_LEASES.get(self)
+        if (
+            self._closed
+            or self._owner_process_id != os.getpid()
+            or self._owner_thread_id != get_ident()
+            or type(issuing_authority) is not PinnedDockerPreparationAuthority
+        ):
+            raise PinnedDockerRuntimeError(
+                "Docker preparation exclusion is closed or foreign"
+            )
+        self._closed = True
+        with _DOCKER_PREPARATION_EXCLUSION_LOCK:
+            removed = _DOCKER_PREPARATION_EXCLUSION_LEASES.pop(self, None)
+        self._mutation_lease.close()
+        if removed is not issuing_authority:
+            raise PinnedDockerRuntimeError(
+                "Docker preparation exclusion lost its issuing authority"
             )
 
 
@@ -765,6 +988,21 @@ class PinnedDockerRuntime:
             _DOCKER_OBSERVATION_AUTHORITIES[authority] = self
         return authority
 
+    def issue_preparation_authority(self) -> PinnedDockerPreparationAuthority:
+        """Issue a projection limited to preparation creation and start."""
+
+        self.require_live_authority()
+        authority = PinnedDockerPreparationAuthority(
+            _authority=_DOCKER_PREPARATION_AUTHORITY_ISSUANCE
+        )
+        with _DOCKER_PREPARATION_AUTHORITY_LOCK:
+            if _DOCKER_PREPARATION_AUTHORITIES.get(authority) is not None:
+                raise PinnedDockerRuntimeError(
+                    "Docker preparation authority identity is already issued"
+                )
+            _DOCKER_PREPARATION_AUTHORITIES[authority] = self
+        return authority
+
     def issue_start_authority(self) -> PinnedDockerStartAuthority:
         """Issue a projection limited to one exact created-container start."""
 
@@ -1051,6 +1289,22 @@ def _docker_observation_runtime(
     return runtime
 
 
+def _docker_preparation_runtime(
+    authority: PinnedDockerPreparationAuthority,
+) -> PinnedDockerRuntime:
+    with _DOCKER_PREPARATION_AUTHORITY_LOCK:
+        runtime = _DOCKER_PREPARATION_AUTHORITIES.get(authority)
+    if (
+        type(authority) is not PinnedDockerPreparationAuthority
+        or authority._owner_process_id != os.getpid()
+        or type(runtime) is not PinnedDockerRuntime
+    ):
+        raise PinnedDockerRuntimeError(
+            "Docker preparation authority is unissued or foreign"
+        )
+    return runtime
+
+
 def _docker_start_runtime(
     authority: PinnedDockerStartAuthority,
 ) -> PinnedDockerRuntime:
@@ -1119,6 +1373,17 @@ def _docker_observation_and_start_authorities_share_runtime(
     )
 
 
+def _docker_observation_and_preparation_authorities_share_runtime(
+    observation_authority: PinnedDockerObservationAuthority,
+    preparation_authority: PinnedDockerPreparationAuthority,
+) -> bool:
+    """Join read and preparation projections without exposing their runtime."""
+
+    return _docker_observation_runtime(
+        observation_authority
+    ) is _docker_preparation_runtime(preparation_authority)
+
+
 def _docker_observation_and_cleanup_authorities_share_runtime(
     observation_authority: PinnedDockerObservationAuthority,
     cleanup_authority: PinnedDockerCleanupAuthority,
@@ -1128,6 +1393,20 @@ def _docker_observation_and_cleanup_authorities_share_runtime(
     return _docker_observation_runtime(
         observation_authority
     ) is _docker_cleanup_runtime(cleanup_authority)
+
+
+def _docker_preparation_exclusion_matches(
+    preparation_authority: PinnedDockerPreparationAuthority,
+    exclusion_lease: PinnedDockerPreparationExclusionLease,
+) -> bool:
+    """Require one current lease issued by the exact preparation authority."""
+
+    if type(exclusion_lease) is not PinnedDockerPreparationExclusionLease:
+        return False
+    exclusion_lease.require_current()
+    with _DOCKER_PREPARATION_EXCLUSION_LOCK:
+        issuing_authority = _DOCKER_PREPARATION_EXCLUSION_LEASES.get(exclusion_lease)
+    return issuing_authority is preparation_authority
 
 
 def _docker_start_exclusion_matches(
@@ -1278,6 +1557,32 @@ def _require_docker_arguments(arguments: tuple[str, ...]) -> None:
         raise PinnedDockerRuntimeError(
             "pinned Docker arguments must be non-empty strings"
         )
+
+
+def _is_docker_preparation_volume_create(arguments: tuple[str, ...]) -> bool:
+    return (
+        type(arguments) is tuple
+        and len(arguments) >= 3
+        and all(
+            type(argument) is str and bool(argument) and "\x00" not in argument
+            for argument in arguments
+        )
+        and arguments[:2] == ("volume", "create")
+        and _DOCKER_RESOURCE_NAME_PATTERN.fullmatch(arguments[-1]) is not None
+    )
+
+
+def _is_docker_preparation_container_create(arguments: tuple[str, ...]) -> bool:
+    return not (
+        type(arguments) is not tuple
+        or len(arguments) < 5
+        or any(
+            type(argument) is not str or not argument or "\x00" in argument
+            for argument in arguments
+        )
+        or arguments[:3] != ("container", "create", "--name")
+        or _DOCKER_RESOURCE_NAME_PATTERN.fullmatch(arguments[3]) is None
+    )
 
 
 def _is_docker_resource_observation(arguments: tuple[str, ...]) -> bool:

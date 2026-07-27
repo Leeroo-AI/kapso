@@ -26,6 +26,7 @@ from kapso.core.config import load_config
 from kapso.cross_run.canonical import tree_or_blob_digest
 from kapso.cross_run.docker.runtime import (
     DockerImageAuthority,
+    PinnedDockerPreparationAuthority,
     PinnedDockerRuntime,
     PinnedDockerStartAuthority,
     read_verified_root_executable,
@@ -53,11 +54,16 @@ from kapso.cross_run.launch.run_action_containment_contracts import (
     RunActionTimeoutContainmentSignal,
 )
 from kapso.cross_run.launch.run_action_recovery import (
+    _RUN_ACTION_PREPARATION_AUTHORITY,
     RunActionCommittedSpawnObservation,
     RunActionCommittedSpawnState,
     RunActionContinuationOutcome,
     RunActionContinuationState,
     RunActionInterpretedResult,
+    RunActionPreparationCapability,
+    RunActionPreparationMode,
+    RunActionPreparationOrigin,
+    RunActionPreparationState,
 )
 from kapso.cross_run.launch.run_action_natural_terminal import (
     resolve_run_action_natural_terminal_once,
@@ -118,6 +124,9 @@ from kapso.cross_run.launch.run_action_reservation_contracts import (
 from kapso.cross_run.launch.resume_contracts import RunSafetyBoundary
 from kapso.cross_run.launch.run_action_docker_resources import (
     DockerRunActionResourceManager,
+)
+from kapso.cross_run.launch.run_action_docker_preparation import (
+    DockerRunActionPreparationManager,
 )
 from kapso.cross_run.launch.run_action_docker_cleanup import (
     DockerRunActionCleanupManager,
@@ -962,6 +971,8 @@ def _listed_exact(
         "allocation_created_keeper",
         "allocation_running_keeper",
         "allocation_inert_main",
+        "production_preparation",
+        "production_preparation_ambiguous",
     ),
 )
 def test_real_docker_accepts_only_the_issued_run_action_projection(
@@ -1472,11 +1483,15 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
         ) as session:
             layout_allocation = session.allocate_preparation(layout_policy)
 
-        def recover_allocation_invalidation() -> None:
+        def recover_allocation_invalidation(
+            prepared_execution: RunActionPreparedExecution | None = None,
+        ) -> None:
             with action_gate._action_store._recovery_session(
                 layout_reservation,
                 _authority=_RUN_ACTION_RECOVERY_AUTHORITY,
             ) as session:
+                if prepared_execution is not None:
+                    session.commit_prepared_execution(prepared_execution)
                 session.invalidate_frontier()
             inert_adapter = _LiveNaturalTerminalWorkloadAdapter(
                 boundary_identity=boundary_identity,
@@ -1510,6 +1525,179 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
         layout_keeper_labels = preparation_keeper_container_labels(layout_claim)
         layout_main_name = preparation_container_name(layout_claim)
         layout_main_labels = preparation_container_labels(layout_claim)
+        if terminal_path in {
+            "production_preparation",
+            "production_preparation_ambiguous",
+        }:
+            cleanup.callback(
+                _remove_owned_volume,
+                settings,
+                docker_config_root,
+                layout_volume_name,
+                layout_volume_labels,
+            )
+            cleanup.callback(
+                _remove_owned_container,
+                settings,
+                docker_config_root,
+                layout_keeper_name,
+                layout_keeper_labels,
+            )
+            cleanup.callback(
+                _remove_owned_container,
+                settings,
+                docker_config_root,
+                layout_main_name,
+                layout_main_labels,
+            )
+            ambiguous_dispatches = []
+            if terminal_path == "production_preparation_ambiguous":
+                original_volume_create = (
+                    PinnedDockerPreparationAuthority._create_volume_once
+                )
+                original_container_create = (
+                    PinnedDockerPreparationAuthority._create_container_once
+                )
+                original_keeper_start = (
+                    PinnedDockerPreparationAuthority._start_created_container_once
+                )
+
+                def lose_volume_create_response(
+                    preparation_authority,
+                    *,
+                    arguments,
+                    exclusion_lease,
+                    _authority,
+                ):
+                    result = original_volume_create(
+                        preparation_authority,
+                        arguments=arguments,
+                        exclusion_lease=exclusion_lease,
+                        _authority=_authority,
+                    )
+                    ambiguous_dispatches.append(arguments[:2])
+                    return replace(
+                        result,
+                        outcome=BoundedProcessOutcome.TIMED_OUT,
+                        returncode=-1,
+                    )
+
+                def lose_container_create_response(
+                    preparation_authority,
+                    *,
+                    arguments,
+                    exclusion_lease,
+                    _authority,
+                ):
+                    result = original_container_create(
+                        preparation_authority,
+                        arguments=arguments,
+                        exclusion_lease=exclusion_lease,
+                        _authority=_authority,
+                    )
+                    ambiguous_dispatches.append(arguments[:2])
+                    return replace(
+                        result,
+                        outcome=BoundedProcessOutcome.TIMED_OUT,
+                        returncode=-1,
+                    )
+
+                def lose_keeper_start_response(
+                    preparation_authority,
+                    *,
+                    container_id,
+                    exclusion_lease,
+                    _authority,
+                ):
+                    result = original_keeper_start(
+                        preparation_authority,
+                        container_id=container_id,
+                        exclusion_lease=exclusion_lease,
+                        _authority=_authority,
+                    )
+                    ambiguous_dispatches.append(("container", "start"))
+                    return replace(
+                        result,
+                        outcome=BoundedProcessOutcome.TIMED_OUT,
+                        returncode=-1,
+                    )
+
+                monkeypatch.setattr(
+                    PinnedDockerPreparationAuthority,
+                    "_create_volume_once",
+                    lose_volume_create_response,
+                )
+                monkeypatch.setattr(
+                    PinnedDockerPreparationAuthority,
+                    "_create_container_once",
+                    lose_container_create_response,
+                )
+                monkeypatch.setattr(
+                    PinnedDockerPreparationAuthority,
+                    "_start_created_container_once",
+                    lose_keeper_start_response,
+                )
+            preparation_manager = DockerRunActionPreparationManager(
+                runtime=runtime,
+                resource_manager=resource_manager,
+                launch_settings=cross_run_settings.launch,
+            )
+            active_workspace = publisher_case["active"]
+            workspace_source_path = active_workspace.run_root / (
+                active_workspace.bootstrap_pin.installation_receipt.layout.workspace_relative_path
+            )
+
+            def reconcile_preparation(
+                mode: RunActionPreparationMode,
+                durable: RunActionPreparedExecution | None,
+            ):
+                capability = RunActionPreparationCapability(
+                    preparation_allocation=layout_allocation,
+                    mode=mode,
+                    durable_prepared_execution=durable,
+                    workspace_descriptor=workspace_descriptor,
+                    workspace_source_path=workspace_source_path,
+                    _authority=_RUN_ACTION_PREPARATION_AUTHORITY,
+                )
+                with capability._begin_invocation():
+                    return preparation_manager.reconcile(capability, command)
+
+            created = reconcile_preparation(
+                RunActionPreparationMode.CREATE_ALLOCATED,
+                None,
+            )
+            assert created.state is RunActionPreparationState.EXACT_PREPARED
+            assert created.origin is RunActionPreparationOrigin.NEWLY_MATERIALIZED
+            prepared_execution = created.prepared_execution
+            complete_inventory = resource_manager.observe(layout_allocation)
+            assert complete_inventory.volume_present
+            assert complete_inventory.keeper_container_id is not None
+            assert complete_inventory.main_container_id is not None
+            if terminal_path == "production_preparation_ambiguous":
+                assert ambiguous_dispatches == [
+                    ("volume", "create"),
+                    ("container", "create"),
+                    ("container", "start"),
+                    ("container", "create"),
+                ]
+
+            reopened = reconcile_preparation(
+                RunActionPreparationMode.REOPEN_ALLOCATED,
+                None,
+            )
+            assert reopened.state is RunActionPreparationState.EXACT_PREPARED
+            assert reopened.origin is RunActionPreparationOrigin.REOPENED_ALLOCATION
+            assert reopened.prepared_execution == prepared_execution
+
+            revalidated = reconcile_preparation(
+                RunActionPreparationMode.REVALIDATE_PREPARED,
+                prepared_execution,
+            )
+            assert revalidated.state is RunActionPreparationState.EXACT_PREPARED
+            assert revalidated.origin is RunActionPreparationOrigin.REVALIDATED_PREPARED
+            assert revalidated.prepared_execution == prepared_execution
+            recover_allocation_invalidation(prepared_execution)
+            return
         cleanup.callback(
             _remove_owned_volume,
             settings,

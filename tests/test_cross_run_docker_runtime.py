@@ -460,6 +460,187 @@ def test_cleanup_authority_has_only_closed_exact_removal_surface(
         authority.settings
 
 
+def test_preparation_authority_has_only_closed_create_start_and_image_surface(
+    tmp_path,
+    provider_settings,
+):
+    container_id = "c" * 64
+    image_authority = _runtime_contract()
+    volume_arguments = (
+        "volume",
+        "create",
+        "kapso-preparation-volume",
+    )
+    container_arguments = (
+        "container",
+        "create",
+        "--name",
+        "kapso-preparation-main",
+        image_authority.image_reference,
+        "true",
+    )
+    runtime, runner = _make_runtime(
+        tmp_path,
+        provider_settings,
+        additional_outputs=(
+            {"stdout": _json_line(_version(provider_settings))},
+            {"stdout": _json_line(_info(provider_settings))},
+            {"returncode": 1, "stderr": b"ambiguous volume create\n"},
+            {"stdout": f"{container_id}\n".encode("ascii")},
+            {
+                "stdout": _json_line(
+                    {
+                        "Id": container_id,
+                        "State": {"Status": "created"},
+                    }
+                )
+            },
+            {"stdout": f"{container_id}\n".encode("ascii")},
+            {"stdout": _json_line(_version(provider_settings))},
+            {"stdout": _json_line(_info(provider_settings))},
+            {"stdout": _json_line(_image(image_authority))},
+        ),
+    )
+    authority = runtime.issue_preparation_authority()
+
+    assert authority.settings == provider_settings
+    assert not hasattr(authority, "run_control")
+    assert not hasattr(authority, "run_bounded")
+    with pytest.raises(PinnedDockerRuntimeError, match="closed authority"):
+        authority._issue_exclusion_lease(_authority=object())
+    with authority._issue_exclusion_lease(
+        _authority=runtime_module._DOCKER_PREPARATION_EXCLUSION_ISSUANCE,
+    ) as exclusion:
+        with pytest.raises(PinnedDockerRuntimeError, match="closed authority"):
+            authority._create_volume_once(
+                arguments=volume_arguments,
+                exclusion_lease=exclusion,
+                _authority=object(),
+            )
+        volume_result = authority._create_volume_once(
+            arguments=volume_arguments,
+            exclusion_lease=exclusion,
+            _authority=runtime_module._DOCKER_PREPARATION_MUTATION_AUTHORITY,
+        )
+        container_result = authority._create_container_once(
+            arguments=container_arguments,
+            exclusion_lease=exclusion,
+            _authority=runtime_module._DOCKER_PREPARATION_MUTATION_AUTHORITY,
+        )
+        start_result = authority._start_created_container_once(
+            container_id=container_id,
+            exclusion_lease=exclusion,
+            _authority=runtime_module._DOCKER_PREPARATION_MUTATION_AUTHORITY,
+        )
+    image = authority.inspect_exact_image(image_authority)
+
+    assert volume_result.returncode == 1
+    assert volume_result.stderr == b"ambiguous volume create\n"
+    assert container_result.stdout == f"{container_id}\n".encode("ascii")
+    assert start_result.stdout == f"{container_id}\n".encode("ascii")
+    assert image["Id"] == image_authority.image_config_digest
+    assert tuple(request.argv[5:] for request in runner.requests[4:8]) == (
+        volume_arguments,
+        container_arguments,
+        ("container", "inspect", "--format", "{{json .}}", container_id),
+        ("container", "start", container_id),
+    )
+
+
+@pytest.mark.parametrize(
+    ("method_name", "arguments"),
+    (
+        ("_create_volume_once", ("volume", "rm", "kapso-volume")),
+        ("_create_container_once", ("container", "rm", "a" * 64)),
+        (
+            "_create_container_once",
+            ("container", "kill", "--signal", "SIGKILL", "a" * 64),
+        ),
+        (
+            "_create_container_once",
+            ("container", "exec", "a" * 64, "true"),
+        ),
+        (
+            "_create_container_once",
+            ("container", "start", "--attach", "a" * 64),
+        ),
+        (
+            "_create_container_once",
+            ("container", "attach", "a" * 64),
+        ),
+    ),
+)
+def test_preparation_authority_rejects_nonpreparation_mutations(
+    tmp_path,
+    provider_settings,
+    method_name,
+    arguments,
+):
+    runtime, runner = _make_runtime(
+        tmp_path,
+        provider_settings,
+        additional_outputs=(
+            {"stdout": _json_line(_version(provider_settings))},
+            {"stdout": _json_line(_info(provider_settings))},
+        ),
+    )
+    authority = runtime.issue_preparation_authority()
+    request_count = len(runner.requests)
+
+    with authority._issue_exclusion_lease(
+        _authority=runtime_module._DOCKER_PREPARATION_EXCLUSION_ISSUANCE,
+    ) as exclusion:
+        with pytest.raises(PinnedDockerRuntimeError, match="closed authority"):
+            getattr(authority, method_name)(
+                arguments=arguments,
+                exclusion_lease=exclusion,
+                _authority=runtime_module._DOCKER_PREPARATION_MUTATION_AUTHORITY,
+            )
+
+    assert len(runner.requests) == request_count
+
+
+def test_preparation_authority_starts_only_an_exact_created_container(
+    tmp_path,
+    provider_settings,
+):
+    container_id = "d" * 64
+    runtime, runner = _make_runtime(
+        tmp_path,
+        provider_settings,
+        additional_outputs=(
+            {"stdout": _json_line(_version(provider_settings))},
+            {"stdout": _json_line(_info(provider_settings))},
+            {
+                "stdout": _json_line(
+                    {
+                        "Id": container_id,
+                        "State": {"Status": "running"},
+                    }
+                )
+            },
+        ),
+    )
+    authority = runtime.issue_preparation_authority()
+
+    with authority._issue_exclusion_lease(
+        _authority=runtime_module._DOCKER_PREPARATION_EXCLUSION_ISSUANCE,
+    ) as exclusion:
+        with pytest.raises(
+            PinnedDockerRuntimeError,
+            match="lacks an exact created occurrence",
+        ):
+            authority._start_created_container_once(
+                container_id=container_id,
+                exclusion_lease=exclusion,
+                _authority=runtime_module._DOCKER_PREPARATION_MUTATION_AUTHORITY,
+            )
+
+    assert tuple(request.argv[5:] for request in runner.requests[-1:]) == (
+        ("container", "inspect", "--format", "{{json .}}", container_id),
+    )
+
+
 def test_independent_processes_share_one_daemon_mutation_lock(
     tmp_path,
     provider_settings,
@@ -856,6 +1037,87 @@ def test_start_authority_rejects_foreign_closed_and_reused_exclusion(
     assert len(second_runner.requests) == 4
 
 
+def test_preparation_authority_rejects_foreign_closed_and_reused_exclusion(
+    tmp_path,
+    monkeypatch,
+    provider_settings,
+):
+    first_root = (tmp_path / "first").resolve()
+    second_root = (tmp_path / "second").resolve()
+    first_root.mkdir(mode=0o700)
+    second_root.mkdir(mode=0o700)
+    issuance_outputs = (
+        {"stdout": _json_line(_version(provider_settings))},
+        {"stdout": _json_line(_info(provider_settings))},
+    )
+    first_runtime, first_runner = _make_runtime(
+        first_root,
+        provider_settings,
+        issuance_outputs,
+    )
+    second_runtime, second_runner = _make_runtime(
+        second_root,
+        provider_settings,
+        issuance_outputs,
+    )
+    first_authority = first_runtime.issue_preparation_authority()
+    second_authority = second_runtime.issue_preparation_authority()
+    exclusion = first_authority._issue_exclusion_lease(
+        _authority=runtime_module._DOCKER_PREPARATION_EXCLUSION_ISSUANCE,
+    )
+    arguments = (
+        "volume",
+        "create",
+        "kapso-preparation-volume",
+    )
+
+    with pytest.raises(
+        PinnedDockerRuntimeError,
+        match="lacks exact closed authority",
+    ):
+        second_authority._create_volume_once(
+            arguments=arguments,
+            exclusion_lease=exclusion,
+            _authority=runtime_module._DOCKER_PREPARATION_MUTATION_AUTHORITY,
+        )
+    with ThreadPoolExecutor(max_workers=1) as execution:
+        foreign_thread = execution.submit(exclusion.require_current)
+        with pytest.raises(
+            PinnedDockerRuntimeError,
+            match="closed or foreign",
+        ):
+            foreign_thread.result(timeout=provider_settings.command_timeout_seconds)
+    exclusion.close()
+    with pytest.raises(
+        PinnedDockerRuntimeError,
+        match="closed or foreign",
+    ):
+        first_authority._create_volume_once(
+            arguments=arguments,
+            exclusion_lease=exclusion,
+            _authority=runtime_module._DOCKER_PREPARATION_MUTATION_AUTHORITY,
+        )
+    with pytest.raises(
+        PinnedDockerRuntimeError,
+        match="closed or foreign",
+    ):
+        exclusion.close()
+
+    owner_process_id = first_authority._owner_process_id
+    monkeypatch.setattr(
+        runtime_module.os,
+        "getpid",
+        lambda: owner_process_id + 1,
+    )
+    with pytest.raises(
+        PinnedDockerRuntimeError,
+        match="unissued or foreign",
+    ):
+        first_authority.settings
+    assert len(first_runner.requests) == 4
+    assert len(second_runner.requests) == 4
+
+
 def test_observation_and_start_authorities_join_only_the_issuing_runtime(
     tmp_path,
     provider_settings,
@@ -894,6 +1156,46 @@ def test_observation_and_start_authorities_join_only_the_issuing_runtime(
     )
 
 
+def test_observation_and_preparation_authorities_join_only_issuing_runtime(
+    tmp_path,
+    provider_settings,
+):
+    first_root = (tmp_path / "first").resolve()
+    second_root = (tmp_path / "second").resolve()
+    first_root.mkdir(mode=0o700)
+    second_root.mkdir(mode=0o700)
+    authority_outputs = (
+        {"stdout": _json_line(_version(provider_settings))},
+        {"stdout": _json_line(_info(provider_settings))},
+        {"stdout": _json_line(_version(provider_settings))},
+        {"stdout": _json_line(_info(provider_settings))},
+    )
+    first_runtime, _first_runner = _make_runtime(
+        first_root,
+        provider_settings,
+        authority_outputs,
+    )
+    second_runtime, _second_runner = _make_runtime(
+        second_root,
+        provider_settings,
+        authority_outputs[:2],
+    )
+    observation_authority = first_runtime.issue_observation_authority()
+    same_runtime_preparation = first_runtime.issue_preparation_authority()
+    foreign_preparation = second_runtime.issue_preparation_authority()
+
+    assert runtime_module._docker_observation_and_preparation_authorities_share_runtime(
+        observation_authority,
+        same_runtime_preparation,
+    )
+    assert not (
+        runtime_module._docker_observation_and_preparation_authorities_share_runtime(
+            observation_authority,
+            foreign_preparation,
+        )
+    )
+
+
 def test_start_exclusion_blocks_cleanup_exclusion_until_release(
     tmp_path,
     provider_settings,
@@ -923,6 +1225,45 @@ def test_start_exclusion_blocks_cleanup_exclusion_until_release(
     with ThreadPoolExecutor(max_workers=1) as execution:
         with start_authority._issue_exclusion_lease(
             _authority=runtime_module._DOCKER_START_EXCLUSION_ISSUANCE,
+        ):
+            contender = execution.submit(hold_cleanup_exclusion_once)
+            assert cleanup_attempting.wait(
+                timeout=provider_settings.command_timeout_seconds
+            )
+            time.sleep(provider_settings.run_action_barrier_poll_interval_seconds)
+            assert not contender.done()
+        assert contender.result(timeout=provider_settings.command_timeout_seconds)
+
+
+def test_preparation_exclusion_blocks_cleanup_exclusion_until_release(
+    tmp_path,
+    provider_settings,
+):
+    issuance_outputs = (
+        {"stdout": _json_line(_version(provider_settings))},
+        {"stdout": _json_line(_info(provider_settings))},
+        {"stdout": _json_line(_version(provider_settings))},
+        {"stdout": _json_line(_info(provider_settings))},
+    )
+    runtime, _runner = _make_runtime(
+        tmp_path,
+        provider_settings,
+        issuance_outputs,
+    )
+    preparation_authority = runtime.issue_preparation_authority()
+    cleanup_authority = runtime.issue_cleanup_authority()
+    cleanup_attempting = Event()
+
+    def hold_cleanup_exclusion_once():
+        cleanup_attempting.set()
+        with cleanup_authority._issue_exclusion_lease(
+            _authority=runtime_module._DOCKER_CLEANUP_EXCLUSION_ISSUANCE,
+        ):
+            return True
+
+    with ThreadPoolExecutor(max_workers=1) as execution:
+        with preparation_authority._issue_exclusion_lease(
+            _authority=runtime_module._DOCKER_PREPARATION_EXCLUSION_ISSUANCE,
         ):
             contender = execution.submit(hold_cleanup_exclusion_once)
             assert cleanup_attempting.wait(

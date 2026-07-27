@@ -24,7 +24,14 @@ authority, and post-spawn request/credential delivery plus pre-start volume
 reobservation are crash-atomic and descriptor-bound. Allocation-bound recovery
 can now reconstruct deterministic prepared-volume evidence from a fully
 published event-2 layout without mutation; incomplete, pending, extra, or
-substituted topology remains non-adoptable. Full event-5 receipt assembly, a
+substituted topology remains non-adoptable. Preparation-only Docker authority
+and exact event-2 reconciliation are now
+implemented: stable absence creates the volume, keeper, descriptor-bound layout,
+and inert main in that order; a complete event-2 occurrence is adopted without
+mutation; and durable event 3 revalidates only to the byte-identical occurrence.
+The reconciler owns no raw Docker runtime, never starts the main container, and
+returns uncertainty for every exact unchanged or partial prefix. Full event-5
+receipt assembly, a
 descriptor-retained read-only reopen that reproduces the selected receipt
 without original delivery inputs, terminal Docker inspection, and
 adopted-release result authority are implemented. Exact inert event-5
@@ -621,6 +628,18 @@ unresolved and never receive replacement authority. Administrative frontier
 invalidation may close the allocation or prepared prefix only after re-proving
 its workspace unchanged, without changing the normal eight-event success chain.
 
+Fresh physical preparation uses four closed Docker transitions: create the exact
+generation-labelled volume, create the exact inert keeper, start only that proved
+keeper ID, and create the exact inert main after the sentinel-last layout is
+re-adopted. Each Docker transition sandwiches its raw mutation with stable
+name/label inventory and closed inspect parsing under daemon-wide exclusion. The
+raw response is semantically irrelevant: an exact forward suffix advances, an
+exact unchanged suffix returns uncertainty and burns the capability, and any
+other suffix fails loudly. Workspace copying and runtime-volume publication occur
+between keeper start and main creation without retaining the global Docker lock;
+a crash there deliberately leaves a non-adoptable event-2 prefix for the
+allocation invalidation cleanup rather than granting repair authority.
+
 An event-4 query admits only exact inert or unknown state; running or exited state
 cannot be adopted without durable activation. Exact inert state may restage and
 select event 5. Every event-5 path now uses the same token-sealed continuation
@@ -912,7 +931,9 @@ directory; application code never creates or replaces it. Acquisition is
 bounded, same-thread recursion fails loudly, and integrity failure closes the
 descriptor before raising. Long `container start --attach` calls retain
 exclusion only until the container leaves `created`; the remaining attached
-stream is observation. Closed operation-bound TERM/KILL containment bypasses
+stream is observation. Preparation holds separate short leases across each
+Docker precondition/mutation/postcondition sandwich and never exposes create or
+keeper-start leaves outside its exact manager. Closed operation-bound TERM/KILL containment bypasses
 unrelated daemon exclusion so an experiment cannot delay an absolute
 containment deadline.
 
