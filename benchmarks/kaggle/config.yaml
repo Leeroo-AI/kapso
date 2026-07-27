@@ -17,11 +17,18 @@ modes:
       type: "generic"
       params:
         idea_generation_model: "claude-opus-4-8"
-        implementation_model: "claude-opus-4-8"
+        # Implementation runs on the codex CLI (gpt-5.6-sol), matching the
+        # relbench RELBENCH_GENERIC codex-primary lineup. OpenAI's reasoning
+        # ceiling is xhigh (no "max" tier), so the codex roles pin xhigh.
+        # REQUIRES the codex coding-agent adapter (codex_agent.py + agents.yaml
+        # `codex` entry + implementation_cli strategy support) — that lives on
+        # feat/relbench-benchmark and is NOT in this worktree's code yet.
+        implementation_model: "gpt-5.6-sol"
+        implementation_cli: "codex"
         auth_mode: "oauth"
         gate_failure_policy: "skip"
         parent_policy: "best"
-        effort: "max"
+        effort: "xhigh"
         ideation_timeout: 1500
         implementation_timeout: 7200
         ideation_gates: ["experiment_history", "repo_memory"]
@@ -39,8 +46,8 @@ modes:
           effort: "max"
           timeout: 600
         ideation_selector:
-          cli: "claude_code"
-          model: "claude-opus-4-8"
+          cli: "codex"
+          model: "gpt-5.6-sol"
           effort: "xhigh"
         session_env_defaults:
           BASH_DEFAULT_TIMEOUT_MS: "900000"
@@ -84,21 +91,21 @@ modes:
       jitter: true
 
     coding_agent:
-      type: "claude_code"
-      model: "claude-opus-4-8"
-      debug_model: "claude-opus-4-8"
+      type: "codex"
+      model: "gpt-5.6-sol"
+      debug_model: "gpt-5.6-sol"
       agent_specific:
-        auth_mode: "oauth"
+        # codex authenticates via ~/.codex/auth.json (not oauth); OPENAI_API_KEY
+        # is stripped from the child env by the adapter.
         effort: "xhigh"
         streaming: true
         timeout: 7200
 
     feedback_generator:
-      type: "claude_code"
-      model: "claude-opus-4-8"
-      debug_model: "claude-opus-4-8"
+      type: "codex"
+      model: "gpt-5.6-sol"
+      debug_model: "gpt-5.6-sol"
       agent_specific:
-        auth_mode: "oauth"
         effort: "xhigh"
         streaming: true
         timeout: 900
