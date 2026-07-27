@@ -994,6 +994,19 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
                 _policy(settings).supervisor_limits.termination_grace_seconds
                 * 1_000_000_000
             ),
+            supervisor_user_id=(
+                cross_run_settings.launch.coding_agent_supervisor_user_id
+            ),
+            supervisor_group_id=(
+                cross_run_settings.launch.coding_agent_supervisor_group_id
+            ),
+            provider_user_id=(cross_run_settings.launch.coding_agent_provider_user_id),
+            provider_group_id=(
+                cross_run_settings.launch.coding_agent_provider_group_id
+            ),
+            landlock_abi_version=(
+                cross_run_settings.launch.coding_agent_landlock_abi_version
+            ),
             workspace_access=RunFrontierWorkspaceAccess.READ_ONLY,
             workspace_git_branch=(cross_run_settings.launch.workspace_git_branch),
             git_commit_author_name=(cross_run_settings.github.commit_author_name),

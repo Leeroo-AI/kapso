@@ -136,6 +136,21 @@ Final validation passes 118 focused consumer/CLI/prior-gate tests and 1,564
 broad affected tests with one intentional skip in 48m30s. Black, source
 compilation, and diff checks pass; independent correctness and environment/Git
 reviews found no remaining P0–P2 defect.
+An explicitly inactive provider-sandbox primitive is now implemented for the
+pinned Linux/amd64 composition. It binds only the request-derived preflight or
+provider argv, replaces the supervisor environment with one closed immutable
+projection, requires Landlock ABI 7 exactly, handles every ABI-7 filesystem
+right, scopes signals, applies no-new-privileges, and uses `setpriv` to erase
+supplementary groups and every capability while changing to a distinct provider
+UID/GID. The post-drop verifier requires all real/effective/saved/filesystem
+UID/GID values to equal the provider identity, all five capability sets to be
+zero, no-new-privileges to be set, and `PDEATHSIG=SIGKILL`. The primitive passes
+224 focused contract/config/runtime tests, including live Landlock path and
+signal denial, plus a real privileged-to-unprivileged `setpriv` verification on
+the production host. Independent review found no P0, but correctly forbids
+wiring the primitive through the current generic Docker policy: that policy
+runs UID 1000 with all capabilities dropped before the supervisor can perform
+the identity transition.
 This is a logical workload boundary, not yet production activation. Until the
 pinned image/composition runs the provider under a distinct filesystem/PID/user
 authority from the trusted consumer and MCP sidecar, same-UID access to the
@@ -145,6 +160,14 @@ the in-process group fence. The projected request-bound file is part of this
 consumer ABI but is not yet delivered by the current one-file activation topology.
 Exact provider egress and native credential homes remain pending with that
 composition.
+The activation composition must retain only the exact short-lived supervisor
+capabilities needed for UID/GID and bounding-set transition, prove the resulting
+zero-capability provider inside the real pinned image, and then make the
+provider-owned workspace a disposable `.git`-free scratch tree. Landlock is not
+a substitute for this copy because it does not mediate every metadata mutation.
+Prepared filesystem identities must be descriptor-retained through restriction;
+the current path-opening rule builder is inactive scaffolding, not trusted
+activation authority.
 The framework-owned credential broker and pre-release expiry path are also
 implemented. The broker response transfers secret bytes into coordinator-private
 single-use authority before adapter access. Before broker issue, credential

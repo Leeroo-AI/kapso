@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Final
 
+CODING_AGENT_LANDLOCK_POLICY_ABI_VERSION = 7
+
 _SUPPORTED_EFFORTS: Final = {
     "codex": frozenset({"minimal", "low", "medium", "high", "xhigh"}),
     "claude_code": frozenset({"low", "medium", "high", "xhigh", "max"}),
@@ -40,6 +42,7 @@ def coding_agent_supported_tools(
 
 
 __all__ = [
+    "CODING_AGENT_LANDLOCK_POLICY_ABI_VERSION",
     "coding_agent_supported_efforts",
     "coding_agent_supported_tools",
 ]

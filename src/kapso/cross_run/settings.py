@@ -15,6 +15,7 @@ from kapso.cross_run.canonical import (
     tree_or_blob_digest,
 )
 from kapso.cross_run.coding_agent_compatibility import (
+    CODING_AGENT_LANDLOCK_POLICY_ABI_VERSION,
     coding_agent_supported_efforts,
     coding_agent_supported_tools,
 )
@@ -1613,6 +1614,11 @@ class LaunchSettings(StrictContract):
     coding_agent_provider_output_size_bytes: int
     coding_agent_provider_diagnostic_size_bytes: int
     coding_agent_prior_knowledge_audit_size_bytes: int
+    coding_agent_supervisor_user_id: int
+    coding_agent_supervisor_group_id: int
+    coding_agent_provider_user_id: int
+    coding_agent_provider_group_id: int
+    coding_agent_landlock_abi_version: int
     run_action_store_size_bytes: int
     run_action_staging_entry_limit: int
     run_action_projection_size_bytes: int
@@ -1831,6 +1837,10 @@ class LaunchSettings(StrictContract):
                 self.coding_agent_prior_knowledge_audit_size_bytes,
                 "coding_agent_prior_knowledge_audit_size_bytes",
             ),
+            (
+                self.coding_agent_landlock_abi_version,
+                "coding_agent_landlock_abi_version",
+            ),
             (self.run_action_store_size_bytes, "run_action_store_size_bytes"),
             (
                 self.run_action_staging_entry_limit,
@@ -1838,6 +1848,43 @@ class LaunchSettings(StrictContract):
             ),
         ):
             _require_positive(value, f"launch.{name}")
+        for value, name in (
+            (
+                self.coding_agent_supervisor_user_id,
+                "coding_agent_supervisor_user_id",
+            ),
+            (
+                self.coding_agent_supervisor_group_id,
+                "coding_agent_supervisor_group_id",
+            ),
+            (
+                self.coding_agent_provider_user_id,
+                "coding_agent_provider_user_id",
+            ),
+            (
+                self.coding_agent_provider_group_id,
+                "coding_agent_provider_group_id",
+            ),
+        ):
+            if type(value) is not int or not 0 < value <= 2_147_483_647:
+                raise CrossRunConfigurationError(
+                    f"launch.{name} must be a positive Linux identity"
+                )
+        if (
+            self.coding_agent_supervisor_user_id == self.coding_agent_provider_user_id
+            or self.coding_agent_supervisor_group_id
+            == self.coding_agent_provider_group_id
+        ):
+            raise CrossRunConfigurationError(
+                "launch coding-agent supervisor and provider identities must differ"
+            )
+        if (
+            self.coding_agent_landlock_abi_version
+            != CODING_AGENT_LANDLOCK_POLICY_ABI_VERSION
+        ):
+            raise CrossRunConfigurationError(
+                "launch coding-agent Landlock ABI differs from the implemented policy"
+            )
         if (
             self.coding_agent_response_schema_size_bytes
             >= self.coding_agent_cli_argument_size_bytes

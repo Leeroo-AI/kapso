@@ -299,6 +299,18 @@ def test_coding_agent_schema_bound_must_fit_one_pinned_claude_argument():
         CrossRunSettings.from_dict(raw)
 
 
+@pytest.mark.parametrize("abi_version", (6, 8))
+def test_coding_agent_landlock_abi_must_match_the_implemented_policy(abi_version):
+    raw = copy.deepcopy(load_config(CANONICAL_CONFIG_PATH)["cross_run"])
+    raw["launch"]["coding_agent_landlock_abi_version"] = abi_version
+
+    with pytest.raises(
+        CrossRunConfigurationError,
+        match="differs from the implemented policy",
+    ):
+        CrossRunSettings.from_dict(raw)
+
+
 @pytest.mark.parametrize("stage", ("source_run_replay", "release_matrix"))
 def test_task_evaluation_grace_must_fit_each_task_evaluator(stage):
     raw = copy.deepcopy(load_config(CANONICAL_CONFIG_PATH)["cross_run"])

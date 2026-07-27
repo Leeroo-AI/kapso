@@ -14,6 +14,7 @@ from kapso.cross_run.canonical import (
     tree_or_blob_digest,
 )
 from kapso.cross_run.coding_agent_compatibility import (
+    CODING_AGENT_LANDLOCK_POLICY_ABI_VERSION,
     coding_agent_supported_efforts,
 )
 from kapso.cross_run.contracts import StrictContract
@@ -33,7 +34,6 @@ CODING_AGENT_REQUEST_PROTOCOL_VERSION = "kapso.run_action.coding_agent_request.v
 CODING_AGENT_RESULT_PROTOCOL_VERSION = "kapso.run_action.coding_agent_result.v1"
 CODING_AGENT_SCHEMA_PROTOCOL_VERSION = "json-schema.draft-2020-12"
 CODING_AGENT_NATIVE_TOOL_POLICY_VERSION = "kapso.coding_agent_native_tools.v1"
-
 _INTERPRETATION_POLICY_NAMESPACE = "run-action-coding-agent-interpretation-policy"
 _OPERATION_ID_PATTERN = re.compile(r"^agent_call_[0-9a-f]{32}$")
 _DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -102,6 +102,11 @@ class CodingAgentInterpretationPolicy(StrictContract):
     web_search_enabled: bool
     timeout_nanoseconds: int
     termination_grace_nanoseconds: int
+    supervisor_user_id: int
+    supervisor_group_id: int
+    provider_user_id: int
+    provider_group_id: int
+    landlock_abi_version: int
     workspace_access: RunFrontierWorkspaceAccess
     workspace_git_branch: str
     git_commit_author_name: str
@@ -169,6 +174,30 @@ class CodingAgentInterpretationPolicy(StrictContract):
         if self.termination_grace_nanoseconds >= self.timeout_nanoseconds:
             raise RunActionCodingAgentContractError(
                 "coding-agent termination grace must be below its timeout"
+            )
+        for value, name in (
+            (self.supervisor_user_id, "coding-agent supervisor user ID"),
+            (self.supervisor_group_id, "coding-agent supervisor group ID"),
+            (self.provider_user_id, "coding-agent provider user ID"),
+            (self.provider_group_id, "coding-agent provider group ID"),
+        ):
+            if type(value) is not int or not 0 < value <= 2_147_483_647:
+                raise RunActionCodingAgentContractError(
+                    f"{name} must be a positive Linux identity"
+                )
+        if (
+            self.supervisor_user_id == self.provider_user_id
+            or self.supervisor_group_id == self.provider_group_id
+        ):
+            raise RunActionCodingAgentContractError(
+                "coding-agent supervisor and provider identities must differ"
+            )
+        if (
+            type(self.landlock_abi_version) is not int
+            or self.landlock_abi_version != CODING_AGENT_LANDLOCK_POLICY_ABI_VERSION
+        ):
+            raise RunActionCodingAgentContractError(
+                "coding-agent Landlock ABI differs from the implemented policy"
             )
         if not isinstance(self.workspace_git_branch, str):
             raise RunActionCodingAgentContractError(

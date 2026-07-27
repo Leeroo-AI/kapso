@@ -71,6 +71,7 @@ dev = [
 [project.scripts]
 kapso = "kapso.cli:main"
 kapso-coding-agent-consumer = "kapso.cross_run.launch.run_action_coding_agent_consumer:main"
+kapso-run-action-coding-agent-provider-sandbox = "kapso.cross_run.launch.run_action_coding_agent_runtime:main"
 kapso-prior-knowledge-mcp = "kapso.gated_mcp.prior_knowledge_cli:main"
 expert-mle = "benchmarks.mle.runner:main"
 expert-ale = "benchmarks.ale.runner:main"
