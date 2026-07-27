@@ -714,10 +714,18 @@ routes while the workload itself proves the final mount is unwritable.
 Independent adversarial review reproduced 264 focused tests and found no P0–P2
 issue.
 
-The next slice is final production-adapter composition.
-Provider-specific credential consumers and network egress remain explicit
-composition work; Docker is currently network-`NONE`, so this checkpoint does
-not claim an in-container paid model call.
+The provider-native CLI projection is now closed and dependency-pure. It fixes
+the Codex 0.144.1 and Claude 2.1.220 commands, requires an exact no-spend version
+preflight, keeps full prompts on standard input, validates provider-compatible
+schemas locally, reconciles lifecycle/usage/cost evidence, and retains complete
+event/diagnostic digests. A live Claude envelope probe cost `$0.110787`; 302
+focused CLI/contract/schema/interpreter/settings tests pass. Independent review
+found no P0 and confirmed its semantic findings closed.
+
+The next slice is the fixed-path consumer and pinned run-action image, followed
+by provider-specific credential consumption and network egress. Docker is
+currently network-`NONE`, so this checkpoint does not claim an in-container paid
+model call.
 
 ## Plan-maintenance protocol
 

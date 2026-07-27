@@ -1609,6 +1609,7 @@ class LaunchSettings(StrictContract):
     run_action_request_size_bytes: int
     run_action_result_size_bytes: int
     coding_agent_response_schema_size_bytes: int
+    coding_agent_cli_argument_size_bytes: int
     coding_agent_provider_output_size_bytes: int
     coding_agent_provider_diagnostic_size_bytes: int
     run_action_store_size_bytes: int
@@ -1814,6 +1815,10 @@ class LaunchSettings(StrictContract):
                 "coding_agent_response_schema_size_bytes",
             ),
             (
+                self.coding_agent_cli_argument_size_bytes,
+                "coding_agent_cli_argument_size_bytes",
+            ),
+            (
                 self.coding_agent_provider_output_size_bytes,
                 "coding_agent_provider_output_size_bytes",
             ),
@@ -1828,6 +1833,14 @@ class LaunchSettings(StrictContract):
             ),
         ):
             _require_positive(value, f"launch.{name}")
+        if (
+            self.coding_agent_response_schema_size_bytes
+            >= self.coding_agent_cli_argument_size_bytes
+        ):
+            raise CrossRunConfigurationError(
+                "launch coding-agent response-schema bound exceeds the pinned "
+                "Claude argument limit"
+            )
         if self.run_action_store_entry_limit <= self.run_action_operation_limit:
             raise CrossRunConfigurationError(
                 "launch action-store entry bound must exceed its operation bound"

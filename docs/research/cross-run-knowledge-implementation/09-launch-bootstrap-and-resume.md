@@ -85,6 +85,19 @@ provider-neutral tool allowlist that Codex cannot enforce. It also bounds the
 response schema, provider event and diagnostic streams, workspace scan, and
 canonical result. Results preserve exact provider-stream digests and distinguish
 reported cached-input and reasoning-output usage when the CLI exposes them.
+The provider-native projection is also implemented as one pure closed boundary.
+It fixes the Codex and Claude argv, keeps the complete prompt on standard input,
+disables ambient sessions/configuration and undeclared web search, and admits no
+caller-supplied executable or path. A no-provider preflight requires the exact
+pinned executable/version output before model spend, and the configured schema
+bound fits one Linux Claude argument. Codex success requires one ordered JSONL
+thread/turn lifecycle and an exact final-message/file join. Claude success
+requires its structured/text join, zero permission denials, preauthorizes only
+the request-bound prior-knowledge tools, rejects undeclared search/fetch usage,
+normalizes total versus cached-read input, and exactly reconciles total decimal
+cost with per-model costs.
+Both paths revalidate the structured object locally and retain digests of the
+complete provider event and diagnostic streams.
 The framework-owned credential broker and pre-release expiry path are also
 implemented. The broker response transfers secret bytes into coordinator-private
 single-use authority before adapter access. Before broker issue, credential
@@ -1600,9 +1613,10 @@ chain, including source and admitted Git closure digests, whose final identity
 must equal the live workspace. Resume can now classify and reconcile each
 nonterminal prefix without blindly reinvoking a committed provider. The
 network-free supervisor and self-contained coding-agent result boundary are
-concrete; provider-native CLI consumption, exact egress, native credential
-consumption, API composition, and execution-permit OS isolation remain required
-before paid-provider activation.
+concrete, as is the pure provider-native CLI projection. Its fixed-path consumer,
+pinned CLI image, exact egress, native credential consumption, API composition,
+and execution-permit OS isolation remain required before paid-provider
+activation.
 
 ## Failure and trust behavior
 

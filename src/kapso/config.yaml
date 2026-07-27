@@ -409,7 +409,8 @@ cross_run:
     run_action_process_snapshot_size_bytes: 1048576
     run_action_request_size_bytes: 268435456
     run_action_result_size_bytes: 268435456
-    coding_agent_response_schema_size_bytes: 262144
+    coding_agent_response_schema_size_bytes: 65536
+    coding_agent_cli_argument_size_bytes: 131072
     coding_agent_provider_output_size_bytes: 16777216
     coding_agent_provider_diagnostic_size_bytes: 16777216
     run_action_store_size_bytes: 107374182400
