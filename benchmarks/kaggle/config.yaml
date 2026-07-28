@@ -13,6 +13,14 @@ default_mode: KAGGLE
 
 modes:
   KAGGLE:
+    # Launch defaults for task 1 and task 2 (CLI --hours / --node-expansion
+    # override these). k=8 fans out 8 implementation lanes per round; the runner
+    # pins one GPU per lane (CUDA_VISIBLE_DEVICES 0..7), so k=8 assumes an
+    # 8-GPU box — the hardware/lane strategy is tuned at launch, not here.
+    run_defaults:
+      hours: 1.75
+      node_expansion: 8
+
     search_strategy:
       type: "generic"
       params:

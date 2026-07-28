@@ -189,7 +189,8 @@ def main():
         description="Run Kapso on a Kaggle code competition")
     parser.add_argument("--root", required=True,
                         help="Run root from preflight.py")
-    parser.add_argument("--hours", type=float, default=2.0)
+    parser.add_argument("--hours", type=float, default=None,
+                        help="Run wall-clock hours (default: config run_defaults.hours)")
     parser.add_argument("--guard-minutes", type=int, default=None)
     parser.add_argument("--iterations", type=int, default=20)
     parser.add_argument("--mode", default="KAGGLE")
@@ -199,7 +200,8 @@ def main():
     parser.add_argument("--skip-final-eval", action="store_true")
     parser.add_argument("--final-eval-only", action="store_true")
     parser.add_argument("--node-expansion", type=int, default=None,
-                        help="K parallel implementation lanes per round")
+                        help="K parallel implementation lanes per round "
+                             "(default: config run_defaults.node_expansion)")
     parser.add_argument("--shared-cache-dir", default=None)
     args = parser.parse_args()
 
@@ -227,12 +229,17 @@ def main():
 
     statement = open(statement_path, encoding="utf-8").read()
 
-    total_run_seconds = args.hours * 3600
+    run_defaults = mode_cfg["run_defaults"]
+    hours = args.hours if args.hours is not None else run_defaults["hours"]
+    node_expansion = (args.node_expansion if args.node_expansion is not None
+                      else run_defaults["node_expansion"])
+
+    total_run_seconds = hours * 3600
     deadline_ts = time.time() + total_run_seconds
     knobs = mode_cfg["session_budget"]
     guard_minutes = (args.guard_minutes if args.guard_minutes is not None
                      else knobs["guard_minutes"])
-    budget_minutes = max(5, int(args.hours * 60) - guard_minutes)
+    budget_minutes = max(5, int(hours * 60) - guard_minutes)
     reserve_minutes = min(
         knobs["finalization_reserve_max_minutes"],
         max(
@@ -255,9 +262,9 @@ def main():
 
     config_path = build_runtime_config(args.mode, task_dir, session_timeouts,
                                        shared_cache_dir=args.shared_cache_dir,
-                                       node_expansion=args.node_expansion)
+                                       node_expansion=node_expansion)
 
-    print(f"root={root} competition={competition}")
+    print(f"root={root} competition={competition} K={node_expansion} hours={hours}")
     print(f"budget={budget_minutes} min (guard={guard_minutes} min, "
           f"finalization reserve={reserve_minutes:.0f} min), "
           f"iterations<={args.iterations}")
@@ -299,7 +306,7 @@ def main():
 
     summary = {
         "root": root,
-        "hours": args.hours,
+        "hours": hours,
         "competition": competition,
         "kernel_present": os.path.isfile(
             os.path.join(task_dir, "submission", "kernel", "script.py")),
