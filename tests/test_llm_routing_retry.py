@@ -66,9 +66,8 @@ def test_model_router_supports_roles_partial_overrides_and_explicit_models():
     assert router.resolve("utility") == "vendor/cheap"
     assert router.resolve("reasoning") == "gpt-5-mini"
     assert router.resolve("vendor/custom") == "vendor/custom"
-    assert router.resolve("gpt-4.1", default_role="web_search") == (
-        "vendor/search"
-    )
+    assert router.resolve("web_search", default_role="web_search") == "vendor/search"
+    assert router.resolve("gpt-4.1", default_role="web_search") == "gpt-4.1"
     assert router.to_dict()["web_search"] == "vendor/search"
 
 
@@ -300,7 +299,7 @@ def test_parallel_completion_retries_only_the_failed_model(monkeypatch):
     assert backend.get_cumulative_cost() == pytest.approx(0.2)
 
 
-def test_web_search_uses_configured_role_and_legacy_alias(monkeypatch):
+def test_web_search_uses_configured_role(monkeypatch):
     calls = []
 
     def fake_completion(**kwargs):
@@ -311,7 +310,7 @@ def test_web_search_uses_configured_role_and_legacy_alias(monkeypatch):
     backend = LLMBackend(models={"web_search": "vendor/search"})
 
     result = backend.llm_completion_with_web_search(
-        model="gpt-4.1-mini",
+        model="web_search",
         messages=[{"role": "user", "content": "latest"}],
         search_context_size="high",
         temperature=0,

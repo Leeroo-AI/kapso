@@ -180,35 +180,6 @@ def test_invalid_auth_mode_is_rejected_before_credential_checks():
         ClaudeCodeCodingAgent(make_config(auth_mode="magic"))
 
 
-@pytest.mark.parametrize(
-    ("use_bedrock", "env_name", "expected"),
-    [
-        (True, "AWS_PROFILE", "bedrock"),
-        (False, "ANTHROPIC_API_KEY", "api_key"),
-    ],
-)
-def test_use_bedrock_alias_preserves_behavior_and_warns(
-    monkeypatch, use_bedrock, env_name, expected
-):
-    monkeypatch.setenv(env_name, "configured")
-
-    with pytest.warns(DeprecationWarning, match="use_bedrock is deprecated"):
-        agent = ClaudeCodeCodingAgent(make_config(use_bedrock=use_bedrock))
-
-    assert agent._auth_mode == expected
-
-
-def test_explicit_auth_mode_wins_when_deprecated_alias_is_also_present(monkeypatch):
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic")
-
-    with pytest.warns(DeprecationWarning):
-        agent = ClaudeCodeCodingAgent(
-            make_config(auth_mode="api_key", use_bedrock=True)
-        )
-
-    assert agent._auth_mode == "api_key"
-
-
 def test_env_overrides_participate_in_validation_and_resolution():
     agent = ClaudeCodeCodingAgent(
         make_config(

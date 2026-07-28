@@ -87,13 +87,6 @@ def _prepare_effort(
     kwargs.setdefault("max_tokens", 16384)
     return None, kwargs
 
-# These inputs were historically rewritten by the web-search methods. They
-# remain aliases, but now target the configured web_search role.
-LEGACY_WEB_SEARCH_ALIASES = frozenset(
-    {"gpt-5", "gpt-5.1", "gpt-5-mini", "gpt-4.1", "gpt-4.1-mini"}
-)
-
-
 class ModelRouter:
     """Resolve semantic model roles while preserving explicit model strings.
 
@@ -152,11 +145,6 @@ class ModelRouter:
         requested = model.strip()
         if requested in MODEL_ROLES:
             return self._routes[requested]
-        if (
-            default_role == "web_search"
-            and requested in LEGACY_WEB_SEARCH_ALIASES
-        ):
-            return self._routes["web_search"]
         return requested
 
     def effort_for(

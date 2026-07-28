@@ -409,7 +409,6 @@ def run_test():
             config_path=config_path,
             mode="BEDROCK_TEST",
             coding_agent=None,  # Use config, not override
-            is_kg_active=False,
             workspace_dir=workspace_dir,  # Use separate workspace subdirectory
             starting_repo_path=str(SEED_REPO),
         )

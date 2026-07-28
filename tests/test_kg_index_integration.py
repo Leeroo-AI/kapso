@@ -542,11 +542,7 @@ class TestEvolveWithKGGraphSearch:
     
     def test_evolve_kg_provides_context(self, wiki_dir, temp_index_dir, config_path):
         """
-        Test that KG search results are passed to the orchestrator.
-        
-        This test verifies the integration between Kapso.knowledge_search
-        and the OrchestratorAgent by checking that is_kg_active=True when
-        KG is loaded.
+        Test that an indexed KG is available through Kapso knowledge search.
         """
         from kapso.kapso import Kapso
         

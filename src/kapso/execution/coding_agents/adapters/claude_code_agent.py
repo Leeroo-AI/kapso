@@ -28,7 +28,6 @@ import subprocess
 import sys
 import tempfile
 import time
-import warnings
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -82,7 +81,6 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
     - allowed_tools: ["Edit", "Read", "Write", "Bash"] (default)
     - streaming: True (default) - stream output live to terminal for visibility
     - auth_mode: Authentication mode: auto (default), oauth, api_key, or bedrock
-    - use_bedrock: Deprecated compatibility alias. True selects bedrock; False selects api_key.
     - aws_region: AWS region for Bedrock (default: "us-east-1")
     - append_system_prompt: Optional string appended to Claude Code's default system prompt
       Useful for injecting workspace restrictions (e.g. filesystem sandboxing)
@@ -148,8 +146,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         # Show heartbeat messages during long operations (default False to reduce noise)
         self._show_heartbeat = config.agent_specific.get("show_heartbeat", False)
         
-        # Authentication settings. ``use_bedrock`` remains an input alias for
-        # compatibility, but all runtime behavior is based on the resolved mode.
+        # Authentication behavior is based on one explicit mode.
         self._requested_auth_mode = self._get_requested_auth_mode(config.agent_specific)
         self._auth_mode = self._requested_auth_mode
         self._use_bedrock = self._auth_mode == "bedrock"
@@ -235,24 +232,9 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
             )
 
     def _get_requested_auth_mode(self, agent_specific: Dict[str, Any]) -> str:
-        """Normalize the new auth setting and its deprecated alias."""
+        """Normalize the configured authentication mode."""
         explicit_mode = agent_specific.get("auth_mode")
-        has_alias = "use_bedrock" in agent_specific
-
-        if has_alias:
-            warnings.warn(
-                "Claude Code agent_specific.use_bedrock is deprecated; use "
-                "agent_specific.auth_mode instead.",
-                DeprecationWarning,
-                stacklevel=3,
-            )
-
-        if explicit_mode is not None:
-            mode = str(explicit_mode).strip().lower()
-        elif has_alias:
-            mode = "bedrock" if bool(agent_specific["use_bedrock"]) else "api_key"
-        else:
-            mode = "auto"
+        mode = "auto" if explicit_mode is None else str(explicit_mode).strip().lower()
 
         if mode not in self.AUTH_MODES:
             choices = ", ".join(sorted(self.AUTH_MODES))
@@ -265,9 +247,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         if self._requested_auth_mode != "auto":
             return self._requested_auth_mode
 
-        # Keep Bedrock first for compatibility with Kapso's existing AWS-first
-        # deployments, then preserve direct API-key behavior, then use a CLI
-        # subscription login.
+        # Prefer the configured AWS authority, then a direct API key, then a CLI login.
         if self._has_bedrock_credentials(env):
             return "bedrock"
         if env.get("ANTHROPIC_API_KEY"):
@@ -516,7 +496,6 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                 "model": model,
                 "planning_mode": self._planning_mode,
                 "auth_mode": self._auth_mode,
-                "use_bedrock": self._use_bedrock,
             }
         )
     
@@ -876,7 +855,6 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                     "elapsed_seconds": elapsed,
                     "streaming": True,
                     "auth_mode": self._auth_mode,
-                    "use_bedrock": self._use_bedrock,
                     "tool_call_count": tool_call_count,
                         "last_tool": last_tool,
                     "input_tokens": input_tokens,

@@ -178,20 +178,6 @@ AWS_REGION=us-east-1
 
 `AWS_BEARER_TOKEN_BEDROCK` or `AWS_PROFILE` can be used instead of access keys.
 
-### Compatibility migration
-
-`use_bedrock` remains supported for one compatibility period and emits a
-`DeprecationWarning`:
-
-```yaml
-agent_specific:
-  use_bedrock: true   # same as auth_mode: bedrock
-  # use_bedrock: false  # same as auth_mode: api_key
-```
-
-When both keys are present, `auth_mode` wins. New configurations should only
-use `auth_mode`.
-
 ## Gemini
 
 Google Gemini SDK for fast generation.

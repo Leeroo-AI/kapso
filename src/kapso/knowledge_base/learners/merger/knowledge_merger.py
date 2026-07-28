@@ -146,7 +146,6 @@ class KnowledgeMerger:
                 - kg_index_path: Path to .index file for KG backend config
                 - timeout: Agent timeout in seconds (default: 3600)
                 - auth_mode: Claude authentication mode (auto, oauth, api_key, or bedrock)
-                - use_bedrock: Deprecated compatibility alias (default remains api_key)
                 - aws_region: AWS region for Bedrock
                 - model: Model ID override
         """
@@ -438,12 +437,10 @@ class KnowledgeMerger:
         # Model from config (should be provided via config.yaml)
         model = self._agent_config.get("model")
         
-        if self._agent_config.get("auth_mode") is not None:
-            agent_specific["auth_mode"] = self._agent_config["auth_mode"]
-        elif "use_bedrock" in self._agent_config:
-            agent_specific["use_bedrock"] = self._agent_config["use_bedrock"]
-        else:
-            agent_specific["auth_mode"] = "api_key"
+        agent_specific["auth_mode"] = self._agent_config.get(
+            "auth_mode",
+            "api_key",
+        )
         if self._agent_config.get("aws_region"):
             agent_specific["aws_region"] = self._agent_config["aws_region"]
         
@@ -458,7 +455,7 @@ class KnowledgeMerger:
         self._agent.initialize(str(workspace))
         logger.info(
             "Initialized Claude Code agent (auth=%s, model=%s, mcp=True)",
-            agent_specific.get("auth_mode", agent_specific.get("use_bedrock")),
+            agent_specific["auth_mode"],
             model,
         )
     

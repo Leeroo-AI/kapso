@@ -319,12 +319,7 @@ coding_agent:
 - `bedrock` validates AWS credentials and sets provider flags.
 - `api_key` requires `ANTHROPIC_API_KEY`.
 - `oauth` relies on the Claude CLI's stored login.
-- `auto` preserves existing Bedrock compatibility, then API-key behavior, then
-  CLI credentials.
-
-`use_bedrock` remains a deprecated compatibility alias for at least one
-release. The generic default is not switched to a developer-specific OAuth
-profile; subscription use is documented as an optional profile.
+- `auto` checks Bedrock, API-key, and CLI credentials in that order.
 
 OAuth discovery uses the supported `claude auth status` command rather than
 reading credential files or OS keychains. Per-agent `env_overrides` participate
@@ -338,7 +333,6 @@ the child environment without mutating `os.environ`.
 - OAuth works with either a stored CLI login or `CLAUDE_CODE_OAUTH_TOKEN`.
 - Credentials supplied through `env_overrides` are validated and forwarded.
 - Missing credentials and unknown modes fail before an experiment starts.
-- Both values of `use_bedrock` preserve their previous meaning and warn.
 
 ## Milestone 7: Capability-aware gates
 
@@ -438,15 +432,6 @@ runs in a temporary detached worktree of the selected ref.
 - Ideation and its RepoMemory MCP gate inspect the selected detached ref.
 - Checkpoints persist the policy and reject inconsistent lineage or policy
   changes; older state defaults to historical `best` behavior.
-
-## Compatibility and migration
-
-- Existing successful `evolve()` calls retain internal-score selection.
-- Existing `use_bedrock` configuration remains supported during deprecation.
-- New experiment-record fields use empty defaults when older JSON history is
-  loaded.
-- Legacy checkpoints are read only during explicit trusted migration.
-- No existing default timeout or provider is changed by this program.
 
 ## Testing policy
 

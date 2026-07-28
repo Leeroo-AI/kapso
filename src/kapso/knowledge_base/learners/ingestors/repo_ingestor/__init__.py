@@ -127,7 +127,6 @@ class RepoIngestor(Ingestor):
                 - model: Model ID (e.g. "us.anthropic.claude-opus-4-5-20251101-v1:0")
                 - timeout: Claude Code timeout in seconds (default: 1800)
                 - auth_mode: Claude authentication mode (auto, oauth, api_key, or bedrock)
-                - use_bedrock: Deprecated compatibility alias for auth_mode
                 - aws_region: AWS region for Bedrock (default: "us-east-1")
                 - cleanup: Whether to cleanup cloned repos (default: True)
                 - wiki_dir: Output directory for wiki pages (default: data/wikis)
@@ -170,7 +169,6 @@ class RepoIngestor(Ingestor):
         
         Supports passing through agent_specific settings from params:
             - auth_mode: Claude authentication mode (auto, oauth, api_key, or bedrock)
-            - use_bedrock: Deprecated compatibility alias for auth_mode
             - aws_region: AWS region for Bedrock (default: "us-east-1")
             - model: Model name (required, e.g. "us.anthropic.claude-opus-4-5-20251101-v1:0")
         """
@@ -186,13 +184,7 @@ class RepoIngestor(Ingestor):
         # Model from params (should be provided via config.yaml)
         model = self.params.get("model")
         
-        if self.params.get("auth_mode") is not None:
-            agent_specific["auth_mode"] = self.params["auth_mode"]
-        elif "use_bedrock" in self.params:
-            agent_specific["use_bedrock"] = self.params["use_bedrock"]
-        else:
-            # Preserve the pre-auth_mode default for this component.
-            agent_specific["auth_mode"] = "api_key"
+        agent_specific["auth_mode"] = self.params.get("auth_mode", "api_key")
         if self.params.get("aws_region"):
             agent_specific["aws_region"] = self.params["aws_region"]
         
@@ -209,7 +201,7 @@ class RepoIngestor(Ingestor):
         logger.info(
             "Initialized Claude Code agent for %s (auth=%s, model=%s)",
             workspace,
-            agent_specific.get("auth_mode", agent_specific.get("use_bedrock")),
+            agent_specific["auth_mode"],
             model,
         )
     

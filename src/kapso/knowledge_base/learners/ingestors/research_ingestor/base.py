@@ -74,7 +74,6 @@ class ResearchIngestorBase(Ingestor):
                 - model: Model ID (e.g. "us.anthropic.claude-opus-4-5-20251101-v1:0")
                 - timeout: Agent timeout in seconds (default: 600)
                 - auth_mode: Claude authentication mode (auto, oauth, api_key, or bedrock)
-                - use_bedrock: Deprecated compatibility alias (default remains api_key)
                 - aws_region: AWS region for Bedrock (default: "us-east-1")
                 - wiki_dir: Output directory (default: data/wikis)
                 - staging_subdir: Staging subdirectory (default: "_staging")
@@ -84,12 +83,9 @@ class ResearchIngestorBase(Ingestor):
         
         # Agent configuration
         self._timeout = self.params.get("timeout", 600)  # 10 minutes default
-        if self.params.get("auth_mode") is not None:
-            self._claude_auth_settings = {"auth_mode": self.params["auth_mode"]}
-        elif "use_bedrock" in self.params:
-            self._claude_auth_settings = {"use_bedrock": self.params["use_bedrock"]}
-        else:
-            self._claude_auth_settings = {"auth_mode": "api_key"}
+        self._claude_auth_settings = {
+            "auth_mode": self.params.get("auth_mode", "api_key")
+        }
         self._aws_region = self.params.get("aws_region", "us-east-1")
         self._model = self.params.get("model")
         

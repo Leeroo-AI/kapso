@@ -78,7 +78,6 @@ ingestor = IdeaIngestor(params={
 |-----------|---------|-------------|
 | `timeout` | 600 | Agent timeout in seconds |
 | `auth_mode` | `api_key` | Claude auth mode: `auto`, `oauth`, `api_key`, or `bedrock` |
-| `use_bedrock` | — | Deprecated compatibility alias for `auth_mode` |
 | `aws_region` | "us-east-1" | AWS region for Bedrock |
 | `model` | None | Model override (uses Sonnet by default) |
 | `wiki_dir` | "data/wikis" | Output directory for wiki pages |

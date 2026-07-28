@@ -1,14 +1,13 @@
 # Orchestrator Agent
 #
 # Main orchestrator that coordinates the experimentation loop.
-# Uses pluggable search strategies and knowledge retrievers.
+# Uses pluggable search strategies and knowledge search.
 #
 # In the new design:
 # - Developer agent builds evaluation in kapso_evaluation/
 # - Developer agent runs evaluation and reports results
 # - FeedbackGenerator decides when to stop
-# - ExperimentHistoryStore persists experiment results for MCP access
-# - Experiment history is accessed via MCP tools (not context managers)
+# - ExperimentHistoryStore persists the current run's executed results
 
 import os
 import re
@@ -132,7 +131,6 @@ class OrchestratorAgent:
         config_path: Path to benchmark-specific config.yaml file
         mode: Configuration mode to use (if None, uses default_mode from config)
         coding_agent: Coding agent to use (overrides config if specified)
-        is_kg_active: Whether to use the knowledge graph
         goal: The goal/objective for the evolve process
         iteration_evaluator: Optional callback for each finalized candidate Git
             ref. Metrics are observational; Generic reserves strict
@@ -146,7 +144,6 @@ class OrchestratorAgent:
         config_path: Optional[str] = None,
         mode: Optional[str] = None,
         coding_agent: Optional[str] = None,
-        is_kg_active: bool = False,
         knowledge_search: Optional[KnowledgeSearch] = None,
         workspace_dir: Optional[str] = None,
         resume: bool = False,
@@ -414,9 +411,7 @@ class OrchestratorAgent:
             self.knowledge_search = knowledge_search
             self._owns_knowledge_search = False
         else:
-            self.knowledge_search = self._create_knowledge_search(
-                is_kg_active=is_kg_active,
-            )
+            self.knowledge_search = self._create_knowledge_search()
             # We created it inside the orchestrator → we should close it.
             self._owns_knowledge_search = True
 
@@ -584,75 +579,23 @@ class OrchestratorAgent:
             )
         raise ValueError("evolution mode requires an explicit search strategy")
 
-    def _create_knowledge_search(
-        self,
-        is_kg_active: bool,
-    ) -> KnowledgeSearch:
+    def _create_knowledge_search(self) -> KnowledgeSearch:
         """
         Create knowledge search backend from config.
-
-        Args:
-            is_kg_active: Whether to enable knowledge graph
 
         Returns:
             Configured KnowledgeSearch instance
         """
         mode_config = self.mode_config
-
-        # Check for knowledge_search config (new format)
-        ks_config = mode_config.get("knowledge_search", {})
-
-        if ks_config:
-            resolved_config = dict(ks_config)
-            resolved_params = dict(resolved_config.get("params") or {})
-            resolved_params.setdefault("models", mode_config.get("models"))
-            resolved_params.setdefault("retry", mode_config.get("retry"))
-            resolved_config["params"] = resolved_params
-            return KnowledgeSearchFactory.create_from_config(resolved_config)
-
-        # Check for legacy knowledge_retriever config
-        kr_config = mode_config.get("knowledge_retriever", {})
-
-        if kr_config:
-            # Convert legacy config to new format
-            resolved_params = dict(kr_config.get("params") or {})
-            resolved_params.setdefault("models", mode_config.get("models"))
-            resolved_params.setdefault("retry", mode_config.get("retry"))
-            return KnowledgeSearchFactory.create_from_config(
-                {
-                    "type": "kg_llm_navigation",
-                    "enabled": kr_config.get("enabled", True),
-                    "params": resolved_params,
-                    "preset": kr_config.get("preset"),
-                }
-            )
-
-        # Check use_knowledge_graph flag
-        if "use_knowledge_graph" in mode_config:
-            kg_enabled = mode_config.get("use_knowledge_graph", False)
-            if kg_enabled or is_kg_active:
-                return KnowledgeSearchFactory.create(
-                    search_type="kg_llm_navigation",
-                    params={
-                        "models": mode_config.get("models"),
-                        "retry": mode_config.get("retry"),
-                    },
-                )
-            else:
-                return KnowledgeSearchFactory.create_null()
-
-        # Fall back to is_kg_active parameter
-        if is_kg_active:
-            return KnowledgeSearchFactory.create(
-                search_type="kg_llm_navigation",
-                params={
-                    "models": mode_config.get("models"),
-                    "retry": mode_config.get("retry"),
-                },
-            )
-
-        # Default: disabled
-        return KnowledgeSearchFactory.create_null()
+        knowledge_search = mode_config.get("knowledge_search")
+        if not isinstance(knowledge_search, dict) or not knowledge_search:
+            raise ValueError("mode requires an explicit knowledge_search configuration")
+        resolved_config = dict(knowledge_search)
+        resolved_params = dict(resolved_config.get("params") or {})
+        resolved_params.setdefault("models", mode_config.get("models"))
+        resolved_params.setdefault("retry", mode_config.get("retry"))
+        resolved_config["params"] = resolved_params
+        return KnowledgeSearchFactory.create_from_config(resolved_config)
 
     def _live_phase_costs(self) -> Dict[str, float]:
         """Attributed agent spend from nodes created in this process slice."""
