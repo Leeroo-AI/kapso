@@ -2335,6 +2335,7 @@ class ProductionValidationSettings(StrictContract):
     receipt_size_bytes: int
     github_write_smoke: bool
     embedding_smoke: bool
+    embedding_cosine_distance_tolerance: float
     coding_agent_smoke: bool
     task_smoke_timeout_seconds: int
 
@@ -2344,6 +2345,10 @@ class ProductionValidationSettings(StrictContract):
         _require_positive(
             self.receipt_size_bytes,
             "production_validation.receipt_size_bytes",
+        )
+        _require_positive(
+            self.embedding_cosine_distance_tolerance,
+            "production_validation.embedding_cosine_distance_tolerance",
         )
         _require_positive(
             self.task_smoke_timeout_seconds,

@@ -13,7 +13,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Mapping
 
 from kapso.core.config import load_effective_config
-from kapso.core.embedding_contracts import EmbeddingSettings
+from kapso.core.embedding_contracts import EmbeddingSettings, cosine_similarity
 from kapso.core.embedding_provider import OpenAIEmbeddingProvider
 from kapso.cross_run.canonical import (
     canonical_json_bytes,
@@ -778,19 +778,37 @@ def _embedding_smoke(
     second = provider.embed(tuple(values))
     first_identities = tuple(record.input_hash for record in first.records)
     second_identities = tuple(record.input_hash for record in second.records)
+    if first_identities != second_identities:
+        raise ProductionSmokeError("OpenAI embedding rebuild changed input identities")
+    cosine_distances = tuple(
+        max(0.0, 1.0 - cosine_similarity(first_record, second_record))
+        for first_record, second_record in zip(first.records, second.records)
+    )
+    maximum_cosine_distance = max(cosine_distances)
+    if (
+        maximum_cosine_distance
+        > settings.production_validation.embedding_cosine_distance_tolerance
+    ):
+        raise ProductionSmokeError(
+            "OpenAI embedding rebuild exceeded the configured cosine-distance "
+            "tolerance"
+        )
     first_vectors = tuple(record.vector for record in first.records)
     second_vectors = tuple(record.vector for record in second.records)
-    if first_identities != second_identities or first_vectors != second_vectors:
-        raise ProductionSmokeError(
-            "OpenAI embedding rebuild changed input identities or vectors"
-        )
     return {
         "provider": provider_settings.provider,
         "model": provider_settings.model,
         "dimensions": provider_settings.dimensions,
         "embedding_space_id": provider_settings.embedding_space_id.value,
         "input_hashes": first_identities,
-        "vector_digest": tree_or_blob_digest(canonical_json_bytes(first_vectors)),
+        "first_vector_digest": tree_or_blob_digest(canonical_json_bytes(first_vectors)),
+        "second_vector_digest": tree_or_blob_digest(
+            canonical_json_bytes(second_vectors)
+        ),
+        "maximum_cosine_distance": maximum_cosine_distance,
+        "cosine_distance_tolerance": (
+            settings.production_validation.embedding_cosine_distance_tolerance
+        ),
         "first_call_count": first.telemetry.call_count,
         "second_call_count": second.telemetry.call_count,
         "input_tokens": (first.telemetry.input_tokens + second.telemetry.input_tokens),

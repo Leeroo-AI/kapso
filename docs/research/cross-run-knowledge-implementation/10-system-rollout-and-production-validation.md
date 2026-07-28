@@ -223,6 +223,10 @@ ideation, task-adapter publication, expert E0 proposal, and exact E0 validation
 enrollment. Enrollment deliberately stops at the `contract_schema` evaluator
 transition: it proves the proposed candidate is the one durably entering the
 validation state machine, but it does not forge an evaluator decision.
+Embedding replay keeps input identities, embedding-space identity, dimensions,
+and response contracts exact while bounding live provider float drift with the
+configured cosine-distance tolerance; it does not claim bytewise provider
+determinism.
 
 Production has therefore **not** passed signed generic evaluator validation, E0
 publication, E1 proposal/publication, an E1/S1 production launch, concurrency,

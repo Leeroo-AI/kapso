@@ -507,6 +507,7 @@ cross_run:
     receipt_size_bytes: 16777216
     github_write_smoke: true
     embedding_smoke: true
+    embedding_cosine_distance_tolerance: 1.0e-5
     coding_agent_smoke: true
     task_smoke_timeout_seconds: 21600
 

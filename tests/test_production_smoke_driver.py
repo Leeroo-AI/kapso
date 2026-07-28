@@ -10,6 +10,12 @@ import pytest
 
 import kapso.cross_run.production_smoke as smoke_module
 from kapso.core.config import load_effective_config
+from kapso.core.embedding_contracts import (
+    EmbeddingBatch,
+    EmbeddingRecord,
+    EmbeddingTelemetry,
+    complete_input_hash,
+)
 from kapso.cross_run.canonical import (
     canonical_json_bytes,
     content_id,
@@ -39,6 +45,30 @@ from test_cross_run_retrieval import snapshot_and_index, source_fixture
 from test_expert_triggers import inspection_operation, trigger_packet, trigger_settings
 
 _CONFIG_PATH = "src/kapso/config.yaml"
+
+
+def _embedding_batch(settings, texts, vectors):
+    return EmbeddingBatch(
+        records=tuple(
+            EmbeddingRecord(
+                provider=settings.provider,
+                model=settings.model,
+                dimensions=settings.dimensions,
+                canonicalizer_version=settings.canonicalizer_version,
+                input_hash=complete_input_hash(value),
+                vector=vector,
+            )
+            for value, vector in zip(texts, vectors)
+        ),
+        telemetry=EmbeddingTelemetry(
+            provider=settings.provider,
+            model=settings.model,
+            call_count=1,
+            input_tokens=1,
+            duration_seconds=0.0,
+            cost_usd=None,
+        ),
+    )
 
 
 def test_selected_stages_append_one_canonical_replayable_receipt(
@@ -629,6 +659,57 @@ def test_preflight_evaluator_summary_exposes_missing_roots_without_keys():
         "missing_issuer_ids",
         "sealed_canary_trust_root",
     }
+
+
+@pytest.mark.parametrize(
+    ("second_vector_prefix", "passes"),
+    (
+        ((1.0, 0.001), True),
+        ((0.0, 1.0), False),
+    ),
+)
+def test_embedding_smoke_bounds_provider_drift_by_cosine_distance(
+    monkeypatch,
+    second_vector_prefix,
+    passes,
+):
+    settings = load_effective_config(_CONFIG_PATH, "GENERIC").cross_run
+    fixture, _fixture_digest = smoke_module._load_fixture(settings)
+    texts = tuple(fixture["embedding_inputs"])
+    dimensions = settings.knowledge.embeddings.dimensions
+    first_vector = (1.0, 0.0, *(0.0 for _ in range(dimensions - 2)))
+    second_vector = (
+        *second_vector_prefix,
+        *(0.0 for _ in range(dimensions - 2)),
+    )
+    batches = [
+        _embedding_batch(
+            settings.knowledge.embeddings,
+            texts,
+            (first_vector, first_vector),
+        ),
+        _embedding_batch(
+            settings.knowledge.embeddings,
+            texts,
+            (second_vector, second_vector),
+        ),
+    ]
+    provider = SimpleNamespace(embed=lambda _texts: batches.pop(0))
+    monkeypatch.setattr(
+        smoke_module,
+        "OpenAIEmbeddingProvider",
+        lambda _settings: provider,
+    )
+
+    if passes:
+        evidence = smoke_module._embedding_smoke(settings, fixture)
+        assert evidence["maximum_cosine_distance"] <= (
+            evidence["cosine_distance_tolerance"]
+        )
+        assert evidence["first_vector_digest"] != evidence["second_vector_digest"]
+    else:
+        with pytest.raises(ProductionSmokeError, match="cosine-distance tolerance"):
+            smoke_module._embedding_smoke(settings, fixture)
 
 
 @pytest.mark.parametrize("predecessor_has_episode", (False, True))
