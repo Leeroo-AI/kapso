@@ -33,10 +33,17 @@ load_dotenv()
 
 import yaml
 
+from kapso.core.config import compose_runtime_config, load_config
 from kapso.execution.orchestrator import OrchestratorAgent
 from benchmarks.posttrain.handler import PostTrainBenchHandler, ITERATION_EVAL_LIMITS
 
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.yaml")
+CANONICAL_CONFIG_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+    "src",
+    "kapso",
+    "config.yaml",
+)
 
 
 def parse_timer(task_dir: str):
@@ -121,9 +128,8 @@ def build_runtime_config(
     agent_env_strip: "list[str] | None" = None,
 ) -> str:
     """Write the per-run config: shaped session deadlines + model override."""
-    with open(CONFIG_PATH) as f:
-        config = yaml.safe_load(f)
-    mode_cfg = config["modes"][mode]
+    workload_config = load_config(CONFIG_PATH)
+    mode_cfg = workload_config["modes"][mode]
     params = mode_cfg["search_strategy"]["params"]
     params.update(session_timeouts)
     if coding_model:
@@ -144,6 +150,10 @@ def build_runtime_config(
                 agent_env_strip
             )
 
+    config = compose_runtime_config(
+        load_config(CANONICAL_CONFIG_PATH),
+        workload_config,
+    )
     runtime_dir = os.path.join(task_dir, ".kapso_runtime")
     os.makedirs(runtime_dir, exist_ok=True)
     runtime_path = os.path.join(runtime_dir, "config.yaml")

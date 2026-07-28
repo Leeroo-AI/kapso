@@ -171,6 +171,8 @@ def freeze_json(value: Any, name: str = "value") -> Any:
 
 def to_json_value(value: Any) -> Any:
     """Convert records and frozen JSON containers to plain JSON values."""
+    if isinstance(value, Enum):
+        return to_json_value(value.value)
     if value is None or isinstance(value, str) or isinstance(value, bool):
         return value
     if type(value) is int:
@@ -179,8 +181,6 @@ def to_json_value(value: Any) -> Any:
         if not math.isfinite(value):
             raise CanonicalizationError("canonical numbers must be finite")
         return value
-    if isinstance(value, Enum):
-        return to_json_value(value.value)
     if isinstance(value, datetime):
         if value.tzinfo != timezone.utc:
             raise CanonicalizationError("canonical datetime must use UTC")

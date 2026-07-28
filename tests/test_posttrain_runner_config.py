@@ -17,6 +17,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
 from benchmarks.posttrain.runner import build_runtime_config  # noqa: E402
+from kapso.core.config import load_effective_config  # noqa: E402
 
 SESSION_TIMEOUTS = {"implementation_timeout": 1800}
 
@@ -58,3 +59,23 @@ def test_runtime_config_has_only_the_canonical_ideation_profile(tmp_path):
     assert "idea_generation_model" not in params
     assert "ideation_timeout" not in params
     assert "ideation_ensemble" not in params
+
+
+def test_runtime_config_carries_the_typed_posttrain_binding(tmp_path):
+    path = build_runtime_config(
+        "POSTTRAIN", None, str(tmp_path), dict(SESSION_TIMEOUTS)
+    )
+
+    effective = load_effective_config(path, "POSTTRAIN")
+
+    assert effective.cross_run_binding.to_dict() == {
+        "scope_id": "ml_ai",
+        "task_family_id": "language_model_post_training",
+        "task_adapter_id": "posttrain",
+    }
+    assert effective.cross_run.scopes.resolve("ml_ai").to_dict() == {
+        "scope_id": "ml_ai",
+        "expert_repository": "Leeroo-AI/kapso-expert",
+        "knowledge_repository": "Leeroo-AI/kapso-knowledge",
+        "security_repository": "Leeroo-AI/kapso-security",
+    }

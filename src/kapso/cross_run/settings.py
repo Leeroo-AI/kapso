@@ -2367,7 +2367,7 @@ def compose_runtime_config(
 
     reject_repository_copy(workload_config, "workload")
     runtime = to_json_value(workload_config)
-    runtime["cross_run"] = settings.to_dict()
+    runtime["cross_run"] = to_json_value(settings.to_dict())
     runtime["cross_run_registry_fingerprint"] = settings.scopes.fingerprint
     return runtime
 

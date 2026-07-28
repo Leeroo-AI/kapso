@@ -30,14 +30,39 @@ import argparse
 import json
 import os
 import sys
+import tempfile
 
 from dotenv import load_dotenv
+import yaml
+
+from kapso.core.config import compose_runtime_config, load_config
 
 load_dotenv()
 
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.yaml")
+CANONICAL_CONFIG_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+    "src",
+    "kapso",
+    "config.yaml",
+)
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 AVAILABLE_AGENTS = ["aider", "gemini", "claude_code", "openhands"]
+
+
+def build_runtime_config(runtime_root: str) -> str:
+    """Compose the benchmark workload with the canonical scope registry."""
+
+    runtime = compose_runtime_config(
+        load_config(CANONICAL_CONFIG_PATH),
+        load_config(CONFIG_PATH),
+    )
+    runtime_directory = os.path.join(runtime_root, ".kapso_runtime")
+    os.makedirs(runtime_directory, exist_ok=True)
+    runtime_path = os.path.join(runtime_directory, "config.yaml")
+    with open(runtime_path, "w", encoding="utf-8") as runtime_file:
+        yaml.safe_dump(runtime, runtime_file, sort_keys=False)
+    return runtime_path
 
 
 def list_tasks() -> None:
@@ -98,9 +123,11 @@ def solve_task(args) -> dict:
             os.path.join(DATA_DIR, "generic_baseline", "main.py"),
             os.path.join(initial_repo, "main.py"),
         )
+    runtime_root = args.workspace or tempfile.mkdtemp(prefix="relbench_runtime_")
+    runtime_config_path = build_runtime_config(runtime_root)
     orchestrator = OrchestratorAgent(
         handler,
-        config_path=CONFIG_PATH,
+        config_path=runtime_config_path,
         mode=mode,
         coding_agent=args.coding_agent,
         is_kg_active=not args.no_kg,
