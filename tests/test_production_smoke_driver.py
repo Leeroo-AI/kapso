@@ -249,6 +249,16 @@ def test_expert_validation_stage_fails_before_unsigned_evaluator_work(
     monkeypatch,
 ):
     settings = load_effective_config(_CONFIG_PATH, "GENERIC").cross_run
+    settings = replace(
+        settings,
+        expert=replace(
+            settings.expert,
+            validation=replace(
+                settings.expert.validation,
+                evaluator_trust_roots=(),
+            ),
+        ),
+    )
     candidate_id = content_id("expert-candidate", {"candidate": "unsigned"})
     snapshot = SimpleNamespace(
         state=SimpleNamespace(
@@ -643,14 +653,17 @@ def test_expert_validation_enrollment_requires_proposal_evidence(tmp_path):
         )
 
 
-def test_preflight_evaluator_summary_exposes_missing_roots_without_keys():
+def test_preflight_evaluator_summary_exposes_public_roots_without_private_keys():
     settings = load_effective_config(_CONFIG_PATH, "GENERIC").cross_run
 
     authority = smoke_module._expert_evaluator_authority(settings)
 
-    assert authority["configured"] is False
-    assert "expert_contract_evaluator" in authority["missing_issuer_ids"]
-    assert authority["issuer_trust_roots"]["expert_contract_evaluator"] is None
+    assert authority["configured"] is True
+    assert authority["missing_issuer_ids"] == ()
+    assert (
+        authority["issuer_trust_roots"]["expert_contract_evaluator"]
+        == "kapso_github_evaluator_ed25519_v1"
+    )
     assert "expert_source_replay_evaluator" not in authority["issuer_trust_roots"]
     assert "expert_release_matrix_evaluator" not in authority["issuer_trust_roots"]
     assert set(authority) == {

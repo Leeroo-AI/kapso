@@ -34,6 +34,7 @@ from kapso.cross_run.contracts import (
     EMPTY_EXPERT_TREE_DIGEST,
     EpisodeEvaluationStatus,
     ExecutionStatus,
+    ExpertEvaluatorResultRecord,
     ExpertScopeContract,
     ExpertValidationStage,
     InterventionStructure,
@@ -55,6 +56,7 @@ from kapso.cross_run.expert.composition_base import ExpertCompositionBaseClosure
 from kapso.cross_run.expert.composition_base_provider import (
     GitHubExpertCompositionBaseProvider,
 )
+from kapso.cross_run.expert.github_evaluator import GitHubExpertEvaluatorExchange
 from kapso.cross_run.expert.task_evaluation_materialization import (
     TaskEvaluationMaterializationLimits,
 )
@@ -1358,7 +1360,7 @@ def _expert_validation_smoke(
     *,
     evidence_stage: str,
 ) -> Mapping[str, Any]:
-    """Advance autonomous stages and stop before any unsigned evaluator result."""
+    """Advance autonomous and externally signed validation stages."""
 
     evidence = prior_evidence.get(evidence_stage)
     if not isinstance(evidence, Mapping):
@@ -1418,18 +1420,45 @@ def _expert_validation_smoke(
                 if settings.expert.validation.evaluator_trust_root_id(evaluator_id)
                 is None
             )
-            raise ProductionSmokeError(
-                "expert validation requires an externally signed evaluator result "
-                f"for {next_stage.value}; evaluator_ids={evaluator_ids}; "
-                f"missing_trust_roots={missing_roots}"
-            )
+            if missing_roots:
+                raise ProductionSmokeError(
+                    "expert validation requires an externally signed evaluator "
+                    f"result for {next_stage.value}; evaluator_ids={evaluator_ids}; "
+                    f"missing_trust_roots={missing_roots}"
+                )
         predecessor_transition_id = snapshot.transition.transition_id
+        evaluator_result = None
+        if next_stage not in autonomous_stages:
+            attempt = snapshot.latest_attempt
+            if attempt is None:
+                raise ProductionSmokeError(
+                    "external expert validation has no active attempt"
+                )
+            stored_candidate = services.candidate_store.read(candidate_id)
+            scope_id = (
+                stored_candidate.closure.validation_context.scope_contract.scope_id
+            )
+            evaluator_result = GitHubExpertEvaluatorExchange(
+                client=github.resolver.client,
+                github_settings=settings.github,
+                validation_settings=settings.expert.validation,
+                sanitation_settings=settings.sanitation,
+                security_repository=(
+                    settings.scopes.resolve(scope_id).security_repository
+                ),
+            ).evaluate(
+                stored_candidate=stored_candidate,
+                attempt=attempt,
+                stage=next_stage,
+                expected_transition_id=predecessor_transition_id,
+            )
         _call_expert_validation(
             config_path=config_path,
             mode=mode,
             smoke_root=smoke_root,
             candidate_id=candidate_id,
             expected_transition_id=predecessor_transition_id,
+            evaluator_result=evaluator_result,
         )
         snapshot = services.validation_store.snapshot(candidate_id)
         if (
@@ -1464,6 +1493,7 @@ def _call_expert_validation(
     smoke_root: Path,
     candidate_id: str,
     expected_transition_id: str | None,
+    evaluator_result: ExpertEvaluatorResultRecord | None = None,
 ) -> Mapping[str, Any]:
     with tempfile.TemporaryDirectory(
         prefix="expert-validation-request-",
@@ -1475,7 +1505,9 @@ def _call_expert_validation(
                 {
                     "candidate_id": candidate_id,
                     "expected_transition_id": expected_transition_id,
-                    "evaluator_result": None,
+                    "evaluator_result": (
+                        None if evaluator_result is None else evaluator_result.to_dict()
+                    ),
                 }
             )
         )

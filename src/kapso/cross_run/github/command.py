@@ -447,6 +447,67 @@ class GitHubCommandClient:
         )
         return self.runner.run(request).output
 
+    def dispatch_workflow(
+        self,
+        repository: str,
+        workflow_file: str,
+        ref: str,
+        inputs: Mapping[str, str],
+    ) -> Mapping[str, Any]:
+        """Dispatch one workflow and validate the returned run identity."""
+
+        if _REPOSITORY_PATTERN.fullmatch(repository) is None:
+            raise GitHubCommandError("workflow repository is invalid")
+        if _RELEASE_ASSET_NAME_PATTERN.fullmatch(workflow_file) is None:
+            raise GitHubCommandError("workflow filename is invalid")
+        response = _require_mapping(
+            self.api_json(
+                "POST",
+                f"repos/{repository}/actions/workflows/{workflow_file}/dispatches",
+                {"inputs": dict(inputs), "ref": ref},
+            ),
+            "workflow dispatch",
+        )
+        run_id = response.get("workflow_run_id")
+        if (
+            set(response) != {"workflow_run_id", "run_url", "html_url"}
+            or type(run_id) is not int
+            or run_id < 1
+            or response.get("run_url")
+            != f"https://api.github.com/repos/{repository}/actions/runs/{run_id}"
+            or response.get("html_url")
+            != f"https://github.com/{repository}/actions/runs/{run_id}"
+        ):
+            raise GitHubCommandError("workflow dispatch run identity is invalid")
+        return response
+
+    def api_json_pages(self, endpoint: str) -> tuple[Any, ...]:
+        """Read every bounded REST page under one command deadline."""
+
+        request = CommandRequest(
+            argv=(
+                "gh",
+                "api",
+                "--method",
+                "GET",
+                "--header",
+                f"X-GitHub-Api-Version:{self.api_version}",
+                "--paginate",
+                "--slurp",
+                endpoint,
+            ),
+            cwd=self.working_directory,
+            timeout_seconds=self.timeout_seconds,
+            output_kind=CommandOutputKind.JSON,
+            maximum_output_bytes=self.control_blob_size_bytes,
+        )
+        pages = self.runner.run(request).output
+        if not isinstance(pages, list) or any(
+            not isinstance(page, list) for page in pages
+        ):
+            raise GitHubCommandError("paginated GitHub API response is invalid")
+        return tuple(item for page in pages for item in page)
+
     def graphql(self, query: str, variables: dict[str, Any]) -> Any:
         return self.api_json(
             "POST",

@@ -131,6 +131,60 @@ def test_github_client_builds_exact_safe_api_argv_and_canonical_stdin(tmp_path):
     )
 
 
+def test_github_client_supports_run_bound_dispatch_and_bounded_pagination(tmp_path):
+    settings = github_settings()
+    run_id = 42
+    runner = RecordingRunner(
+        outputs=[
+            {
+                "workflow_run_id": run_id,
+                "run_url": (
+                    "https://api.github.com/repos/Leeroo-AI/kapso-security/"
+                    f"actions/runs/{run_id}"
+                ),
+                "html_url": (
+                    "https://github.com/Leeroo-AI/kapso-security/"
+                    f"actions/runs/{run_id}"
+                ),
+            },
+            [[{"id": 1}], [{"id": 2}]],
+        ]
+    )
+    client = GitHubCommandClient(
+        runner,
+        working_directory=tmp_path,
+        timeout_seconds=settings.command_timeout_seconds,
+        api_version=settings.api_version,
+        minimum_cli_version=settings.minimum_cli_version,
+        release_visibility_poll_interval_seconds=(
+            settings.release_visibility_poll_interval_seconds
+        ),
+        control_blob_size_bytes=settings.control_blob_size_bytes,
+    )
+
+    dispatch = client.dispatch_workflow(
+        "Leeroo-AI/kapso-security",
+        "evaluator.yml",
+        "main",
+        {"request_id": "request"},
+    )
+    releases = client.api_json_pages(
+        "repos/Leeroo-AI/kapso-security/releases?per_page=100"
+    )
+
+    assert releases == ({"id": 1}, {"id": 2})
+    assert dispatch["workflow_run_id"] == run_id
+    assert runner.requests[0].output_kind is CommandOutputKind.JSON
+    assert runner.requests[0].stdin == (
+        b'{"inputs":{"request_id":"request"},"ref":"main"}'
+    )
+    assert runner.requests[1].argv[-3:] == (
+        "--paginate",
+        "--slurp",
+        "repos/Leeroo-AI/kapso-security/releases?per_page=100",
+    )
+
+
 def test_release_commands_never_embed_credentials_or_use_shell_strings(tmp_path):
     settings = github_settings()
     asset = tmp_path / "snapshot.tar.zst"

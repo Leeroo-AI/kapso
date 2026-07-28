@@ -228,7 +228,16 @@ cross_run:
       zstd_window_size_bytes: *cross_run_zstd_window_size_bytes
     validation:
       state_path: ".kapso/cross_run/expert_validation"
-      evaluator_trust_roots: []
+      evaluator_trust_roots:
+        - trust_root_id: "kapso_github_evaluator_ed25519_v1"
+          issuer_ids:
+            - "expert_code_evaluator"
+            - "expert_contract_evaluator"
+            - "expert_development_anchor_evaluator"
+            - "expert_fresh_task_evaluator"
+            - "expert_supply_chain_evaluator"
+            - "expert_transfer_evaluator"
+          public_key_base64: "7Jwewcr1n0NJtuXGXwEIoI/xlDgBzoY2CVR7FLbBolo="
       task_evaluation_provider:
         workspace_path: ".kapso/cross_run/task_evaluation_provider"
         container_user_id: 1000
