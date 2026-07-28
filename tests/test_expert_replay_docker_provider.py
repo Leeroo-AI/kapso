@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from types import MappingProxyType
 
@@ -367,6 +368,7 @@ def provider(tmp_path, monkeypatch, prepared_replay_request):
         compute,
     )
     runtime = object.__new__(PinnedDockerRuntime)
+    runtime._owner_process_id = os.getpid()
     runtime._trusted_root = tmp_path.resolve()
     runtime._settings = runtime_settings
     runtime._process_runner = runner

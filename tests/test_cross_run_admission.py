@@ -98,7 +98,10 @@ def context(name="shared"):
 def environment():
     return ArtifactEnvironment.mint(
         kapso_commit="0" * 40,
-        expert_base_release_id=fixture_id("expert-release"),
+        expert_base_release_id=content_id(
+            "expert-base-release",
+            {"name": "expert-release"},
+        ),
         task_adapter_manifest_id=content_id(
             "task-adapter-manifest",
             {"label": "task-adapter"},

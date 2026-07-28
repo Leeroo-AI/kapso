@@ -1,3 +1,4 @@
+import os
 from dataclasses import replace
 from types import MappingProxyType
 
@@ -130,6 +131,7 @@ def _runtime(tmp_path, monkeypatch, prepared, requirements):
         requirements,
     )
     runtime = object.__new__(PinnedDockerRuntime)
+    runtime._owner_process_id = os.getpid()
     runtime._trusted_root = tmp_path.resolve()
     runtime._settings = runtime_settings
     runtime._process_runner = runner
