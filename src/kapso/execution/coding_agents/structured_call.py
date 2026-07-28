@@ -93,6 +93,34 @@ def _claude_response_schema_argument(schema_text: str) -> str:
     )
 
 
+def _codex_supports_response_schema(schema_text: str) -> bool:
+    """Return whether every object uses Codex's closed structured-output shape."""
+
+    schema = json.loads(schema_text)
+    if not isinstance(schema, dict):
+        raise ValueError("Codex response schema must be an object")
+
+    def supports(node: Any) -> bool:
+        if isinstance(node, list):
+            return all(supports(item) for item in node)
+        if not isinstance(node, dict):
+            return True
+        if node.get("type") == "object":
+            properties = node.get("properties")
+            required = node.get("required")
+            if (
+                not isinstance(properties, dict)
+                or node.get("additionalProperties") is not False
+                or not isinstance(required, list)
+                or len(required) != len(set(required))
+                or set(required) != set(properties)
+            ):
+                return False
+        return all(supports(value) for value in node.values())
+
+    return supports(schema)
+
+
 def coding_agent_invocation_bytes(
     request: "CodingAgentCallRequest",
     *,
@@ -1183,12 +1211,14 @@ class SubprocessCodingAgentCallRunner:
             "",
         )
         final_path = artifact_directory / "final.json"
+        schema_path = artifact_directory / "response_schema.json"
         mcp_config_path = artifact_directory / "mcp_config.json"
         if request.cli == "codex":
             self._write_atomic_text(operation_descriptor, "final.json", "")
         command = self._command(
             request,
             schema_text,
+            schema_path,
             final_path,
             mcp_config_path,
             workspace_descriptor,
@@ -1552,6 +1582,7 @@ class SubprocessCodingAgentCallRunner:
         self,
         request: CodingAgentCallRequest,
         schema_text: str,
+        schema_path: Path,
         final_path: Path,
         mcp_config_path: Path,
         workspace_descriptor: int | None,
@@ -1588,6 +1619,8 @@ class SubprocessCodingAgentCallRunner:
                     request.model,
                 ]
             )
+            if _codex_supports_response_schema(schema_text):
+                command.extend(["--output-schema", str(schema_path)])
             command.extend(
                 self._codex_permission_profile(request.workspace_policy.access)
             )

@@ -284,7 +284,7 @@ def test_credential_broker_exposes_only_the_selected_cli_auth_family(monkeypatch
     )
 
 
-def test_codex_receives_full_prompt_on_stdin_without_embedding_key(
+def test_codex_receives_full_prompt_and_closed_schema_without_embedding_key(
     tmp_path,
     monkeypatch,
 ):
@@ -308,7 +308,13 @@ print(json.dumps({"type":"turn.completed","usage":{"input_tokens":11,"output_tok
     monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
     monkeypatch.setenv("OPENAI_API_KEY", "must-not-reach-agent")
 
-    result = runner(tmp_path).run(request(tmp_path, "codex"), {"type": "object"})
+    response_schema = {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {"proposal": {"type": "string"}},
+        "required": ["proposal"],
+    }
+    result = runner(tmp_path).run(request(tmp_path, "codex"), response_schema)
 
     args = json.loads((tmp_path / "codex_args.json").read_text())
     assert (tmp_path / "codex_stdin.txt").read_text() == request(
@@ -321,7 +327,12 @@ print(json.dumps({"type":"turn.completed","usage":{"input_tokens":11,"output_tok
     assert "--ephemeral" in args
     assert "--skip-git-repo-check" in args
     assert "--ignore-user-config" in args
-    assert "--output-schema" not in args
+    assert args[args.index("--output-schema") + 1] == str(
+        tmp_path
+        / "artifacts"
+        / request(tmp_path, "codex").operation_id
+        / "response_schema.json"
+    )
     assert "--search" in args
     permission_overrides = [
         args[position + 1] for position, value in enumerate(args) if value == "--config"
@@ -337,6 +348,42 @@ print(json.dumps({"type":"turn.completed","usage":{"input_tokens":11,"output_tok
     assert result.cost_usd is None
     assert all(Path(path).is_file() for path in result.artifacts)
     assert Path(result.artifacts[0]).read_text() == request(tmp_path, "codex").prompt
+
+
+def test_codex_omits_provider_constraint_for_open_object_schema(
+    tmp_path,
+    monkeypatch,
+):
+    install_executable(
+        tmp_path,
+        "codex",
+        """#!/usr/bin/env python3
+import json
+import pathlib
+import sys
+pathlib.Path("codex_args.json").write_text(json.dumps(sys.argv[1:]))
+args = sys.argv[1:]
+final_path = pathlib.Path(args[args.index("--output-last-message") + 1])
+final_path.write_text('{"metadata":{"source":"fixture"}}')
+print(json.dumps({"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}))
+""",
+    )
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
+
+    runner(tmp_path).run(
+        request(tmp_path, "codex"),
+        {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "metadata": {"type": "object", "minProperties": 1},
+            },
+            "required": ["metadata"],
+        },
+    )
+
+    args = json.loads((tmp_path / "codex_args.json").read_text())
+    assert "--output-schema" not in args
 
 
 def test_coding_agent_output_is_validated_against_the_durable_schema(
