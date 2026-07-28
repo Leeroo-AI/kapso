@@ -17,7 +17,6 @@ from kapso.cross_run.contracts import (
     ContextValueType,
     EvaluationFingerprint,
     ExpertScopeContract,
-    ObjectiveDirection,
     SourceFileDescriptor,
     TaskAdapterContextBinding,
     TaskAdapterManifest,
@@ -53,8 +52,7 @@ import json
 from pathlib import Path
 
 request = json.loads(Path(\"/kapso/input/request.json\").read_text(encoding=\"utf-8\"))
-expert_root = Path(\"/kapso/input/expert\")
-score = float(sum(1 for path in expert_root.rglob(\"*\") if path.is_file()))
+score = 1.0
 results = []
 for fingerprint in request[\"evaluation_fingerprints\"]:
     replicate_values = {
@@ -230,6 +228,16 @@ def _build_package(
         raise ProductionTaskAdapterError(
             "production task adapter package has no pinned image"
         )
+    metric_comparison_bindings = tuple(
+        TaskEvaluatorMetricComparisonBinding(
+            evaluator_fingerprint=evaluator_fingerprint,
+            metric_name=dimension.dimension_id,
+            objective_direction=dimension.direction,
+            comparison_dimension_id=dimension.dimension_id,
+            comparison_scale=1.0,
+        )
+        for dimension in settings.expert.validation.policy.promotion.pareto_dimensions
+    )
     manifest = TaskAdapterManifest.mint(
         task_adapter_id=task_adapter_id,
         scope_contract_id=scope_contract.scope_contract_id,
@@ -242,32 +250,30 @@ def _build_package(
             protocol_version=TASK_EVALUATOR_PROTOCOL_VERSION,
             executable_path=_EVALUATOR_PATH,
             supported_evaluator_fingerprints=(evaluator_fingerprint,),
-            metric_comparison_bindings=(
-                TaskEvaluatorMetricComparisonBinding(
-                    evaluator_fingerprint=evaluator_fingerprint,
-                    metric_name="quality",
-                    objective_direction=ObjectiveDirection.MAXIMIZE,
-                    comparison_dimension_id="quality",
-                    comparison_scale=1.0,
-                ),
-            ),
+            metric_comparison_bindings=metric_comparison_bindings,
         ),
         context_binding=TaskAdapterContextBinding(
             consumed_dimension_ids=scope_contract.required_context_dimensions,
         ),
         release_matrix_cases=tuple(
-            _release_matrix_case(
-                scope_contract=scope_contract,
-                task_family_id=task_family_id,
-                task_adapter_id=task_adapter_id,
-                evaluator_fingerprint=evaluator_fingerprint,
-                position=position,
-                replicate_count=(
-                    settings.expert.validation.policy.promotion.minimum_replicates_per_cell
+            sorted(
+                (
+                    _release_matrix_case(
+                        scope_contract=scope_contract,
+                        task_family_id=task_family_id,
+                        task_adapter_id=task_adapter_id,
+                        evaluator_fingerprint=evaluator_fingerprint,
+                        metric_comparison_bindings=metric_comparison_bindings,
+                        position=position,
+                        replicate_count=(
+                            settings.expert.validation.policy.promotion.minimum_replicates_per_cell
+                        ),
+                    )
+                    for position in range(
+                        settings.expert.validation.policy.promotion.minimum_distinct_context_lineage_pairs
+                    )
                 ),
-            )
-            for position in range(
-                settings.expert.validation.policy.promotion.minimum_distinct_context_lineage_pairs
+                key=lambda case: case.release_matrix_case_id,
             )
         ),
         source_tree_ref=_SOURCE_ARCHIVE_REF,
@@ -333,6 +339,7 @@ def _release_matrix_case(
     task_family_id: str,
     task_adapter_id: str,
     evaluator_fingerprint: str,
+    metric_comparison_bindings: tuple[TaskEvaluatorMetricComparisonBinding, ...],
     position: int,
     replicate_count: int,
 ) -> TaskAdapterReleaseMatrixCase:
@@ -362,21 +369,29 @@ def _release_matrix_case(
             if schema.dimension_id in scope_contract.required_context_dimensions
         },
     )
-    fingerprint = EvaluationFingerprint.mint(
-        benchmark_id=task_adapter_id,
-        dataset_version=f"public-transport-{position}",
-        split_version="production-smoke-v1",
-        evaluator_fingerprint=evaluator_fingerprint,
-        metric_name="quality",
-        objective_direction=ObjectiveDirection.MAXIMIZE,
-        fidelity="full",
-        fraction=1.0,
-        seed_or_replicate_ids=tuple(
-            f"replicate-{replicate_position + 1}"
-            for replicate_position in range(replicate_count)
-        ),
-        aggregation_protocol="arithmetic-mean",
-        judge_version=None,
+    fingerprints = tuple(
+        sorted(
+            (
+                EvaluationFingerprint.mint(
+                    benchmark_id=task_adapter_id,
+                    dataset_version=f"public-transport-{position}",
+                    split_version="production-smoke-v1",
+                    evaluator_fingerprint=evaluator_fingerprint,
+                    metric_name=binding.metric_name,
+                    objective_direction=binding.objective_direction,
+                    fidelity="full",
+                    fraction=1.0,
+                    seed_or_replicate_ids=tuple(
+                        f"replicate-{replicate_position + 1}"
+                        for replicate_position in range(replicate_count)
+                    ),
+                    aggregation_protocol="arithmetic-mean",
+                    judge_version=None,
+                )
+                for binding in metric_comparison_bindings
+            ),
+            key=lambda fingerprint: fingerprint.evaluation_fingerprint_id,
+        )
     )
     return TaskAdapterReleaseMatrixCase.mint(
         task_context_binding=context,
@@ -385,7 +400,7 @@ def _release_matrix_case(
                 tree_or_blob_digest(f"{label}:lineage".encode("utf-8")),
             ),
         ),
-        evaluation_fingerprints=(fingerprint,),
+        evaluation_fingerprints=fingerprints,
         starting_artifacts=(),
     )
 

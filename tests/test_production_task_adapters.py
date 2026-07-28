@@ -105,6 +105,26 @@ def test_bootstrap_publishes_every_scope_binding_and_replays(tmp_path):
         assert active.verified_adapter.manifest.runtime.image_manifest_digest == (
             _MANIFEST_DIGEST
         )
+        promotion_dimensions = {
+            dimension.dimension_id: dimension.direction
+            for dimension in settings.expert.validation.policy.promotion.pareto_dimensions
+        }
+        comparison_bindings = (
+            active.verified_adapter.manifest.task_evaluator.metric_comparison_bindings
+        )
+        assert {
+            binding.comparison_dimension_id: binding.objective_direction
+            for binding in comparison_bindings
+        } == promotion_dimensions
+        assert {
+            fingerprint.metric_name: fingerprint.objective_direction
+            for case in active.verified_adapter.manifest.release_matrix_cases
+            for fingerprint in case.evaluation_fingerprints
+        } == promotion_dimensions
+        assert all(
+            len(case.evaluation_fingerprints) == len(promotion_dimensions)
+            for case in active.verified_adapter.manifest.release_matrix_cases
+        )
 
 
 def test_bootstrap_fails_without_pinned_image(tmp_path):
