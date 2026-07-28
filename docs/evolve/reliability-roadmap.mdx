@@ -202,8 +202,8 @@ nodes by ID with `parent_id` and `children_ids`, then rebuilds object references
 when loading.
 
 State is written atomically to `.kapso/run_state.json` using a temporary file
-and `os.replace`. A trusted legacy `checkpoint.pkl` may be imported once during
-an explicit resume and then migrated.
+and `os.replace`. Incompatible persisted formats are rejected; there is no
+legacy import path.
 
 ### Save points
 
@@ -217,7 +217,7 @@ termination. A half-created branch is never recorded as a completed node.
 - Branches, cost, campaign iteration count, and stop state survive restart.
 - Missing, corrupt, incompatible, or goal-mismatched checkpoints fail clearly.
 - Interrupted atomic writes leave the previous valid checkpoint readable.
-- Legacy pickle state migrates once.
+- Superseded persisted formats fail loudly without changing current state.
 
 ## Milestone 4: External iteration evaluation
 

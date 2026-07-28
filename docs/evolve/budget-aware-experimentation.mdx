@@ -6,9 +6,8 @@ description: "Design for making time, cost, and iteration budgets first-class in
 Status: **design proposal** (2026-07-13, against `main @ 31db3ff4`; fidelity layer amended
 after an adversarial Codex review the same day — holdout/calibration discipline, cap-based
 escrowed reserve, deterrence-not-containment enforcement framing, and versioned
-evaluation-attempt records all trace to its findings). Companion analyses: the competitor
-mechanism survey (`archive/competitor_search/mechanisms_ranked.md`) and the Research-Planner
-related-work study (`archive/competitor_search/research_planner_related_work.md`).
+evaluation-attempt records all trace to its findings). The companion competitor
+mechanism and Research-Planner analyses are incorporated into this document.
 This design is the budget slice of that larger direction, scoped to land independently.
 
 > Historical design snapshot: budget/fidelity authority remains current, but
@@ -951,8 +950,8 @@ Phase 1 → M0+M1, Phase 2 → M2, Phase 3 → M3, Phase 4 → M4, Phase 5 → M
 and simplify it):
 
 - **Rule 7 (no backward compatibility)**: checkpoint v2 ships with *no* `_upgrade_v1`
-  shim — v1 checkpoints are rejected loudly and prior state discarded; the trusted-pickle
-  legacy path (`allow_legacy_checkpoint`, `import_checkpoint`) is deleted in M2, and
+  shim — v1 checkpoints are rejected loudly and prior state discarded; the superseded
+  pickle reader is absent, and
   `agent_generated` as a separate integrity regime is deleted (not bridged) in M5.
 - **Rule 3 (no env vars)**: the fidelity interface is **CLI arguments**, not `KAPSO_*`
   env vars — the registered command contract is
@@ -965,7 +964,7 @@ and simplify it):
 - **Rule 1**: every budget/fidelity knob lives once in `config.yaml`; dataclasses carry
   no duplicate literal defaults.
 
-## End-to-end verification track: `examples/ml_model_development`
+## Historical end-to-end verification track
 
 The Spaceship-Titanic example is the standing E2E vehicle for every milestone — chosen
 deliberately because it exercises the **generality claim**: its `evaluate.py` trains *and*
@@ -973,9 +972,8 @@ scores in one command, so the task has no separate build phase. The fidelity con
 the `build:` block entirely and fast fidelity is a row-subsample flag on the evaluation —
 the zero-build degenerate case must work end to end, not just in prose.
 
-**Harness**: `examples/ml_model_development/e2e/run_e2e.py`, with every knob
-single-sourced in `examples/ml_model_development/e2e/config.e2e.yaml` and the
-per-row commands in that directory's README. The runner stages, spawns the campaign
+The retired Spaceship-Titanic harness single-sourced every knob and mechanically
+verified the invariants below from run artifacts. The runner staged and spawned the campaign
 under the hard wall, and mechanically verifies the invariants below from the run
 artifacts. Two config-surface notes relative to the sketch that follows:
 `subsample_seed` lives in the `evaluation_maintainer` block (registration owns the

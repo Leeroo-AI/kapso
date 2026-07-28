@@ -130,8 +130,9 @@ def test_reopening_workspace_preserves_experiment_branch_and_state(
     workspace = _workspace(tmp_path)
     workspace.create_branch("generic_exp_0")
     _commit_file(workspace, "candidate.py", "VALUE = 1\n", "add candidate")
-    checkpoint = Path(workspace.workspace_dir, "checkpoint.pkl")
-    checkpoint.write_bytes(b"checkpoint")
+    state_path = Path(workspace.workspace_dir, ".kapso", "run_state.json")
+    state_path.parent.mkdir()
+    state_path.write_bytes(b"state")
 
     reopened = ExperimentWorkspace(
         coding_agent_config=_agent_config(),
@@ -141,7 +142,7 @@ def test_reopening_workspace_preserves_experiment_branch_and_state(
     branches = {branch.name for branch in reopened.repo.branches}
     assert branches >= {"main", "generic_exp_0"}
     assert reopened.get_current_branch() == "main"
-    assert checkpoint.read_bytes() == b"checkpoint"
+    assert state_path.read_bytes() == b"state"
 
 
 def test_detached_workspace_recreates_main_without_losing_head(

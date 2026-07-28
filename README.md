@@ -30,7 +30,6 @@
 ## News
 
 - **[Leeroopedia MCP Integration](https://leeroopedia.com)**: Kapso now connects to **Leeroopedia MCP** — your ML & Data Knowledge Wiki. Learnt by AI, built by AI, for AI. A centralized playbook of best practices and expert-level knowledge for Machine Learning and Data domains. Kapso agents use it during ideation and implementation to search knowledge, build plans, diagnose failures, and more.
-- **[Moltbook Agents 🦞](https://www.moltbook.com/)**: Build AI agents that optimize other agents and debate on Moltbook! [Get started →](moltbook_bot/README.md)
 - **Technical Report**: Our technical report is now available! [Read the paper](https://arxiv.org/abs/2601.21526)
 - **#1 on [MLE-Bench](benchmarks/mle/README.md)**: KAPSO achieved top ranking among open-source systems on Kaggle ML competitions (MLE Benchmark).
 
@@ -53,7 +52,7 @@ It automates the cycle of **designing**, **testing**, and **refining** algorithm
 | **Evolve** | `.evolve()` | Run iterative experiments to build software for a goal. Uses tree search, coding agents, and KG context to generate and refine solutions. |
 | **Learn** | `.learn()` | Ingest knowledge from repositories, past solutions, or research results. Extracts patterns and best practices into the Knowledge Graph. |
 | **Research** | `.research()` | Run deep web research to gather ideas and implementation references. Returns structured findings you can feed into the knowledge base or use as context for evolving solutions. |
-| **Deploy** | `.deploy()` | Turn a solution into running software. Supports local execution, Docker containers, or cloud platforms like Modal. |
+| **Deploy** | `.deploy()` | Turn a solution into running software. Supports local execution and managed platforms such as Modal and BentoML. |
 
 ## 🚀 Quickstart
 
@@ -117,13 +116,18 @@ kapso.learn(
     wiki_dir="data/wikis",
 )
 
-# Evolve: Build a solution through experimentation
-# Use research results as context via to_string()
+# Evolve: Build from one typed task context and immutable starting artifacts.
+# See docs/evolve/overview.mdx for constructing task_context.
 solution = kapso.evolve(
     goal="Fine-tune Llama-3.1-8B for legal clause risk classification, target F1 > 0.85",
-    data_dir="./data/cuad_dataset", 
-    output_path="./models/legal_risk_v1",
-    context=[findings.to_string()],
+    output_path="./runs/legal_risk_v1",
+    task_context_request=task_context,
+    starting_artifact_sources={
+        "dataset": ("./data/cuad_dataset", "inputs/dataset"),
+    },
+    dependency_runtime_contract={"python": "3.12"},
+    budget_fidelity_envelope={"wall_clock_minutes": 60},
+    additional_context=findings.to_string(),
 )
 
 # Deploy: Turn solution into running deployed_program
@@ -132,16 +136,6 @@ deployed_program.stop()
 ```
 
 For detailed integration steps, see the [Quickstart](https://docs.leeroo.com/docs/quickstart) and [Installation](https://docs.leeroo.com/docs/installation) guides.
-
-## Examples
-
-| Example | Description |
-|---------|-------------|
-| [**CUDA Optimization**](examples/cuda_optimization/README.md) | Optimize CUDA kernels for GPU performance |
-| [**PyTorch Optimization**](examples/pytorch_optimization/README.md) | Optimize PyTorch operations for speedup |
-| [**ML Model Development**](examples/ml_model_development/README.md) | Improve ML model accuracy on tabular data |
-| [**Prompt Engineering**](examples/prompt_engineering/README.md) | Optimize prompts for better LLM performance |
-| [**Agentic Scaffold**](examples/agentic_scaffold/README.md) | Optimize agentic AI workflows |
 
 ## Supported Benchmarks
 
