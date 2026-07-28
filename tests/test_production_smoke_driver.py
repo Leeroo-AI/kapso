@@ -10,8 +10,22 @@ import pytest
 
 import kapso.cross_run.production_smoke as smoke_module
 from kapso.core.config import load_effective_config
-from kapso.cross_run.canonical import content_id, parse_json_bytes
+from kapso.cross_run.canonical import (
+    canonical_json_bytes,
+    content_id,
+    parse_json_bytes,
+    tree_or_blob_digest,
+)
 from kapso.cross_run.catalog.service import CrossRunCatalog
+from kapso.cross_run.contracts import ExpertBaseReleaseManifest
+from kapso.cross_run.expert.triggers import (
+    ExpertSourceBaseTreeReceipt,
+    ExpertTriggerEvidencePacket,
+    ExpertTriggerEvaluator,
+    ExpertTriggerObservation,
+    ExpertTriggerObservationKind,
+)
+from kapso.cross_run.github.materializer import SourceArchiveExtractionReceipt
 from kapso.cross_run.knowledge.publisher import KnowledgeSnapshotPublisher
 from kapso.cross_run.production_smoke import (
     ProductionSmokeError,
@@ -21,6 +35,8 @@ from test_knowledge_snapshot_publisher import (
     DeterministicEmbeddingProvider,
     RecordingPublicationAuthority,
 )
+from test_cross_run_retrieval import snapshot_and_index, source_fixture
+from test_expert_triggers import inspection_operation, trigger_packet, trigger_settings
 
 _CONFIG_PATH = "src/kapso/config.yaml"
 
@@ -127,7 +143,12 @@ def test_synthetic_projection_is_one_admitted_domain_neutral_bundle():
 
     assert projection.sanitation_report.status == "admitted"
     assert projection.source_bundle.scope_id == "ml_ai"
-    assert projection.episodes == ()
+    assert len(projection.episodes) == 1
+    assert projection.episodes[0].source_bundle_id == projection.source_bundle.bundle_id
+    assert projection.episodes[0].attempts[0].technical_difficulties == (
+        "The reusable semantic-parity boundary lacks a common preflight "
+        "diagnostic for representation mismatches.",
+    )
     assert len(projection.prior_ideas) == 1
     assert projection.catalog_facts[-1] == projection.projection_manifest
 
@@ -276,6 +297,159 @@ def test_expert_publication_stage_threads_the_approved_candidate(
     assert observed["state_root"] == tmp_path
     assert result["candidate_id"] == candidate_id
     assert result["publication_skipped"] is False
+
+
+def test_successor_stage_builds_an_observed_episode_trigger_before_proposal(
+    tmp_path,
+    monkeypatch,
+):
+    settings = load_effective_config(_CONFIG_PATH, "GENERIC").cross_run
+    trigger_policy = trigger_settings()
+    scope_contract, _context, episode, *_rest = source_fixture()
+    package, _index, _generation = snapshot_and_index((episode,))
+    source_packet = trigger_packet(
+        settings=trigger_policy,
+        episodes=(episode,),
+    )
+    release_payload = source_packet.source_base_release.to_dict()
+    del release_payload["release_id"]
+    release_payload["candidate_tree_hash"] = source_packet.source_base_tree_hash
+    release = ExpertBaseReleaseManifest.mint(**release_payload)
+    original_receipt = source_packet.source_base_tree_receipt
+    extraction = original_receipt.source_extraction_receipt
+    source_receipt = ExpertSourceBaseTreeReceipt.mint(
+        release_id=release.release_id,
+        cache_verification_receipt=replace(
+            original_receipt.cache_verification_receipt,
+            artifact_id=release.release_id,
+        ),
+        source_extraction_receipt=SourceArchiveExtractionReceipt.mint(
+            artifact_id=release.release_id,
+            source_archive_ref=extraction.source_archive_ref,
+            source_archive_digest=extraction.source_archive_digest,
+            source_tree_hash=extraction.source_tree_hash,
+            source_tree_files=extraction.source_tree_files,
+            extractor_version=extraction.extractor_version,
+        ),
+        source_base_tree_hash=original_receipt.source_base_tree_hash,
+        repository_map_id=original_receipt.repository_map_id,
+        module_contract_ids=original_receipt.module_contract_ids,
+        materializer_version=original_receipt.materializer_version,
+    )
+    module = source_packet.source_base_module_contracts[0]
+    configuration_fingerprint = tree_or_blob_digest(
+        canonical_json_bytes(trigger_policy.to_dict())
+    )
+    description = "Add one reusable preflight diagnostic at the capability boundary."
+    observation_payload = {
+        "affected_capability_ids": [module.module_id],
+        "affected_paths": [module.entrypoint_refs[0]],
+        "configuration_fingerprint": configuration_fingerprint,
+        "description": description,
+        "difficulty_evidence_signatures": {},
+        "difficulty_signature": None,
+        "exact_evidence_ids": [episode.episode_id],
+        "independent_lineage_ids": [],
+        "inspection_policy_version": trigger_policy.inspection_policy_version,
+        "kind": ExpertTriggerObservationKind.MECHANICALLY_GENERAL_FIX.value,
+        "occurrence_count": 1,
+        "source_base_tree_hash": source_packet.source_base_tree_hash,
+        "task_context_binding_ids": [
+            episode.task_context_binding.task_context_binding_id
+        ],
+    }
+    inspection_output = canonical_json_bytes(observation_payload).decode("utf-8")
+    observation = ExpertTriggerObservation.mint(
+        kind=ExpertTriggerObservationKind.MECHANICALLY_GENERAL_FIX,
+        source_base_tree_hash=source_packet.source_base_tree_hash,
+        inspection_policy_version=trigger_policy.inspection_policy_version,
+        configuration_fingerprint=configuration_fingerprint,
+        inspection_operation=inspection_operation(
+            trigger_policy,
+            inspection_output,
+        ),
+        inspection_final_output=inspection_output,
+        difficulty_signature=None,
+        difficulty_evidence_signatures={},
+        description=description,
+        affected_capability_ids=(module.module_id,),
+        affected_paths=(module.entrypoint_refs[0],),
+        exact_evidence_ids=(episode.episode_id,),
+        independent_lineage_ids=(),
+        task_context_binding_ids=(
+            episode.task_context_binding.task_context_binding_id,
+        ),
+        occurrence_count=1,
+    )
+    base = SimpleNamespace(
+        release_manifest=release,
+        source_base_tree_receipt=source_receipt,
+        repository_map=source_packet.source_base_repository_map,
+        module_contracts=source_packet.source_base_module_contracts,
+        scope_contract=source_packet.source_base_scope_contract,
+    )
+    base_provider = SimpleNamespace(
+        resolve_current=lambda _scope: SimpleNamespace(closure=base)
+    )
+    github = SimpleNamespace(
+        resolver=SimpleNamespace(resolve_current=lambda *_arguments: object()),
+        materializer=SimpleNamespace(
+            materialize=lambda _resolved: SimpleNamespace(content=tmp_path)
+        ),
+    )
+    monkeypatch.setattr(smoke_module, "_github_services", lambda *_arguments: github)
+    monkeypatch.setattr(
+        smoke_module,
+        "KnowledgeSnapshotPackage",
+        SimpleNamespace(open=lambda _content: package),
+    )
+    monkeypatch.setattr(
+        smoke_module,
+        "GitHubExpertCompositionBaseProvider",
+        lambda *_arguments: base_provider,
+    )
+    monkeypatch.setattr(
+        smoke_module,
+        "_inspect_expert_successor_trigger",
+        lambda **_arguments: observation,
+    )
+    observed = {}
+
+    def propose(**arguments):
+        request = parse_json_bytes(arguments["request_path"].read_bytes())
+        packet = ExpertTriggerEvidencePacket.from_dict(request["evidence_packet"])
+        decision = ExpertTriggerEvaluator(settings.expert.triggers).evaluate(packet)
+        observed["packet"] = packet
+        observed["decision"] = decision
+        assert decision.candidate_required is True
+        assert decision.reason_code == "mechanically_general_fix"
+        return {
+            "candidate_id": content_id("expert-candidate", {"stage": "successor"}),
+            "candidate_tree_hash": "sha256:" + "1" * 64,
+            "change_kind": "capability",
+            "proposal_operation_id": "proposal-operation-id",
+            "source_base_release_id": release.release_id,
+            "trigger_decision_id": decision.trigger_decision_id,
+        }
+
+    monkeypatch.setattr(smoke_module, "propose_expert_cross_run", propose)
+    result = smoke_module._expert_successor_proposal_smoke(
+        _CONFIG_PATH,
+        "GENERIC",
+        settings,
+        tmp_path,
+        scope_contract,
+        {
+            "expert-bootstrap-publication": {
+                "release_id": release.release_id,
+            }
+        },
+    )
+
+    assert observed["packet"].episodes == (episode,)
+    assert observed["packet"].trigger_observations == (observation,)
+    assert result["source_episode_id"] == episode.episode_id
+    assert result["trigger_observation_id"] == observation.observation_id
 
 
 def test_live_restart_stage_names_the_external_restart_boundary():
@@ -516,6 +690,9 @@ def test_clean_root_imports_current_snapshot_and_mints_one_direct_successor(
     )
     assert successor.prior_ideas[0].supersedes_projection_id == (
         old_projection.prior_ideas[0].prior_idea_id
+    )
+    assert successor.episodes[0].supersedes_projection_id == (
+        old_projection.episodes[0].episode_id
     )
     new_catalog = CrossRunCatalog(
         tmp_path / "new-catalog",

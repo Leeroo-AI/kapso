@@ -233,8 +233,11 @@ current blocker.
 
 All of those steps are now explicit selectable stages in the same durable smoke
 receipt. Existing operational services perform validation advancement,
-publication, launch, and revocation. A missing signed evaluator result, second
-eligible concurrency child, admitted production `TransferEpisode`, pinned image,
+publication, launch, and revocation. S1 now carries one admitted lineage-tracked
+transport `TransferEpisode`; the E1 proposal stage performs a real read-only Codex
+inspection of E0 and seals an episode/path/capability-bound
+`mechanically_general_fix` observation before invoking the normal proposer. A
+missing signed evaluator result, second eligible concurrency child, pinned image,
 or external restart controller stops at that exact boundary and writes no passing
 stage receipt.
 
@@ -245,6 +248,10 @@ production is never reported as passing through them. All 61 surviving Python
 files changed since the M9 review boundary pass Black; the package, tests, and
 benchmarks compile; the repository diff check is clean; and the superseded
 schema/config/prompt-name search contains only documentation of their deletion.
+The final reviewer-requested E1 orchestration repair then passed 81 affected
+knowledge/expert/operations/system tests, including an actual stage-chain test
+from an admitted snapshot episode through deterministic trigger selection and the
+successor proposal operation.
 
 ## Production access checklist
 

@@ -28,11 +28,15 @@ from kapso.cross_run.catalog.projector import ProjectionResult
 from kapso.cross_run.contracts import (
     ArtifactCompleteness,
     ArtifactEnvironment,
+    ComparisonStatus,
     CompletionState,
     CrossRunTaskBindingSettings,
     EMPTY_EXPERT_TREE_DIGEST,
+    EpisodeEvaluationStatus,
+    ExecutionStatus,
     ExpertScopeContract,
     ExpertValidationStage,
+    InterventionStructure,
     PriorIdea,
     PriorIdeaStatus,
     PublicationArtifactKind,
@@ -43,12 +47,25 @@ from kapso.cross_run.contracts import (
     SecurityDenylistEvidenceBundle,
     SecurityDenylistSnapshot,
     TaskContextBinding,
+    TransferAttempt,
+    TransferEpisode,
 )
 from kapso.cross_run.docker.runtime import DockerImageAuthority, PinnedDockerRuntime
+from kapso.cross_run.expert.composition_base import ExpertCompositionBaseClosure
 from kapso.cross_run.expert.composition_base_provider import (
     GitHubExpertCompositionBaseProvider,
 )
-from kapso.cross_run.expert.triggers import ExpertTriggerEvidencePacketBuilder
+from kapso.cross_run.expert.task_evaluation_materialization import (
+    TaskEvaluationMaterializationLimits,
+)
+from kapso.cross_run.expert.task_evaluation_provider_filesystem import (
+    materialize_verified_byte_tree,
+)
+from kapso.cross_run.expert.triggers import (
+    ExpertTriggerEvidencePacketBuilder,
+    ExpertTriggerObservation,
+    ExpertTriggerObservationKind,
+)
 from kapso.cross_run.github.publisher import PublicationEnvelope, ReleaseAssetInput
 from kapso.cross_run.github.resolver import security_denylist_tag
 from kapso.cross_run.knowledge.package import KnowledgeSnapshotPackage
@@ -96,6 +113,9 @@ from kapso.execution.coding_agents.structured_call import (
     CodingAgentWorkspacePolicy,
     SubprocessCodingAgentCallRunner,
     coding_agent_mcp_configuration_fingerprint,
+)
+from kapso.execution.coding_agents.workspace_delta import (
+    inspect_coding_agent_workspace,
 )
 
 
@@ -1542,21 +1562,29 @@ def _expert_successor_proposal_smoke(
     knowledge = KnowledgeSnapshotPackage.open(
         github.materializer.materialize(resolved_knowledge).content
     )
-    if not knowledge.prepared.admitted_episode_ids:
+    if len(knowledge.prepared.admitted_episode_ids) != 1:
         raise ProductionSmokeError(
-            "expert successor proposal requires an admitted production "
+            "expert successor proposal requires exactly one admitted production "
             "TransferEpisode before trigger inspection"
         )
-    current_base = GitHubExpertCompositionBaseProvider(
+    base_provider = GitHubExpertCompositionBaseProvider(
         github.resolver,
         github.materializer,
         settings.expert,
-    ).resolve_current(scope_contract)
+    )
+    current_base = base_provider.resolve_current(scope_contract)
     base = current_base.closure
     if base.release_manifest.release_id != publication["release_id"]:
         raise ProductionSmokeError(
             "expert successor source differs from bootstrap publication"
         )
+    trigger_observation = _inspect_expert_successor_trigger(
+        settings=settings,
+        smoke_root=smoke_root,
+        knowledge=knowledge,
+        base_provider=base_provider,
+        base=base,
+    )
     packet = ExpertTriggerEvidencePacketBuilder(settings.expert.triggers).build(
         knowledge_snapshot=knowledge,
         scope_contract=scope_contract,
@@ -1567,6 +1595,7 @@ def _expert_successor_proposal_smoke(
         source_base_repository_map=base.repository_map,
         source_base_module_contracts=base.module_contracts,
         active_task_bindings=_scope_task_bindings(scope_contract),
+        trigger_observations=(trigger_observation,),
     )
     with tempfile.TemporaryDirectory(
         prefix="expert-successor-proposal-request-",
@@ -1593,7 +1622,212 @@ def _expert_successor_proposal_smoke(
         "knowledge_snapshot_id": knowledge.manifest.snapshot_id,
         "proposal_operation_id": result["proposal_operation_id"],
         "source_base_release_id": result["source_base_release_id"],
+        "source_episode_id": trigger_observation.exact_evidence_ids[0],
+        "trigger_inspection_operation_id": (
+            trigger_observation.inspection_operation.operation_receipt_id
+        ),
+        "trigger_observation_id": trigger_observation.observation_id,
         "trigger_decision_id": result["trigger_decision_id"],
+    }
+
+
+def _inspect_expert_successor_trigger(
+    *,
+    settings: CrossRunSettings,
+    smoke_root: Path,
+    knowledge: KnowledgeSnapshotPackage,
+    base_provider: GitHubExpertCompositionBaseProvider,
+    base: ExpertCompositionBaseClosure,
+) -> ExpertTriggerObservation:
+    """Run one real read-only inspection over E0 and an admitted S1 episode."""
+
+    episode_id = knowledge.prepared.admitted_episode_ids[0]
+    episode_envelope = knowledge.record_by_id(episode_id)
+    episode = parse_knowledge_record_payload(
+        episode_envelope["record_kind"],
+        episode_envelope["payload"],
+    )
+    if type(episode) is not TransferEpisode:
+        raise ProductionSmokeError(
+            "expert trigger inspection episode parsed incorrectly"
+        )
+    policy = settings.expert.validation.policy
+    source_base = base_provider.materialize_exact(
+        base.release_manifest,
+        base.source_base_tree_receipt,
+        TaskEvaluationMaterializationLimits(
+            maximum_entries=policy.task_evaluation_materialization_entry_limit,
+            maximum_bytes=policy.task_evaluation_materialization_byte_limit,
+            timeout_seconds=policy.task_evaluation_materialization_timeout_seconds,
+        ),
+    )
+    modules_by_contract = {
+        module.module_contract_id: module for module in base.module_contracts
+    }
+    selectable = tuple(
+        sorted(
+            (
+                node.capability_id,
+                modules_by_contract[node.module_contract_ref],
+                entrypoint,
+            )
+            for node in base.repository_map.capability_nodes
+            if node.module_contract_ref in modules_by_contract
+            for entrypoint in modules_by_contract[
+                node.module_contract_ref
+            ].entrypoint_refs
+            if entrypoint in source_base.source_contents
+        )
+    )
+    if not selectable:
+        raise ProductionSmokeError(
+            "current expert release has no inspectable capability entrypoint"
+        )
+    capability_id, module, affected_path = selectable[0]
+    trigger_settings = settings.expert.triggers
+    trigger_configuration_fingerprint = tree_or_blob_digest(
+        canonical_json_bytes(trigger_settings.to_dict())
+    )
+    task_context_binding_id = episode.task_context_binding.task_context_binding_id
+    fixed_payload = {
+        "affected_capability_ids": [capability_id],
+        "affected_paths": [affected_path],
+        "configuration_fingerprint": trigger_configuration_fingerprint,
+        "difficulty_evidence_signatures": {},
+        "difficulty_signature": None,
+        "exact_evidence_ids": [episode.episode_id],
+        "independent_lineage_ids": [],
+        "inspection_policy_version": trigger_settings.inspection_policy_version,
+        "kind": ExpertTriggerObservationKind.MECHANICALLY_GENERAL_FIX.value,
+        "occurrence_count": 1,
+        "source_base_tree_hash": base.release_manifest.candidate_tree_hash,
+        "task_context_binding_ids": [task_context_binding_id],
+    }
+    response_schema = _expert_trigger_inspection_response_schema(fixed_payload)
+    prompt = (
+        "Inspect the named expert capability entrypoint in the read-only workspace. "
+        "Use the complete admitted transfer episode and module contract below to "
+        "identify one concrete, reusable refinement that addresses the observed "
+        "technical difficulty without encoding a task-specific decision tree. "
+        "The refinement must preserve the current repository topology and be "
+        "implementable within the named capability and path. Return only the JSON "
+        "required by the response schema; describe the causal refinement precisely.\n\n"
+        "TRANSFER_EPISODE:\n"
+        + canonical_json_bytes(episode.to_dict()).decode("utf-8")
+        + "\n\nMODULE_CONTRACT:\n"
+        + canonical_json_bytes(module.to_dict()).decode("utf-8")
+        + "\n\nFIXED_OBSERVATION_FIELDS:\n"
+        + canonical_json_bytes(fixed_payload).decode("utf-8")
+    )
+    workspace_root = _private_state_root(
+        smoke_root / "expert-trigger-inspection-workspaces"
+    )
+    workspace = workspace_root / base.release_manifest.candidate_tree_hash[7:]
+    descriptors = (
+        base.source_base_tree_receipt.source_extraction_receipt.source_tree_files
+    )
+    if not workspace.exists():
+        materialize_verified_byte_tree(
+            trusted_root=workspace_root,
+            destination_root=workspace,
+            descriptors=descriptors,
+            source_contents=source_base.source_contents,
+        )
+    observed_workspace = inspect_coding_agent_workspace(
+        workspace,
+        maximum_entries=settings.expert.candidate_entry_limit,
+        maximum_bytes=settings.expert.candidate_byte_limit,
+    )
+    if observed_workspace.tree_hash != base.release_manifest.candidate_tree_hash:
+        raise ProductionSmokeError(
+            "expert trigger inspection workspace differs from the released tree"
+        )
+    agent = settings.expert.generalizer
+    operation_seed = canonical_json_bytes(
+        {
+            "agent": agent.to_dict(),
+            "episode_id": episode.episode_id,
+            "prompt_digest": tree_or_blob_digest(prompt.encode("utf-8")),
+            "response_schema": response_schema,
+            "source_base_tree_hash": base.release_manifest.candidate_tree_hash,
+            "trigger_configuration_fingerprint": trigger_configuration_fingerprint,
+            "workspace": str(workspace),
+        }
+    )
+    request = CodingAgentCallRequest(
+        operation_id=("agent_call_" + tree_or_blob_digest(operation_seed)[7:39]),
+        role=trigger_settings.inspector_role,
+        cli=agent.cli,
+        model=agent.model,
+        effort=agent.effort,
+        prompt=prompt,
+        workspace=str(workspace),
+        workspace_policy=CodingAgentWorkspacePolicy.read_only(),
+        timeout_seconds=agent.timeout_seconds,
+        allowed_tools=agent.allowed_tools,
+        prior_knowledge=None,
+    )
+    runner = SubprocessCodingAgentCallRunner(
+        CodingAgentRunnerSettings(
+            artifact_root=str(
+                _private_state_root(smoke_root / "expert-trigger-inspection-artifacts")
+            ),
+            termination_grace_seconds=settings.expert.termination_grace_seconds,
+            sensitive_file_glob_scan_max_depth=(
+                settings.expert.sensitive_file_glob_scan_max_depth
+            ),
+        )
+    )
+    result = runner.run(request, response_schema)
+    sealed = seal_coding_agent_operation(
+        request=request,
+        response_schema=response_schema,
+        principal_id=trigger_settings.inspector_id,
+        agent=agent,
+        sensitive_file_glob_scan_max_depth=(
+            settings.expert.sensitive_file_glob_scan_max_depth
+        ),
+        result=result,
+    )
+    inspected = parse_json_bytes(sealed.final_output.encode("utf-8"))
+    if not isinstance(inspected, Mapping) or set(inspected) != {
+        *fixed_payload,
+        "description",
+    }:
+        raise ProductionSmokeError(
+            "expert trigger inspection returned an invalid observation"
+        )
+    return ExpertTriggerObservation.mint(
+        kind=ExpertTriggerObservationKind.MECHANICALLY_GENERAL_FIX,
+        source_base_tree_hash=base.release_manifest.candidate_tree_hash,
+        inspection_policy_version=trigger_settings.inspection_policy_version,
+        configuration_fingerprint=trigger_configuration_fingerprint,
+        inspection_operation=sealed.receipt,
+        inspection_final_output=sealed.final_output,
+        difficulty_signature=None,
+        difficulty_evidence_signatures={},
+        description=inspected["description"],
+        affected_capability_ids=(capability_id,),
+        affected_paths=(affected_path,),
+        exact_evidence_ids=(episode.episode_id,),
+        independent_lineage_ids=(),
+        task_context_binding_ids=(task_context_binding_id,),
+        occurrence_count=1,
+    )
+
+
+def _expert_trigger_inspection_response_schema(
+    fixed_payload: Mapping[str, Any],
+) -> Mapping[str, Any]:
+    """Constrain a live inspection to one authenticated evidence boundary."""
+
+    properties = {name: {"const": value} for name, value in fixed_payload.items()}
+    properties["description"] = {"type": "string", "minLength": 1}
+    return {
+        "type": "object",
+        "properties": properties,
+        "required": sorted(properties),
+        "additionalProperties": False,
     }
 
 
@@ -1774,6 +2008,7 @@ def _synthetic_projection(
     scope_contract: ExpertScopeContract,
     *,
     predecessor_bundle: RunBundle | None = None,
+    predecessor_episode: TransferEpisode | None = None,
     predecessor_prior_idea: PriorIdea | None = None,
 ) -> ProjectionResult:
     """Build the one public, domain-neutral transport-smoke bundle."""
@@ -1830,7 +2065,14 @@ def _synthetic_projection(
         )
     }
     committed_at = _committed_at(fixture["committed_at"])
-    if (predecessor_bundle is None) != (predecessor_prior_idea is None):
+    predecessors = (
+        predecessor_bundle,
+        predecessor_episode,
+        predecessor_prior_idea,
+    )
+    if any(predecessor is None for predecessor in predecessors) and not all(
+        predecessor is None for predecessor in predecessors
+    ):
         raise ProductionSmokeError(
             "synthetic projection predecessor closure is incomplete"
         )
@@ -1839,6 +2081,8 @@ def _synthetic_projection(
         or predecessor_bundle.campaign_id != "production_smoke_campaign"
         or predecessor_bundle.scope_contract_id != scope_contract.scope_contract_id
         or set(predecessor_bundle.capture_watermarks) != {"events"}
+        or predecessor_episode is None
+        or predecessor_episode.source_bundle_id != predecessor_bundle.bundle_id
         or predecessor_prior_idea.source_bundle_id != predecessor_bundle.bundle_id
     ):
         raise ProductionSmokeError(
@@ -1917,6 +2161,52 @@ def _synthetic_projection(
         taint_sources=(),
         admitted_refs=checksums,
     )
+    episode = TransferEpisode.mint(
+        source={
+            "scope_id": scope_contract.scope_id,
+            "run_id": bundle.run_id,
+            "campaign_id": bundle.campaign_id,
+            "node_id": "production_smoke_node",
+            "idea_id": "production_smoke_executed_idea",
+            "batch_id": "production_smoke_batch",
+        },
+        source_bundle_id=bundle.bundle_id,
+        supersedes_projection_id=(
+            None if predecessor_episode is None else predecessor_episode.episode_id
+        ),
+        task_context_binding=task_context,
+        artifact_environment=environment,
+        proposal=(
+            "Validate semantic parity before training through one reusable "
+            "representation boundary."
+        ),
+        parent_episode_ref=None,
+        attempts=(
+            TransferAttempt(
+                execution_revision=0,
+                captured_at=committed_at,
+                execution_status=ExecutionStatus.FAILED_TECHNICAL,
+                evaluation_status=EpisodeEvaluationStatus.NOT_RUN,
+                evaluation_fingerprints=(),
+                score_of_record_fingerprint_id=None,
+                comparison_status=ComparisonStatus.NOT_COMPARABLE,
+                measurements={},
+                source_parent_effect=None,
+                intervention_ref=None,
+                intervention_structure=InterventionStructure.UNDETERMINED,
+                feedback=(),
+                technical_difficulties=(
+                    "The reusable semantic-parity boundary lacks a common "
+                    "preflight diagnostic for representation mismatches.",
+                ),
+                confounders=(),
+            ),
+        ),
+        terminal_attempt_revision=0,
+        safe_observation_refs=(),
+        sanitation_report_id=report.report_id,
+        derivation_refs=(bundle.bundle_id,),
+    )
     prior_idea = PriorIdea.mint(
         source_bundle_id=bundle.bundle_id,
         supersedes_projection_id=(
@@ -1948,7 +2238,7 @@ def _synthetic_projection(
     return ProjectionResult(
         source_bundle=bundle,
         sanitation_report=report,
-        episodes=(),
+        episodes=(episode,),
         prior_ideas=(prior_idea,),
         derivation_objects=(),
     )
@@ -2018,17 +2308,30 @@ def _synthetic_projection_for_snapshot(
             if isinstance(record, PriorIdea)
             and record.prior_idea_id in manifest.prior_idea_ids
         )
-        if len(reports) != 1 or len(priors) != 1 or manifest.episode_ids:
+        episodes = tuple(
+            record
+            for record in records
+            if isinstance(record, TransferEpisode)
+            and record.episode_id in manifest.episode_ids
+        )
+        if len(reports) != 1 or len(priors) != 1 or len(episodes) != 1:
             raise ProductionSmokeError(
                 "current synthetic projection closure is invalid"
             )
         return ProjectionResult(
             source_bundle=current_bundle,
             sanitation_report=reports[0],
-            episodes=(),
+            episodes=episodes,
             prior_ideas=priors,
             derivation_objects=(),
         )
+    predecessor_episodes = tuple(
+        record
+        for record in records
+        if isinstance(record, TransferEpisode)
+        and record.source_bundle_id == current_bundle.bundle_id
+        and record.source.get("idea_id") == "production_smoke_executed_idea"
+    )
     predecessor_priors = tuple(
         record
         for record in records
@@ -2036,13 +2339,16 @@ def _synthetic_projection_for_snapshot(
         and record.source_bundle_id == current_bundle.bundle_id
         and record.source.get("idea_id") == "production_smoke_idea"
     )
-    if len(predecessor_priors) != 1:
-        raise ProductionSmokeError("synthetic bundle lacks one predecessor prior idea")
+    if len(predecessor_episodes) != 1 or len(predecessor_priors) != 1:
+        raise ProductionSmokeError(
+            "synthetic bundle lacks one predecessor episode and prior idea"
+        )
     return _synthetic_projection(
         settings,
         fixture,
         scope_contract,
         predecessor_bundle=current_bundle,
+        predecessor_episode=predecessor_episodes[0],
         predecessor_prior_idea=predecessor_priors[0],
     )
 
