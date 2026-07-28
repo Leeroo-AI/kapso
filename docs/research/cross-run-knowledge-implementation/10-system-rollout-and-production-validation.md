@@ -241,17 +241,18 @@ missing signed evaluator result, second eligible concurrency child, pinned image
 or external restart controller stops at that exact boundary and writes no passing
 stage receipt.
 
-The final implementation gate executed the complete repository suite once after
-legacy deletion and the final M10 fixes: 4,014 passed, 25 skipped, and no tests
-failed in 2:04:02. The skips are explicit optional/manual-provider boundaries;
+The final implementation gate executed the complete repository suite after
+legacy deletion and the reviewer-requested E1 orchestration repair in
+`70590a1c`: 4,015 passed, 25 skipped, and no tests failed in 2:04:50. The skips
+are explicit optional/manual-provider boundaries;
 production is never reported as passing through them. All 61 surviving Python
 files changed since the M9 review boundary pass Black; the package, tests, and
 benchmarks compile; the repository diff check is clean; and the superseded
 schema/config/prompt-name search contains only documentation of their deletion.
-The final reviewer-requested E1 orchestration repair then passed 81 affected
+Before that complete-suite gate, the E1 repair passed 81 affected
 knowledge/expert/operations/system tests, including an actual stage-chain test
-from an admitted snapshot episode through deterministic trigger selection and the
-successor proposal operation.
+from an admitted snapshot episode through deterministic trigger selection and
+the successor proposal operation.
 
 ## Production access checklist
 
