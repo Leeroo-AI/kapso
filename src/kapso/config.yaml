@@ -441,6 +441,24 @@ cross_run:
     coding_agent_provider_user_id: 1001
     coding_agent_provider_group_id: 1001
     coding_agent_landlock_abi_version: 7
+    coding_agent_action_hostname: "kapso-coding-agent"
+    coding_agent_action_cgroup_parent_id: "kapso-run-action.slice"
+    coding_agent_action_cpu_period_microseconds: 100000
+    coding_agent_action_cpu_quota_microseconds: 200000
+    coding_agent_action_cpu_shares: 1024
+    coding_agent_action_memory_size_bytes: 1073741824
+    coding_agent_action_memory_reservation_size_bytes: 536870912
+    coding_agent_action_memory_swap_size_bytes: 1073741824
+    coding_agent_action_process_limit: 128
+    coding_agent_action_block_io_weight: 500
+    coding_agent_action_shared_memory_size_bytes: 67108864
+    coding_agent_action_runtime_volume_size_bytes: 1073741824
+    coding_agent_action_runtime_volume_inode_limit: 4096
+    coding_agent_action_temporary_reservation_size_bytes: 268435456
+    coding_agent_action_temporary_reservation_inode_count: 1024
+    coding_agent_action_execution_timeout_seconds: 900
+    coding_agent_action_termination_grace_seconds: 30
+    coding_agent_action_credential_lease_seconds: 1200
     run_action_store_size_bytes: 107374182400
     run_action_staging_entry_limit: 64
     run_action_projection_size_bytes: 1073741824

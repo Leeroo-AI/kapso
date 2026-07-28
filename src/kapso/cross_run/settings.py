@@ -1633,6 +1633,24 @@ class LaunchSettings(StrictContract):
     coding_agent_provider_user_id: int
     coding_agent_provider_group_id: int
     coding_agent_landlock_abi_version: int
+    coding_agent_action_hostname: str
+    coding_agent_action_cgroup_parent_id: str
+    coding_agent_action_cpu_period_microseconds: int
+    coding_agent_action_cpu_quota_microseconds: int
+    coding_agent_action_cpu_shares: int
+    coding_agent_action_memory_size_bytes: int
+    coding_agent_action_memory_reservation_size_bytes: int
+    coding_agent_action_memory_swap_size_bytes: int
+    coding_agent_action_process_limit: int
+    coding_agent_action_block_io_weight: int
+    coding_agent_action_shared_memory_size_bytes: int
+    coding_agent_action_runtime_volume_size_bytes: int
+    coding_agent_action_runtime_volume_inode_limit: int
+    coding_agent_action_temporary_reservation_size_bytes: int
+    coding_agent_action_temporary_reservation_inode_count: int
+    coding_agent_action_execution_timeout_seconds: int
+    coding_agent_action_termination_grace_seconds: int
+    coding_agent_action_credential_lease_seconds: int
     run_action_store_size_bytes: int
     run_action_staging_entry_limit: int
     run_action_projection_size_bytes: int
@@ -1954,6 +1972,93 @@ class LaunchSettings(StrictContract):
         ):
             raise CrossRunConfigurationError(
                 "launch coding-agent Landlock ABI differs from the implemented policy"
+            )
+        for value, name in (
+            (
+                self.coding_agent_action_hostname,
+                "coding_agent_action_hostname",
+            ),
+            (
+                self.coding_agent_action_cgroup_parent_id,
+                "coding_agent_action_cgroup_parent_id",
+            ),
+        ):
+            require_identifier(value, f"launch.{name}")
+        for value, name in (
+            (
+                self.coding_agent_action_cpu_period_microseconds,
+                "coding_agent_action_cpu_period_microseconds",
+            ),
+            (
+                self.coding_agent_action_cpu_quota_microseconds,
+                "coding_agent_action_cpu_quota_microseconds",
+            ),
+            (
+                self.coding_agent_action_cpu_shares,
+                "coding_agent_action_cpu_shares",
+            ),
+            (
+                self.coding_agent_action_memory_size_bytes,
+                "coding_agent_action_memory_size_bytes",
+            ),
+            (
+                self.coding_agent_action_memory_reservation_size_bytes,
+                "coding_agent_action_memory_reservation_size_bytes",
+            ),
+            (
+                self.coding_agent_action_memory_swap_size_bytes,
+                "coding_agent_action_memory_swap_size_bytes",
+            ),
+            (
+                self.coding_agent_action_process_limit,
+                "coding_agent_action_process_limit",
+            ),
+            (
+                self.coding_agent_action_block_io_weight,
+                "coding_agent_action_block_io_weight",
+            ),
+            (
+                self.coding_agent_action_shared_memory_size_bytes,
+                "coding_agent_action_shared_memory_size_bytes",
+            ),
+            (
+                self.coding_agent_action_runtime_volume_size_bytes,
+                "coding_agent_action_runtime_volume_size_bytes",
+            ),
+            (
+                self.coding_agent_action_runtime_volume_inode_limit,
+                "coding_agent_action_runtime_volume_inode_limit",
+            ),
+            (
+                self.coding_agent_action_temporary_reservation_size_bytes,
+                "coding_agent_action_temporary_reservation_size_bytes",
+            ),
+            (
+                self.coding_agent_action_temporary_reservation_inode_count,
+                "coding_agent_action_temporary_reservation_inode_count",
+            ),
+            (
+                self.coding_agent_action_execution_timeout_seconds,
+                "coding_agent_action_execution_timeout_seconds",
+            ),
+            (
+                self.coding_agent_action_termination_grace_seconds,
+                "coding_agent_action_termination_grace_seconds",
+            ),
+            (
+                self.coding_agent_action_credential_lease_seconds,
+                "coding_agent_action_credential_lease_seconds",
+            ),
+        ):
+            _require_positive(value, f"launch.{name}")
+        if (
+            self.coding_agent_action_termination_grace_seconds
+            >= self.coding_agent_action_execution_timeout_seconds
+            or self.coding_agent_action_temporary_reservation_size_bytes
+            < self.run_action_result_size_bytes
+        ):
+            raise CrossRunConfigurationError(
+                "launch coding-agent action limits cannot contain execution"
             )
         if (
             self.coding_agent_response_schema_size_bytes
