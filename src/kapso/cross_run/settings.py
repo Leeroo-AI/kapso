@@ -1362,13 +1362,48 @@ class TaskEvaluationDockerProviderSettings(StrictContract):
 
 
 @dataclass(frozen=True)
+class ExpertEvaluatorTrustRootSettings(StrictContract):
+    trust_root_id: str
+    issuer_ids: tuple[str, ...]
+    public_key_base64: str
+
+    def _validate(self) -> None:
+        require_identifier(self.trust_root_id, "expert evaluator trust_root_id")
+        if not self.issuer_ids or self.issuer_ids != tuple(
+            sorted(set(self.issuer_ids))
+        ):
+            raise CrossRunConfigurationError(
+                "expert evaluator issuer IDs must be sorted and unique"
+            )
+        for issuer_id in self.issuer_ids:
+            require_identifier(issuer_id, "expert evaluator issuer_id")
+        if not isinstance(self.public_key_base64, str) or not self.public_key_base64:
+            raise CrossRunConfigurationError(
+                "expert evaluator public key must be non-empty base64"
+            )
+
+
+@dataclass(frozen=True)
 class ExpertValidationSettings(StrictContract):
     state_path: str
     task_evaluation_provider: TaskEvaluationDockerProviderSettings
     policy: ExpertValidationPolicySettings
+    evaluator_trust_roots: tuple[ExpertEvaluatorTrustRootSettings, ...]
 
     def _validate(self) -> None:
         _require_relative_path(self.state_path, "expert.validation.state_path")
+        root_ids = tuple(root.trust_root_id for root in self.evaluator_trust_roots)
+        issuer_ids = tuple(
+            issuer_id
+            for root in self.evaluator_trust_roots
+            for issuer_id in root.issuer_ids
+        )
+        if root_ids != tuple(sorted(set(root_ids))) or len(issuer_ids) != len(
+            set(issuer_ids)
+        ):
+            raise CrossRunConfigurationError(
+                "expert evaluator trust roots or issuers are ambiguous"
+            )
         if (
             self.policy.task_evaluation_cpu_millicore_limit
             * self.task_evaluation_provider.cpu_period_microseconds

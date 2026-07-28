@@ -227,6 +227,7 @@ cross_run:
       zstd_window_size_bytes: *cross_run_zstd_window_size_bytes
     validation:
       state_path: ".kapso/cross_run/expert_validation"
+      evaluator_trust_roots: []
       task_evaluation_provider:
         workspace_path: ".kapso/cross_run/task_evaluation_provider"
         container_user_id: 1000
