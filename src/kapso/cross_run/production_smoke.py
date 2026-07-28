@@ -1895,7 +1895,10 @@ def _expert_trigger_inspection_response_schema(
 ) -> Mapping[str, Any]:
     """Constrain a live inspection to one authenticated evidence boundary."""
 
-    properties = {name: {"const": value} for name, value in fixed_payload.items()}
+    properties = {
+        name: _trigger_constant_schema(value)
+        for name, value in fixed_payload.items()
+    }
     properties["description"] = {"type": "string", "minLength": 1}
     return {
         "type": "object",
@@ -1903,6 +1906,30 @@ def _expert_trigger_inspection_response_schema(
         "required": sorted(properties),
         "additionalProperties": False,
     }
+
+
+def _trigger_constant_schema(value: Any) -> Mapping[str, Any]:
+    if value is None:
+        return {"type": "null", "const": None}
+    if type(value) is str:
+        return {"type": "string", "const": value}
+    if type(value) is int:
+        return {"type": "integer", "const": value}
+    if type(value) is list and all(type(item) is str for item in value):
+        return {
+            "type": "array",
+            "items": {"type": "string"},
+            "const": value,
+        }
+    if type(value) is dict and not value:
+        return {
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": False,
+            "const": {},
+        }
+    raise ProductionSmokeError("trigger fixed response value has no exact schema")
 
 
 def _successor_launch_smoke(
