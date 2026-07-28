@@ -8,7 +8,6 @@ import pytest
 from kapso.gated_mcp import (
     GATES,
     GateCapabilityError,
-    GateDefinition,
     get_allowed_tools_for_gates,
     get_mcp_config,
     resolve_gates,
@@ -19,7 +18,6 @@ from kapso.gated_mcp.server import _resolve_configuration
 CAPABILITY_ENV = (
     "KG_INDEX_PATH",
     "OPENAI_API_KEY",
-    "EXPERIMENT_HISTORY_PATH",
     "REPO_MEMORY_ROOT",
     "LEEROOPEDIA_API_KEY",
     "MCP_ENABLED_GATES",
@@ -40,17 +38,8 @@ def command_lookup(*available):
 
 def test_registry_declares_environment_and_command_requirements():
     assert GATES["research"].required_env == ["OPENAI_API_KEY"]
-    assert GATES["experiment_history"].required_env == [
-        "EXPERIMENT_HISTORY_PATH"
-    ]
     assert GATES["leeroopedia"].required_env == ["LEEROOPEDIA_API_KEY"]
     assert GATES["leeroopedia"].required_commands == ["leeroopedia-mcp"]
-
-
-def test_legacy_env_keys_are_folded_into_required_environment():
-    definition = GateDefinition(tools=["tool"], env_keys=["LEGACY_KEY"])
-
-    assert definition.required_env == ["LEGACY_KEY"]
 
 
 def test_resolution_preserves_order_deduplicates_and_reports_every_gate():
@@ -118,13 +107,10 @@ def test_unknown_gate_is_always_a_configuration_error(operation):
 
 def test_explicit_paths_satisfy_internal_gate_requirements(tmp_path):
     index_path = tmp_path / "knowledge.index"
-    history_path = tmp_path / "history.json"
-
     servers, tools = get_mcp_config(
-        ["idea", "experiment_history", "repo_memory"],
+        ["idea", "repo_memory"],
         project_root=tmp_path,
         kg_index_path=str(index_path),
-        experiment_history_path=str(history_path),
         repo_root=str(tmp_path),
         gate_failure_policy="error",
         include_base_tools=False,
@@ -132,15 +118,11 @@ def test_explicit_paths_satisfy_internal_gate_requirements(tmp_path):
 
     server = servers["gated-knowledge"]
     assert server["command"] == sys.executable
-    assert server["env"]["MCP_ENABLED_GATES"] == (
-        "idea,experiment_history,repo_memory"
-    )
+    assert server["env"]["MCP_ENABLED_GATES"] == "idea,repo_memory"
     assert server["env"]["KG_INDEX_PATH"] == str(index_path)
-    assert server["env"]["EXPERIMENT_HISTORY_PATH"] == str(history_path)
     assert server["env"]["REPO_MEMORY_ROOT"] == str(tmp_path)
     assert server["env"]["MCP_GATE_FAILURE_POLICY"] == "error"
     assert "mcp__gated-knowledge__wiki_idea_search" in tools
-    assert "mcp__gated-knowledge__get_top_experiments" in tools
 
 
 def test_warn_config_keeps_available_gates_and_removes_missing_tools(tmp_path):
@@ -209,34 +191,3 @@ def test_bundled_server_applies_capability_policy(monkeypatch):
     configs = _resolve_configuration()
 
     assert set(configs) == {"repo_memory"}
-
-
-def test_embedding_model_is_forwarded_to_experiment_history_gate(tmp_path):
-    """The gate process learns its semantic-search model through the server
-    env (the transport across the MCP process boundary); no gate → no
-    forward."""
-    history_path = tmp_path / "history.json"
-
-    servers, _ = get_mcp_config(
-        ["experiment_history"],
-        project_root=tmp_path,
-        experiment_history_path=str(history_path),
-        experiment_embedding_model="text-embedding-3-small",
-        gate_failure_policy="error",
-        include_base_tools=False,
-    )
-    env = servers["gated-knowledge"]["env"]
-    assert env["EXPERIMENT_EMBEDDING_MODEL"] == "text-embedding-3-small"
-
-    servers_without, _ = get_mcp_config(
-        ["repo_memory"],
-        project_root=tmp_path,
-        repo_root=str(tmp_path),
-        experiment_embedding_model="text-embedding-3-small",
-        gate_failure_policy="error",
-        include_base_tools=False,
-    )
-    assert (
-        "EXPERIMENT_EMBEDDING_MODEL"
-        not in servers_without["gated-knowledge"]["env"]
-    )

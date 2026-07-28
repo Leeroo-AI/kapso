@@ -25,9 +25,6 @@ from kapso.execution.run_checkpoint import (
     RunCheckpointStore,
 )
 from kapso.execution.search_strategies.node import SearchNode
-from kapso.gated_mcp.gates.experiment_history_gate import (
-    ExperimentHistoryGate,
-)
 from kapso.kapso import Kapso
 from tests.test_run_checkpoint import CHECKPOINT_PATH
 
@@ -276,15 +273,9 @@ def test_agent_facing_history_does_not_expose_external_metrics() -> None:
     record = ExperimentRecord.from_node(node, "maximize", False)
 
     formatted = format_experiments([record])
-    gate_formatted = ExperimentHistoryGate()._format_experiments(
-        [record],
-        "Experiments",
-    )
-
-    for output in (formatted, gate_formatted):
-        assert "holdout_accuracy" not in output
-        assert "0.99" not in output
-        assert "secret harness failure" not in output
+    assert "holdout_accuracy" not in formatted
+    assert "0.99" not in formatted
+    assert "secret harness failure" not in formatted
 
 
 def test_every_finalized_candidate_is_evaluated_and_persisted(

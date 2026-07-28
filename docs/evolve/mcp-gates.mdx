@@ -3,8 +3,8 @@ title: "Capability-Aware MCP Gates"
 description: "Resolve optional MCP tools before an experiment starts"
 ---
 
-Kapso's MCP gates expose optional knowledge, research, experiment-history, and
-repository-memory tools to coding agents. Each gate declares its dependencies
+Kapso's MCP gates expose optional knowledge, research, repository-memory, and
+authenticated prior-knowledge tools to coding agents. Each gate declares its dependencies
 in the central registry, so a missing API key or executable is handled before
 Claude Code starts instead of surfacing as a failed tool call during an
 experiment.
@@ -17,8 +17,8 @@ experiment.
 | `idea` | `KG_INDEX_PATH` | — | Bundled |
 | `code` | `KG_INDEX_PATH` | — | Bundled |
 | `research` | `OPENAI_API_KEY` | — | Bundled |
-| `experiment_history` | `EXPERIMENT_HISTORY_PATH` | — | Bundled |
 | `repo_memory` | — | — | Bundled |
+| `prior_knowledge` | explicit bounded packet descriptor | — | Bundled |
 | `leeroopedia` | `LEEROOPEDIA_API_KEY` | `leeroopedia-mcp` | External |
 
 `GateDefinition.required_env` checks for a non-empty value.
@@ -64,17 +64,17 @@ tools only for enabled gates:
 from kapso.gated_mcp import get_mcp_config
 
 mcp_servers, allowed_tools = get_mcp_config(
-    ["idea", "experiment_history", "repo_memory"],
+    ["idea", "repo_memory"],
     kg_index_path="./knowledge.index",
-    experiment_history_path="./.kapso/experiment_history.json",
     repo_root=".",
     gate_failure_policy="error",
     include_base_tools=False,
 )
 ```
 
-Explicit path arguments satisfy the corresponding environment requirement and
-are forwarded only to the bundled MCP subprocess. Kapso uses the running Python
+Explicit path arguments satisfy the corresponding capability and are forwarded
+only to the bundled MCP subprocess. Prior knowledge is supplied through a bounded,
+authenticated materialization rather than a persisted-history path. Kapso uses the running Python
 interpreter for that subprocess, which avoids relying on a separate `python`
 executable on `PATH`. If all internal gates are omitted, no empty bundled server
 is created. External gates retain their own MCP server and tool-name prefix.

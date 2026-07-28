@@ -27,7 +27,6 @@ from mcp.types import TextContent, Tool
 from kapso.gated_mcp.presets import GATES, resolve_gates
 from kapso.gated_mcp.gates.base import GateConfig, ToolGate
 from kapso.gated_mcp.gates.code_gate import CodeGate
-from kapso.gated_mcp.gates.experiment_history_gate import ExperimentHistoryGate
 from kapso.gated_mcp.gates.idea_gate import IdeaGate
 from kapso.gated_mcp.gates.kg_gate import KGGate
 from kapso.gated_mcp.gates.prior_knowledge_gate import PriorKnowledgeGate
@@ -43,7 +42,6 @@ GATE_CLASSES: Dict[str, Type[ToolGate]] = {
     "idea": IdeaGate,
     "code": CodeGate,
     "research": ResearchGate,
-    "experiment_history": ExperimentHistoryGate,
     "repo_memory": RepoMemoryGate,
     "prior_knowledge": PriorKnowledgeGate,
 }

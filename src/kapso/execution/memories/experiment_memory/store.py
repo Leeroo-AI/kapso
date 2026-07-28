@@ -633,14 +633,6 @@ class ExperimentHistoryStore:
         os.close(directory_descriptor)
 
 
-def load_store_from_env() -> ExperimentHistoryStore:
-    """MCP process boundary: load paths and model routing from its launcher."""
-    json_path = os.environ["EXPERIMENT_HISTORY_PATH"]
-    embedding_model = os.environ.get("EXPERIMENT_EMBEDDING_MODEL")
-    llm = LLMBackend(models={"embedding": embedding_model}) if embedding_model else None
-    return ExperimentHistoryStore(json_path=json_path, llm=llm)
-
-
 def format_experiments(experiments: Iterable[_ExperimentRecord]) -> str:
     """Render complete executed content without exposing caller-owned metrics."""
     records = tuple(experiments)

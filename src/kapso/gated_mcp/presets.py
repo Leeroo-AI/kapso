@@ -40,12 +40,6 @@ class GateDefinition:
     command: Optional[str] = None
     required_env: List[str] = field(default_factory=list)
     required_commands: List[str] = field(default_factory=list)
-    # Deprecated construction alias retained for downstream registries.
-    env_keys: List[str] = field(default_factory=list, repr=False)
-
-    def __post_init__(self) -> None:
-        self.required_env = list(dict.fromkeys([*self.required_env, *self.env_keys]))
-        self.env_keys = list(self.required_env)
 
 
 @dataclass(frozen=True)
@@ -161,19 +155,6 @@ GATES: Dict[str, GateDefinition] = {
             "default_top_k": 5,
         },
         required_env=["OPENAI_API_KEY"],
-    ),
-    "experiment_history": GateDefinition(
-        tools=[
-            "get_top_experiments",
-            "get_recent_experiments",
-            "search_similar_experiments",
-        ],
-        default_params={
-            "top_k": 5,
-            "recent_k": 5,
-            "similar_k": 3,
-        },
-        required_env=["EXPERIMENT_HISTORY_PATH"],
     ),
     "repo_memory": GateDefinition(
         tools=[
@@ -347,8 +328,6 @@ def get_mcp_config(
     server_name: str = "gated-knowledge",
     project_root: Optional[Path] = None,
     kg_index_path: Optional[str] = None,
-    experiment_history_path: Optional[str] = None,
-    experiment_embedding_model: Optional[str] = None,
     repo_root: Optional[str] = None,
     prior_knowledge_path: Optional[str] = None,
     prior_knowledge_maximum_bytes: Optional[int] = None,
@@ -360,18 +339,11 @@ def get_mcp_config(
     Get MCP server config and allowed tools for the given gates.
 
     Args:
-        gates: List of gate names (e.g., ["idea", "research", "experiment_history"])
+        gates: List of gate names (e.g., ["idea", "research", "repo_memory"])
         server_name: MCP server name (default: "gated-knowledge")
         project_root: Project root path (defaults to the Kapso checkout root)
         kg_index_path: Path to .index file. Required if "kg", "idea", or "code"
                        gates are enabled. Falls back to KG_INDEX_PATH env var.
-        experiment_history_path: Path to experiment history JSON file. Required if
-                                 "experiment_history" gate is enabled.
-        experiment_embedding_model: Embedding model for the gate's semantic
-                                    search (optional; the gate process's own
-                                    SDK credentials must be able to serve it,
-                                    else the tool call fails loud and the
-                                    agent falls back to top/recent).
         repo_root: Path to repo root for repo_memory gate. Falls back to
                    REPO_MEMORY_ROOT env var or CWD.
         prior_knowledge_path: Explicit local access-materialization file for the
@@ -398,8 +370,6 @@ def get_mcp_config(
     effective_env = dict(os.environ)
     explicit_env = {
         "KG_INDEX_PATH": kg_index_path,
-        "EXPERIMENT_HISTORY_PATH": experiment_history_path,
-        "EXPERIMENT_EMBEDDING_MODEL": experiment_embedding_model,
         "REPO_MEMORY_ROOT": repo_root,
     }
     effective_env.update(
@@ -458,12 +428,6 @@ def get_mcp_config(
     for gate_name in internal_gates:
         for key in GATES[gate_name].required_env:
             mcp_env[key] = effective_env[key]
-    if "experiment_history" in internal_gates and effective_env.get(
-        "EXPERIMENT_EMBEDDING_MODEL"
-    ):
-        mcp_env["EXPERIMENT_EMBEDDING_MODEL"] = effective_env[
-            "EXPERIMENT_EMBEDDING_MODEL"
-        ]
     if "repo_memory" in internal_gates and effective_env.get("REPO_MEMORY_ROOT"):
         mcp_env["REPO_MEMORY_ROOT"] = effective_env["REPO_MEMORY_ROOT"]
 

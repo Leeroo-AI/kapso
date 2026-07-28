@@ -10,10 +10,8 @@ import pytest
 
 from kapso.execution.search_strategies.generic.strategy import GenericSearch
 import kapso.execution.search_strategies.generic.difficulties_generator as difficulties_generator
-from kapso.gated_mcp.gates.experiment_history_gate import (
-    ExperimentHistoryGate,
-)
 from kapso.execution.memories.experiment_memory.record import ExperimentRecord
+from kapso.execution.memories.experiment_memory.store import format_experiments
 from kapso.execution.search_strategies.node import SearchNode
 
 
@@ -141,8 +139,7 @@ def test_fallback_returns_empty_on_session_failure(monkeypatch, tmp_path):
     assert text == ""
 
 
-def test_gate_renders_difficulties_block():
-    gate = ExperimentHistoryGate.__new__(ExperimentHistoryGate)
+def test_experiment_formatter_renders_difficulties_block():
     node = SearchNode(
         node_id=1,
         solution="s",
@@ -155,6 +152,6 @@ def test_gate_renders_difficulties_block():
         technical_difficulties="hit the special-token trap; re-init fixed it",
     )
     record = ExperimentRecord.from_node(node, "maximize", False)
-    rendered = gate._format_experiments([record], "Title")
+    rendered = format_experiments([record])
     assert "Technical difficulties:" in rendered
     assert "special-token trap" in rendered
