@@ -26,12 +26,17 @@ Do not invent evidence IDs or interface facts not present in the packet.
 
 Return complete replacements only for module contracts that actually changed,
 without IDs, hashes, descriptors, receipts, manifests, sanitation results,
-generated controls, or book content. Preserve known failures, preconditions,
-exclusions, resource bounds, dependency/license declarations, tests, replay
-references, and evidence unless the packet justifies changing them. Arrays must
-be sorted and unique. `supporting_episode_ids` and `known_failure_episode_ids`
-must be disjoint; a technical-failure episode is failure evidence, not supporting
-evidence. Declare the exact changed and deleted paths observed in the workspace.
+generated controls, or book content. For every changed source-base module, copy
+`purpose`, `dependency_capability_ids`, `incompatible_capability_ids`, and
+`resource_bounds` exactly from the source-base contract: do not reword, extend,
+or otherwise change these fixed safety-envelope fields. Preserve every existing
+known failure, precondition, exclusion, input, output, problem signal,
+dependency/license declaration, entrypoint, test, replay reference, and evidence;
+you may add justified values, but never remove or rewrite an existing one. Arrays
+must be sorted and unique. `supporting_episode_ids` and
+`known_failure_episode_ids` must be disjoint; a technical-failure episode is
+failure evidence, not supporting evidence. Declare the exact changed and deleted
+paths observed in the workspace.
 
 Return only an object satisfying the supplied JSON schema.
 

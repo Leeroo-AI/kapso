@@ -88,6 +88,21 @@ def test_expert_proposal_prompts_require_enforceable_resource_bounds(operation_k
     assert "Never claim asymptotic bounds lower" in normalized_prompt
 
 
+def test_generalization_prompt_names_the_fixed_safety_envelope():
+    prompt = build_expert_proposal_prompt(
+        ExpertCandidateOperationKind.GENERALIZE,
+        {},
+    )
+    normalized_prompt = " ".join(prompt.split())
+
+    assert (
+        "copy `purpose`, `dependency_capability_ids`, "
+        "`incompatible_capability_ids`, and `resource_bounds` exactly"
+        in normalized_prompt
+    )
+    assert "you may add justified values, but never remove or rewrite" in normalized_prompt
+
+
 class UnusedSourceMaterializer:
     def extract_verified_source_archive(self, **kwargs):
         raise AssertionError("bootstrap must not materialize a released source base")
