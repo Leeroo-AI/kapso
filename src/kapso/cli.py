@@ -46,7 +46,6 @@ from kapso.execution.coding_agents.factory import CodingAgentFactory
 from kapso.kapso import DeployStrategy, Kapso, Source
 from kapso.researcher import ResearchMode, ResearchDepth
 
-
 # Available coding agents
 AVAILABLE_AGENTS = ["aider", "gemini", "claude_code", "openhands"]
 
@@ -409,6 +408,7 @@ def cmd_cross_run(args) -> None:
         result = capture_cross_run(
             **common,
             request_path=Path(args.input),
+            state_root=Path(args.state_root),
         )
     elif args.cross_run_operation == "publish-knowledge":
         result = publish_knowledge_cross_run(
@@ -718,6 +718,7 @@ Examples:
             operation_parser.add_argument("--state-root", required=True)
         elif operation == "capture":
             operation_parser.add_argument("--input", required=True)
+            operation_parser.add_argument("--state-root", required=True)
         elif operation == "production-smoke":
             operation_parser.add_argument("--state-root", required=True)
             operation_parser.add_argument(

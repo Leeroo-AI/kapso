@@ -11,6 +11,7 @@ from typing import Any, Mapping
 
 from kapso.core.config import load_effective_config
 from kapso.cross_run.canonical import canonical_json_bytes, parse_json_bytes
+from kapso.cross_run.capture.bundle import RunBundleStore
 from kapso.cross_run.capture.exporter import RunCaptureRequest
 from kapso.cross_run.capture.pipeline import RunCaptureContext, RunCapturePipeline
 from kapso.cross_run.catalog.service import CrossRunCatalog
@@ -202,6 +203,7 @@ def capture_cross_run(
     config_path: str,
     mode: str,
     request_path: Path,
+    state_root: Path,
 ) -> Mapping[str, Any]:
     """Capture one complete stopped frontier from an explicit typed request."""
 
@@ -213,6 +215,12 @@ def capture_cross_run(
     ).capture_if_due(CompletionState.STOPPED, force=True)
     if stored is None:
         raise CrossRunOperationError("forced capture returned no bundle")
+    root = _private_state_root(state_root)
+    RunBundleStore.initialize(
+        root / settings.capture.state_path,
+        settings.capture,
+        settings.sanitation,
+    ).import_exact(stored)
     return {
         "operation": "capture",
         "scope_id": stored.manifest.scope_id,
@@ -478,6 +486,17 @@ def resolve_launch_cross_run(
             request["objective_direction"], "objective_direction"
         ),
     )
+    replay_context = RunBundleStore.initialize(
+        root / settings.capture.state_path,
+        settings.capture,
+        settings.sanitation,
+    ).publish_starting_artifacts(
+        task_context_binding=(
+            handoff.active_workspace.bootstrap_pin.launch_manifest.task_context_binding
+        ),
+        launch_artifacts=preparation.starting_artifacts.artifacts,
+        validation_settings=settings.expert.validation,
+    )
     identity = handoff.identity
     baseline_commit = (
         handoff.active_workspace.bootstrap_pin.installation_receipt.workspace_baseline_commit_sha
@@ -495,6 +514,10 @@ def resolve_launch_cross_run(
         "expert_release_id": identity.expert_release_id,
         "knowledge_snapshot_id": identity.knowledge_snapshot_id,
         "task_adapter_manifest_id": identity.task_adapter_manifest_id,
+        "source_replay_starting_artifact_content_ids": [
+            item.artifact.starting_artifact_content_id
+            for item in replay_context.starting_artifacts
+        ],
         "workspace_baseline_commit_sha": baseline_commit,
         "next_action": "evolve --resume",
     }

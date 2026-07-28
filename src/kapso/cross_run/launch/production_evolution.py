@@ -13,6 +13,7 @@ from kapso.core.embedding_contracts import (
 )
 from kapso.core.embedding_provider import OpenAIEmbeddingProvider
 from kapso.cross_run.canonical import canonical_json_bytes, tree_or_blob_digest
+from kapso.cross_run.capture.bundle import RunBundleStore
 from kapso.cross_run.docker.runtime import DockerImageAuthority
 from kapso.cross_run.knowledge.index import SnapshotSearchIndex
 from kapso.cross_run.knowledge.package import KnowledgeSnapshotPackage
@@ -259,6 +260,17 @@ def execute_production_evolution(
                 request=request,
                 run_root=run_root,
                 objective_direction=objective_direction,
+            )
+            RunBundleStore.initialize(
+                state_root / settings.capture.state_path,
+                settings.capture,
+                settings.sanitation,
+            ).publish_starting_artifacts(
+                task_context_binding=(
+                    handoff.active_workspace.bootstrap_pin.launch_manifest.task_context_binding
+                ),
+                launch_artifacts=starting_artifacts.artifacts,
+                validation_settings=settings.expert.validation,
             )
         _require_pinned_prompt_inputs(
             handoff.active_workspace.bootstrap_pin.launch_manifest.launch_request,

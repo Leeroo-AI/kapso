@@ -13,6 +13,7 @@ import kapso.cli as cli_module
 import kapso.cross_run.operations as operations_module
 from kapso.cli import main
 from kapso.core.config import load_effective_config
+from kapso.cross_run.capture.bundle import RunBundleStore
 from kapso.cross_run.catalog.service import CrossRunCatalog
 from kapso.cross_run.contracts import (
     CompletionState,
@@ -31,6 +32,9 @@ from kapso.cross_run.operations import (
     publish_knowledge_cross_run,
     resolve_launch_cross_run,
     validate_expert_cross_run,
+)
+from kapso.cross_run.launch.starting_artifacts import (
+    build_launch_starting_artifact_provider,
 )
 from kapso.cross_run.expert.validation_store import ExpertValidationStore
 from cross_run_capture_fixtures import make_capture_fixture
@@ -84,6 +88,7 @@ def test_capture_command_runs_the_real_pipeline_and_reports_exact_bundle(tmp_pat
         config_path=_CONFIG_PATH,
         mode="GENERIC",
         request_path=request_path,
+        state_root=tmp_path / "state",
     )
 
     assert result["operation"] == "capture"
@@ -92,6 +97,14 @@ def test_capture_command_runs_the_real_pipeline_and_reports_exact_bundle(tmp_pat
     assert result["bundle_id"].startswith("run-bundle:sha256:")
     assert result["completion_state"] == CompletionState.STOPPED.value
     assert result["artifact_digests"]
+    settings = load_effective_config(_CONFIG_PATH, "GENERIC").cross_run
+    retained = RunBundleStore(
+        tmp_path / "state" / settings.capture.state_path,
+        settings.capture,
+        settings.sanitation,
+    ).require_exact(result["bundle_id"])
+    assert retained.manifest.bundle_id == result["bundle_id"]
+    assert retained.manifest.run_id == fixture.request.run_id
 
 
 def test_expert_validation_services_use_the_canonical_task_adapter_root(tmp_path):
@@ -260,6 +273,7 @@ def test_resolve_launch_preserves_complete_request_and_pins_workspace(
     for artifact_ref in launch_request.task_context_request.starting_artifact_refs:
         source = tmp_path / artifact_ref
         source.mkdir()
+        (source / "input.txt").write_text("task input\n", encoding="utf-8")
         artifact_inputs[artifact_ref] = {
             "source": artifact_ref,
             "mount_path": f"inputs/{artifact_ref}",
@@ -294,7 +308,10 @@ def test_resolve_launch_preserves_complete_request_and_pins_workspace(
         return SimpleNamespace(
             binding=launch_request.binding,
             experiment_embedding_space=object(),
-            starting_artifacts=object(),
+            starting_artifacts=build_launch_starting_artifact_provider(
+                sources=arguments["starting_artifact_sources"],
+                settings=resolver_case["resolver"].settings.launch,
+            ),
             request=launch_request,
         )
 
@@ -337,6 +354,7 @@ def test_resolve_launch_preserves_complete_request_and_pins_workspace(
     assert result["knowledge_snapshot_id"] == (
         resolver_case["knowledge_package"].manifest.snapshot_id
     )
+    assert result["source_replay_starting_artifact_content_ids"] == []
 
 
 def test_validate_expert_runs_the_existing_restart_aware_review_stage(
