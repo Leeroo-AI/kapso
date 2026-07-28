@@ -1,0 +1,70 @@
+---
+title: "Cross-Run Operations"
+description: "Operate GitHub-backed knowledge, expert releases, and launches"
+---
+
+# Cross-Run Operations
+
+Kapso has one cross-run operating model: task bindings select a configured scope,
+and that scope resolves immutable knowledge, expert, and security releases from
+GitHub. Task inputs never contain repository names or mutable branch references.
+
+## State and output
+
+Pass the same config, mode, and owner-private absolute state root to every
+operation. Commands emit canonical JSON containing content IDs, GitHub commit and
+release identities, validation state, and a next action. They never emit credential
+values or raw captured content.
+
+```bash
+kapso cross-run production-smoke \
+  --config src/kapso/config.yaml \
+  --mode GENERIC \
+  --state-root /var/lib/kapso-validation \
+  --stages preflight bootstrap-authorities github-read embeddings \
+           docker-authority knowledge-publication coding-agent-ideation
+```
+
+Stages run only in canonical order and append to one durable receipt at
+`.kapso/cross_run/production_validation/production-smoke-receipt.json`. Repeating
+a completed stage verifies and returns the same receipt without repeating paid or
+remote work. A changed config, fixture, stage order, or corrupt receipt fails.
+
+## Normal lifecycle
+
+1. `production-smoke` checks providers and bootstraps only the explicitly selected
+   synthetic authorities.
+2. `capture` exports a reconciled run frontier into a sanitized bundle.
+3. `publish-knowledge` projects admitted records and publishes an immutable
+   snapshot with a compare-and-swap update to `CURRENT.json`.
+4. `propose-expert` runs the configured coding-agent proposer and stores a sealed
+   candidate; the proposer cannot approve it.
+5. Repeated `validate-expert` operations advance the exact expected validation
+   transition. Signed evaluator stages, automated reviews, source replay, release
+   matrix, and publication eligibility remain distinct authorities.
+6. `publish-expert` accepts only an eligible candidate and publishes a history-free
+   source release plus complete evidence archive.
+7. `resolve-launch` resolves current immutable releases, task adapter, starting
+   artifacts, security state, and compatibility evidence before creating a run.
+
+Read-only diagnosis after bootstrap:
+
+```bash
+kapso cross-run inspect --config src/kapso/config.yaml --mode GENERIC \
+  --scope-id ml_ai --state-root /var/lib/kapso
+
+kapso cross-run verify --config src/kapso/config.yaml --mode GENERIC \
+  --scope-id ml_ai --state-root /var/lib/kapso
+```
+
+Mutation requests are canonical JSON files. They must name complete content IDs and
+the current expected transition or parent identity; a stale caller retries from a
+fresh read rather than forcing an update.
+
+## Evidence interpretation
+
+A successful transport smoke proves authentication, immutability, deterministic
+materialization, OpenAI embedding identity, bounded Docker authority, and audited
+coding-agent access. It does not prove scientific transfer benefit. Claim that only
+from matched task runs with equal budgets and evaluator fingerprints.
+

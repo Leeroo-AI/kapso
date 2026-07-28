@@ -70,6 +70,15 @@
             ]
           },
           {
+            "group": "Cross-Run Operations",
+            "pages": [
+              "docs/cross-run/operations",
+              "docs/cross-run/github-setup",
+              "docs/cross-run/security-and-revocation",
+              "docs/cross-run/troubleshooting"
+            ]
+          },
+          {
             "group": "Research",
             "pages": [
               "docs/research/overview"

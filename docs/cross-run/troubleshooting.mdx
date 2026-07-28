@@ -1,0 +1,30 @@
+---
+title: "Cross-Run Troubleshooting"
+description: "Diagnose authority, integrity, and restart failures"
+---
+
+# Cross-Run Troubleshooting
+
+Kapso fails loudly and does not switch providers, use stale state, relax policy, or
+repair authority implicitly. Preserve the state root and operation artifacts before
+diagnosis.
+
+| Symptom | Meaning | Action |
+|---|---|---|
+| Authentication missing | External `gh`, Codex/Claude, OpenAI, or registry profile is absent | Authenticate with the provider-owned CLI/SDK, then retry the same operation identity |
+| Permission denied | The actor lacks repository admin, release, workflow, or package scope | Correct external scope/role; do not substitute a token in config |
+| Expected-parent conflict | Another writer advanced `CURRENT` or the default branch | Resolve current state, rebuild against that immutable parent, and retry |
+| Schema or canonical-byte failure | Input, receipt, or remote artifact is corrupt or from another design | Discard/rederive the invalid pre-release state; never parse around malformed data |
+| Digest/attestation failure | Downloaded bytes or GitHub release identity do not match the pointer | Quarantine the artifact and investigate; do not use cache as fallback |
+| Security rollback/fork | Current denylist does not descend monotonically from the local floor | Stop all dangerous operations and restore the authoritative successor chain |
+| Coding-agent operation conflict | One operation ID was reused with different prompt, schema, workspace, or prior packet | Fix the caller identity derivation; never delete a completed receipt to force reuse |
+| Empty MCP audit | The prior-knowledge server did not initialize or the agent did not call it | Inspect private `stderr.txt`/`stdout.txt`; verify the bounded MCP executable and require list then exact get |
+| Docker authority failure | Socket, executable, API, config root, or root-owned mutation-lock identity changed | Re-provision externally and restart from a fresh observation; application code must not repair it |
+| Missing expert current release | The scope has no validated E0 | Run the explicit expert bootstrap/validation/publication workflow; launch must not bootstrap implicitly |
+| Evaluator or canary trust absent | Full expert promotion lacks an external trust root | Provision the configured evaluator/sealed service; do not fabricate results or disable the gate during promotion |
+
+For a production smoke failure, rerun the same stage and state root. Completed stages
+are receipt-replayed; an interrupted stage reconciles its provider operation. If the
+durable receipt itself is corrupt or belongs to another config/fixture, retain it for
+incident evidence and start a new owner-private validation root.
+

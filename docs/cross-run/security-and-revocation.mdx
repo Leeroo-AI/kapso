@@ -1,0 +1,50 @@
+---
+title: "Security and Revocation"
+description: "Fresh denylist authority and release-use policy"
+---
+
+# Security and Revocation
+
+Security authorization comes from an authenticated, immutable, cumulative denylist
+release. Generation zero is empty. Every successor names its predecessor and may
+only add content-addressed revocations; removal, rewrite, fork, or rollback is
+rejected against the persisted local floor.
+
+Kapso refreshes this authority immediately before dangerous boundaries: expert
+promotion/publication, launch, resume, and coding-agent execution. Cached state may
+support audit or reproducibility, but never authorizes new work while offline.
+
+## Two revocation classes
+
+- A security or contamination revocation blocks affected publication, new launch,
+  resume, and derivative execution immediately.
+- A scientific release-use revocation records that an expert release should not be
+  selected for new work while preserving the immutable release and old-run evidence.
+
+The `revoke` command does not create security authority. It records a candidate
+revocation only after the current security snapshot already contains the matching
+authorized subject and evidence:
+
+```bash
+kapso cross-run revoke \
+  --config src/kapso/config.yaml --mode GENERIC \
+  --state-root /var/lib/kapso \
+  --input revoke-request.json
+```
+
+The request names `candidate_id` and a normalized UTC `revoked_at`. The command
+returns the revocation receipt, candidate/release IDs, exact security observation,
+and terminal validation state.
+
+## Incident procedure
+
+1. Stop scheduling new work; do not delete immutable releases or local checkpoints.
+2. Publish a cumulative security successor through the authorized security
+   publisher, preserving the exact predecessor and all prior revocations.
+3. Re-run read-only verification from a state root that already observed the prior
+   generation; rollback/fork checks must pass.
+4. Invoke candidate revocation where applicable and verify new launch/resume fails
+   for the revoked subject.
+5. Build and fully validate a clean successor. Never reactivate by rewriting or
+   removing the historical revocation.
+

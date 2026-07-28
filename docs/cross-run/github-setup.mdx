@@ -1,0 +1,57 @@
+---
+title: "GitHub Setup"
+description: "Minimal autonomous GitHub authority for cross-run learning"
+---
+
+# GitHub Setup
+
+Each broad domain scope maps to exactly three private repositories in
+`cross_run.scopes`: expert releases, knowledge snapshots, and the cumulative
+security denylist. Benchmark/task configuration selects only `scope_id`,
+`task_family_id`, and `task_adapter_id`.
+
+For the `ml_ai` scope the configured repositories are:
+
+- `Leeroo-AI/kapso-expert`
+- `Leeroo-AI/kapso-knowledge`
+- `Leeroo-AI/kapso-security`
+
+All three require a `main` default branch, direct administrative writes by the
+autonomous actor, immutable releases, and no rule requiring a pull request or human
+approval. Kapso revalidates repository node identity, privacy, write authority, and
+release immutability before mutation.
+
+## Host authentication
+
+Authenticate outside Kapso. Application code never reads a token or environment
+variable.
+
+```bash
+gh auth login
+gh auth refresh -h github.com -s repo,workflow,read:packages,write:packages
+gh config set git_protocol https -h github.com
+gh auth setup-git
+gh auth status
+```
+
+The package scopes are required only to publish or pull the pinned coding-agent
+image from GHCR. Repository publication requires `repo`; workflow mutation requires
+`workflow`. Never paste the token into config, prompts, receipts, or logs.
+
+Verify access without displaying credentials:
+
+```bash
+git ls-remote https://github.com/Leeroo-AI/kapso-expert.git HEAD
+git ls-remote https://github.com/Leeroo-AI/kapso-knowledge.git HEAD
+git ls-remote https://github.com/Leeroo-AI/kapso-security.git HEAD
+```
+
+## Publication model
+
+Kapso creates a draft release, uploads checksum-bound assets, publishes it as
+immutable, commits the source tree to the default branch with an expected parent,
+then advances `CURRENT.json` by compare-and-swap. A visible draft, asset, tag, or
+source commit is not success; only the authenticated current pointer plus activation
+witness is authoritative. Retries reconcile the exact prior operation and never
+force-push or infer completion from partial remote state.
+
