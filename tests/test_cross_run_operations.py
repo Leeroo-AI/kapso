@@ -11,7 +11,7 @@ import kapso.cross_run.operations as operations_module
 from kapso.cli import main
 from kapso.core.config import load_effective_config
 from kapso.cross_run.catalog.service import CrossRunCatalog
-from kapso.cross_run.contracts import CompletionState
+from kapso.cross_run.contracts import CompletionState, ExpertPromotionState
 from kapso.cross_run.operations import (
     GitHubOperationServices,
     capture_cross_run,
@@ -25,6 +25,8 @@ from cross_run_capture_fixtures import make_capture_fixture
 from test_cross_run_retrieval import source_fixture
 from test_expert_proposal import BootstrapProposalRunner, bootstrap_output
 from test_expert_review import _review_fixture
+from test_expert_publication_eligibility import _coordinator, _publish_matrix
+from test_expert_promotion_decision import _settings as promotion_settings
 from test_expert_triggers import trigger_packet, trigger_settings
 from test_knowledge_snapshot_publisher import RecordingPublicationAuthority
 from test_launch_bootstrap import _fresh_coordinator
@@ -344,6 +346,74 @@ def test_validate_expert_runs_the_existing_restart_aware_review_stage(
     assert result["accepted_stage_result_ids"][-1].startswith(
         "expert-automated-review-stage-result:sha256:"
     )
+
+
+def test_validate_expert_executes_typed_publication_eligibility(
+    tmp_path,
+    monkeypatch,
+):
+    matrix_root = tmp_path / "matrix"
+    matrix_root.mkdir()
+    case = _publish_matrix(
+        matrix_root,
+        monkeypatch,
+        bootstrap=True,
+        settings=promotion_settings(minimum_replicates=1, minimum_pairs=1),
+    )
+    services = operations_module.ExpertValidationOperationServices(
+        candidate_store=case.validation_store.reducer.candidate_store,
+        validation_store=case.validation_store,
+        task_adapter_store=case.validation_store.reducer.task_adapter_provider,
+    )
+    authority = _coordinator(case)
+    monkeypatch.setattr(
+        operations_module,
+        "_github_services",
+        lambda _settings, _state_root: GitHubOperationServices(
+            resolver=object(),
+            materializer=object(),
+            publisher=object(),
+        ),
+    )
+    monkeypatch.setattr(
+        operations_module,
+        "_expert_validation_services",
+        lambda _settings, _state_root, _github: services,
+    )
+    monkeypatch.setattr(
+        operations_module,
+        "_policy_services",
+        lambda _settings, _state_root, _github: object(),
+    )
+    monkeypatch.setattr(
+        operations_module,
+        "_publication_eligibility_coordinator",
+        lambda _services, _policies: authority.coordinator,
+    )
+    snapshot = case.matrix_commit.snapshot
+    request_path = tmp_path / "eligibility.json"
+    request_path.write_text(
+        json.dumps(
+            {
+                "candidate_id": snapshot.state.candidate_id,
+                "expected_transition_id": snapshot.transition.transition_id,
+                "evaluator_result": None,
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    result = validate_expert_cross_run(
+        config_path=_CONFIG_PATH,
+        mode="GENERIC",
+        request_path=request_path,
+        state_root=tmp_path / "state",
+    )
+
+    assert result["promotion_state"] == ExpertPromotionState.APPROVED.value
+    assert result["next_stage"] is None
+    assert result["next_action"] == "publish-expert"
 
 
 def _capture_request_payload(request):

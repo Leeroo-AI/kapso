@@ -29,6 +29,18 @@ from kapso.cross_run.expert.attestation import ConfiguredExpertAttestationVerifi
 from kapso.cross_run.expert.candidates import ExpertCandidateValidator
 from kapso.cross_run.expert.generalizer import ExpertCapabilityGeneralizer
 from kapso.cross_run.expert.providers import GitHubExpertCurrentReleaseProvider
+from kapso.cross_run.expert.publisher import ExpertReleasePublisher
+from kapso.cross_run.expert.release import ExpertReleaseAssembler
+from kapso.cross_run.expert.release_authority import (
+    GitHubExpertReleaseActivationProvider,
+)
+from kapso.cross_run.expert.release_use_policy import (
+    GitHubExpertReleaseUsePolicyAuthority,
+)
+from kapso.cross_run.expert.revocation import ExpertReleaseRevocationCoordinator
+from kapso.cross_run.expert.promotion_authority import (
+    ExpertPublicationEligibilityCoordinator,
+)
 from kapso.cross_run.expert.proposal import ExpertCandidateProposalEngine
 from kapso.cross_run.expert.store import ExpertCandidateStore
 from kapso.cross_run.expert.triggers import (
@@ -56,6 +68,11 @@ from kapso.cross_run.launch.production import (
     build_production_launch_services,
 )
 from kapso.cross_run.settings import CrossRunSettings
+from kapso.cross_run.security_denylist import (
+    AuthenticatedSecurityDenylistAuthority,
+    GitHubSecurityDenylistSnapshotProvider,
+    SecurityDenylistCheckpointStore,
+)
 from kapso.cross_run.task_adapter_authority import CanonicalTaskAdapterAuthority
 from kapso.cross_run.task_adapter_store import (
     TaskAdapterAuthorityRegistry,
@@ -90,6 +107,14 @@ class ExpertValidationOperationServices:
     candidate_store: ExpertCandidateStore
     validation_store: ExpertValidationStore
     task_adapter_store: TaskAdapterPackageStore
+
+
+@dataclass(frozen=True)
+class CrossRunPolicyOperationServices:
+    """Fresh external authorities shared by promotion and publication."""
+
+    security_authority: AuthenticatedSecurityDenylistAuthority
+    release_use_authority: GitHubExpertReleaseUsePolicyAuthority
 
 
 def inspect_cross_run(
@@ -511,10 +536,24 @@ def validate_expert_cross_run(
                 candidate_store=services.candidate_store,
                 validation_store=services.validation_store,
             ).run(snapshot.latest_attempt)
+        elif stage is ExpertValidationStage.PUBLICATION_ELIGIBILITY:
+            if request["evaluator_result"] is not None:
+                raise CrossRunOperationError(
+                    "publication eligibility cannot consume a generic evaluator result"
+                )
+            policies = _policy_services(settings, root, github)
+            coordinator = _publication_eligibility_coordinator(services, policies)
+            matrix_result_id = _accepted_stage_result_id(
+                snapshot,
+                ExpertValidationStage.RELEASE_MATRIX,
+            )
+            snapshot = coordinator.publish(
+                candidate_id=candidate_id,
+                release_matrix_stage_result_id=matrix_result_id,
+            ).snapshot
         elif stage in {
             ExpertValidationStage.SOURCE_RUN_REPLAY,
             ExpertValidationStage.RELEASE_MATRIX,
-            ExpertValidationStage.PUBLICATION_ELIGIBILITY,
         }:
             if request["evaluator_result"] is not None:
                 raise CrossRunOperationError(
@@ -532,6 +571,116 @@ def validate_expert_cross_run(
                 result=ExpertEvaluatorResultRecord.from_dict(evaluator_result),
             ).snapshot
     return _validation_summary(snapshot)
+
+
+def publish_expert_cross_run(
+    *,
+    config_path: str,
+    mode: str,
+    request_path: Path,
+    state_root: Path,
+) -> Mapping[str, Any]:
+    """Terminalize eligibility when needed and publish one approved release."""
+
+    settings = _settings(config_path, mode)
+    request = _object_request(request_path, {"candidate_id", "committed_at"})
+    candidate_id = _required_text(request["candidate_id"], "candidate_id")
+    committed_at = _required_text(request["committed_at"], "committed_at")
+    root = _private_state_root(state_root)
+    github = _github_services(settings, root)
+    services = _expert_validation_services(settings, root, github)
+    policies = _policy_services(settings, root, github)
+    coordinator = _publication_eligibility_coordinator(services, policies)
+    snapshot = services.validation_store.snapshot(candidate_id)
+    if snapshot is None:
+        raise CrossRunOperationError("expert candidate has no validation state")
+    if snapshot.state.next_stage is ExpertValidationStage.PUBLICATION_ELIGIBILITY:
+        snapshot = coordinator.publish(
+            candidate_id=candidate_id,
+            release_matrix_stage_result_id=_accepted_stage_result_id(
+                snapshot,
+                ExpertValidationStage.RELEASE_MATRIX,
+            ),
+        ).snapshot
+    publisher = ExpertReleasePublisher(
+        assembler=ExpertReleaseAssembler(
+            candidate_store=services.candidate_store,
+            validation_store=services.validation_store,
+            expert_settings=settings.expert,
+            github_settings=settings.github,
+        ),
+        validation_store=services.validation_store,
+        github_publisher=github.publisher,
+        resolver=github.resolver,
+        current_release_authority=(
+            services.validation_store.reducer.current_release_provider
+        ),
+        task_adapter_authority=(
+            services.validation_store.reducer.task_adapter_provider
+        ),
+        security_denylist_authority=policies.security_authority,
+        release_use_policy_authority=policies.release_use_authority,
+    )
+    publication = publisher.publish(
+        candidate_id=candidate_id,
+        committed_at=committed_at,
+    )
+    receipt = publication.activation.receipt
+    record = receipt.github_publication_pointer.publication_record
+    return {
+        "operation": "publish-expert",
+        "scope_id": receipt.github_publication_intent.scope_id,
+        "candidate_id": receipt.candidate_id,
+        "release_id": receipt.release_id,
+        "activation_receipt_id": receipt.activation_receipt_id,
+        "publication_id": record.publication_id,
+        "commit_sha": record.commit_sha,
+        "release_tag": record.tag,
+        "asset_digests": {asset.name: asset.sha256 for asset in record.assets},
+        "replayed": publication.activation.replayed,
+        "next_action": "resolve-launch",
+    }
+
+
+def revoke_expert_cross_run(
+    *,
+    config_path: str,
+    mode: str,
+    request_path: Path,
+    state_root: Path,
+) -> Mapping[str, Any]:
+    """Record a release revocation already authorized by security CURRENT."""
+
+    settings = _settings(config_path, mode)
+    request = _object_request(request_path, {"candidate_id", "revoked_at"})
+    candidate_id = _required_text(request["candidate_id"], "candidate_id")
+    root = _private_state_root(state_root)
+    github = _github_services(settings, root)
+    services = _expert_validation_services(settings, root, github)
+    policies = _policy_services(settings, root, github)
+    revoked = ExpertReleaseRevocationCoordinator(
+        validation_store=services.validation_store,
+        security_denylist_authority=policies.security_authority,
+    ).revoke(
+        candidate_id=candidate_id,
+        revoked_at=_required_text(request["revoked_at"], "revoked_at"),
+    )
+    receipt = revoked.receipt
+    observation = receipt.security_denylist_observation
+    return {
+        "operation": "revoke",
+        "scope_id": observation.scope_id,
+        "candidate_id": receipt.candidate_id,
+        "release_id": receipt.release_id,
+        "revocation_receipt_id": receipt.revocation_receipt_id,
+        "security_snapshot_id": observation.snapshot_id,
+        "security_publication_id": observation.publication_id,
+        "matched_revocation_ids": tuple(
+            item.revocation_id for item in observation.matched_revocations
+        ),
+        "replayed": revoked.replayed,
+        "next_action": "resolve-launch",
+    }
 
 
 def operation_json(result: Mapping[str, Any]) -> bytes:
@@ -652,6 +801,75 @@ def _expert_validation_services(
         validation_store=validation_store,
         task_adapter_store=task_adapter_store,
     )
+
+
+def _policy_services(
+    settings: CrossRunSettings,
+    state_root: Path,
+    github: GitHubOperationServices,
+) -> CrossRunPolicyOperationServices:
+    security_state_path = (
+        state_root / settings.launch.security_denylist_state_path
+    )
+    security_trusted_root = _private_state_root(security_state_path.parent)
+    security_authority = AuthenticatedSecurityDenylistAuthority(
+        settings.scopes,
+        settings.launch,
+        GitHubSecurityDenylistSnapshotProvider(
+            github.resolver,
+            github.materializer,
+        ),
+        SecurityDenylistCheckpointStore(
+            security_state_path,
+            security_trusted_root,
+            settings.launch.security_denylist_checkpoint_size_bytes,
+        ),
+    )
+    activation_provider = GitHubExpertReleaseActivationProvider(
+        github.resolver,
+        github.materializer,
+    )
+    return CrossRunPolicyOperationServices(
+        security_authority=security_authority,
+        release_use_authority=GitHubExpertReleaseUsePolicyAuthority(
+            github.resolver,
+            github.materializer,
+            activation_provider,
+        ),
+    )
+
+
+def _publication_eligibility_coordinator(
+    services: ExpertValidationOperationServices,
+    policies: CrossRunPolicyOperationServices,
+) -> ExpertPublicationEligibilityCoordinator:
+    current_release = services.validation_store.reducer.current_release_provider
+    if type(current_release) is not GitHubExpertCurrentReleaseProvider:
+        raise CrossRunOperationError(
+            "publication eligibility requires the configured GitHub CURRENT authority"
+        )
+    return ExpertPublicationEligibilityCoordinator(
+        validation_store=services.validation_store,
+        current_release_authority=current_release,
+        task_adapter_authority=(
+            services.validation_store.reducer.task_adapter_provider
+        ),
+        security_denylist_authority=policies.security_authority,
+        release_use_policy_authority=policies.release_use_authority,
+    )
+
+
+def _accepted_stage_result_id(snapshot, stage: ExpertValidationStage) -> str:
+    matches = tuple(
+        reference.stage_result_record_id
+        for reference in snapshot.state.accepted_stage_results
+        if reference.stage is stage
+    )
+    if len(matches) != 1:
+        raise CrossRunOperationError(
+            f"validation state has no unique accepted {stage.value} result"
+        )
+    return matches[0]
 
 
 def _validation_summary(snapshot) -> Mapping[str, Any]:

@@ -29,7 +29,9 @@ from kapso.cross_run.operations import (
     inspect_cross_run,
     operation_json,
     propose_expert_cross_run,
+    publish_expert_cross_run,
     publish_knowledge_cross_run,
+    revoke_expert_cross_run,
     resolve_launch_cross_run,
     validate_expert_cross_run,
     verify_cross_run,
@@ -416,6 +418,12 @@ def cmd_cross_run(args) -> None:
             request_path=Path(args.input),
             state_root=Path(args.state_root),
         )
+    elif args.cross_run_operation == "publish-expert":
+        result = publish_expert_cross_run(
+            **common,
+            request_path=Path(args.input),
+            state_root=Path(args.state_root),
+        )
     elif args.cross_run_operation == "resolve-launch":
         result = resolve_launch_cross_run(
             **common,
@@ -425,6 +433,12 @@ def cmd_cross_run(args) -> None:
         )
     elif args.cross_run_operation == "validate-expert":
         result = validate_expert_cross_run(
+            **common,
+            request_path=Path(args.input),
+            state_root=Path(args.state_root),
+        )
+    elif args.cross_run_operation == "revoke":
+        result = revoke_expert_cross_run(
             **common,
             request_path=Path(args.input),
             state_root=Path(args.state_root),
@@ -679,7 +693,9 @@ Examples:
         "capture",
         "publish-knowledge",
         "propose-expert",
+        "publish-expert",
         "resolve-launch",
+        "revoke",
         "validate-expert",
         "verify",
     ):
@@ -694,6 +710,8 @@ Examples:
         elif operation in {
             "publish-knowledge",
             "propose-expert",
+            "publish-expert",
+            "revoke",
             "validate-expert",
         }:
             operation_parser.add_argument("--input", required=True)
