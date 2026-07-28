@@ -116,6 +116,27 @@ For every seam, define the one valid restart action and prove idempotent retry o
 typed irrecoverable failure. Never infer success from a partially visible remote
 artifact.
 
+### Implemented coverage ledger
+
+The system scenario is `tests/test_cross_run_system_e2e.py`. It composes the
+sealed M3–M9 artifacts once for both PostTrain-shaped and RelBench-shaped task
+contexts: EMPTY/E0 launch, captured experiment, catalog generation, S1 publication
+and retrieval, validated E1 candidate, later-task selection, and old-run resume.
+The lower-level failure seams stay owned by their focused tests:
+
+| System seam | Existing evidence |
+|---|---|
+| Interrupted GitHub publication and retry | `test_cross_run_github_publisher.py::test_publication_failure_never_activates_current_early`, `::test_retry_resumes_partially_uploaded_draft_without_duplicate_asset`, and `::test_post_cas_witness_failure_leaves_recoverable_current` |
+| Knowledge `CURRENT` CAS conflict | `test_knowledge_snapshot_publisher.py::test_m2_compare_and_swap_failure_propagates_without_fallback` |
+| Concurrent knowledge/expert activation | `test_cross_run_github_publisher.py::test_two_publishers_from_one_head_produce_typed_compare_and_swap_conflict` and the sealed expert authorization tests in that module |
+| Clean-directory materialization | `test_cross_run_materializer.py::test_materializer_atomically_commits_read_only_cache_and_reuses_it` and `test_launch_workspace.py::test_builder_materializes_private_read_only_copies` |
+| Cross-module old-run resume | `test_cross_run_system_e2e.py::test_empty_launch_to_s1_e1_later_task_and_old_resume` and `test_launch_handoff.py::test_resume_handoff_maps_the_refreshed_checkpoint_head` |
+| Daemon/host restart | `test_run_action_recovery.py::test_provider_termination_has_exact_crash_restart_semantics`, `::test_result_received_recovers_after_full_runtime_restart`, and `::test_result_decided_recovers_after_full_runtime_restart_without_implementation` |
+| Final legacy cutover | `test_launch_workspace.py::test_published_envelope_rejects_legacy_run_action_lock`, `test_run_action_recovery.py::test_legacy_direct_spawn_interfaces_are_removed`, plus the final repository search and complete-suite gate |
+
+This ledger is deliberately referential: a seam gets a new M10 test only when no
+focused test already proves its restart or conflict contract.
+
 ## Scenario acceptance
 
 ### Domain neutrality
