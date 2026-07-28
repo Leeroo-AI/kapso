@@ -322,7 +322,7 @@ def _launch_fixture(*, omit_compatibility_security_subject=False):
     request = LaunchRequest.mint(
         binding=binding,
         task_context_request=task_context_request,
-        goal_digest=digest("goal"),
+        prompt_input_digest=digest("prompt-input"),
         starting_artifact_content_ids={
             artifact.starting_artifact_ref: artifact.starting_artifact_content_id
             for artifact in starting_artifacts

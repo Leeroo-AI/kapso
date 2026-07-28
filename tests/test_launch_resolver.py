@@ -658,7 +658,7 @@ def resolver_case(tmp_path, monkeypatch):
     request = LaunchRequest.mint(
         binding=binding_settings,
         task_context_request=task_context_request,
-        goal_digest=digest("launch-goal"),
+        prompt_input_digest=digest("launch-prompt-input"),
         starting_artifact_content_ids={
             item.artifact.starting_artifact_ref: (
                 item.artifact.starting_artifact_content_id
@@ -927,7 +927,7 @@ def test_compatibility_admits_new_verified_bytes_at_exact_case_mount(
     request = LaunchRequest.mint(
         binding=resolver_case["request"].binding,
         task_context_request=task_context_request,
-        goal_digest=digest("new-artifact-goal"),
+        prompt_input_digest=digest("new-artifact-prompt-input"),
         starting_artifact_content_ids={
             artifact_ref: task_artifact.starting_artifact_content_id
         },

@@ -6,7 +6,9 @@ import pytest
 import yaml
 
 from kapso.core.config import load_config, load_effective_config
+from kapso.cross_run.canonical import tree_or_blob_digest
 from kapso.cross_run.launch import production_evolution
+from kapso.cross_run.launch.contracts import LaunchTaskContextRequest
 from kapso.cross_run.launch.production_evolution import (
     execute_production_evolution,
     ProductionEvolutionError,
@@ -108,3 +110,43 @@ def test_evolution_prompt_preserves_full_goal_context_and_repository_memory():
     assert goal in prompt
     assert context in prompt
     assert memory.decode("utf-8") in prompt
+
+
+def test_resume_prompt_inputs_must_match_the_pinned_fresh_launch(tmp_path):
+    goal = "Preserve this complete goal."
+    context = "Preserve this complete caller context."
+    preparation = production_evolution.build_production_launch_preparation(
+        effective_config=_runtime_config(tmp_path),
+        goal=goal,
+        additional_context=context,
+        task_context_request=LaunchTaskContextRequest.mint(
+            capability_tags=("predict",),
+            input_contract_fingerprint=tree_or_blob_digest(b"input"),
+            target_contract_fingerprint=tree_or_blob_digest(b"target"),
+            starting_artifact_refs=(),
+            method_fingerprint=tree_or_blob_digest(b"method"),
+            toolchain_fingerprint=tree_or_blob_digest(b"toolchain"),
+            dependency_runtime_fingerprint=tree_or_blob_digest(b"runtime"),
+            budget_hardware_envelope={"hardware": "cpu"},
+            transfer_dimensions={},
+        ),
+        starting_artifact_sources={},
+        dependency_runtime_contract={"runtime": "python"},
+        budget_fidelity_envelope={"fidelity": "full"},
+        scope_id="ml_ai",
+        task_family_id="language_model_post_training",
+        task_adapter_id="posttrain",
+        requested_coding_agent="codex",
+    )
+
+    production_evolution._require_pinned_prompt_inputs(
+        preparation.request,
+        goal=goal,
+        additional_context=context,
+    )
+    with pytest.raises(ProductionEvolutionError, match="prompt inputs differ"):
+        production_evolution._require_pinned_prompt_inputs(
+            preparation.request,
+            goal=goal,
+            additional_context=context + " changed",
+        )

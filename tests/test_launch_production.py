@@ -127,6 +127,7 @@ def test_benchmark_launch_preparation_obtains_binding_from_selected_mode(
     prepared = build_production_launch_preparation(
         effective_config=effective,
         goal="Improve the synthetic task",
+        additional_context="",
         task_context_request=_task_context(),
         starting_artifact_sources={},
         dependency_runtime_contract={"runtime": "python"},
@@ -161,6 +162,7 @@ def test_selected_benchmark_rejects_an_explicit_binding_override(tmp_path):
         build_production_launch_preparation(
             effective_config=load_effective_config(str(runtime_path), "POSTTRAIN"),
             goal="Improve the synthetic task",
+            additional_context="",
             task_context_request=_task_context(),
             starting_artifact_sources={},
             dependency_runtime_contract={"runtime": "python"},
@@ -176,6 +178,7 @@ def test_generic_launch_requires_and_accepts_one_explicit_binding():
     prepared = build_production_launch_preparation(
         effective_config=load_effective_config(_CANONICAL_CONFIG_PATH, "GENERIC"),
         goal="Improve the synthetic task",
+        additional_context="",
         task_context_request=_task_context(),
         starting_artifact_sources={},
         dependency_runtime_contract={"runtime": "python"},

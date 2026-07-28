@@ -189,6 +189,7 @@ def execute_production_evolution(
         preparation = build_production_launch_preparation(
             effective_config=effective_config,
             goal=goal,
+            additional_context=additional_context,
             task_context_request=task_context_request,
             starting_artifact_sources=starting_artifact_sources,
             dependency_runtime_contract=dependency_runtime_contract,
@@ -239,6 +240,11 @@ def execute_production_evolution(
                 run_root=run_root,
                 objective_direction=objective_direction,
             )
+        _require_pinned_prompt_inputs(
+            handoff.active_workspace.bootstrap_pin.launch_manifest.launch_request,
+            goal=goal,
+            additional_context=additional_context,
+        )
         resources.callback(handoff.close)
 
         prior_knowledge, embedding_telemetry = _retrieve_prior_knowledge(
@@ -481,6 +487,32 @@ def _operation_id(
         )
     )
     return f"agent_call_{digest[7:39]}"
+
+
+def _prompt_input_digest(goal: str, additional_context: str) -> str:
+    return tree_or_blob_digest(
+        canonical_json_bytes(
+            {
+                "additional_context": additional_context,
+                "goal": goal,
+            }
+        )
+    )
+
+
+def _require_pinned_prompt_inputs(
+    launch_request,
+    *,
+    goal: str,
+    additional_context: str,
+) -> None:
+    if launch_request.prompt_input_digest != _prompt_input_digest(
+        goal,
+        additional_context,
+    ):
+        raise ProductionEvolutionError(
+            "evolution prompt inputs differ from the pinned launch"
+        )
 
 
 __all__ = [

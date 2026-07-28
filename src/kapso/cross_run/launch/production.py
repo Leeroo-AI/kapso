@@ -79,6 +79,7 @@ def build_production_launch_preparation(
     *,
     effective_config: EffectiveConfig,
     goal: str,
+    additional_context: str,
     task_context_request: LaunchTaskContextRequest,
     starting_artifact_sources: Mapping[str, tuple[Path, str]],
     dependency_runtime_contract: Mapping[str, Any],
@@ -95,6 +96,7 @@ def build_production_launch_preparation(
         type(effective_config) is not EffectiveConfig
         or not isinstance(goal, str)
         or not goal.strip()
+        or not isinstance(additional_context, str)
         or type(task_context_request) is not LaunchTaskContextRequest
         or not isinstance(starting_artifact_sources, Mapping)
         or not isinstance(dependency_runtime_contract, Mapping)
@@ -143,7 +145,14 @@ def build_production_launch_preparation(
     request = LaunchRequest.mint(
         binding=binding,
         task_context_request=task_context_request,
-        goal_digest=tree_or_blob_digest(goal.encode("utf-8")),
+        prompt_input_digest=tree_or_blob_digest(
+            canonical_json_bytes(
+                {
+                    "additional_context": additional_context,
+                    "goal": goal,
+                }
+            )
+        ),
         starting_artifact_content_ids=dict(starting_artifacts.content_ids),
         requested_coding_agent=coding_agent,
         search_mode=search_mode,

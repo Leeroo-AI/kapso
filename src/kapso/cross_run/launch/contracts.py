@@ -251,7 +251,7 @@ class LaunchRequest(StrictContract):
     launch_request_id: str
     binding: CrossRunTaskBindingSettings
     task_context_request: LaunchTaskContextRequest
-    goal_digest: str
+    prompt_input_digest: str
     starting_artifact_content_ids: Mapping[str, str]
     requested_coding_agent: str
     search_mode: str
@@ -269,7 +269,7 @@ class LaunchRequest(StrictContract):
         if type(self.task_context_request) is not LaunchTaskContextRequest:
             raise LaunchContractError("launch task context uses another contract")
         for value, name in (
-            (self.goal_digest, "goal_digest"),
+            (self.prompt_input_digest, "prompt_input_digest"),
             (self.configuration_fingerprint, "configuration_fingerprint"),
         ):
             _require_digest(value, f"launch request {name}")
