@@ -7,6 +7,7 @@ import re
 
 from kapso.cross_run.canonical import tree_or_blob_digest
 from kapso.cross_run.contracts import (
+    ExpertBaseReleaseManifest,
     ExpertModuleContract,
     ExpertRepositoryMap,
     ExpertScopeContract,
@@ -27,6 +28,10 @@ from kapso.cross_run.expert.replay_authority_contracts import (
 )
 from kapso.cross_run.expert.release_authority import (
     AuthenticatedExpertReleaseActivation,
+)
+from kapso.cross_run.expert.task_evaluation_materialization import (
+    TaskEvaluationMaterializationLimits,
+    VerifiedTaskEvaluationSourceBase,
 )
 from kapso.cross_run.expert.triggers import ExpertSourceBaseTreeReceipt
 from kapso.cross_run.github.materializer import (
@@ -252,6 +257,67 @@ class GitHubExpertCompositionBaseProvider:
                 "historical composition base differs from its activation"
             )
         return closure
+
+    def materialize_exact(
+        self,
+        release_manifest,
+        source_base_tree_receipt,
+        limits: TaskEvaluationMaterializationLimits,
+    ) -> VerifiedTaskEvaluationSourceBase:
+        """Materialize one exact historical release for task evaluation."""
+
+        if (
+            type(release_manifest) is not ExpertBaseReleaseManifest
+            or type(source_base_tree_receipt) is not ExpertSourceBaseTreeReceipt
+            or type(limits) is not TaskEvaluationMaterializationLimits
+        ):
+            raise ExpertCompositionBaseProviderError(
+                "task-evaluation base requires exact release authorities and limits"
+            )
+        resolved = self._resolver.resolve_artifact(
+            release_manifest.scope_id,
+            PublicationArtifactKind.EXPERT_BASE_RELEASE,
+            release_manifest.release_id,
+        )
+        if (
+            type(resolved) is not ResolvedGitHubArtifact
+            or resolved.pointer.scope_id != release_manifest.scope_id
+            or resolved.pointer.publication_record.artifact_kind
+            is not PublicationArtifactKind.EXPERT_BASE_RELEASE
+            or resolved.pointer.publication_record.artifact_id
+            != release_manifest.release_id
+        ):
+            raise ExpertCompositionBaseProviderError(
+                "resolved task-evaluation base differs from its release authority"
+            )
+        materialized = self._materializer.materialize(resolved)
+        if (
+            type(materialized) is not MaterializedArtifact
+            or materialized.receipt
+            != source_base_tree_receipt.cache_verification_receipt
+        ):
+            raise ExpertCompositionBaseProviderError(
+                "materialized task-evaluation base differs from its cache receipt"
+            )
+        source_snapshot = self._materializer.inspect_expert_release_source(
+            materialized,
+            maximum_entries=limits.maximum_entries,
+            maximum_bytes=limits.maximum_bytes,
+        )
+        if (
+            type(source_snapshot) is not ExpertReleaseSourceSnapshot
+            or source_snapshot.release_manifest != release_manifest
+            or source_snapshot.source_extraction_receipt
+            != source_base_tree_receipt.source_extraction_receipt
+        ):
+            raise ExpertCompositionBaseProviderError(
+                "task-evaluation source snapshot differs from its exact release"
+            )
+        return VerifiedTaskEvaluationSourceBase(
+            release_manifest=release_manifest,
+            source_base_tree_receipt=source_base_tree_receipt,
+            source_contents=source_snapshot.source_contents,
+        )
 
     def _resolve_current(self, scope_id: str) -> ResolvedGitHubArtifact:
         resolved = self._resolver.resolve_current(

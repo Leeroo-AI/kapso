@@ -19,6 +19,9 @@ from kapso.cross_run.expert.composition_base_provider import (
     ExpertCompositionBaseProviderError,
     GitHubExpertCompositionBaseProvider,
 )
+from kapso.cross_run.expert.task_evaluation_materialization import (
+    TaskEvaluationMaterializationLimits,
+)
 from kapso.cross_run.github.materializer import (
     ExpertReleaseSourceSnapshot,
     MaterializedArtifact,
@@ -38,11 +41,16 @@ class _Resolver:
     def __init__(self, *resolved):
         self.resolved = list(resolved)
         self.calls = []
+        self.artifact_calls = []
 
     def resolve_current(self, scope_id, artifact_kind):
         self.calls.append((scope_id, artifact_kind))
         if len(self.resolved) > 1:
             return self.resolved.pop(0)
+        return self.resolved[0]
+
+    def resolve_artifact(self, scope_id, artifact_kind, artifact_id):
+        self.artifact_calls.append((scope_id, artifact_kind, artifact_id))
         return self.resolved[0]
 
 
@@ -276,3 +284,32 @@ def test_current_base_rejects_scope_contract_substitution():
         match="scope authority",
     ):
         provider.resolve_current(substituted_scope)
+
+
+def test_exact_historical_base_materializes_under_task_evaluation_limits():
+    case, resolver, materializer, _settings, provider = _provider_case(
+        _resolved(_case())
+    )
+    limits = TaskEvaluationMaterializationLimits(
+        maximum_entries=100,
+        maximum_bytes=100_000,
+        timeout_seconds=30,
+    )
+
+    source = provider.materialize_exact(
+        case.release,
+        case.source_base_receipt,
+        limits,
+    )
+
+    assert source.release_manifest == case.release
+    assert source.source_base_tree_receipt == case.source_base_receipt
+    assert source.source_contents == case.source_contents
+    assert resolver.artifact_calls == [
+        (
+            case.scope.scope_id,
+            PublicationArtifactKind.EXPERT_BASE_RELEASE,
+            case.release.release_id,
+        )
+    ]
+    assert materializer.inspect_calls == [(materializer.materialized, 100, 100_000)]
