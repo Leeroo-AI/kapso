@@ -478,6 +478,37 @@ class CodingAgentSettings(StrictContract):
 
 
 @dataclass(frozen=True)
+class CodingAgentImageSettings(StrictContract):
+    """Pinned production image identity supplied by deployment configuration."""
+
+    image_reference: str
+    image_config_digest: str
+    operating_system: str
+    architecture: str
+    architecture_variant: str | None
+
+    def _validate(self) -> None:
+        if (
+            not self.image_reference
+            or "@sha256:" not in self.image_reference
+            or re.fullmatch(r"sha256:[0-9a-f]{64}", self.image_config_digest) is None
+        ):
+            raise CrossRunConfigurationError(
+                "coding-agent image must have pinned reference and config digests"
+            )
+        for value, name in (
+            (self.operating_system, "operating_system"),
+            (self.architecture, "architecture"),
+        ):
+            require_identifier(value, f"coding-agent image {name}")
+        if self.architecture_variant is not None:
+            require_identifier(
+                self.architecture_variant,
+                "coding-agent image architecture_variant",
+            )
+
+
+@dataclass(frozen=True)
 class CatalogReviewerSettings(StrictContract):
     reviewer_id: str
     reviewer_role: str
@@ -1573,6 +1604,8 @@ class ExpertSettings(StrictContract):
 @dataclass(frozen=True)
 class LaunchSettings(StrictContract):
     experiment_embeddings: EmbeddingSettings
+    coding_agent: CodingAgentSettings
+    coding_agent_image: CodingAgentImageSettings | None
     cache_path: str
     workspace_path: str
     immutable_root_path: str
@@ -1682,9 +1715,16 @@ class LaunchSettings(StrictContract):
         if (
             type(self.experiment_embeddings) is not EmbeddingSettings
             or not self.experiment_embeddings.enabled
+            or type(self.coding_agent) is not CodingAgentSettings
         ):
             raise CrossRunConfigurationError(
-                "launch experiment embeddings must be enabled and exact"
+                "launch experiment embeddings and coding agent must be exact"
+            )
+        if self.coding_agent_image is not None and type(
+            self.coding_agent_image
+        ) is not CodingAgentImageSettings:
+            raise CrossRunConfigurationError(
+                "launch coding-agent image authority is invalid"
             )
         _require_path(self.cache_path, "launch.cache_path")
         workspace = _require_relative_path(
@@ -2074,6 +2114,8 @@ class LaunchSettings(StrictContract):
         if (
             self.coding_agent_action_termination_grace_seconds
             >= self.coding_agent_action_execution_timeout_seconds
+            or self.coding_agent.timeout_seconds
+            > self.coding_agent_action_execution_timeout_seconds
             or self.coding_agent_action_temporary_reservation_size_bytes
             < self.run_action_result_size_bytes
         ):

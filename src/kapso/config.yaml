@@ -377,6 +377,15 @@ cross_run:
       timeout_seconds: &experiment_embedding_timeout_seconds 30
       max_retries: &experiment_embedding_max_retries 0
       canonicalizer_version: &experiment_embedding_canonicalizer_version "kapso.idea_embedding.v1"
+    coding_agent:
+      cli: "codex"
+      model: "gpt-5.6-sol"
+      timeout_seconds: 900
+      effort: "xhigh"
+      allowed_tools: ["Read"]
+    # Deployment setup writes an exact pinned authority into the runtime config.
+    # Null is fail-loud and cannot reach a paid coding-agent action.
+    coding_agent_image: null
     cache_path: ".kapso/cross_run/launch_cache"
     workspace_path: "workspace"
     immutable_root_path: "readonly"
