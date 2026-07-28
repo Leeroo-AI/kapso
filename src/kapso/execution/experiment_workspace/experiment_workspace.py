@@ -51,14 +51,13 @@ class WorkspaceCheckoutError(RuntimeError):
 class ExperimentWorkspace:
     """
     Manages experiment sessions with pluggable coding agents.
-    
+
     Creates isolated git workspaces for experimentation. Each experiment
     runs in its own branch, allowing tree-based exploration of solutions.
-    
+
     Supports multiple coding agents (Aider, Gemini, Claude Code, OpenHands)
     through the CodingAgentConfig system.
     """
-    
 
     def __init__(
         self,
@@ -71,7 +70,7 @@ class ExperimentWorkspace:
     ):
         """
         Initialize the Experiment Workspace.
-        
+
         Args:
             coding_agent_config: Configuration for the coding agent (required)
             workspace_dir: Path to the workspace directory (required)
@@ -81,22 +80,18 @@ class ExperimentWorkspace:
                 the first RepoMemory response
             llm_backend: Shared configured backend for utility completions
         """
-        
+
         self.workspace_dir = workspace_dir
         os.makedirs(self.workspace_dir, exist_ok=True)
-        self.repo_memory_failure_policy = (
-            RepoMemoryManager.normalize_failure_policy(
-                repo_memory_failure_policy
-            )
+        self.repo_memory_failure_policy = RepoMemoryManager.normalize_failure_policy(
+            repo_memory_failure_policy
         )
-        self.repo_memory_max_retries = (
-            RepoMemoryManager.normalize_max_retries(
-                repo_memory_max_retries
-            )
+        self.repo_memory_max_retries = RepoMemoryManager.normalize_max_retries(
+            repo_memory_max_retries
         )
         self.llm_backend = llm_backend
         self.checkpoint_path = checkpoint_path
-        
+
         self.repo = git.Repo.init(self.workspace_dir)
 
         # Repo-local git config that helps push branches back into this workspace repo.
@@ -106,14 +101,14 @@ class ExperimentWorkspace:
             git_config.set_value("user", "email", "workspace@experiment.com")
             # Needed because we may push to non-bare repos (this workspace is a working repo).
             git_config.set_value("receive", "denyCurrentBranch", "ignore")
-        
+
         # Store coding agent config
         self.coding_agent_config = coding_agent_config
-        
+
         # Cost tracking
         self.previous_sessions_cost = 0
         self.repo_lock = threading.Lock()
-        
+
         # Ensure we have a stable baseline branch called "main".
         # Many parts of the execution engine assume "main" exists and is the default parent.
         self._ensure_main_branch()
@@ -127,23 +122,25 @@ class ExperimentWorkspace:
     def with_default_config(
         cls,
         workspace_dir: Optional[str] = None,
-    ) -> 'ExperimentWorkspace':
+    ) -> "ExperimentWorkspace":
         """
         Create ExperimentWorkspace with default coding agent from agents.yaml.
-        
+
         Returns:
             ExperimentWorkspace configured with default agent
         """
         config = CodingAgentFactory.build_config()
         # Keep this helper usable in standalone scripts.
         # If workspace_dir is not provided, create a unique temp path.
-        workspace_dir = workspace_dir or os.path.join("tmp", "experiment_workspace", str(uuid.uuid4()))
+        workspace_dir = workspace_dir or os.path.join(
+            "tmp", "experiment_workspace", str(uuid.uuid4())
+        )
         return cls(coding_agent_config=config, workspace_dir=workspace_dir)
 
     def get_current_branch(self) -> str:
         """Get the current active branch name."""
         return self.repo.active_branch.name
-    
+
     def switch_branch(self, branch_name: str) -> None:
         """
         Switch to an existing branch.
@@ -163,9 +160,7 @@ class ExperimentWorkspace:
             branch_name: Name of branch to switch to
         """
         target_tracked = set(
-            self.repo.git.ls_tree(
-                "-r", "--name-only", branch_name
-            ).splitlines()
+            self.repo.git.ls_tree("-r", "--name-only", branch_name).splitlines()
         )
         for relative_path in sorted(
             target_tracked.intersection(self.repo.untracked_files)
@@ -214,20 +209,20 @@ class ExperimentWorkspace:
                     self.repo.git.worktree("prune")
                 except git.GitCommandError:
                     pass
-    
+
     def create_branch(self, branch_name: str) -> None:
         """
         Create and switch to a new branch.
-        
+
         Args:
             branch_name: Name for the new branch
         """
-        self.repo.git.checkout('-b', branch_name)
+        self.repo.git.checkout("-b", branch_name)
 
     def _ensure_main_branch(self) -> None:
         """
         Ensure the workspace has a branch named "main" checked out.
-        
+
         This keeps downstream logic simple because ExperimentSession defaults to
         parent_branch_name="main".
         """
@@ -256,7 +251,7 @@ class ExperimentWorkspace:
     def _ensure_workspace_gitignore(self) -> None:
         """
         Ensure `.gitignore` includes patterns needed by the experimentation engine.
-        
+
         We append patterns instead of overwriting existing .gitignore, because
         seeded repos often have important ignore rules already.
         """
@@ -281,10 +276,7 @@ class ExperimentWorkspace:
             required_lines.extend(
                 (
                     checkpoint.as_posix(),
-                    (
-                        checkpoint.parent
-                        / f".{checkpoint.stem}.*.tmp"
-                    ).as_posix(),
+                    (checkpoint.parent / f".{checkpoint.stem}.*.tmp").as_posix(),
                 )
             )
 
@@ -312,34 +304,36 @@ class ExperimentWorkspace:
         except git.GitCommandError:
             # Nothing to commit (rare). Keep silent.
             pass
-    
+
     def create_experiment_session(
-        self, 
-        branch_name: str, 
+        self,
+        branch_name: str,
         parent_branch_name: str = "main",
         llm=None,
     ) -> ExperimentSession:
         """
         Create a new experiment session.
-        
+
         Each session:
         - Clones the repo to an isolated folder
         - Checks out from parent branch (inherits parent's code)
         - Creates a new experiment branch
         - Uses the configured coding agent
-        
+
         Args:
             branch_name: Name for the experiment branch
             parent_branch_name: Branch to inherit code from
             llm: Optional LLM used for RepoMemory enrichment
-            
+
         Returns:
             ExperimentSession ready for code generation
         """
-        print(f"Creating experiment session for branch {branch_name} with parent {parent_branch_name}")
-        
-        session_folder = os.path.join(self.workspace_dir, 'sessions', branch_name)
-        
+        print(
+            f"Creating experiment session for branch {branch_name} with parent {parent_branch_name}"
+        )
+
+        session_folder = os.path.join(self.workspace_dir, "sessions", branch_name)
+
         # Create session with coding agent config
         session = ExperimentSession(
             main_repo=self.repo,
@@ -347,22 +341,20 @@ class ExperimentWorkspace:
             coding_agent_config=self.coding_agent_config,
             parent_branch_name=parent_branch_name,
             branch_name=branch_name,
-            repo_memory_llm=(
-                llm if llm is not None else self.llm_backend
-            ),
+            repo_memory_llm=(llm if llm is not None else self.llm_backend),
             repo_memory_failure_policy=self.repo_memory_failure_policy,
             repo_memory_max_retries=self.repo_memory_max_retries,
             llm_backend=self.llm_backend,
         )
-        
+
         return session
-    
+
     def finalize_session(self, session: ExperimentSession) -> None:
         """
         Finalize an experiment session.
-        
+
         Collects cost and closes the session (commits, pushes, cleanup).
-        
+
         Args:
             session: The session to finalize
         """
@@ -370,11 +362,11 @@ class ExperimentWorkspace:
         with self.repo_lock:
             self.previous_sessions_cost += cost
             session.close_session()
-    
+
     def cleanup(self) -> None:
         """
         Clean up the entire workspace.
-        
+
         Removes the workspace folder and all its contents.
         """
         shutil.rmtree(self.workspace_dir, ignore_errors=True)
@@ -382,7 +374,7 @@ class ExperimentWorkspace:
     def get_cumulative_cost(self) -> float:
         """
         Get total cost across all sessions.
-        
+
         Returns:
             Total cost in dollars
         """
@@ -392,22 +384,22 @@ class ExperimentWorkspace:
 if __name__ == "__main__":
     # Test with default agent from agents.yaml
     print("Testing ExperimentWorkspace with default config...")
-    
+
     workspace = ExperimentWorkspace.with_default_config()
     print(f"Workspace: {workspace.workspace_dir}")
     print(f"Agent type: {workspace.coding_agent_config.agent_type}")
-    
+
     session = workspace.create_experiment_session("test_branch")
     result = session.generate_code("implement a main.py file that prints 'Hello World'")
-    
+
     print(f"Success: {result['success']}")
-    print(f"Code: {result['code'][:200]}..." if result['code'] else "No code")
-    if result['error']:
+    print(f"Code: {result['code'][:200]}..." if result["code"] else "No code")
+    if result["error"]:
         print(f"Error: {result['error']}")
-    
+
     workspace.finalize_session(session)
     print(f"Cumulative cost: ${workspace.get_cumulative_cost():.4f}")
-    
+
     # Cleanup
     workspace.cleanup()
     print("Done!")

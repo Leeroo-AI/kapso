@@ -119,9 +119,12 @@ def solve_task(args) -> dict:
         budget = {"fidelity": "full", "hardware": "configured_runtime"}
     knowledge = ""
     if args.knowledge_file is not None:
-        knowledge = Path(args.knowledge_file).expanduser().resolve(
-            strict=True
-        ).read_text(encoding="utf-8")
+        knowledge = (
+            Path(args.knowledge_file)
+            .expanduser()
+            .resolve(strict=True)
+            .read_text(encoding="utf-8")
+        )
     goal = f"Improve predictive modeling for RelBench {args.dataset}/{args.task}."
     solution = Kapso(config_path=runtime_config_path).evolve(
         goal=goal,

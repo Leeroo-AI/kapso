@@ -26,12 +26,16 @@ load_dotenv()
 
 from kapso.core.llm import LLMBackend
 from kapso.execution.memories.repo_memory import RepoMemoryManager
-from kapso.execution.memories.repo_memory.builders import build_repo_map, validate_evidence
+from kapso.execution.memories.repo_memory.builders import (
+    build_repo_map,
+    validate_evidence,
+)
 
 
 # ---------------------------------------------------------------------------
 # Test fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def llm():
@@ -43,7 +47,7 @@ def llm():
 def sample_repo(tmp_path):
     """
     Create a small but realistic test repository with actual code.
-    
+
     The repo has:
     - A README describing what it does
     - A main entrypoint (main.py)
@@ -52,13 +56,14 @@ def sample_repo(tmp_path):
     """
     repo_dir = tmp_path / "sample_repo"
     repo_dir.mkdir()
-    
+
     # Initialize git repo
     repo = git.Repo.init(repo_dir)
-    
+
     # Create README.md
     readme = repo_dir / "README.md"
-    readme.write_text("""# Sample ML Pipeline
+    readme.write_text(
+        """# Sample ML Pipeline
 
 This repository implements a simple machine learning pipeline for classification.
 
@@ -79,11 +84,13 @@ The pipeline follows a modular design:
 2. `preprocessor.py` - feature engineering
 3. `classifier.py` - model training and prediction
 4. `evaluator.py` - metrics computation
-""")
-    
+"""
+    )
+
     # Create main.py
     main_py = repo_dir / "main.py"
-    main_py.write_text('''"""
+    main_py.write_text(
+        '''"""
 Main entrypoint for the ML pipeline.
 
 Usage:
@@ -125,11 +132,13 @@ def main():
 
 if __name__ == "__main__":
     main()
-''')
-    
+'''
+    )
+
     # Create classifier.py with actual algorithm
     classifier_py = repo_dir / "classifier.py"
-    classifier_py.write_text('''"""
+    classifier_py.write_text(
+        '''"""
 Logistic regression classifier implementation.
 
 Uses gradient descent optimization with configurable learning rate.
@@ -207,11 +216,13 @@ class LogisticClassifier:
         self.weights = data["weights"]
         self.bias = data["bias"]
         return self
-''')
-    
+'''
+    )
+
     # Create data_loader.py
     data_loader_py = repo_dir / "data_loader.py"
-    data_loader_py.write_text('''"""
+    data_loader_py.write_text(
+        '''"""
 Data loading utilities for CSV files.
 """
 
@@ -242,11 +253,13 @@ def load_csv_data(path: str) -> Tuple[np.ndarray, np.ndarray]:
     X = data[:, :-1]
     y = data[:, -1].astype(int)
     return X, y
-''')
-    
+'''
+    )
+
     # Create preprocessor.py
     preprocessor_py = repo_dir / "preprocessor.py"
-    preprocessor_py.write_text('''"""
+    preprocessor_py.write_text(
+        '''"""
 Feature preprocessing utilities.
 """
 
@@ -268,11 +281,13 @@ def normalize_features(X: np.ndarray) -> np.ndarray:
     # Avoid division by zero
     std = np.where(std == 0, 1, std)
     return (X - mean) / std
-''')
-    
+'''
+    )
+
     # Create evaluator.py
     evaluator_py = repo_dir / "evaluator.py"
-    evaluator_py.write_text('''"""
+    evaluator_py.write_text(
+        '''"""
 Model evaluation utilities.
 """
 
@@ -291,11 +306,13 @@ def compute_accuracy(y_true: np.ndarray, y_pred: np.ndarray) -> float:
         Accuracy as a float in [0, 1]
     """
     return np.mean(y_true == y_pred)
-''')
-    
+'''
+    )
+
     # Create config.yaml
     config_yaml = repo_dir / "config.yaml"
-    config_yaml.write_text("""# ML Pipeline Configuration
+    config_yaml.write_text(
+        """# ML Pipeline Configuration
 
 model:
   type: logistic_regression
@@ -307,12 +324,13 @@ preprocessing:
   
 evaluation:
   metric: accuracy
-""")
-    
+"""
+    )
+
     # Commit all files
     repo.git.add("-A")
     repo.git.commit("-m", "Initial commit: ML pipeline implementation")
-    
+
     return repo_dir
 
 
@@ -320,10 +338,11 @@ evaluation:
 # Test: RepoMap (deterministic, no LLM)
 # ---------------------------------------------------------------------------
 
+
 def test_build_repo_map_deterministic(sample_repo):
     """Test that build_repo_map works without LLM and produces correct structure."""
     repo_map = build_repo_map(str(sample_repo))
-    
+
     # Should have correct structure
     assert "repo_root" in repo_map
     assert "file_count" in repo_map
@@ -331,12 +350,12 @@ def test_build_repo_map_deterministic(sample_repo):
     assert "languages_by_extension" in repo_map
     assert "key_files" in repo_map
     assert "entrypoints" in repo_map
-    
+
     # Should find our files
     assert repo_map["file_count"] >= 6
     assert "README.md" in repo_map["key_files"]
     assert "main.py" in repo_map["entrypoints"]
-    
+
     # Should detect Python as primary language
     assert ".py" in repo_map["languages_by_extension"]
 
@@ -345,10 +364,11 @@ def test_build_repo_map_deterministic(sample_repo):
 # Test: Bootstrap baseline model (real LLM)
 # ---------------------------------------------------------------------------
 
+
 def test_bootstrap_baseline_model_with_real_llm(sample_repo, llm):
     """
     Test that bootstrap_baseline_model produces evidence-backed memory.
-    
+
     This test:
     1. Calls the real LLM to infer repo structure
     2. Validates that all claims have evidence in actual files
@@ -359,37 +379,39 @@ def test_bootstrap_baseline_model_with_real_llm(sample_repo, llm):
         repo_root=str(sample_repo),
         llm=llm,
     )
-    
+
     # Load and verify
     doc = RepoMemoryManager.load_from_worktree(str(sample_repo))
     assert doc is not None, "Memory file should exist"
-    
+
     # Check structure
     assert doc.get("schema_version") == 2
     assert "repo_map" in doc
     assert "repo_model" in doc
     assert "book" in doc
     assert "quality" in doc
-    
+
     # Check quality - evidence must pass
     quality = doc["quality"]
-    assert quality["evidence_ok"] is True, f"Evidence validation failed: {quality.get('missing_evidence')}"
+    assert (
+        quality["evidence_ok"] is True
+    ), f"Evidence validation failed: {quality.get('missing_evidence')}"
     assert quality["claim_count"] >= 1, "Should have at least one claim"
-    
+
     # Check repo_model has content
     repo_model = doc["repo_model"]
     assert repo_model.get("summary"), "Summary should not be empty"
     assert len(repo_model.get("claims", [])) >= 1, "Should have at least one claim"
-    
+
     # Check book is present and has TOC/sections (v2)
     book = doc.get("book", {}) or {}
     assert "toc" in book
     assert "sections" in book
-    
+
     # Verify evidence validation independently
     check = validate_evidence(str(sample_repo), repo_model)
     assert check.ok, f"Independent evidence check failed: {check.missing}"
-    
+
     # Print summary for inspection
     print("\n=== Generated RepoMemory ===")
     print(f"Summary: {repo_model.get('summary', '')[:500]}")
@@ -402,10 +424,11 @@ def test_bootstrap_baseline_model_with_real_llm(sample_repo, llm):
 # Test: Update after experiment (real LLM)
 # ---------------------------------------------------------------------------
 
+
 def test_update_after_experiment_with_real_llm(sample_repo, llm):
     """
     Test that update_after_experiment correctly updates memory after code changes.
-    
+
     This test:
     1. Bootstraps baseline memory
     2. Makes a code change (add new feature)
@@ -414,7 +437,7 @@ def test_update_after_experiment_with_real_llm(sample_repo, llm):
     5. Verifies experiment delta is recorded
     """
     repo = git.Repo(sample_repo)
-    
+
     # Bootstrap baseline
     RepoMemoryManager.bootstrap_baseline_model(
         repo_root=str(sample_repo),
@@ -423,13 +446,14 @@ def test_update_after_experiment_with_real_llm(sample_repo, llm):
     repo.git.add("-A")
     repo.git.commit("-m", "Add baseline memory")
     base_commit = repo.head.commit.hexsha
-    
+
     # Create experiment branch and make changes
     repo.git.checkout("-b", "experiment-001")
-    
+
     # Add a new feature file
     new_file = sample_repo / "cross_validator.py"
-    new_file.write_text('''"""
+    new_file.write_text(
+        '''"""
 Cross-validation utilities for model evaluation.
 """
 
@@ -464,20 +488,21 @@ def k_fold_split(X: np.ndarray, y: np.ndarray, k: int = 5) -> List[Tuple[np.ndar
         folds.append((X[train_idx], X[val_idx], y[train_idx], y[val_idx]))
     
     return folds
-''')
-    
+'''
+    )
+
     # Modify main.py to use cross-validation
     main_py = sample_repo / "main.py"
     old_content = main_py.read_text()
     new_content = old_content.replace(
         "from evaluator import compute_accuracy",
-        "from evaluator import compute_accuracy\nfrom cross_validator import k_fold_split"
+        "from evaluator import compute_accuracy\nfrom cross_validator import k_fold_split",
     )
     main_py.write_text(new_content)
-    
+
     repo.git.add("-A")
     repo.git.commit("-m", "Add cross-validation support")
-    
+
     # Update memory
     RepoMemoryManager.update_after_experiment(
         repo_root=str(sample_repo),
@@ -488,29 +513,31 @@ def k_fold_split(X: np.ndarray, y: np.ndarray, k: int = 5) -> List[Tuple[np.ndar
         solution_spec="Add k-fold cross-validation for better model evaluation",
         run_result={"score": 0.85, "run_had_error": False},
     )
-    
+
     # Load and verify
     doc = RepoMemoryManager.load_from_worktree(str(sample_repo))
     assert doc is not None
-    
+
     # Evidence must still be valid
     quality = doc["quality"]
-    assert quality["evidence_ok"] is True, f"Evidence validation failed: {quality.get('missing_evidence')}"
-    
+    assert (
+        quality["evidence_ok"] is True
+    ), f"Evidence validation failed: {quality.get('missing_evidence')}"
+
     # Should have experiment recorded
     experiments = doc.get("experiments", [])
     assert len(experiments) >= 1, "Should have at least one experiment recorded"
-    
+
     exp = experiments[-1]
     assert exp["branch"] == "experiment-001"
     assert exp["parent_branch"] == "main"
     assert "cross_validator.py" in exp["changed_files"]
-    
+
     # Verify evidence independently
     repo_model = doc["repo_model"]
     check = validate_evidence(str(sample_repo), repo_model)
     assert check.ok, f"Independent evidence check failed: {check.missing}"
-    
+
     print("\n=== Updated RepoMemory ===")
     print(f"Summary: {repo_model.get('summary', '')[:500]}")
     print(f"Claims: {len(repo_model.get('claims', []))}")
@@ -521,42 +548,49 @@ def k_fold_split(X: np.ndarray, y: np.ndarray, k: int = 5) -> List[Tuple[np.ndar
 # Test: Evidence validation catches hallucinations
 # ---------------------------------------------------------------------------
 
+
 def test_validate_evidence_catches_invalid_quotes():
     """Test that evidence validation correctly rejects hallucinated quotes."""
     with tempfile.TemporaryDirectory() as tmp:
         # Create a simple file
         Path(tmp, "foo.py").write_text("def hello():\n    return 'world'\n")
-        
+
         # Valid claim
         valid_model = {
-            "claims": [{
-                "kind": "algorithm",
-                "statement": "Has a hello function",
-                "evidence": [{"path": "foo.py", "quote": "def hello():"}]
-            }]
+            "claims": [
+                {
+                    "kind": "algorithm",
+                    "statement": "Has a hello function",
+                    "evidence": [{"path": "foo.py", "quote": "def hello():"}],
+                }
+            ]
         }
         check = validate_evidence(tmp, valid_model)
         assert check.ok, "Valid quote should pass"
-        
+
         # Invalid claim (hallucinated quote)
         invalid_model = {
-            "claims": [{
-                "kind": "algorithm",
-                "statement": "Has a goodbye function",
-                "evidence": [{"path": "foo.py", "quote": "def goodbye():"}]
-            }]
+            "claims": [
+                {
+                    "kind": "algorithm",
+                    "statement": "Has a goodbye function",
+                    "evidence": [{"path": "foo.py", "quote": "def goodbye():"}],
+                }
+            ]
         }
         check = validate_evidence(tmp, invalid_model)
         assert not check.ok, "Hallucinated quote should fail"
         assert len(check.missing) == 1
-        
+
         # Invalid claim (file doesn't exist)
         missing_file_model = {
-            "claims": [{
-                "kind": "algorithm",
-                "statement": "Has bar module",
-                "evidence": [{"path": "bar.py", "quote": "anything"}]
-            }]
+            "claims": [
+                {
+                    "kind": "algorithm",
+                    "statement": "Has bar module",
+                    "evidence": [{"path": "bar.py", "quote": "anything"}],
+                }
+            ]
         }
         check = validate_evidence(tmp, missing_file_model)
         assert not check.ok, "Missing file should fail"
@@ -566,6 +600,7 @@ def test_validate_evidence_catches_invalid_quotes():
 # Test: Render brief for prompts
 # ---------------------------------------------------------------------------
 
+
 def test_render_brief_produces_usable_prompt(sample_repo, llm):
     """Test that render_summary_and_toc produces a usable prompt summary."""
     # Bootstrap
@@ -573,18 +608,18 @@ def test_render_brief_produces_usable_prompt(sample_repo, llm):
         repo_root=str(sample_repo),
         llm=llm,
     )
-    
+
     doc = RepoMemoryManager.load_from_worktree(str(sample_repo))
     brief = RepoMemoryManager.render_summary_and_toc(doc)
-    
+
     # Should have key sections
     assert "# Repo Memory" in brief
     assert "## Summary" in brief
     assert "## Table of Contents" in brief
-    
+
     # Should be bounded
     assert len(brief) <= 10000, "Brief should be bounded for prompt context"
-    
+
     print("\n=== Rendered Brief ===")
     print(brief[:2000])
 

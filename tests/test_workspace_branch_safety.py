@@ -109,9 +109,7 @@ def test_modified_tracked_file_still_fails_checkout_loudly(
     workspace = _workspace(tmp_path)
     _commit_file(workspace, "shared.txt", "main version\n", "add shared")
     workspace.create_branch("candidate")
-    _commit_file(
-        workspace, "shared.txt", "candidate version\n", "candidate edit"
-    )
+    _commit_file(workspace, "shared.txt", "candidate version\n", "candidate edit")
     workspace.switch_branch("main")
 
     shared = Path(workspace.workspace_dir, "shared.txt")
@@ -174,10 +172,7 @@ def test_materialize_ref_uses_exact_candidate_without_switching_root(
 
     with workspace.materialize_ref("candidate") as candidate_dir:
         materialized_path = Path(candidate_dir)
-        assert (
-            materialized_path.joinpath("version.txt").read_text()
-            == "candidate\n"
-        )
+        assert materialized_path.joinpath("version.txt").read_text() == "candidate\n"
         assert workspace.get_current_branch() == "main"
 
     assert not materialized_path.exists()
@@ -269,4 +264,8 @@ def test_workspace_bytecode_is_never_tracked(tmp_path: Path) -> None:
     (pycache / "main.cpython-312.pyc").write_bytes(b"\x00fresh")
     workspace.switch_branch("main")
     assert workspace.get_current_branch() == "main"
-    assert not [path for path in workspace.repo.git.ls_files().splitlines() if path.endswith(".pyc")]
+    assert not [
+        path
+        for path in workspace.repo.git.ls_files().splitlines()
+        if path.endswith(".pyc")
+    ]

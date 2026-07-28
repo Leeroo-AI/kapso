@@ -6,11 +6,11 @@
 #
 # Usage:
 #     from kapso.kapso import Kapso, Source, DeployStrategy
-#     
+#
 #     # One-time setup: Index knowledge graph
 #     kapso = Kapso(config_path="./config.yaml")
 #     kapso.index_kg(wiki_dir="data/wikis/ml_knowledge", save_to="data/indexes/ml.index")
-#     
+#
 #     # Normal usage: Load existing index
 #     kapso = Kapso(config_path="./config.yaml", kg_index="data/indexes/ml.index")
 #     solution = kapso.evolve(goal="Create a triage agent")
@@ -35,9 +35,11 @@ from kapso.researcher import Researcher, ResearchDepth, ResearchMode
 from kapso.knowledge_base.types import ResearchFindings
 from kapso.core.config import load_config, load_effective_config
 
+
 # Placeholder types for unimplemented learning
 class KnowledgeChunk:
     pass
+
 
 LearnerFactory = None  # Learning not implemented yet
 from kapso.deployment import (
@@ -52,15 +54,17 @@ from kapso.deployment import (
 # EXCEPTIONS
 # =============================================================================
 
+
 class KGIndexError(Exception):
     """
     Raised when KG index file is invalid or backend data is missing.
-    
+
     This typically happens when:
     - The .index file exists but the backend (Weaviate/Neo4j) was wiped
     - The .index file is corrupted or has invalid format
     - The backend is not accessible
     """
+
     pass
 
 
@@ -75,12 +79,12 @@ DEFAULT_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.yaml")
 class Kapso:
     """
     The main Kapso Agent class.
-    
+
     A Kapso is an intelligent agent that can:
     1. Index knowledge from wiki pages or JSON knowledge graphs
     2. Evolve software to solve goals using experimentation
     3. Deploy solutions as running software
-    
+
     Knowledge Graph Workflow:
         # ONE-TIME SETUP: Index your knowledge
         kapso = Kapso(config_path="./config.yaml")
@@ -88,7 +92,7 @@ class Kapso:
             wiki_dir="data/wikis/ml_knowledge",
             save_to="data/indexes/ml.index",
         )
-        
+
         # EVERY TIME: Load existing index
         kapso = Kapso(
             config_path="./config.yaml",
@@ -97,7 +101,7 @@ class Kapso:
         solution = kapso.evolve(goal="Create a momentum trading bot")
         software = kapso.deploy(solution)
         result = software.run({"ticker": "AAPL"})
-        
+
     Advanced usage with evaluation and data directories:
         solution = kapso.evolve(
             goal="Build a classifier with 95% accuracy",
@@ -108,21 +112,21 @@ class Kapso:
             budget_fidelity_envelope=budget,
         )
     """
-    
+
     # Mapping from Source type to Learner type
     _SOURCE_TO_LEARNER = {
         Source.Repo: "repo",
         Source.Solution: "experiment",
     }
-    
+
     def __init__(
-        self, 
+        self,
         config_path: Optional[str] = None,
         kg_index: Optional[str] = None,
     ):
         """
         Initialize a Kapso agent.
-        
+
         Args:
             config_path: Path to configuration file (uses default if not provided)
             kg_index: Path to existing .index file to load knowledge graph from.
@@ -131,10 +135,10 @@ class Kapso:
         """
         self.config_path = config_path or DEFAULT_CONFIG_PATH
         self._config = load_config(self.config_path)
-        
+
         # Track learned knowledge chunks (in-memory for MVP)
         self._learned_chunks: List[KnowledgeChunk] = []
-        
+
         # Initialize knowledge search
         if kg_index:
             self._load_kg_index(kg_index)
@@ -142,7 +146,7 @@ class Kapso:
         else:
             self.knowledge_search = KnowledgeSearchFactory.create_null()
             self._kg_index_path = None
-        
+
         # Print initialization status
         if kg_index:
             print(f"Initialized Kapso")
@@ -151,50 +155,50 @@ class Kapso:
 
         # Lazy-initialized web researcher (created on first `.research()` call).
         self._web_researcher: Optional[Researcher] = None
-    
+
     # =========================================================================
     # Knowledge Graph Indexing
     # =========================================================================
-    
+
     def _load_kg_index(self, index_path: str) -> None:
         """
         Load existing index from .index file.
-        
+
         Args:
             index_path: Path to the .index file
-            
+
         Raises:
             KGIndexError: If index file is invalid or backend data is missing
             FileNotFoundError: If index file doesn't exist
         """
         index_path = Path(index_path)
-        
+
         if not index_path.exists():
             raise FileNotFoundError(f"Index file not found: {index_path}")
-        
+
         # Load index metadata
         with open(index_path) as f:
             index_data = json.load(f)
-        
+
         metadata = KGIndexMetadata.from_dict(index_data)
-        
+
         # Get search config from mode config
         mode = self._config.get("default_mode", "GENERIC")
         mode_config = self._config.get("modes", {}).get(mode, {})
         search_config = mode_config.get("knowledge_search", {})
-        
+
         # Merge backend_refs into params (backend_refs take precedence)
         params = search_config.get("params", {}).copy()
         params.update(metadata.backend_refs)
         params.setdefault("models", mode_config.get("models"))
         params.setdefault("retry", mode_config.get("retry"))
-        
+
         # Create search backend
         self.knowledge_search = KnowledgeSearchFactory.create(
             search_type=metadata.search_backend,
             params=params,
         )
-        
+
         # Validate backend has data
         if not self.knowledge_search.validate_backend_data():
             raise KGIndexError(
@@ -202,9 +206,11 @@ class Kapso:
                 f"Re-index with: kapso.index_kg("
                 f"wiki_dir='{metadata.data_source}', save_to='{index_path}')"
             )
-        
-        print(f"  Knowledge Graph: Loaded ({metadata.page_count} pages from {metadata.search_backend})")
-    
+
+        print(
+            f"  Knowledge Graph: Loaded ({metadata.page_count} pages from {metadata.search_backend})"
+        )
+
     def index_kg(
         self,
         wiki_dir: Optional[str] = None,
@@ -215,11 +221,11 @@ class Kapso:
     ) -> str:
         """
         Index knowledge data and save index reference file.
-        
+
         This is a ONE-TIME operation. After indexing, the data persists
         in the configured backends (Weaviate, Neo4j, etc.). Use the returned
         .index file path with kg_index parameter on subsequent runs.
-        
+
         Args:
             wiki_dir: Path to wiki directory (for kg_graph_search backend).
                       Contains .md files organized in type subdirectories.
@@ -229,20 +235,20 @@ class Kapso:
             search_type: Override search backend type. If not provided, uses
                          config default or infers from input type.
             force: If True, clears existing data before indexing
-            
+
         Returns:
             Path to created .index file
-            
+
         Raises:
             ValueError: If neither wiki_dir nor data_path provided
-            
+
         Example:
             # Index wiki pages (kg_graph_search)
             kapso.index_kg(
                 wiki_dir="data/wikis/ml_knowledge",
                 save_to="data/indexes/ml.index",
             )
-            
+
             # Index JSON knowledge graph (kg_llm_navigation)
             kapso.index_kg(
                 data_path="benchmarks/mle/data/kg_data.json",
@@ -251,11 +257,13 @@ class Kapso:
             )
         """
         if save_to is None:
-            raise ValueError("save_to is required - specify where to save the .index file")
-        
+            raise ValueError(
+                "save_to is required - specify where to save the .index file"
+            )
+
         if not wiki_dir and not data_path:
             raise ValueError("Must provide either wiki_dir or data_path")
-        
+
         # Determine search type
         if search_type is None:
             if data_path:
@@ -267,7 +275,7 @@ class Kapso:
                 mode_config = self._config.get("modes", {}).get(mode, {})
                 search_config = mode_config.get("knowledge_search", {})
                 search_type = search_config.get("type", "kg_graph_search")
-        
+
         # Get params from config
         mode = self._config.get("default_mode", "GENERIC")
         mode_config = self._config.get("modes", {}).get(mode, {})
@@ -275,18 +283,18 @@ class Kapso:
         params = search_config.get("params", {}).copy()
         params.setdefault("models", mode_config.get("models"))
         params.setdefault("retry", mode_config.get("retry"))
-        
+
         # Create search backend
         self.knowledge_search = KnowledgeSearchFactory.create(
             search_type=search_type,
             params=params,
         )
-        
+
         # Clear existing data if force=True
         if force:
             print("  Clearing existing index...")
             self.knowledge_search.clear()
-        
+
         # Determine data source and index
         if wiki_dir:
             data_source = str(wiki_dir)
@@ -299,10 +307,10 @@ class Kapso:
             with open(data_path) as f:
                 graph_data = json.load(f)
             self.knowledge_search.index(graph_data)
-        
+
         # Get page count
         page_count = self.knowledge_search.get_indexed_count()
-        
+
         # Build index metadata
         metadata = KGIndexMetadata(
             version="1.0",
@@ -312,16 +320,16 @@ class Kapso:
             backend_refs=self.knowledge_search.get_backend_refs(),
             page_count=page_count,
         )
-        
+
         # Save index file
         save_path = Path(save_to)
         save_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(save_path, 'w') as f:
+        with open(save_path, "w") as f:
             json.dump(metadata.to_dict(), f, indent=2)
-        
+
         self._kg_index_path = str(save_path)
         print(f"  Index saved: {save_to} ({page_count} pages)")
-        
+
         return str(save_path)
 
     # =========================================================================
@@ -337,7 +345,7 @@ class Kapso:
     ) -> ResearchFindings:
         """
         Do deep public web research for an objective.
-        
+
         Args:
             objective: What you want to research on the public web.
             mode: "idea" | "implementation" | "study" (or list of modes)
@@ -345,7 +353,7 @@ class Kapso:
                 Maps to OpenAI `reasoning.effort`:
                 - light -> "medium"
                 - deep  -> "high"
-        
+
         Returns:
             `ResearchFindings` with fluent accessors:
             - .ideas -> List[Source.Idea]
@@ -361,10 +369,17 @@ class Kapso:
             )
 
         return self._web_researcher.research(objective, mode=mode, depth=depth)
-    
+
     def learn(
-        self, 
-        *sources: Union[Source.Repo, Source.Solution, Source.Idea, Source.Implementation, Source.ResearchReport, ResearchFindings],
+        self,
+        *sources: Union[
+            Source.Repo,
+            Source.Solution,
+            Source.Idea,
+            Source.Implementation,
+            Source.ResearchReport,
+            ResearchFindings,
+        ],
         wiki_dir: str = "data/wikis",
         skip_merge: bool = False,
         kg_index: Optional[str] = None,
@@ -373,20 +388,20 @@ class Kapso:
     ) -> "PipelineResult":
         """
         Learn from one or more knowledge sources.
-        
+
         This ingests knowledge into the Knowledge Graph (KG) via `KnowledgePipeline`.
-        
+
         Supported sources (MVP):
         - `Source.Repo(...)`
         - `Source.Solution(...)`
         - `Source.Idea(...)`, `Source.Implementation(...)`, `Source.ResearchReport(...)`
         - `ResearchFindings` (output of `Kapso.research(...)`)
-        
+
         Args:
             *sources: One or more Source objects.
             wiki_dir: Path to a local wiki directory (e.g., `data/wikis`) used as
                 the KG source-of-truth on disk.
-                
+
                 Note:
                 - URL-based KG targets (e.g. `https://skills.leeroo.com`) are not
                   supported in this code path yet.
@@ -396,7 +411,7 @@ class Kapso:
                 If not provided, repos are created under the authenticated user's account.
             is_private: Whether to create private repos (default: True).
                 Set to False to create public repos.
-            
+
         Example:
             # Learn from repo + web research and merge into local KG
             kapso.learn(
@@ -404,7 +419,7 @@ class Kapso:
                 kapso.research("How to pick LoRA rank?", mode="idea"),
                 wiki_dir="data/wikis",
             )
-            
+
             # Learn and push workflow repos to an organization as public
             kapso.learn(
                 Source.Repo("https://github.com/user/repo"),
@@ -450,7 +465,9 @@ class Kapso:
             ingestor_params["github_org"] = github_org
         # is_private overrides github_repo_visibility from config
         # Convert is_private (bool) to visibility string for backward compatibility
-        ingestor_params["github_repo_visibility"] = "private" if is_private else "public"
+        ingestor_params["github_repo_visibility"] = (
+            "private" if is_private else "public"
+        )
 
         # Merge config merger params with kg_index_path (kg_index_path takes precedence)
         final_merger_params = {**config_merger_params, **merger_params}
@@ -471,16 +488,19 @@ class Kapso:
         )
 
         return result
-    
+
     def evolve(
         self,
         goal: str,
         output_path: str,
         task_context_request: LaunchTaskContextRequest | None = None,
-        starting_artifact_sources: Mapping[
-            str,
-            tuple[str | Path, str],
-        ] | None = None,
+        starting_artifact_sources: (
+            Mapping[
+                str,
+                tuple[str | Path, str],
+            ]
+            | None
+        ) = None,
         dependency_runtime_contract: Mapping[str, Any] | None = None,
         budget_fidelity_envelope: Mapping[str, Any] | None = None,
         config_path: str | None = None,
@@ -536,7 +556,7 @@ class Kapso:
             experiment_logs=[action_result["implementation_summary"]],
             metadata=dict(result.metadata),
         )
-    
+
     def deploy(
         self,
         solution: SolutionResult,
@@ -546,12 +566,12 @@ class Kapso:
     ) -> Software:
         """
         Deploy a solution to create running software.
-        
+
         Uses the deployment pipeline:
         1. Selector: Analyzes solution and selects strategy (if AUTO)
         2. Adapter: Adapts and deploys via coding agent
         3. Runner: Creates execution backend
-        
+
         Args:
             solution: The SolutionResult from evolve()
             strategy: Where to deploy (AUTO, LOCAL, DOCKER, MODAL, BENTOML)
@@ -562,14 +582,14 @@ class Kapso:
                 - BENTOML: Deploy with BentoML (production ML)
             env_vars: Environment variables to pass to the software
             coding_agent: Which coding agent for adaptation
-            
+
         Returns:
             Software instance with unified interface:
             - .run(inputs) -> {"status": "success", "output": ...}
             - .stop() -> cleanup resources
             - .logs() -> execution logs
             - .is_healthy() -> health check
-            
+
         Example:
             solution = kapso.evolve(goal="Create a trading bot")
             software = kapso.deploy(solution, strategy=DeployStrategy.LOCAL)
@@ -582,15 +602,16 @@ class Kapso:
         print(f"  Strategy: {strategy}")
         print(f"  Code path: {solution.code_path}")
         print()
-        
+
         config = DeployConfig(
             solution=solution,
             env_vars=env_vars,
             coding_agent=coding_agent,
         )
-        
+
         return DeploymentFactory.create(strategy, config)
-    
+
+
 # =============================================================================
 # CONVENIENCE EXPORTS
 # =============================================================================

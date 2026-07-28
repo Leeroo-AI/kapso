@@ -1726,9 +1726,10 @@ class LaunchSettings(StrictContract):
             raise CrossRunConfigurationError(
                 "launch experiment embeddings and coding agent must be exact"
             )
-        if self.coding_agent_image is not None and type(
-            self.coding_agent_image
-        ) is not CodingAgentImageSettings:
+        if (
+            self.coding_agent_image is not None
+            and type(self.coding_agent_image) is not CodingAgentImageSettings
+        ):
             raise CrossRunConfigurationError(
                 "launch coding-agent image authority is invalid"
             )

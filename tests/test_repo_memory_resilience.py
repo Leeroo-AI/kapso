@@ -20,9 +20,7 @@ from kapso.execution.memories.repo_memory.builders import (
 
 
 VALID_MODEL = '{"summary": "Useful memory", "sections": {}}'
-VALID_PLAN = (
-    '{"files_to_read": [{"path": "README.md", "why": "overview"}]}'
-)
+VALID_PLAN = '{"files_to_read": [{"path": "README.md", "why": "overview"}]}'
 
 
 class SequenceLLM:
@@ -36,9 +34,7 @@ class SequenceLLM:
         messages: List[Dict[str, str]],
         **kwargs: Any,
     ) -> str:
-        self.calls.append(
-            {"model": model, "messages": messages, "kwargs": kwargs}
-        )
+        self.calls.append({"model": model, "messages": messages, "kwargs": kwargs})
         response = next(self.responses)
         if isinstance(response, BaseException):
             raise response
@@ -146,17 +142,13 @@ def test_initial_inference_repairs_json_without_replanning(
     )
 
     planning_calls = [
-        call
-        for call in llm.calls
-        if "files_to_read" in call["messages"][0]["content"]
+        call for call in llm.calls if "files_to_read" in call["messages"][0]["content"]
     ]
     assert result["summary"] == "Useful memory"
     assert len(planning_calls) == 1
     assert len(llm.calls) == 3
     assert len(llm.calls[-1]["messages"]) == 3
-    assert "could not be accepted" in llm.calls[-1]["messages"][-1][
-        "content"
-    ]
+    assert "could not be accepted" in llm.calls[-1]["messages"][-1]["content"]
 
 
 def test_initial_inference_stops_after_configured_retry_limit(
@@ -179,9 +171,7 @@ def test_initial_inference_stops_after_configured_retry_limit(
 
 def test_provider_failure_is_not_retried(tmp_path: Path) -> None:
     repo_root = _prepare_repo(tmp_path)
-    llm = SequenceLLM(
-        [VALID_PLAN, PermissionError("invalid provider credentials")]
-    )
+    llm = SequenceLLM([VALID_PLAN, PermissionError("invalid provider credentials")])
 
     with pytest.raises(PermissionError, match="credentials"):
         infer_repo_model_with_retry(

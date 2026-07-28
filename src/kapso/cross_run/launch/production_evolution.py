@@ -148,7 +148,9 @@ def execute_production_evolution(
         raise ProductionEvolutionError("production evolution inputs are invalid")
     settings = effective_config.cross_run
     if settings is None:
-        raise ProductionEvolutionError("selected configuration has no cross-run settings")
+        raise ProductionEvolutionError(
+            "selected configuration has no cross-run settings"
+        )
     binding = resolve_production_binding(
         effective_config=effective_config,
         scope_id=scope_id,
@@ -409,10 +411,8 @@ def _retrieve_prior_knowledge(*, handoff, goal, settings):
 
 def _source_tree_digest(handoff, settings) -> str:
     branch = settings.launch.workspace_git_branch
-    expected_commit = (
-        handoff.frontier.checkpoint.safety_state.derivative_frontier.evidence.branch_heads.get(
-            branch
-        )
+    expected_commit = handoff.frontier.checkpoint.safety_state.derivative_frontier.evidence.branch_heads.get(
+        branch
     )
     if expected_commit is None:
         raise ProductionEvolutionError("run frontier omits its workspace branch")
