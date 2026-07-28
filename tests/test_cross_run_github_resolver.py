@@ -327,33 +327,18 @@ class FakeResolverClient:
             }
         raise AssertionError((method, endpoint))
 
+    def read_ref_commit(self, repository, qualified_ref, *, allow_missing):
+        if "kapso-activation-preparations" in qualified_ref:
+            value = self.activation_preparation_ref_sha
+        elif "kapso-activations" in qualified_ref:
+            value = self.activation_witness_ref_sha
+        elif "publication-intents" in qualified_ref:
+            value = None if self.publication_intent is None else INTENT_SHA
+        else:
+            value = None if self.identity_pointer is None else IDENTITY_SHA
+        return value
+
     def graphql(self, query, variables):
-        if "qualifiedName" in variables:
-            if "kapso-activation-preparations" in variables["qualifiedName"]:
-                reference = (
-                    None
-                    if self.activation_preparation_ref_sha is None
-                    else {"target": {"oid": self.activation_preparation_ref_sha}}
-                )
-            elif "kapso-activations" in variables["qualifiedName"]:
-                reference = (
-                    None
-                    if self.activation_witness_ref_sha is None
-                    else {"target": {"oid": self.activation_witness_ref_sha}}
-                )
-            elif "publication-intents" in variables["qualifiedName"]:
-                reference = (
-                    None
-                    if self.publication_intent is None
-                    else {"target": {"oid": INTENT_SHA}}
-                )
-            else:
-                reference = (
-                    None
-                    if self.identity_pointer is None
-                    else {"target": {"oid": IDENTITY_SHA}}
-                )
-            return {"data": {"repository": {"ref": reference}}}
         if "defaultBranchRef" in query:
             return {
                 "data": {

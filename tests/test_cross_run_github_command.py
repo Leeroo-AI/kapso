@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+import kapso.cross_run.github.command as command_module
 from kapso.core.config import load_config
 from kapso.cross_run.canonical import (
     canonical_json_bytes,
@@ -87,6 +88,9 @@ def test_github_client_builds_exact_safe_api_argv_and_canonical_stdin(tmp_path):
         timeout_seconds=settings.command_timeout_seconds,
         api_version=settings.api_version,
         minimum_cli_version=settings.minimum_cli_version,
+        release_visibility_poll_interval_seconds=(
+            settings.release_visibility_poll_interval_seconds
+        ),
         control_blob_size_bytes=settings.control_blob_size_bytes,
     )
 
@@ -158,6 +162,9 @@ def test_release_commands_never_embed_credentials_or_use_shell_strings(tmp_path)
         timeout_seconds=settings.command_timeout_seconds,
         api_version=settings.api_version,
         minimum_cli_version=settings.minimum_cli_version,
+        release_visibility_poll_interval_seconds=(
+            settings.release_visibility_poll_interval_seconds
+        ),
         control_blob_size_bytes=settings.control_blob_size_bytes,
     )
 
@@ -256,6 +263,9 @@ def test_release_upload_rejects_unstable_or_injectable_metadata(
         timeout_seconds=settings.command_timeout_seconds,
         api_version=settings.api_version,
         minimum_cli_version=settings.minimum_cli_version,
+        release_visibility_poll_interval_seconds=(
+            settings.release_visibility_poll_interval_seconds
+        ),
         control_blob_size_bytes=settings.control_blob_size_bytes,
     )
 
@@ -281,6 +291,9 @@ def test_release_asset_deletion_uses_exact_authenticated_api_endpoint(tmp_path):
         timeout_seconds=settings.command_timeout_seconds,
         api_version=settings.api_version,
         minimum_cli_version=settings.minimum_cli_version,
+        release_visibility_poll_interval_seconds=(
+            settings.release_visibility_poll_interval_seconds
+        ),
         control_blob_size_bytes=settings.control_blob_size_bytes,
     )
 
@@ -445,6 +458,9 @@ def test_ref_update_reconciles_uncertain_failure_by_observing_remote_state(
         timeout_seconds=settings.command_timeout_seconds,
         api_version=settings.api_version,
         minimum_cli_version=settings.minimum_cli_version,
+        release_visibility_poll_interval_seconds=(
+            settings.release_visibility_poll_interval_seconds
+        ),
         control_blob_size_bytes=settings.control_blob_size_bytes,
     )
 
@@ -485,6 +501,9 @@ def test_atomic_ref_update_sends_expected_parent_and_observes_requested_commit(
         timeout_seconds=settings.command_timeout_seconds,
         api_version=settings.api_version,
         minimum_cli_version=settings.minimum_cli_version,
+        release_visibility_poll_interval_seconds=(
+            settings.release_visibility_poll_interval_seconds
+        ),
         control_blob_size_bytes=settings.control_blob_size_bytes,
     )
 
@@ -525,6 +544,9 @@ def test_successful_atomic_ref_update_rejects_immediate_supersession(tmp_path):
         timeout_seconds=settings.command_timeout_seconds,
         api_version=settings.api_version,
         minimum_cli_version=settings.minimum_cli_version,
+        release_visibility_poll_interval_seconds=(
+            settings.release_visibility_poll_interval_seconds
+        ),
         control_blob_size_bytes=settings.control_blob_size_bytes,
     )
 
@@ -557,6 +579,9 @@ def test_artifact_identity_ref_creation_is_write_once_and_reconciles_failure(
         timeout_seconds=settings.command_timeout_seconds,
         api_version=settings.api_version,
         minimum_cli_version=settings.minimum_cli_version,
+        release_visibility_poll_interval_seconds=(
+            settings.release_visibility_poll_interval_seconds
+        ),
         control_blob_size_bytes=settings.control_blob_size_bytes,
     )
 
@@ -587,12 +612,70 @@ def test_artifact_identity_ref_creation_is_write_once_and_reconciles_failure(
         timeout_seconds=settings.command_timeout_seconds,
         api_version=settings.api_version,
         minimum_cli_version=settings.minimum_cli_version,
+        release_visibility_poll_interval_seconds=(
+            settings.release_visibility_poll_interval_seconds
+        ),
         control_blob_size_bytes=settings.control_blob_size_bytes,
     )
     with pytest.raises(GitHubCompareAndSwapError):
         conflict_client.create_ref_if_absent(
             "Leeroo-AI/kapso-knowledge", qualified_ref, commit_sha
         )
+
+
+def test_custom_ref_reader_uses_rest_and_distinguishes_only_exact_404(tmp_path):
+    settings = github_settings()
+    qualified_ref = "refs/kapso-artifacts/knowledge_snapshot/" + "a" * 64
+    commit_sha = "b" * 40
+    runner = ScriptedRunner(
+        responses=[
+            (
+                0,
+                {
+                    "ref": qualified_ref,
+                    "object": {"type": "commit", "sha": commit_sha},
+                },
+                b"",
+            ),
+            (1, None, b"gh: Reference does not exist (HTTP 404)\n"),
+            (1, None, b"gh: transport unavailable (HTTP 503)\n"),
+        ]
+    )
+    client = GitHubCommandClient(
+        runner,
+        working_directory=tmp_path,
+        timeout_seconds=settings.command_timeout_seconds,
+        api_version=settings.api_version,
+        minimum_cli_version=settings.minimum_cli_version,
+        release_visibility_poll_interval_seconds=(
+            settings.release_visibility_poll_interval_seconds
+        ),
+        control_blob_size_bytes=settings.control_blob_size_bytes,
+    )
+
+    assert (
+        client.read_ref_commit(
+            "Leeroo-AI/kapso-knowledge",
+            qualified_ref,
+            allow_missing=True,
+        )
+        == commit_sha
+    )
+    assert (
+        client.read_ref_commit(
+            "Leeroo-AI/kapso-knowledge",
+            qualified_ref,
+            allow_missing=True,
+        )
+        is None
+    )
+    with pytest.raises(GitHubCommandError, match="503"):
+        client.read_ref_commit(
+            "Leeroo-AI/kapso-knowledge",
+            qualified_ref,
+            allow_missing=True,
+        )
+    assert runner.requests[0].argv[-1].endswith(qualified_ref.removeprefix("refs/"))
 
 
 def test_release_verification_rejects_cli_without_secure_attestation_support(tmp_path):
@@ -604,6 +687,9 @@ def test_release_verification_rejects_cli_without_secure_attestation_support(tmp
         timeout_seconds=settings.command_timeout_seconds,
         api_version=settings.api_version,
         minimum_cli_version=settings.minimum_cli_version,
+        release_visibility_poll_interval_seconds=(
+            settings.release_visibility_poll_interval_seconds
+        ),
         control_blob_size_bytes=settings.control_blob_size_bytes,
     )
 
@@ -616,6 +702,53 @@ def test_release_verification_rejects_cli_without_secure_attestation_support(tmp
         )
 
     assert tuple(request.argv for request in runner.requests) == (("gh", "version"),)
+
+
+def test_release_verification_waits_for_github_attestation_visibility(
+    tmp_path,
+    monkeypatch,
+):
+    settings = github_settings()
+    repository = "Leeroo-AI/kapso-knowledge"
+    tag = "knowledge/S000001"
+    commit_sha = "a" * 40
+    asset_digests = {"snapshot.tar": tree_or_blob_digest(b"asset")}
+    attestation = release_attestation(
+        repository,
+        tag,
+        commit_sha,
+        asset_digests,
+    )
+    runner = ScriptedRunner(
+        responses=[
+            (1, None, b"no attestations for tag knowledge/S000001\n"),
+            (0, attestation, b""),
+        ]
+    )
+    client = GitHubCommandClient(
+        runner,
+        working_directory=tmp_path,
+        timeout_seconds=settings.command_timeout_seconds,
+        api_version=settings.api_version,
+        minimum_cli_version=settings.minimum_cli_version,
+        release_visibility_poll_interval_seconds=(
+            settings.release_visibility_poll_interval_seconds
+        ),
+        control_blob_size_bytes=settings.control_blob_size_bytes,
+    )
+    client.release_verifier_ready = True
+    monkeypatch.setattr(command_module.time, "sleep", lambda _seconds: None)
+
+    assert (
+        client.verify_release(
+            repository,
+            tag,
+            commit_sha,
+            asset_digests,
+        )
+        == attestation
+    )
+    assert len(runner.requests) == 2
 
 
 def test_release_verification_rejects_unbound_or_malformed_success_output(tmp_path):
@@ -633,6 +766,9 @@ def test_release_verification_rejects_unbound_or_malformed_success_output(tmp_pa
         timeout_seconds=settings.command_timeout_seconds,
         api_version=settings.api_version,
         minimum_cli_version=settings.minimum_cli_version,
+        release_visibility_poll_interval_seconds=(
+            settings.release_visibility_poll_interval_seconds
+        ),
         control_blob_size_bytes=settings.control_blob_size_bytes,
     )
 

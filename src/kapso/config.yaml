@@ -43,6 +43,7 @@ cross_run:
     security_denylist_tag_prefix: "security-denylist/"
     cache_path: ".kapso/cross_run/github_cache"
     command_timeout_seconds: 120
+    release_visibility_poll_interval_seconds: 1
     release_asset_size_bytes: &cross_run_asset_size_bytes 1073741824
     release_asset_count_limit: 16
     materialized_asset_size_bytes: &cross_run_materialized_asset_size_bytes 4294967296
@@ -499,6 +500,8 @@ cross_run:
     security_denylist_lineage_limit: 1000
   production_validation:
     fixture_path: "tests/fixtures/cross_run"
+    state_path: ".kapso/cross_run/production_validation"
+    receipt_size_bytes: 16777216
     github_write_smoke: true
     embedding_smoke: true
     coding_agent_smoke: true

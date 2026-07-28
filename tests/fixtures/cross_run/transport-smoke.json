@@ -1,0 +1,71 @@
+{
+  "committed_at": "2026-07-28T08:00:00Z",
+  "embedding_inputs": [
+    "Post-training synthetic transport fixture: improve a small model without hidden data.",
+    "Relational prediction synthetic transport fixture: predict a public tabular target without hidden data."
+  ],
+  "scope_contract": {
+    "artifact_classes": [
+      "dataset",
+      "model"
+    ],
+    "context_dimension_lineage": [],
+    "context_dimension_schemas": [
+      {
+        "dimension_id": "dataset_family",
+        "required": true,
+        "value_type": "string"
+      },
+      {
+        "dimension_id": "runtime_family",
+        "required": true,
+        "value_type": "string"
+      }
+    ],
+    "explicit_non_goals": [
+      "No benchmark-to-recipe decision tree."
+    ],
+    "purpose": "Share validated machine-learning capabilities.",
+    "repository_architecture_constraints": [
+      "Keep adapters read-only."
+    ],
+    "required_context_dimensions": [
+      "dataset_family",
+      "runtime_family"
+    ],
+    "sanitation_policy_ref": "kapso.sanitation.v1",
+    "scope_contract_id": "expert-scope-contract:sha256:11bca6de5397be0a0d4daba919818dba8d86faa5a931bd6c9ef4d920092a0aba",
+    "scope_id": "ml_ai",
+    "supersedes_scope_contract_id": null,
+    "task_adapter_contract": [
+      {
+        "task_adapter_ids": [
+          "posttrain"
+        ],
+        "task_family_id": "language_model_post_training"
+      },
+      {
+        "task_adapter_ids": [
+          "relbench"
+        ],
+        "task_family_id": "relational_tabular_prediction"
+      }
+    ],
+    "task_family_lineage": [],
+    "task_family_ontology": [
+      {
+        "capability_tags": [
+          "language.training"
+        ],
+        "task_family_id": "language_model_post_training"
+      },
+      {
+        "capability_tags": [
+          "relational.training"
+        ],
+        "task_family_id": "relational_tabular_prediction"
+      }
+    ],
+    "validation_policy_ref": "kapso.validation.v1"
+  }
+}

@@ -383,6 +383,7 @@ class GitHubCommandClient:
         timeout_seconds: int,
         api_version: str,
         minimum_cli_version: str,
+        release_visibility_poll_interval_seconds: int,
         control_blob_size_bytes: int,
     ) -> None:
         if not working_directory.is_dir():
@@ -403,6 +404,17 @@ class GitHubCommandClient:
             raise GitHubCommandError("minimum GitHub CLI version is invalid")
         self.minimum_cli_version = tuple(
             int(component) for component in minimum_match.groups()
+        )
+        if (
+            type(release_visibility_poll_interval_seconds) is not int
+            or release_visibility_poll_interval_seconds <= 0
+            or release_visibility_poll_interval_seconds > timeout_seconds
+        ):
+            raise GitHubCommandError(
+                "GitHub release visibility poll interval is invalid"
+            )
+        self.release_visibility_poll_interval_seconds = (
+            release_visibility_poll_interval_seconds
         )
         self.release_verifier_ready = False
 
@@ -573,15 +585,32 @@ class GitHubCommandClient:
             cwd=self.working_directory,
             timeout_seconds=self.timeout_seconds,
             output_kind=CommandOutputKind.JSON,
+            capture_failure=True,
             maximum_output_bytes=self.control_blob_size_bytes,
         )
-        return validate_release_attestation(
-            self.runner.run(request).output,
-            repository=repository,
-            tag=tag,
-            commit_sha=commit_sha,
-            asset_digests=asset_digests,
-        )
+        deadline = time.monotonic() + self.timeout_seconds
+        while True:
+            result = self.runner.run(request)
+            if result.returncode == 0:
+                return validate_release_attestation(
+                    result.output,
+                    repository=repository,
+                    tag=tag,
+                    commit_sha=commit_sha,
+                    asset_digests=asset_digests,
+                )
+            diagnostic = result.stderr.decode("utf-8", errors="replace")
+            remaining = deadline - time.monotonic()
+            if "no attestations for tag" not in diagnostic.lower() or remaining <= 0:
+                raise GitHubCommandError(
+                    "GitHub release verification failed: " + diagnostic.strip()
+                )
+            time.sleep(
+                min(
+                    self.release_visibility_poll_interval_seconds,
+                    remaining,
+                )
+            )
 
     def _require_release_verifier(self) -> None:
         if self.release_verifier_ready:
@@ -730,6 +759,73 @@ class GitHubCommandClient:
         ):
             raise GitHubCommandError("GitHub ref creation returned another ref")
         return response
+
+    def read_ref_commit(
+        self,
+        repository: str,
+        qualified_ref: str,
+        *,
+        allow_missing: bool,
+    ) -> str | None:
+        """Read one exact Git ref, including framework-owned custom namespaces."""
+
+        if _REPOSITORY_PATTERN.fullmatch(repository) is None:
+            raise GitHubCommandError("GitHub ref repository is invalid")
+        require_git_ref_name(
+            qualified_ref,
+            "qualified GitHub ref",
+            qualified=True,
+            error_type=GitHubCommandError,
+        )
+        request = CommandRequest(
+            argv=(
+                "gh",
+                "api",
+                "--method",
+                "GET",
+                "--header",
+                f"X-GitHub-Api-Version:{self.api_version}",
+                f"repos/{repository}/git/ref/" f"{qualified_ref.removeprefix('refs/')}",
+            ),
+            cwd=self.working_directory,
+            timeout_seconds=self.timeout_seconds,
+            output_kind=CommandOutputKind.JSON,
+            capture_failure=True,
+            maximum_output_bytes=self.control_blob_size_bytes,
+        )
+        deadline = time.monotonic() + self.timeout_seconds
+        result = self.runner.run(request)
+        while result.returncode != 0:
+            diagnostic = result.stderr.decode("utf-8", errors="replace")
+            if re.search(r"\(HTTP 404\)(?:\s|$)", diagnostic) is None:
+                raise GitHubCommandError(
+                    "GitHub ref read failed: " + diagnostic.strip()
+                )
+            remaining = deadline - time.monotonic()
+            if allow_missing or remaining <= 0:
+                return None
+            time.sleep(
+                min(
+                    self.release_visibility_poll_interval_seconds,
+                    remaining,
+                )
+            )
+            result = self.runner.run(request)
+        response = result.output
+        if not isinstance(response, dict) or not isinstance(
+            response.get("object"), dict
+        ):
+            raise GitHubCommandError("GitHub ref response must contain an object")
+        target = response["object"]
+        commit_sha = target.get("sha")
+        if (
+            response.get("ref") != qualified_ref
+            or target.get("type") != "commit"
+            or not isinstance(commit_sha, str)
+            or re.fullmatch(r"[0-9a-f]{40}", commit_sha) is None
+        ):
+            raise GitHubCommandError("GitHub ref response names another target")
+        return commit_sha
 
     def update_ref_compare_and_swap(
         self,

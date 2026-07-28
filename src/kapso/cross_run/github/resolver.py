@@ -64,16 +64,6 @@ query($owner: String!, $name: String!, $tag: String!) {
 }
 """
 
-_ARTIFACT_REF_QUERY = """
-query($owner: String!, $name: String!, $qualifiedName: String!) {
-  repository(owner: $owner, name: $name) {
-    ref(qualifiedName: $qualifiedName) {
-      target { ... on Commit { oid } }
-    }
-  }
-}
-"""
-
 ARTIFACT_POINTER_FILENAME = "PUBLICATION.json"
 ARTIFACT_PUBLICATION_INTENT_FILENAME = "PUBLICATION_INTENT.json"
 
@@ -599,6 +589,15 @@ class GitHubArtifactResolver:
         """Require the write-once identity ref to contain one exact pointer."""
         if type(expected_pointer) is not CurrentArtifactPointer:
             raise GitHubResolutionError("expected artifact pointer is invalid")
+        repository = repository_for_artifact(
+            self.repositories_for_scope(scope_id),
+            artifact_kind,
+        )
+        self.client.read_ref_commit(
+            repository,
+            artifact_identity_ref(artifact_kind, artifact_id),
+            allow_missing=False,
+        )
         observed_pointer = self.read_artifact_pointer(
             scope_id,
             artifact_kind,
@@ -617,31 +616,13 @@ class GitHubArtifactResolver:
     ) -> _ArtifactPointerState:
         repositories = self.repositories_for_scope(scope_id)
         repository = repository_for_artifact(repositories, artifact_kind)
-        owner, name = repository.split("/", 1)
-        data = _require_graphql_data(
-            self.client.graphql(
-                _ARTIFACT_REF_QUERY,
-                {
-                    "owner": owner,
-                    "name": name,
-                    "qualifiedName": artifact_identity_ref(artifact_kind, artifact_id),
-                },
-            ),
-            "artifact identity ref query",
+        commit_sha = self.client.read_ref_commit(
+            repository,
+            artifact_identity_ref(artifact_kind, artifact_id),
+            allow_missing=True,
         )
-        repository_data = _require_mapping(
-            data.get("repository"), "artifact identity ref repository"
-        )
-        reference = repository_data.get("ref")
-        if reference is None:
+        if commit_sha is None:
             return _ArtifactPointerState(pointer=None, identity_commit_sha=None)
-        reference_data = _require_mapping(reference, "artifact identity ref")
-        target = _require_mapping(
-            reference_data.get("target"), "artifact identity ref target"
-        )
-        commit_sha = _require_text(target.get("oid"), "artifact identity commit")
-        if not re.fullmatch(r"[0-9a-f]{40}", commit_sha):
-            raise GitHubResolutionError("artifact identity commit is invalid")
         payload = self._read_blob_at_commit(
             repository, commit_sha, ARTIFACT_POINTER_FILENAME
         )
@@ -677,33 +658,13 @@ class GitHubArtifactResolver:
         """Resolve the pre-release write-once publication claim, if present."""
         repositories = self.repositories_for_scope(scope_id)
         repository = repository_for_artifact(repositories, artifact_kind)
-        owner, name = repository.split("/", 1)
-        data = _require_graphql_data(
-            self.client.graphql(
-                _ARTIFACT_REF_QUERY,
-                {
-                    "owner": owner,
-                    "name": name,
-                    "qualifiedName": artifact_publication_intent_ref(
-                        artifact_kind, artifact_id
-                    ),
-                },
-            ),
-            "artifact publication intent ref query",
+        commit_sha = self.client.read_ref_commit(
+            repository,
+            artifact_publication_intent_ref(artifact_kind, artifact_id),
+            allow_missing=True,
         )
-        repository_data = _require_mapping(
-            data.get("repository"), "artifact publication intent repository"
-        )
-        reference = repository_data.get("ref")
-        if reference is None:
+        if commit_sha is None:
             return None
-        reference_data = _require_mapping(reference, "artifact publication intent ref")
-        target = _require_mapping(
-            reference_data.get("target"), "artifact publication intent target"
-        )
-        commit_sha = _require_text(target.get("oid"), "publication intent commit")
-        if not re.fullmatch(r"[0-9a-f]{40}", commit_sha):
-            raise GitHubResolutionError("publication intent commit is invalid")
         payload = self._read_blob_at_commit(
             repository,
             commit_sha,
@@ -747,40 +708,15 @@ class GitHubArtifactResolver:
             )
         repositories = self.repositories_for_scope(scope_id)
         repository = repository_for_artifact(repositories, artifact_kind)
-        owner, name = repository.split("/", 1)
-        data = _require_graphql_data(
-            self.client.graphql(
-                _ARTIFACT_REF_QUERY,
-                {
-                    "owner": owner,
-                    "name": name,
-                    "qualifiedName": artifact_activation_preparation_ref(
-                        artifact_kind,
-                        artifact_id,
-                    ),
-                },
-            ),
-            "artifact activation preparation ref query",
+        activation_commit_sha = self.client.read_ref_commit(
+            repository,
+            artifact_activation_preparation_ref(artifact_kind, artifact_id),
+            allow_missing=allow_missing,
         )
-        repository_data = _require_mapping(
-            data.get("repository"), "artifact activation preparation repository"
-        )
-        reference = repository_data.get("ref")
-        if reference is None:
+        if activation_commit_sha is None:
             if allow_missing:
                 return None
             raise GitHubResolutionError("artifact activation preparation is missing")
-        reference_data = _require_mapping(
-            reference, "artifact activation preparation ref"
-        )
-        target = _require_mapping(
-            reference_data.get("target"), "artifact activation preparation target"
-        )
-        activation_commit_sha = _require_text(
-            target.get("oid"), "artifact activation commit"
-        )
-        if not re.fullmatch(r"[0-9a-f]{40}", activation_commit_sha):
-            raise GitHubResolutionError("artifact activation commit is invalid")
         pointer_payload = pointer.to_json_bytes()
         pointer_blob_sha = git_object_sha("blob", pointer_payload)
         expected_files = {
@@ -831,34 +767,16 @@ class GitHubArtifactResolver:
         )
         repositories = self.repositories_for_scope(scope_id)
         repository = repository_for_artifact(repositories, artifact_kind)
-        owner, name = repository.split("/", 1)
-        data = _require_graphql_data(
-            self.client.graphql(
-                _ARTIFACT_REF_QUERY,
-                {
-                    "owner": owner,
-                    "name": name,
-                    "qualifiedName": artifact_activation_ref(
-                        artifact_kind,
-                        artifact_id,
-                    ),
-                },
-            ),
-            "artifact activation witness ref query",
+        witness_commit_sha = self.client.read_ref_commit(
+            repository,
+            artifact_activation_ref(artifact_kind, artifact_id),
+            allow_missing=allow_missing,
         )
-        repository_data = _require_mapping(
-            data.get("repository"), "artifact activation witness repository"
-        )
-        reference = repository_data.get("ref")
-        if reference is None:
+        if witness_commit_sha is None:
             if allow_missing:
                 return None
             raise GitHubResolutionError("artifact activation witness is missing")
-        reference_data = _require_mapping(reference, "artifact activation witness ref")
-        target = _require_mapping(
-            reference_data.get("target"), "artifact activation witness target"
-        )
-        if target.get("oid") != activation_commit_sha:
+        if witness_commit_sha != activation_commit_sha:
             raise GitHubResolutionError(
                 "artifact activation witness differs from its preparation"
             )
@@ -883,6 +801,15 @@ class GitHubArtifactResolver:
         """Require the write-once intent ref to contain one exact claim."""
         if type(expected_intent) is not ArtifactPublicationIntent:
             raise GitHubResolutionError("expected artifact intent is invalid")
+        repository = repository_for_artifact(
+            self.repositories_for_scope(scope_id),
+            artifact_kind,
+        )
+        self.client.read_ref_commit(
+            repository,
+            artifact_publication_intent_ref(artifact_kind, artifact_id),
+            allow_missing=False,
+        )
         observed_intent = self.read_artifact_intent(
             scope_id,
             artifact_kind,

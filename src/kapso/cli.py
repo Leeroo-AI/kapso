@@ -37,6 +37,10 @@ from kapso.cross_run.operations import (
     verify_cross_run,
 )
 from kapso.cross_run.launch.contracts import LaunchTaskContextRequest
+from kapso.cross_run.production_smoke import (
+    production_smoke_stage_names,
+    run_production_smoke,
+)
 from kapso.execution.solution import SolutionResult
 from kapso.execution.coding_agents.factory import CodingAgentFactory
 from kapso.kapso import DeployStrategy, Kapso, Source
@@ -443,6 +447,12 @@ def cmd_cross_run(args) -> None:
             request_path=Path(args.input),
             state_root=Path(args.state_root),
         )
+    elif args.cross_run_operation == "production-smoke":
+        result = run_production_smoke(
+            **common,
+            state_root=Path(args.state_root),
+            stages=tuple(args.stages),
+        )
     elif args.cross_run_operation == "verify":
         result = verify_cross_run(
             **common,
@@ -693,6 +703,7 @@ Examples:
         "capture",
         "publish-knowledge",
         "propose-expert",
+        "production-smoke",
         "publish-expert",
         "resolve-launch",
         "revoke",
@@ -707,6 +718,14 @@ Examples:
             operation_parser.add_argument("--state-root", required=True)
         elif operation == "capture":
             operation_parser.add_argument("--input", required=True)
+        elif operation == "production-smoke":
+            operation_parser.add_argument("--state-root", required=True)
+            operation_parser.add_argument(
+                "--stages",
+                nargs="+",
+                choices=production_smoke_stage_names(),
+                required=True,
+            )
         elif operation in {
             "publish-knowledge",
             "propose-expert",

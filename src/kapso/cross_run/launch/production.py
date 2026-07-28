@@ -281,6 +281,9 @@ def build_production_launch_services(
         timeout_seconds=github_settings.command_timeout_seconds,
         api_version=github_settings.api_version,
         minimum_cli_version=github_settings.minimum_cli_version,
+        release_visibility_poll_interval_seconds=(
+            github_settings.release_visibility_poll_interval_seconds
+        ),
         control_blob_size_bytes=github_settings.control_blob_size_bytes,
     )
     github_resolver = GitHubArtifactResolver(

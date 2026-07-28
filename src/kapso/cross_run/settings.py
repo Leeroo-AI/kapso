@@ -193,6 +193,7 @@ class GitHubSettings(StrictContract):
     security_denylist_tag_prefix: str
     cache_path: str
     command_timeout_seconds: int
+    release_visibility_poll_interval_seconds: int
     release_asset_size_bytes: int
     release_asset_count_limit: int
     materialized_asset_size_bytes: int
@@ -254,6 +255,10 @@ class GitHubSettings(StrictContract):
         _require_path(self.cache_path, "github.cache_path")
         _require_positive(
             self.command_timeout_seconds, "github.command_timeout_seconds"
+        )
+        _require_positive(
+            self.release_visibility_poll_interval_seconds,
+            "github.release_visibility_poll_interval_seconds",
         )
         _require_positive(
             self.release_asset_size_bytes, "github.release_asset_size_bytes"
@@ -2311,6 +2316,8 @@ class LaunchSettings(StrictContract):
 @dataclass(frozen=True)
 class ProductionValidationSettings(StrictContract):
     fixture_path: str
+    state_path: str
+    receipt_size_bytes: int
     github_write_smoke: bool
     embedding_smoke: bool
     coding_agent_smoke: bool
@@ -2318,6 +2325,11 @@ class ProductionValidationSettings(StrictContract):
 
     def _validate(self) -> None:
         _require_path(self.fixture_path, "production_validation.fixture_path")
+        _require_path(self.state_path, "production_validation.state_path")
+        _require_positive(
+            self.receipt_size_bytes,
+            "production_validation.receipt_size_bytes",
+        )
         _require_positive(
             self.task_smoke_timeout_seconds,
             "production_validation.task_smoke_timeout_seconds",

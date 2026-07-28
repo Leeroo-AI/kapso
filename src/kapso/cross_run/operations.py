@@ -709,6 +709,9 @@ def _github_services(
         timeout_seconds=settings.github.command_timeout_seconds,
         api_version=settings.github.api_version,
         minimum_cli_version=settings.github.minimum_cli_version,
+        release_visibility_poll_interval_seconds=(
+            settings.github.release_visibility_poll_interval_seconds
+        ),
         control_blob_size_bytes=settings.github.control_blob_size_bytes,
     )
     resolver = GitHubArtifactResolver(client, settings.github, settings.scopes)
@@ -808,9 +811,7 @@ def _policy_services(
     state_root: Path,
     github: GitHubOperationServices,
 ) -> CrossRunPolicyOperationServices:
-    security_state_path = (
-        state_root / settings.launch.security_denylist_state_path
-    )
+    security_state_path = state_root / settings.launch.security_denylist_state_path
     security_trusted_root = _private_state_root(security_state_path.parent)
     security_authority = AuthenticatedSecurityDenylistAuthority(
         settings.scopes,
