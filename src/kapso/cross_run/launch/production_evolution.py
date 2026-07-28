@@ -35,8 +35,14 @@ from kapso.cross_run.launch.production import (
     ProductionLaunchServices,
     resolve_production_binding,
 )
-from kapso.cross_run.launch.resume import BlockedRunResume
-from kapso.cross_run.launch.resume_contracts import RunReleaseUseMode
+from kapso.cross_run.launch.resume import (
+    BlockedRunResume,
+    observe_run_resume_safety,
+)
+from kapso.cross_run.launch.resume_contracts import (
+    RunEligibilityDisposition,
+    RunReleaseUseMode,
+)
 from kapso.cross_run.launch.run_action_coding_agent_contracts import (
     CODING_AGENT_REQUEST_PROTOCOL_VERSION,
     CodingAgentRunActionRequest,
@@ -250,6 +256,14 @@ def execute_production_evolution(
             if type(resumed) is not PreparedRunHandoff:
                 raise ProductionEvolutionError("resume returned unknown authority")
             handoff = resumed
+            resources.callback(handoff.close)
+            if (
+                handoff.frontier.checkpoint.safety_state.disposition
+                is not RunEligibilityDisposition.ELIGIBLE
+            ):
+                raise ProductionEvolutionError(
+                    "evolution is blocked by current release-use policy"
+                )
         else:
             if request is None:
                 raise ProductionEvolutionError("fresh launch request is absent")
@@ -272,13 +286,12 @@ def execute_production_evolution(
                 launch_artifacts=starting_artifacts.artifacts,
                 validation_settings=settings.expert.validation,
             )
+            resources.callback(handoff.close)
         _require_pinned_prompt_inputs(
             handoff.active_workspace.bootstrap_pin.launch_manifest.launch_request,
             goal=goal,
             additional_context=additional_context,
         )
-        resources.callback(handoff.close)
-
         embedding_telemetry = None
         if recovered_action is None:
             prior_knowledge, embedding_telemetry = _retrieve_prior_knowledge(
@@ -418,6 +431,10 @@ def _recover_resumed_action(
             raise ProductionEvolutionError(
                 "production evolution run contains multiple unprojected actions"
             )
+        _require_action_recovery_admission(
+            handoff=handoff,
+            services=services,
+        )
         action = build_production_coding_agent_action(
             handoff=handoff,
             services=services,
@@ -438,6 +455,25 @@ def _recover_resumed_action(
         return action.recover_existing(
             frontier=handoff.frontier,
             operation_id=unprojected_tails[0].operation_id,
+        )
+
+
+def _require_action_recovery_admission(
+    *,
+    handoff,
+    services: ProductionLaunchServices,
+) -> None:
+    """Require fresh online policy before continuing an unreconciled action."""
+
+    admission = observe_run_resume_safety(
+        predecessor=handoff.frontier.checkpoint,
+        release_use_mode=RunReleaseUseMode.ONLINE_CURRENT,
+        release_use_authority=services.release_use_authority,
+        security_authority=services.security_authority,
+    )
+    if admission.disposition is not RunEligibilityDisposition.ELIGIBLE:
+        raise ProductionEvolutionError(
+            "action recovery is blocked by current security or release-use policy"
         )
 
 

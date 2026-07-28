@@ -209,34 +209,11 @@ class RunResumeCoordinator:
                     expected_commit_sha=expected_commit,
                 )
 
-            manifest = pin.launch_manifest
-            release_use = self._release_use_observation(
-                predecessor,
-                release_use_mode,
-            )
-            checked_subject_ids = resume_security_subject_ids(
-                bootstrap_pin=pin,
-                release_use_observation=release_use,
-                derivative_frontier=(predecessor.safety_state.derivative_frontier),
-                predecessor_safety_state_id=(predecessor.safety_state.safety_state_id),
-                inherited_security_subject_ids=(
-                    predecessor.safety_state.security_observation.checked_subject_ids
-                ),
-            )
-            security = self._security_authority.observe_exact_descendant_of(
-                scope_id=manifest.scope_contract.scope_id,
-                scope_contract_id=manifest.scope_contract.scope_contract_id,
-                checked_subject_ids=checked_subject_ids,
-                required_ancestor=(predecessor.safety_state.security_observation),
-            )
-            safety = RunSafetyState.build(
-                predecessor=predecessor.safety_state,
-                bootstrap_pin=pin,
-                boundary=RunSafetyBoundary.RESUME,
-                derivative_frontier=(predecessor.safety_state.derivative_frontier),
-                security_observation=security,
-                release_use_observation=release_use,
+            safety = observe_run_resume_safety(
+                predecessor=predecessor,
                 release_use_mode=release_use_mode,
+                release_use_authority=self._release_use_authority,
+                security_authority=self._security_authority,
             )
             bundle = current.projection.build_bundle(
                 bootstrap_pin=pin,
@@ -286,30 +263,69 @@ class RunResumeCoordinator:
             resources.pop_all()
             return admitted
 
-    def _release_use_observation(
-        self,
-        predecessor: RunCheckpoint,
-        mode: RunReleaseUseMode,
-    ) -> ExpertReleaseUsePolicyObservation:
-        if mode is RunReleaseUseMode.PINNED_OFFLINE:
-            return (
-                predecessor.safety_state.bootstrap_pin.launch_manifest.release_use_observation
-            )
-        authority = self._release_use_authority
-        if authority is None:
+
+def observe_run_resume_safety(
+    *,
+    predecessor: RunCheckpoint,
+    release_use_mode: RunReleaseUseMode,
+    release_use_authority: RunResumeReleaseUseAuthority | None,
+    security_authority: RunResumeSecurityAuthority,
+) -> RunSafetyState:
+    """Observe current policy and derive one read-only resume safety state."""
+
+    if (
+        type(predecessor) is not RunCheckpoint
+        or type(release_use_mode) is not RunReleaseUseMode
+        or not hasattr(security_authority, "observe_exact_descendant_of")
+        or (
+            release_use_authority is not None
+            and not hasattr(release_use_authority, "observe_exact")
+        )
+    ):
+        raise RunResumeError("resume safety observation requires exact authority")
+    pin = predecessor.safety_state.bootstrap_pin
+    manifest = pin.launch_manifest
+    if release_use_mode is RunReleaseUseMode.PINNED_OFFLINE:
+        release_use = manifest.release_use_observation
+    else:
+        if release_use_authority is None:
             raise RunResumeError(
                 "online run resume requires a release-use policy authority"
             )
-        manifest = predecessor.safety_state.bootstrap_pin.launch_manifest
-        return authority.observe_exact(
+        release_use = release_use_authority.observe_exact(
             scope_contract=manifest.scope_contract,
             checked_release_ids=(manifest.expert_manifest.release_id,),
         )
+    checked_subject_ids = resume_security_subject_ids(
+        bootstrap_pin=pin,
+        release_use_observation=release_use,
+        derivative_frontier=predecessor.safety_state.derivative_frontier,
+        predecessor_safety_state_id=predecessor.safety_state.safety_state_id,
+        inherited_security_subject_ids=(
+            predecessor.safety_state.security_observation.checked_subject_ids
+        ),
+    )
+    security = security_authority.observe_exact_descendant_of(
+        scope_id=manifest.scope_contract.scope_id,
+        scope_contract_id=manifest.scope_contract.scope_contract_id,
+        checked_subject_ids=checked_subject_ids,
+        required_ancestor=predecessor.safety_state.security_observation,
+    )
+    return RunSafetyState.build(
+        predecessor=predecessor.safety_state,
+        bootstrap_pin=pin,
+        boundary=RunSafetyBoundary.RESUME,
+        derivative_frontier=predecessor.safety_state.derivative_frontier,
+        security_observation=security,
+        release_use_observation=release_use,
+        release_use_mode=release_use_mode,
+    )
 
 
 __all__ = [
     "AdmittedRunResume",
     "BlockedRunResume",
+    "observe_run_resume_safety",
     "RunResumeCoordinator",
     "RunResumeError",
     "RunResumeReleaseUseAuthority",

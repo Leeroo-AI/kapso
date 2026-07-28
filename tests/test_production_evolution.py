@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -176,3 +177,70 @@ def test_resume_recovers_only_actions_ahead_of_the_checkpoint(
         reservation.intent.operation_id,
     )
     publisher_case["active"].close()
+
+
+def test_action_recovery_requires_policy_admission_before_provider_work(
+    monkeypatch,
+):
+    launch_request = object()
+    projected_ledger = object()
+    live_ledger = object()
+    handoff = SimpleNamespace(
+        active_workspace=SimpleNamespace(
+            bootstrap_pin=SimpleNamespace(
+                launch_manifest=SimpleNamespace(launch_request=launch_request)
+            )
+        ),
+        frontier=SimpleNamespace(
+            projection=SimpleNamespace(action_ledger=projected_ledger)
+        ),
+        publisher=SimpleNamespace(
+            action_ledger_snapshot=lambda: live_ledger,
+        ),
+        close=lambda: None,
+    )
+    calls = []
+
+    monkeypatch.setattr(
+        production_evolution,
+        "prepare_run_action_recovery_handoff",
+        lambda **_arguments: handoff,
+    )
+    monkeypatch.setattr(
+        production_evolution,
+        "_require_pinned_prompt_inputs",
+        lambda *_arguments, **_keywords: None,
+    )
+
+    def reject_recovery(**_arguments):
+        calls.append("policy-admission")
+        raise ProductionEvolutionError("release revoked")
+
+    monkeypatch.setattr(
+        production_evolution,
+        "_require_action_recovery_admission",
+        reject_recovery,
+    )
+    monkeypatch.setattr(
+        production_evolution,
+        "_unprojected_action_tails",
+        lambda _projected, _live: (SimpleNamespace(operation_id="operation"),),
+    )
+    monkeypatch.setattr(
+        production_evolution,
+        "build_production_coding_agent_action",
+        lambda **_arguments: calls.append("provider-work"),
+    )
+
+    with pytest.raises(ProductionEvolutionError, match="release revoked"):
+        production_evolution._recover_resumed_action(
+            services=SimpleNamespace(coordinator=object()),
+            settings=object(),
+            image_authority=object(),
+            run_root=Path("/tmp/run"),
+            state_root=Path("/tmp/state"),
+            goal="resume",
+            additional_context="",
+        )
+
+    assert calls == ["policy-admission"]
