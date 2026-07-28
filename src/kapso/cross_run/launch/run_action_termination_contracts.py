@@ -29,6 +29,7 @@ from kapso.cross_run.launch.run_action_release_contracts import (
 )
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
     DockerRunActionCreateInspectProjection,
+    DockerRunActionKeeperCreateInspectProjection,
     RUN_ACTION_MAXIMUM_PHYSICAL_INTEGER,
     RunActionActivationRevalidationReceipt,
     RunActionPreparationAllocation,
@@ -76,6 +77,7 @@ class RunActionProviderTerminationReason(str, Enum):
     PRE_RELEASE_MAIN_LOSS = "pre_release_main_loss"
     PRE_RELEASE_MAIN_TERMINAL = "pre_release_main_terminal"
     CREDENTIAL_EXPIRED = "credential_expired"
+    RUNTIME_INSTALLATION_LOST = "runtime_installation_lost"
 
 
 @dataclass(frozen=True)
@@ -448,6 +450,172 @@ class RunActionPreReleaseTerminalContainerObservation(StrictContract):
 
 
 @dataclass(frozen=True)
+class RunActionLostInstallationKeeperObservation(StrictContract):
+    """Stable proof that the exact volume keeper exists but cannot run."""
+
+    lost_installation_keeper_observation_id: str
+    container_id: str
+    observed_inspect_projection: DockerRunActionKeeperCreateInspectProjection
+    complete_inspection_digest: str
+    container_status: str
+    process_id: int
+    restart_count: int
+    paused: bool
+    restarting: bool
+    dead: bool
+    started_at: str
+    finished_at: str
+    exit_code: int
+    oom_killed: bool
+    state_error: str
+
+    CONTENT_NAMESPACE: ClassVar[str] = "run-action-lost-installation-keeper-observation"
+    IDENTITY_FIELD: ClassVar[str] = "lost_installation_keeper_observation_id"
+
+    def _validate(self) -> None:
+        require_identifier(self.container_id, "lost-installation keeper")
+        started_at = _docker_timestamp_order_key(self.started_at)
+        finished_at = _docker_timestamp_order_key(self.finished_at)
+        if (
+            type(self.observed_inspect_projection)
+            is not DockerRunActionKeeperCreateInspectProjection
+            or _SHA256_DIGEST_PATTERN.fullmatch(self.complete_inspection_digest) is None
+            or self.container_status != "exited"
+            or self.process_id != 0
+            or self.restart_count != 0
+            or self.paused is not False
+            or self.restarting is not False
+            or self.dead is not False
+            or self.started_at == _ZERO_DOCKER_TIMESTAMP
+            or self.finished_at == _ZERO_DOCKER_TIMESTAMP
+            or started_at is None
+            or finished_at is None
+            or finished_at < started_at
+            or type(self.exit_code) is not int
+            or not 0 <= self.exit_code <= 255
+            or type(self.oom_killed) is not bool
+            or self.state_error != ""
+        ):
+            raise RunActionTerminationContractError(
+                "lost-installation keeper observation is invalid"
+            )
+
+
+@dataclass(frozen=True)
+class RunActionLostInstallationObservation(StrictContract):
+    """Restart-safe proof that an activated Docker occurrence cannot execute."""
+
+    lost_installation_observation_id: str
+    activation_event_id: str
+    preparation_allocation: RunActionPreparationAllocation
+    activation_revalidation_receipt: RunActionActivationRevalidationReceipt
+    host_boot_id: str
+    complete_inventory_digest: str
+    docker_volume_occurrence_digest: str
+    keeper_observation: RunActionLostInstallationKeeperObservation
+    main_observation: RunActionPreReleaseTerminalContainerObservation
+    observed_runtime_volume_names: tuple[str, ...]
+    observed_keeper_container_ids: tuple[str, ...]
+    observed_main_container_ids: tuple[str, ...]
+
+    CONTENT_NAMESPACE: ClassVar[str] = "run-action-lost-installation-observation"
+    IDENTITY_FIELD: ClassVar[str] = "lost_installation_observation_id"
+
+    def _validate(self) -> None:
+        _require_namespaced_content_id(
+            self.activation_event_id,
+            "run-action-execution-event",
+            "lost-installation activation event",
+        )
+        if (
+            type(self.preparation_allocation) is not RunActionPreparationAllocation
+            or type(self.activation_revalidation_receipt)
+            is not RunActionActivationRevalidationReceipt
+            or type(self.keeper_observation)
+            is not RunActionLostInstallationKeeperObservation
+            or type(self.main_observation)
+            is not RunActionPreReleaseTerminalContainerObservation
+            or _BOOT_ID_PATTERN.fullmatch(self.host_boot_id) is None
+            or _SHA256_DIGEST_PATTERN.fullmatch(self.complete_inventory_digest) is None
+            or _SHA256_DIGEST_PATTERN.fullmatch(self.docker_volume_occurrence_digest)
+            is None
+        ):
+            raise RunActionTerminationContractError(
+                "lost-installation observation lacks exact typed evidence"
+            )
+        activation = self.activation_revalidation_receipt
+        prepared = activation.prepared_execution
+        allocation = self.preparation_allocation
+        main = self.main_observation
+        if (
+            allocation.preparation_claim != prepared.preparation_claim
+            or allocation.runtime_volume_authority != prepared.runtime_volume_authority
+            or self.docker_volume_occurrence_digest
+            != prepared.runtime_volume_evidence.docker_volume_occurrence_digest
+            or self.keeper_observation.container_id
+            != prepared.volume_keeper_evidence.container_id
+            or self.keeper_observation.observed_inspect_projection
+            != prepared.volume_keeper_evidence.issued_create_projection
+            or main.prepared_execution_id != prepared.prepared_execution_id
+            or main.spawn_commit_id != activation.spawn_commit.spawn_commit_id
+            or main.provider_execution_id
+            != activation.spawn_commit.provider_execution_id
+            or main.runtime_volume_authority_id
+            != prepared.runtime_volume_authority.runtime_volume_authority_id
+            or main.generation_nonce
+            != prepared.runtime_volume_authority.generation_nonce
+            or main.activation_revalidation_receipt_id
+            != activation.activation_revalidation_receipt_id
+            or main.observed_inspect_projection
+            != prepared.inert_container_evidence.issued_create_projection
+            or self.observed_runtime_volume_names
+            != (prepared.runtime_volume_authority.volume_name,)
+            or self.observed_keeper_container_ids
+            != (prepared.volume_keeper_evidence.container_id,)
+            or self.observed_main_container_ids
+            != (activation.spawn_commit.provider_execution_id,)
+        ):
+            raise RunActionTerminationContractError(
+                "lost-installation observation is incomplete or spliced"
+            )
+
+
+def run_action_lost_installation_observation_token(
+    observation: RunActionLostInstallationObservation,
+) -> str:
+    """Bind the stable non-runnable occurrence across recovery inspection."""
+
+    if type(observation) is not RunActionLostInstallationObservation:
+        raise RunActionTerminationContractError(
+            "lost-installation token requires one exact observation"
+        )
+    return tree_or_blob_digest(
+        canonical_json_bytes(
+            {
+                "activation_event_id": observation.activation_event_id,
+                "preparation_allocation_id": (
+                    observation.preparation_allocation.preparation_allocation_id
+                ),
+                "activation_revalidation_receipt_id": (
+                    observation.activation_revalidation_receipt.activation_revalidation_receipt_id
+                ),
+                "host_boot_id": observation.host_boot_id,
+                "complete_inventory_digest": observation.complete_inventory_digest,
+                "docker_volume_occurrence_digest": (
+                    observation.docker_volume_occurrence_digest
+                ),
+                "keeper_observation_id": (
+                    observation.keeper_observation.lost_installation_keeper_observation_id
+                ),
+                "main_observation_id": (
+                    observation.main_observation.pre_release_terminal_container_observation_id
+                ),
+            }
+        )
+    )
+
+
+@dataclass(frozen=True)
 class RunActionPreReleaseMainTerminalObservation(StrictContract):
     """Stable proof that the unreleased event-5 main exists and has exited."""
 
@@ -608,7 +776,10 @@ class RunActionProviderTerminationReceipt(StrictContract):
     activation_event_id: str
     workload_release_adoption: RunActionWorkloadReleaseAdoption | None
     terminal_observation: (
-        RunActionTerminalObservation | RunActionPreReleaseMainTerminalObservation | None
+        RunActionTerminalObservation
+        | RunActionPreReleaseMainTerminalObservation
+        | RunActionLostInstallationObservation
+        | None
     )
     timeout_directive_publication: RunActionTimeoutDirectivePublicationReceipt | None
     pre_release_main_loss_observation: RunActionPreReleaseMainLossObservation | None
@@ -636,6 +807,7 @@ class RunActionProviderTerminationReceipt(StrictContract):
             in {
                 RunActionProviderTerminationReason.TIMEOUT,
                 RunActionProviderTerminationReason.CREDENTIAL_EXPIRED,
+                RunActionProviderTerminationReason.RUNTIME_INSTALLATION_LOST,
             }
             else RunActionProviderTerminationDisposition.FAILED
         )
@@ -651,6 +823,9 @@ class RunActionProviderTerminationReceipt(StrictContract):
             return
         if self.reason is RunActionProviderTerminationReason.CREDENTIAL_EXPIRED:
             self._validate_credential_expired()
+            return
+        if self.reason is RunActionProviderTerminationReason.RUNTIME_INSTALLATION_LOST:
+            self._validate_lost_installation()
             return
         self._validate_released_terminal()
 
@@ -687,13 +862,21 @@ class RunActionProviderTerminationReceipt(StrictContract):
         loss = self.pre_release_main_loss_observation
         terminal = self.terminal_observation
         physical_evidence_is_exact = (
-            type(loss) is RunActionPreReleaseMainLossObservation
-            and terminal is None
-            and loss.activation_event_id == self.activation_event_id
-        ) or (
-            loss is None
-            and type(terminal) is RunActionPreReleaseMainTerminalObservation
-            and terminal.activation_event_id == self.activation_event_id
+            (
+                type(loss) is RunActionPreReleaseMainLossObservation
+                and terminal is None
+                and loss.activation_event_id == self.activation_event_id
+            )
+            or (
+                loss is None
+                and type(terminal) is RunActionPreReleaseMainTerminalObservation
+                and terminal.activation_event_id == self.activation_event_id
+            )
+            or (
+                loss is None
+                and type(terminal) is RunActionLostInstallationObservation
+                and terminal.activation_event_id == self.activation_event_id
+            )
         )
         if (
             type(intent) is not RunActionCredentialRetirementIntent
@@ -704,6 +887,20 @@ class RunActionProviderTerminationReceipt(StrictContract):
         ):
             raise RunActionTerminationContractError(
                 "credential-expired termination lacks intent and physical evidence"
+            )
+
+    def _validate_lost_installation(self) -> None:
+        observation = self.terminal_observation
+        if (
+            type(observation) is not RunActionLostInstallationObservation
+            or observation.activation_event_id != self.activation_event_id
+            or self.workload_release_adoption is not None
+            or self.timeout_directive_publication is not None
+            or self.pre_release_main_loss_observation is not None
+            or self.credential_retirement_intent is not None
+        ):
+            raise RunActionTerminationContractError(
+                "lost-installation termination must be its sole evidence branch"
             )
 
     def _validate_released_terminal(self) -> None:
@@ -790,9 +987,18 @@ class RunActionProviderTerminationReceipt(StrictContract):
                 return loss.activation_revalidation_receipt
             if type(terminal) is RunActionPreReleaseMainTerminalObservation:
                 return terminal.activation_revalidation_receipt
+            if type(terminal) is RunActionLostInstallationObservation:
+                return terminal.activation_revalidation_receipt
             raise RunActionTerminationContractError(
                 "credential-expired termination lacks activation evidence"
             )
+        if self.reason is RunActionProviderTerminationReason.RUNTIME_INSTALLATION_LOST:
+            observation = self.terminal_observation
+            if type(observation) is not RunActionLostInstallationObservation:
+                raise RunActionTerminationContractError(
+                    "lost-installation termination lacks activation evidence"
+                )
+            return observation.activation_revalidation_receipt
         adoption = self.workload_release_adoption
         if type(adoption) is not RunActionWorkloadReleaseAdoption:
             raise RunActionTerminationContractError(
@@ -859,9 +1065,19 @@ def provider_termination_matches_durable_activation(
             in {
                 RunActionPreReleaseMainLossObservation,
                 RunActionPreReleaseMainTerminalObservation,
+                RunActionLostInstallationObservation,
             }
             and physical.preparation_allocation == preparation_allocation
             and physical.activation_event_id == activation_event_id
+        )
+    if receipt.reason is RunActionProviderTerminationReason.RUNTIME_INSTALLATION_LOST:
+        observation = receipt.terminal_observation
+        return (
+            type(observation) is RunActionLostInstallationObservation
+            and observation.activation_event_id == activation_event_id
+            and observation.preparation_allocation == preparation_allocation
+            and observation.activation_revalidation_receipt
+            == activation_revalidation_receipt
         )
     adoption = receipt.workload_release_adoption
     return (
@@ -1078,11 +1294,14 @@ def _docker_timestamp_order_key(value: object) -> tuple[int, ...] | None:
 
 
 __all__ = [
+    "run_action_lost_installation_observation_token",
     "run_action_pre_release_main_loss_observation_token",
     "run_action_pre_release_main_terminal_observation_token",
     "RunActionPreReleaseMainLossObservation",
     "RunActionPreReleaseMainTerminalObservation",
     "RunActionPreReleaseTerminalContainerObservation",
+    "RunActionLostInstallationKeeperObservation",
+    "RunActionLostInstallationObservation",
     "RunActionProviderTerminationDisposition",
     "RunActionProviderTerminationReason",
     "RunActionProviderTerminationReceipt",

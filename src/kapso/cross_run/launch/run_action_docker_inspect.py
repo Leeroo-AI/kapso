@@ -57,6 +57,7 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
     runtime_volume_driver_options,
 )
 from kapso.cross_run.launch.run_action_termination_contracts import (
+    RunActionLostInstallationKeeperObservation,
     RunActionPreReleaseTerminalContainerObservation,
 )
 from kapso.cross_run.settings import DockerRuntimeSettings
@@ -176,6 +177,7 @@ class _DockerContainerLifecycle(str, Enum):
     RUNNING_KEEPER = "running_keeper"
     RUNNING_MAIN = "running_main"
     EXITED_MAIN = "exited_main"
+    EXITED_KEEPER = "exited_keeper"
 
 
 def observe_runtime_volume(
@@ -863,6 +865,89 @@ def observe_running_keeper(
     )
 
 
+def observe_lost_installation_keeper(
+    raw_inspection: Mapping[str, Any],
+    claim: RunActionPreparationClaim,
+    authority: RunActionRuntimeVolumeAuthority,
+    volume: DockerRunActionVolumeObservation,
+    helper_evidence: RunActionSupervisorHelperEvidence,
+    init_source_evidence: RunActionDockerInitSourceEvidence,
+    settings: DockerRuntimeSettings,
+) -> RunActionLostInstallationKeeperObservation:
+    """Parse the exact exited keeper left by a lost runtime installation."""
+
+    issued = issued_keeper_projection(
+        claim,
+        authority,
+        helper_evidence,
+        init_source_evidence,
+        settings,
+    )
+    _require_volume_observation(volume, authority, settings)
+    raw, normalized_payload, _raw_size_bytes = _snapshot_container_inspection(
+        raw_inspection,
+        "Docker lost-installation keeper inspection",
+    )
+    container_id = _require_common_container(
+        raw,
+        claim=claim,
+        labels=preparation_keeper_container_labels(claim),
+        container_name=preparation_keeper_container_name(claim),
+        command_executable=RUN_ACTION_SUPERVISOR_HELPER_DESTINATION,
+        command_arguments=("tail", "-f", "/dev/null"),
+        working_directory=RUN_ACTION_RUNTIME_VOLUME_KEEPER_DESTINATION,
+        host_config_mounts=_keeper_host_config_mounts(claim, authority),
+        top_level_mounts=_keeper_top_level_mounts(claim, authority, volume),
+        settings=settings,
+        lifecycle=_DockerContainerLifecycle.EXITED_KEEPER,
+    )
+    state = raw["State"]
+    return RunActionLostInstallationKeeperObservation.mint(
+        container_id=container_id,
+        observed_inspect_projection=issued,
+        complete_inspection_digest=tree_or_blob_digest(normalized_payload),
+        container_status=state["Status"],
+        process_id=state["Pid"],
+        restart_count=raw["RestartCount"],
+        paused=state["Paused"],
+        restarting=state["Restarting"],
+        dead=state["Dead"],
+        started_at=state["StartedAt"],
+        finished_at=state["FinishedAt"],
+        exit_code=state["ExitCode"],
+        oom_killed=state["OOMKilled"],
+        state_error=state["Error"],
+    )
+
+
+def reobserve_lost_installation_keeper_for_cleanup(
+    raw_inspection: Mapping[str, Any],
+    expected: RunActionLostInstallationKeeperObservation,
+    claim: RunActionPreparationClaim,
+    authority: RunActionRuntimeVolumeAuthority,
+    volume: DockerRunActionVolumeObservation,
+    helper_evidence: RunActionSupervisorHelperEvidence,
+    init_source_evidence: RunActionDockerInitSourceEvidence,
+    settings: DockerRuntimeSettings,
+) -> RunActionLostInstallationKeeperObservation:
+    """Reprove an unchanged exited keeper before exact stopped removal."""
+
+    observed = observe_lost_installation_keeper(
+        raw_inspection,
+        claim,
+        authority,
+        volume,
+        helper_evidence,
+        init_source_evidence,
+        settings,
+    )
+    if observed != expected:
+        raise DockerRunActionInspectionError(
+            "lost-installation keeper changed before cleanup"
+        )
+    return observed
+
+
 def observe_inert_keeper(
     raw_inspection: Mapping[str, Any],
     claim: RunActionPreparationClaim,
@@ -1005,7 +1090,10 @@ def _require_common_container(
         _DockerContainerLifecycle.RUNNING_KEEPER,
         _DockerContainerLifecycle.RUNNING_MAIN,
     }
-    has_started = is_running or lifecycle is _DockerContainerLifecycle.EXITED_MAIN
+    has_started = is_running or lifecycle in {
+        _DockerContainerLifecycle.EXITED_MAIN,
+        _DockerContainerLifecycle.EXITED_KEEPER,
+    }
     _require_network(network_settings, lifecycle=lifecycle)
     expected_config = _expected_container_config(
         claim,
@@ -1147,6 +1235,7 @@ def _expected_host_config(
         _DockerContainerLifecycle.RUNNING_KEEPER,
         _DockerContainerLifecycle.RUNNING_MAIN,
         _DockerContainerLifecycle.EXITED_MAIN,
+        _DockerContainerLifecycle.EXITED_KEEPER,
     }
     return {
         "AutoRemove": False,
@@ -1481,7 +1570,10 @@ def _require_network(
             raise DockerRunActionInspectionError(
                 "Docker keeper none-network identity is malformed"
             )
-    elif lifecycle is _DockerContainerLifecycle.EXITED_MAIN:
+    elif lifecycle in {
+        _DockerContainerLifecycle.EXITED_MAIN,
+        _DockerContainerLifecycle.EXITED_KEEPER,
+    }:
         if (
             network_settings["SandboxID"] != ""
             or network_settings["SandboxKey"] != ""
@@ -1669,7 +1761,10 @@ def _require_container_state(
             raise DockerRunActionInspectionError(
                 "Docker container is not one stable running process"
             )
-    elif lifecycle is _DockerContainerLifecycle.EXITED_MAIN:
+    elif lifecycle in {
+        _DockerContainerLifecycle.EXITED_MAIN,
+        _DockerContainerLifecycle.EXITED_KEEPER,
+    }:
         if (
             state["Running"] is not False
             or state["Status"] != "exited"
@@ -1920,9 +2015,11 @@ __all__ = [
     "observe_inert_main_container",
     "observe_running_barrier_main_container",
     "observe_running_keeper",
+    "observe_lost_installation_keeper",
     "observe_runtime_volume",
     "observe_pre_release_terminal_main_container",
     "observe_terminal_main_container",
     "reobserve_pre_release_terminal_main_container_for_cleanup",
+    "reobserve_lost_installation_keeper_for_cleanup",
     "reobserve_terminal_main_container_for_cleanup",
 ]

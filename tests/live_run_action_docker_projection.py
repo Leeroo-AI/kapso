@@ -349,6 +349,9 @@ class _LiveInertStartAdapter:
     def inspect_unactivated(self, _query):
         raise AssertionError("durable event 5 is already activated")
 
+    def inspect_lost_installation(self, _query):
+        return None
+
     def inspect_committed(self, query):
         return inspect_run_action_inert_activation(
             query=query,
@@ -424,6 +427,9 @@ class _LiveExpiredCredentialRetirementAdapter:
 
     def inspect_unactivated(self, _query):
         raise AssertionError("durable event 5 is already activated")
+
+    def inspect_lost_installation(self, _query):
+        return None
 
     def inspect_committed(self, query):
         if not self._running:
@@ -528,6 +534,9 @@ class _LiveBlockedWorkloadAdapter:
     def inspect_unactivated(self, _query):
         raise AssertionError("durable event 5 is already activated")
 
+    def inspect_lost_installation(self, _query):
+        return None
+
     def inspect_committed(self, query):
         if query.preparation_allocation != self._preparation_allocation:
             raise AssertionError("committed live query differs from exact allocation")
@@ -631,6 +640,9 @@ class _LiveNaturalTerminalWorkloadAdapter:
     def inspect_unactivated(self, _query):
         raise AssertionError("durable event 5 is already activated")
 
+    def inspect_lost_installation(self, _query):
+        return None
+
     def inspect_committed(self, query):
         if query.preparation_allocation != self._preparation_allocation:
             raise AssertionError("terminal live query differs from exact allocation")
@@ -716,6 +728,9 @@ class _LivePreReleaseMainLossAdapter:
 
     def inspect_unactivated(self, _query):
         raise AssertionError("durable event 5 is already activated")
+
+    def inspect_lost_installation(self, _query):
+        return None
 
     def inspect_committed(self, query):
         if query.preparation_allocation != self._preparation_allocation:

@@ -43,6 +43,9 @@ from kapso.cross_run.launch.run_action_main_start import (
     inspect_run_action_inert_activation,
     start_run_action_barrier_once,
 )
+from kapso.cross_run.launch.run_action_lost_installation import (
+    inspect_run_action_lost_installation,
+)
 from kapso.cross_run.launch.run_action_natural_terminal import (
     resolve_run_action_natural_terminal_once,
 )
@@ -65,6 +68,7 @@ from kapso.cross_run.launch.run_action_recovery import (
     RunActionCommittedSpawnState,
     RunActionContinuationOutcome,
     RunActionContinuationState,
+    RunActionLostInstallationQuery,
     RunActionPreparationCapability,
     RunActionPreparationObservation,
     RunActionUnactivatedSpawnObservation,
@@ -482,6 +486,33 @@ class DockerRunActionExecutionAdapter:
         return RunActionCommittedSpawnObservation(
             state=RunActionCommittedSpawnState.TERMINAL_CONTINUABLE,
             observation_token=terminal.complete_inspection_digest,
+        )
+
+    def inspect_lost_installation(
+        self,
+        query: RunActionLostInstallationQuery,
+    ) -> RunActionContinuationOutcome | None:
+        """Classify only an exact activated occurrence with no runnable process."""
+
+        if type(query) is not RunActionLostInstallationQuery:
+            raise DockerRunActionAdapterError(
+                "Docker lost-installation inspection lacks its exact query"
+            )
+        adapter_state = _adapter_state(self)
+        _require_execution_policy(
+            query.activation_event.activation_revalidation_receipt.prepared_execution.preparation_claim.execution_policy,
+            adapter_state,
+        )
+        return inspect_run_action_lost_installation(
+            query=query,
+            resource_manager=adapter_state.resource_manager,
+            command=adapter_state.command,
+            helper_evidence=observe_supervisor_helper(adapter_state.execution_policy),
+            init_source_evidence=observe_docker_init_source(
+                adapter_state.execution_policy
+            ),
+            docker_settings=adapter_state.docker_settings,
+            launch_settings=adapter_state.launch_settings,
         )
 
     def continue_committed_once(

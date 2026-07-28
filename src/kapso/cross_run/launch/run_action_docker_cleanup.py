@@ -27,6 +27,7 @@ from kapso.cross_run.launch.run_action_docker_inspect import (
     observe_inert_main_container,
     observe_running_keeper,
     observe_runtime_volume,
+    reobserve_lost_installation_keeper_for_cleanup,
     reobserve_pre_release_terminal_main_container_for_cleanup,
     reobserve_terminal_main_container_for_cleanup,
 )
@@ -67,6 +68,7 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RunActionVolumeKeeperEvidence,
 )
 from kapso.cross_run.launch.run_action_termination_contracts import (
+    RunActionLostInstallationObservation,
     RunActionPreReleaseMainTerminalObservation,
     RunActionProviderTerminationReason,
     RunActionTimeoutDirectivePublicationReceipt,
@@ -95,13 +97,14 @@ class _RunActionTerminalCleanupEvidence:
     allocation: RunActionPreparationAllocation
     prepared: RunActionPreparedExecution
     activation_event: RunActionExecutionEvent
-    topology: RunActionControlDirectoryTopology
+    topology: RunActionControlDirectoryTopology | None
     workload_release_adoption: RunActionWorkloadReleaseAdoption | None
     timeout_directive_publication: RunActionTimeoutDirectivePublicationReceipt | None
     terminal_observation: (
         RunActionTerminalObservation | RunActionPreReleaseMainTerminalObservation | None
     )
     main_must_be_absent: bool
+    lost_installation_observation: RunActionLostInstallationObservation | None = None
 
 
 class DockerRunActionCleanupManager:
@@ -559,6 +562,15 @@ def _reap_terminal_resources_locked(
         raise RunActionDockerCleanupError(
             "pre-release main reappeared after durable loss termination"
         )
+    if evidence.lost_installation_observation is not None:
+        return _reap_lost_installation_resources_locked(
+            session=session,
+            inventory=inventory,
+            evidence=evidence,
+            resource_manager=resource_manager,
+            cleanup_manager=cleanup_manager,
+            exclusion=exclusion,
+        )
     if inventory.keeper_container_id is not None:
         with open_run_action_timeout_inspection(
             activation_event=evidence.activation_event,
@@ -632,6 +644,109 @@ def _reap_terminal_resources_locked(
     )
 
 
+def _reap_lost_installation_resources_locked(
+    *,
+    session,
+    inventory: DockerRunActionResourceInventory,
+    evidence: _RunActionTerminalCleanupEvidence,
+    resource_manager: DockerRunActionResourceManager,
+    cleanup_manager: DockerRunActionCleanupManager,
+    exclusion: PinnedDockerCleanupExclusionLease,
+) -> DockerRunActionResourceInventory:
+    observation = evidence.lost_installation_observation
+    if type(observation) is not RunActionLostInstallationObservation:
+        raise RunActionDockerCleanupError(
+            "lost-installation cleanup lacks exact durable authority"
+        )
+    if (
+        inventory.volume_inspection_digest is None
+        or (
+            inventory.keeper_container_id is not None
+            and inventory.keeper_container_id
+            != observation.keeper_observation.container_id
+        )
+        or (
+            inventory.main_container_id is not None
+            and inventory.main_container_id
+            != observation.main_observation.provider_execution_id
+        )
+    ):
+        raise RunActionDockerCleanupError(
+            "lost-installation cleanup inventory changed before finalization"
+        )
+    volume = observe_runtime_volume(
+        resource_manager.inspect_volume(inventory),
+        evidence.prepared.preparation_claim,
+        evidence.prepared.runtime_volume_authority,
+        resource_manager.runtime_settings,
+    )
+    if volume.volume_occurrence_digest != observation.docker_volume_occurrence_digest:
+        raise RunActionDockerCleanupError(
+            "lost-installation volume differs from durable authority"
+        )
+    projection = evidence.prepared.volume_keeper_evidence.issued_create_projection
+    if inventory.main_container_id is not None:
+        reobserve_lost_installation_keeper_for_cleanup(
+            resource_manager.inspect_keeper(inventory),
+            observation.keeper_observation,
+            evidence.prepared.preparation_claim,
+            evidence.prepared.runtime_volume_authority,
+            volume,
+            projection.helper_evidence,
+            projection.docker_init_source_evidence,
+            resource_manager.runtime_settings,
+        )
+        reobserve_pre_release_terminal_main_container_for_cleanup(
+            resource_manager.inspect_main(inventory),
+            observation.main_observation,
+        )
+        inventory = _remove_main_once(
+            session=session,
+            inventory=inventory,
+            resource_manager=resource_manager,
+            cleanup_manager=cleanup_manager,
+            exclusion=exclusion,
+        )
+    if inventory.keeper_container_id is not None:
+        volume = observe_runtime_volume(
+            resource_manager.inspect_volume(inventory),
+            evidence.prepared.preparation_claim,
+            evidence.prepared.runtime_volume_authority,
+            resource_manager.runtime_settings,
+        )
+        reobserve_lost_installation_keeper_for_cleanup(
+            resource_manager.inspect_keeper(inventory),
+            observation.keeper_observation,
+            evidence.prepared.preparation_claim,
+            evidence.prepared.runtime_volume_authority,
+            volume,
+            projection.helper_evidence,
+            projection.docker_init_source_evidence,
+            resource_manager.runtime_settings,
+        )
+        inventory = _remove_inert_keeper_once(
+            session=session,
+            inventory=inventory,
+            resource_manager=resource_manager,
+            cleanup_manager=cleanup_manager,
+            exclusion=exclusion,
+        )
+    inventory = _remove_volume_once(
+        session=session,
+        inventory=inventory,
+        resource_manager=resource_manager,
+        cleanup_manager=cleanup_manager,
+        exclusion=exclusion,
+    )
+    return _require_stable_absence(
+        session=session,
+        inventory=inventory,
+        resource_manager=resource_manager,
+        cleanup_manager=cleanup_manager,
+        exclusion=exclusion,
+    )
+
+
 def _terminal_cleanup_evidence(
     events: tuple[RunActionExecutionEvent, ...],
 ) -> _RunActionTerminalCleanupEvidence:
@@ -695,6 +810,23 @@ def _terminal_cleanup_evidence(
             "run-action cleanup is not durably terminal and eligible"
         )
     termination = tail.provider_termination_receipt
+    if type(termination.terminal_observation) is RunActionLostInstallationObservation:
+        observation = termination.terminal_observation
+        if type(observation) is not RunActionLostInstallationObservation:
+            raise RunActionDockerCleanupError(
+                "lost-installation cleanup lacks durable physical evidence"
+            )
+        return _RunActionTerminalCleanupEvidence(
+            allocation=allocation,
+            prepared=prepared,
+            activation_event=activation_event,
+            topology=None,
+            workload_release_adoption=None,
+            timeout_directive_publication=None,
+            terminal_observation=None,
+            main_must_be_absent=False,
+            lost_installation_observation=observation,
+        )
     pre_release_loss = (
         termination.reason is RunActionProviderTerminationReason.PRE_RELEASE_MAIN_LOSS
     )

@@ -58,6 +58,9 @@ from kapso.cross_run.launch.run_action_docker_resources import (
 from kapso.cross_run.launch.run_action_store import (
     RunActionExecutionEventKind,
 )
+from kapso.cross_run.launch.run_action_termination_contracts import (
+    RunActionProviderTerminationReason,
+)
 from kapso.cross_run.launch.resume_contracts import RunSafetyBoundary
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RunActionCredentialMode,
@@ -184,10 +187,11 @@ def _publish_local_image(cleanup, settings, docker_config_root):
 
 
 @pytest.mark.parametrize(
-    "workspace_access",
+    ("workspace_access", "simulate_lost_installation"),
     (
-        RunFrontierWorkspaceAccess.READ_ONLY,
-        RunFrontierWorkspaceAccess.EDIT_WORKSPACE,
+        (RunFrontierWorkspaceAccess.READ_ONLY, False),
+        (RunFrontierWorkspaceAccess.EDIT_WORKSPACE, False),
+        (RunFrontierWorkspaceAccess.READ_ONLY, True),
     ),
 )
 def test_native_offline_image_completes_the_eight_event_lifecycle(
@@ -195,6 +199,7 @@ def test_native_offline_image_completes_the_eight_event_lifecycle(
     publisher_case,
     monkeypatch,
     workspace_access,
+    simulate_lost_installation,
 ):
     monkeypatch.setattr(subprocess, "run", _ORIGINAL_SUBPROCESS_RUN)
     cross_run_settings = CrossRunSettings.from_dict(
@@ -346,8 +351,6 @@ def test_native_offline_image_completes_the_eight_event_lifecycle(
 
         started = coordinator.recover(action_frontier)
         assert not started.is_complete
-        released = coordinator.recover(action_frontier)
-        assert not released.is_complete
         events = action_gate._action_store.inspect().events_for(
             reservation.intent.operation_id
         )
@@ -357,6 +360,56 @@ def test_native_offline_image_completes_the_eight_event_lifecycle(
             if event.event_kind is RunActionExecutionEventKind.SPAWN_COMMITTED
         )
         assert len(spawn) == 1
+        active_inventory = resource_manager.observe(events[1].preparation_allocation)
+        main_inspection = resource_manager.inspect_main(active_inventory)
+        bind_sources = tuple(
+            binding.rsplit(":", 2)[0]
+            for binding in main_inspection["HostConfig"]["Binds"] or ()
+        )
+        mount_sources = tuple(mount["Source"] for mount in main_inspection["Mounts"])
+        assert docker_settings.runtime_socket_path not in bind_sources + mount_sources
+        assert (
+            docker_settings.runtime_mutation_lock_path
+            not in bind_sources + mount_sources
+        )
+        if simulate_lost_installation:
+            main_stop = runtime.run_control(
+                ("container", "stop", spawn[0].spawn_commit.provider_execution_id)
+            )
+            assert main_stop.returncode == 0
+            keeper_stop = runtime.run_control(
+                (
+                    "container",
+                    "stop",
+                    events[2].prepared_execution.volume_keeper_evidence.container_id,
+                )
+            )
+            assert keeper_stop.returncode == 0
+
+            lost = coordinator.recover(action_frontier)
+
+            lost_events = action_gate._action_store.inspect().events_for(
+                reservation.intent.operation_id
+            )
+            assert lost.is_complete
+            assert tuple(event.event_kind for event in lost_events) == (
+                RunActionExecutionEventKind.INTENT_RESERVED,
+                RunActionExecutionEventKind.PREPARATION_ALLOCATED,
+                RunActionExecutionEventKind.EXECUTION_PREPARED,
+                RunActionExecutionEventKind.SPAWN_COMMITTED,
+                RunActionExecutionEventKind.ACTIVATION_COMMITTED,
+                RunActionExecutionEventKind.PROVIDER_TERMINATED,
+            )
+            assert (
+                lost_events[-1].provider_termination_receipt.reason
+                is RunActionProviderTerminationReason.RUNTIME_INSTALLATION_LOST
+            )
+            assert resource_manager.observe(
+                lost_events[1].preparation_allocation
+            ).is_absent
+            return
+        released = coordinator.recover(action_frontier)
+        assert not released.is_complete
         wait = runtime.run_control(
             ("container", "wait", spawn[0].spawn_commit.provider_execution_id)
         )

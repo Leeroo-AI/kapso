@@ -16,6 +16,7 @@ from kapso.cross_run.launch.run_action_credential_broker import (
 from kapso.cross_run.launch.run_action_credential_contracts import (
     RunActionCredentialRetirementIntent,
     RunActionPreReleaseCredentialObservation,
+    RunActionPreReleaseCredentialState,
 )
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RUN_ACTION_MAXIMUM_PHYSICAL_INTEGER,
@@ -29,6 +30,8 @@ from kapso.cross_run.launch.run_action_termination_contracts import (
     RunActionPreReleaseMainLossObservation,
     RunActionPreReleaseMainTerminalObservation,
     RunActionPreReleaseTerminalContainerObservation,
+    RunActionLostInstallationKeeperObservation,
+    RunActionLostInstallationObservation,
     RunActionProviderTerminationDisposition,
     RunActionProviderTerminationReason,
     RunActionProviderTerminationReceipt,
@@ -194,6 +197,52 @@ def _pre_release_terminal(
     )
 
 
+def _lost_installation(activation, activation_event_id, released_terminal):
+    prepared = activation.prepared_execution
+    allocation = RunActionPreparationAllocation.mint(
+        preparation_claim=prepared.preparation_claim,
+        runtime_volume_authority=prepared.runtime_volume_authority,
+    )
+    main = _pre_release_terminal(
+        activation,
+        activation_event_id,
+        released_terminal,
+    ).terminal_container_observation
+    keeper = RunActionLostInstallationKeeperObservation.mint(
+        container_id=prepared.volume_keeper_evidence.container_id,
+        observed_inspect_projection=(
+            prepared.volume_keeper_evidence.issued_create_projection
+        ),
+        complete_inspection_digest=tree_or_blob_digest(b"lost-installation keeper"),
+        container_status="exited",
+        process_id=0,
+        restart_count=0,
+        paused=False,
+        restarting=False,
+        dead=False,
+        started_at="2026-07-25T01:02:03.123456789Z",
+        finished_at="2026-07-25T01:02:04.123456789Z",
+        exit_code=143,
+        oom_killed=False,
+        state_error="",
+    )
+    return RunActionLostInstallationObservation.mint(
+        activation_event_id=activation_event_id,
+        preparation_allocation=allocation,
+        activation_revalidation_receipt=activation,
+        host_boot_id="123e4567-e89b-42d3-a456-426614174000",
+        complete_inventory_digest=tree_or_blob_digest(b"lost-installation inventory"),
+        docker_volume_occurrence_digest=(
+            prepared.runtime_volume_evidence.docker_volume_occurrence_digest
+        ),
+        keeper_observation=keeper,
+        main_observation=main,
+        observed_runtime_volume_names=(prepared.runtime_volume_authority.volume_name,),
+        observed_keeper_container_ids=(prepared.volume_keeper_evidence.container_id,),
+        observed_main_container_ids=(activation.spawn_commit.provider_execution_id,),
+    )
+
+
 def _termination_graph(reason):
     activation, adoption, successful_terminal, _nonempty_capture = _result_graph()
     timeout = None
@@ -262,7 +311,7 @@ def _termination_graph(reason):
             required_valid_until_realtime_nanoseconds=required_valid_until,
         )
         disposition = RunActionProviderTerminationDisposition.INTERRUPTED
-    else:
+    elif reason is RunActionProviderTerminationReason.PRE_RELEASE_MAIN_TERMINAL:
         adoption = None
         activation_event_id = content_id(
             "run-action-execution-event",
@@ -274,6 +323,18 @@ def _termination_graph(reason):
             successful_terminal,
         )
         disposition = RunActionProviderTerminationDisposition.FAILED
+    else:
+        adoption = None
+        activation_event_id = content_id(
+            "run-action-execution-event",
+            {"fixture": "lost-installation activation event"},
+        )
+        terminal = _lost_installation(
+            activation,
+            activation_event_id,
+            successful_terminal,
+        )
+        disposition = RunActionProviderTerminationDisposition.INTERRUPTED
     receipt = RunActionProviderTerminationReceipt.mint(
         disposition=disposition,
         reason=reason,
@@ -298,6 +359,49 @@ def test_each_termination_branch_round_trips_with_one_exact_evidence_graph(reaso
     assert (
         RunActionProviderTerminationReceipt.from_json_bytes(receipt.to_json_bytes())
         == receipt
+    )
+
+
+def test_credential_retirement_accepts_exact_lost_installation_evidence():
+    receipt = _termination_graph(RunActionProviderTerminationReason.CREDENTIAL_EXPIRED)
+    intent = receipt.credential_retirement_intent
+    credential_observation = RunActionPreReleaseCredentialObservation.mint(
+        state=RunActionPreReleaseCredentialState.EXPIRED,
+        activation_revalidation_receipt=receipt.activation_revalidation_receipt,
+        credential_lease_status=intent.credential_lease_status,
+        observed_before_realtime_nanoseconds=(
+            intent.observed_before_realtime_nanoseconds
+        ),
+        observed_after_realtime_nanoseconds=intent.observed_after_realtime_nanoseconds,
+        required_valid_until_realtime_nanoseconds=(
+            intent.required_valid_until_realtime_nanoseconds
+        ),
+    )
+    intent = _remint(
+        intent,
+        pre_release_credential_observation_id=(
+            credential_observation.pre_release_credential_observation_id
+        ),
+    )
+    _activation, _adoption, successful_terminal, _capture = _result_graph()
+    observation = _lost_installation(
+        receipt.activation_revalidation_receipt,
+        receipt.activation_event_id,
+        successful_terminal,
+    )
+
+    lost_receipt = _remint(
+        receipt,
+        terminal_observation=observation,
+        pre_release_main_loss_observation=None,
+        credential_retirement_intent=intent,
+    )
+
+    assert provider_termination_matches_durable_activation(
+        lost_receipt,
+        lost_receipt.activation_event_id,
+        observation.preparation_allocation,
+        observation.activation_revalidation_receipt,
     )
 
 

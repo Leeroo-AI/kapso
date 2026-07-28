@@ -130,6 +130,7 @@ from kapso.cross_run.launch.run_action_termination_contracts import (
     run_action_running_container_occurrence_matches,
     run_action_timeout_directive_evidence_matches,
     run_action_timeout_publication_evidence_matches,
+    RunActionLostInstallationObservation,
     RunActionPreReleaseMainTerminalObservation,
     RunActionProviderTerminationReason,
     RunActionProviderTerminationReceipt,
@@ -215,6 +216,7 @@ _EXECUTION_ADAPTER_METHOD_NAMES = (
     "stage_activation",
     "inspect_unactivated",
     "inspect_committed",
+    "inspect_lost_installation",
     "continue_committed_once",
 )
 _RESULT_INTERPRETER_METHOD_NAMES = ("interpret",)
@@ -797,6 +799,7 @@ class RunActionContinuationOutcome:
                         RunActionProviderTerminationReason.PRE_RELEASE_MAIN_LOSS,
                         RunActionProviderTerminationReason.PRE_RELEASE_MAIN_TERMINAL,
                         RunActionProviderTerminationReason.CREDENTIAL_EXPIRED,
+                        RunActionProviderTerminationReason.RUNTIME_INSTALLATION_LOST,
                     }
                 ),
             ),
@@ -4515,6 +4518,47 @@ class RunActionCommittedSpawnQuery:
         return self.preparation_allocation.preparation_claim.reservation
 
 
+@dataclass(frozen=True)
+class RunActionLostInstallationQuery:
+    """Durable activation identity inspected without volatile control bytes."""
+
+    preparation_allocation: RunActionPreparationAllocation
+    activation_event: RunActionExecutionEvent
+    credential_retirement_intent: RunActionCredentialRetirementIntent | None
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.preparation_allocation) is not RunActionPreparationAllocation
+            or type(self.activation_event) is not RunActionExecutionEvent
+            or self.activation_event.event_number != 5
+            or self.activation_event.event_kind
+            is not RunActionExecutionEventKind.ACTIVATION_COMMITTED
+            or type(self.activation_event.activation_revalidation_receipt)
+            is not RunActionActivationRevalidationReceipt
+            or (
+                self.credential_retirement_intent is not None
+                and not credential_retirement_intent_matches_activation(
+                    self.credential_retirement_intent,
+                    self.activation_event.event_id,
+                    self.activation_event.activation_revalidation_receipt,
+                )
+            )
+        ):
+            raise RunActionRecoveryError(
+                "lost-installation query lacks one durable activation"
+            )
+        activation = self.activation_event.activation_revalidation_receipt
+        if (
+            activation.prepared_execution.preparation_claim
+            != self.preparation_allocation.preparation_claim
+            or activation.prepared_execution.runtime_volume_authority
+            != self.preparation_allocation.runtime_volume_authority
+        ):
+            raise RunActionRecoveryError(
+                "lost-installation query splices allocation and activation"
+            )
+
+
 class RunActionExecutionAdapter(Protocol):
     """Provider execution lifecycle with no result-interpretation authority."""
 
@@ -4555,6 +4599,11 @@ class RunActionExecutionAdapter(Protocol):
         self,
         query: RunActionCommittedSpawnQuery,
     ) -> RunActionCommittedSpawnObservation: ...
+
+    def inspect_lost_installation(
+        self,
+        query: RunActionLostInstallationQuery,
+    ) -> RunActionContinuationOutcome | None: ...
 
     def continue_committed_once(
         self,
@@ -5423,6 +5472,43 @@ class RunActionRecoveryCoordinator:
                 "provider continuation requires the durable activation tail"
             )
         activation = activation_event.activation_revalidation_receipt
+        lost_query = RunActionLostInstallationQuery(
+            preparation_allocation=session.events[1].preparation_allocation,
+            activation_event=activation_event,
+            credential_retirement_intent=None,
+        )
+        adapter_lost_query = deepcopy(lost_query)
+        lost_outcome = execution_adapter.inspect_lost_installation(adapter_lost_query)
+        if adapter_lost_query != lost_query:
+            raise RunActionRecoveryError(
+                "execution adapter changed its lost-installation query"
+            )
+        if lost_outcome is not None:
+            if (
+                type(lost_outcome) is not RunActionContinuationOutcome
+                or lost_outcome.state
+                is not RunActionContinuationState.PROVIDER_TERMINATED
+                or type(lost_outcome.provider_termination_receipt)
+                is not RunActionProviderTerminationReceipt
+                or lost_outcome.provider_termination_receipt.reason
+                is not RunActionProviderTerminationReason.RUNTIME_INSTALLATION_LOST
+                or type(lost_outcome.provider_termination_publication_fence)
+                is not RunActionProviderTerminationPublicationFence
+            ):
+                raise RunActionRecoveryError(
+                    "execution adapter returned an invalid lost-installation transition"
+                )
+            publication_fence = lost_outcome.provider_termination_publication_fence
+            descriptors.callback(publication_fence.close)
+            publication_fence.require_current()
+            self._record_provider_termination(
+                session,
+                lost_outcome.provider_termination_receipt,
+                None,
+                publication_fence,
+                descriptors,
+            )
+            return None
         with open_run_action_timeout_inspection(
             activation_event=activation_event,
             launch_settings=self._publisher._settings,
@@ -5627,6 +5713,45 @@ class RunActionRecoveryCoordinator:
             raise RunActionRecoveryError(
                 "credential retirement recovery requires its durable intent tail"
             )
+        lost_query = RunActionLostInstallationQuery(
+            preparation_allocation=session.events[1].preparation_allocation,
+            activation_event=activation_event,
+            credential_retirement_intent=retirement_event.credential_retirement_intent,
+        )
+        adapter_lost_query = deepcopy(lost_query)
+        lost_outcome = execution_adapter.inspect_lost_installation(adapter_lost_query)
+        if adapter_lost_query != lost_query:
+            raise RunActionRecoveryError(
+                "execution adapter changed its lost-installation query"
+            )
+        if lost_outcome is not None:
+            if (
+                type(lost_outcome) is not RunActionContinuationOutcome
+                or lost_outcome.state
+                is not RunActionContinuationState.PROVIDER_TERMINATED
+                or type(lost_outcome.provider_termination_receipt)
+                is not RunActionProviderTerminationReceipt
+                or lost_outcome.provider_termination_receipt.reason
+                is not RunActionProviderTerminationReason.CREDENTIAL_EXPIRED
+                or lost_outcome.provider_termination_receipt.credential_retirement_intent
+                != retirement_event.credential_retirement_intent
+                or type(lost_outcome.provider_termination_publication_fence)
+                is not RunActionProviderTerminationPublicationFence
+            ):
+                raise RunActionRecoveryError(
+                    "execution adapter returned an invalid retired lost-installation transition"
+                )
+            publication_fence = lost_outcome.provider_termination_publication_fence
+            descriptors.callback(publication_fence.close)
+            publication_fence.require_current()
+            self._record_provider_termination(
+                session,
+                lost_outcome.provider_termination_receipt,
+                None,
+                publication_fence,
+                descriptors,
+            )
+            return
         with open_run_action_timeout_inspection(
             activation_event=activation_event,
             launch_settings=self._publisher._settings,
@@ -5781,6 +5906,7 @@ class RunActionRecoveryCoordinator:
             RunActionProviderTerminationReason.PRE_RELEASE_MAIN_LOSS,
             RunActionProviderTerminationReason.PRE_RELEASE_MAIN_TERMINAL,
             RunActionProviderTerminationReason.CREDENTIAL_EXPIRED,
+            RunActionProviderTerminationReason.RUNTIME_INSTALLATION_LOST,
         }
         if type(
             receipt
@@ -5798,6 +5924,20 @@ class RunActionRecoveryCoordinator:
             descriptors,
             "host workspace changed before provider termination event",
         )
+        if type(receipt.terminal_observation) is RunActionLostInstallationObservation:
+            if expected_release_adoption is not None or publication_fence is None:
+                raise RunActionRecoveryError(
+                    "lost-installation termination carries release authority"
+                )
+            publication_fence.require_current()
+            session.terminate_provider(receipt)
+            publication_fence.require_current()
+            self._require_unchanged_host_workspace(
+                session.reservation,
+                descriptors,
+                "host workspace changed across provider termination event",
+            )
+            return
         with open_run_action_timeout_inspection(
             activation_event=activation_event,
             launch_settings=self._publisher._settings,
@@ -6536,6 +6676,7 @@ __all__ = [
     "RunActionCommittedSpawnState",
     "RunActionContinuationOutcome",
     "RunActionContinuationState",
+    "RunActionLostInstallationQuery",
     "RunActionUnactivatedSpawnObservation",
     "RunActionUnactivatedSpawnQuery",
     "RunActionUnactivatedSpawnState",

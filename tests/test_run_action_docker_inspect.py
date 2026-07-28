@@ -20,6 +20,7 @@ from kapso.cross_run.launch.run_action_docker_inspect import (
     observe_allocation_keeper,
     observe_inert_keeper,
     observe_inert_main_container,
+    observe_lost_installation_keeper,
     observe_running_barrier_main_container,
     observe_running_keeper,
     observe_runtime_volume,
@@ -364,6 +365,39 @@ def _inert_keeper_raw(
     raw["NetworkSettings"] = _none_network(running=False)
     raw["ResolvConfPath"] = ""
     raw["State"] = _state(running=False)
+    return raw
+
+
+def _exited_keeper_raw(
+    claim,
+    authority,
+    volume,
+    command,
+    docker_settings,
+):
+    raw = _container_raw(
+        claim,
+        authority,
+        volume,
+        command,
+        docker_settings,
+        keeper=True,
+    )
+    raw["HostConfig"] = docker_inspect._expected_host_config(
+        claim,
+        mounts=docker_inspect._keeper_host_config_mounts(claim, authority),
+        lifecycle=docker_inspect._DockerContainerLifecycle.EXITED_KEEPER,
+    )
+    network = _none_network(running=False)
+    network["Networks"]["none"]["NetworkID"] = "1" * 64
+    raw["NetworkSettings"] = network
+    raw["State"] = {
+        **_state(running=False),
+        "ExitCode": 143,
+        "FinishedAt": "2026-07-25T00:00:02.123456789Z",
+        "StartedAt": "2026-07-25T00:00:01.123456789Z",
+        "Status": "exited",
+    }
     return raw
 
 
@@ -1078,6 +1112,46 @@ def test_inert_keeper_inspection_equals_issued_projection(docker_settings):
     assert observation.observed_inspect_projection == (
         observation.issued_create_projection
     )
+
+
+def test_lost_installation_keeper_requires_exact_exited_role(docker_settings):
+    claim, authority, _volume_raw, volume, command, helper, init = _context(
+        docker_settings
+    )
+    raw = _exited_keeper_raw(
+        claim,
+        authority,
+        volume,
+        command,
+        docker_settings,
+    )
+
+    observation = observe_lost_installation_keeper(
+        raw,
+        claim,
+        authority,
+        volume,
+        helper,
+        init,
+        docker_settings,
+    )
+
+    assert observation.container_id == _KEEPER_CONTAINER_ID
+    assert observation.container_status == "exited"
+    assert observation.process_id == 0
+    assert observation.exit_code == 143
+
+    raw["State"]["Status"] = "running"
+    with pytest.raises(DockerRunActionInspectionError, match="stable exited"):
+        observe_lost_installation_keeper(
+            raw,
+            claim,
+            authority,
+            volume,
+            helper,
+            init,
+            docker_settings,
+        )
 
 
 @pytest.mark.parametrize("lifecycle", ("created", "running"))

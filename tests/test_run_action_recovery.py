@@ -145,6 +145,7 @@ from test_run_action_supervisor_contracts import (
 )
 from test_run_action_docker_projection import _policy as _docker_projection_policy
 from test_run_action_termination_contracts import (
+    _lost_installation,
     _pre_release_loss,
     _termination_graph,
     _timeout_publication,
@@ -671,6 +672,9 @@ class _FakeExecutionAdapter:
         )
         return RunActionUnactivatedSpawnObservation(state=state)
 
+    def inspect_lost_installation(self, _query):
+        return None
+
     def inspect_committed(self, query):
         self.inspect_calls.append(query)
         token = (
@@ -1146,6 +1150,48 @@ class _TrustedPreReleaseTerminationAdapter(_FakeExecutionAdapter):
             publication_fence,
             _authority=(
                 run_action_recovery_module._RUN_ACTION_PROVIDER_TERMINATION_AUTHORITY
+            ),
+        )
+        return RunActionContinuationOutcome(
+            state=RunActionContinuationState.PROVIDER_TERMINATED,
+            result=None,
+            provider_termination_receipt=self.termination_receipt,
+            timeout_directive_publication=None,
+            provider_termination_publication_fence=publication_fence,
+        )
+
+
+class _TrustedLostInstallationAdapter(_FakeExecutionAdapter):
+    def __init__(self, boundary_identity) -> None:
+        super().__init__(boundary_identity)
+        self.termination_receipt = None
+        self.publication_fence_source = _PreReleasePublicationFenceSource()
+
+    def inspect_lost_installation(self, query):
+        activation = query.activation_event.activation_revalidation_receipt
+        source = _terminal_observation(
+            activation.prepared_execution,
+            activation.spawn_commit,
+        )
+        observation = _lost_installation(
+            query.activation_event.activation_revalidation_receipt,
+            query.activation_event.event_id,
+            source,
+        )
+        self.termination_receipt = RunActionProviderTerminationReceipt.mint(
+            disposition=RunActionProviderTerminationDisposition.INTERRUPTED,
+            reason=RunActionProviderTerminationReason.RUNTIME_INSTALLATION_LOST,
+            activation_event_id=query.activation_event.event_id,
+            workload_release_adoption=None,
+            terminal_observation=observation,
+            timeout_directive_publication=None,
+            pre_release_main_loss_observation=None,
+            credential_retirement_intent=None,
+        )
+        publication_fence = run_action_recovery_module.RunActionProviderTerminationPublicationFence(
+            source=self.publication_fence_source,
+            _authority=(
+                run_action_recovery_module._RUN_ACTION_PROVIDER_TERMINATION_PUBLICATION_FENCE_AUTHORITY
             ),
         )
         return RunActionContinuationOutcome(
@@ -4309,6 +4355,33 @@ def test_registered_pre_release_loss_persists_as_terminal_event(
     assert len(events) == 6
     assert events[-1].event_kind is RunActionExecutionEventKind.PROVIDER_TERMINATED
     assert events[-1].provider_termination_receipt == adapter.termination_receipt
+    assert adapter.publication_fence_source.closed
+
+
+def test_lost_installation_publishes_before_volatile_control_inspection(
+    publisher_case,
+    monkeypatch,
+) -> None:
+    frontier, gate, reservation, _payload = _reserved_case(publisher_case)
+    _append_activation_committed(gate, reservation)
+    adapter = _TrustedLostInstallationAdapter(reservation.intent.boundary_identity)
+
+    def reject_control_inspection(**_arguments):
+        raise AssertionError("lost installation consulted volatile control state")
+
+    monkeypatch.setattr(
+        run_action_recovery_module,
+        "open_run_action_timeout_inspection",
+        reject_control_inspection,
+    )
+
+    report = _recovery_coordinator(gate, adapter).recover(frontier)
+
+    events = gate._action_store.inspect().events_for(reservation.intent.operation_id)
+    assert report.is_complete
+    assert len(events) == 6
+    assert events[-1].provider_termination_receipt == adapter.termination_receipt
+    assert adapter.publication_fence_source.current_checks == 5
     assert adapter.publication_fence_source.closed
 
 
