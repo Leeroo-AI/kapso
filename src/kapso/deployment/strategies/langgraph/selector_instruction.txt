@@ -13,7 +13,7 @@ Deploy stateful AI agents to LangGraph Platform with memory and streaming.
 
 ## Not For
 - Simple ML inference (use modal or bentoml)
-- Non-agent code (use local or docker)
+- Non-agent code (use local or bentoml)
 - GPU-heavy workloads (use modal)
 - Batch processing (use bentoml)
 
@@ -25,4 +25,3 @@ langgraph (LangGraph SDK)
 
 ## Provider
 langsmith
-

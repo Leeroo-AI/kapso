@@ -153,7 +153,6 @@ class AdaptationValidator:
         # Strategy-specific required files
         required_files = {
             "local": ["main.py"],  # Or src/main.py
-            "docker": ["Dockerfile", "requirements.txt"],
             "modal": ["modal_app.py", "requirements.txt"],
             "bentoml": ["service.py", "bentofile.yaml"],
         }
@@ -237,4 +236,3 @@ class AdaptationValidator:
             result.checks_failed.append("execution:error")
             result.error = f"Execution error: {e}"
             return False
-

@@ -334,7 +334,7 @@ class StrategyRegistry:
         Get strategy config by name.
         
         Args:
-            name: Strategy name (e.g., "modal", "docker")
+            name: Strategy name (e.g., "modal", "bentoml")
             
         Returns:
             DeployStrategyConfig for the strategy

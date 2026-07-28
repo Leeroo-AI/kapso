@@ -11,8 +11,6 @@ strategies/
 │   ├── selector_instruction.md   # When to choose this strategy
 │   ├── adapter_instruction.md    # How to adapt code for deployment
 │   └── runner.py                 # Runtime execution class
-├── docker/
-│   └── ...
 ├── modal/
 │   └── ...
 ├── bentoml/
@@ -114,7 +112,7 @@ from kapso.deployment.strategies import StrategyRegistry
 registry = StrategyRegistry.get()
 
 # List available strategies
-strategies = registry.list_strategies()  # ['bentoml', 'docker', 'langgraph', 'local', 'modal']
+strategies = registry.list_strategies()  # ['bentoml', 'langgraph', 'local', 'modal']
 
 # Filter to specific strategies
 strategies = registry.list_strategies(allowed=['local', 'modal'])  # ['local', 'modal']
@@ -150,4 +148,3 @@ User Request
     ▼
 User Gets Result
 ```
-

@@ -50,7 +50,6 @@ src/deployment/
     ├── base.py              # Runner ABC, StrategyRegistry
     ├── README.md            # Strategy development guide
     ├── local/               # Local strategy plugin
-    ├── docker/              # Docker strategy plugin
     ├── modal/               # Modal strategy plugin
     ├── bentoml/             # BentoML strategy plugin
     └── langgraph/           # LangGraph strategy plugin
@@ -170,7 +169,6 @@ class Runner(ABC):
 | Runner | Strategy | Execution Method |
 |--------|----------|------------------|
 | `LocalRunner` | local | Python `importlib` + function call |
-| `DockerRunner` | docker | HTTP requests to container |
 | `ModalRunner` | modal | `modal.Function.remote()` |
 | `BentoMLRunner` | bentoml | HTTP to BentoCloud/local |
 | `LangGraphRunner` | langgraph | LangGraph Cloud API |
@@ -216,7 +214,7 @@ class DeployConfig:
 ```python
 @dataclass
 class DeploymentSetting:
-    strategy: str              # "local", "docker", "modal", etc.
+    strategy: str              # "local", "modal", "bentoml", etc.
     provider: Optional[str]    # Cloud provider name
     resources: Dict[str, Any]  # CPU, memory, GPU requirements
     interface: str             # "function", "http", etc.

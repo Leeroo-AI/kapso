@@ -574,10 +574,9 @@ class Kapso:
 
         Args:
             solution: The SolutionResult from evolve()
-            strategy: Where to deploy (AUTO, LOCAL, DOCKER, MODAL, BENTOML)
+            strategy: Where to deploy (AUTO, LOCAL, MODAL, BENTOML)
                 - AUTO: System analyzes code and chooses best strategy
                 - LOCAL: Run as local Python process (fastest)
-                - DOCKER: Run in Docker container (isolated)
                 - MODAL: Deploy to Modal.com (serverless, GPU)
                 - BENTOML: Deploy with BentoML (production ML)
             env_vars: Environment variables to pass to the software

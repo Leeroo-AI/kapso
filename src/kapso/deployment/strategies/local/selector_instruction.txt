@@ -13,7 +13,7 @@ Run directly as a Python process on the local machine.
 ## Not For
 - Production deployments
 - GPU workloads (use modal)
-- Scalable APIs (use docker or bentoml)
+- Scalable APIs (use bentoml)
 - Stateful agents (use langgraph)
 
 ## Resources
@@ -24,4 +24,3 @@ function (direct Python import)
 
 ## Provider
 None (local execution)
-

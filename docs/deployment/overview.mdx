@@ -49,7 +49,6 @@ deployed_program.stop()
 |----------|-------------|----------|
 | `AUTO` | System chooses best strategy | Default |
 | `LOCAL` | Run as local Python process | Development, testing |
-| `DOCKER` | Run in Docker container | Isolation, reproducibility |
 | `MODAL` | Deploy to Modal.com | Serverless, GPU |
 | `BENTOML` | Deploy with BentoML | Production ML |
 | `LANGGRAPH` | Deploy as LangGraph agent | Agent workflows |
@@ -61,7 +60,6 @@ from kapso.deployment import DeployStrategy
 
 DeployStrategy.AUTO      # System selects
 DeployStrategy.LOCAL     # Local process
-DeployStrategy.DOCKER    # Docker container
 DeployStrategy.MODAL     # Modal.com
 DeployStrategy.BENTOML   # BentoML
 DeployStrategy.LANGGRAPH # LangGraph

@@ -40,43 +40,6 @@ local:
   timeout: 300        # Execution timeout
 ```
 
-## DOCKER
-
-Run in an isolated Docker container.
-
-### Features
-- Environment isolation
-- Reproducible builds
-- Easy dependency management
-- Cross-platform compatibility
-
-### Prerequisites
-- Docker installed and running
-
-### Usage
-
-```python
-deployed_program = kapso.deploy(solution, strategy=DeployStrategy.DOCKER)
-result = deployed_program.run({"data_path": "/data/input.csv"})
-```
-
-### How It Works
-
-1. Adapter creates `Dockerfile` and `docker-compose.yml`
-2. Runner builds and starts container
-3. Inputs/outputs mapped via volumes
-
-### Dockerfile Template
-
-```dockerfile
-FROM python:3.12-slim
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install -r requirements.txt
-COPY . .
-CMD ["python", "run.py"]
-```
-
 ## MODAL
 
 Deploy to Modal.com for serverless GPU compute.
@@ -209,20 +172,19 @@ deployed_program = kapso.deploy(solution, strategy=DeployStrategy.AUTO)
 
 ### Selection Criteria
 
-| Factor | LOCAL | DOCKER | MODAL | BENTOML |
-|--------|-------|--------|-------|---------|
-| Simple script | ✅ | | | |
-| Complex deps | | ✅ | | |
-| GPU required | | | ✅ | |
-| Production ML | | | | ✅ |
-| Isolation needed | | ✅ | ✅ | ✅ |
+| Factor | LOCAL | MODAL | BENTOML |
+|--------|-------|-------|---------|
+| Simple script | ✅ | | |
+| Complex deps | | | ✅ |
+| GPU required | | ✅ | |
+| Production ML | | | ✅ |
+| Isolation needed | | ✅ | ✅ |
 
 ## Strategy Comparison
 
 | Strategy | Startup | Cost | Isolation | GPU | Production |
 |----------|---------|------|-----------|-----|------------|
 | LOCAL | Fast | Free | None | Local | No |
-| DOCKER | Medium | Free | Full | Via nvidia-docker | Yes |
 | MODAL | Medium | Pay-per-use | Full | Yes | Yes |
 | BENTOML | Medium | Self-hosted | Full | Yes | Yes |
 | LANGGRAPH | Fast | Depends | None | Via backend | Yes |
@@ -248,7 +210,7 @@ Pass environment variables to deployments:
 ```python
 deployed_program = kapso.deploy(
     solution,
-    strategy=DeployStrategy.DOCKER,
+    strategy=DeployStrategy.BENTOML,
     env_vars={
         "API_KEY": "...",
         "MODEL_PATH": "/models/v1",

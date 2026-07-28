@@ -26,7 +26,7 @@ class SelectorAgent:
     Coding agent for deployment strategy selection.
     
     Analyzes repositories and determines:
-    - Deployment strategy (local, docker, modal, bentoml, langgraph)
+    - Deployment strategy (local, modal, bentoml, langgraph)
     - Resource requirements (CPU, memory, GPU)
     
     Uses StrategyRegistry to discover available strategies and their

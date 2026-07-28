@@ -55,7 +55,7 @@ class DeploymentFactory:
         Create a deployed Software instance.
         
         Args:
-            strategy: Deployment strategy (AUTO, LOCAL, DOCKER, etc.)
+            strategy: Deployment strategy (AUTO, LOCAL, MODAL, etc.)
             config: Deployment configuration
             strategies: Optional list of allowed strategies (for AUTO selection)
             

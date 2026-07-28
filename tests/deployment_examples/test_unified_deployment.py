@@ -305,7 +305,7 @@ def main():
     parser = argparse.ArgumentParser(description="Unified Deployment Test")
     parser.add_argument("repos", nargs="*", help="Specific repos to test (default: all)")
     parser.add_argument("--strategy", "-s", default="local", 
-                        help="Deployment strategy (auto, local, docker, modal, bentoml, langgraph)")
+                        help="Deployment strategy (auto, local, modal, bentoml, langgraph)")
     args = parser.parse_args()
     
     header("UNIFIED DEPLOYMENT TEST")

@@ -219,7 +219,7 @@ registry = StrategyRegistry.get()
 
 # List all strategies
 strategies = registry.list_strategies()
-print(strategies)  # ["local", "docker", "modal", "bentoml", "my_strategy"]
+print(strategies)  # ["local", "modal", "bentoml", "my_strategy"]
 
 # Check if strategy exists
 exists = registry.strategy_exists("my_strategy")

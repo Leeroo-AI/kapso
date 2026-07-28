@@ -2,7 +2,7 @@
 #
 # Unified interface for deployed software.
 # Users interact with Software instances which provide the same interface
-# regardless of the underlying infrastructure (Local, Docker, Modal, etc.).
+# regardless of the underlying infrastructure (Local, Modal, etc.).
 #
 # The deployment flow:
 # 1. Kapso.deploy(solution) -> DeploymentFactory.create()
@@ -110,7 +110,7 @@ class DeploymentSetting:
     
     Produced by the Selector, consumed by the Adapter.
     """
-    strategy: str              # "local", "docker", "modal", etc.
+    strategy: str              # "local", "modal", "bentoml", etc.
     provider: Optional[str]    # For cloud: "modal", "bentoml", etc.
     resources: Dict[str, Any]  # CPU, memory, GPU requirements
     interface: str             # "function", "http", "cli"
@@ -142,7 +142,7 @@ class DeploymentInfo:
     
     Hidden from users but available for debugging.
     """
-    strategy: str                    # "local", "docker", "modal", etc.
+    strategy: str                    # "local", "modal", "bentoml", etc.
     provider: Optional[str] = None   # "modal", "bentoml", etc.
     endpoint: Optional[str] = None   # HTTP endpoint if applicable
     adapted_path: str = ""           # Path to adapted code
@@ -210,7 +210,6 @@ class Software(ABC):
         This method re-initializes the deployment after stop() was called.
         Behavior varies by strategy:
         - LOCAL: Reloads the Python module
-        - DOCKER: Creates and starts a new container
         - MODAL: Re-lookups the Modal function
         - BENTOML: Re-deploys using deploy.py
         - LANGGRAPH: Reconnects to the platform

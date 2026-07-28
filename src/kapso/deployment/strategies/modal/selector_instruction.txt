@@ -12,9 +12,9 @@ Serverless GPU deployment on Modal.com with auto-scaling.
 
 ## Not For
 - Simple local scripts (use local)
-- Persistent HTTP servers (use docker)
+- Persistent HTTP servers (use bentoml)
 - LangGraph/LangChain agents (use langgraph)
-- Need on-premise deployment (use docker)
+- Need on-premise deployment (use bentoml)
 
 ## Resources
 Requires resource specification:
@@ -28,4 +28,3 @@ function (Modal SDK remote call)
 
 ## Provider
 modal
-

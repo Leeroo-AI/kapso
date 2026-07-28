@@ -50,7 +50,7 @@ def create(
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `strategy` | `DeployStrategy` | Deployment target (AUTO, LOCAL, DOCKER, etc.) |
+| `strategy` | `DeployStrategy` | Deployment target (AUTO, LOCAL, MODAL, etc.) |
 | `config` | `DeployConfig` | Deployment configuration |
 | `strategies` | `List[str]` | Optional list of allowed strategies (for AUTO) |
 
@@ -81,7 +81,7 @@ deployed_program = DeploymentFactory.create(DeployStrategy.MODAL, config)
 deployed_program = DeploymentFactory.create(
     DeployStrategy.AUTO, 
     config,
-    strategies=["local", "docker"]
+    strategies=["local", "modal"]
 )
 ```
 
@@ -103,7 +103,7 @@ def list_strategies(cls) -> List[str]
 ```python
 strategies = DeploymentFactory.list_strategies()
 print(strategies)
-# ['bentoml', 'docker', 'langgraph', 'local', 'modal']
+# ['bentoml', 'langgraph', 'local', 'modal']
 ```
 
 ---
@@ -151,7 +151,6 @@ DeploymentFactory.print_strategies_info()
 # Available Deployment Strategies:
 # ==================================================
 #   bentoml: Production ML service deployment...
-#   docker: Run in an isolated Docker container...
 #   ...
 ```
 
@@ -169,7 +168,6 @@ DeployStrategy.AUTO      # Let system choose
 
 # Discovered from strategies/
 DeployStrategy.LOCAL     # Local Python process
-DeployStrategy.DOCKER    # Docker container
 DeployStrategy.MODAL     # Modal.com serverless
 DeployStrategy.BENTOML   # BentoML/BentoCloud
 DeployStrategy.LANGGRAPH # LangGraph Platform
@@ -307,7 +305,6 @@ def stop(self) -> None
 | Strategy | What `stop()` Does |
 |----------|-------------------|
 | **LOCAL** | Unloads Python module from `sys.modules` |
-| **DOCKER** | Stops and removes the Docker container |
 | **MODAL** | Runs `modal app stop` to terminate the deployment |
 | **BENTOML** | Runs `bentoml deployment terminate` to stop the service |
 | **LANGGRAPH** | Deletes the conversation thread and disconnects |
@@ -335,7 +332,6 @@ def start(self) -> None
 | Strategy | What `start()` Does |
 |----------|---------------------|
 | **LOCAL** | Reloads the Python module |
-| **DOCKER** | Creates and starts a new container |
 | **MODAL** | Re-lookups the Modal function |
 | **BENTOML** | Re-deploys by running `deploy.py` from code_path |
 | **LANGGRAPH** | Reconnects to LangGraph Platform |
@@ -561,7 +557,7 @@ Result of strategy selection.
 ```python
 @dataclass
 class DeploymentSetting:
-    strategy: str              # "local", "docker", "modal", etc.
+    strategy: str              # "local", "modal", "bentoml", etc.
     provider: Optional[str]    # Cloud provider name
     resources: Dict[str, Any]  # Resource requirements
     interface: str             # "function", "http", etc.
@@ -902,4 +898,3 @@ finally:
 | `MODAL_TOKEN_SECRET` | Modal | Modal authentication |
 | `LANGSMITH_API_KEY` | LangGraph | LangSmith API key |
 | `BENTOML_API_TOKEN` | BentoML | BentoCloud authentication |
-

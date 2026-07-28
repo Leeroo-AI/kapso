@@ -22,7 +22,7 @@
 #     config = DeployConfig(code_path="./solution", goal="My Goal")
 #     software = DeploymentFactory.create(DeployStrategy.AUTO, config)
 #     
-#     # Unified interface - works the same for LOCAL, DOCKER, MODAL, etc.
+#     # Unified interface - works the same for LOCAL, MODAL, etc.
 #     result = software.run({"input": "data"})
 #     software.stop()
 
@@ -51,15 +51,9 @@ from kapso.deployment.adapter import AdapterAgent, AdaptationValidator
 
 # Strategy runners (for direct access)
 from kapso.deployment.strategies.local.runner import LocalRunner
-from kapso.deployment.strategies.docker.runner import DockerRunner
 from kapso.deployment.strategies.modal.runner import ModalRunner
 from kapso.deployment.strategies.bentoml.runner import BentoMLRunner
 from kapso.deployment.strategies.langgraph.runner import LangGraphRunner
-
-# Backwards compatibility aliases
-FunctionRunner = LocalRunner
-HTTPRunner = DockerRunner
-BentoCloudRunner = BentoMLRunner
 
 __all__ = [
     # Main entry points
@@ -88,13 +82,7 @@ __all__ = [
     
     # Strategy runners
     "LocalRunner",
-    "DockerRunner",
     "ModalRunner",
     "BentoMLRunner",
     "LangGraphRunner",
-    
-    # Backwards compatibility
-    "FunctionRunner",
-    "HTTPRunner",
-    "BentoCloudRunner",
 ]
