@@ -47,7 +47,7 @@ class ProductionTaskAdapterError(ValueError):
 _EVALUATOR_PATH = "evaluate.py"
 _LOCK_PATH = "requirements.lock"
 _SOURCE_ARCHIVE_REF = "task-adapter.tar"
-_EVALUATOR_SOURCE = b"""#!/usr/bin/env python3
+_EVALUATOR_SOURCE = b"""#!/usr/local/bin/kapso-provider-python
 import json
 from pathlib import Path
 

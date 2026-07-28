@@ -105,6 +105,9 @@ def test_bootstrap_publishes_every_scope_binding_and_replays(tmp_path):
         assert active.verified_adapter.manifest.runtime.image_manifest_digest == (
             _MANIFEST_DIGEST
         )
+        assert active.verified_adapter.source_contents["evaluate.py"].startswith(
+            b"#!/usr/local/bin/kapso-provider-python\n"
+        )
         promotion_dimensions = {
             dimension.dimension_id: dimension.direction
             for dimension in settings.expert.validation.policy.promotion.pareto_dimensions
