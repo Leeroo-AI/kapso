@@ -1651,6 +1651,9 @@ class LaunchSettings(StrictContract):
     coding_agent_action_execution_timeout_seconds: int
     coding_agent_action_termination_grace_seconds: int
     coding_agent_action_credential_lease_seconds: int
+    coding_agent_credential_lease_state_path: str
+    coding_agent_credential_lease_state_size_bytes: int
+    coding_agent_credential_lease_state_entry_limit: int
     run_action_store_size_bytes: int
     run_action_staging_entry_limit: int
     run_action_projection_size_bytes: int
@@ -2049,8 +2052,20 @@ class LaunchSettings(StrictContract):
                 self.coding_agent_action_credential_lease_seconds,
                 "coding_agent_action_credential_lease_seconds",
             ),
+            (
+                self.coding_agent_credential_lease_state_size_bytes,
+                "coding_agent_credential_lease_state_size_bytes",
+            ),
+            (
+                self.coding_agent_credential_lease_state_entry_limit,
+                "coding_agent_credential_lease_state_entry_limit",
+            ),
         ):
             _require_positive(value, f"launch.{name}")
+        _require_relative_path(
+            self.coding_agent_credential_lease_state_path,
+            "launch.coding_agent_credential_lease_state_path",
+        )
         if (
             self.coding_agent_action_termination_grace_seconds
             >= self.coding_agent_action_execution_timeout_seconds

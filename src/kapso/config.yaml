@@ -459,6 +459,9 @@ cross_run:
     coding_agent_action_execution_timeout_seconds: 900
     coding_agent_action_termination_grace_seconds: 30
     coding_agent_action_credential_lease_seconds: 1200
+    coding_agent_credential_lease_state_path: ".kapso/cross_run/native_codex_credential_leases.json"
+    coding_agent_credential_lease_state_size_bytes: 16777216
+    coding_agent_credential_lease_state_entry_limit: 10000
     run_action_store_size_bytes: 107374182400
     run_action_staging_entry_limit: 64
     run_action_projection_size_bytes: 1073741824
