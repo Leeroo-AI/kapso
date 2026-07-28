@@ -200,6 +200,26 @@ def test_synthetic_projection_is_one_admitted_domain_neutral_bundle():
     assert projection.catalog_facts[-1] == projection.projection_manifest
 
 
+@pytest.mark.parametrize("container_type", (list, tuple))
+def test_synthetic_projection_accepts_live_and_reloaded_adapter_evidence(
+    container_type,
+):
+    adapter = {
+        "task_adapter_id": "posttrain",
+        "task_adapter_manifest_id": _TASK_ADAPTER_MANIFEST_ID,
+        "verification_receipt_id": _TASK_ADAPTER_VERIFICATION_RECEIPT_ID,
+    }
+
+    assert smoke_module._production_task_adapter_pin(
+        {
+            "task-adapter-bootstrap": {
+                "adapters": container_type((adapter,)),
+            }
+        },
+        task_adapter_id="posttrain",
+    ) == (_TASK_ADAPTER_MANIFEST_ID, _TASK_ADAPTER_VERIFICATION_RECEIPT_ID)
+
+
 def test_production_ideation_output_must_cite_the_retrieved_record():
     expected = "transfer-episode:sha256:" + "1" * 64
     output = (

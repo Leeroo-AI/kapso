@@ -2536,15 +2536,18 @@ def _production_task_adapter_pin(
     task_adapter_id: str,
 ) -> tuple[str, str]:
     bootstrap = prior_evidence.get("task-adapter-bootstrap")
-    if not isinstance(bootstrap, Mapping) or not isinstance(
-        bootstrap.get("adapters"), list
-    ):
+    if not isinstance(bootstrap, Mapping):
+        raise ProductionSmokeError(
+            "synthetic projection requires verified task-adapter bootstrap evidence"
+        )
+    adapters = bootstrap.get("adapters")
+    if not isinstance(adapters, (list, tuple)):
         raise ProductionSmokeError(
             "synthetic projection requires verified task-adapter bootstrap evidence"
         )
     matches = tuple(
         adapter
-        for adapter in bootstrap["adapters"]
+        for adapter in adapters
         if isinstance(adapter, Mapping)
         and adapter.get("task_adapter_id") == task_adapter_id
     )
