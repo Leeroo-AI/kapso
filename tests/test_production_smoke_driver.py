@@ -29,9 +29,11 @@ def test_selected_stages_append_one_canonical_replayable_receipt(
     monkeypatch,
 ):
     calls = []
+    observed_prior_evidence = []
 
     def stage(**arguments):
         calls.append(arguments["stage"])
+        observed_prior_evidence.append(dict(arguments["prior_evidence"]))
         return {
             "stage_evidence_id": f"evidence-for-{arguments['stage']}",
         }
@@ -53,6 +55,16 @@ def test_selected_stages_append_one_canonical_replayable_receipt(
     )
 
     assert calls == list(selected)
+    assert observed_prior_evidence == [
+        {},
+        {"preflight": {"stage_evidence_id": "evidence-for-preflight"}},
+        {
+            "preflight": {"stage_evidence_id": "evidence-for-preflight"},
+            "bootstrap-authorities": {
+                "stage_evidence_id": "evidence-for-bootstrap-authorities"
+            },
+        },
+    ]
     assert replayed == first
     assert tuple(item["stage"] for item in first["stage_receipts"]) == selected
     receipt_path = (
@@ -160,6 +172,90 @@ def test_task_adapter_bootstrap_precedes_expert_proposal():
     stages = smoke_module.production_smoke_stage_names()
 
     assert stages.index("task-adapter-bootstrap") < stages.index("expert-proposal")
+    assert stages.index("expert-proposal") < stages.index(
+        "expert-validation-enrollment"
+    )
+
+
+def test_expert_validation_enrollment_uses_exact_proposal_candidate(
+    tmp_path,
+    monkeypatch,
+):
+    smoke_root = tmp_path / "smoke"
+    smoke_root.mkdir()
+    candidate_id = content_id("expert-candidate", {"candidate": "production"})
+    observed = {}
+
+    def validate(**arguments):
+        observed.update(arguments)
+        request = parse_json_bytes(arguments["request_path"].read_bytes())
+        assert request == {
+            "candidate_id": candidate_id,
+            "evaluator_result": None,
+            "expected_transition_id": None,
+        }
+        return {
+            "operation": "validate-expert",
+            "candidate_id": candidate_id,
+            "validation_attempt_id": "attempt-id",
+            "transition_id": "transition-id",
+            "validation_state_id": "state-id",
+            "next_stage": "contract_schema",
+        }
+
+    monkeypatch.setattr(smoke_module, "validate_expert_cross_run", validate)
+    result = smoke_module._expert_validation_enrollment_smoke(
+        _CONFIG_PATH,
+        "GENERIC",
+        smoke_root,
+        {
+            "expert-proposal": {
+                "candidate_id": candidate_id,
+                "proposal_skipped": False,
+            }
+        },
+    )
+
+    assert observed["config_path"] == _CONFIG_PATH
+    assert observed["mode"] == "GENERIC"
+    assert observed["state_root"] == smoke_root
+    assert result == {
+        "candidate_id": candidate_id,
+        "validation_attempt_id": "attempt-id",
+        "transition_id": "transition-id",
+        "validation_state_id": "state-id",
+        "next_stage": "contract_schema",
+        "validation_skipped": False,
+    }
+
+
+def test_expert_validation_enrollment_skips_authenticated_current_release(tmp_path):
+    release_id = content_id("expert-base-release", {"release": "current"})
+
+    assert smoke_module._expert_validation_enrollment_smoke(
+        _CONFIG_PATH,
+        "GENERIC",
+        tmp_path,
+        {
+            "expert-proposal": {
+                "existing_release_id": release_id,
+                "proposal_skipped": True,
+            }
+        },
+    ) == {
+        "existing_release_id": release_id,
+        "validation_skipped": True,
+    }
+
+
+def test_expert_validation_enrollment_requires_proposal_evidence(tmp_path):
+    with pytest.raises(ProductionSmokeError, match="proposal evidence"):
+        smoke_module._expert_validation_enrollment_smoke(
+            _CONFIG_PATH,
+            "GENERIC",
+            tmp_path,
+            {},
+        )
 
 
 def test_preflight_evaluator_summary_exposes_missing_roots_without_keys():

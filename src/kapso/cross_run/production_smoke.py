@@ -60,6 +60,7 @@ from kapso.cross_run.operations import (
     _github_services,
     _private_state_root,
     propose_expert_cross_run,
+    validate_expert_cross_run,
 )
 from kapso.cross_run.record_contracts import (
     BundleProjectionManifest,
@@ -104,6 +105,7 @@ _STAGE_ORDER = (
     "coding-agent-ideation",
     "task-adapter-bootstrap",
     "expert-proposal",
+    "expert-validation-enrollment",
 )
 _FIXTURE_FILENAME = "transport-smoke.json"
 _RECEIPT_FILENAME = "production-smoke-receipt.json"
@@ -159,6 +161,10 @@ def run_production_smoke(
             smoke_root=smoke_root,
             fixture=fixture,
             scope_contract=scope_contract,
+            prior_evidence={
+                item["stage"]: item["evidence"]
+                for item in receipt["stage_receipts"]
+            },
         )
         completed_at = _timestamp()
         stage_content = {
@@ -193,6 +199,7 @@ def _run_stage(
     smoke_root: Path,
     fixture: Mapping[str, Any],
     scope_contract: ExpertScopeContract,
+    prior_evidence: Mapping[str, Mapping[str, Any]],
 ) -> Mapping[str, Any]:
     if stage == "preflight":
         return _preflight(settings, smoke_root, scope_contract.scope_id)
@@ -236,6 +243,13 @@ def _run_stage(
             settings,
             smoke_root,
             scope_contract,
+        )
+    if stage == "expert-validation-enrollment":
+        return _expert_validation_enrollment_smoke(
+            config_path,
+            mode,
+            smoke_root,
+            prior_evidence,
         )
     raise ProductionSmokeError("unknown production smoke stage")
 
@@ -1132,6 +1146,73 @@ def _scope_task_bindings(
         for binding in scope_contract.task_adapter_contract
         for task_adapter_id in binding.task_adapter_ids
     )
+
+
+def _expert_validation_enrollment_smoke(
+    config_path: str,
+    mode: str,
+    smoke_root: Path,
+    prior_evidence: Mapping[str, Mapping[str, Any]],
+) -> Mapping[str, Any]:
+    """Enroll the proposed candidate and stop at the external evaluator boundary."""
+
+    proposal = prior_evidence.get("expert-proposal")
+    if not isinstance(proposal, Mapping) or not isinstance(
+        proposal.get("proposal_skipped"), bool
+    ):
+        raise ProductionSmokeError(
+            "expert validation enrollment requires expert proposal evidence"
+        )
+    if proposal["proposal_skipped"]:
+        existing_release_id = proposal.get("existing_release_id")
+        if not isinstance(existing_release_id, str) or not existing_release_id:
+            raise ProductionSmokeError(
+                "skipped expert proposal lacks its authenticated current release"
+            )
+        return {
+            "existing_release_id": existing_release_id,
+            "validation_skipped": True,
+        }
+
+    candidate_id = proposal.get("candidate_id")
+    if not isinstance(candidate_id, str) or not candidate_id:
+        raise ProductionSmokeError("expert proposal evidence lacks its candidate")
+    with tempfile.TemporaryDirectory(
+        prefix="expert-validation-enrollment-request-",
+        dir=smoke_root,
+    ) as temporary:
+        request_path = Path(temporary) / "request.json"
+        request_path.write_bytes(
+            canonical_json_bytes(
+                {
+                    "candidate_id": candidate_id,
+                    "expected_transition_id": None,
+                    "evaluator_result": None,
+                }
+            )
+        )
+        result = validate_expert_cross_run(
+            config_path=config_path,
+            mode=mode,
+            request_path=request_path,
+            state_root=smoke_root,
+        )
+    if (
+        result.get("operation") != "validate-expert"
+        or result.get("candidate_id") != candidate_id
+        or result.get("next_stage") != ExpertValidationStage.CONTRACT_SCHEMA.value
+    ):
+        raise ProductionSmokeError(
+            "expert validation enrollment did not reach the evaluator boundary"
+        )
+    return {
+        "candidate_id": candidate_id,
+        "validation_attempt_id": result["validation_attempt_id"],
+        "transition_id": result["transition_id"],
+        "validation_state_id": result["validation_state_id"],
+        "next_stage": result["next_stage"],
+        "validation_skipped": False,
+    }
 
 
 def _synthetic_projection(
