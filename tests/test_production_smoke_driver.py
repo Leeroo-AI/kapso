@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -175,6 +176,186 @@ def test_task_adapter_bootstrap_precedes_expert_proposal():
     assert stages.index("expert-proposal") < stages.index(
         "expert-validation-enrollment"
     )
+
+
+def test_production_stage_tail_covers_the_complete_release_lifecycle():
+    assert smoke_module.production_smoke_stage_names()[-10:] == (
+        "expert-bootstrap-validation",
+        "expert-bootstrap-publication",
+        "expert-successor-proposal",
+        "expert-successor-validation",
+        "expert-successor-publication",
+        "successor-launch",
+        "concurrent-publication",
+        "clean-machine-launch",
+        "live-restart",
+        "revocation",
+    )
+
+
+def test_expert_validation_stage_fails_before_unsigned_evaluator_work(
+    tmp_path,
+    monkeypatch,
+):
+    settings = load_effective_config(_CONFIG_PATH, "GENERIC").cross_run
+    candidate_id = content_id("expert-candidate", {"candidate": "unsigned"})
+    snapshot = SimpleNamespace(
+        state=SimpleNamespace(
+            promotion_state=SimpleNamespace(value="validating"),
+            next_stage=smoke_module.ExpertValidationStage.CONTRACT_SCHEMA,
+        ),
+        transition=SimpleNamespace(transition_id="transition-id"),
+    )
+    store = SimpleNamespace(snapshot=lambda observed: snapshot)
+    monkeypatch.setattr(smoke_module, "_github_services", lambda *_arguments: object())
+    monkeypatch.setattr(
+        smoke_module,
+        "_expert_validation_services",
+        lambda *_arguments: SimpleNamespace(validation_store=store),
+    )
+
+    def reject_unsigned_result(**_arguments):
+        raise AssertionError("unsigned evaluator result reached validation")
+
+    monkeypatch.setattr(
+        smoke_module,
+        "validate_expert_cross_run",
+        reject_unsigned_result,
+    )
+
+    with pytest.raises(
+        ProductionSmokeError,
+        match="externally signed evaluator result.*missing_trust_roots",
+    ):
+        smoke_module._expert_validation_smoke(
+            _CONFIG_PATH,
+            "GENERIC",
+            settings,
+            tmp_path,
+            {"expert-validation-enrollment": {"candidate_id": candidate_id}},
+            evidence_stage="expert-validation-enrollment",
+        )
+
+
+def test_expert_publication_stage_threads_the_approved_candidate(
+    tmp_path,
+    monkeypatch,
+):
+    candidate_id = content_id("expert-candidate", {"candidate": "approved"})
+    observed = {}
+
+    def publish(**arguments):
+        observed.update(arguments)
+        request = parse_json_bytes(arguments["request_path"].read_bytes())
+        assert request == {
+            "candidate_id": candidate_id,
+            "committed_at": "2026-07-20T00:00:00Z",
+        }
+        return {
+            "candidate_id": candidate_id,
+            "release_id": "expert-base-release:sha256:" + "1" * 64,
+            "activation_receipt_id": "activation-id",
+            "publication_id": "publication-id",
+            "commit_sha": "1" * 40,
+            "release_tag": "expert/E000001",
+            "asset_digests": {"expert.tar": "sha256:" + "2" * 64},
+            "replayed": False,
+        }
+
+    monkeypatch.setattr(smoke_module, "publish_expert_cross_run", publish)
+    result = smoke_module._expert_publication_smoke(
+        _CONFIG_PATH,
+        "GENERIC",
+        tmp_path,
+        {"committed_at": "2026-07-20T00:00:00Z"},
+        {"expert-bootstrap-validation": {"candidate_id": candidate_id}},
+        validation_stage="expert-bootstrap-validation",
+        proposal_stage="expert-proposal",
+    )
+
+    assert observed["state_root"] == tmp_path
+    assert result["candidate_id"] == candidate_id
+    assert result["publication_skipped"] is False
+
+
+def test_live_restart_stage_names_the_external_restart_boundary():
+    with pytest.raises(ProductionSmokeError, match="external daemon and host"):
+        smoke_module._live_restart_smoke(
+            {"clean-machine-launch": {"run_id": "production-run"}}
+        )
+
+
+def test_successor_launch_threads_exact_release_snapshot_and_typed_context(
+    tmp_path,
+    monkeypatch,
+):
+    settings = load_effective_config(_CONFIG_PATH, "GENERIC").cross_run
+    fixture, _fixture_digest = smoke_module._load_fixture(settings)
+    scope_contract = smoke_module.ExpertScopeContract.from_dict(
+        fixture["scope_contract"]
+    )
+    context = smoke_module._synthetic_projection(
+        settings,
+        fixture,
+        scope_contract,
+    ).source_bundle.task_context_binding
+    adapter = SimpleNamespace(
+        manifest=SimpleNamespace(
+            release_matrix_cases=(SimpleNamespace(task_context_binding=context),),
+            runtime=SimpleNamespace(to_dict=lambda: {"runtime": "exact"}),
+        )
+    )
+    store = SimpleNamespace(resolve_active=lambda **_arguments: adapter)
+    monkeypatch.setattr(smoke_module, "_github_services", lambda *_arguments: object())
+    monkeypatch.setattr(
+        smoke_module,
+        "_expert_validation_services",
+        lambda *_arguments: SimpleNamespace(task_adapter_store=store),
+    )
+    release_id = "expert-base-release:sha256:" + "1" * 64
+    snapshot_id = "knowledge-snapshot:sha256:" + "2" * 64
+
+    def resolve(**arguments):
+        request = parse_json_bytes(arguments["request_path"].read_bytes())
+        parsed_context = smoke_module.LaunchTaskContextRequest.from_dict(
+            request["task_context_request"]
+        )
+        assert (
+            parsed_context.bind(
+                binding=smoke_module._scope_task_bindings(scope_contract)[0],
+                scope_contract=scope_contract,
+            )
+            == context
+        )
+        assert request["dependency_runtime_contract"] == {"runtime": "exact"}
+        return {
+            "run_id": "run-id",
+            "campaign_id": "campaign-id",
+            "launch_manifest_id": "launch-id",
+            "bootstrap_pin_id": "pin-id",
+            "expert_release_id": release_id,
+            "knowledge_snapshot_id": snapshot_id,
+            "task_adapter_manifest_id": "adapter-id",
+            "workspace_baseline_commit_sha": "3" * 40,
+        }
+
+    monkeypatch.setattr(smoke_module, "resolve_launch_cross_run", resolve)
+    result = smoke_module._successor_launch_smoke(
+        _CONFIG_PATH,
+        "GENERIC",
+        settings,
+        tmp_path,
+        scope_contract,
+        {
+            "expert-successor-publication": {"release_id": release_id},
+            "knowledge-publication": {"snapshot_id": snapshot_id},
+        },
+        clean_machine=False,
+    )
+
+    assert result["expert_release_id"] == release_id
+    assert result["knowledge_snapshot_id"] == snapshot_id
+    assert result["clean_machine"] is False
 
 
 def test_expert_validation_enrollment_uses_exact_proposal_candidate(

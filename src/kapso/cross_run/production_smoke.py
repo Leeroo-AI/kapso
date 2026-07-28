@@ -45,6 +45,9 @@ from kapso.cross_run.contracts import (
     TaskContextBinding,
 )
 from kapso.cross_run.docker.runtime import DockerImageAuthority, PinnedDockerRuntime
+from kapso.cross_run.expert.composition_base_provider import (
+    GitHubExpertCompositionBaseProvider,
+)
 from kapso.cross_run.expert.triggers import ExpertTriggerEvidencePacketBuilder
 from kapso.cross_run.github.publisher import PublicationEnvelope, ReleaseAssetInput
 from kapso.cross_run.github.resolver import security_denylist_tag
@@ -55,11 +58,16 @@ from kapso.cross_run.knowledge.retrieval import (
     CrossRunRetriever,
     PriorKnowledgeQuery,
 )
+from kapso.cross_run.launch.contracts import LaunchTaskContextRequest
 from kapso.cross_run.operations import (
     GitHubOperationServices,
+    _expert_validation_services,
     _github_services,
     _private_state_root,
+    publish_expert_cross_run,
     propose_expert_cross_run,
+    resolve_launch_cross_run,
+    revoke_expert_cross_run,
     validate_expert_cross_run,
 )
 from kapso.cross_run.record_contracts import (
@@ -106,6 +114,16 @@ _STAGE_ORDER = (
     "task-adapter-bootstrap",
     "expert-proposal",
     "expert-validation-enrollment",
+    "expert-bootstrap-validation",
+    "expert-bootstrap-publication",
+    "expert-successor-proposal",
+    "expert-successor-validation",
+    "expert-successor-publication",
+    "successor-launch",
+    "concurrent-publication",
+    "clean-machine-launch",
+    "live-restart",
+    "revocation",
 )
 _FIXTURE_FILENAME = "transport-smoke.json"
 _RECEIPT_FILENAME = "production-smoke-receipt.json"
@@ -248,6 +266,85 @@ def _run_stage(
             config_path,
             mode,
             smoke_root,
+            prior_evidence,
+        )
+    if stage == "expert-bootstrap-validation":
+        return _expert_validation_smoke(
+            config_path,
+            mode,
+            settings,
+            smoke_root,
+            prior_evidence,
+            evidence_stage="expert-validation-enrollment",
+        )
+    if stage == "expert-bootstrap-publication":
+        return _expert_publication_smoke(
+            config_path,
+            mode,
+            smoke_root,
+            fixture,
+            prior_evidence,
+            validation_stage="expert-bootstrap-validation",
+            proposal_stage="expert-proposal",
+        )
+    if stage == "expert-successor-proposal":
+        return _expert_successor_proposal_smoke(
+            config_path,
+            mode,
+            settings,
+            smoke_root,
+            scope_contract,
+            prior_evidence,
+        )
+    if stage == "expert-successor-validation":
+        return _expert_validation_smoke(
+            config_path,
+            mode,
+            settings,
+            smoke_root,
+            prior_evidence,
+            evidence_stage="expert-successor-proposal",
+        )
+    if stage == "expert-successor-publication":
+        return _expert_publication_smoke(
+            config_path,
+            mode,
+            smoke_root,
+            fixture,
+            prior_evidence,
+            validation_stage="expert-successor-validation",
+            proposal_stage="expert-successor-proposal",
+        )
+    if stage == "successor-launch":
+        return _successor_launch_smoke(
+            config_path,
+            mode,
+            settings,
+            smoke_root,
+            scope_contract,
+            prior_evidence,
+            clean_machine=False,
+        )
+    if stage == "concurrent-publication":
+        return _concurrent_publication_smoke(prior_evidence)
+    if stage == "clean-machine-launch":
+        return _successor_launch_smoke(
+            config_path,
+            mode,
+            settings,
+            smoke_root,
+            scope_contract,
+            prior_evidence,
+            clean_machine=True,
+        )
+    if stage == "live-restart":
+        return _live_restart_smoke(prior_evidence)
+    if stage == "revocation":
+        return _revocation_smoke(
+            config_path,
+            mode,
+            smoke_root,
+            fixture,
             prior_evidence,
         )
     raise ProductionSmokeError("unknown production smoke stage")
@@ -1211,6 +1308,463 @@ def _expert_validation_enrollment_smoke(
         "validation_state_id": result["validation_state_id"],
         "next_stage": result["next_stage"],
         "validation_skipped": False,
+    }
+
+
+def _expert_validation_smoke(
+    config_path: str,
+    mode: str,
+    settings: CrossRunSettings,
+    smoke_root: Path,
+    prior_evidence: Mapping[str, Mapping[str, Any]],
+    *,
+    evidence_stage: str,
+) -> Mapping[str, Any]:
+    """Advance autonomous stages and stop before any unsigned evaluator result."""
+
+    evidence = prior_evidence.get(evidence_stage)
+    if not isinstance(evidence, Mapping):
+        raise ProductionSmokeError(
+            f"expert validation requires {evidence_stage} evidence"
+        )
+    existing_release_id = evidence.get("existing_release_id")
+    if existing_release_id is not None:
+        if not isinstance(existing_release_id, str) or not existing_release_id:
+            raise ProductionSmokeError(
+                "existing expert validation release identity is invalid"
+            )
+        return {
+            "existing_release_id": existing_release_id,
+            "validation_skipped": True,
+        }
+    candidate_id = evidence.get("candidate_id")
+    if not isinstance(candidate_id, str) or not candidate_id:
+        raise ProductionSmokeError("expert validation evidence lacks its candidate")
+    github = _github_services(settings, smoke_root)
+    services = _expert_validation_services(settings, smoke_root, github)
+    snapshot = services.validation_store.snapshot(candidate_id)
+    if snapshot is None:
+        result = _call_expert_validation(
+            config_path=config_path,
+            mode=mode,
+            smoke_root=smoke_root,
+            candidate_id=candidate_id,
+            expected_transition_id=None,
+        )
+        snapshot = services.validation_store.snapshot(candidate_id)
+        if snapshot is None or result.get("candidate_id") != candidate_id:
+            raise ProductionSmokeError(
+                "expert validation enrollment did not persist its candidate"
+            )
+    autonomous_stages = {
+        ExpertValidationStage.AUTOMATED_REVIEW,
+        ExpertValidationStage.SOURCE_RUN_REPLAY,
+        ExpertValidationStage.RELEASE_MATRIX,
+        ExpertValidationStage.PUBLICATION_ELIGIBILITY,
+    }
+    while snapshot.state.promotion_state.value == "validating":
+        next_stage = snapshot.state.next_stage
+        if next_stage is None:
+            raise ProductionSmokeError(
+                "validating expert candidate has no next validation stage"
+            )
+        if next_stage not in autonomous_stages:
+            evaluator_ids = tuple(
+                evaluator.evaluator_id
+                for evaluator in settings.expert.validation.policy.evaluators
+                if evaluator.stage is next_stage
+            )
+            missing_roots = tuple(
+                evaluator_id
+                for evaluator_id in evaluator_ids
+                if settings.expert.validation.evaluator_trust_root_id(evaluator_id)
+                is None
+            )
+            raise ProductionSmokeError(
+                "expert validation requires an externally signed evaluator result "
+                f"for {next_stage.value}; evaluator_ids={evaluator_ids}; "
+                f"missing_trust_roots={missing_roots}"
+            )
+        predecessor_transition_id = snapshot.transition.transition_id
+        _call_expert_validation(
+            config_path=config_path,
+            mode=mode,
+            smoke_root=smoke_root,
+            candidate_id=candidate_id,
+            expected_transition_id=predecessor_transition_id,
+        )
+        snapshot = services.validation_store.snapshot(candidate_id)
+        if (
+            snapshot is None
+            or snapshot.transition.transition_id == predecessor_transition_id
+        ):
+            raise ProductionSmokeError(
+                "autonomous expert validation stage did not advance"
+            )
+    if snapshot.state.promotion_state.value != "approved":
+        raise ProductionSmokeError(
+            "expert validation reached a non-approved terminal state"
+        )
+    return {
+        "candidate_id": candidate_id,
+        "validation_attempt_id": snapshot.state.validation_attempt_id,
+        "transition_id": snapshot.transition.transition_id,
+        "validation_state_id": snapshot.state.validation_state_id,
+        "accepted_stage_result_ids": tuple(
+            reference.stage_result_record_id
+            for reference in snapshot.state.accepted_stage_results
+        ),
+        "promotion_state": snapshot.state.promotion_state.value,
+        "validation_skipped": False,
+    }
+
+
+def _call_expert_validation(
+    *,
+    config_path: str,
+    mode: str,
+    smoke_root: Path,
+    candidate_id: str,
+    expected_transition_id: str | None,
+) -> Mapping[str, Any]:
+    with tempfile.TemporaryDirectory(
+        prefix="expert-validation-request-",
+        dir=smoke_root,
+    ) as temporary:
+        request_path = Path(temporary) / "request.json"
+        request_path.write_bytes(
+            canonical_json_bytes(
+                {
+                    "candidate_id": candidate_id,
+                    "expected_transition_id": expected_transition_id,
+                    "evaluator_result": None,
+                }
+            )
+        )
+        return validate_expert_cross_run(
+            config_path=config_path,
+            mode=mode,
+            request_path=request_path,
+            state_root=smoke_root,
+        )
+
+
+def _expert_publication_smoke(
+    config_path: str,
+    mode: str,
+    smoke_root: Path,
+    fixture: Mapping[str, Any],
+    prior_evidence: Mapping[str, Mapping[str, Any]],
+    *,
+    validation_stage: str,
+    proposal_stage: str,
+) -> Mapping[str, Any]:
+    """Publish one externally approved candidate through the existing service."""
+
+    evidence = prior_evidence.get(validation_stage)
+    if not isinstance(evidence, Mapping):
+        evidence = prior_evidence.get(proposal_stage)
+    if not isinstance(evidence, Mapping):
+        raise ProductionSmokeError(
+            f"expert publication requires {proposal_stage} evidence"
+        )
+    existing_release_id = evidence.get("existing_release_id")
+    if existing_release_id is not None:
+        if not isinstance(existing_release_id, str) or not existing_release_id:
+            raise ProductionSmokeError("existing expert release identity is invalid")
+        return {
+            "release_id": existing_release_id,
+            "publication_skipped": True,
+        }
+    candidate_id = evidence.get("candidate_id")
+    if not isinstance(candidate_id, str) or not candidate_id:
+        raise ProductionSmokeError("expert publication evidence lacks its candidate")
+    with tempfile.TemporaryDirectory(
+        prefix="expert-publication-request-",
+        dir=smoke_root,
+    ) as temporary:
+        request_path = Path(temporary) / "request.json"
+        request_path.write_bytes(
+            canonical_json_bytes(
+                {
+                    "candidate_id": candidate_id,
+                    "committed_at": _committed_at(fixture["committed_at"]),
+                }
+            )
+        )
+        result = publish_expert_cross_run(
+            config_path=config_path,
+            mode=mode,
+            request_path=request_path,
+            state_root=smoke_root,
+        )
+    if result.get("candidate_id") != candidate_id or not isinstance(
+        result.get("release_id"), str
+    ):
+        raise ProductionSmokeError(
+            "expert publication returned another candidate or release"
+        )
+    return {
+        "candidate_id": candidate_id,
+        "release_id": result["release_id"],
+        "activation_receipt_id": result["activation_receipt_id"],
+        "publication_id": result["publication_id"],
+        "commit_sha": result["commit_sha"],
+        "release_tag": result["release_tag"],
+        "asset_digests": result["asset_digests"],
+        "replayed": result["replayed"],
+        "publication_skipped": False,
+    }
+
+
+def _expert_successor_proposal_smoke(
+    config_path: str,
+    mode: str,
+    settings: CrossRunSettings,
+    smoke_root: Path,
+    scope_contract: ExpertScopeContract,
+    prior_evidence: Mapping[str, Mapping[str, Any]],
+) -> Mapping[str, Any]:
+    """Propose E1 from the authenticated current expert and knowledge releases."""
+
+    publication = prior_evidence.get("expert-bootstrap-publication")
+    if not isinstance(publication, Mapping) or not isinstance(
+        publication.get("release_id"), str
+    ):
+        raise ProductionSmokeError(
+            "expert successor proposal requires bootstrap publication evidence"
+        )
+    github = _github_services(settings, smoke_root / "expert-successor-github-read")
+    resolved_knowledge = github.resolver.resolve_current(
+        scope_contract.scope_id,
+        PublicationArtifactKind.KNOWLEDGE_SNAPSHOT,
+    )
+    knowledge = KnowledgeSnapshotPackage.open(
+        github.materializer.materialize(resolved_knowledge).content
+    )
+    if not knowledge.prepared.admitted_episode_ids:
+        raise ProductionSmokeError(
+            "expert successor proposal requires an admitted production "
+            "TransferEpisode before trigger inspection"
+        )
+    current_base = GitHubExpertCompositionBaseProvider(
+        github.resolver,
+        github.materializer,
+        settings.expert,
+    ).resolve_current(scope_contract)
+    base = current_base.closure
+    if base.release_manifest.release_id != publication["release_id"]:
+        raise ProductionSmokeError(
+            "expert successor source differs from bootstrap publication"
+        )
+    packet = ExpertTriggerEvidencePacketBuilder(settings.expert.triggers).build(
+        knowledge_snapshot=knowledge,
+        scope_contract=scope_contract,
+        source_base_scope_contract=base.scope_contract,
+        source_base_release=base.release_manifest,
+        source_base_tree_receipt=base.source_base_tree_receipt,
+        source_base_tree_hash=base.release_manifest.candidate_tree_hash,
+        source_base_repository_map=base.repository_map,
+        source_base_module_contracts=base.module_contracts,
+        active_task_bindings=_scope_task_bindings(scope_contract),
+    )
+    with tempfile.TemporaryDirectory(
+        prefix="expert-successor-proposal-request-",
+        dir=smoke_root,
+    ) as temporary:
+        request_path = Path(temporary) / "request.json"
+        request_path.write_bytes(
+            canonical_json_bytes({"evidence_packet": packet.to_dict()})
+        )
+        result = propose_expert_cross_run(
+            config_path=config_path,
+            mode=mode,
+            request_path=request_path,
+            state_root=smoke_root,
+        )
+    if result.get("source_base_release_id") != publication["release_id"]:
+        raise ProductionSmokeError(
+            "expert successor proposal returned another source release"
+        )
+    return {
+        "candidate_id": result["candidate_id"],
+        "candidate_tree_hash": result["candidate_tree_hash"],
+        "change_kind": result["change_kind"],
+        "knowledge_snapshot_id": knowledge.manifest.snapshot_id,
+        "proposal_operation_id": result["proposal_operation_id"],
+        "source_base_release_id": result["source_base_release_id"],
+        "trigger_decision_id": result["trigger_decision_id"],
+    }
+
+
+def _successor_launch_smoke(
+    config_path: str,
+    mode: str,
+    settings: CrossRunSettings,
+    smoke_root: Path,
+    scope_contract: ExpertScopeContract,
+    prior_evidence: Mapping[str, Mapping[str, Any]],
+    *,
+    clean_machine: bool,
+) -> Mapping[str, Any]:
+    """Launch from the exact E1/S1 receipts, optionally under a fresh state root."""
+
+    publication = prior_evidence.get("expert-successor-publication")
+    knowledge = prior_evidence.get("knowledge-publication")
+    if (
+        not isinstance(publication, Mapping)
+        or not isinstance(publication.get("release_id"), str)
+        or not isinstance(knowledge, Mapping)
+        or not isinstance(knowledge.get("snapshot_id"), str)
+    ):
+        raise ProductionSmokeError(
+            "successor launch requires exact expert and knowledge publication evidence"
+        )
+    launch_state_root = (
+        _private_state_root(smoke_root / "clean-machine")
+        if clean_machine
+        else smoke_root
+    )
+    if clean_machine:
+        _task_adapter_bootstrap_smoke(settings, launch_state_root, scope_contract)
+    github = _github_services(settings, launch_state_root)
+    services = _expert_validation_services(settings, launch_state_root, github)
+    binding = _scope_task_bindings(scope_contract)[0]
+    adapter = services.task_adapter_store.resolve_active(
+        scope_contract_id=scope_contract.scope_contract_id,
+        task_family_id=binding.task_family_id,
+        task_adapter_id=binding.task_adapter_id,
+    )
+    context = adapter.manifest.release_matrix_cases[0].task_context_binding
+    task_context_request = LaunchTaskContextRequest.mint(
+        capability_tags=context.capability_tags,
+        input_contract_fingerprint=context.input_contract_fingerprint,
+        target_contract_fingerprint=context.target_contract_fingerprint,
+        starting_artifact_refs=context.starting_artifact_refs,
+        method_fingerprint=context.method_fingerprint,
+        toolchain_fingerprint=context.toolchain_fingerprint,
+        dependency_runtime_fingerprint=context.dependency_runtime_fingerprint,
+        budget_hardware_envelope=context.budget_hardware_envelope,
+        transfer_dimensions=context.transfer_dimensions,
+    )
+    launch_root = launch_state_root / "successor-launch"
+    with tempfile.TemporaryDirectory(
+        prefix="successor-launch-request-",
+        dir=launch_state_root,
+    ) as temporary:
+        request_path = Path(temporary) / "request.json"
+        request_path.write_bytes(
+            canonical_json_bytes(
+                {
+                    "goal": "Run the public transport successor fixture.",
+                    "additional_context": "",
+                    "task_context_request": task_context_request.to_dict(),
+                    "starting_artifacts": {},
+                    "dependency_runtime_contract": adapter.manifest.runtime.to_dict(),
+                    "budget_fidelity_envelope": {"transport_fixture": "full"},
+                    "scope_id": binding.scope_id,
+                    "task_family_id": binding.task_family_id,
+                    "task_adapter_id": binding.task_adapter_id,
+                    "requested_coding_agent": settings.launch.coding_agent.cli,
+                    "objective_direction": "maximize",
+                    "empty_scope_bootstrap_authorization_id": None,
+                }
+            )
+        )
+        result = resolve_launch_cross_run(
+            config_path=config_path,
+            mode=mode,
+            request_path=request_path,
+            state_root=launch_state_root,
+            run_root=launch_root,
+        )
+    if (
+        result.get("expert_release_id") != publication["release_id"]
+        or result.get("knowledge_snapshot_id") != knowledge["snapshot_id"]
+    ):
+        raise ProductionSmokeError("successor launch did not pin exact E1 and S1")
+    return {
+        "run_id": result["run_id"],
+        "campaign_id": result["campaign_id"],
+        "launch_manifest_id": result["launch_manifest_id"],
+        "bootstrap_pin_id": result["bootstrap_pin_id"],
+        "expert_release_id": result["expert_release_id"],
+        "knowledge_snapshot_id": result["knowledge_snapshot_id"],
+        "task_adapter_manifest_id": result["task_adapter_manifest_id"],
+        "workspace_baseline_commit_sha": result["workspace_baseline_commit_sha"],
+        "clean_machine": clean_machine,
+    }
+
+
+def _concurrent_publication_smoke(
+    prior_evidence: Mapping[str, Mapping[str, Any]],
+) -> Mapping[str, Any]:
+    if not isinstance(prior_evidence.get("expert-successor-publication"), Mapping):
+        raise ProductionSmokeError(
+            "concurrent publication requires the first eligible successor release"
+        )
+    raise ProductionSmokeError(
+        "concurrent publication requires a second independently eligible knowledge "
+        "and expert child from the same authenticated parents"
+    )
+
+
+def _live_restart_smoke(
+    prior_evidence: Mapping[str, Mapping[str, Any]],
+) -> Mapping[str, Any]:
+    launch = prior_evidence.get("clean-machine-launch")
+    if not isinstance(launch, Mapping) or not isinstance(launch.get("run_id"), str):
+        raise ProductionSmokeError(
+            "live restart requires a completed clean-machine launch receipt"
+        )
+    raise ProductionSmokeError(
+        "live restart requires external daemon and host restart control"
+    )
+
+
+def _revocation_smoke(
+    config_path: str,
+    mode: str,
+    smoke_root: Path,
+    fixture: Mapping[str, Any],
+    prior_evidence: Mapping[str, Mapping[str, Any]],
+) -> Mapping[str, Any]:
+    publication = prior_evidence.get("expert-successor-publication")
+    if not isinstance(publication, Mapping) or not isinstance(
+        publication.get("candidate_id"), str
+    ):
+        raise ProductionSmokeError(
+            "revocation requires successor publication candidate evidence"
+        )
+    with tempfile.TemporaryDirectory(
+        prefix="expert-revocation-request-",
+        dir=smoke_root,
+    ) as temporary:
+        request_path = Path(temporary) / "request.json"
+        request_path.write_bytes(
+            canonical_json_bytes(
+                {
+                    "candidate_id": publication["candidate_id"],
+                    "revoked_at": _committed_at(fixture["committed_at"]),
+                }
+            )
+        )
+        result = revoke_expert_cross_run(
+            config_path=config_path,
+            mode=mode,
+            request_path=request_path,
+            state_root=smoke_root,
+        )
+    if result.get("candidate_id") != publication["candidate_id"]:
+        raise ProductionSmokeError("revocation returned another candidate")
+    return {
+        "candidate_id": result["candidate_id"],
+        "release_id": result["release_id"],
+        "revocation_receipt_id": result["revocation_receipt_id"],
+        "security_snapshot_id": result["security_snapshot_id"],
+        "security_publication_id": result["security_publication_id"],
+        "matched_revocation_ids": result["matched_revocation_ids"],
+        "replayed": result["replayed"],
     }
 
 

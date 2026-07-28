@@ -24,7 +24,11 @@ kapso cross-run production-smoke \
   --stages preflight bootstrap-authorities github-read embeddings \
            docker-authority knowledge-publication coding-agent-ideation \
            task-adapter-bootstrap expert-proposal \
-           expert-validation-enrollment
+           expert-validation-enrollment expert-bootstrap-validation \
+           expert-bootstrap-publication expert-successor-proposal \
+           expert-successor-validation expert-successor-publication \
+           successor-launch concurrent-publication clean-machine-launch \
+           live-restart revocation
 ```
 
 Stages run only in canonical order and append to one durable receipt at
@@ -46,6 +50,18 @@ enters it into the durable validation state machine, and stops at the first sign
 evaluator boundary (`contract_schema`). Advancing beyond that point requires the
 configured independent evaluator authority; the smoke never manufactures a
 passing decision.
+
+The remaining stages are selectable even when an external authority is absent.
+`expert-bootstrap-validation` and `expert-successor-validation` advance only the
+automated review, source replay, release-matrix, and publication-eligibility
+stages; they fail before a generic evaluator stage unless an independently signed
+result has already been admitted with `validate-expert`. Publication stages call
+the normal expert publisher, and `successor-launch`/`clean-machine-launch` call the
+normal launch resolver while asserting the exact E1/S1 identities from prior
+receipts. `concurrent-publication` requires two independently eligible children of
+the same authenticated parents. `live-restart` requires external daemon/host
+restart control. `revocation` is last so it cannot taint the release needed by the
+clean launch and restart checks.
 
 ## Normal lifecycle
 

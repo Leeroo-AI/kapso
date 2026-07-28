@@ -197,18 +197,19 @@ Production tests are manually/explicitly enabled and never run in normal CI:
    launch pins E1 while the old run remains on E0.
 7. **Concurrency smoke:** race two knowledge candidates and two expert candidates;
    verify merge/CAS conflict behavior without data loss or force updates.
-8. **Revocation smoke:** publish security generations zero and one through the
-   focused lineage gate, revoke the synthetic smoke release, prove new
-   launch/resume blocking, then prove rollback/fork rejection from persisted local
-   state.
-9. **Clean-machine smoke:** with only configured provider authentication and task
+8. **Clean-machine smoke:** with only configured provider authentication and task
    input, resolve/materialize/run from immutable releases without historical run
    directories.
-10. **Docker authority smoke:** pre-provision the root-owned mutation lock, prove
+9. **Docker authority smoke:** pre-provision the root-owned mutation lock, prove
     ordinary mutations serialize while closed containment is not delayed, prove
     coding agents and workloads cannot resolve the lock or socket, and prove the
     typed lost-installation path converges after daemon and host restart without
     guessing or human cleanup.
+10. **Revocation smoke:** publish security generations zero and one through the
+    focused lineage gate, revoke the synthetic smoke release, prove new
+    launch/resume blocking, then prove rollback/fork rejection from persisted local
+    state. Run this last so the revoked release cannot invalidate clean-launch and
+    restart evidence.
 
 Sealed benchmark/canary testing is a separate explicitly authorized production
 stage and must not expose hidden examples to coding-agent processes or GitHub
@@ -229,6 +230,13 @@ revocation, clean-machine execution, or live daemon/host restart. Those stages
 remain blocked by external production authorities described below. A sealed
 canary is optional for E0 and mechanically classified E1 validation and is not the
 current blocker.
+
+All of those steps are now explicit selectable stages in the same durable smoke
+receipt. Existing operational services perform validation advancement,
+publication, launch, and revocation. A missing signed evaluator result, second
+eligible concurrency child, admitted production `TransferEpisode`, pinned image,
+or external restart controller stops at that exact boundary and writes no passing
+stage receipt.
 
 The final implementation gate executed the complete 4,037-test repository suite
 once: 3,979 passed, 19 skipped, and 39 failures were isolated to stale fixtures,
@@ -317,7 +325,7 @@ Completed before the final complete-suite gate:
 - [x] Delete fallback retrieval/publication paths and legacy aliases.
 - [x] Delete or move every Docker-SDK mutator outside the pinned cross-run daemon;
       repository search must show no shared-socket mutation bypass.
-- [x] Run the complete suite after deletion and verify repository search finds no
+- [ ] Run the complete suite after deletion and verify repository search finds no
       superseded schema/config/prompt names.
 
 ## Definition of done
