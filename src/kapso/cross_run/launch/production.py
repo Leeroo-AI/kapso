@@ -52,6 +52,7 @@ class ProductionLaunchServices:
     task_adapter_store: TaskAdapterPackageStore
     github_resolver: GitHubArtifactResolver
     security_authority: AuthenticatedSecurityDenylistAuthority
+    release_use_authority: GitHubExpertReleaseUsePolicyAuthority
 
     def __post_init__(self) -> None:
         if (
@@ -60,6 +61,8 @@ class ProductionLaunchServices:
             or type(self.github_resolver) is not GitHubArtifactResolver
             or type(self.security_authority)
             is not AuthenticatedSecurityDenylistAuthority
+            or type(self.release_use_authority)
+            is not GitHubExpertReleaseUsePolicyAuthority
         ):
             raise ProductionLaunchCompositionError(
                 "production launch services contain substituted components"
@@ -172,6 +175,7 @@ def build_production_launch_services(
         task_adapter_store=task_adapter_store,
         github_resolver=github_resolver,
         security_authority=security_authority,
+        release_use_authority=release_use_authority,
     )
 
 
