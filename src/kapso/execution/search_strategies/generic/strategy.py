@@ -83,7 +83,7 @@ MIN_IDEATION_SALVAGE_CHARS = 200
 ENSEMBLE_MEMBER_TIME_FRACTION = 0.7
 ENSEMBLE_SELECTOR_TIME_FRACTION = 0.3
 ENSEMBLE_SELECTOR_MIN_SECONDS = 240
-ENSEMBLE_CANDIDATES_PER_MEMBER = 2
+ENSEMBLE_CANDIDATES_PER_MEMBER = 3
 
 # Extraction artifacts (prompt echoes, stream duplicates) are shorter than
 # any real plan; drop them before the selector sees the pool.

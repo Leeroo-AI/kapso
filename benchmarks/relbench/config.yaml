@@ -121,10 +121,17 @@ modes:
         # thread-caps split the box (26 vCPU -> 12/12) so two candidate
         # trainings cannot starve each other's evals (the 07-17 contention
         # lesson); both lanes share the single GPU (CUDA_DEVICE default 0).
-        node_expansion_value: 2
+        node_expansion_value: 4
+        # 4 parallel implementation lanes on an a3-highgpu-4g (104 vCPU /
+        # 936 GB / 4x H100): each lane is PINNED to its own GPU via
+        # CUDA_VISIBLE_DEVICES and gets ~24 threads (4x24=96 of 104, leaving
+        # headroom for the orchestrator). One lane ~= a full a3-highgpu-1g
+        # slice, so no cross-lane GPU/CPU starvation.
         expansion_lane_env:
-          - {OMP_NUM_THREADS: "12", MKL_NUM_THREADS: "12", OPENBLAS_NUM_THREADS: "12", NUMEXPR_MAX_THREADS: "12"}
-          - {OMP_NUM_THREADS: "12", MKL_NUM_THREADS: "12", OPENBLAS_NUM_THREADS: "12", NUMEXPR_MAX_THREADS: "12"}
+          - {CUDA_VISIBLE_DEVICES: "0", OMP_NUM_THREADS: "24", MKL_NUM_THREADS: "24", OPENBLAS_NUM_THREADS: "24", NUMEXPR_MAX_THREADS: "24"}
+          - {CUDA_VISIBLE_DEVICES: "1", OMP_NUM_THREADS: "24", MKL_NUM_THREADS: "24", OPENBLAS_NUM_THREADS: "24", NUMEXPR_MAX_THREADS: "24"}
+          - {CUDA_VISIBLE_DEVICES: "2", OMP_NUM_THREADS: "24", MKL_NUM_THREADS: "24", OPENBLAS_NUM_THREADS: "24", NUMEXPR_MAX_THREADS: "24"}
+          - {CUDA_VISIBLE_DEVICES: "3", OMP_NUM_THREADS: "24", MKL_NUM_THREADS: "24", OPENBLAS_NUM_THREADS: "24", NUMEXPR_MAX_THREADS: "24"}
         ideation_timeout: 1800
         # One experiment = implement + run the registered full evaluation
         # (candidate training, up to the task's full timeout) inside the
