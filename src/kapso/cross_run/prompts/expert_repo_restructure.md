@@ -31,7 +31,9 @@ repository-relative path: never an absolute path, URI, `.` or `..`. Every author
 ordinary file, including each validation entrypoint, must appear under exactly one
 capability node's `owned_paths`. Capability nodes and module contracts form a
 bijection: each node's `capability_id` must exactly equal its corresponding module
-contract's `module_id`.
+contract's `module_id`. `supporting_episode_ids` and
+`known_failure_episode_ids` must be disjoint; a technical-failure episode is
+failure evidence, not supporting evidence.
 
 Return only an object satisfying the supplied JSON schema.
 

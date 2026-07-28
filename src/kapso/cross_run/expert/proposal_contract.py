@@ -99,6 +99,12 @@ class ExpertModuleProposal(StrictContract):
     test_refs: tuple[str, ...]
     replay_refs: tuple[str, ...]
 
+    def _validate(self) -> None:
+        if set(self.supporting_episode_ids) & set(self.known_failure_episode_ids):
+            raise ExpertProposalContractError(
+                "proposal supporting and failure evidence must be disjoint"
+            )
+
     def mint_contract(self) -> ExpertModuleContract:
         return ExpertModuleContract.mint(**self.to_dict())
 

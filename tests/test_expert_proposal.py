@@ -48,6 +48,7 @@ from kapso.cross_run.expert.book import (
 )
 from kapso.cross_run.expert.proposal_contract import (
     EXPERT_PROPOSAL_CONTRACT_VERSION,
+    ExpertModuleProposal,
     ExpertProposalContractError,
     _repository_architecture_signature,
     derive_expert_proposal_topology,
@@ -800,6 +801,21 @@ def test_expert_module_version_rejects_non_monotonic_format():
             operation_kind=ExpertCandidateOperationKind.GENERALIZE,
             proposal=proposal,
         )
+
+
+def test_module_proposal_rejects_episode_as_both_support_and_failure():
+    packet, _, _ = generalization_packet()
+    module = packet.source_base_module_contracts[0].to_dict()
+    del module["module_contract_id"]
+    episode_id = "transfer-episode:sha256:" + "a" * 64
+    module["supporting_episode_ids"] = [episode_id]
+    module["known_failure_episode_ids"] = [episode_id]
+
+    with pytest.raises(
+        ExpertProposalContractError,
+        match="supporting and failure evidence must be disjoint",
+    ):
+        ExpertModuleProposal.from_dict(module)
 
 
 def test_generalizer_compares_unbounded_versions_without_integer_conversion():

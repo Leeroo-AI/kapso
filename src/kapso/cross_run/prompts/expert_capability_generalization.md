@@ -23,8 +23,9 @@ without IDs, hashes, descriptors, receipts, manifests, sanitation results,
 generated controls, or book content. Preserve known failures, preconditions,
 exclusions, resource bounds, dependency/license declarations, tests, replay
 references, and evidence unless the packet justifies changing them. Arrays must
-be sorted and unique. Declare the exact changed and deleted paths observed in the
-workspace.
+be sorted and unique. `supporting_episode_ids` and `known_failure_episode_ids`
+must be disjoint; a technical-failure episode is failure evidence, not supporting
+evidence. Declare the exact changed and deleted paths observed in the workspace.
 
 Return only an object satisfying the supplied JSON schema.
 
