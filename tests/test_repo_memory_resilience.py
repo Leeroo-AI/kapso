@@ -17,11 +17,6 @@ from kapso.execution.memories.repo_memory.builders import (
     infer_repo_model_update,
     infer_repo_model_with_retry,
 )
-from kapso.execution.search_strategies.base import (
-    SearchStrategy,
-    SearchStrategyConfig,
-)
-from kapso.execution.search_strategies.node import SearchNode
 
 
 VALID_MODEL = '{"summary": "Useful memory", "sections": {}}'
@@ -71,29 +66,6 @@ class MemoryUpdateFailure(RuntimeError):
     pass
 
 
-class MinimalSearchStrategy(SearchStrategy):
-    def run(self, context: Any, budget_progress: float = 0.0) -> None:
-        return None
-
-    def get_experiment_history(
-        self,
-        best_last: bool = False,
-    ) -> List[SearchNode]:
-        return []
-
-    def get_best_experiment(self) -> None:
-        return None
-
-    def checkout_to_best_experiment_branch(self) -> None:
-        return None
-
-    def export_checkpoint(self) -> None:
-        return None
-
-    def import_checkpoint(self) -> None:
-        return None
-
-
 def _repo_map() -> Dict[str, Any]:
     return {
         "files": ["README.md"],
@@ -115,20 +87,6 @@ def _agent_config() -> CodingAgentConfig:
         model="test-model",
         debug_model="test-model",
         agent_specific={},
-    )
-
-
-def _strategy_config(
-    seed_repo: Path,
-    llm: SequenceLLM,
-    policy: str,
-) -> SearchStrategyConfig:
-    return SearchStrategyConfig(
-        problem_handler=object(),
-        llm=llm,
-        coding_agent_config=_agent_config(),
-        params={"repo_memory_failure_policy": policy},
-        initial_repo=str(seed_repo),
     )
 
 
@@ -254,36 +212,6 @@ def test_incremental_update_repairs_invalid_schema(tmp_path: Path) -> None:
 
     assert result["summary"] == "Useful memory"
     assert len(llm.calls) == 2
-
-
-def test_warn_policy_keeps_deterministic_baseline_after_bootstrap_failure(
-    tmp_path: Path,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    seed_repo = _prepare_repo(tmp_path)
-    llm = SequenceLLM([PermissionError("missing bootstrap credentials")])
-
-    with caplog.at_level(logging.WARNING):
-        strategy = MinimalSearchStrategy(
-            _strategy_config(seed_repo, llm, policy="warn"),
-            workspace_dir=str(tmp_path / "workspace"),
-        )
-
-    doc = RepoMemoryManager.load_from_worktree(strategy.workspace_dir)
-    assert doc is not None
-    assert doc["repo_map"]["files"]
-    assert "deterministic repository map only" in caplog.text
-
-
-def test_fail_policy_propagates_bootstrap_failure(tmp_path: Path) -> None:
-    seed_repo = _prepare_repo(tmp_path)
-    llm = SequenceLLM([PermissionError("missing bootstrap credentials")])
-
-    with pytest.raises(PermissionError, match="bootstrap credentials"):
-        MinimalSearchStrategy(
-            _strategy_config(seed_repo, llm, policy="fail"),
-            workspace_dir=str(tmp_path / "workspace"),
-        )
 
 
 def test_warn_policy_pushes_and_cleans_up_after_memory_failure(

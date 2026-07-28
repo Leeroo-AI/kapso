@@ -14,7 +14,6 @@ import os
 import shutil
 import time
 import uuid
-import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
@@ -45,9 +44,6 @@ if TYPE_CHECKING:
     from kapso.execution.search_strategies.generic.feedback_generator.feedback_generator import (
         FeedbackGenerator,
     )
-
-
-logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -135,8 +131,6 @@ class SearchStrategyConfig:
     checkpoint_path: Optional[str] = None
     # Strategy-specific params (from YAML config)
     params: Dict[str, Any] = field(default_factory=dict)
-    # Optional: start experiments from an existing local repo (copy/clone into workspace)
-    initial_repo: Optional[str] = None
     # Optional: directories to copy into workspace
     eval_dir: Optional[str] = None
     data_dir: Optional[str] = None
@@ -244,7 +238,6 @@ class SearchStrategy(ABC):
         self.workspace = ExperimentWorkspace(
             coding_agent_config=config.coding_agent_config,
             workspace_dir=self.workspace_dir,
-            initial_repo=config.initial_repo,
             repo_memory_failure_policy=self.repo_memory_failure_policy,
             repo_memory_max_retries=self.repo_memory_max_retries,
             llm_backend=self.llm,
@@ -264,31 +257,8 @@ class SearchStrategy(ABC):
     # =========================================================================
 
     def _initialize_repo_memory(self) -> None:
-        """Create baseline memory without making enrichment mandatory."""
-        try:
-            if self.workspace.is_seeded:
-                RepoMemoryManager.bootstrap_baseline_model(
-                    repo_root=self.workspace_dir,
-                    llm=self.llm,
-                    initial_repo=self.workspace.initial_repo,
-                    max_retries=self.repo_memory_max_retries,
-                )
-            else:
-                RepoMemoryManager.ensure_exists_in_worktree(self.workspace_dir)
-        except Exception as exc:
-            if self.repo_memory_failure_policy == "fail":
-                raise
-            logger.warning(
-                "RepoMemory bootstrap failed; continuing with the deterministic "
-                "repository map only: %s: %s",
-                type(exc).__name__,
-                exc,
-                exc_info=True,
-            )
-            RepoMemoryManager.ensure_exists_in_worktree(
-                self.workspace_dir,
-                initial_repo=self.workspace.initial_repo,
-            )
+        """Create deterministic memory for the empty experiment workspace."""
+        RepoMemoryManager.ensure_exists_in_worktree(self.workspace_dir)
 
         self.workspace.repo.git.add([RepoMemoryManager.MEMORY_REL_PATH])
         if self.workspace.repo.is_dirty(untracked_files=True):

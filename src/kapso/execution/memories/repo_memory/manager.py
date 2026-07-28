@@ -403,7 +403,6 @@ class RepoMemoryManager:
     def ensure_exists_in_worktree(
         cls,
         repo_root: str,
-        initial_repo: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Ensure the memory file exists. If missing, create a minimal skeleton.
@@ -436,9 +435,6 @@ class RepoMemoryManager:
         doc: Dict[str, Any] = {
             "schema_version": cls.SCHEMA_VERSION,
             "generated_at": cls._now_iso(),
-            "baseline": {
-                "initial_repo": initial_repo,
-            },
             "repo_map": repo_map,
             "repo_model": {
                 "summary": "",
@@ -672,7 +668,6 @@ GeneratedAt: {doc.get('generated_at')}
         *,
         repo_root: str,
         llm: LLMLike,
-        initial_repo: Optional[str] = None,
         llm_model: Optional[str] = None,
         max_retries: int = DEFAULT_MAX_RETRIES,
     ) -> None:
@@ -688,7 +683,7 @@ GeneratedAt: {doc.get('generated_at')}
         """
         repo_root = os.path.abspath(repo_root)
         max_retries = cls.normalize_max_retries(max_retries)
-        doc = cls.ensure_exists_in_worktree(repo_root, initial_repo=initial_repo)
+        doc = cls.ensure_exists_in_worktree(repo_root)
         doc["repo_map"] = build_repo_map(repo_root)
         doc["generated_at"] = cls._now_iso()
 

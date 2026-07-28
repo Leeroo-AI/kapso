@@ -32,40 +32,41 @@ kapso evolve --goal-file problem.txt
 
 ### Basic Options
 
-| Option | Short | Default | Description |
-|--------|-------|---------|-------------|
-| `--iterations` | `-i` | `10` | Maximum experiment iterations |
-| `--output` | `-o` | auto | Output directory for solution |
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--output` | `-o` | Required durable run root |
+| `--config` | | Runtime config with cross-run repository bindings |
+| `--launch-inputs` | | Required fresh-launch JSON; forbidden with `--resume` |
+| `--resume` | | Continue the exact persisted launch and action |
 
 ```bash
-kapso evolve --goal "..." --iterations 10 --output ./my_solution
+kapso evolve --goal "..." --output ./runs/task-001 \
+  --config ./runtime.yaml --launch-inputs ./launch-inputs.json
 ```
 
 ### Configuration Options
 
 | Option | Short | Description |
 |--------|-------|-------------|
-| `--mode` | `-m` | Configuration mode (GENERIC, MINIMAL) |
-| `--coding-agent` | `-a` | Coding agent (aider, gemini, claude_code, openhands) |
+| `--mode` | `-m` | Configuration mode and typed domain binding |
+| `--coding-agent` | `-a` | Must be `codex` and match the pinned authority |
+| `--scope-id` | | Exact scope binding override |
+| `--task-family-id` | | Exact task-family binding override |
+| `--task-adapter-id` | | Exact task-adapter binding override |
+| `--objective-direction` | | `maximize` or `minimize` |
 
 ```bash
-kapso evolve --goal "..." --mode GENERIC --coding-agent claude_code
+kapso evolve --goal "..." --output ./runs/task-001 \
+  --config ./runtime.yaml --mode POSTTRAIN --coding-agent codex \
+  --launch-inputs ./launch-inputs.json
 ```
 
-### Directory Options
+### Fresh-launch JSON
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--eval-dir` | `None` | Directory with evaluation files (copied to `kapso_evaluation/`) |
-| `--data-dir` | `None` | Directory with data files (copied to `kapso_datasets/`) |
-| `--initial-repo` | `None` | Initial repository (local path or GitHub URL) |
-
-```bash
-kapso evolve --goal "..." \
-    --eval-dir ./my_evaluation/ \
-    --data-dir ./my_data/ \
-    --initial-repo https://github.com/owner/repo
-```
+The file is a closed object containing `task_context_request`,
+`starting_artifacts`, `dependency_runtime_contract`, and
+`budget_fidelity_envelope`. Each artifact contains only `source` and
+`mount_path`; relative sources resolve against the JSON file.
 
 ### List Commands
 
@@ -83,30 +84,17 @@ kapso --list-agents
 
 ```bash
 kapso evolve \
-    --goal "Build a random forest classifier for the Iris dataset"
+    --goal "Build a random forest classifier for the Iris dataset" \
+    --output ./runs/iris --config ./runtime.yaml \
+    --launch-inputs ./iris-launch.json
 ```
 
-### With Evaluation and Data
+### Resume
 
 ```bash
 kapso evolve \
-    --goal "Build a classifier with accuracy > 0.9" \
-    --eval-dir ./evaluation/ \
-    --data-dir ./data/
-```
-
-### Full Options
-
-```bash
-kapso evolve \
-    --goal-file problem.txt \
-    --iterations 20 \
-    --mode GENERIC \
-    --coding-agent claude_code \
-    --initial-repo https://github.com/owner/starter-repo \
-    --eval-dir ./evaluation/ \
-    --data-dir ./data/ \
-    --output ./my_solution
+    --goal-file problem.txt --output ./runs/task-001 \
+    --config ./runtime.yaml --resume
 ```
 
 ## Output

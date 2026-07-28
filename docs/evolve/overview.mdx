@@ -1,215 +1,84 @@
 ---
 title: "Overview"
-description: "How Kapso builds solutions through iterative experimentation"
+description: "The GitHub-backed evolution path"
 ---
 
 # Evolve System
 
-The Evolve System is Kapso's core engine for building software solutions. It orchestrates an iterative experimentation loop that explores multiple approaches, learns from failures, and converges on high-quality solutions.
-
-## How It Works
+`Kapso.evolve()` has one startup path: resolve a typed domain binding to pinned
+expert, knowledge, and security repositories, prepare an immutable launch, then
+run a sandboxed coding-agent edit against that launch.
 
 ```mermaid
-flowchart TB
-    subgraph Evolve["Evolve System"]
-        G[Goal] --> O[Orchestrator]
-        O --> SS[Search Strategy]
-        SS --> ID[Evidence-Directed Ideation]
-        ID --> CA[Coding Agent]
-        CA --> AE[Agent Evaluation]
-        AE --> FG[Feedback Generator]
-        FG -->|Continue| SS
-        FG -->|Stop| S[Solution]
-    end
-    
-    KG[Knowledge Graph] --> O
-    RM[Repo Memory] --> CA
+flowchart LR
+    T["Typed task binding"] --> R["GitHub resolver"]
+    R --> P["Prepared launch"]
+    P --> M["RepoMemory rebuild"]
+    P --> K["Pinned knowledge reader"]
+    M --> A["Sandboxed Codex action"]
+    K --> A
+    A --> C["Trusted successor commit"]
 ```
 
-The system works by:
+No model, embedding, evaluator, or provider call is allowed before the prepared
+launch handoff. Repository routing comes only from `cross_run_binding` in the
+runtime config. Task input cannot select or replace repositories.
 
-1. **Receiving a goal** : What you want to build (include success criteria in the goal)
-2. **Initializing repo** : From `initial_repo`, workflow search, or empty
-3. **Gathering context** : From Knowledge Graph and Repo Memory
-4. **Selecting an idea** : Deterministic policy plus Codex/Claude CLI candidate and selector roles
-5. **Running evaluation** : Agent builds and runs evaluation in `kapso_evaluation/`
-6. **Generating feedback** : Feedback generator validates results and decides stop/continue
+## Fresh run
 
-## Key Components
+A fresh run supplies:
 
-<CardGroup cols={2}>
-  <Card title="Orchestrator" icon="sitemap" href="/docs/evolve/orchestrator">
-    Central coordinator that manages the experimentation loop, budget tracking, and component lifecycle
-  </Card>
-  <Card title="Search Strategies" icon="magnifying-glass" href="/docs/evolve/search-strategies">
-    Evidence-directed Generic search or benchmark tree search
-  </Card>
-  <Card title="Coding Agents" icon="code" href="/docs/evolve/coding-agents">
-    Pluggable code generators: Aider, Gemini, Claude Code, OpenHands
-  </Card>
-  <Card title="Feedback Generator" icon="comments" href="/docs/evolve/feedback-generator">
-    Validates evaluation results and decides when to stop
-  </Card>
-  <Card title="Repo Memory" icon="brain" href="/docs/evolve/repo-memory">
-    Tracks code understanding with file-level evidence
-  </Card>
-</CardGroup>
+- a `LaunchTaskContextRequest` describing task semantics;
+- content-addressed starting artifacts and their workspace mount paths;
+- a dependency/runtime contract;
+- a budget/fidelity envelope; and
+- either the binding selected by the config mode or the exact scope, family,
+  and adapter identifiers.
 
-## Basic Usage
+The resolver verifies repository authorities, pins an expert release and a
+knowledge snapshot, materializes the task adapter and artifacts, and publishes
+the launch handoff. Kapso then rebuilds RepoMemory from the composed workspace,
+retrieves relevant knowledge through the trusted prior reader, and executes one
+durable Codex edit action. Only the trusted consumer promotes accepted edits and
+creates the direct-successor Git commit.
 
-```python
-from kapso.kapso import Kapso, DeployStrategy
+## Resume
 
-kapso = Kapso()
+Resume takes the run root, goal, runtime config, and `resume=True`. Fresh launch
+inputs are rejected. The persisted prepared launch and action identity are
+revalidated; completed durable events are not repeated.
 
-# Build a solution - agent builds evaluation dynamically
-# Include success criteria in the goal
-solution = kapso.evolve(
-    goal="Build a random forest classifier for Iris with accuracy > 0.9",
-    max_iterations=10,
-)
-
-# With user-provided evaluation and data
-solution = kapso.evolve(
-    goal="Optimize model inference speed to < 10ms",
-    eval_dir="./my_evaluation/",   # Copied to kapso_evaluation/
-    data_dir="./my_data/",         # Copied to kapso_datasets/
-    initial_repo="https://github.com/org/starter",  # Or local path
-)
-
-# Deploy and run
-deployed_program = kapso.deploy(solution, strategy=DeployStrategy.LOCAL)
-result = deployed_program.run({"data_path": "./test.csv"})
-```
-
-## Repository Initialization
-
-When `evolve()` is called, the system initializes the workspace:
-
-| `initial_repo` Value | Behavior |
-|---------------------|----------|
-| Local path | Use existing repository as starting point |
-| GitHub URL | Clone repository and use as starting point |
-| `None` (default) | Search for relevant workflow via Knowledge Graph. If found, clone workflow's repo. Otherwise, create empty repo. |
-
-## Configuration Modes
-
-Kapso provides preset configurations for different use cases:
-
-| Mode | Search Strategy | Best For |
-|------|-----------------|----------|
-| `GENERIC` | Evidence-directed Generic search (default) | General problem solving |
-| `MINIMAL` | Evidence-directed Generic search with shorter implementation timeouts | Quick experiments, simple problems |
+## Python
 
 ```python
-# Use a specific mode
 solution = kapso.evolve(
-    goal="...",
-    mode="MINIMAL",  # Same evidence-directed search, shorter implementation timeout
+    goal="Improve validation accuracy without exceeding the time budget",
+    output_path="./runs/task-001",
+    task_context_request=task_context,
+    starting_artifact_sources={
+        "dataset": ("./fixtures/dataset", "inputs/dataset"),
+    },
+    dependency_runtime_contract={"python": "3.12"},
+    budget_fidelity_envelope={"wall_clock_minutes": 30},
+    config_path="./runtime.yaml",
 )
 ```
 
-## The Experimentation Loop
+`SolutionResult.metadata` carries the launch manifest, expert release,
+knowledge snapshot, task adapter, RepoMemory, request, operation, and action
+identities needed to audit or continue the run.
 
-Each iteration of the evolve loop:
+## CLI
 
-1. **Direct** — Evidence and capacity choose bootstrap, explore, exploit,
-   verify, recover, or finalize.
-2. **Generate** — Independent coding-agent roles propose structured candidates.
-3. **Analyze** — Hard rules, descriptors, and semantic neighbors establish the
-   eligible pool.
-4. **Select** — A coding-agent critic chooses only among eligible candidates.
-5. **Implement and evaluate** — The selected linked idea runs on its frozen
-   parent branch.
-6. **Learn** — Feedback and evidence authoring update outcomes, claims, and
-   evaluation gaps for the next iteration.
+```bash
+kapso evolve --goal-file goal.txt --output ./runs/task-001 \
+  --config ./runtime.yaml --launch-inputs ./launch-inputs.json
 
-### Git Branch Model
-
-Each experiment runs on its own Git branch:
-
-```
-main
-├── generic_exp_0  (first linked idea/experiment)
-├── generic_exp_1  (second linked idea/experiment)
-├── generic_exp_2  (third linked idea/experiment)
-└── ...
+kapso evolve --goal-file goal.txt --output ./runs/task-001 \
+  --config ./runtime.yaml --resume
 ```
 
-A recoverable implementation failure reuses the same `generic_exp_<node_id>`
-branch, idea ID, batch ID, and experiment node with a newer execution revision.
-
-This provides:
-- **Isolation** — Experiments don't interfere with each other
-- **History** — Full Git history of all attempts
-- **Recovery** — Easy to checkout and examine any experiment
-
-### Workspace Structure
-
-After setup, the workspace looks like:
-
-```
-workspace/
-├── kapso_evaluation/     # Agent builds evaluation here
-│   └── evaluate.py       # Evaluation script
-├── kapso_datasets/       # Data files (from data_dir)
-├── .kapso/
-│   ├── repo_memory.json        # Branch-specific codebase understanding
-│   ├── idea_archive.json       # Candidates, decisions, claims, gaps, outcomes
-│   ├── experiment_history.json # Executed-only projection
-│   ├── run_state.json          # Strict resumable campaign state
-│   └── ideation/agent_calls/   # Replayable CLI call artifacts
-└── (solution code)       # From initial_repo or agent-built
-```
-
-## Memory Systems
-
-The Evolve System separates four authorities:
-
-- **Run checkpoint / SearchNode** — executable campaign state.
-- **Idea archive** — considered proposals, decisions, and outcomes.
-- **Experiment history** — work that was actually executed and measured.
-- **Repo memory** — branch-specific repository understanding.
-
-### Repo Memory
-
-Tracks understanding of the codebase:
-- **Architecture** — High-level structure and patterns
-- **Key Claims** — Important facts about the code
-- **File Evidence** — Which files support each claim
-
-### Experiment History
-
-Learns from past experiments via MCP tools:
-- **Top Experiments** — Best scoring experiments
-- **Recent Experiments** — Most recent experiments
-- **Similar Experiments** — Semantic search for related experiments
-
-## Budget Tracking
-
-The Orchestrator tracks costs across all components:
-
-```python
-# Get cumulative cost
-cost = orchestrator.get_cumulative_cost()
-print(f"Total cost: ${cost:.2f}")
-```
-
-Budget limits can be set via `max_iterations` or time/cost budgets in configuration.
-
-## Next Steps
-
-<CardGroup cols={2}>
-  <Card title="Architecture" icon="building" href="/docs/evolve/architecture">
-    Deep dive into system architecture
-  </Card>
-  <Card title="Execution Flow" icon="arrow-progress" href="/docs/evolve/execution-flow">
-    Detailed walkthrough of the execution process
-  </Card>
-  <Card title="Search Strategies" icon="tree" href="/docs/evolve/search-strategies">
-    How evidence-directed Generic and benchmark tree search explore solutions
-  </Card>
-  <Card title="Experiment Lifecycle" icon="rotate" href="/docs/evolve/experiment-lifecycle">
-    Lifecycle of a single experiment
-  </Card>
-</CardGroup>
+The fresh-launch JSON is a closed object with `task_context_request`,
+`starting_artifacts`, `dependency_runtime_contract`, and
+`budget_fidelity_envelope`. Relative artifact sources resolve against that JSON
+file. `--launch-inputs` is forbidden on resume.

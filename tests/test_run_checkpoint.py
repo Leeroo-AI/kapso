@@ -2,7 +2,6 @@ from pathlib import Path
 from dataclasses import replace
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
-
 import git
 import pytest
 
@@ -27,7 +26,6 @@ from kapso.execution.search_strategies.benchmark_tree_search import (
     TreeSearchNode,
 )
 from kapso.execution.search_strategies.generic.strategy import GenericSearch
-from kapso.kapso import Kapso
 from test_ideation_domain import (
     BATCH_ID,
     IDEA_ID,
@@ -780,85 +778,3 @@ def test_v1_checkpoint_is_rejected_without_migration(tmp_path: Path) -> None:
         match="not migrated",
     ):
         store.load()
-
-
-def test_public_resume_workspace_validation_is_strict(tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="requires an existing output_path"):
-        Kapso._validate_resume_workspace(None)
-
-    non_repo = tmp_path / "not-a-repo"
-    non_repo.mkdir()
-    with pytest.raises(ValueError, match="not a Git repository"):
-        Kapso._validate_resume_workspace(str(non_repo))
-
-    workspace = tmp_path / "workspace"
-    _init_git_workspace(workspace)
-    Kapso._validate_resume_workspace(str(workspace))
-
-
-def test_public_evolve_forwards_resume_and_reports_cumulative_iterations(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import kapso.kapso as kapso_module
-
-    workspace = tmp_path / "workspace"
-    _init_git_workspace(workspace)
-    captured: Dict[str, Any] = {}
-
-    class PublicFakeStrategy:
-        def __init__(self) -> None:
-            self.workspace = SimpleNamespace(workspace_dir=str(workspace))
-
-        def get_experiment_history(self) -> List[SearchNode]:
-            return []
-
-        def get_deliverable_score(self):
-            return None
-
-        def checkout_to_best_experiment_branch(self) -> None:
-            return None
-
-    class PublicFakeOrchestrator:
-        def __init__(self, handler: Any, **kwargs: Any):
-            captured.update(kwargs)
-            self.search_strategy = PublicFakeStrategy()
-
-        def solve(
-            self,
-            experiment_max_iter: int,
-            time_budget_minutes=None,
-            cost_budget=None,
-            finalization_reserve_minutes=None,
-        ) -> SolveResult:
-            assert experiment_max_iter == 1
-            return SolveResult(
-                best_experiment=None,
-                final_feedback=None,
-                stopped_reason="max_iterations",
-                iterations_run=1,
-                total_cost=2.0,
-                cumulative_iterations=4,
-            )
-
-    monkeypatch.setattr(
-        kapso_module,
-        "OrchestratorAgent",
-        PublicFakeOrchestrator,
-    )
-
-    kapso = Kapso.__new__(Kapso)
-    kapso.config_path = None
-    kapso.knowledge_search = SimpleNamespace(is_enabled=lambda: False)
-    result = kapso.evolve(
-        goal="Improve support",
-        output_path=str(workspace),
-        max_iterations=1,
-        resume=True,
-    )
-
-    assert captured["resume"] is True
-    assert captured["initial_repo"] is None
-    assert result.metadata["iterations"] == 1
-    assert result.metadata["cumulative_iterations"] == 4
-    assert result.metadata["resumed"] is True

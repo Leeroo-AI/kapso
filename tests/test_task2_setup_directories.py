@@ -234,37 +234,5 @@ class TestSetupKapsoDirectories:
             shutil.rmtree(workspace, ignore_errors=True)
 
 
-class TestKapsoEvolveWithDirectories:
-    """Test Kapso.evolve() with eval_dir and data_dir parameters."""
-
-    @classmethod
-    def setup_class(cls):
-        """Create test fixtures."""
-        cls.eval_dir = tempfile.mkdtemp(prefix="test_eval_")
-        with open(os.path.join(cls.eval_dir, "evaluate.py"), "w") as f:
-            f.write("print('SCORE: 1.0')\n")
-
-        cls.data_dir = tempfile.mkdtemp(prefix="test_data_")
-        with open(os.path.join(cls.data_dir, "data.txt"), "w") as f:
-            f.write("test data\n")
-
-    @classmethod
-    def teardown_class(cls):
-        """Cleanup."""
-        shutil.rmtree(cls.eval_dir, ignore_errors=True)
-        shutil.rmtree(cls.data_dir, ignore_errors=True)
-
-    def test_evolve_accepts_eval_dir_and_data_dir(self):
-        """Test that evolve() accepts the new parameters."""
-        from kapso.kapso import Kapso
-        import inspect
-
-        sig = inspect.signature(Kapso.evolve)
-        params = list(sig.parameters.keys())
-
-        assert "eval_dir" in params, "evolve() should accept eval_dir"
-        assert "data_dir" in params, "evolve() should accept data_dir"
-
-
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

@@ -358,7 +358,6 @@ def test_bootstrap_baseline_model_with_real_llm(sample_repo, llm):
     RepoMemoryManager.bootstrap_baseline_model(
         repo_root=str(sample_repo),
         llm=llm,
-        seed_repo_path=str(sample_repo),
     )
     
     # Load and verify
@@ -420,7 +419,6 @@ def test_update_after_experiment_with_real_llm(sample_repo, llm):
     RepoMemoryManager.bootstrap_baseline_model(
         repo_root=str(sample_repo),
         llm=llm,
-        seed_repo_path=str(sample_repo),
     )
     repo.git.add("-A")
     repo.git.commit("-m", "Add baseline memory")
@@ -574,7 +572,6 @@ def test_render_brief_produces_usable_prompt(sample_repo, llm):
     RepoMemoryManager.bootstrap_baseline_model(
         repo_root=str(sample_repo),
         llm=llm,
-        seed_repo_path=str(sample_repo),
     )
     
     doc = RepoMemoryManager.load_from_worktree(str(sample_repo))

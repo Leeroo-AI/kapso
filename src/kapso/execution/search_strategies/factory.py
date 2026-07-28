@@ -111,7 +111,6 @@ class SearchStrategyFactory:
         preset: Optional[str] = None,
         workspace_dir: Optional[str] = None,
         start_from_checkpoint: bool = False,
-        initial_repo: Optional[str] = None,
         eval_dir: Optional[str] = None,
         data_dir: Optional[str] = None,
         evaluation_manifest: Optional[Dict[str, str]] = None,
@@ -132,7 +131,6 @@ class SearchStrategyFactory:
             preset: Preset name to use (e.g., "MINIMAL", "PRODUCTION")
             workspace_dir: Path to workspace directory (optional)
             start_from_checkpoint: Whether to import from checkpoint
-            initial_repo: Path to initial repository to seed workspace
             eval_dir: Path to evaluation files (copied to kapso_evaluation/)
             data_dir: Path to data files (copied to kapso_datasets/)
             evaluation_manifest: Prevalidated provided-suite file hashes
@@ -163,7 +161,6 @@ class SearchStrategyFactory:
             campaign_id=campaign_id,
             checkpoint_path=checkpoint_path,
             params=resolved_params,
-            initial_repo=initial_repo,
             eval_dir=eval_dir,
             evaluation_manifest=evaluation_manifest,
             data_dir=data_dir,

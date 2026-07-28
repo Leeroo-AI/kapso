@@ -150,19 +150,27 @@ kapso.learn(*findings.ideas, *findings.implementations, wiki_dir="data/wikis")
 
 ### evolve()
 
-Evolve a solution through experimentation.
+Run the sole GitHub-backed launch and coding-agent edit path.
 
 ```python
 def evolve(
     self,
     goal: str,
-    eval_dir: Optional[str] = None,
-    data_dir: Optional[str] = None,
-    initial_repo: Optional[str] = None,
-    max_iterations: int = 10,
-    # Configuration
+    output_path: str,
+    task_context_request: LaunchTaskContextRequest | None = None,
+    starting_artifact_sources: Mapping[str, tuple[str | Path, str]] | None = None,
+    dependency_runtime_contract: Mapping[str, Any] | None = None,
+    budget_fidelity_envelope: Mapping[str, Any] | None = None,
+    config_path: str | None = None,
+    scope_id: str | None = None,
+    task_family_id: str | None = None,
+    task_adapter_id: str | None = None,
     mode: Optional[str] = None,
     coding_agent: Optional[str] = None,
+    objective_direction: str = "maximize",
+    additional_context: str = "",
+    resume: bool = False,
+    empty_scope_bootstrap_authorization_id: str | None = None,
 ) -> SolutionResult
 ```
 
@@ -171,53 +179,46 @@ def evolve(
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `goal` | `str` | - | High-level objective (include success criteria) |
-| `eval_dir` | `str` | `None` | Path to user-provided evaluation files (copied to `kapso_evaluation/`) |
-| `data_dir` | `str` | `None` | Path to data files (copied to `kapso_datasets/`) |
-| `initial_repo` | `str` | `None` | Starting repository - see below for options |
-| `max_iterations` | `int` | `10` | Maximum experiment iterations |
-| `mode` | `str` | `None` | Config mode (GENERIC, MINIMAL, etc.) |
-| `coding_agent` | `str` | `None` | Coding agent override |
-
-#### `initial_repo` Options
-
-The `initial_repo` parameter accepts three types of values:
-
-| Value | Behavior |
-|-------|----------|
-| **Local path** (`"/path/to/repo"`) | Use existing local repository as starting point |
-| **GitHub URL** (`"https://github.com/org/repo"`) | Clone the repository and use as starting point |
-| **None** (default) | Search for relevant workflow via `workflow_search(goal)`. If found, clone workflow's repo. If not found, create empty repo. |
+| `output_path` | `str` | - | Durable run root |
+| `task_context_request` | `LaunchTaskContextRequest` | `None` | Required task semantics for a fresh launch |
+| `starting_artifact_sources` | `Mapping` | `None` | Content source and mount path per declared artifact |
+| `dependency_runtime_contract` | `Mapping` | `None` | Required fresh-run runtime closure |
+| `budget_fidelity_envelope` | `Mapping` | `None` | Required fresh-run budget closure |
+| `config_path` | `str` | instance config | Runtime config containing repository bindings |
+| `scope_id`, `task_family_id`, `task_adapter_id` | `str` | bound mode | Exact typed binding override; supply all three or none |
+| `mode` | `str` | config default | Config mode and its cross-run binding |
+| `coding_agent` | `str` | pinned agent | Must match the configured Codex authority |
+| `objective_direction` | `str` | `maximize` | `maximize` or `minimize` |
+| `resume` | `bool` | `False` | Revalidate and continue the persisted launch/action |
 
 #### Returns
 
 `SolutionResult` with:
 - `goal`: Original goal
-- `code_path`: Path to generated code
-- `experiment_logs`: List of experiment summaries
-- `final_feedback`: `FeedbackResult` with stop decision and score
-- `metadata`: Cost, iterations, final evaluation
+- `code_path`: Trusted direct-successor workspace
+- `experiment_logs`: Coding-agent implementation summary
+- `metadata`: Launch, expert, knowledge, adapter, RepoMemory, operation, request,
+  action, telemetry, and retrieval identities
 
 #### Example
 
 ```python
-# Basic usage - agent builds evaluation dynamically
 solution = kapso.evolve(
     goal="Build XGBoost classifier with AUC > 0.85",
-    max_iterations=10,
+    output_path="./runs/task-001",
+    task_context_request=task_context,
+    starting_artifact_sources={"dataset": ("./data", "inputs/data")},
+    dependency_runtime_contract={"python": "3.12"},
+    budget_fidelity_envelope={"wall_clock_minutes": 30},
+    config_path="./runtime.yaml",
 )
 
-# With user-provided evaluation and data
-solution = kapso.evolve(
-    goal="Optimize the model for inference speed",
-    eval_dir="./my_evaluation/",
-    data_dir="./my_data/",
-    initial_repo="https://github.com/org/starter-repo",
+resumed = kapso.evolve(
+    goal="Build XGBoost classifier with AUC > 0.85",
+    output_path="./runs/task-001",
+    config_path="./runtime.yaml",
+    resume=True,
 )
-
-# Check results
-if solution.succeeded:
-    print(f"Goal achieved with score: {solution.final_score}")
-print(f"Code at: {solution.code_path}")
 ```
 
 ### deploy()

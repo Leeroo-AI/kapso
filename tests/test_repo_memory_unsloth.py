@@ -46,7 +46,6 @@ def main():
         RepoMemoryManager.bootstrap_baseline_model(
             repo_root=str(repo_dir),
             llm=llm,
-            seed_repo_path="https://github.com/unslothai/unsloth",
         )
         
         # Load and print results

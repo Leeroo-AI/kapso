@@ -152,7 +152,6 @@ class OrchestratorAgent:
         resume: bool = False,
         iteration_evaluator: Optional[IterationEvaluator] = None,
         iteration_evaluator_failure_policy: str = "record",
-        initial_repo: Optional[str] = None,
         eval_dir: Optional[str] = None,
         data_dir: Optional[str] = None,
         goal: Optional[str] = None,
@@ -190,8 +189,6 @@ class OrchestratorAgent:
                 models=model_routes,
                 retry_policy=retry_config,
             )
-        # Optional: seed experiments from an existing local repo (copy/clone into workspace).
-        self.initial_repo = initial_repo
         # Optional: directories to copy into workspace
         self.eval_dir = eval_dir
         self.data_dir = data_dir
@@ -538,7 +535,6 @@ class OrchestratorAgent:
             params=strategy_params,
             workspace_dir=workspace_dir,
             start_from_checkpoint=start_from_checkpoint,
-            initial_repo=self.initial_repo,
             eval_dir=self.eval_dir,
             evaluation_manifest=self._provided_evaluation_manifest,
             data_dir=self.data_dir,

@@ -118,7 +118,7 @@ Runs reviewed:
    exited with a contract violation and the whole run aborted before
    iteration 1. Fixed (benchmark-local): --strategy generic auto-seeds the
    workspace with data/generic_baseline/main.py (shape-correct trivial
-   predictions for all four families) via initial_repo, giving calibration
+   predictions for all four families) via preloaded source code, giving calibration
    a runnable candidate and parent_policy=best a legitimate first parent.
    Status: FIXED; re-shakedown pending.
 
