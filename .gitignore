@@ -189,6 +189,7 @@ static/
 !kg_data.json
 
 # Project specific ignores
+.kapso/
 expert_agent.egg-info/
 mle-bench/
 ALE-Bench/
