@@ -24,12 +24,14 @@ from kapso.cross_run.launch.contracts import LaunchTaskContextRequest
 from kapso.cross_run.launch.handoff import (
     PreparedRunHandoff,
     prepare_fresh_run_handoff,
+    prepare_run_action_recovery_handoff,
     prepare_resumed_run_handoff,
 )
 from kapso.cross_run.launch.production import (
     build_production_launch_preparation,
     build_production_launch_services,
     production_experiment_embedding_space,
+    ProductionLaunchServices,
     resolve_production_binding,
 )
 from kapso.cross_run.launch.resume import BlockedRunResume
@@ -43,9 +45,14 @@ from kapso.cross_run.launch.run_action_coding_agent_schema import (
 )
 from kapso.cross_run.launch.run_action_coding_agent_service import (
     build_production_coding_agent_action,
+    ProductionCodingAgentActionResult,
 )
 from kapso.cross_run.launch.run_action_contracts import (
     RunFrontierWorkspaceAccess,
+)
+from kapso.cross_run.launch.run_action_ledger import (
+    RunActionLedgerSnapshot,
+    RunActionOperationTail,
 )
 from kapso.cross_run.launch.starting_artifacts import (
     LaunchStartingArtifactSetProvider,
@@ -53,7 +60,7 @@ from kapso.cross_run.launch.starting_artifacts import (
 from kapso.cross_run.launch.workspace_frontier import (
     inspect_run_workspace_frontier,
 )
-from kapso.cross_run.settings import EffectiveConfig
+from kapso.cross_run.settings import CrossRunSettings, EffectiveConfig
 
 _PRIOR_KNOWLEDGE_DIRECTIVE = (
     "Retrieve tested interventions, failures, contradictions, and frontier ideas "
@@ -214,6 +221,19 @@ def execute_production_evolution(
         starting_artifacts=starting_artifacts,
         state_root=state_root,
     )
+    recovered_action = (
+        _recover_resumed_action(
+            services=services,
+            settings=settings,
+            image_authority=image_authority,
+            run_root=run_root,
+            state_root=state_root,
+            goal=goal,
+            additional_context=additional_context,
+        )
+        if resume
+        else None
+    )
     with ExitStack() as resources:
         if resume:
             resumed = prepare_resumed_run_handoff(
@@ -247,54 +267,64 @@ def execute_production_evolution(
         )
         resources.callback(handoff.close)
 
-        prior_knowledge, embedding_telemetry = _retrieve_prior_knowledge(
-            handoff=handoff,
-            goal=goal,
-            settings=settings,
-        )
-        predecessor_source_tree_digest = _source_tree_digest(handoff, settings)
-        prompt = _evolution_prompt(
-            goal=goal,
-            additional_context=additional_context,
-            repository_memory=handoff.repository_memory.payload,
-        )
-        action = build_production_coding_agent_action(
-            handoff=handoff,
-            services=services,
-            settings=settings,
-            image_authority=image_authority,
-            agent=settings.launch.coding_agent,
-            state_root=state_root,
-            principal_id=_EVOLUTION_PRINCIPAL_ID,
-            role=_EVOLUTION_ROLE,
-            workspace_access=RunFrontierWorkspaceAccess.EDIT_WORKSPACE,
-            web_search_enabled=settings.launch.coding_agent_web_search_enabled,
-            provider_network_enabled=(
-                settings.launch.coding_agent_provider_network_enabled
-            ),
-            native_credential_enabled=True,
-        )
-        resources.callback(action.close)
-        operation_id = _operation_id(
-            handoff=handoff,
-            prompt=prompt,
-            predecessor_source_tree_digest=predecessor_source_tree_digest,
-        )
-        action_request = CodingAgentRunActionRequest(
-            protocol_version=CODING_AGENT_REQUEST_PROTOCOL_VERSION,
-            interpretation_policy=action.interpretation_policy,
-            operation_id=operation_id,
-            prompt=prompt,
-            response_schema=_EVOLUTION_RESPONSE_SCHEMA,
-            prior_knowledge=prior_knowledge,
-            edit_predecessor_source_tree_digest=predecessor_source_tree_digest,
-        )
-        action_result = action.execute(
-            frontier=handoff.frontier,
-            request=action_request,
-        )
+        embedding_telemetry = None
+        if recovered_action is None:
+            prior_knowledge, embedding_telemetry = _retrieve_prior_knowledge(
+                handoff=handoff,
+                goal=goal,
+                settings=settings,
+            )
+            predecessor_source_tree_digest = _source_tree_digest(handoff, settings)
+            prompt = _evolution_prompt(
+                goal=goal,
+                additional_context=additional_context,
+                repository_memory=handoff.repository_memory.payload,
+            )
+            action = build_production_coding_agent_action(
+                handoff=handoff,
+                services=services,
+                settings=settings,
+                image_authority=image_authority,
+                agent=settings.launch.coding_agent,
+                state_root=state_root,
+                principal_id=_EVOLUTION_PRINCIPAL_ID,
+                role=_EVOLUTION_ROLE,
+                workspace_access=RunFrontierWorkspaceAccess.EDIT_WORKSPACE,
+                web_search_enabled=settings.launch.coding_agent_web_search_enabled,
+                provider_network_enabled=(
+                    settings.launch.coding_agent_provider_network_enabled
+                ),
+                native_credential_enabled=True,
+            )
+            resources.callback(action.close)
+            operation_id = _operation_id(
+                handoff=handoff,
+                prompt=prompt,
+                predecessor_source_tree_digest=predecessor_source_tree_digest,
+            )
+            action_request = CodingAgentRunActionRequest(
+                protocol_version=CODING_AGENT_REQUEST_PROTOCOL_VERSION,
+                interpretation_policy=action.interpretation_policy,
+                operation_id=operation_id,
+                prompt=prompt,
+                response_schema=_EVOLUTION_RESPONSE_SCHEMA,
+                prior_knowledge=prior_knowledge,
+                edit_predecessor_source_tree_digest=predecessor_source_tree_digest,
+            )
+            action_result = action.execute(
+                frontier=handoff.frontier,
+                request=action_request,
+            )
+        else:
+            action_result = recovered_action
+            action_request = recovered_action.request
+            operation_id = action_request.operation_id
+        if action_request.prior_knowledge is None:
+            raise ProductionEvolutionError(
+                "production evolution action lacks pinned prior knowledge"
+            )
         identity = handoff.identity
-        packet = prior_knowledge.prior_knowledge_snapshot
+        packet = action_request.prior_knowledge.prior_knowledge_snapshot
         return ProductionEvolutionResult(
             code_path=handoff.active_workspace.workspace,
             metadata={
@@ -330,10 +360,95 @@ def execute_production_evolution(
                 ),
                 "resumed": resume,
                 "frontier_checkpoint_id": (
-                    action_result.frontier.checkpoint.run_checkpoint_id
+                    (
+                        handoff.frontier
+                        if recovered_action is not None
+                        else action_result.frontier
+                    ).checkpoint.run_checkpoint_id
                 ),
             },
         )
+
+
+def _recover_resumed_action(
+    *,
+    services: ProductionLaunchServices,
+    settings: CrossRunSettings,
+    image_authority: DockerImageAuthority,
+    run_root: Path,
+    state_root: Path,
+    goal: str,
+    additional_context: str,
+) -> ProductionCodingAgentActionResult | None:
+    """Recover the sole durable evolution action before normal run resume."""
+
+    with ExitStack() as resources:
+        handoff = prepare_run_action_recovery_handoff(
+            coordinator=services.coordinator,
+            settings=settings,
+            run_root=run_root,
+        )
+        resources.callback(handoff.close)
+        _require_pinned_prompt_inputs(
+            handoff.active_workspace.bootstrap_pin.launch_manifest.launch_request,
+            goal=goal,
+            additional_context=additional_context,
+        )
+        projected_ledger = handoff.frontier.projection.action_ledger
+        live_ledger = handoff.publisher.action_ledger_snapshot()
+        if live_ledger == projected_ledger:
+            return None
+        unprojected_tails = _unprojected_action_tails(
+            projected_ledger,
+            live_ledger,
+        )
+        if len(unprojected_tails) != 1:
+            raise ProductionEvolutionError(
+                "production evolution run contains multiple unprojected actions"
+            )
+        action = build_production_coding_agent_action(
+            handoff=handoff,
+            services=services,
+            settings=settings,
+            image_authority=image_authority,
+            agent=settings.launch.coding_agent,
+            state_root=state_root,
+            principal_id=_EVOLUTION_PRINCIPAL_ID,
+            role=_EVOLUTION_ROLE,
+            workspace_access=RunFrontierWorkspaceAccess.EDIT_WORKSPACE,
+            web_search_enabled=settings.launch.coding_agent_web_search_enabled,
+            provider_network_enabled=(
+                settings.launch.coding_agent_provider_network_enabled
+            ),
+            native_credential_enabled=True,
+        )
+        resources.callback(action.close)
+        return action.recover_existing(
+            frontier=handoff.frontier,
+            operation_id=unprojected_tails[0].operation_id,
+        )
+
+
+def _unprojected_action_tails(
+    projected: RunActionLedgerSnapshot,
+    live: RunActionLedgerSnapshot,
+) -> tuple[RunActionOperationTail, ...]:
+    """Return only durable operations not yet consumed by the checkpoint."""
+
+    if (
+        type(projected) is not RunActionLedgerSnapshot
+        or type(live) is not RunActionLedgerSnapshot
+    ):
+        raise ProductionEvolutionError(
+            "production evolution action ledgers are invalid"
+        )
+    live.require_predecessor(projected)
+    projected_tails = {tail.operation_id: tail for tail in projected.operation_tails}
+    return tuple(
+        tail
+        for tail in live.operation_tails
+        if projected_tails.get(tail.operation_id) != tail
+    )
 
 
 def _configured_image_authority(

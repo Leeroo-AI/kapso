@@ -22,7 +22,10 @@ from kapso.cross_run.launch.run_state_publisher import (
     ReconciledRunFrontier,
     RunStatePublisher,
 )
-from kapso.cross_run.launch.workspace import ActiveLaunchWorkspace
+from kapso.cross_run.launch.workspace import (
+    ActiveLaunchWorkspace,
+    StarterWorkspaceBuilder,
+)
 from kapso.cross_run.settings import CrossRunSettings
 
 
@@ -61,6 +64,37 @@ class PreparedRunHandoff:
         ):
             raise LaunchHandoffError(
                 "prepared run handoff contains mixed launch, state, or repository authority"
+            )
+        self.active_workspace.require_control_authority()
+        self.frontier.require_current(self.publisher)
+
+    def close(self) -> None:
+        self.active_workspace.close()
+
+
+@dataclass(frozen=True)
+class PreparedRunActionRecoveryHandoff:
+    """Local control authority that exists only to reconcile durable actions."""
+
+    active_workspace: ActiveLaunchWorkspace
+    publisher: RunStatePublisher
+    frontier: ReconciledRunFrontier
+    identity: LaunchBootstrapIdentity
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.active_workspace) is not ActiveLaunchWorkspace
+            or type(self.publisher) is not RunStatePublisher
+            or type(self.frontier) is not ReconciledRunFrontier
+            or type(self.identity) is not LaunchBootstrapIdentity
+            or self.publisher._authority is not self.active_workspace
+            or self.identity
+            != LaunchBootstrapIdentity.from_bootstrap_pin(
+                self.active_workspace.bootstrap_pin
+            )
+        ):
+            raise LaunchHandoffError(
+                "action recovery handoff contains mixed launch authority"
             )
         self.active_workspace.require_control_authority()
         self.frontier.require_current(self.publisher)
@@ -169,9 +203,54 @@ def prepare_resumed_run_handoff(
         return handoff
 
 
+def prepare_run_action_recovery_handoff(
+    *,
+    coordinator: LaunchBootstrapCoordinator,
+    settings: CrossRunSettings,
+    run_root: Path,
+) -> PreparedRunActionRecoveryHandoff:
+    """Reopen the last reconciled frontier before recovering its action ledger."""
+
+    if (
+        type(coordinator) is not LaunchBootstrapCoordinator
+        or type(settings) is not CrossRunSettings
+        or coordinator._settings is not settings
+        or not isinstance(run_root, Path)
+    ):
+        raise LaunchHandoffError(
+            "action recovery handoff requires exact configured authority"
+        )
+    with ExitStack() as resources:
+        active = StarterWorkspaceBuilder(settings).reopen(run_root)
+        resources.callback(active.close)
+        if (
+            active.bootstrap_pin.launch_manifest.launch_request.binding
+            != coordinator._binding
+        ):
+            raise LaunchHandoffError(
+                "action recovery launch differs from its configured task binding"
+            )
+        publisher = RunStatePublisher(active, settings.launch)
+        frontier = publisher.load_reconciled()
+        if frontier is None:
+            raise LaunchHandoffError(
+                "action recovery requires one reconciled run frontier"
+            )
+        handoff = PreparedRunActionRecoveryHandoff(
+            active_workspace=active,
+            publisher=publisher,
+            frontier=frontier,
+            identity=LaunchBootstrapIdentity.from_bootstrap_pin(active.bootstrap_pin),
+        )
+        resources.pop_all()
+        return handoff
+
+
 __all__ = [
     "LaunchHandoffError",
     "PreparedRunHandoff",
+    "PreparedRunActionRecoveryHandoff",
     "prepare_fresh_run_handoff",
+    "prepare_run_action_recovery_handoff",
     "prepare_resumed_run_handoff",
 ]

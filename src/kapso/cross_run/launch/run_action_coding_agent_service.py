@@ -11,7 +11,10 @@ from pathlib import Path
 
 from kapso.cross_run.docker.runtime import DockerImageAuthority, PinnedDockerRuntime
 from kapso.cross_run.launch.boundary import publish_run_boundary
-from kapso.cross_run.launch.handoff import PreparedRunHandoff
+from kapso.cross_run.launch.handoff import (
+    PreparedRunActionRecoveryHandoff,
+    PreparedRunHandoff,
+)
 from kapso.cross_run.launch.production import ProductionLaunchServices
 from kapso.cross_run.launch.resume_contracts import RunSafetyBoundary
 from kapso.cross_run.launch.run_action_coding_agent_contracts import (
@@ -55,9 +58,11 @@ from kapso.cross_run.launch.run_action_docker_resources import (
 )
 from kapso.cross_run.launch.run_action_gate import RunFrontierActionGate
 from kapso.cross_run.launch.run_action_recovery import (
+    RunActionRecoveredOperation,
     RunActionRecoveryCoordinator,
     RunActionRecoveryImplementation,
     RunActionRecoveryImplementationRegistry,
+    RunActionRecoveryReport,
 )
 from kapso.cross_run.launch.run_action_store import RunActionExecutionEventKind
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
@@ -75,12 +80,14 @@ class ProductionCodingAgentActionError(RuntimeError):
 class ProductionCodingAgentActionResult:
     """One accepted provider result and its reconciled successor frontier."""
 
+    request: CodingAgentRunActionRequest
     result: CodingAgentRunActionResultEnvelope
     frontier: ReconciledRunFrontier
 
     def __post_init__(self) -> None:
         if (
-            type(self.result) is not CodingAgentRunActionResultEnvelope
+            type(self.request) is not CodingAgentRunActionRequest
+            or type(self.result) is not CodingAgentRunActionResultEnvelope
             or type(self.frontier) is not ReconciledRunFrontier
         ):
             raise ProductionCodingAgentActionError(
@@ -94,7 +101,7 @@ class ProductionCodingAgentAction:
     def __init__(
         self,
         *,
-        handoff: PreparedRunHandoff,
+        handoff: PreparedRunHandoff | PreparedRunActionRecoveryHandoff,
         services: ProductionLaunchServices,
         gate: RunFrontierActionGate,
         coordinator: RunActionRecoveryCoordinator,
@@ -104,7 +111,11 @@ class ProductionCodingAgentAction:
         recovery_poll_interval_seconds: int,
     ) -> None:
         if (
-            type(handoff) is not PreparedRunHandoff
+            type(handoff)
+            not in {
+                PreparedRunHandoff,
+                PreparedRunActionRecoveryHandoff,
+            }
             or type(services) is not ProductionLaunchServices
             or type(gate) is not RunFrontierActionGate
             or type(coordinator) is not RunActionRecoveryCoordinator
@@ -166,40 +177,117 @@ class ProductionCodingAgentAction:
             workspace_access=self.interpretation_policy.workspace_access,
             boundary_identity=self.boundary_identity,
         )
+        return self._recover_requested(
+            frontier=action_frontier,
+            request=request,
+        )
+
+    def recover_existing(
+        self,
+        *,
+        frontier: ReconciledRunFrontier,
+        operation_id: str,
+    ) -> ProductionCodingAgentActionResult:
+        """Recover and return one already-reserved production request exactly."""
+
+        self._require_current()
+        if (
+            type(frontier) is not ReconciledRunFrontier
+            or not isinstance(operation_id, str)
+            or not operation_id
+        ):
+            raise ProductionCodingAgentActionError(
+                "existing coding-agent action identity is invalid"
+            )
         while True:
             self._require_current()
-            report = self._coordinator.recover(action_frontier)
+            report = self._coordinator.recover(frontier)
+            if report.is_complete:
+                break
+            time.sleep(self._recovery_poll_interval_seconds)
+        recovered = self._coordinator.read_terminal_operation(
+            frontier,
+            operation_id,
+        )
+        if recovered.request_payload is None:
+            raise ProductionCodingAgentActionError(
+                "existing coding-agent action lacks an accepted request"
+            )
+        request = CodingAgentRunActionRequest.from_json_bytes(recovered.request_payload)
+        return self._finish_recovered(
+            frontier=frontier,
+            report=report,
+            recovered=recovered,
+            request=request,
+        )
+
+    def _recover_requested(
+        self,
+        *,
+        frontier: ReconciledRunFrontier,
+        request: CodingAgentRunActionRequest,
+    ) -> ProductionCodingAgentActionResult:
+        while True:
+            self._require_current()
+            report = self._coordinator.recover(frontier)
             if report.is_complete:
                 break
             time.sleep(self._recovery_poll_interval_seconds)
         matching = tuple(
             recovered
             for recovered in report.recovered_operations
-            if recovered.events[0].reservation.intent.operation_id
-            == request.operation_id
+            if recovered.operation_id == request.operation_id
         )
+        if len(matching) != 1:
+            raise ProductionCodingAgentActionError(
+                "coding-agent action did not yield one accepted terminal result"
+            )
+        return self._finish_recovered(
+            frontier=frontier,
+            report=report,
+            recovered=matching[0],
+            request=request,
+        )
+
+    def _finish_recovered(
+        self,
+        *,
+        frontier: ReconciledRunFrontier,
+        report: RunActionRecoveryReport,
+        recovered: RunActionRecoveredOperation,
+        request: CodingAgentRunActionRequest,
+    ) -> ProductionCodingAgentActionResult:
         if (
-            len(matching) != 1
-            or matching[0].events[-1].event_kind
+            recovered.operation_id != request.operation_id
+            or recovered.events[-1].event_kind
             is not RunActionExecutionEventKind.RESULT_ACCEPTED
-            or matching[0].accepted_result_payload is None
+            or recovered.accepted_result_payload is None
+            or request.interpretation_policy != self.interpretation_policy
         ):
             raise ProductionCodingAgentActionError(
                 "coding-agent action did not yield one accepted terminal result"
             )
-        result = read_canonical_coding_agent_result(matching[0].accepted_result_payload)
+        request.require_policy(self.interpretation_policy)
+        result = read_canonical_coding_agent_result(recovered.accepted_result_payload)
         result.validate_against(
             policy=self.interpretation_policy,
             request=request,
         )
-        reconciled = publish_run_boundary(
-            publisher=self._handoff.publisher,
-            frontier=action_frontier,
-            security_authority=self._services.security_authority,
-            release_use_authority=self._services.release_use_authority,
-            boundary=boundary,
-        )
+        reconciled = frontier
+        if report.live_ledger != frontier.projection.action_ledger:
+            reconciled = publish_run_boundary(
+                publisher=self._handoff.publisher,
+                frontier=frontier,
+                security_authority=self._services.security_authority,
+                release_use_authority=self._services.release_use_authority,
+                boundary=_safety_boundary(self.interpretation_policy.workspace_access),
+            )
+        elif report.recovered_operations:
+            raise ProductionCodingAgentActionError(
+                "reconciled action unexpectedly remained in recovery report"
+            )
         return ProductionCodingAgentActionResult(
+            request=request,
             result=result,
             frontier=reconciled,
         )
@@ -236,7 +324,7 @@ class ProductionCodingAgentAction:
 
 def build_production_coding_agent_action(
     *,
-    handoff: PreparedRunHandoff,
+    handoff: PreparedRunHandoff | PreparedRunActionRecoveryHandoff,
     services: ProductionLaunchServices,
     settings: CrossRunSettings,
     image_authority: DockerImageAuthority,
@@ -252,7 +340,11 @@ def build_production_coding_agent_action(
     """Compose the existing gate, adapter, interpreter, cleanup, and brokers."""
 
     if (
-        type(handoff) is not PreparedRunHandoff
+        type(handoff)
+        not in {
+            PreparedRunHandoff,
+            PreparedRunActionRecoveryHandoff,
+        }
         or type(services) is not ProductionLaunchServices
         or type(settings) is not CrossRunSettings
         or type(image_authority) is not DockerImageAuthority

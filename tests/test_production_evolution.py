@@ -13,6 +13,9 @@ from kapso.cross_run.launch.production_evolution import (
     execute_production_evolution,
     ProductionEvolutionError,
 )
+from test_launch_resolver import resolver_case
+from test_run_frontier_action_gate import _action_case, _reserve_ideation_agent
+from test_run_state_publisher import publisher_case
 
 _CANONICAL_CONFIG_PATH = "src/kapso/config.yaml"
 
@@ -150,3 +153,26 @@ def test_resume_prompt_inputs_must_match_the_pinned_fresh_launch(tmp_path):
             goal=goal,
             additional_context=context + " changed",
         )
+
+
+def test_resume_recovers_only_actions_ahead_of_the_checkpoint(
+    publisher_case,
+) -> None:
+    _publisher, frontier, _security, gate = _action_case(publisher_case)
+    projected = frontier.projection.action_ledger
+
+    assert not production_evolution._unprojected_action_tails(
+        projected,
+        projected,
+    )
+
+    reservation = _reserve_ideation_agent(gate, frontier)
+    unprojected = production_evolution._unprojected_action_tails(
+        projected,
+        gate._publisher.action_ledger_snapshot(),
+    )
+
+    assert tuple(tail.operation_id for tail in unprojected) == (
+        reservation.intent.operation_id,
+    )
+    publisher_case["active"].close()

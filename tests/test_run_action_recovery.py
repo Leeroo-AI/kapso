@@ -4244,6 +4244,45 @@ def test_terminal_replay_reads_accepted_bytes_without_implementation_use(
     assert not adapter.result_interpreter.interpret_calls
 
 
+def test_terminal_read_survives_action_ledger_projection(
+    publisher_case,
+) -> None:
+    frontier, gate, reservation, request_payload = _reserved_case(publisher_case)
+    _append_result_accepted(gate, reservation)
+    coordinator = _recovery_coordinator(
+        gate,
+        _FakeExecutionAdapter(reservation.intent.boundary_identity),
+    )
+    recovered_report = coordinator.recover(frontier)
+    publisher = gate._publisher
+    successor_bundle, successor_checkpoint = _successor_at_boundary(
+        publisher_case,
+        publisher,
+        frontier,
+        RunSafetyBoundary.IMPLEMENTATION,
+    )
+    projected_frontier = publisher.publish(
+        publisher.issue_publication_permit(
+            frontier,
+            successor_checkpoint,
+            successor_bundle,
+        ),
+        successor_checkpoint,
+        successor_bundle,
+    )
+
+    projected_report = coordinator.recover(projected_frontier)
+    recovered = coordinator.read_terminal_operation(
+        projected_frontier,
+        reservation.intent.operation_id,
+    )
+
+    assert recovered_report.recovered_operations
+    assert not projected_report.recovered_operations
+    assert recovered.request_payload == request_payload
+    assert recovered.accepted_result_payload == b'{"accepted_result":"complete"}'
+
+
 def test_provider_termination_replays_without_implementation_use(
     publisher_case,
 ) -> None:
@@ -4258,6 +4297,7 @@ def test_provider_termination_replays_without_implementation_use(
         RunActionExecutionEventKind.PROVIDER_TERMINATED
     )
     assert report.recovered_operations[0].accepted_result_payload is None
+    assert report.recovered_operations[0].request_payload is None
     assert not adapter.prepare_calls
     assert not adapter.continuation_calls
     assert not adapter.inspect_calls
@@ -4632,6 +4672,7 @@ def test_recovered_operation_rejects_malformed_accepted_prefix(
     ):
         RunActionRecoveredOperation(
             events=(accepted_event,),
+            request_payload=b'{"request":"complete"}',
             accepted_result_payload=b'{"accepted_result":"complete"}',
         )
 

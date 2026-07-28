@@ -16,6 +16,7 @@ from weakref import WeakKeyDictionary, WeakValueDictionary
 
 from kapso.cross_run.canonical import (
     require_content_id,
+    require_identifier,
     tree_or_blob_digest,
 )
 from kapso.cross_run.launch.checkpoint_contracts import RunCheckpointStatus
@@ -1003,7 +1004,7 @@ class _RunActionActivationOwnedResources:
     spawn_commit: RunActionSpawnCommit
     adapter_prepared_execution: RunActionPreparedExecution
     adapter_spawn_commit: RunActionSpawnCommit
-    request_payload: bytes
+    request_payload: bytes | None
     credential_issue_response: RunActionCredentialIssueResponse | None
     credential_broker_registry: RunActionCredentialBrokerRegistry
     credential_materialization: RunActionCredentialMaterialization | None
@@ -4861,6 +4862,7 @@ class RunActionRecoveredOperation:
     """One terminal durable prefix and its complete accepted bytes, if any."""
 
     events: tuple[RunActionExecutionEvent, ...]
+    request_payload: bytes
     accepted_result_payload: bytes | None
 
     def __post_init__(self) -> None:
@@ -4886,6 +4888,19 @@ class RunActionRecoveredOperation:
                 is RunActionExecutionEventKind.RESULT_ACCEPTED
             )
             != (self.accepted_result_payload is not None)
+            or (self.request_payload is not None)
+            != (self.accepted_result_payload is not None)
+            or (
+                self.request_payload is not None
+                and (
+                    type(self.request_payload) is not bytes
+                    or not self.request_payload
+                    or tree_or_blob_digest(self.request_payload)
+                    != self.events[0].reservation.request_blob.digest
+                    or len(self.request_payload)
+                    != self.events[0].reservation.request_blob.size_bytes
+                )
+            )
             or (
                 self.accepted_result_payload is not None
                 and (
@@ -5064,6 +5079,53 @@ class RunActionRecoveryCoordinator:
                 workspace_lock_descriptor,
             )
             return self._report(frontier)
+
+    def read_terminal_operation(
+        self,
+        frontier: ReconciledRunFrontier,
+        operation_id: str,
+    ) -> RunActionRecoveredOperation:
+        """Read one exact terminal request/result after ledger reconciliation."""
+
+        self._require_owner_process()
+        require_identifier(operation_id, "run action recovery operation ID")
+        with ExitStack() as descriptors:
+            self._publisher._hold_current(frontier, descriptors)
+            self._store.lock_workspace(
+                RunFrontierWorkspaceAccess.READ_ONLY,
+                descriptors,
+            )
+            inspection = self._store.inspect()
+            events = inspection.events_for(operation_id)
+            if events[-1].event_kind not in _TERMINAL_KINDS:
+                raise RunActionRecoveryError(
+                    "run action recovery operation is not terminal"
+                )
+            with self._store._recovery_session(
+                events[0].reservation,
+                _authority=_RUN_ACTION_RECOVERY_AUTHORITY,
+            ) as session:
+                if session.events != events:
+                    raise RunActionRecoveryError(
+                        "terminal run action changed during exact read"
+                    )
+                request_payload = (
+                    session.read_request()
+                    if events[-1].event_kind
+                    is RunActionExecutionEventKind.RESULT_ACCEPTED
+                    else None
+                )
+                accepted_payload = (
+                    session.read_decided_result(events[-2].result_decision)
+                    if events[-1].event_kind
+                    is RunActionExecutionEventKind.RESULT_ACCEPTED
+                    else None
+                )
+            return RunActionRecoveredOperation(
+                events=events,
+                request_payload=request_payload,
+                accepted_result_payload=accepted_payload,
+            )
 
     def _recover_session(
         self,
@@ -6423,6 +6485,12 @@ class RunActionRecoveryCoordinator:
                     raise RunActionRecoveryError(
                         "terminal run action changed during report construction"
                     )
+                request_payload = (
+                    session.read_request()
+                    if events[-1].event_kind
+                    is RunActionExecutionEventKind.RESULT_ACCEPTED
+                    else None
+                )
                 accepted_payload = (
                     session.read_decided_result(events[-2].result_decision)
                     if events[-1].event_kind
@@ -6432,6 +6500,7 @@ class RunActionRecoveryCoordinator:
             recovered.append(
                 RunActionRecoveredOperation(
                     events=events,
+                    request_payload=request_payload,
                     accepted_result_payload=accepted_payload,
                 )
             )
