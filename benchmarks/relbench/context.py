@@ -418,25 +418,19 @@ def _resources(spec: TaskSpec, has_gpu: bool, num_cpus: int, mem_gb: int, gpu_na
         gpu_line = "no GPU on this machine"
     return f"""
 Resources & engineering:
-- Hardware: {gpu_line}; ~{num_cpus} CPUs; ~{mem_gb} GB RAM. Parallelize dataloading and
-  duckdb with the CPU count; watch memory on big tables (project columns early,
-  prefer duckdb over pandas for joins/aggregations on millions of rows).
-- Persistent cache: $KAPSO_SHARED_CACHE_DIR survives across experiments. Store text
-  embeddings, materialized graphs, engineered feature matrices, and per-model val/test
-  predictions there, keyed by a content/version string. Check-before-compute.
-- Install any missing pip package quietly at the top of main.py (pip install -q).
-  Any library and any modeling approach is allowed — including open pretrained
-  models/checkpoints and synthetic-data pretraining — subject only to the
-  data-access and integrity rules above (note the named exclusion: no weights
-  of the compared leaderboard methods).
-- Match the INSTALLED library APIs (print versions in your EDA) — modern majors have
-  removed legacy kwargs. Known traps here: lightgbm 4.x (`lgb.train` takes
-  callbacks=[lgb.early_stopping(N), lgb.log_evaluation(0)]; early_stopping_rounds /
-  verbose_eval raise TypeError) and sklearn >=1.2 (GradientBoostingRegressor
-  loss='absolute_error'/'squared_error', not 'lad'/'ls'). When a run fails on such a
-  TypeError/InvalidParameterError, fix the API usage — do not abandon the approach.
-- Suppress warnings and progress bars (tqdm disable) — logs must stay readable.
-- Structure code across a few small modules; main.py orchestrates end to end.
+- Hardware: {gpu_line}; ~{num_cpus} CPUs; ~{mem_gb} GB RAM. Prefer duckdb over
+  pandas for big joins/aggregations; project columns early.
+- Persistent cache: $KAPSO_SHARED_CACHE_DIR survives across experiments —
+  store embeddings, feature matrices, and per-model val/test predictions
+  there, keyed by content/version. Check-before-compute.
+- pip install -q anything missing at the top of main.py. Any library or
+  approach is allowed subject to the data-access rules above.
+- Match INSTALLED library APIs (print versions in EDA). Known traps:
+  lightgbm 4.x wants callbacks=[lgb.early_stopping(N), lgb.log_evaluation(0)]
+  (early_stopping_rounds/verbose_eval raise TypeError); sklearn >=1.2 wants
+  loss='absolute_error'/'squared_error'. Fix API usage on such errors — do
+  not abandon the approach.
+- Suppress warnings/progress bars; a few small modules, main.py orchestrates.
 """
 
 
