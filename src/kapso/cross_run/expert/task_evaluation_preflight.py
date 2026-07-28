@@ -239,7 +239,7 @@ class TaskEvaluationPreflightCoordinator:
         settings: ExpertValidationSettings,
         plan_reservation_authority: TaskEvaluationPlanReservationAuthority,
         candidate_reader: TaskEvaluationCandidateReader,
-        source_base_provider: TaskEvaluationSourceBaseProvider,
+        source_base_provider: TaskEvaluationSourceBaseProvider | None,
         adapter_provider: TaskEvaluationAdapterProvider,
         current_release_authority: TaskEvaluationCurrentReleaseAuthority,
         monotonic_clock: Callable[[], float],
@@ -413,6 +413,10 @@ class TaskEvaluationPreflightCoordinator:
                     "task-evaluation candidate source-base authority is partial"
                 )
             return None
+        if self.source_base_provider is None:
+            raise TaskEvaluationPreflightError(
+                "task-evaluation source-base authority is unavailable"
+            )
         limits = self._remaining_limits(
             candidate=candidate,
             source_base=None,

@@ -3,15 +3,27 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
+
+import pytest
 
 import kapso.cli as cli_module
 import kapso.cross_run.operations as operations_module
 from kapso.cli import main
 from kapso.core.config import load_effective_config
 from kapso.cross_run.catalog.service import CrossRunCatalog
-from kapso.cross_run.contracts import CompletionState, ExpertPromotionState
+from kapso.cross_run.contracts import (
+    CompletionState,
+    ExpertPromotionState,
+    ExpertValidationStage,
+)
+from kapso.cross_run.expert.providers import GitHubExpertCurrentReleaseProvider
+from kapso.cross_run.expert.task_evaluation_execution import (
+    TaskEvaluationExecutionProviderRegistry,
+    project_prepared_task_evaluation_cases,
+)
 from kapso.cross_run.operations import (
     GitHubOperationServices,
     capture_cross_run,
@@ -27,6 +39,11 @@ from test_expert_proposal import BootstrapProposalRunner, bootstrap_output
 from test_expert_review import _review_fixture
 from test_expert_publication_eligibility import _coordinator, _publish_matrix
 from test_expert_promotion_decision import _settings as promotion_settings
+from test_expert_release_matrix_reservation import _bootstrap_release_matrix_fixture
+from test_expert_task_evaluation_execution_store import (
+    _DenylistAuthority,
+    _Provider,
+)
 from test_expert_triggers import trigger_packet, trigger_settings
 from test_knowledge_snapshot_publisher import RecordingPublicationAuthority
 from test_launch_bootstrap import _fresh_coordinator
@@ -35,6 +52,22 @@ from test_launch_resolver import resolver_case
 
 _CONFIG_PATH = "src/kapso/config.yaml"
 _COMMITTED_AT = "2026-07-27T12:00:00Z"
+
+
+class _AbsentExpertResolver:
+    def diagnose_repository(self, scope_id, artifact_kind):
+        assert scope_id == "ml_ai"
+        assert artifact_kind.value == "expert_base_release"
+        return SimpleNamespace(
+            repository_full_name="Leeroo-AI/kapso-expert",
+            repository_node_id="expert_repo_node",
+        )
+
+    def read_current_pointer_state(self, scope_id, artifact_kind, *, allow_missing):
+        assert scope_id == "ml_ai"
+        assert artifact_kind.value == "expert_base_release"
+        assert allow_missing is True
+        return SimpleNamespace(pointer=None, head_commit_sha="a" * 40)
 
 
 def test_capture_command_runs_the_real_pipeline_and_reports_exact_bundle(tmp_path):
@@ -365,6 +398,138 @@ def test_validate_expert_runs_the_existing_restart_aware_review_stage(
     assert result["transition_id"] != snapshot.transition.transition_id
     assert result["accepted_stage_result_ids"][-1].startswith(
         "expert-automated-review-stage-result:sha256:"
+    )
+
+
+def test_validate_expert_recovers_and_publishes_bootstrap_release_matrix(
+    tmp_path,
+    monkeypatch,
+):
+    validation_store, snapshot, _prepared_plan, adapter_provider = (
+        _bootstrap_release_matrix_fixture(tmp_path, monkeypatch)
+    )
+    current_release = GitHubExpertCurrentReleaseProvider(_AbsentExpertResolver())
+    validation_store.reducer.current_release_provider = current_release
+    services = operations_module.ExpertValidationOperationServices(
+        candidate_store=validation_store.reducer.candidate_store,
+        validation_store=validation_store,
+        task_adapter_store=adapter_provider,
+    )
+    settings = load_effective_config(_CONFIG_PATH, "GENERIC").cross_run
+    validation_settings = validation_store.settings
+    settings = replace(
+        settings,
+        docker=validation_settings.task_evaluation_provider.runtime,
+        expert=replace(
+            settings.expert,
+            validation=validation_settings,
+        ),
+    )
+    github = GitHubOperationServices(
+        resolver=current_release.resolver,
+        materializer=object(),
+        publisher=object(),
+    )
+    runtime = {}
+    providers = []
+
+    def registry(*, prepared_request, workspace_root):
+        assert workspace_root == (tmp_path / "state").resolve()
+        runtime["prepared"] = prepared_request
+        provider_keys = tuple(
+            sorted(
+                {
+                    case.provider_key
+                    for case in project_prepared_task_evaluation_cases(prepared_request)
+                },
+                key=lambda provider_key: provider_key.identity,
+            )
+        )
+        created = tuple(
+            _Provider(validation_store.root, provider_key)
+            for provider_key in provider_keys
+        )
+        providers.extend(created)
+        return TaskEvaluationExecutionProviderRegistry(prepared_request, created)
+
+    monkeypatch.setattr(operations_module, "_settings", lambda *_arguments: settings)
+    monkeypatch.setattr(
+        operations_module,
+        "_github_services",
+        lambda _settings, _state_root: github,
+    )
+    monkeypatch.setattr(
+        operations_module,
+        "_expert_validation_services",
+        lambda _settings, _state_root, _github: services,
+    )
+    monkeypatch.setattr(
+        operations_module,
+        "build_task_evaluation_docker_provider_registry",
+        registry,
+    )
+    monkeypatch.setattr(
+        operations_module,
+        "_policy_services",
+        lambda _settings, _state_root, _github: SimpleNamespace(
+            security_authority=_DenylistAuthority(runtime["prepared"]),
+        ),
+    )
+    request_path = tmp_path / "matrix.json"
+    request_path.write_text(
+        json.dumps(
+            {
+                "candidate_id": snapshot.state.candidate_id,
+                "expected_transition_id": snapshot.transition.transition_id,
+                "evaluator_result": None,
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    coordinator = operations_module.ExpertReleaseMatrixStageCoordinator
+    original_publish = coordinator.publish_completed
+
+    def interrupt_after_execution(self, **_arguments):
+        raise RuntimeError("interrupt before typed matrix publication")
+
+    monkeypatch.setattr(coordinator, "publish_completed", interrupt_after_execution)
+    with pytest.raises(RuntimeError, match="interrupt before typed"):
+        validate_expert_cross_run(
+            config_path=_CONFIG_PATH,
+            mode="GENERIC",
+            request_path=request_path,
+            state_root=tmp_path / "state",
+        )
+    execution_count = sum(len(provider.execution_calls) for provider in providers)
+    assert execution_count > 0
+    monkeypatch.setattr(coordinator, "publish_completed", original_publish)
+    validation_store = ExpertValidationStore(
+        validation_store.root,
+        validation_store.state_root,
+        validation_store.settings,
+        validation_store.reducer,
+    )
+    services = operations_module.ExpertValidationOperationServices(
+        candidate_store=validation_store.reducer.candidate_store,
+        validation_store=validation_store,
+        task_adapter_store=adapter_provider,
+    )
+
+    result = validate_expert_cross_run(
+        config_path=_CONFIG_PATH,
+        mode="GENERIC",
+        request_path=request_path,
+        state_root=tmp_path / "state",
+    )
+
+    assert result["transition_id"] != snapshot.transition.transition_id
+    assert result["accepted_stage_result_ids"][-1].startswith(
+        "expert-release-matrix-stage-result:sha256:"
+    )
+    assert result["next_stage"] == ExpertValidationStage.PUBLICATION_ELIGIBILITY.value
+    assert (
+        sum(len(provider.execution_calls) for provider in providers) == execution_count
     )
 
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import stat
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
@@ -41,8 +42,27 @@ from kapso.cross_run.expert.revocation import ExpertReleaseRevocationCoordinator
 from kapso.cross_run.expert.promotion_authority import (
     ExpertPublicationEligibilityCoordinator,
 )
+from kapso.cross_run.expert.promotion_plan import derive_expert_release_matrix_plan
+from kapso.cross_run.expert.promotion_stage import (
+    ExpertReleaseMatrixStageCoordinator,
+)
 from kapso.cross_run.expert.proposal import ExpertCandidateProposalEngine
 from kapso.cross_run.expert.store import ExpertCandidateStore
+from kapso.cross_run.expert.task_evaluation_authority import (
+    TaskEvaluationFreshAuthorityCoordinator,
+)
+from kapso.cross_run.expert.task_evaluation_docker_bootstrap import (
+    build_task_evaluation_docker_provider_registry,
+)
+from kapso.cross_run.expert.task_evaluation_execution_journal import (
+    task_evaluation_execution_schedule,
+)
+from kapso.cross_run.expert.task_evaluation_execution_store import (
+    ExpertTaskEvaluationExecutionStore,
+)
+from kapso.cross_run.expert.task_evaluation_preflight import (
+    TaskEvaluationPreflightCoordinator,
+)
 from kapso.cross_run.expert.triggers import (
     ExpertTriggerEvidencePacket,
     ExpertTriggerEvaluator,
@@ -56,6 +76,7 @@ from kapso.cross_run.expert.validation import (
     ExpertValidationReducer,
 )
 from kapso.cross_run.expert.validation_store import ExpertValidationStore
+from kapso.cross_run.expert.validation_snapshots import ExpertValidationSnapshot
 from kapso.cross_run.github.command import GitHubCommandClient, SubprocessCommandRunner
 from kapso.cross_run.github.materializer import GitHubArtifactMaterializer
 from kapso.cross_run.github.publisher import AutonomousGitHubPublisher
@@ -551,10 +572,19 @@ def validate_expert_cross_run(
                 candidate_id=candidate_id,
                 release_matrix_stage_result_id=matrix_result_id,
             ).snapshot
-        elif stage in {
-            ExpertValidationStage.SOURCE_RUN_REPLAY,
-            ExpertValidationStage.RELEASE_MATRIX,
-        }:
+        elif stage is ExpertValidationStage.RELEASE_MATRIX:
+            if request["evaluator_result"] is not None:
+                raise CrossRunOperationError(
+                    "typed validation stage cannot consume a generic evaluator result"
+                )
+            snapshot = _execute_release_matrix_stage(
+                settings=settings,
+                state_root=root,
+                github=github,
+                services=services,
+                snapshot=snapshot,
+            )
+        elif stage is ExpertValidationStage.SOURCE_RUN_REPLAY:
             if request["evaluator_result"] is not None:
                 raise CrossRunOperationError(
                     "typed validation stage cannot consume a generic evaluator result"
@@ -571,6 +601,125 @@ def validate_expert_cross_run(
                 result=ExpertEvaluatorResultRecord.from_dict(evaluator_result),
             ).snapshot
     return _validation_summary(snapshot)
+
+
+def _execute_release_matrix_stage(
+    *,
+    settings: CrossRunSettings,
+    state_root: Path,
+    github: GitHubOperationServices,
+    services: ExpertValidationOperationServices,
+    snapshot: ExpertValidationSnapshot,
+) -> ExpertValidationSnapshot:
+    attempt = snapshot.latest_attempt
+    if (
+        snapshot.state.next_stage is not ExpertValidationStage.RELEASE_MATRIX
+        or attempt is None
+    ):
+        raise CrossRunOperationError(
+            "release matrix execution requires the active typed stage"
+        )
+    stored_candidate = services.candidate_store.read(attempt.candidate_id)
+    verified_adapters = tuple(
+        services.task_adapter_store.resolve_exact(
+            task_adapter_manifest_id=pin.task_adapter_manifest_id,
+            verification_receipt_id=pin.verification_receipt_id,
+        )
+        for pin in attempt.task_adapter_pins
+    )
+    prepared_plan = derive_expert_release_matrix_plan(
+        state=snapshot.state,
+        attempt=attempt,
+        accepted_stage_results=snapshot.accepted_stage_results,
+        source_replay_request=None,
+        stored_candidate=stored_candidate,
+        verified_adapters=verified_adapters,
+        validation_policy=settings.expert.validation.policy.validation_policy(),
+        validation_settings=settings.expert.validation,
+    )
+    plan_reservation = services.validation_store.reserve_release_matrix_plan(
+        expected_transition_id=snapshot.transition.transition_id,
+        prepared_plan=prepared_plan,
+    ).reservation
+    current_release = services.validation_store.reducer.current_release_provider
+    if type(current_release) is not GitHubExpertCurrentReleaseProvider:
+        raise CrossRunOperationError(
+            "release matrix requires the configured GitHub CURRENT authority"
+        )
+    prepared_request = TaskEvaluationPreflightCoordinator(
+        settings=settings.expert.validation,
+        plan_reservation_authority=services.validation_store,
+        candidate_reader=services.candidate_store,
+        source_base_provider=None,
+        adapter_provider=services.task_adapter_store,
+        current_release_authority=current_release,
+        monotonic_clock=time.monotonic,
+    ).build(plan_reservation)
+    task_reservation = services.validation_store.reserve_task_evaluation(
+        expected_transition_id=snapshot.transition.transition_id,
+        prepared_request=prepared_request,
+    ).reservation
+    execution_store = ExpertTaskEvaluationExecutionStore(
+        ExpertTaskEvaluationExecutionStore.canonical_root(
+            services.validation_store.root
+        ).resolve(),
+        services.validation_store.root,
+        settings.expert.validation.policy,
+    )
+    provider_registry = build_task_evaluation_docker_provider_registry(
+        prepared_request=prepared_request,
+        workspace_root=state_root,
+    )
+    authority = TaskEvaluationFreshAuthorityCoordinator(
+        reservation_authority=services.validation_store,
+        execution_store=execution_store,
+        current_release_authority=current_release,
+        task_adapter_authority=services.task_adapter_store,
+        security_denylist_authority=(
+            _policy_services(settings, state_root, github).security_authority
+        ),
+    )
+    schedule = task_evaluation_execution_schedule(
+        task_reservation,
+        prepared_request,
+    )
+    with execution_store.reservation_session(
+        reservation_snapshot=task_reservation,
+        prepared_request=prepared_request,
+    ) as session:
+        while len(session.events) < 4 * len(schedule):
+            phase = len(session.events) % 4
+            if phase == 2:
+                handle = session.cleanup_interrupted_spawn(provider_registry)
+                raise CrossRunOperationError(
+                    "task evaluation invocation is permanently interrupted after "
+                    f"spawn commit: {handle.provider_handle_id}"
+                )
+            if phase == 3:
+                session.accept_received_result()
+                continue
+            allocation = session.allocate_expected_leg()
+            spawn = authority.commit_spawn(
+                prepared_request=prepared_request,
+                reservation_id=(task_reservation.reservation.reservation_id),
+                invocation_permit=allocation,
+                provider_registry=provider_registry,
+            )
+            session.record_result_received(spawn.execute())
+            session.accept_received_result()
+        completed = session.completed_execution()
+    return (
+        ExpertReleaseMatrixStageCoordinator(
+            validation_store=services.validation_store,
+            execution_store=execution_store,
+        )
+        .publish_completed(
+            completed_execution=completed,
+            reservation_snapshot=task_reservation,
+            prepared_request=prepared_request,
+        )
+        .snapshot
+    )
 
 
 def publish_expert_cross_run(
