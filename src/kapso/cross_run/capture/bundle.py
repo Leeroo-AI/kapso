@@ -36,9 +36,27 @@ from kapso.cross_run.capture.exporter import (
     CAPTURE_MANIFEST_FILENAME,
 )
 from kapso.cross_run.capture.validator import ValidatedCapture
-from kapso.cross_run.contracts import CaptureManifest, RunBundle
+from kapso.cross_run.contracts import (
+    CaptureManifest,
+    ExpertSourceReplayContextMaterializationReceipt,
+    ExpertSourceReplayStartingArtifact,
+    RunBundle,
+    TaskContextBinding,
+)
+from kapso.cross_run.expert.replay_context import (
+    VerifiedSourceReplayContext,
+    VerifiedSourceReplayStartingArtifact,
+)
+from kapso.cross_run.expert.task_evaluation_materialization import (
+    TaskEvaluationMaterializationLimits,
+)
+from kapso.cross_run.launch.resolver import VerifiedLaunchStartingArtifact
 from kapso.cross_run.record_contracts import SanitationReport
-from kapso.cross_run.settings import CaptureSettings, SanitationSettings
+from kapso.cross_run.settings import (
+    CaptureSettings,
+    ExpertValidationSettings,
+    SanitationSettings,
+)
 
 BUNDLE_MANIFEST_FILENAME = "manifest.json"
 BUNDLE_CURRENT_FILENAME = "current.json"
@@ -58,6 +76,8 @@ class _StoreIdentity:
     objects: tuple[int, int]
     object_payloads: tuple[int, int]
     bundles: tuple[int, int]
+    starting_artifacts: tuple[int, int]
+    runs: tuple[int, int]
 
 
 def _descriptor_identity(descriptor: int) -> tuple[int, int]:
@@ -349,6 +369,67 @@ class RunBundleReader(Protocol):
 class RunBundleStore:
     """Resolve exact bundle IDs without following mutable run pointers."""
 
+    @classmethod
+    def initialize(
+        cls,
+        state_root: str | Path,
+        settings: CaptureSettings,
+        sanitation_settings: SanitationSettings,
+    ) -> RunBundleStore:
+        """Create or reopen the single additive replay-evidence CAS."""
+
+        root = Path(os.path.abspath(state_root))
+        state_path = Path(settings.state_path)
+        if state_path.is_absolute() or root.parts[-len(state_path.parts) :] != (
+            state_path.parts
+        ):
+            raise RunBundlePublicationError(
+                "bundle store is outside the configured workspace state path"
+            )
+        workspace_root = Path(*root.parts[: -len(state_path.parts)])
+        if workspace_root in {Path("/"), Path.home()}:
+            raise RunBundlePublicationError("bundle workspace root is unsafe")
+        with ExitStack() as descriptors:
+            state_descriptor = _open_absolute_directory(
+                workspace_root,
+                descriptors,
+                required_mode=None,
+            )
+            bootstrap_descriptor = state_descriptor
+            fcntl.flock(bootstrap_descriptor, fcntl.LOCK_EX)
+            for name in state_path.parts:
+                state_descriptor = _open_child_directory(
+                    state_descriptor,
+                    name,
+                    descriptors,
+                    mode=_STORE_DIRECTORY_MODE,
+                    create=True,
+                )
+            objects_descriptor = _open_child_directory(
+                state_descriptor,
+                "objects",
+                descriptors,
+                mode=_STORE_DIRECTORY_MODE,
+                create=True,
+            )
+            _open_child_directory(
+                objects_descriptor,
+                "sha256",
+                descriptors,
+                mode=_STORE_DIRECTORY_MODE,
+                create=True,
+            )
+            for name in ("bundles", "starting_artifacts", "runs"):
+                _open_child_directory(
+                    state_descriptor,
+                    name,
+                    descriptors,
+                    mode=_STORE_DIRECTORY_MODE,
+                    create=True,
+                )
+            fcntl.flock(bootstrap_descriptor, fcntl.LOCK_UN)
+        return cls(root, settings, sanitation_settings)
+
     def __init__(
         self,
         state_root: str | Path,
@@ -395,11 +476,27 @@ class RunBundleStore:
                 mode=_STORE_DIRECTORY_MODE,
                 create=False,
             )
+            starting_artifacts_descriptor = _open_child_directory(
+                root_descriptor,
+                "starting_artifacts",
+                descriptors,
+                mode=_STORE_DIRECTORY_MODE,
+                create=False,
+            )
+            runs_descriptor = _open_child_directory(
+                root_descriptor,
+                "runs",
+                descriptors,
+                mode=_STORE_DIRECTORY_MODE,
+                create=False,
+            )
             self.identity = _StoreIdentity(
                 root=_descriptor_identity(root_descriptor),
                 objects=_descriptor_identity(objects_descriptor),
                 object_payloads=_descriptor_identity(object_payload_descriptor),
                 bundles=_descriptor_identity(bundles_descriptor),
+                starting_artifacts=_descriptor_identity(starting_artifacts_descriptor),
+                runs=_descriptor_identity(runs_descriptor),
             )
 
     def read_manifest_exact(
@@ -681,6 +778,535 @@ class RunBundleStore:
             raise RunBundlePublicationError("bundle is absent from local store")
         return stored
 
+    def import_exact(self, bundle: StoredRunBundle) -> StoredRunBundle:
+        """Idempotently add one already verified sanitized bundle closure."""
+
+        if type(bundle) is not StoredRunBundle:
+            raise RunBundlePublicationError(
+                "bundle import requires an exact stored bundle"
+            )
+        manifest = bundle.manifest
+        report = SanitationReport.from_json_bytes(
+            bundle.read_ref(manifest.sanitation_report_ref)
+        )
+        admitted = dict(manifest.checksums)
+        admitted.pop(manifest.sanitation_report_ref)
+        if (
+            len(manifest.checksums) > self.settings.bundle_entry_limit
+            or sum(len(payload) for payload in bundle.artifacts.values())
+            > self.settings.bundle_asset_size_bytes
+            or report.status != "admitted"
+            or report.scope_id != manifest.scope_id
+            or report.task_family_id != manifest.task_context_binding.task_family_id
+            or dict(report.admitted_refs) != admitted
+        ):
+            raise RunBundlePublicationError(
+                "imported bundle differs from its sanitation authority"
+            )
+        with ExitStack() as descriptors:
+            root_descriptor = _open_absolute_directory(
+                self.root,
+                descriptors,
+                required_mode=_STORE_DIRECTORY_MODE,
+            )
+            _require_descriptor_identity(root_descriptor, self.identity.root)
+            fcntl.flock(root_descriptor, fcntl.LOCK_EX)
+            objects_descriptor = _open_child_directory(
+                root_descriptor,
+                "objects",
+                descriptors,
+                mode=_STORE_DIRECTORY_MODE,
+                create=False,
+            )
+            _require_descriptor_identity(objects_descriptor, self.identity.objects)
+            object_payload_descriptor = _open_child_directory(
+                objects_descriptor,
+                "sha256",
+                descriptors,
+                mode=_STORE_DIRECTORY_MODE,
+                create=False,
+            )
+            _require_descriptor_identity(
+                object_payload_descriptor,
+                self.identity.object_payloads,
+            )
+            bundles_descriptor = _open_child_directory(
+                root_descriptor,
+                "bundles",
+                descriptors,
+                mode=_STORE_DIRECTORY_MODE,
+                create=False,
+            )
+            _require_descriptor_identity(bundles_descriptor, self.identity.bundles)
+            self._write_object_payloads(bundle.artifacts, object_payload_descriptor)
+            self._commit_manifest_directory(
+                parent_descriptor=bundles_descriptor,
+                content_key=_bundle_key(manifest.bundle_id),
+                staging_prefix="bundle",
+                payload=manifest.to_json_bytes(),
+            )
+            fcntl.flock(root_descriptor, fcntl.LOCK_UN)
+        imported = self.require_exact(manifest.bundle_id)
+        if imported != bundle:
+            raise RunBundlePublicationError(
+                "imported bundle differs from its exact source"
+            )
+        return imported
+
+    def publish_starting_artifacts(
+        self,
+        *,
+        task_context_binding: TaskContextBinding,
+        launch_artifacts: tuple[VerifiedLaunchStartingArtifact, ...],
+        validation_settings: ExpertValidationSettings,
+    ) -> VerifiedSourceReplayContext:
+        """Persist launch-verified task inputs under replay content identities."""
+
+        if (
+            type(task_context_binding) is not TaskContextBinding
+            or type(launch_artifacts) is not tuple
+            or any(
+                type(item) is not VerifiedLaunchStartingArtifact
+                for item in launch_artifacts
+            )
+            or type(validation_settings) is not ExpertValidationSettings
+        ):
+            raise RunBundlePublicationError(
+                "starting-artifact publication requires exact launch authorities"
+            )
+        verified = tuple(
+            VerifiedSourceReplayStartingArtifact(
+                artifact=ExpertSourceReplayStartingArtifact.mint(
+                    starting_artifact_ref=item.artifact.starting_artifact_ref,
+                    mount_path=item.artifact.mount_path,
+                    materialized_tree_hash=item.artifact.materialized_tree_hash,
+                    source_files=item.artifact.source_files,
+                ),
+                source_contents=item.source_contents,
+            )
+            for item in launch_artifacts
+        )
+        verified = tuple(
+            sorted(
+                verified,
+                key=lambda item: item.artifact.starting_artifact_content_id,
+            )
+        )
+        refs_to_ids = {
+            item.artifact.starting_artifact_ref: (
+                item.artifact.starting_artifact_content_id
+            )
+            for item in verified
+        }
+        if set(refs_to_ids) != set(task_context_binding.starting_artifact_refs):
+            raise RunBundlePublicationError(
+                "starting artifacts differ from their task-context binding"
+            )
+        with ExitStack() as descriptors:
+            root_descriptor = _open_absolute_directory(
+                self.root,
+                descriptors,
+                required_mode=_STORE_DIRECTORY_MODE,
+            )
+            _require_descriptor_identity(root_descriptor, self.identity.root)
+            fcntl.flock(root_descriptor, fcntl.LOCK_EX)
+            objects_descriptor = _open_child_directory(
+                root_descriptor,
+                "objects",
+                descriptors,
+                mode=_STORE_DIRECTORY_MODE,
+                create=False,
+            )
+            object_payload_descriptor = _open_child_directory(
+                objects_descriptor,
+                "sha256",
+                descriptors,
+                mode=_STORE_DIRECTORY_MODE,
+                create=False,
+            )
+            starting_artifacts_descriptor = _open_child_directory(
+                root_descriptor,
+                "starting_artifacts",
+                descriptors,
+                mode=_STORE_DIRECTORY_MODE,
+                create=False,
+            )
+            _require_descriptor_identity(
+                object_payload_descriptor,
+                self.identity.object_payloads,
+            )
+            _require_descriptor_identity(
+                starting_artifacts_descriptor,
+                self.identity.starting_artifacts,
+            )
+            for item in verified:
+                payloads = {
+                    descriptor.relative_path: item.source_contents[
+                        descriptor.relative_path
+                    ]
+                    for descriptor in item.artifact.source_files
+                }
+                self._write_object_payloads(payloads, object_payload_descriptor)
+                self._commit_manifest_directory(
+                    parent_descriptor=starting_artifacts_descriptor,
+                    content_key=_bundle_key(item.artifact.starting_artifact_content_id),
+                    staging_prefix="starting-artifact",
+                    payload=item.artifact.to_json_bytes(),
+                )
+            fcntl.flock(root_descriptor, fcntl.LOCK_UN)
+        return self.materialize_exact(
+            task_context_binding,
+            refs_to_ids,
+            TaskEvaluationMaterializationLimits(
+                maximum_entries=(
+                    validation_settings.policy.task_evaluation_materialization_entry_limit
+                ),
+                maximum_bytes=(
+                    validation_settings.policy.task_evaluation_materialization_byte_limit
+                ),
+                timeout_seconds=(
+                    validation_settings.policy.task_evaluation_materialization_timeout_seconds
+                ),
+            ),
+            validation_settings=validation_settings,
+        )
+
+    def materialize_exact(
+        self,
+        task_context_binding: TaskContextBinding,
+        expected_artifact_content_ids: Mapping[str, str],
+        limits: TaskEvaluationMaterializationLimits,
+        *,
+        validation_settings: ExpertValidationSettings,
+    ) -> VerifiedSourceReplayContext:
+        """Resolve one exact captured task-input closure under remaining limits."""
+
+        if (
+            type(task_context_binding) is not TaskContextBinding
+            or not isinstance(expected_artifact_content_ids, Mapping)
+            or type(limits) is not TaskEvaluationMaterializationLimits
+            or type(validation_settings) is not ExpertValidationSettings
+        ):
+            raise RunBundlePublicationError(
+                "starting-artifact materialization requires exact authorities"
+            )
+        expected = dict(expected_artifact_content_ids)
+        if set(expected) != set(task_context_binding.starting_artifact_refs):
+            raise RunBundlePublicationError(
+                "starting-artifact request differs from its task context"
+            )
+        deadline = time.monotonic() + limits.timeout_seconds
+        verified = []
+        entry_count = 0
+        byte_count = 0
+        with ExitStack() as descriptors:
+            root_descriptor = _open_absolute_directory(
+                self.root,
+                descriptors,
+                required_mode=_STORE_DIRECTORY_MODE,
+            )
+            _require_descriptor_identity(root_descriptor, self.identity.root)
+            fcntl.flock(root_descriptor, fcntl.LOCK_SH)
+            objects_descriptor = _open_child_directory(
+                root_descriptor,
+                "objects",
+                descriptors,
+                mode=_STORE_DIRECTORY_MODE,
+                create=False,
+            )
+            object_payload_descriptor = _open_child_directory(
+                objects_descriptor,
+                "sha256",
+                descriptors,
+                mode=_STORE_DIRECTORY_MODE,
+                create=False,
+            )
+            starting_artifacts_descriptor = _open_child_directory(
+                root_descriptor,
+                "starting_artifacts",
+                descriptors,
+                mode=_STORE_DIRECTORY_MODE,
+                create=False,
+            )
+            _require_descriptor_identity(
+                object_payload_descriptor,
+                self.identity.object_payloads,
+            )
+            _require_descriptor_identity(
+                starting_artifacts_descriptor,
+                self.identity.starting_artifacts,
+            )
+            for artifact_ref, artifact_id in sorted(expected.items()):
+                self._require_materialization_deadline(deadline)
+                artifact = self._read_starting_artifact(
+                    starting_artifacts_descriptor,
+                    artifact_id,
+                )
+                if artifact.starting_artifact_ref != artifact_ref:
+                    raise RunBundlePublicationError(
+                        "starting-artifact reference differs from its identity"
+                    )
+                entry_count += len(artifact.source_files)
+                if entry_count > limits.maximum_entries:
+                    raise RunBundlePublicationError(
+                        "starting artifacts exceed remaining entry budget"
+                    )
+                contents = {}
+                for descriptor in artifact.source_files:
+                    self._require_materialization_deadline(deadline)
+                    payload = _read_regular_file_at(
+                        object_payload_descriptor,
+                        descriptor.digest[7:],
+                        maximum_bytes=self.sanitation_settings.max_file_bytes,
+                        required_mode=_IMMUTABLE_FILE_MODE,
+                    )
+                    byte_count += len(payload)
+                    if byte_count > limits.maximum_bytes:
+                        raise RunBundlePublicationError(
+                            "starting artifacts exceed remaining byte budget"
+                        )
+                    contents[descriptor.relative_path] = payload
+                verified.append(
+                    VerifiedSourceReplayStartingArtifact(
+                        artifact=artifact,
+                        source_contents=contents,
+                    )
+                )
+            fcntl.flock(root_descriptor, fcntl.LOCK_UN)
+        verified_tuple = tuple(
+            sorted(
+                verified,
+                key=lambda item: item.artifact.starting_artifact_content_id,
+            )
+        )
+        policy = validation_settings.policy
+        receipt = ExpertSourceReplayContextMaterializationReceipt.mint(
+            task_context_binding_id=task_context_binding.task_context_binding_id,
+            input_contract_fingerprint=task_context_binding.input_contract_fingerprint,
+            target_contract_fingerprint=(
+                task_context_binding.target_contract_fingerprint
+            ),
+            starting_artifacts=tuple(item.artifact for item in verified_tuple),
+            materializer_id=policy.source_replay_context_materializer_id,
+            materializer_version=policy.source_replay_context_materializer_version,
+        )
+        self._require_materialization_deadline(deadline)
+        return VerifiedSourceReplayContext(
+            receipt=receipt,
+            starting_artifacts=verified_tuple,
+        )
+
+    def _write_object_payloads(
+        self,
+        payloads: Mapping[str, bytes],
+        object_payload_descriptor: int,
+    ) -> None:
+        for payload in payloads.values():
+            if (
+                not isinstance(payload, bytes)
+                or len(payload) > self.sanitation_settings.max_file_bytes
+            ):
+                raise RunBundlePublicationError(
+                    "content-addressed object exceeds its configured bound"
+                )
+            object_name = tree_or_blob_digest(payload)[7:]
+            if os.access(
+                object_name,
+                os.F_OK,
+                dir_fd=object_payload_descriptor,
+                follow_symlinks=False,
+            ):
+                if (
+                    _read_regular_file_at(
+                        object_payload_descriptor,
+                        object_name,
+                        maximum_bytes=self.sanitation_settings.max_file_bytes,
+                        required_mode=_IMMUTABLE_FILE_MODE,
+                    )
+                    != payload
+                ):
+                    raise RunBundlePublicationError(
+                        "content-addressed object collision"
+                    )
+                _discard_staged_regular_file_at(
+                    object_payload_descriptor,
+                    f".{object_name}.tmp",
+                    required_mode=_IMMUTABLE_FILE_MODE,
+                    maximum_bytes=self.sanitation_settings.max_file_bytes,
+                )
+                continue
+            _write_atomic_file_at(
+                object_payload_descriptor,
+                object_name,
+                payload,
+                mode=_IMMUTABLE_FILE_MODE,
+                maximum_staging_bytes=self.sanitation_settings.max_file_bytes,
+            )
+
+    def _commit_manifest_directory(
+        self,
+        *,
+        parent_descriptor: int,
+        content_key: str,
+        staging_prefix: str,
+        payload: bytes,
+    ) -> None:
+        staging_name = f".{staging_prefix}.{content_key}.tmp"
+        if os.access(
+            content_key,
+            os.F_OK,
+            dir_fd=parent_descriptor,
+            follow_symlinks=False,
+        ):
+            with ExitStack() as descriptors:
+                content_descriptor = _open_child_directory(
+                    parent_descriptor,
+                    content_key,
+                    descriptors,
+                    mode=_IMMUTABLE_DIRECTORY_MODE,
+                    create=False,
+                )
+                observed = _read_regular_file_at(
+                    content_descriptor,
+                    BUNDLE_MANIFEST_FILENAME,
+                    maximum_bytes=self.sanitation_settings.max_file_bytes,
+                    required_mode=_IMMUTABLE_FILE_MODE,
+                )
+            if observed != payload:
+                raise RunBundlePublicationError("content-addressed manifest collision")
+            self._discard_manifest_staging(parent_descriptor, staging_name)
+            return
+        self._discard_manifest_staging(parent_descriptor, staging_name)
+        os.mkdir(
+            staging_name,
+            mode=_STORE_DIRECTORY_MODE,
+            dir_fd=parent_descriptor,
+        )
+        os.fsync(parent_descriptor)
+        with ExitStack() as descriptors:
+            staging_descriptor = _open_child_directory(
+                parent_descriptor,
+                staging_name,
+                descriptors,
+                mode=_STORE_DIRECTORY_MODE,
+                create=False,
+            )
+            _write_new_file_at(
+                staging_descriptor,
+                BUNDLE_MANIFEST_FILENAME,
+                payload,
+                mode=_IMMUTABLE_FILE_MODE,
+            )
+            os.fchmod(staging_descriptor, _IMMUTABLE_DIRECTORY_MODE)
+            os.fsync(staging_descriptor)
+        os.rename(
+            staging_name,
+            content_key,
+            src_dir_fd=parent_descriptor,
+            dst_dir_fd=parent_descriptor,
+        )
+        os.fsync(parent_descriptor)
+
+    def _discard_manifest_staging(
+        self,
+        parent_descriptor: int,
+        staging_name: str,
+    ) -> None:
+        if not os.access(
+            staging_name,
+            os.F_OK,
+            dir_fd=parent_descriptor,
+            follow_symlinks=False,
+        ):
+            return
+        metadata = os.stat(
+            staging_name,
+            dir_fd=parent_descriptor,
+            follow_symlinks=False,
+        )
+        mode = stat.S_IMODE(metadata.st_mode)
+        if not stat.S_ISDIR(metadata.st_mode) or mode not in {
+            _STORE_DIRECTORY_MODE,
+            _IMMUTABLE_DIRECTORY_MODE,
+        }:
+            raise RunBundlePublicationError(
+                "content-addressed manifest staging identity is invalid"
+            )
+        with ExitStack() as descriptors:
+            staging_descriptor = _open_child_directory(
+                parent_descriptor,
+                staging_name,
+                descriptors,
+                mode=mode,
+                create=False,
+            )
+            names = _directory_names(
+                staging_descriptor,
+                2,
+                "content-addressed manifest staging closure",
+            )
+            if names not in {(), (BUNDLE_MANIFEST_FILENAME,)}:
+                raise RunBundlePublicationError(
+                    "content-addressed manifest staging closure is invalid"
+                )
+            if names:
+                _read_regular_file_at(
+                    staging_descriptor,
+                    BUNDLE_MANIFEST_FILENAME,
+                    maximum_bytes=self.sanitation_settings.max_file_bytes,
+                    required_mode=_IMMUTABLE_FILE_MODE,
+                )
+            if mode == _IMMUTABLE_DIRECTORY_MODE:
+                os.fchmod(staging_descriptor, _STORE_DIRECTORY_MODE)
+                os.fsync(staging_descriptor)
+            if names:
+                os.unlink(BUNDLE_MANIFEST_FILENAME, dir_fd=staging_descriptor)
+            os.fsync(staging_descriptor)
+        os.rmdir(staging_name, dir_fd=parent_descriptor)
+        os.fsync(parent_descriptor)
+
+    def _read_starting_artifact(
+        self,
+        starting_artifacts_descriptor: int,
+        artifact_id: str,
+    ) -> ExpertSourceReplayStartingArtifact:
+        key = _bundle_key(artifact_id)
+        with ExitStack() as descriptors:
+            artifact_descriptor = _open_child_directory(
+                starting_artifacts_descriptor,
+                key,
+                descriptors,
+                mode=_IMMUTABLE_DIRECTORY_MODE,
+                create=False,
+            )
+            if _directory_names(
+                artifact_descriptor,
+                2,
+                "starting-artifact manifest closure",
+            ) != (BUNDLE_MANIFEST_FILENAME,):
+                raise RunBundlePublicationError(
+                    "starting-artifact manifest closure is not exact"
+                )
+            payload = _read_regular_file_at(
+                artifact_descriptor,
+                BUNDLE_MANIFEST_FILENAME,
+                maximum_bytes=self.sanitation_settings.max_file_bytes,
+                required_mode=_IMMUTABLE_FILE_MODE,
+            )
+        artifact = ExpertSourceReplayStartingArtifact.from_json_bytes(payload)
+        if artifact.starting_artifact_content_id != artifact_id:
+            raise RunBundlePublicationError(
+                "starting-artifact manifest identity changed"
+            )
+        return artifact
+
+    @staticmethod
+    def _require_materialization_deadline(deadline: float) -> None:
+        if time.monotonic() >= deadline:
+            raise RunBundlePublicationError(
+                "starting-artifact materialization deadline expired"
+            )
+
 
 class RunBundlePublisher:
     """Publish one sanitized capture without GitHub calls or interpretation."""
@@ -710,57 +1336,12 @@ class RunBundlePublisher:
         self.state_root = self.root
         self.sanitized_root = self.state_root / "sanitized"
         self.quarantine_root = self.workspace_root / quarantine_path
-        with ExitStack() as descriptors:
-            state_descriptor = _open_absolute_directory(
-                self.workspace_root,
-                descriptors,
-                required_mode=None,
-            )
-            bootstrap_descriptor = state_descriptor
-            fcntl.flock(bootstrap_descriptor, fcntl.LOCK_EX)
-            for name in state_path.parts:
-                state_descriptor = _open_child_directory(
-                    state_descriptor,
-                    name,
-                    descriptors,
-                    mode=_STORE_DIRECTORY_MODE,
-                    create=True,
-                )
-            objects_descriptor = _open_child_directory(
-                state_descriptor,
-                "objects",
-                descriptors,
-                mode=_STORE_DIRECTORY_MODE,
-                create=True,
-            )
-            _open_child_directory(
-                objects_descriptor,
-                "sha256",
-                descriptors,
-                mode=_STORE_DIRECTORY_MODE,
-                create=True,
-            )
-            _open_child_directory(
-                state_descriptor,
-                "bundles",
-                descriptors,
-                mode=_STORE_DIRECTORY_MODE,
-                create=True,
-            )
-            runs_descriptor = _open_child_directory(
-                state_descriptor,
-                "runs",
-                descriptors,
-                mode=_STORE_DIRECTORY_MODE,
-                create=True,
-            )
-            self.runs_identity = _descriptor_identity(runs_descriptor)
-            fcntl.flock(bootstrap_descriptor, fcntl.LOCK_UN)
-        self.store = RunBundleStore(
+        self.store = RunBundleStore.initialize(
             self.root,
             self.settings,
             self.sanitation_settings,
         )
+        self.runs_identity = self.store.identity.runs
 
     def publish(
         self,
@@ -960,11 +1541,13 @@ class RunBundlePublisher:
         ):
             raise RunBundlePublicationError("bundle manifest exceeds configured limits")
         self._write_objects(sanitized, object_payload_descriptor)
-        stored = self._commit_bundle(
-            manifest,
-            manifest_payload,
-            bundles_descriptor,
+        self.store._commit_manifest_directory(
+            parent_descriptor=bundles_descriptor,
+            content_key=_bundle_key(manifest.bundle_id),
+            staging_prefix="bundle",
+            payload=manifest_payload,
         )
+        stored = self.store.require_exact(manifest.bundle_id)
         marker = _current_marker_payload(manifest)
         observed_current = self._load_current(capture, run_descriptor)
         if (current is None) != (observed_current is None) or (
@@ -1101,6 +1684,7 @@ class RunBundlePublisher:
         object_payload_descriptor: int,
     ) -> None:
         total_bytes = 0
+        payloads = {}
         for relative_path, digest in sorted(sanitized.checksums.items()):
             payload = read_restricted_regular_file(
                 sanitized.path,
@@ -1113,39 +1697,8 @@ class RunBundlePublisher:
                 raise RunBundlePublicationError("sanitized payload byte limit exceeded")
             if tree_or_blob_digest(payload) != digest:
                 raise RunBundlePublicationError("sanitized payload digest changed")
-            object_name = digest[7:]
-            if os.access(
-                object_name,
-                os.F_OK,
-                dir_fd=object_payload_descriptor,
-                follow_symlinks=False,
-            ):
-                if (
-                    _read_regular_file_at(
-                        object_payload_descriptor,
-                        object_name,
-                        maximum_bytes=self.sanitation_settings.max_file_bytes,
-                        required_mode=_IMMUTABLE_FILE_MODE,
-                    )
-                    != payload
-                ):
-                    raise RunBundlePublicationError(
-                        "content-addressed object collision"
-                    )
-                _discard_staged_regular_file_at(
-                    object_payload_descriptor,
-                    f".{object_name}.tmp",
-                    required_mode=_IMMUTABLE_FILE_MODE,
-                    maximum_bytes=self.sanitation_settings.max_file_bytes,
-                )
-                continue
-            _write_atomic_file_at(
-                object_payload_descriptor,
-                object_name,
-                payload,
-                mode=_IMMUTABLE_FILE_MODE,
-                maximum_staging_bytes=self.sanitation_settings.max_file_bytes,
-            )
+            payloads[relative_path] = payload
+        self.store._write_object_payloads(payloads, object_payload_descriptor)
 
     def _validate_sanitized_capture(
         self,
@@ -1242,122 +1795,6 @@ class RunBundlePublisher:
         )
         if SanitationReport.from_json_bytes(report_payload) != sanitized.report:
             raise RunBundlePublicationError("sanitation report bytes changed")
-
-    def _commit_bundle(
-        self,
-        manifest: RunBundle,
-        manifest_payload: bytes,
-        bundles_descriptor: int,
-    ) -> StoredRunBundle:
-        bundle_key = _bundle_key(manifest.bundle_id)
-        staging_name = f".bundle.{bundle_key}.tmp"
-        if os.access(
-            bundle_key,
-            os.F_OK,
-            dir_fd=bundles_descriptor,
-            follow_symlinks=False,
-        ):
-            stored = self.store.require_exact(manifest.bundle_id)
-            self._discard_bundle_staging(
-                bundles_descriptor,
-                staging_name,
-            )
-            return stored
-        self._discard_bundle_staging(
-            bundles_descriptor,
-            staging_name,
-        )
-        os.mkdir(
-            staging_name,
-            mode=_STORE_DIRECTORY_MODE,
-            dir_fd=bundles_descriptor,
-        )
-        os.fsync(bundles_descriptor)
-        with ExitStack() as descriptors:
-            staging_descriptor = _open_child_directory(
-                bundles_descriptor,
-                staging_name,
-                descriptors,
-                mode=_STORE_DIRECTORY_MODE,
-                create=False,
-            )
-            _write_new_file_at(
-                staging_descriptor,
-                BUNDLE_MANIFEST_FILENAME,
-                manifest_payload,
-                mode=_IMMUTABLE_FILE_MODE,
-            )
-            os.fchmod(staging_descriptor, _IMMUTABLE_DIRECTORY_MODE)
-            os.fsync(staging_descriptor)
-        os.rename(
-            staging_name,
-            bundle_key,
-            src_dir_fd=bundles_descriptor,
-            dst_dir_fd=bundles_descriptor,
-        )
-        os.fsync(bundles_descriptor)
-        return self.store.require_exact(manifest.bundle_id)
-
-    def _discard_bundle_staging(
-        self,
-        bundles_descriptor: int,
-        staging_name: str,
-    ) -> None:
-        if not os.access(
-            staging_name,
-            os.F_OK,
-            dir_fd=bundles_descriptor,
-            follow_symlinks=False,
-        ):
-            return
-        staging_metadata = os.stat(
-            staging_name,
-            dir_fd=bundles_descriptor,
-            follow_symlinks=False,
-        )
-        staging_mode = stat.S_IMODE(staging_metadata.st_mode)
-        if not stat.S_ISDIR(staging_metadata.st_mode) or staging_mode not in {
-            _STORE_DIRECTORY_MODE,
-            _IMMUTABLE_DIRECTORY_MODE,
-        }:
-            raise RunBundlePublicationError(
-                "bundle manifest staging identity is invalid"
-            )
-        with ExitStack() as descriptors:
-            staging_descriptor = _open_child_directory(
-                bundles_descriptor,
-                staging_name,
-                descriptors,
-                mode=staging_mode,
-                create=False,
-            )
-            staging_names = _directory_names(
-                staging_descriptor,
-                2,
-                "bundle manifest staging closure",
-            )
-            if staging_names not in {(), (BUNDLE_MANIFEST_FILENAME,)}:
-                raise RunBundlePublicationError(
-                    "bundle manifest staging closure is invalid"
-                )
-            if staging_names:
-                _read_regular_file_at(
-                    staging_descriptor,
-                    BUNDLE_MANIFEST_FILENAME,
-                    maximum_bytes=self.sanitation_settings.max_file_bytes,
-                    required_mode=_IMMUTABLE_FILE_MODE,
-                )
-            if staging_mode == _IMMUTABLE_DIRECTORY_MODE:
-                os.fchmod(staging_descriptor, _STORE_DIRECTORY_MODE)
-                os.fsync(staging_descriptor)
-            if staging_names:
-                os.unlink(
-                    BUNDLE_MANIFEST_FILENAME,
-                    dir_fd=staging_descriptor,
-                )
-            os.fsync(staging_descriptor)
-        os.rmdir(staging_name, dir_fd=bundles_descriptor)
-        os.fsync(bundles_descriptor)
 
     def _validate_publication_paths(
         self,

@@ -70,6 +70,12 @@ class LaunchStartingArtifactSetProvider:
 
         return self._content_ids
 
+    @property
+    def artifacts(self) -> tuple[VerifiedLaunchStartingArtifact, ...]:
+        """Return the launch-verified byte closure for trusted persistence."""
+
+        return self._artifacts
+
     def materialize_exact(
         self,
         *,
