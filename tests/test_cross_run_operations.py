@@ -18,10 +18,13 @@ from kapso.cross_run.operations import (
     propose_expert_cross_run,
     publish_knowledge_cross_run,
     resolve_launch_cross_run,
+    validate_expert_cross_run,
 )
+from kapso.cross_run.expert.validation_store import ExpertValidationStore
 from cross_run_capture_fixtures import make_capture_fixture
 from test_cross_run_retrieval import source_fixture
 from test_expert_proposal import BootstrapProposalRunner, bootstrap_output
+from test_expert_review import _review_fixture
 from test_expert_triggers import trigger_packet, trigger_settings
 from test_knowledge_snapshot_publisher import RecordingPublicationAuthority
 from test_launch_bootstrap import _fresh_coordinator
@@ -278,6 +281,68 @@ def test_resolve_launch_preserves_complete_request_and_pins_workspace(
     )
     assert result["knowledge_snapshot_id"] == (
         resolver_case["knowledge_package"].manifest.snapshot_id
+    )
+
+
+def test_validate_expert_runs_the_existing_restart_aware_review_stage(
+    tmp_path,
+    monkeypatch,
+):
+    review_root = tmp_path / "review-system"
+    _coordinator, _prepared, _workspace, _runner, snapshot, store = _review_fixture(
+        review_root,
+        monkeypatch,
+    )
+    store = ExpertValidationStore(
+        store.root,
+        store.state_root,
+        store.settings,
+        store.reducer,
+    )
+    services = operations_module.ExpertValidationOperationServices(
+        candidate_store=store.reducer.candidate_store,
+        validation_store=store,
+        task_adapter_store=store.reducer.task_adapter_provider,
+    )
+    monkeypatch.setattr(
+        operations_module,
+        "_github_services",
+        lambda _settings, _state_root: GitHubOperationServices(
+            resolver=object(),
+            materializer=object(),
+            publisher=object(),
+        ),
+    )
+    monkeypatch.setattr(
+        operations_module,
+        "_expert_validation_services",
+        lambda _settings, _state_root, _github: services,
+    )
+    request_path = tmp_path / "validate.json"
+    request_path.write_text(
+        json.dumps(
+            {
+                "candidate_id": snapshot.state.candidate_id,
+                "expected_transition_id": snapshot.transition.transition_id,
+                "evaluator_result": None,
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    result = validate_expert_cross_run(
+        config_path=_CONFIG_PATH,
+        mode="GENERIC",
+        request_path=request_path,
+        state_root=review_root,
+    )
+
+    assert result["operation"] == "validate-expert"
+    assert result["candidate_id"] == snapshot.state.candidate_id
+    assert result["transition_id"] != snapshot.transition.transition_id
+    assert result["accepted_stage_result_ids"][-1].startswith(
+        "expert-automated-review-stage-result:sha256:"
     )
 
 

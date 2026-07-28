@@ -31,6 +31,7 @@ from kapso.cross_run.operations import (
     propose_expert_cross_run,
     publish_knowledge_cross_run,
     resolve_launch_cross_run,
+    validate_expert_cross_run,
     verify_cross_run,
 )
 from kapso.cross_run.launch.contracts import LaunchTaskContextRequest
@@ -422,6 +423,12 @@ def cmd_cross_run(args) -> None:
             state_root=Path(args.state_root),
             run_root=Path(args.run_root),
         )
+    elif args.cross_run_operation == "validate-expert":
+        result = validate_expert_cross_run(
+            **common,
+            request_path=Path(args.input),
+            state_root=Path(args.state_root),
+        )
     elif args.cross_run_operation == "verify":
         result = verify_cross_run(
             **common,
@@ -673,6 +680,7 @@ Examples:
         "publish-knowledge",
         "propose-expert",
         "resolve-launch",
+        "validate-expert",
         "verify",
     ):
         operation_parser = cross_run_subparsers.add_parser(operation)
@@ -683,7 +691,11 @@ Examples:
             operation_parser.add_argument("--state-root", required=True)
         elif operation == "capture":
             operation_parser.add_argument("--input", required=True)
-        elif operation in {"publish-knowledge", "propose-expert"}:
+        elif operation in {
+            "publish-knowledge",
+            "propose-expert",
+            "validate-expert",
+        }:
             operation_parser.add_argument("--input", required=True)
             operation_parser.add_argument("--state-root", required=True)
         elif operation == "resolve-launch":

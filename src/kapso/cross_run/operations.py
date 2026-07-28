@@ -18,13 +18,17 @@ from kapso.cross_run.contracts import (
     CandidateChangeKind,
     CompletionState,
     EvaluationFingerprint,
+    ExpertEvaluatorResultRecord,
     ExpertScopeContract,
+    ExpertValidationStage,
     PublicationArtifactKind,
     TaskContextBinding,
 )
 from kapso.cross_run.expert.architect import ExpertRepositoryArchitect
+from kapso.cross_run.expert.attestation import ConfiguredExpertAttestationVerifier
 from kapso.cross_run.expert.candidates import ExpertCandidateValidator
 from kapso.cross_run.expert.generalizer import ExpertCapabilityGeneralizer
+from kapso.cross_run.expert.providers import GitHubExpertCurrentReleaseProvider
 from kapso.cross_run.expert.proposal import ExpertCandidateProposalEngine
 from kapso.cross_run.expert.store import ExpertCandidateStore
 from kapso.cross_run.expert.triggers import (
@@ -32,6 +36,14 @@ from kapso.cross_run.expert.triggers import (
     ExpertTriggerEvaluator,
 )
 from kapso.cross_run.expert.workspace import ExpertCandidateWorkspaceManager
+from kapso.cross_run.expert.review import ExpertAutomatedReviewCoordinator
+from kapso.cross_run.expert.review_stage import ExpertAutomatedReviewStageOrchestrator
+from kapso.cross_run.expert.validation import (
+    ExpertCandidateEligibilityEvaluator,
+    ExpertValidationError,
+    ExpertValidationReducer,
+)
+from kapso.cross_run.expert.validation_store import ExpertValidationStore
 from kapso.cross_run.github.command import GitHubCommandClient, SubprocessCommandRunner
 from kapso.cross_run.github.materializer import GitHubArtifactMaterializer
 from kapso.cross_run.github.publisher import AutonomousGitHubPublisher
@@ -44,6 +56,11 @@ from kapso.cross_run.launch.production import (
     build_production_launch_services,
 )
 from kapso.cross_run.settings import CrossRunSettings
+from kapso.cross_run.task_adapter_authority import CanonicalTaskAdapterAuthority
+from kapso.cross_run.task_adapter_store import (
+    TaskAdapterAuthorityRegistry,
+    TaskAdapterPackageStore,
+)
 from kapso.execution.coding_agents.structured_call import (
     CodingAgentRunnerSettings,
     SubprocessCodingAgentCallRunner,
@@ -64,6 +81,15 @@ class GitHubOperationServices:
     resolver: GitHubArtifactResolver
     materializer: GitHubArtifactMaterializer
     publisher: AutonomousGitHubPublisher
+
+
+@dataclass(frozen=True)
+class ExpertValidationOperationServices:
+    """One local candidate/adapter/validation authority composition."""
+
+    candidate_store: ExpertCandidateStore
+    validation_store: ExpertValidationStore
+    task_adapter_store: TaskAdapterPackageStore
 
 
 def inspect_cross_run(
@@ -428,6 +454,86 @@ def resolve_launch_cross_run(
     }
 
 
+def validate_expert_cross_run(
+    *,
+    config_path: str,
+    mode: str,
+    request_path: Path,
+    state_root: Path,
+) -> Mapping[str, Any]:
+    """Enroll or advance exactly one restart-safe expert validation stage."""
+
+    settings = _settings(config_path, mode)
+    request = _object_request(
+        request_path,
+        {"candidate_id", "expected_transition_id", "evaluator_result"},
+    )
+    candidate_id = _required_text(request["candidate_id"], "candidate_id")
+    expected_transition_id = _optional_text(
+        request["expected_transition_id"], "expected_transition_id"
+    )
+    root = _private_state_root(state_root)
+    github = _github_services(settings, root)
+    services = _expert_validation_services(settings, root, github)
+    snapshot = services.validation_store.snapshot(candidate_id)
+    if snapshot is None:
+        if (
+            expected_transition_id is not None
+            or request["evaluator_result"] is not None
+        ):
+            raise CrossRunOperationError(
+                "validation enrollment cannot accept a prior transition or result"
+            )
+        eligibility = ExpertCandidateEligibilityEvaluator(
+            settings.expert.validation,
+            services.candidate_store,
+            services.task_adapter_store,
+            GitHubExpertCurrentReleaseProvider(github.resolver),
+        ).decide(candidate_id=candidate_id)
+        snapshot = services.validation_store.publish_start(
+            expected_transition_id=None,
+            eligibility=eligibility,
+        ).snapshot
+    else:
+        if expected_transition_id != snapshot.transition.transition_id:
+            raise CrossRunOperationError(
+                "expected validation transition is not current"
+            )
+        stage = snapshot.state.next_stage
+        if stage is ExpertValidationStage.AUTOMATED_REVIEW:
+            if request["evaluator_result"] is not None:
+                raise CrossRunOperationError(
+                    "automated review cannot consume a generic evaluator result"
+                )
+            coordinator = ExpertAutomatedReviewCoordinator(settings.expert, root)
+            snapshot = ExpertAutomatedReviewStageOrchestrator(
+                coordinator=coordinator,
+                candidate_store=services.candidate_store,
+                validation_store=services.validation_store,
+            ).run(snapshot.latest_attempt)
+        elif stage in {
+            ExpertValidationStage.SOURCE_RUN_REPLAY,
+            ExpertValidationStage.RELEASE_MATRIX,
+            ExpertValidationStage.PUBLICATION_ELIGIBILITY,
+        }:
+            if request["evaluator_result"] is not None:
+                raise CrossRunOperationError(
+                    "typed validation stage cannot consume a generic evaluator result"
+                )
+        else:
+            evaluator_result = request["evaluator_result"]
+            if not isinstance(evaluator_result, Mapping):
+                raise CrossRunOperationError(
+                    "current validation stage requires a signed evaluator result"
+                )
+            snapshot = services.validation_store.publish_evaluator_result(
+                candidate_id=candidate_id,
+                expected_transition_id=expected_transition_id,
+                result=ExpertEvaluatorResultRecord.from_dict(evaluator_result),
+            ).snapshot
+    return _validation_summary(snapshot)
+
+
 def operation_json(result: Mapping[str, Any]) -> bytes:
     """Render one canonical non-secret operational result."""
 
@@ -483,6 +589,91 @@ def _coding_agent_runner(
             ),
         )
     )
+
+
+class _BoundValidationStateProvider:
+    def __init__(self) -> None:
+        self.store: ExpertValidationStore | None = None
+
+    def bind(self, store: ExpertValidationStore) -> None:
+        if self.store is not None or type(store) is not ExpertValidationStore:
+            raise ExpertValidationError("validation state provider is already bound")
+        self.store = store
+
+    def current(self, candidate_id: str):
+        if self.store is None:
+            raise ExpertValidationError("validation state provider is unbound")
+        return self.store.current(candidate_id)
+
+
+def _expert_validation_services(
+    settings: CrossRunSettings,
+    state_root: Path,
+    github: GitHubOperationServices,
+) -> ExpertValidationOperationServices:
+    expert_root = _expert_state_root(settings, state_root)
+    candidate_store = ExpertCandidateStore(
+        expert_root / Path(settings.expert.candidate_path).name,
+        expert_root,
+        ExpertCandidateValidator(settings.expert, settings.sanitation),
+    )
+    adapter_settings = settings.expert.task_adapters
+    task_adapter_store = TaskAdapterPackageStore(
+        expert_root / Path(adapter_settings.state_path).name,
+        expert_root,
+        adapter_settings,
+        TaskAdapterAuthorityRegistry(
+            adapter_settings,
+            tuple(
+                CanonicalTaskAdapterAuthority(authority)
+                for authority in adapter_settings.trusted_authorities
+            ),
+        ),
+    )
+    current_release = GitHubExpertCurrentReleaseProvider(github.resolver)
+    state_provider = _BoundValidationStateProvider()
+    reducer = ExpertValidationReducer(
+        settings.expert.validation,
+        candidate_store,
+        ConfiguredExpertAttestationVerifier(settings.expert.validation),
+        task_adapter_store,
+        current_release,
+        state_provider,
+    )
+    validation_store = ExpertValidationStore(
+        expert_root / Path(settings.expert.validation.state_path).name,
+        expert_root,
+        settings.expert.validation,
+        reducer,
+    )
+    state_provider.bind(validation_store)
+    return ExpertValidationOperationServices(
+        candidate_store=candidate_store,
+        validation_store=validation_store,
+        task_adapter_store=task_adapter_store,
+    )
+
+
+def _validation_summary(snapshot) -> Mapping[str, Any]:
+    next_stage = snapshot.state.next_stage
+    return {
+        "operation": "validate-expert",
+        "candidate_id": snapshot.state.candidate_id,
+        "validation_attempt_id": snapshot.state.validation_attempt_id,
+        "transition_id": snapshot.transition.transition_id,
+        "validation_state_id": snapshot.state.validation_state_id,
+        "promotion_state": snapshot.state.promotion_state.value,
+        "accepted_stage_result_ids": tuple(
+            reference.stage_result_record_id
+            for reference in snapshot.state.accepted_stage_results
+        ),
+        "next_stage": None if next_stage is None else next_stage.value,
+        "next_action": (
+            "publish-expert"
+            if snapshot.state.promotion_state.value == "approved"
+            else "validate-expert"
+        ),
+    }
 
 
 def _expert_state_root(settings: CrossRunSettings, state_root: Path) -> Path:
