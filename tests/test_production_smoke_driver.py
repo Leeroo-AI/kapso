@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 import kapso.cross_run.production_smoke as smoke_module
+from kapso.core.config import load_effective_config
 from kapso.cross_run.canonical import parse_json_bytes
 from kapso.cross_run.production_smoke import (
     ProductionSmokeError,
@@ -90,3 +91,23 @@ def test_driver_fails_loud_on_corrupt_durable_receipt(tmp_path, monkeypatch):
             state_root=tmp_path,
             stages=("preflight",),
         )
+
+
+def test_synthetic_projection_is_one_admitted_domain_neutral_bundle():
+    settings = load_effective_config(_CONFIG_PATH, "GENERIC").cross_run
+    fixture, _fixture_digest = smoke_module._load_fixture(settings)
+    scope_contract = smoke_module.ExpertScopeContract.from_dict(
+        fixture["scope_contract"]
+    )
+
+    projection = smoke_module._synthetic_projection(
+        settings,
+        fixture,
+        scope_contract,
+    )
+
+    assert projection.sanitation_report.status == "admitted"
+    assert projection.source_bundle.scope_id == "ml_ai"
+    assert projection.episodes == ()
+    assert len(projection.prior_ideas) == 1
+    assert projection.catalog_facts[-1] == projection.projection_manifest

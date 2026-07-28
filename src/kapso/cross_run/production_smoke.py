@@ -23,14 +23,22 @@ from kapso.cross_run.canonical import (
     tree_or_blob_digest,
 )
 from kapso.cross_run.catalog.service import CrossRunCatalog
+from kapso.cross_run.catalog.projector import ProjectionResult
 from kapso.cross_run.contracts import (
+    ArtifactCompleteness,
+    ArtifactEnvironment,
+    CompletionState,
     ExpertScopeContract,
+    PriorIdea,
+    PriorIdeaStatus,
     PublicationArtifactKind,
+    RunBundle,
     SECURITY_DENYLIST_EVIDENCE_FILENAME,
     SECURITY_DENYLIST_POLICY_VERSION,
     SECURITY_DENYLIST_SCHEMA_VERSION,
     SecurityDenylistEvidenceBundle,
     SecurityDenylistSnapshot,
+    TaskContextBinding,
 )
 from kapso.cross_run.docker.runtime import DockerImageAuthority, PinnedDockerRuntime
 from kapso.cross_run.github.publisher import PublicationEnvelope, ReleaseAssetInput
@@ -41,6 +49,11 @@ from kapso.cross_run.operations import (
     GitHubOperationServices,
     _github_services,
     _private_state_root,
+)
+from kapso.cross_run.record_contracts import (
+    SANITATION_REPORT_SCHEMA,
+    SANITATION_SCANNER_VERSION,
+    SanitationReport,
 )
 from kapso.cross_run.security_denylist import (
     AuthenticatedSecurityDenylistAuthority,
@@ -61,6 +74,7 @@ _STAGE_ORDER = (
     "github-read",
     "embeddings",
     "docker-authority",
+    "knowledge-publication",
 )
 _FIXTURE_FILENAME = "transport-smoke.json"
 _RECEIPT_FILENAME = "production-smoke-receipt.json"
@@ -162,6 +176,13 @@ def _run_stage(
         return _embedding_smoke(settings, fixture)
     if stage == "docker-authority":
         return _docker_authority_smoke(settings, smoke_root)
+    if stage == "knowledge-publication":
+        return _knowledge_publication_smoke(
+            settings,
+            smoke_root,
+            fixture,
+            scope_contract,
+        )
     raise ProductionSmokeError("unknown production smoke stage")
 
 
@@ -574,6 +595,261 @@ def _docker_authority_smoke(
         "mutation_lock_inode": mutation_lock.st_ino,
         "image": image_evidence,
     }
+
+
+def _knowledge_publication_smoke(
+    settings: CrossRunSettings,
+    smoke_root: Path,
+    fixture: Mapping[str, Any],
+    scope_contract: ExpertScopeContract,
+) -> Mapping[str, Any]:
+    """Publish one admitted synthetic bundle as the first non-empty snapshot."""
+
+    projection = _synthetic_projection(settings, fixture, scope_contract)
+    catalog = CrossRunCatalog(
+        smoke_root / "catalog",
+        scope_contract,
+        settings.catalog,
+    )
+    generation = catalog.store.read_current()
+    if generation.generation_number == 0:
+        generation = catalog.publish_projection(generation, projection).generation
+    elif (
+        generation.generation_number != 1
+        or projection.source_bundle.bundle_id not in generation.fact_object_ids
+    ):
+        raise ProductionSmokeError(
+            "production catalog is not the expected synthetic generation"
+        )
+
+    github = _github_services(settings, smoke_root)
+    current = github.resolver.resolve_current(
+        scope_contract.scope_id,
+        PublicationArtifactKind.KNOWLEDGE_SNAPSHOT,
+    )
+    current_materialized = github.materializer.materialize(current)
+    current_package = KnowledgeSnapshotPackage.open(current_materialized.content)
+    if (
+        projection.source_bundle.bundle_id
+        in current_package.manifest.included_bundle_ids
+    ):
+        if (
+            current_package.manifest.catalog_generation != 1
+            or current_package.manifest.scope_contract_id
+            != scope_contract.scope_contract_id
+        ):
+            raise ProductionSmokeError(
+                "recovered knowledge snapshot has another synthetic generation"
+            )
+        record = current.pointer.publication_record
+        return {
+            "snapshot_id": current_package.manifest.snapshot_id,
+            "parent_snapshot_id": current_package.manifest.parent_snapshot_ids[0],
+            "catalog_generation_id": generation.catalog_generation_id,
+            "bundle_id": projection.source_bundle.bundle_id,
+            "prior_idea_id": projection.prior_ideas[0].prior_idea_id,
+            "publication_id": record.publication_id,
+            "commit_sha": current.pointer_commit_sha,
+            "release_tag": record.tag,
+            "recovered": True,
+        }
+    if current_package.manifest.catalog_generation != 0:
+        raise ProductionSmokeError(
+            "knowledge CURRENT advanced beyond the expected EMPTY parent"
+        )
+
+    publisher = KnowledgeSnapshotPublisher(
+        github.publisher,
+        settings.github,
+        settings.knowledge,
+    )
+    committed_at = _committed_at(fixture["committed_at"])
+    built = publisher.build(
+        scope_contract,
+        generation,
+        catalog.store.read_object_bytes,
+        parent_snapshot_ids=(current_package.manifest.snapshot_id,),
+        sanitation_policy_version=settings.sanitation.policy_version,
+        retrieval_policy_version=_RETRIEVAL_POLICY_VERSION,
+        published_at=committed_at,
+        publisher_attestation={"issuer": settings.github.publisher_login},
+    )
+    publication = publisher.publish(
+        built.package,
+        expected_parent_sha=current.pointer_commit_sha,
+        expected_current_snapshot_id=current_package.manifest.snapshot_id,
+        committed_at=committed_at,
+        validation_closure_ids=(),
+    )
+    resolved = github.resolver.resolve_current(
+        scope_contract.scope_id,
+        PublicationArtifactKind.KNOWLEDGE_SNAPSHOT,
+    )
+    materialized = github.materializer.materialize(resolved)
+    published = KnowledgeSnapshotPackage.open(materialized.content)
+    if published.manifest != publication.package.manifest:
+        raise ProductionSmokeError(
+            "published knowledge snapshot differs from clean materialization"
+        )
+    record = publication.telemetry.publication_record
+    telemetry = built.embedding_telemetry
+    return {
+        "snapshot_id": published.manifest.snapshot_id,
+        "parent_snapshot_id": current_package.manifest.snapshot_id,
+        "catalog_generation_id": generation.catalog_generation_id,
+        "bundle_id": projection.source_bundle.bundle_id,
+        "prior_idea_id": projection.prior_ideas[0].prior_idea_id,
+        "publication_id": record.publication_id,
+        "commit_sha": publication.telemetry.pointer_commit_sha,
+        "release_tag": record.tag,
+        "embedding_call_count": None if telemetry is None else telemetry.call_count,
+        "recovered": False,
+    }
+
+
+def _synthetic_projection(
+    settings: CrossRunSettings,
+    fixture: Mapping[str, Any],
+    scope_contract: ExpertScopeContract,
+) -> ProjectionResult:
+    """Build the one public, domain-neutral transport-smoke bundle."""
+
+    values = fixture["embedding_inputs"]
+    if not isinstance(values, list) or len(values) < 2:
+        raise ProductionSmokeError("synthetic projection inputs are incomplete")
+    task_context = TaskContextBinding.mint(
+        scope_contract_id=scope_contract.scope_contract_id,
+        scope_id=scope_contract.scope_id,
+        task_family_id="language_model_post_training",
+        task_adapter_id="posttrain",
+        capability_tags=("language.training",),
+        input_contract_fingerprint=tree_or_blob_digest(values[0].encode("utf-8")),
+        target_contract_fingerprint=tree_or_blob_digest(values[1].encode("utf-8")),
+        starting_artifact_refs=(),
+        method_fingerprint=tree_or_blob_digest(b"transport-smoke-method"),
+        toolchain_fingerprint=tree_or_blob_digest(b"transport-smoke-toolchain"),
+        dependency_runtime_fingerprint=tree_or_blob_digest(b"transport-smoke-runtime"),
+        budget_hardware_envelope={"accelerator": "none", "hours": 1},
+        transfer_dimensions={
+            "dataset_family": "synthetic_public",
+            "runtime_family": "python",
+        },
+    )
+    task_context.validate_against(scope_contract)
+    expert_release_id = content_id(
+        "expert-base-release",
+        {"transport_smoke": "source-release"},
+    )
+    environment = ArtifactEnvironment.mint(
+        kapso_commit="0" * 40,
+        expert_base_release_id=expert_release_id,
+        task_adapter_manifest_id=content_id(
+            "task-adapter-manifest",
+            {"task_adapter_id": task_context.task_adapter_id},
+        ),
+        task_adapter_verification_receipt_id=content_id(
+            "task-adapter-verification-receipt",
+            {"task_adapter_id": task_context.task_adapter_id},
+        ),
+        starting_artifact_content_ids={},
+        dependency_lock_hash=tree_or_blob_digest(b"transport-smoke-lock"),
+    )
+    checksums = {
+        path: tree_or_blob_digest(f"synthetic:{path}".encode("utf-8"))
+        for path in (
+            "capture_descriptor.json",
+            "checkpoint.json",
+            "events.jsonl",
+            "experiment_history.json",
+            "idea_archive.json",
+            "sanitation_report.json",
+        )
+    }
+    committed_at = _committed_at(fixture["committed_at"])
+    bundle = RunBundle.mint(
+        scope_contract_id=scope_contract.scope_contract_id,
+        scope_id=scope_contract.scope_id,
+        run_id="production_smoke_run",
+        campaign_id="production_smoke_campaign",
+        completion_state=CompletionState.STOPPED,
+        capture_generation=0,
+        supersedes_bundle_id=None,
+        checkpoint_frontier=1,
+        capture_watermarks={"events": 1},
+        configuration_fingerprint=settings.configuration_fingerprint,
+        artifact_completeness={"checkpoint": ArtifactCompleteness.PRESENT},
+        started_at=committed_at,
+        captured_at=committed_at,
+        kapso_commit=environment.kapso_commit,
+        launch_manifest_id=content_id(
+            "launch-manifest",
+            {"transport_smoke": "first-launch"},
+        ),
+        knowledge_snapshot_id=content_id(
+            "knowledge-snapshot",
+            {"transport_smoke": "empty-snapshot"},
+        ),
+        expert_base_release_id=expert_release_id,
+        task_context_binding=task_context,
+        artifact_environment=environment,
+        capture_descriptor_ref="capture_descriptor.json",
+        checkpoint_ref="checkpoint.json",
+        execution_event_journal_ref="events.jsonl",
+        idea_archive_ref="idea_archive.json",
+        experiment_history_ref="experiment_history.json",
+        sanitation_report_ref="sanitation_report.json",
+        branch_snapshot_refs=(),
+        run_log_refs=(),
+        checksums=checksums,
+    )
+    report = SanitationReport.mint(
+        schema=SANITATION_REPORT_SCHEMA,
+        capture_manifest_id=content_id(
+            "capture-manifest",
+            {"bundle_id": bundle.bundle_id},
+        ),
+        scope_id=scope_contract.scope_id,
+        task_family_id=task_context.task_family_id,
+        policy_version=settings.sanitation.policy_version,
+        policy_fingerprint=tree_or_blob_digest(settings.sanitation.to_json_bytes()),
+        scanner_version=SANITATION_SCANNER_VERSION,
+        status="admitted",
+        findings=(),
+        excluded_paths=(),
+        taint_sources=(),
+        admitted_refs=checksums,
+    )
+    prior_idea = PriorIdea.mint(
+        source_bundle_id=bundle.bundle_id,
+        supersedes_projection_id=None,
+        source={
+            "scope_id": scope_contract.scope_id,
+            "run_id": bundle.run_id,
+            "campaign_id": bundle.campaign_id,
+            "batch_id": "production_smoke_batch",
+            "idea_id": "production_smoke_idea",
+        },
+        proposal=values[0],
+        descriptor={
+            "approach_family": "representation_validation",
+            "expected_effect": "reduce_interface_regressions",
+            "intervention_target": "input_projection",
+            "mechanism": "validate_semantic_parity_before_training",
+        },
+        assumptions=(values[1],),
+        source_status=PriorIdeaStatus.DEFERRED,
+        source_rationale="The synthetic run stopped before executing this idea.",
+        source_evidence_refs=(),
+        task_context_binding=task_context,
+        sanitation_report_id=report.report_id,
+    )
+    return ProjectionResult(
+        source_bundle=bundle,
+        sanitation_report=report,
+        episodes=(),
+        prior_ideas=(prior_idea,),
+        derivation_objects=(),
+    )
 
 
 def _write_security_archive(
