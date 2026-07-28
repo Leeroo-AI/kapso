@@ -64,6 +64,12 @@ class LaunchStartingArtifactSetProvider:
             }
         )
 
+    @property
+    def content_ids(self) -> Mapping[str, str]:
+        """Return the exact immutable reference-to-content identity mapping."""
+
+        return self._content_ids
+
     def materialize_exact(
         self,
         *,

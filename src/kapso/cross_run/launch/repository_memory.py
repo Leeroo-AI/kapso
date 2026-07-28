@@ -43,27 +43,29 @@ def build_repository_memory(
     *,
     active_workspace: ActiveLaunchWorkspace,
     settings: CrossRunSettings,
+    expected_commit_sha: str,
 ) -> RepositoryMemory:
-    """Read the exact baseline commit and emit a deterministic book of contents."""
+    """Read one exact workspace commit and emit a deterministic book of contents."""
 
     if (
         type(active_workspace) is not ActiveLaunchWorkspace
         or type(settings) is not CrossRunSettings
+        or not isinstance(expected_commit_sha, str)
+        or re.fullmatch(r"[0-9a-f]{40}", expected_commit_sha) is None
     ):
         raise RepositoryMemoryError(
             "repository memory requires exact launch and configuration authority"
         )
     active_workspace.require_control_authority()
     installation = active_workspace.bootstrap_pin.installation_receipt
-    expected_commit = installation.workspace_baseline_commit_sha
-    before = _inspect_workspace(active_workspace, settings, expected_commit)
+    before = _inspect_workspace(active_workspace, settings, expected_commit_sha)
     command = BoundedGitCommand(
         timeout_seconds=settings.capture.git_command_timeout_seconds,
         maximum_output_bytes=settings.capture.git_command_output_bytes,
     )
     listing = command.run(
         active_workspace.workspace,
-        ("ls-tree", "-r", "-l", "-z", expected_commit),
+        ("ls-tree", "-r", "-l", "-z", expected_commit_sha),
         output_kind=CommandOutputKind.BINARY,
     )
     if listing.returncode != 0 or listing.stderr:
@@ -79,6 +81,18 @@ def build_repository_memory(
         raise RepositoryMemoryError(
             "repository memory source closure is empty or exceeds configured bounds"
         )
+    tree = command.run(
+        active_workspace.workspace,
+        ("rev-parse", f"{expected_commit_sha}^{{tree}}"),
+        output_kind=CommandOutputKind.TEXT,
+    )
+    source_tree_sha = tree.stdout.decode("ascii").strip()
+    if (
+        tree.returncode != 0
+        or tree.stderr
+        or re.fullmatch(r"[0-9a-f]{40}", source_tree_sha) is None
+    ):
+        raise RepositoryMemoryError("repository memory Git tree resolution failed")
     paths = tuple(file[0] for file in files)
     payload = canonical_json_bytes(
         {
@@ -87,9 +101,11 @@ def build_repository_memory(
                 f"Pinned repository with {len(files)} regular source files across "
                 f"{len({PurePosixPath(path).parts[0] for path in paths})} top-level areas."
             ),
-            "source_commit_sha": expected_commit,
-            "source_tree_sha": installation.workspace_baseline_tree_sha,
-            "source_composition_hash": installation.expected_source_composition_hash,
+            "source_commit_sha": expected_commit_sha,
+            "source_tree_sha": source_tree_sha,
+            "baseline_composition_hash": (
+                installation.expected_source_composition_hash
+            ),
             "table_of_contents": (_repository_table_of_contents(paths)),
             "files": tuple(
                 {"path": path, "mode": mode, "size_bytes": size}
@@ -101,15 +117,15 @@ def build_repository_memory(
         raise RepositoryMemoryError(
             "repository memory exceeds its configured metadata bound"
         )
-    if _inspect_workspace(active_workspace, settings, expected_commit) != before:
+    if _inspect_workspace(active_workspace, settings, expected_commit_sha) != before:
         raise RepositoryMemoryError(
             "pinned workspace changed while rebuilding repository memory"
         )
     return RepositoryMemory(
         payload=payload,
         digest=tree_or_blob_digest(payload),
-        source_commit_sha=expected_commit,
-        source_tree_sha=installation.workspace_baseline_tree_sha,
+        source_commit_sha=expected_commit_sha,
+        source_tree_sha=source_tree_sha,
     )
 
 

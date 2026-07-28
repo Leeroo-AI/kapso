@@ -19,10 +19,12 @@ def test_repository_memory_is_deterministic_and_non_mutating(
     first = build_repository_memory(
         active_workspace=active,
         settings=settings,
+        expected_commit_sha=before,
     )
     second = build_repository_memory(
         active_workspace=active,
         settings=settings,
+        expected_commit_sha=before,
     )
 
     assert first == second
