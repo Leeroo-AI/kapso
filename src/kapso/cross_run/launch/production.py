@@ -108,14 +108,14 @@ def build_production_launch_preparation(
         raise ProductionLaunchCompositionError(
             "selected configuration has no cross-run settings"
         )
-    binding = _resolve_production_binding(
+    binding = resolve_production_binding(
         effective_config=effective_config,
         scope_id=scope_id,
         task_family_id=task_family_id,
         task_adapter_id=task_adapter_id,
     )
     settings.scopes.resolve(binding.scope_id)
-    experiment_embedding_space = _experiment_embedding_space(settings)
+    experiment_embedding_space = production_experiment_embedding_space(settings)
     starting_artifacts = build_launch_starting_artifact_provider(
         sources=starting_artifact_sources,
         settings=settings.launch,
@@ -171,7 +171,7 @@ def build_production_launch_preparation(
     )
 
 
-def _resolve_production_binding(
+def resolve_production_binding(
     *,
     effective_config: EffectiveConfig,
     scope_id: str | None,
@@ -203,7 +203,7 @@ def _resolve_production_binding(
     return binding
 
 
-def _experiment_embedding_space(
+def production_experiment_embedding_space(
     settings: CrossRunSettings,
 ) -> EmbeddingSpace:
     embedding_settings = settings.launch.experiment_embeddings
@@ -385,7 +385,9 @@ def _require_private_directory(path: Path, state_root: Path) -> None:
 __all__ = [
     "build_production_launch_preparation",
     "build_production_launch_services",
+    "production_experiment_embedding_space",
     "ProductionLaunchCompositionError",
     "ProductionLaunchPreparation",
     "ProductionLaunchServices",
+    "resolve_production_binding",
 ]

@@ -386,6 +386,8 @@ cross_run:
     # Deployment setup writes an exact pinned authority into the runtime config.
     # Null is fail-loud and cannot reach a paid coding-agent action.
     coding_agent_image: null
+    coding_agent_web_search_enabled: false
+    coding_agent_provider_network_enabled: true
     cache_path: ".kapso/cross_run/launch_cache"
     workspace_path: "workspace"
     immutable_root_path: "readonly"

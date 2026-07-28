@@ -1,0 +1,110 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+import yaml
+
+from kapso.core.config import load_config, load_effective_config
+from kapso.cross_run.launch import production_evolution
+from kapso.cross_run.launch.production_evolution import (
+    execute_production_evolution,
+    ProductionEvolutionError,
+)
+
+_CANONICAL_CONFIG_PATH = "src/kapso/config.yaml"
+
+
+def _runtime_config(tmp_path: Path):
+    config = load_config(_CANONICAL_CONFIG_PATH)
+    config["cross_run"]["launch"]["coding_agent_image"] = {
+        "image_reference": (
+            "registry.example.com/kapso/coding-agent@sha256:" + "a" * 64
+        ),
+        "image_config_digest": "sha256:" + "b" * 64,
+        "operating_system": "linux",
+        "architecture": "amd64",
+        "architecture_variant": None,
+    }
+    path = tmp_path / "runtime.yaml"
+    path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+    return load_effective_config(str(path), "GENERIC")
+
+
+def test_runtime_config_requires_and_builds_one_pinned_action_image(tmp_path):
+    effective = _runtime_config(tmp_path)
+
+    authority = production_evolution._configured_image_authority(effective)
+
+    assert authority.image_reference.endswith("@sha256:" + "a" * 64)
+    assert authority.image_config_digest == "sha256:" + "b" * 64
+
+
+def test_fresh_input_validation_precedes_any_embedding_or_launch_call(
+    tmp_path,
+    monkeypatch,
+):
+    def forbidden_embedding(*_arguments, **_keywords):
+        raise AssertionError("embedding constructed before prepared handoff")
+
+    monkeypatch.setattr(
+        production_evolution,
+        "OpenAIEmbeddingProvider",
+        forbidden_embedding,
+    )
+
+    with pytest.raises(ProductionEvolutionError, match="fresh evolution requires"):
+        execute_production_evolution(
+            effective_config=_runtime_config(tmp_path),
+            goal="Preserve this complete goal.",
+            run_root=(tmp_path / "run").absolute(),
+            state_root=tmp_path.absolute(),
+            task_context_request=None,
+            starting_artifact_sources={},
+            dependency_runtime_contract=None,
+            budget_fidelity_envelope=None,
+            scope_id="ml_ai",
+            task_family_id="language_model_post_training",
+            task_adapter_id="posttrain",
+            requested_coding_agent="codex",
+            objective_direction="maximize",
+            additional_context="",
+            resume=False,
+        )
+
+
+def test_resume_rejects_rederived_fresh_inputs_before_external_access(tmp_path):
+    with pytest.raises(ProductionEvolutionError, match="pinned local launch inputs"):
+        execute_production_evolution(
+            effective_config=_runtime_config(tmp_path),
+            goal="Resume the pinned goal.",
+            run_root=(tmp_path / "run").absolute(),
+            state_root=tmp_path.absolute(),
+            task_context_request=None,
+            starting_artifact_sources={},
+            dependency_runtime_contract={"runtime": "python"},
+            budget_fidelity_envelope=None,
+            scope_id="ml_ai",
+            task_family_id="language_model_post_training",
+            task_adapter_id="posttrain",
+            requested_coding_agent="codex",
+            objective_direction="maximize",
+            additional_context="",
+            resume=True,
+        )
+
+
+def test_evolution_prompt_preserves_full_goal_context_and_repository_memory():
+    goal = "goal-prefix\n" + "g" * 200_000 + "\ngoal-suffix"
+    context = "context-prefix\n" + "c" * 200_000 + "\ncontext-suffix"
+    memory = b'{"summary":"complete repository memory"}'
+
+    prompt = production_evolution._evolution_prompt(
+        goal=goal,
+        additional_context=context,
+        repository_memory=memory,
+    )
+
+    assert goal in prompt
+    assert context in prompt
+    assert memory.decode("utf-8") in prompt

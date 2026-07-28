@@ -1606,6 +1606,8 @@ class LaunchSettings(StrictContract):
     experiment_embeddings: EmbeddingSettings
     coding_agent: CodingAgentSettings
     coding_agent_image: CodingAgentImageSettings | None
+    coding_agent_web_search_enabled: bool
+    coding_agent_provider_network_enabled: bool
     cache_path: str
     workspace_path: str
     immutable_root_path: str
@@ -1716,6 +1718,10 @@ class LaunchSettings(StrictContract):
             type(self.experiment_embeddings) is not EmbeddingSettings
             or not self.experiment_embeddings.enabled
             or type(self.coding_agent) is not CodingAgentSettings
+            or type(self.coding_agent_web_search_enabled) is not bool
+            or type(self.coding_agent_provider_network_enabled) is not bool
+            or self.coding_agent_web_search_enabled
+            and not self.coding_agent_provider_network_enabled
         ):
             raise CrossRunConfigurationError(
                 "launch experiment embeddings and coding agent must be exact"
