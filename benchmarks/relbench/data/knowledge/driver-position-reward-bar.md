@@ -14,3 +14,10 @@ is measured against:
   2010–2016 era shift): a validation win that does not survive that shift is
   worthless. Treat generalization across the test horizon as the primary
   design constraint, not an afterthought.
+- STOP RULE (hard): an in-loop VALIDATION score is NEVER goal achievement,
+  no matter how far it sits below 2.731 — that number is a TEST bar, and
+  validation is a different split. Only a validation MAE at or below 1.9
+  (= 2.731 minus the smallest drift ever measured on this task) could even
+  in principle indicate the test bar has been reached; no stop verdict,
+  "goal achieved" claim, or early termination is permitted while validation
+  is above 1.9. Campaigns end on budget, not on validation optimism.
