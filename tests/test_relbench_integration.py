@@ -578,17 +578,16 @@ class TestFinalEvaluateTestFill:
 
 
 class TestDataAccessRules:
-    def test_external_leverage_relaxed_models_free_datasets_censored(self):
-        """User-directed data policy (2026-07-27, relaxed same day):
-        pretrained models are unconditionally allowed and ENCOURAGED — no
-        classification procedure, no constraint clauses on models; the
-        leakage condition attaches to EXTERNAL DATASETS only (test labels
-        are public real-world history, so domain sources are truncated at
-        the cutoff and documented). Compared leaderboard methods stay
-        excluded BY NAME but weights-only: cloning their public code and
-        retraining from scratch is explicitly legal and encouraged. The
-        official RelBench distribution stays unfetchable (contains
-        post-cutoff rows)."""
+    def test_external_leverage_fully_relaxed_rules(self):
+        """User-directed data policy (final relaxation 2026-07-28):
+        pretrained models unconditionally allowed and ENCOURAGED with NO
+        carve-outs — the baseline-weights exclusion is fully lifted (no
+        method names in the rules); the relbench-API/cache mechanics block
+        and the determinism bullet are dropped (cache protection stays
+        physical: sanitized read-only cache). What remains: the published-
+        solution ban, external-dataset leakage condition with changes.log
+        provenance, synthetic-data legality, temporal censoring, the
+        two-model val contract, and the forbidden API calls."""
         from types import SimpleNamespace
 
         from benchmarks.relbench.context import _data_access_rules
@@ -601,23 +600,22 @@ class TestDataAccessRules:
             is_recommendation=False,
         )
         rules = _data_access_rules(spec)
+        assert "do NOT look up this problem's published solution" in rules
         assert "PRETRAINED MODELS (encouraged)" in rules
         assert "EXTERNAL DATASETS (encouraged)" in rules
         assert "ZERO leakage" in rules and "voids the experiment" in rules
         assert "changes.log" in rules
-        # Relaxation pins: no per-asset classification, no model constraints.
-        assert "WORLD-KNOWLEDGE" not in rules
-        assert "NEEDS CENSORING" not in rules
-        assert "opaque ids" not in rules
-        assert "never fetch dataset files from the network" not in rules
-        assert "OFFICIAL RelBench distribution" in rules
         assert "SYNTHETIC DATA" in rules and "legal" in rules
-        for name in ("KumoRFM", "Relational Transformer", "PluRel",
-                     "Griffin", "Rel-LLM"):
-            assert name in rules, name
-        assert "WEIGHTS only" in rules
-        assert "cloning a method's" in rules
-        assert "do NOT look up this problem's published solution" in rules
+        assert "Temporal censoring" in rules
+        assert "two-model" in rules
+        assert "mask_input_cols=False" in rules
+        # Removed-by-direction pins: no baseline-weights exclusion, no API/
+        # cache mechanics block, no determinism bullet, no model constraints.
+        for gone in ("KumoRFM", "Relational Transformer", "PluRel", "Griffin",
+                     "Rel-LLM", "WEIGHTS only", "carve-out", "download=False",
+                     "OFFICIAL RelBench distribution", "Determinism",
+                     "WORLD-KNOWLEDGE", "NEEDS CENSORING", "opaque ids"):
+            assert gone not in rules, gone
 
 
 class TestDesignAxes:

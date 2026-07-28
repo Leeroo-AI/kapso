@@ -368,28 +368,8 @@ Data access (violations invalidate the run):
   published SOLUTION to THIS specific task/dataset (winning write-ups,
   leaderboard code, answer keys, feature recipes tuned to it). General
   methods, domain background, and library usage are fine. Solve it yourself.
-- INTEGRITY (baseline weights) — do NOT use the pretrained weights or
-  released checkpoints of the compared leaderboard methods — KumoRFM /
-  KumoRFM-2, Relational Transformer (RT), PluRel, Griffin, Rel-LLM, or any
-  other published RelBench-leaderboard method — nor any checkpoint
-  pretrained on RelBench databases (public copies are un-truncated). The
-  exclusion is their WEIGHTS only: cloning a method's public code and
-  training it from scratch on this task's data is legal and encouraged
-  (disable checkpoint auto-downloads).
-- Load data ONLY through the relbench API with download=False:
-    from relbench.datasets import get_dataset
-    from relbench.tasks import get_task
-    dataset = get_dataset("{spec.dataset_name}", download=False)
-    task = get_task("{spec.dataset_name}", "{spec.task_name}", download=False)
-    db = dataset.get_db(); train/val = task.get_table(...)  # labels; val tuning allowed
-    test = task.get_table("test")                           # seed rows ONLY
-  RELBENCH_CACHE_DIR is preset to a sanitized read-only cache. Never use
-  download=True, change RELBENCH_CACHE_DIR, touch ~/.cache/relbench, or
-  re-fetch the OFFICIAL RelBench distribution — it contains post-cutoff
-  rows, so fetching it is test leakage by definition.
 - PRETRAINED MODELS (encouraged) — any pretrained model may be downloaded
-  and used however helps (fine-tune, distill, feature-extract). Only
-  carve-out: the compared-baselines rule above.
+  and used however helps (fine-tune, distill, feature-extract).
 - EXTERNAL DATASETS (encouraged) — allowed under ONE condition: ZERO leakage
   into the test windows; ANY leakage voids the experiment. Test labels are
   public real-world history, so truncate any source covering this database's
@@ -403,7 +383,6 @@ Data access (violations invalidate the run):
   contract). Test rows expose only ({spec.time_col}, {'src id' if spec.is_recommendation else 'entity id'}).
 - Never call task.stats(), mask_input_cols=False on the test split, or
   db.table_dict[...].removed_cols.
-- Determinism: fix seeds; average 2-3 seeds if variance is suspected.
 """
 
 
