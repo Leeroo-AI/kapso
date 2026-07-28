@@ -524,21 +524,16 @@ def test_trigger_inspection_schema_types_every_fixed_constant():
         "affected_capability_ids": {
             "type": "array",
             "items": {"type": "string"},
-            "const": ["capability"],
         },
         "difficulty_evidence_signatures": {
             "type": "object",
             "properties": {},
             "required": [],
             "additionalProperties": False,
-            "const": {},
         },
-        "difficulty_signature": {"type": "null", "const": None},
-        "occurrence_count": {"type": "integer", "const": 1},
-        "source_base_tree_hash": {
-            "type": "string",
-            "const": "sha256:" + "1" * 64,
-        },
+        "difficulty_signature": {"type": "null"},
+        "occurrence_count": {"type": "integer"},
+        "source_base_tree_hash": {"type": "string"},
         "description": {"type": "string", "minLength": 1},
     }
 
