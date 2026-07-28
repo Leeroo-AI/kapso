@@ -51,6 +51,7 @@ from kapso.cross_run.expert.proposal_contract import (
     ExpertModuleProposal,
     ExpertProposalContractError,
     _repository_architecture_signature,
+    build_expert_proposal_prompt,
     derive_expert_proposal_topology,
     expert_candidate_prior_knowledge_release_ids,
     parse_expert_proposal,
@@ -75,6 +76,16 @@ from test_expert_candidate_workspace import (
     released_workspace_fixture,
 )
 from test_cross_run_retrieval import source_fixture
+
+
+@pytest.mark.parametrize("operation_kind", tuple(ExpertCandidateOperationKind))
+def test_expert_proposal_prompts_require_enforceable_resource_bounds(operation_kind):
+    prompt = build_expert_proposal_prompt(operation_kind, {})
+    normalized_prompt = " ".join(prompt.split())
+
+    assert "resource_bounds` as an enforceable safety contract" in normalized_prompt
+    assert "explicit finite depth and cardinality limits" in normalized_prompt
+    assert "Never claim asymptotic bounds lower" in normalized_prompt
 
 
 class UnusedSourceMaterializer:
