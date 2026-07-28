@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import math
 import re
 from dataclasses import dataclass
@@ -32,8 +33,6 @@ from kapso.cross_run.launch.run_action_coding_agent_layout import (
     coding_agent_provider_environment,
     PROVIDER_FINAL_PATH,
     PROVIDER_MCP_CONFIGURATION_PATH,
-    PROVIDER_PRIOR_KNOWLEDGE_AUDIT_PATH,
-    PROVIDER_PRIOR_KNOWLEDGE_PATH,
     PROVIDER_RESPONSE_SCHEMA_PATH,
     PROVIDER_WORKSPACE_PATH,
     TEMPORARY_ROOT_PATH,
@@ -43,8 +42,16 @@ _CODEX_EXECUTABLE = "/usr/bin/codex"
 _CLAUDE_EXECUTABLE = "/usr/local/bin/claude"
 _CODEX_VERSION_OUTPUT = b"codex-cli 0.144.1\n"
 _CLAUDE_VERSION_OUTPUT = b"2.1.220 (Claude Code)\n"
-_EMPTY_ENVIRONMENT_EXECUTABLE = "/usr/bin/env"
-_PRIOR_KNOWLEDGE_MCP_EXECUTABLE = "/usr/local/bin/kapso-prior-knowledge-mcp"
+_PRIOR_KNOWLEDGE_MCP_EXECUTABLE = "/usr/local/bin/kapso-provider-python"
+_PRIOR_KNOWLEDGE_MCP_MODULE = (
+    "kapso.cross_run.launch.run_action_coding_agent_prior_knowledge_relay"
+)
+_PRIOR_KNOWLEDGE_SOCKET_NAMESPACE = "kapso-prior-knowledge"
+_PRIOR_KNOWLEDGE_SESSION_NAMESPACE = b"kapso.prior_knowledge_session.v1\x00"
+_PRIOR_KNOWLEDGE_TOOL_NAMES = (
+    "get_prior_knowledge_record",
+    "list_prior_knowledge",
+)
 _CODEX_EVENT_TYPES = frozenset(
     {
         "thread.started",
@@ -92,10 +99,7 @@ class CodingAgentCliPriorKnowledgeCall:
     response_digest: str
 
     def __post_init__(self) -> None:
-        if self.tool_name not in {
-            "get_prior_knowledge_record",
-            "list_prior_knowledge",
-        }:
+        if self.tool_name not in _PRIOR_KNOWLEDGE_TOOL_NAMES:
             raise RunActionCodingAgentCliError(
                 "coding-agent prior-knowledge call names an unknown tool"
             )
@@ -234,12 +238,6 @@ def coding_agent_cli_final_output_path(
     return PROVIDER_FINAL_PATH if request.interpretation_policy.cli == "codex" else None
 
 
-def coding_agent_cli_prior_knowledge_audit_path() -> str:
-    """Return the fixed semantic MCP audit path."""
-
-    return PROVIDER_PRIOR_KNOWLEDGE_AUDIT_PATH
-
-
 def coding_agent_cli_support_payloads(
     request: CodingAgentRunActionRequest,
 ) -> Mapping[str, bytes]:
@@ -251,11 +249,35 @@ def coding_agent_cli_support_payloads(
         if request.interpretation_policy.cli == "codex"
         else {PROVIDER_MCP_CONFIGURATION_PATH: _claude_mcp_configuration(request)}
     )
-    if request.prior_knowledge is not None:
-        payloads[PROVIDER_PRIOR_KNOWLEDGE_PATH] = (
-            request.prior_knowledge.to_json_bytes()
-        )
     return MappingProxyType(payloads)
+
+
+def coding_agent_cli_prior_knowledge_socket_name(
+    request: CodingAgentRunActionRequest,
+) -> str:
+    """Return the request-bound abstract Unix socket name for one MCP session."""
+
+    _require_request(request)
+    if request.prior_knowledge is None:
+        raise RunActionCodingAgentCliError(
+            "prior-knowledge socket requires one materialization"
+        )
+    return f"{_PRIOR_KNOWLEDGE_SOCKET_NAMESPACE}.{request.operation_id}"
+
+
+def coding_agent_cli_prior_knowledge_session_token(
+    request: CodingAgentRunActionRequest,
+) -> str:
+    """Return the request-bound authentication token for one MCP session."""
+
+    _require_request(request)
+    if request.prior_knowledge is None:
+        raise RunActionCodingAgentCliError(
+            "prior-knowledge session requires one materialization"
+        )
+    return hashlib.sha256(
+        _PRIOR_KNOWLEDGE_SESSION_NAMESPACE + request.to_json_bytes()
+    ).hexdigest()
 
 
 def coding_agent_cli_preflight_command(
@@ -311,16 +333,14 @@ def interpret_coding_agent_cli_completion(
     """Validate bounded raw CLI evidence and return one semantic success."""
 
     _require_request(request)
-    if type(return_code) is not int or return_code != 0:
-        raise RunActionCodingAgentCliError(
-            "coding-agent CLI did not exit with exact success"
-        )
+    if type(return_code) is not int:
+        raise RunActionCodingAgentCliError("coding-agent CLI status is invalid")
     policy = request.interpretation_policy
     _require_bounded_payload(
         provider_output_payload,
         policy.maximum_provider_output_bytes,
         "provider output",
-        allow_empty=False,
+        allow_empty=return_code != 0,
     )
     _require_bounded_payload(
         provider_diagnostic_payload,
@@ -328,6 +348,21 @@ def interpret_coding_agent_cli_completion(
         "provider diagnostic",
         allow_empty=True,
     )
+    if return_code != 0:
+        evidence = (
+            _codex_failure_evidence(provider_output_payload)
+            if policy.cli == "codex"
+            else tree_or_blob_digest(provider_output_payload)
+        )
+        failure = canonical_json_bytes(
+            {
+                "diagnostic": provider_diagnostic_payload.decode("utf-8"),
+                "event_evidence": evidence,
+            }
+        ).decode("utf-8")
+        raise RunActionCodingAgentCliError(
+            f"coding-agent CLI did not exit with exact success: {failure}"
+        )
     if policy.cli == "codex":
         if final_output_payload is None:
             raise RunActionCodingAgentCliError(
@@ -353,6 +388,29 @@ def interpret_coding_agent_cli_completion(
         request,
         provider_output_payload,
         provider_diagnostic_payload,
+    )
+
+
+def _codex_failure_evidence(provider_output_payload: bytes) -> str:
+    if not provider_output_payload:
+        return tree_or_blob_digest(provider_output_payload)
+    if not provider_output_payload.endswith(b"\n"):
+        raise RunActionCodingAgentCliError(
+            "Codex failure event stream has an incomplete final event"
+        )
+    lines = provider_output_payload.splitlines()
+    if any(not line.strip() for line in lines):
+        raise RunActionCodingAgentCliError(
+            "Codex failure event stream contains a blank event"
+        )
+    events = tuple(_require_event(_parse_codex_event(line)) for line in lines)
+    failures = tuple(
+        event for event in events if event.get("type") in {"error", "turn.failed"}
+    )
+    return (
+        canonical_json_bytes(failures).decode("utf-8")
+        if failures
+        else tree_or_blob_digest(provider_output_payload)
     )
 
 
@@ -460,7 +518,7 @@ def _codex_command(request: CodingAgentRunActionRequest) -> tuple[str, ...]:
                 "--config",
                 (
                     "mcp_servers.prior_knowledge.command="
-                    + json.dumps(_EMPTY_ENVIRONMENT_EXECUTABLE)
+                    + json.dumps(_PRIOR_KNOWLEDGE_MCP_EXECUTABLE)
                 ),
                 "--config",
                 (
@@ -469,6 +527,13 @@ def _codex_command(request: CodingAgentRunActionRequest) -> tuple[str, ...]:
                 ),
                 "--config",
                 "mcp_servers.prior_knowledge.required=true",
+                "--config",
+                'mcp_servers.prior_knowledge.default_tools_approval_mode="approve"',
+                "--config",
+                (
+                    "mcp_servers.prior_knowledge.enabled_tools="
+                    + json.dumps(_PRIOR_KNOWLEDGE_TOOL_NAMES, separators=(",", ":"))
+                ),
             ]
         )
     else:
@@ -481,7 +546,7 @@ def _claude_mcp_configuration(request: CodingAgentRunActionRequest) -> bytes:
     servers = {}
     if request.prior_knowledge is not None:
         servers["prior_knowledge"] = {
-            "command": _EMPTY_ENVIRONMENT_EXECUTABLE,
+            "command": _PRIOR_KNOWLEDGE_MCP_EXECUTABLE,
             "args": _prior_knowledge_mcp_arguments(request),
         }
     return canonical_json_bytes({"mcpServers": servers})
@@ -495,22 +560,22 @@ def _prior_knowledge_mcp_arguments(
             "prior-knowledge MCP arguments require one materialization"
         )
     return [
-        "-i",
-        _PRIOR_KNOWLEDGE_MCP_EXECUTABLE,
-        "--prior-knowledge-path",
-        PROVIDER_PRIOR_KNOWLEDGE_PATH,
-        "--prior-knowledge-maximum-bytes",
-        str(len(request.prior_knowledge.to_json_bytes())),
-        "--prior-knowledge-audit-path",
-        PROVIDER_PRIOR_KNOWLEDGE_AUDIT_PATH,
-        "--prior-knowledge-audit-maximum-bytes",
-        str(request.interpretation_policy.maximum_prior_knowledge_audit_bytes),
-        "--operation-id",
-        request.operation_id,
-        "--enabled-gates",
-        "prior_knowledge",
-        "--gate-failure-policy",
-        "error",
+        "-m",
+        _PRIOR_KNOWLEDGE_MCP_MODULE,
+        "--socket-name",
+        coding_agent_cli_prior_knowledge_socket_name(request),
+        "--session-token",
+        coding_agent_cli_prior_knowledge_session_token(request),
+        "--chunk-size-bytes",
+        str(request.interpretation_policy.prior_knowledge_relay_chunk_size_bytes),
+        "--provider-user-id",
+        str(request.interpretation_policy.provider_user_id),
+        "--provider-group-id",
+        str(request.interpretation_policy.provider_group_id),
+        "--sidecar-user-id",
+        str(request.interpretation_policy.supervisor_user_id),
+        "--sidecar-group-id",
+        str(request.interpretation_policy.supervisor_group_id),
     ]
 
 
@@ -523,8 +588,8 @@ def _claude_command(request: CodingAgentRunActionRequest) -> tuple[str, ...]:
     if policy.web_search_enabled:
         tools.append("WebSearch")
     prior_knowledge_tools = [
-        "mcp__prior_knowledge__get_prior_knowledge_record",
-        "mcp__prior_knowledge__list_prior_knowledge",
+        f"mcp__prior_knowledge__{tool_name}"
+        for tool_name in _PRIOR_KNOWLEDGE_TOOL_NAMES
     ]
     if request.prior_knowledge is not None:
         tools.extend(prior_knowledge_tools)
@@ -1228,7 +1293,7 @@ def _require_codex_mcp_item(
             "type",
         }
         or item["server"] != "prior_knowledge"
-        or item["tool"] not in {"get_prior_knowledge_record", "list_prior_knowledge"}
+        or item["tool"] not in _PRIOR_KNOWLEDGE_TOOL_NAMES
         or not isinstance(item["arguments"], Mapping)
     ):
         raise RunActionCodingAgentCliError(
@@ -1259,8 +1324,22 @@ def _require_codex_mcp_item(
     else:
         valid = False
     if not valid:
+        result = item["result"]
+        result_fields = (
+            tuple(sorted(result))
+            if isinstance(result, Mapping)
+            else type(result).__name__
+        )
+        structured_content_type = (
+            type(result.get("structured_content")).__name__
+            if isinstance(result, Mapping)
+            else None
+        )
         raise RunActionCodingAgentCliError(
-            "Codex MCP item did not complete through the exact success lifecycle"
+            "Codex MCP item did not complete through the exact success lifecycle: "
+            f"event={event_type!r}, status={item['status']!r}, "
+            f"error={item['error']!r}, result_fields={result_fields!r}, "
+            f"structured_content_type={structured_content_type!r}"
         )
     if response_digest is None:
         return None
@@ -1449,7 +1528,8 @@ __all__ = [
     "coding_agent_cli_final_output_path",
     "coding_agent_cli_preflight_command",
     "coding_agent_cli_provider_environment",
-    "coding_agent_cli_prior_knowledge_audit_path",
+    "coding_agent_cli_prior_knowledge_session_token",
+    "coding_agent_cli_prior_knowledge_socket_name",
     "coding_agent_cli_support_payloads",
     "coding_agent_cli_temporary_path",
     "coding_agent_cli_workspace_path",

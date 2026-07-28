@@ -79,7 +79,8 @@ def _tunnel(left: socket.socket, right: socket.socket, chunk_size_bytes: int) ->
                 destination.sendall(payload)
             else:
                 readable.remove(source)
-                destination.shutdown(socket.SHUT_WR)
+                if destination in readable:
+                    destination.shutdown(socket.SHUT_WR)
 
 
 def _serve_connect(

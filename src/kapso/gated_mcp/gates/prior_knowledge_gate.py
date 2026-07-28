@@ -9,9 +9,9 @@ import re
 import stat
 from contextlib import ExitStack
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional
+from typing import Any, Callable, Dict, List, Mapping, Optional
 
-from mcp.types import TextContent, Tool
+from mcp.types import TextContent, Tool, ToolAnnotations
 
 from kapso.cross_run.canonical import canonical_json_bytes, tree_or_blob_digest
 from kapso.cross_run.knowledge.access import PriorKnowledgeAccess
@@ -20,6 +20,12 @@ from kapso.gated_mcp.gates.base import GateConfig, ToolGate
 logger = logging.getLogger(__name__)
 
 _OPERATION_IDENTIFIER_PATTERN = re.compile(r"^agent_call_[0-9a-f]{32}$")
+_READ_ONLY_TOOL_ANNOTATIONS = ToolAnnotations(
+    readOnlyHint=True,
+    destructiveHint=False,
+    idempotentHint=True,
+    openWorldHint=False,
+)
 
 
 class PriorKnowledgeGate(ToolGate):
@@ -33,6 +39,8 @@ class PriorKnowledgeGate(ToolGate):
         config: Optional[GateConfig] = None,
         *,
         access: PriorKnowledgeAccess | None = None,
+        audit_sink: Callable[[bytes], None] | None = None,
+        operation_id: str | None = None,
     ) -> None:
         super().__init__(config)
         if access is None:
@@ -57,12 +65,24 @@ class PriorKnowledgeGate(ToolGate):
         if not isinstance(access, PriorKnowledgeAccess):
             raise TypeError("prior knowledge gate access must be PriorKnowledgeAccess")
         self._access = access
+        descriptor_operation_id = operation_id
+        if (audit_sink is None) != (descriptor_operation_id is None):
+            raise ValueError(
+                "prior knowledge descriptor audit sink and operation id must "
+                "appear together"
+            )
+        if audit_sink is not None and (
+            not callable(audit_sink)
+            or not isinstance(descriptor_operation_id, str)
+            or _OPERATION_IDENTIFIER_PATTERN.fullmatch(descriptor_operation_id) is None
+        ):
+            raise ValueError("prior knowledge descriptor audit sink is invalid")
         audit_path = self.get_param("audit_path")
         audit_maximum_bytes = self.get_param("audit_maximum_bytes")
-        operation_id = self.get_param("operation_id")
+        configured_operation_id = self.get_param("operation_id")
         if (audit_path is None) != (audit_maximum_bytes is None) or (
             audit_path is None
-        ) != (operation_id is None):
+        ) != (configured_operation_id is None):
             raise ValueError(
                 "prior knowledge gate audit path, bound, and operation id must "
                 "appear together"
@@ -72,8 +92,9 @@ class PriorKnowledgeGate(ToolGate):
             if not path.is_absolute() or ".." in path.parts:
                 raise ValueError("prior knowledge audit path must be absolute")
             if (
-                not isinstance(operation_id, str)
-                or _OPERATION_IDENTIFIER_PATTERN.fullmatch(operation_id) is None
+                not isinstance(configured_operation_id, str)
+                or _OPERATION_IDENTIFIER_PATTERN.fullmatch(configured_operation_id)
+                is None
             ):
                 raise ValueError("prior knowledge audit operation id is invalid")
             if (
@@ -86,11 +107,16 @@ class PriorKnowledgeGate(ToolGate):
                 )
             self._audit_path = path
             self._audit_maximum_bytes = audit_maximum_bytes
-            self._operation_id = operation_id
+            self._operation_id = configured_operation_id
         else:
             self._audit_path = None
             self._audit_maximum_bytes = None
             self._operation_id = None
+        if audit_sink is not None and self._audit_path is not None:
+            raise ValueError("prior knowledge gate cannot retain two audit sinks")
+        self._audit_sink = audit_sink
+        if descriptor_operation_id is not None:
+            self._operation_id = descriptor_operation_id
 
     def get_tools(self) -> List[Tool]:
         return [
@@ -105,6 +131,7 @@ class PriorKnowledgeGate(ToolGate):
                     "properties": {},
                     "additionalProperties": False,
                 },
+                annotations=_READ_ONLY_TOOL_ANNOTATIONS,
             ),
             Tool(
                 name="get_prior_knowledge_record",
@@ -123,6 +150,7 @@ class PriorKnowledgeGate(ToolGate):
                     "required": ["record_id"],
                     "additionalProperties": False,
                 },
+                annotations=_READ_ONLY_TOOL_ANNOTATIONS,
             ),
         ]
 
@@ -178,9 +206,12 @@ class PriorKnowledgeGate(ToolGate):
             "prior_knowledge_mcp_access %s",
             canonical_json_bytes(event).decode("utf-8"),
         )
+        payload = canonical_json_bytes(event) + b"\n"
+        if self._audit_sink is not None:
+            self._audit_sink(payload)
+            return
         if self._audit_path is None:
             return
-        payload = canonical_json_bytes(event) + b"\n"
         parent = self._audit_path.parent
         if parent.is_symlink() or not parent.is_dir():
             raise ValueError("prior knowledge audit parent must be a real directory")

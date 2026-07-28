@@ -284,6 +284,40 @@ def test_gate_serves_complete_selected_and_proof_records_with_labels_and_audit(
     )
 
 
+def test_gate_commits_descriptor_audit_before_returning_semantic_content():
+    materialization = access_materialization()
+    audit_payloads = []
+    operation_id = "agent_call_" + "d" * 32
+    gate = PriorKnowledgeGate(
+        GateConfig(enabled=True),
+        access=PriorKnowledgeAccess(materialization),
+        audit_sink=audit_payloads.append,
+        operation_id=operation_id,
+    )
+
+    listed = asyncio.run(gate.handle_call("list_prior_knowledge", {}))
+
+    event = json.loads(audit_payloads[0])
+    assert len(audit_payloads) == 1
+    assert event["operation_id"] == operation_id
+    assert event["tool_name"] == "list_prior_knowledge"
+    assert event["response_digest"] == tree_or_blob_digest(
+        listed[0].text.encode("utf-8")
+    )
+
+    def reject_audit(_payload):
+        raise RuntimeError("audit commit rejected")
+
+    rejecting_gate = PriorKnowledgeGate(
+        GateConfig(enabled=True),
+        access=PriorKnowledgeAccess(materialization),
+        audit_sink=reject_audit,
+        operation_id=operation_id,
+    )
+    with pytest.raises(RuntimeError, match="audit commit rejected"):
+        asyncio.run(rejecting_gate.handle_call("list_prior_knowledge", {}))
+
+
 def test_real_stdio_mcp_handshake_lists_reads_and_returns_errors(tmp_path):
     materialization = access_materialization()
     path = persist_materialization(tmp_path, materialization)

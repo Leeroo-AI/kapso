@@ -21,10 +21,6 @@ PROVIDER_SUPPORT_PATH = "/kapso/tmp/provider-support"
 PROVIDER_RESPONSE_SCHEMA_PATH = "/kapso/tmp/provider-support/response.schema.json"
 PROVIDER_FINAL_PATH = "/kapso/tmp/provider-output/provider.final.json"
 PROVIDER_MCP_CONFIGURATION_PATH = "/kapso/tmp/provider-support/mcp.config.json"
-PROVIDER_PRIOR_KNOWLEDGE_PATH = "/kapso/tmp/provider-support/prior_knowledge.json"
-PROVIDER_PRIOR_KNOWLEDGE_AUDIT_PATH = (
-    "/kapso/tmp/provider-output/prior_knowledge.audit.jsonl"
-)
 
 _PROVIDER_ENVIRONMENT = MappingProxyType(
     {
@@ -70,8 +66,6 @@ __all__ = [
     "PROVIDER_HOME_PATH",
     "PROVIDER_MCP_CONFIGURATION_PATH",
     "PROVIDER_OUTPUT_PATH",
-    "PROVIDER_PRIOR_KNOWLEDGE_AUDIT_PATH",
-    "PROVIDER_PRIOR_KNOWLEDGE_PATH",
     "PROVIDER_RESPONSE_SCHEMA_PATH",
     "PROVIDER_SUPPORT_PATH",
     "PROVIDER_TEMP_PATH",

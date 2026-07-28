@@ -16,6 +16,7 @@ from kapso.cross_run.launch.run_action_coding_agent_consumer import (
     NATIVE_CODING_AGENT_CONSUMER_VERSION,
 )
 from kapso.cross_run.launch.run_action_coding_agent_contracts import (
+    CodingAgentPriorKnowledgeAccessKind,
     CodingAgentProviderEgressMode,
     read_canonical_coding_agent_result,
 )
@@ -32,10 +33,11 @@ from test_run_action_coding_agent_contracts import (
     interpretation_policy,
     run_action_request,
 )
+from test_prior_knowledge_gate import citable_access_materialization
 
 _CONFIG_PATH = Path(__file__).parents[1] / "src" / "kapso" / "config.yaml"
 _PRODUCTION_IMAGE = "kapso/coding-agent-production:m9"
-_EXPECTED_ANSWER = "authenticated network-isolated provider passed"
+_EXPECTED_ANSWER = "authenticated prior-knowledge sidecar passed"
 
 
 def _terminate_process_group(process: subprocess.Popen) -> None:
@@ -202,10 +204,14 @@ def test_real_codex_runs_inside_the_network_isolated_production_image(
         maximum_prior_knowledge_audit_bytes=(
             settings.coding_agent_prior_knowledge_audit_size_bytes
         ),
+        prior_knowledge_relay_chunk_size_bytes=(
+            settings.coding_agent_prior_knowledge_relay_chunk_size_bytes
+        ),
         maximum_raw_result_bytes=settings.run_action_result_size_bytes,
     )
     request = run_action_request(
         policy,
+        prior_knowledge=citable_access_materialization(),
         response_schema={
             "type": "object",
             "properties": {"answer": {"type": "string", "enum": [_EXPECTED_ANSWER]}},
@@ -217,7 +223,10 @@ def test_real_codex_runs_inside_the_network_isolated_production_image(
         **{
             **request.to_dict(),
             "prompt": (
-                "Inspect the available workspace without changing it. Return the "
+                "Without changing the workspace, you MUST first call "
+                "prior_knowledge.list_prior_knowledge, then call "
+                "prior_knowledge.get_prior_knowledge_record for the single record "
+                "returned by that list. Only after both calls succeed, return the "
                 f"required JSON answer exactly as {_EXPECTED_ANSWER!r}."
             ),
         }
@@ -310,6 +319,12 @@ def test_real_codex_runs_inside_the_network_isolated_production_image(
     )
     result.validate_against(policy=policy, request=request)
     assert result.structured_output == {"answer": _EXPECTED_ANSWER}
-    assert result.prior_knowledge_accesses == ()
+    assert tuple(access.access_kind for access in result.prior_knowledge_accesses) == (
+        CodingAgentPriorKnowledgeAccessKind.LIST,
+        CodingAgentPriorKnowledgeAccessKind.GET,
+    )
+    assert result.prior_knowledge_accesses[1].returned_record_ids == (
+        request.prior_knowledge.prior_knowledge_snapshot.selected_record_ids[0],
+    )
     assert result.input_tokens > 0
     assert result.output_tokens > 0

@@ -550,7 +550,10 @@ def test_consumer_executes_claude_edit_and_binds_the_observed_successor(tmp_path
         assert git_call["environment"]["XDG_CONFIG_HOME"] == "/nonexistent"
 
 
-def test_consumer_translates_ordered_prior_knowledge_mcp_audit(tmp_path):
+def test_consumer_translates_ordered_prior_knowledge_mcp_audit(
+    tmp_path,
+    monkeypatch,
+):
     workspace, _source, temporary = _runtime_directories(tmp_path)
     prior_knowledge = empty_prior_knowledge()
     request = run_action_request(
@@ -571,11 +574,23 @@ def test_consumer_translates_ordered_prior_knowledge_mcp_audit(tmp_path):
         "tool_name": "list_prior_knowledge",
     }
 
+    sidecar_session = object()
+    monkeypatch.setattr(
+        consumer_module,
+        "_start_prior_knowledge_sidecar",
+        lambda _request, _temporary_descriptor, _resources: sidecar_session,
+    )
+    monkeypatch.setattr(
+        consumer_module,
+        "_finish_prior_knowledge_sidecar",
+        lambda observed_session, _request: (
+            canonical_json_bytes(event) + b"\n"
+            if observed_session is sidecar_session
+            else b""
+        ),
+    )
+
     def provider_with_audit(call):
-        _write_provider_file(
-            temporary / "provider-output" / "prior_knowledge.audit.jsonl",
-            canonical_json_bytes(event) + b"\n",
-        )
         _write_provider_file(
             temporary / "provider-output" / "provider.final.json",
             canonical_json_bytes({"answer": "Use evidence."}),
@@ -619,7 +634,10 @@ def test_consumer_translates_ordered_prior_knowledge_mcp_audit(tmp_path):
     assert result.prior_knowledge_accesses[0].returned_record_ids == ()
 
 
-def test_consumer_rejects_prior_knowledge_audit_substitution(tmp_path):
+def test_consumer_rejects_prior_knowledge_audit_substitution(
+    tmp_path,
+    monkeypatch,
+):
     workspace, _source, temporary = _runtime_directories(tmp_path)
     prior_knowledge = empty_prior_knowledge()
     request = run_action_request(
@@ -640,11 +658,23 @@ def test_consumer_rejects_prior_knowledge_audit_substitution(tmp_path):
         "tool_name": "list_prior_knowledge",
     }
 
+    sidecar_session = object()
+    monkeypatch.setattr(
+        consumer_module,
+        "_start_prior_knowledge_sidecar",
+        lambda _request, _temporary_descriptor, _resources: sidecar_session,
+    )
+    monkeypatch.setattr(
+        consumer_module,
+        "_finish_prior_knowledge_sidecar",
+        lambda observed_session, _request: (
+            canonical_json_bytes(event) + b"\n"
+            if observed_session is sidecar_session
+            else b""
+        ),
+    )
+
     def provider_with_substituted_audit(_call):
-        _write_provider_file(
-            temporary / "provider-output" / "prior_knowledge.audit.jsonl",
-            canonical_json_bytes(event) + b"\n",
-        )
         _write_provider_file(
             temporary / "provider-output" / "provider.final.json",
             canonical_json_bytes({"answer": "Use evidence."}),

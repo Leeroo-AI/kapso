@@ -36,7 +36,8 @@ from kapso.cross_run.launch.run_action_coding_agent_cli import (
     coding_agent_cli_command,
     coding_agent_cli_final_output_path,
     coding_agent_cli_preflight_command,
-    coding_agent_cli_prior_knowledge_audit_path,
+    coding_agent_cli_prior_knowledge_session_token,
+    coding_agent_cli_prior_knowledge_socket_name,
     coding_agent_cli_provider_environment,
     coding_agent_cli_support_payloads,
     coding_agent_cli_temporary_path,
@@ -106,6 +107,15 @@ _SUPPORT_FILE_MODE = 0o600
 _MAXIMUM_UNSIGNED_64 = (1 << 64) - 1
 _EGRESS_RELAY_EXECUTABLE = "/usr/bin/python3"
 _EGRESS_RELAY_MODULE = "kapso.cross_run.launch.run_action_coding_agent_egress_relay"
+_PRIOR_KNOWLEDGE_SIDECAR_EXECUTABLE = "/usr/bin/python3"
+_PRIOR_KNOWLEDGE_SIDECAR_MODULE = (
+    "kapso.cross_run.launch.run_action_coding_agent_prior_knowledge_sidecar"
+)
+_TRUSTED_SIDECAR_ENVIRONMENT = {
+    "LANG": "C",
+    "LC_ALL": "C",
+    "PATH": "/usr/local/bin:/usr/bin:/bin",
+}
 
 
 class RunActionCodingAgentConsumerError(RuntimeError):
@@ -128,6 +138,28 @@ class BoundedCodingAgentProcessCompletion:
         ):
             raise RunActionCodingAgentConsumerError(
                 "coding-agent process completion is invalid"
+            )
+
+
+@dataclass(frozen=True)
+class CodingAgentPriorKnowledgeSidecarSession:
+    """Live trusted sidecar and its retained anonymous audit descriptor."""
+
+    process: subprocess.Popen
+    audit_descriptor: int
+    control_descriptor: int
+
+    def __post_init__(self) -> None:
+        if (
+            not isinstance(self.process, subprocess.Popen)
+            or type(self.audit_descriptor) is not int
+            or self.audit_descriptor <= 2
+            or type(self.control_descriptor) is not int
+            or self.control_descriptor <= 2
+            or self.audit_descriptor == self.control_descriptor
+        ):
+            raise RunActionCodingAgentConsumerError(
+                "prior-knowledge sidecar session is invalid"
             )
 
 
@@ -596,6 +628,11 @@ def consume_coding_agent_run_action(
         started_nanoseconds = time.monotonic_ns()
         with ExitStack() as provider_resources:
             _start_coding_agent_egress_relay(request, provider_resources)
+            prior_knowledge_sidecar = _start_prior_knowledge_sidecar(
+                request,
+                temporary_directory_descriptor,
+                provider_resources,
+            )
             process = process_runner.run(
                 coding_agent_provider_sandbox_command(
                     request,
@@ -612,6 +649,10 @@ def consume_coding_agent_run_action(
                 environment=coding_agent_cli_provider_environment(request),
                 inherited_descriptors=inherited_descriptors,
             )
+            prior_knowledge_audit_payload = _finish_prior_knowledge_sidecar(
+                prior_knowledge_sidecar,
+                request,
+            )
         duration_nanoseconds = time.monotonic_ns() - started_nanoseconds
         scratch.restore_temporary_root()
         final_output_payload = (
@@ -625,8 +666,8 @@ def consume_coding_agent_run_action(
             final_output_payload=final_output_payload,
         )
         prior_knowledge_accesses = _read_prior_knowledge_accesses(
-            scratch,
             request,
+            prior_knowledge_audit_payload,
         )
         validate_coding_agent_cli_prior_knowledge_trace(
             request=request,
@@ -839,6 +880,154 @@ def _start_coding_agent_egress_relay(
         raise RunActionCodingAgentConsumerError(
             "coding-agent egress relay did not become ready exactly"
         )
+
+
+def _start_prior_knowledge_sidecar(
+    request: CodingAgentRunActionRequest,
+    temporary_directory_descriptor: int,
+    resources: ExitStack,
+) -> CodingAgentPriorKnowledgeSidecarSession | None:
+    if request.prior_knowledge is None:
+        return None
+    policy = request.interpretation_policy
+    packet_payload = request.prior_knowledge.to_json_bytes()
+    packet_descriptor = open_run_action_anonymous_file(
+        temporary_directory_descriptor,
+        0o600,
+    )
+    resources.callback(os.close, packet_descriptor)
+    write_run_action_full_payload(packet_descriptor, packet_payload)
+    os.fchmod(packet_descriptor, 0o400)
+    require_run_action_descriptor_payload(packet_descriptor, packet_payload)
+    audit_descriptor = open_run_action_anonymous_file(
+        temporary_directory_descriptor,
+        0o600,
+    )
+    resources.callback(os.close, audit_descriptor)
+    os.fchmod(audit_descriptor, 0o600)
+    control_read_descriptor, control_write_descriptor = os.pipe2(os.O_CLOEXEC)
+    resources.callback(os.close, control_write_descriptor)
+    readiness_read_descriptor, readiness_write_descriptor = os.pipe2(os.O_CLOEXEC)
+    resources.callback(os.close, readiness_read_descriptor)
+    command = (
+        _PRIOR_KNOWLEDGE_SIDECAR_EXECUTABLE,
+        "-m",
+        _PRIOR_KNOWLEDGE_SIDECAR_MODULE,
+        "--packet-descriptor",
+        str(packet_descriptor),
+        "--packet-bytes",
+        str(len(packet_payload)),
+        "--audit-descriptor",
+        str(audit_descriptor),
+        "--audit-maximum-bytes",
+        str(policy.maximum_prior_knowledge_audit_bytes),
+        "--control-descriptor",
+        str(control_read_descriptor),
+        "--readiness-descriptor",
+        str(readiness_write_descriptor),
+        "--socket-name",
+        coding_agent_cli_prior_knowledge_socket_name(request),
+        "--session-token",
+        coding_agent_cli_prior_knowledge_session_token(request),
+        "--operation-id",
+        request.operation_id,
+        "--supervisor-user-id",
+        str(policy.supervisor_user_id),
+        "--supervisor-group-id",
+        str(policy.supervisor_group_id),
+        "--provider-user-id",
+        str(policy.provider_user_id),
+        "--provider-group-id",
+        str(policy.provider_group_id),
+    )
+    with (
+        os.fdopen(readiness_write_descriptor, "wb"),
+        os.fdopen(
+            control_read_descriptor,
+            "rb",
+        ),
+    ):
+        sidecar_process = subprocess.Popen(
+            command,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=None,
+            start_new_session=True,
+            close_fds=True,
+            pass_fds=(
+                packet_descriptor,
+                audit_descriptor,
+                control_read_descriptor,
+                readiness_write_descriptor,
+            ),
+            env=_TRUSTED_SIDECAR_ENVIRONMENT,
+        )
+    resources.callback(_terminate_standalone_process_group, sidecar_process)
+    readable, _writable, _exceptional = select.select(
+        (readiness_read_descriptor,),
+        (),
+        (),
+        policy.termination_grace_nanoseconds / 1_000_000_000,
+    )
+    if (
+        readable != [readiness_read_descriptor]
+        or os.read(readiness_read_descriptor, 1) != b"\x01"
+        or sidecar_process.poll() is not None
+    ):
+        raise RunActionCodingAgentConsumerError(
+            "prior-knowledge sidecar did not become ready exactly"
+        )
+    return CodingAgentPriorKnowledgeSidecarSession(
+        process=sidecar_process,
+        audit_descriptor=audit_descriptor,
+        control_descriptor=control_write_descriptor,
+    )
+
+
+def _finish_prior_knowledge_sidecar(
+    session: CodingAgentPriorKnowledgeSidecarSession | None,
+    request: CodingAgentRunActionRequest,
+) -> bytes:
+    if session is None:
+        if request.prior_knowledge is not None:
+            raise RunActionCodingAgentConsumerError(
+                "prior-knowledge request lacks its trusted sidecar"
+            )
+        return b""
+    if request.prior_knowledge is None:
+        raise RunActionCodingAgentConsumerError(
+            "prior-knowledge sidecar lacks request authority"
+        )
+    if os.write(session.control_descriptor, b"\x01") != 1:
+        raise RunActionCodingAgentConsumerError(
+            "prior-knowledge sidecar control made no progress"
+        )
+    session.process.wait(
+        request.interpretation_policy.termination_grace_nanoseconds / 1_000_000_000
+    )
+    if session.process.returncode != 0:
+        raise RunActionCodingAgentConsumerError(
+            "prior-knowledge sidecar did not terminate cleanly"
+        )
+    maximum_bytes = request.interpretation_policy.maximum_prior_knowledge_audit_bytes
+    metadata = os.fstat(session.audit_descriptor)
+    if (
+        not stat.S_ISREG(metadata.st_mode)
+        or metadata.st_uid != request.interpretation_policy.supervisor_user_id
+        or metadata.st_gid != request.interpretation_policy.supervisor_group_id
+        or metadata.st_nlink != 0
+        or stat.S_IMODE(metadata.st_mode) != 0o600
+        or metadata.st_size > maximum_bytes
+    ):
+        raise RunActionCodingAgentConsumerError(
+            "prior-knowledge anonymous audit descriptor changed"
+        )
+    payload = os.pread(session.audit_descriptor, maximum_bytes + 1, 0)
+    if len(payload) != metadata.st_size:
+        raise RunActionCodingAgentConsumerError(
+            "prior-knowledge anonymous audit is incomplete"
+        )
+    return payload
 
 
 def _terminate_standalone_process_group(process: subprocess.Popen) -> None:
@@ -1298,43 +1487,14 @@ def _read_provider_final(
 
 
 def _read_prior_knowledge_accesses(
-    scratch: CodingAgentScratchLayout,
     request: CodingAgentRunActionRequest,
+    payload: bytes,
 ) -> tuple[CodingAgentPriorKnowledgeAccessEvent, ...]:
-    absolute_path = coding_agent_cli_prior_knowledge_audit_path()
-    path = PurePosixPath(absolute_path)
-    if path.parent.as_posix() != PROVIDER_OUTPUT_PATH:
-        raise RunActionCodingAgentConsumerError(
-            "prior-knowledge audit path escapes temporary authority"
-        )
-    entries = set(os.listdir(scratch.output_descriptor))
-    if path.name not in entries:
+    if not payload:
         return ()
     if request.prior_knowledge is None:
         raise RunActionCodingAgentConsumerError(
             "coding-agent produced an undeclared prior-knowledge audit"
-        )
-    descriptor = os.open(
-        path.name,
-        os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW | os.O_CLOEXEC,
-        dir_fd=scratch.output_descriptor,
-    )
-    with ExitStack() as descriptors:
-        descriptors.callback(os.close, descriptor)
-        payload = _read_exact_regular_descriptor(
-            descriptor,
-            maximum_bytes=(
-                request.interpretation_policy.maximum_prior_knowledge_audit_bytes
-            ),
-            name="prior-knowledge audit",
-            allowed_modes={0o660},
-            allowed_user_ids=frozenset(
-                {
-                    request.interpretation_policy.supervisor_user_id,
-                    request.interpretation_policy.provider_user_id,
-                }
-            ),
-            allowed_group_id=request.interpretation_policy.provider_group_id,
         )
     return _interpret_prior_knowledge_audit(request, payload)
 

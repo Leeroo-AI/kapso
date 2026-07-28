@@ -414,11 +414,15 @@ cross_run:
     coding_agent_provider_output_size_bytes: 16777216
     coding_agent_provider_diagnostic_size_bytes: 16777216
     coding_agent_prior_knowledge_audit_size_bytes: 16777216
+    coding_agent_prior_knowledge_relay_chunk_size_bytes: 65536
     coding_agent_native_credential_size_bytes: 1048576
     coding_agent_codex_auth_source_path: "/home/ubuntu/.codex/auth.json"
     coding_agent_egress_relay_port: 43119
     coding_agent_egress_connect_authorities:
+      - "ab.chatgpt.com:443"
       - "chatgpt.com:443"
+      - "sdmntprnorthcentralus.oaiusercontent.com:443"
+      - "sdmntprsouthcentralus.oaiusercontent.com:443"
     coding_agent_egress_connect_header_size_bytes: 16384
     coding_agent_egress_relay_backlog: 16
     coding_agent_egress_relay_chunk_size_bytes: 65536

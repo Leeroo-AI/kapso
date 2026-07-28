@@ -134,6 +134,7 @@ class CodingAgentInterpretationPolicy(StrictContract):
     maximum_provider_output_bytes: int
     maximum_provider_diagnostic_bytes: int
     maximum_prior_knowledge_audit_bytes: int
+    prior_knowledge_relay_chunk_size_bytes: int
     maximum_native_credential_bytes: int
     maximum_workspace_entries: int
     maximum_workspace_bytes: int
@@ -309,6 +310,10 @@ class CodingAgentInterpretationPolicy(StrictContract):
             (
                 self.maximum_prior_knowledge_audit_bytes,
                 "coding-agent maximum prior-knowledge audit bytes",
+            ),
+            (
+                self.prior_knowledge_relay_chunk_size_bytes,
+                "coding-agent prior-knowledge relay chunk bytes",
             ),
             (
                 self.maximum_native_credential_bytes,

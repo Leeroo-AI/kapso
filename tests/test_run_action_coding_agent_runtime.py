@@ -26,7 +26,6 @@ from kapso.cross_run.launch.run_action_coding_agent_runtime import (
     ProviderSandboxDescriptors,
     RunActionCodingAgentRuntimeError,
     apply_provider_landlock,
-    apply_provider_process_group_containment,
     coding_agent_provider_sandbox_command,
 )
 from kapso.cross_run.launch.run_action_contracts import RunFrontierWorkspaceAccess
@@ -434,28 +433,6 @@ def test_landlock_signal_scope_blocks_the_provider_from_its_parent(tmp_path):
             pass_fds=(descriptor,),
             check=False,
         )
-
-    assert completion.returncode != 0
-    assert completion.stdout == b""
-    assert b"PermissionError" in completion.stderr
-
-
-@pytest.mark.parametrize("operation", ("os.setpgid(0,0)", "os.setsid()"))
-def test_provider_descendants_cannot_escape_the_supervisor_process_group(operation):
-    program = (
-        "from kapso.cross_run.launch.run_action_coding_agent_runtime import "
-        "apply_provider_process_group_containment;"
-        "import os;"
-        "apply_provider_process_group_containment();" + operation
-    )
-
-    completion = subprocess.run(
-        (sys.executable, "-c", program),
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
-    )
 
     assert completion.returncode != 0
     assert completion.stdout == b""

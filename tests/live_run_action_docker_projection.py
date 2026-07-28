@@ -1036,6 +1036,9 @@ def test_real_docker_accepts_only_the_issued_run_action_projection(
             maximum_prior_knowledge_audit_bytes=(
                 cross_run_settings.launch.coding_agent_prior_knowledge_audit_size_bytes
             ),
+            prior_knowledge_relay_chunk_size_bytes=(
+                cross_run_settings.launch.coding_agent_prior_knowledge_relay_chunk_size_bytes
+            ),
             maximum_native_credential_bytes=(
                 cross_run_settings.launch.coding_agent_native_credential_size_bytes
             ),

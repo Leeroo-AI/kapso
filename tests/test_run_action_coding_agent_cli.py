@@ -158,35 +158,22 @@ def test_cli_support_files_are_provider_specific_complete_and_close_mcp_authorit
         prior_knowledge=prior_knowledge,
     )
     with_prior = coding_agent_cli_support_payloads(request_with_prior)
-    assert set(with_prior) == {
-        "/kapso/tmp/provider-support/mcp.config.json",
-        "/kapso/tmp/provider-support/prior_knowledge.json",
-    }
-    assert with_prior["/kapso/tmp/provider-support/prior_knowledge.json"] == (
-        prior_knowledge.to_json_bytes()
-    )
+    assert set(with_prior) == {"/kapso/tmp/provider-support/mcp.config.json"}
     server = json.loads(with_prior["/kapso/tmp/provider-support/mcp.config.json"])[
         "mcpServers"
     ]["prior_knowledge"]
-    assert server["command"] == "/usr/bin/env"
+    assert server["command"] == "/usr/local/bin/kapso-provider-python"
     assert server["args"][:2] == [
-        "-i",
-        "/usr/local/bin/kapso-prior-knowledge-mcp",
+        "-m",
+        "kapso.cross_run.launch.run_action_coding_agent_prior_knowledge_relay",
     ]
-    assert server["args"][server["args"].index("--enabled-gates") + 1] == (
-        "prior_knowledge"
+    assert server["args"][server["args"].index("--socket-name") + 1] == (
+        f"kapso-prior-knowledge.{request_with_prior.operation_id}"
     )
-    assert server["args"][server["args"].index("--gate-failure-policy") + 1] == (
-        "error"
+    assert server["args"][server["args"].index("--chunk-size-bytes") + 1] == str(
+        request_with_prior.interpretation_policy.prior_knowledge_relay_chunk_size_bytes
     )
-    assert server["args"][server["args"].index("--operation-id") + 1] == (
-        request_with_prior.operation_id
-    )
-    assert server["args"][
-        server["args"].index("--prior-knowledge-audit-maximum-bytes") + 1
-    ] == str(
-        request_with_prior.interpretation_policy.maximum_prior_knowledge_audit_bytes
-    )
+    assert not any("prior_knowledge.json" in argument for argument in server["args"])
 
 
 @pytest.mark.parametrize(

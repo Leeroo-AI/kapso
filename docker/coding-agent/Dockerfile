@@ -7,6 +7,7 @@ RUN apt-get update \
         libcap2-bin \
         procps \
         python3 \
+        python3-pip \
         python3-zstandard \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 1001 kapso-provider \
@@ -22,9 +23,20 @@ RUN apt-get update \
     && chown 1000:1001 /kapso/credentials/credentials \
     && chmod 0440 /kapso/credentials/credentials
 
+COPY docker/coding-agent/mcp-requirements.txt /kapso/mcp-requirements.txt
+
+RUN python3 -m pip install \
+        --break-system-packages \
+        --no-cache-dir \
+        --requirement /kapso/mcp-requirements.txt \
+    && rm /kapso/mcp-requirements.txt
+
 COPY src/kapso /usr/lib/python3/dist-packages/kapso
 
-RUN chmod --recursive a+rX /usr/lib/python3/dist-packages/kapso \
+RUN test "$(python3 -c \
+        'from importlib.metadata import version; print(version("mcp"))')" = \
+        '1.26.0' \
+    && chmod --recursive a+rX /usr/lib/python3/dist-packages/kapso \
     && cp /usr/bin/python3.11 /usr/local/bin/kapso-provider-python \
     && printf '%s\n' '#!/usr/bin/python3' \
         'from kapso.cross_run.launch.run_action_coding_agent_consumer import main' \

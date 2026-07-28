@@ -1618,6 +1618,7 @@ class LaunchSettings(StrictContract):
     coding_agent_provider_output_size_bytes: int
     coding_agent_provider_diagnostic_size_bytes: int
     coding_agent_prior_knowledge_audit_size_bytes: int
+    coding_agent_prior_knowledge_relay_chunk_size_bytes: int
     coding_agent_native_credential_size_bytes: int
     coding_agent_codex_auth_source_path: str
     coding_agent_egress_relay_port: int
@@ -1848,6 +1849,10 @@ class LaunchSettings(StrictContract):
             (
                 self.coding_agent_prior_knowledge_audit_size_bytes,
                 "coding_agent_prior_knowledge_audit_size_bytes",
+            ),
+            (
+                self.coding_agent_prior_knowledge_relay_chunk_size_bytes,
+                "coding_agent_prior_knowledge_relay_chunk_size_bytes",
             ),
             (
                 self.coding_agent_native_credential_size_bytes,

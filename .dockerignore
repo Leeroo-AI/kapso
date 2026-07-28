@@ -2,6 +2,9 @@
 !src/
 !src/kapso/
 !src/kapso/**
+!docker/
+!docker/coding-agent/
+!docker/coding-agent/mcp-requirements.txt
 !tests/
 !tests/fixtures/
 !tests/fixtures/coding_agent/

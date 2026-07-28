@@ -19,24 +19,8 @@ _FAILURE_POLICY = "error"
 
 def _create_prior_knowledge_server(
     *,
-    materialization_path: str,
-    materialization_maximum_bytes: int,
-    audit_path: str,
-    audit_maximum_bytes: int,
-    operation_id: str,
+    gate: PriorKnowledgeGate,
 ) -> Server:
-    gate = PriorKnowledgeGate(
-        GateConfig(
-            enabled=True,
-            params={
-                "audit_maximum_bytes": audit_maximum_bytes,
-                "audit_path": audit_path,
-                "materialization_path": materialization_path,
-                "maximum_bytes": materialization_maximum_bytes,
-                "operation_id": operation_id,
-            },
-        )
-    )
     tools = gate.get_tools()
     tools_by_name = {tool.name: tool for tool in tools}
     if len(tools_by_name) != len(tools):
@@ -99,17 +83,23 @@ def main() -> None:
         required=True,
     )
     arguments = parser.parse_args()
-    server = _create_prior_knowledge_server(
-        materialization_path=arguments.prior_knowledge_path,
-        materialization_maximum_bytes=arguments.prior_knowledge_maximum_bytes,
-        audit_path=arguments.prior_knowledge_audit_path,
-        audit_maximum_bytes=arguments.prior_knowledge_audit_maximum_bytes,
-        operation_id=arguments.operation_id,
+    gate = PriorKnowledgeGate(
+        GateConfig(
+            enabled=True,
+            params={
+                "audit_maximum_bytes": arguments.prior_knowledge_audit_maximum_bytes,
+                "audit_path": arguments.prior_knowledge_audit_path,
+                "materialization_path": arguments.prior_knowledge_path,
+                "maximum_bytes": arguments.prior_knowledge_maximum_bytes,
+                "operation_id": arguments.operation_id,
+            },
+        )
     )
+    server = _create_prior_knowledge_server(gate=gate)
     asyncio.run(_run_prior_knowledge_server(server))
 
 
-__all__ = ["main"]
+__all__ = ["_create_prior_knowledge_server", "_run_prior_knowledge_server", "main"]
 
 
 if __name__ == "__main__":
