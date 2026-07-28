@@ -30,14 +30,14 @@ import argparse
 import json
 import os
 import sys
-import tempfile
+from pathlib import Path
 
-from dotenv import load_dotenv
 import yaml
 
 from kapso.core.config import compose_runtime_config, load_config
-
-load_dotenv()
+from kapso.cross_run.canonical import canonical_json_bytes, tree_or_blob_digest
+from kapso.cross_run.launch.contracts import LaunchTaskContextRequest
+from kapso.kapso import Kapso
 
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.yaml")
 CANONICAL_CONFIG_PATH = os.path.join(
@@ -47,16 +47,23 @@ CANONICAL_CONFIG_PATH = os.path.join(
     "config.yaml",
 )
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
-AVAILABLE_AGENTS = ["aider", "gemini", "claude_code", "openhands"]
+AVAILABLE_AGENTS = ["codex"]
 
 
-def build_runtime_config(runtime_root: str) -> str:
+def build_runtime_config(
+    runtime_root: str,
+    image_authority_path: str | None = None,
+) -> str:
     """Compose the benchmark workload with the canonical scope registry."""
 
     runtime = compose_runtime_config(
         load_config(CANONICAL_CONFIG_PATH),
         load_config(CONFIG_PATH),
     )
+    if image_authority_path is not None:
+        image_path = Path(image_authority_path).expanduser().resolve(strict=True)
+        image = json.loads(image_path.read_text(encoding="utf-8"))
+        runtime["cross_run"]["launch"]["coding_agent_image"] = image
     runtime_directory = os.path.join(runtime_root, ".kapso_runtime")
     os.makedirs(runtime_directory, exist_ok=True)
     runtime_path = os.path.join(runtime_directory, "config.yaml")
@@ -80,87 +87,101 @@ def list_tasks() -> None:
 
 
 def solve_task(args) -> dict:
-    from kapso.execution.orchestrator import OrchestratorAgent
-
-    from benchmarks.relbench.handler import RelBenchHandler
-
     print(f"\n{'=' * 70}\nSolving: {args.dataset} / {args.task}\n{'=' * 70}")
-    print(f"  Max iterations: {args.iterations}")
     print(f"  Config mode: {args.mode or 'from config'}")
     print(f"  Coding agent: {args.coding_agent or 'from config'}")
-    print(f"  Knowledge graph: {'disabled' if args.no_kg else 'enabled'}\n")
-
-    handler = RelBenchHandler(
-        dataset_name=args.dataset,
-        task_name=args.task,
-        planned_iterations=args.iterations,
-        target_val_score=args.target_val,
-        extra_knowledge_file=args.knowledge_file,
-        rebuild_sanitized_cache=args.rebuild_cache,
+    run_root = Path(args.workspace).expanduser().resolve(strict=False)
+    runtime_contract = _read_object(Path(args.runtime_contract))
+    runtime_config_path = build_runtime_config(
+        str(run_root.parent),
+        args.image_authority,
     )
-
-    # Strategy selection:
-    # - tree (default): handler-scored benchmark_tree_search. No eval_dir —
-    #   the handler computes official metrics itself, and passing a provided
-    #   suite would turn on the integrity check against agents writing their
-    #   own scripts into kapso_evaluation/.
-    # - generic: evidence-directed ideation with frozen parent plans.
-    #   Our provided grader (data/generic_eval) becomes the maintainer-
-    #   registered evaluation entrypoint; in-loop scoring is val-only by
-    #   construction (the sanitized cache holds no test labels).
-    generic = args.strategy == "generic"
-    mode = args.mode or ("RELBENCH_GENERIC" if generic else None)
-    initial_repo = args.initial_repo
-    if generic and not initial_repo:
-        # The maintainer calibrates the registered evaluation at setup, which
-        # requires a runnable candidate. Seed a trivial shape-correct baseline
-        # so best-valid and verification plans have an executable root.
-        import shutil
-        import tempfile
-
-        initial_repo = tempfile.mkdtemp(prefix="relbench_baseline_")
-        shutil.copy2(
-            os.path.join(DATA_DIR, "generic_baseline", "main.py"),
-            os.path.join(initial_repo, "main.py"),
+    starting_sources = None
+    task_context = None
+    budget = None
+    if not args.resume:
+        starting_sources = {
+            "relbench_starter_kit": (
+                Path(DATA_DIR, "starter_kit").resolve(strict=True),
+                "task/starter_kit",
+            ),
+            "relbench_evaluation": (
+                Path(DATA_DIR, "generic_eval").resolve(strict=True),
+                "task/evaluation",
+            ),
+        }
+        task_context = _task_context_request(
+            dataset=args.dataset,
+            task=args.task,
+            dependency_runtime_contract=runtime_contract,
+            starting_artifact_refs=tuple(sorted(starting_sources)),
         )
-    runtime_root = args.workspace or tempfile.mkdtemp(prefix="relbench_runtime_")
-    runtime_config_path = build_runtime_config(runtime_root)
-    orchestrator = OrchestratorAgent(
-        handler,
+        budget = {"fidelity": "full", "hardware": "configured_runtime"}
+    knowledge = ""
+    if args.knowledge_file is not None:
+        knowledge = Path(args.knowledge_file).expanduser().resolve(
+            strict=True
+        ).read_text(encoding="utf-8")
+    goal = f"Improve predictive modeling for RelBench {args.dataset}/{args.task}."
+    solution = Kapso(config_path=runtime_config_path).evolve(
+        goal=goal,
+        output_path=str(run_root),
+        task_context_request=task_context,
+        starting_artifact_sources=starting_sources,
+        dependency_runtime_contract=(None if args.resume else runtime_contract),
+        budget_fidelity_envelope=budget,
         config_path=runtime_config_path,
-        mode=mode,
+        mode=args.mode or "RELBENCH_GENERIC",
         coding_agent=args.coding_agent,
-        is_kg_active=not args.no_kg,
-        workspace_dir=args.workspace,
+        objective_direction="maximize",
+        additional_context=knowledge,
         resume=args.resume,
-        initial_repo=initial_repo,
-        eval_dir=os.path.join(DATA_DIR, "generic_eval") if generic else None,
-        data_dir=os.path.join(DATA_DIR, "starter_kit"),
-        goal=f"Beat the published state of the art on RelBench {args.dataset}/{args.task}",
     )
-
-    orchestrator.solve(experiment_max_iter=args.iterations)
-
-    print("\n" + "=" * 70 + "\nExperiment History\n" + "=" * 70)
-    for node in orchestrator.search_strategy.get_experiment_history(best_last=True):
-        print(f"  branch={node.branch_name} score={node.score} error={node.had_error}")
-
-    best_branch = orchestrator.search_strategy.checkout_to_best_experiment_branch()
-    cost = orchestrator.get_cumulative_cost()
-    workspace = orchestrator.search_strategy.workspace.workspace_dir
-
-    print(
-        "\n"
-        + "=" * 70
-        + "\nFinal Evaluation (validation-selected, test reported once)\n"
-        + "=" * 70
-    )
-    report = handler.final_evaluate(workspace)
-    report.update(
-        {"best_branch": best_branch, "workspace": workspace, "cost_usd": round(cost, 3)}
-    )
+    report = {
+        "dataset": args.dataset,
+        "task": args.task,
+        "workspace": solution.code_path,
+        **solution.metadata,
+    }
     print(json.dumps(report, indent=2, default=str))
     return report
+
+
+def _read_object(path: Path) -> dict:
+    normalized = path.expanduser().resolve(strict=True)
+    payload = json.loads(normalized.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict) or not payload:
+        raise ValueError(f"{normalized} must contain one non-empty JSON object")
+    return payload
+
+
+def _task_context_request(
+    *,
+    dataset: str,
+    task: str,
+    dependency_runtime_contract: dict,
+    starting_artifact_refs: tuple[str, ...],
+) -> LaunchTaskContextRequest:
+    return LaunchTaskContextRequest.mint(
+        capability_tags=("predict", "relational_tabular"),
+        input_contract_fingerprint=tree_or_blob_digest(
+            canonical_json_bytes({"dataset": dataset})
+        ),
+        target_contract_fingerprint=tree_or_blob_digest(
+            canonical_json_bytes({"task": task})
+        ),
+        starting_artifact_refs=starting_artifact_refs,
+        method_fingerprint=tree_or_blob_digest(b"relbench predictive modeling"),
+        toolchain_fingerprint=tree_or_blob_digest(b"relbench python"),
+        dependency_runtime_fingerprint=tree_or_blob_digest(
+            canonical_json_bytes(dependency_runtime_contract)
+        ),
+        budget_hardware_envelope={"hardware": "configured_runtime"},
+        transfer_dimensions={
+            "dataset_family": "relational_tabular",
+            "runtime_family": "python_ml",
+        },
+    )
 
 
 def main() -> None:
@@ -173,31 +194,14 @@ def main() -> None:
     parser.add_argument(
         "-t", "--task", type=str, help="Task name (e.g. driver-position)"
     )
-    parser.add_argument("-i", "--iterations", type=int, default=20)
-    parser.add_argument("-m", "--mode", type=str, default=None)
+    parser.add_argument("-m", "--mode", type=str, default="RELBENCH_GENERIC")
     parser.add_argument(
         "-d", "--coding-agent", type=str, choices=AVAILABLE_AGENTS, default=None
     )
-    parser.add_argument("--no-kg", action="store_true")
-    parser.add_argument("--workspace", type=str, default=None)
+    parser.add_argument("--workspace", type=str, required=True)
     parser.add_argument("--resume", action="store_true")
-    parser.add_argument(
-        "--strategy",
-        type=str,
-        choices=["tree", "generic"],
-        default="generic",
-        help="generic = evidence-directed search with frozen parent plans (default, "
-        "campaign standard since the R5 A/B); tree = handler-scored "
-        "benchmark_tree_search",
-    )
-    parser.add_argument(
-        "--initial-repo",
-        type=str,
-        default=None,
-        help="Seed the workspace from an existing repo (e.g. a scout's winning branch)",
-    )
-    parser.add_argument("--target-val", type=float, default=None)
-    parser.add_argument("--rebuild-cache", action="store_true")
+    parser.add_argument("--runtime-contract", type=str, required=True)
+    parser.add_argument("--image-authority", type=str, required=True)
     parser.add_argument("--knowledge-file", type=str, default=None)
     parser.add_argument(
         "--list", action="store_true", help="List native RelBench tasks"
@@ -228,9 +232,10 @@ def main() -> None:
     result = solve_task(args)
     print("\n" + "=" * 70 + "\nCOMPLETED\n" + "=" * 70)
     print(f"Task: {args.dataset}/{args.task}")
-    print(f"Selected run: {result.get('run')} | val: {result.get('val_metrics')}")
-    print(f"TEST metrics: {result.get('test_metrics')}")
-    print(f"Cost: ${result.get('cost_usd')}")
+    print(f"Workspace: {result['workspace']}")
+    print(f"Launch: {result['launch_manifest_id']}")
+    print(f"Expert: {result['expert_release_id']}")
+    print(f"Knowledge: {result['knowledge_snapshot_id']}")
 
 
 if __name__ == "__main__":

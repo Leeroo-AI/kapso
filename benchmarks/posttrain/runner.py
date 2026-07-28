@@ -26,16 +26,14 @@ import shutil
 import signal
 import sys
 import time
-
-from dotenv import load_dotenv
-
-load_dotenv()
+from pathlib import Path
 
 import yaml
 
 from kapso.core.config import compose_runtime_config, load_config
-from kapso.execution.orchestrator import OrchestratorAgent
-from benchmarks.posttrain.handler import PostTrainBenchHandler, ITERATION_EVAL_LIMITS
+from kapso.cross_run.canonical import canonical_json_bytes, tree_or_blob_digest
+from kapso.cross_run.launch.contracts import LaunchTaskContextRequest
+from kapso.kapso import Kapso
 
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.yaml")
 CANONICAL_CONFIG_PATH = os.path.join(
@@ -126,6 +124,7 @@ def build_runtime_config(
     task_dir: str,
     session_timeouts: dict,
     agent_env_strip: "list[str] | None" = None,
+    image_authority_path: "str | None" = None,
 ) -> str:
     """Write the per-run config: shaped session deadlines + model override."""
     workload_config = load_config(CONFIG_PATH)
@@ -154,6 +153,11 @@ def build_runtime_config(
         load_config(CANONICAL_CONFIG_PATH),
         workload_config,
     )
+    if image_authority_path is not None:
+        image_path = Path(image_authority_path).expanduser().resolve(strict=True)
+        config["cross_run"]["launch"]["coding_agent_image"] = json.loads(
+            image_path.read_text(encoding="utf-8")
+        )
     runtime_dir = os.path.join(task_dir, ".kapso_runtime")
     os.makedirs(runtime_dir, exist_ok=True)
     runtime_path = os.path.join(runtime_dir, "config.yaml")
@@ -253,13 +257,15 @@ def main():
         help="Iteration ceiling; the time budget is the real governor",
     )
     parser.add_argument("--mode", default="POSTTRAIN")
-    parser.add_argument("--coding-agent", default="claude_code")
+    parser.add_argument("--coding-agent", choices=["codex"], default="codex")
     parser.add_argument(
         "--coding-model",
         default=None,
         help="Model for implementation/feedback (harness $AGENT_CONFIG)",
     )
     parser.add_argument("--cost-budget", type=float, default=None)
+    parser.add_argument("--runtime-contract", type=str, required=True)
+    parser.add_argument("--image-authority", type=str, required=True)
     parser.add_argument(
         "--strip-agent-env",
         action="append",
@@ -327,6 +333,7 @@ def main():
         task_dir,
         session_timeouts,
         agent_env_strip=args.strip_agent_env,
+        image_authority_path=args.image_authority,
     )
 
     print(f"task_dir={task_dir}")
@@ -344,57 +351,86 @@ def main():
         f"agent_env_strip={args.strip_agent_env or []}"
     )
 
-    handler = PostTrainBenchHandler(
-        task_dir=task_dir,
-        official_prompt=prompt,
-        model_id=model_id,
-        benchmark_name=parsed_benchmark,
-        benchmark_id=benchmark_id,
-        deadline_ts=deadline_ts,
-        num_gpus=int(os.environ.get("NUM_GPUS", "1")),
-        session_caps=session_timeouts,
-    )
-
-    orchestrator = OrchestratorAgent(
-        handler,
+    runtime_contract = _read_object(Path(args.runtime_contract))
+    run_root = Path(task_dir, "kapso_campaign").resolve(strict=False)
+    starting_sources = None
+    task_context = None
+    budget_envelope = None
+    if not args.resume:
+        starting_sources = {
+            "posttrain_templates": (
+                Path(task_dir, "templates").resolve(strict=True),
+                "task/templates",
+            )
+        }
+        task_context = _task_context_request(
+            model_id=model_id,
+            benchmark_id=benchmark_id,
+            runtime_contract=runtime_contract,
+        )
+        budget_envelope = {
+            "fidelity": "full",
+            "hardware": "single_h100",
+            "wall_clock_minutes": budget_minutes,
+        }
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
+    solution = Kapso(config_path=config_path).evolve(
+        goal=prompt,
+        output_path=str(run_root),
+        task_context_request=task_context,
+        starting_artifact_sources=starting_sources,
+        dependency_runtime_contract=(None if args.resume else runtime_contract),
+        budget_fidelity_envelope=budget_envelope,
         config_path=config_path,
         mode=args.mode,
         coding_agent=args.coding_agent,
-        is_kg_active=False,
-        workspace_dir=os.path.join(task_dir, "kapso_campaign"),
-        goal=prompt,
+        objective_direction="maximize",
         resume=args.resume,
     )
-
-    # The harness sends SIGTERM at the deadline (SIGKILL 30s later): convert to
-    # SystemExit so the finally-block still consolidates final_model.
-    signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
-
-    try:
-        orchestrator.solve(
-            experiment_max_iter=args.iterations,
-            time_budget_minutes=budget_minutes,
-            cost_budget=args.cost_budget,
-            finalization_reserve_minutes=reserve_minutes,
-        )
-    finally:
-        print("\n=== consolidation ===")
-        print(consolidate_final_model(task_dir))
-        try:
-            print(orchestrator.search_strategy.get_experiment_history())
-            print(f"cumulative agent cost: ${orchestrator.get_cumulative_cost():.2f}")
-        except Exception as exc:  # never let reporting mask the run outcome
-            print(f"(history/cost reporting failed: {exc})")
-
     summary = {
         "task_dir": task_dir,
         "model": model_id,
         "benchmark_id": benchmark_id,
-        "final_model_present": is_loadable_model_dir(
-            os.path.join(task_dir, "final_model")
-        ),
+        "workspace": solution.code_path,
+        **solution.metadata,
     }
     print(json.dumps(summary))
+
+
+def _read_object(path: Path) -> dict:
+    normalized = path.expanduser().resolve(strict=True)
+    payload = json.loads(normalized.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict) or not payload:
+        raise ValueError(f"{normalized} must contain one non-empty JSON object")
+    return payload
+
+
+def _task_context_request(
+    *,
+    model_id: str,
+    benchmark_id: str,
+    runtime_contract: dict,
+) -> LaunchTaskContextRequest:
+    return LaunchTaskContextRequest.mint(
+        capability_tags=("language_model", "post_training"),
+        input_contract_fingerprint=tree_or_blob_digest(
+            canonical_json_bytes({"base_model": model_id})
+        ),
+        target_contract_fingerprint=tree_or_blob_digest(
+            canonical_json_bytes({"benchmark": benchmark_id})
+        ),
+        starting_artifact_refs=("posttrain_templates",),
+        method_fingerprint=tree_or_blob_digest(b"language model post training"),
+        toolchain_fingerprint=tree_or_blob_digest(b"posttrainbench python gpu"),
+        dependency_runtime_fingerprint=tree_or_blob_digest(
+            canonical_json_bytes(runtime_contract)
+        ),
+        budget_hardware_envelope={"hardware": "single_h100"},
+        transfer_dimensions={
+            "dataset_family": "language_model_benchmark",
+            "runtime_family": "gpu_training",
+        },
+    )
 
 
 if __name__ == "__main__":
