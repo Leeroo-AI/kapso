@@ -2,16 +2,23 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
 import kapso.cross_run.production_smoke as smoke_module
 from kapso.core.config import load_effective_config
-from kapso.cross_run.canonical import parse_json_bytes
+from kapso.cross_run.canonical import content_id, parse_json_bytes
+from kapso.cross_run.catalog.service import CrossRunCatalog
+from kapso.cross_run.knowledge.publisher import KnowledgeSnapshotPublisher
 from kapso.cross_run.production_smoke import (
     ProductionSmokeError,
     run_production_smoke,
+)
+from test_knowledge_snapshot_publisher import (
+    DeterministicEmbeddingProvider,
+    RecordingPublicationAuthority,
 )
 
 _CONFIG_PATH = "src/kapso/config.yaml"
@@ -169,3 +176,94 @@ def test_preflight_evaluator_summary_exposes_missing_roots_without_keys():
         "missing_issuer_ids",
         "sealed_canary_trust_root",
     }
+
+
+def test_clean_root_imports_current_snapshot_and_mints_one_direct_successor(
+    tmp_path,
+):
+    settings = load_effective_config(_CONFIG_PATH, "GENERIC").cross_run
+    old_settings = replace(
+        settings,
+        expert=replace(
+            settings.expert,
+            architect_id="production_transport_architect_old",
+        ),
+    )
+    fixture, _fixture_digest = smoke_module._load_fixture(settings)
+    scope_contract = smoke_module.ExpertScopeContract.from_dict(
+        fixture["scope_contract"]
+    )
+    old_projection = smoke_module._synthetic_projection(
+        old_settings,
+        fixture,
+        scope_contract,
+    )
+    old_catalog = CrossRunCatalog(
+        tmp_path / "old-catalog",
+        scope_contract,
+        settings.catalog,
+    )
+    old_generation = old_catalog.publish_projection(
+        old_catalog.store.read_current(),
+        old_projection,
+    ).generation
+    publisher = KnowledgeSnapshotPublisher(
+        RecordingPublicationAuthority(),
+        settings.github,
+        settings.knowledge,
+        DeterministicEmbeddingProvider(settings.knowledge.embeddings),
+    )
+    old_package = publisher.build(
+        scope_contract,
+        old_generation,
+        old_catalog.store.read_object_bytes,
+        parent_snapshot_ids=(content_id("knowledge-snapshot", {"transport": "empty"}),),
+        sanitation_policy_version=settings.sanitation.policy_version,
+        retrieval_policy_version="kapso.retrieval.v1",
+        published_at="2026-07-28T08:00:00Z",
+        publisher_attestation={"issuer": "test-publisher"},
+    ).package
+
+    successor = smoke_module._synthetic_projection_for_snapshot(
+        settings,
+        fixture,
+        scope_contract,
+        old_package,
+    )
+
+    assert successor.source_bundle.capture_generation == 1
+    assert successor.source_bundle.supersedes_bundle_id == (
+        old_projection.source_bundle.bundle_id
+    )
+    assert successor.prior_ideas[0].supersedes_projection_id == (
+        old_projection.prior_ideas[0].prior_idea_id
+    )
+    new_catalog = CrossRunCatalog(
+        tmp_path / "new-catalog",
+        scope_contract,
+        settings.catalog,
+    )
+    seeded = smoke_module._seed_catalog_from_snapshot(new_catalog, old_package)
+    successor_generation = new_catalog.publish_projection(
+        seeded,
+        successor,
+    ).generation
+    successor_package = publisher.build(
+        scope_contract,
+        successor_generation,
+        new_catalog.store.read_object_bytes,
+        parent_snapshot_ids=(old_package.manifest.snapshot_id,),
+        sanitation_policy_version=settings.sanitation.policy_version,
+        retrieval_policy_version="kapso.retrieval.v1",
+        published_at="2026-07-28T08:00:00Z",
+        publisher_attestation={"issuer": "test-publisher"},
+    ).package
+
+    recovered = smoke_module._synthetic_projection_for_snapshot(
+        settings,
+        fixture,
+        scope_contract,
+        successor_package,
+    )
+
+    assert recovered == successor

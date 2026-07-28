@@ -23,6 +23,7 @@ from kapso.cross_run.canonical import (
     tree_or_blob_digest,
 )
 from kapso.cross_run.catalog.service import CrossRunCatalog
+from kapso.cross_run.catalog.store import CatalogGenerationManifest
 from kapso.cross_run.catalog.projector import ProjectionResult
 from kapso.cross_run.contracts import (
     ArtifactCompleteness,
@@ -61,10 +62,12 @@ from kapso.cross_run.operations import (
     propose_expert_cross_run,
 )
 from kapso.cross_run.record_contracts import (
+    BundleProjectionManifest,
     SANITATION_REPORT_SCHEMA,
     SANITATION_SCANNER_VERSION,
     SanitationReport,
 )
+from kapso.cross_run.record_registry import parse_knowledge_record_payload
 from kapso.cross_run.production_task_adapters import (
     bootstrap_production_task_adapters,
 )
@@ -710,23 +713,6 @@ def _knowledge_publication_smoke(
 ) -> Mapping[str, Any]:
     """Publish one admitted synthetic bundle as the first non-empty snapshot."""
 
-    projection = _synthetic_projection(settings, fixture, scope_contract)
-    catalog = CrossRunCatalog(
-        smoke_root / "catalog",
-        scope_contract,
-        settings.catalog,
-    )
-    generation = catalog.store.read_current()
-    if generation.generation_number == 0:
-        generation = catalog.publish_projection(generation, projection).generation
-    elif (
-        generation.generation_number != 1
-        or projection.source_bundle.bundle_id not in generation.fact_object_ids
-    ):
-        raise ProductionSmokeError(
-            "production catalog is not the expected synthetic generation"
-        )
-
     github = _github_services(settings, smoke_root)
     current = github.resolver.resolve_current(
         scope_contract.scope_id,
@@ -734,12 +720,18 @@ def _knowledge_publication_smoke(
     )
     current_materialized = github.materializer.materialize(current)
     current_package = KnowledgeSnapshotPackage.open(current_materialized.content)
+    projection = _synthetic_projection_for_snapshot(
+        settings,
+        fixture,
+        scope_contract,
+        current_package,
+    )
     if (
         projection.source_bundle.bundle_id
         in current_package.manifest.included_bundle_ids
     ):
         if (
-            current_package.manifest.catalog_generation != 1
+            current_package.manifest.catalog_generation <= 0
             or current_package.manifest.scope_contract_id
             != scope_contract.scope_contract_id
         ):
@@ -750,7 +742,7 @@ def _knowledge_publication_smoke(
         return {
             "snapshot_id": current_package.manifest.snapshot_id,
             "parent_snapshot_id": current_package.manifest.parent_snapshot_ids[0],
-            "catalog_generation_id": generation.catalog_generation_id,
+            "catalog_generation_id": (current_package.prepared.catalog_generation_id),
             "bundle_id": projection.source_bundle.bundle_id,
             "prior_idea_id": projection.prior_ideas[0].prior_idea_id,
             "publication_id": record.publication_id,
@@ -758,10 +750,25 @@ def _knowledge_publication_smoke(
             "release_tag": record.tag,
             "recovered": True,
         }
-    if current_package.manifest.catalog_generation != 0:
-        raise ProductionSmokeError(
-            "knowledge CURRENT advanced beyond the expected EMPTY parent"
+
+    catalog = CrossRunCatalog(
+        smoke_root / "catalog",
+        scope_contract,
+        settings.catalog,
+    )
+    generation = catalog.store.read_current()
+    current_fact_ids = set(current_package.prepared.catalog_generation.fact_object_ids)
+    if not current_fact_ids.issubset(generation.fact_object_ids):
+        if generation.generation_number != 0:
+            raise ProductionSmokeError(
+                "local production catalog differs from knowledge CURRENT"
+            )
+        generation = _seed_catalog_from_snapshot(
+            catalog,
+            current_package,
         )
+    if projection.source_bundle.bundle_id not in generation.fact_object_ids:
+        generation = catalog.publish_projection(generation, projection).generation
 
     publisher = KnowledgeSnapshotPublisher(
         github.publisher,
@@ -824,8 +831,6 @@ def _coding_agent_ideation_smoke(
         raise ProductionSmokeError(
             "coding-agent ideation smoke is disabled in configuration"
         )
-    projection = _synthetic_projection(settings, fixture, scope_contract)
-    expected_prior_idea = projection.prior_ideas[0]
     github = _github_services(settings, smoke_root / "coding-agent-github-read")
     resolved = github.resolver.resolve_current(
         scope_contract.scope_id,
@@ -833,6 +838,13 @@ def _coding_agent_ideation_smoke(
     )
     materialized = github.materializer.materialize(resolved)
     package = KnowledgeSnapshotPackage.open(materialized.content)
+    projection = _synthetic_projection_for_snapshot(
+        settings,
+        fixture,
+        scope_contract,
+        package,
+    )
+    expected_prior_idea = projection.prior_ideas[0]
     index_files = {
         path: payload
         for path, payload in package.files.items()
@@ -1121,6 +1133,9 @@ def _synthetic_projection(
     settings: CrossRunSettings,
     fixture: Mapping[str, Any],
     scope_contract: ExpertScopeContract,
+    *,
+    predecessor_bundle: RunBundle | None = None,
+    predecessor_prior_idea: PriorIdea | None = None,
 ) -> ProjectionResult:
     """Build the one public, domain-neutral transport-smoke bundle."""
 
@@ -1176,16 +1191,46 @@ def _synthetic_projection(
         )
     }
     committed_at = _committed_at(fixture["committed_at"])
+    if (predecessor_bundle is None) != (predecessor_prior_idea is None):
+        raise ProductionSmokeError(
+            "synthetic projection predecessor closure is incomplete"
+        )
+    if predecessor_bundle is not None and (
+        predecessor_bundle.run_id != "production_smoke_run"
+        or predecessor_bundle.campaign_id != "production_smoke_campaign"
+        or predecessor_bundle.scope_contract_id != scope_contract.scope_contract_id
+        or set(predecessor_bundle.capture_watermarks) != {"events"}
+        or predecessor_prior_idea.source_bundle_id != predecessor_bundle.bundle_id
+    ):
+        raise ProductionSmokeError(
+            "synthetic projection predecessor belongs to another run"
+        )
     bundle = RunBundle.mint(
         scope_contract_id=scope_contract.scope_contract_id,
         scope_id=scope_contract.scope_id,
         run_id="production_smoke_run",
         campaign_id="production_smoke_campaign",
         completion_state=CompletionState.STOPPED,
-        capture_generation=0,
-        supersedes_bundle_id=None,
-        checkpoint_frontier=1,
-        capture_watermarks={"events": 1},
+        capture_generation=(
+            0
+            if predecessor_bundle is None
+            else predecessor_bundle.capture_generation + 1
+        ),
+        supersedes_bundle_id=(
+            None if predecessor_bundle is None else predecessor_bundle.bundle_id
+        ),
+        checkpoint_frontier=(
+            1
+            if predecessor_bundle is None
+            else predecessor_bundle.checkpoint_frontier + 1
+        ),
+        capture_watermarks={
+            "events": (
+                1
+                if predecessor_bundle is None
+                else predecessor_bundle.capture_watermarks["events"] + 1
+            )
+        },
         configuration_fingerprint=settings.configuration_fingerprint,
         artifact_completeness={"checkpoint": ArtifactCompleteness.PRESENT},
         started_at=committed_at,
@@ -1195,9 +1240,13 @@ def _synthetic_projection(
             "launch-manifest",
             {"transport_smoke": "first-launch"},
         ),
-        knowledge_snapshot_id=content_id(
-            "knowledge-snapshot",
-            {"transport_smoke": "empty-snapshot"},
+        knowledge_snapshot_id=(
+            content_id(
+                "knowledge-snapshot",
+                {"transport_smoke": "empty-snapshot"},
+            )
+            if predecessor_bundle is None
+            else predecessor_bundle.knowledge_snapshot_id
         ),
         expert_base_release_id=expert_release_id,
         task_context_binding=task_context,
@@ -1231,7 +1280,11 @@ def _synthetic_projection(
     )
     prior_idea = PriorIdea.mint(
         source_bundle_id=bundle.bundle_id,
-        supersedes_projection_id=None,
+        supersedes_projection_id=(
+            None
+            if predecessor_prior_idea is None
+            else predecessor_prior_idea.prior_idea_id
+        ),
         source={
             "scope_id": scope_contract.scope_id,
             "run_id": bundle.run_id,
@@ -1260,6 +1313,127 @@ def _synthetic_projection(
         prior_ideas=(prior_idea,),
         derivation_objects=(),
     )
+
+
+def _synthetic_projection_for_snapshot(
+    settings: CrossRunSettings,
+    fixture: Mapping[str, Any],
+    scope_contract: ExpertScopeContract,
+    package: KnowledgeSnapshotPackage,
+) -> ProjectionResult:
+    """Recover this config's transport projection or mint its direct successor."""
+
+    records = tuple(
+        parse_knowledge_record_payload(
+            envelope["record_kind"],
+            envelope["payload"],
+        )
+        for envelope in package.record_envelopes
+    )
+    bundles = tuple(
+        sorted(
+            (
+                record
+                for record in records
+                if isinstance(record, RunBundle)
+                and record.run_id == "production_smoke_run"
+                and record.campaign_id == "production_smoke_campaign"
+            ),
+            key=lambda bundle: bundle.capture_generation,
+        )
+    )
+    if not bundles:
+        return _synthetic_projection(settings, fixture, scope_contract)
+    if tuple(bundle.capture_generation for bundle in bundles) != tuple(
+        range(len(bundles))
+    ) or any(
+        bundle.supersedes_bundle_id
+        != (None if position == 0 else bundles[position - 1].bundle_id)
+        for position, bundle in enumerate(bundles)
+    ):
+        raise ProductionSmokeError(
+            "knowledge snapshot has an invalid synthetic run lineage"
+        )
+    current_bundle = bundles[-1]
+    if current_bundle.configuration_fingerprint == settings.configuration_fingerprint:
+        manifests = tuple(
+            record
+            for record in records
+            if isinstance(record, BundleProjectionManifest)
+            and record.source_bundle_id == current_bundle.bundle_id
+        )
+        if len(manifests) != 1:
+            raise ProductionSmokeError(
+                "current synthetic bundle lacks one projection manifest"
+            )
+        manifest = manifests[0]
+        reports = tuple(
+            record
+            for record in records
+            if isinstance(record, SanitationReport)
+            and record.report_id == manifest.sanitation_report_id
+        )
+        priors = tuple(
+            record
+            for record in records
+            if isinstance(record, PriorIdea)
+            and record.prior_idea_id in manifest.prior_idea_ids
+        )
+        if len(reports) != 1 or len(priors) != 1 or manifest.episode_ids:
+            raise ProductionSmokeError(
+                "current synthetic projection closure is invalid"
+            )
+        return ProjectionResult(
+            source_bundle=current_bundle,
+            sanitation_report=reports[0],
+            episodes=(),
+            prior_ideas=priors,
+            derivation_objects=(),
+        )
+    predecessor_priors = tuple(
+        record
+        for record in records
+        if isinstance(record, PriorIdea)
+        and record.source_bundle_id == current_bundle.bundle_id
+        and record.source.get("idea_id") == "production_smoke_idea"
+    )
+    if len(predecessor_priors) != 1:
+        raise ProductionSmokeError("synthetic bundle lacks one predecessor prior idea")
+    return _synthetic_projection(
+        settings,
+        fixture,
+        scope_contract,
+        predecessor_bundle=current_bundle,
+        predecessor_prior_idea=predecessor_priors[0],
+    )
+
+
+def _seed_catalog_from_snapshot(
+    catalog: CrossRunCatalog,
+    package: KnowledgeSnapshotPackage,
+) -> CatalogGenerationManifest:
+    """Rebuild one local catalog base from authenticated snapshot source facts."""
+
+    fact_ids = set(package.prepared.catalog_generation.fact_object_ids)
+    if not fact_ids:
+        return catalog.store.read_current()
+    records = tuple(
+        parse_knowledge_record_payload(
+            envelope["record_kind"],
+            envelope["payload"],
+        )
+        for envelope in package.record_envelopes
+        if envelope["record_id"] in fact_ids
+    )
+    return catalog.publish(
+        expected_generation=catalog.store.read_current(),
+        operation_id=content_id(
+            "production-smoke-catalog-import",
+            {"snapshot_id": package.manifest.snapshot_id},
+        ),
+        objects=records,
+        dependency_closure_ids=tuple(sorted(fact_ids)),
+    ).generation
 
 
 def _write_security_archive(
