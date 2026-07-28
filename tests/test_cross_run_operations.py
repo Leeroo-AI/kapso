@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import kapso.cli as cli_module
 import kapso.cross_run.operations as operations_module
@@ -14,11 +15,18 @@ from kapso.cross_run.contracts import CompletionState
 from kapso.cross_run.operations import (
     GitHubOperationServices,
     capture_cross_run,
+    propose_expert_cross_run,
     publish_knowledge_cross_run,
+    resolve_launch_cross_run,
 )
 from cross_run_capture_fixtures import make_capture_fixture
 from test_cross_run_retrieval import source_fixture
+from test_expert_proposal import BootstrapProposalRunner, bootstrap_output
+from test_expert_triggers import trigger_packet, trigger_settings
 from test_knowledge_snapshot_publisher import RecordingPublicationAuthority
+from test_launch_bootstrap import _fresh_coordinator
+from test_launch_handoff import _DescendantSecurityAuthority
+from test_launch_resolver import resolver_case
 
 _CONFIG_PATH = "src/kapso/config.yaml"
 _COMMITTED_AT = "2026-07-27T12:00:00Z"
@@ -143,6 +151,134 @@ def test_cli_wrapper_only_parses_and_prints_operation_receipt(
         }
     ]
     assert json.loads(capsysbinary.readouterr().out) == expected
+
+
+def test_propose_expert_runs_existing_architect_and_seals_candidate(
+    tmp_path,
+    monkeypatch,
+):
+    packet = trigger_packet(settings=trigger_settings(), bootstrap=True)
+    request_path = tmp_path / "propose.json"
+    request_path.write_text(
+        json.dumps({"evidence_packet": packet.to_dict()}, sort_keys=True),
+        encoding="utf-8",
+    )
+    runner = BootstrapProposalRunner(
+        tmp_path / "fixture-agent-artifacts",
+        bootstrap_output(),
+        {
+            "src/execution.py": b"def execute(task):\n    return task.run()\n",
+            "tests/test_execution.py": b"def test_execute():\n    assert True\n",
+        },
+    )
+    monkeypatch.setattr(
+        operations_module,
+        "_coding_agent_runner",
+        lambda _settings, _state_root: runner,
+    )
+
+    result = propose_expert_cross_run(
+        config_path=_CONFIG_PATH,
+        mode="GENERIC",
+        request_path=request_path,
+        state_root=tmp_path,
+    )
+
+    assert result["operation"] == "propose-expert"
+    assert result["candidate_id"].startswith("expert-candidate:sha256:")
+    assert result["source_base_release_id"] is None
+    assert result["change_kind"] == "repository_architecture"
+    assert len(runner.calls) == 1
+
+
+def test_resolve_launch_preserves_complete_request_and_pins_workspace(
+    tmp_path,
+    resolver_case,
+    monkeypatch,
+):
+    launch_request = resolver_case["request"]
+    launch_values = launch_request.to_dict()
+    artifact_inputs = {}
+    for artifact_ref in launch_request.task_context_request.starting_artifact_refs:
+        source = tmp_path / artifact_ref
+        source.mkdir()
+        artifact_inputs[artifact_ref] = {
+            "source": artifact_ref,
+            "mount_path": f"inputs/{artifact_ref}",
+        }
+    request_path = tmp_path / "launch.json"
+    request_path.write_text(
+        json.dumps(
+            {
+                "goal": "goal-prefix\n" + "g" * 20_000 + "\ngoal-suffix",
+                "additional_context": "context-prefix\ncontext-suffix",
+                "task_context_request": (launch_request.task_context_request.to_dict()),
+                "starting_artifacts": artifact_inputs,
+                "dependency_runtime_contract": launch_values[
+                    "dependency_runtime_contract"
+                ],
+                "budget_fidelity_envelope": launch_values["budget_fidelity_envelope"],
+                "scope_id": launch_request.binding.scope_id,
+                "task_family_id": launch_request.binding.task_family_id,
+                "task_adapter_id": launch_request.binding.task_adapter_id,
+                "requested_coding_agent": launch_request.requested_coding_agent,
+                "objective_direction": "maximize",
+                "empty_scope_bootstrap_authorization_id": None,
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    captured = {}
+
+    def prepare(**arguments):
+        captured.update(arguments)
+        return SimpleNamespace(
+            binding=launch_request.binding,
+            experiment_embedding_space=object(),
+            starting_artifacts=object(),
+            request=launch_request,
+        )
+
+    monkeypatch.setattr(
+        operations_module,
+        "load_effective_config",
+        lambda _path, _mode: SimpleNamespace(
+            cross_run=resolver_case["resolver"].settings
+        ),
+    )
+    monkeypatch.setattr(
+        operations_module,
+        "build_production_launch_preparation",
+        prepare,
+    )
+    monkeypatch.setattr(
+        operations_module,
+        "build_production_launch_services",
+        lambda **_arguments: SimpleNamespace(
+            coordinator=_fresh_coordinator(resolver_case),
+            security_authority=_DescendantSecurityAuthority(),
+        ),
+    )
+
+    result = resolve_launch_cross_run(
+        config_path=_CONFIG_PATH,
+        mode="GENERIC",
+        request_path=request_path,
+        state_root=tmp_path / "state",
+        run_root=tmp_path / "run",
+    )
+
+    assert captured["goal"].endswith("goal-suffix")
+    assert len(captured["goal"]) > 20_000
+    assert captured["additional_context"].endswith("context-suffix")
+    assert result["operation"] == "resolve-launch"
+    assert result["expert_release_id"] == (
+        resolver_case["expert_package"].manifest.release_id
+    )
+    assert result["knowledge_snapshot_id"] == (
+        resolver_case["knowledge_package"].manifest.snapshot_id
+    )
 
 
 def _capture_request_payload(request):

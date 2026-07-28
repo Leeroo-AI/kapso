@@ -15,18 +15,39 @@ from kapso.cross_run.capture.pipeline import RunCaptureContext, RunCapturePipeli
 from kapso.cross_run.catalog.service import CrossRunCatalog
 from kapso.cross_run.contracts import (
     ArtifactEnvironment,
+    CandidateChangeKind,
     CompletionState,
     EvaluationFingerprint,
     ExpertScopeContract,
     PublicationArtifactKind,
     TaskContextBinding,
 )
+from kapso.cross_run.expert.architect import ExpertRepositoryArchitect
+from kapso.cross_run.expert.candidates import ExpertCandidateValidator
+from kapso.cross_run.expert.generalizer import ExpertCapabilityGeneralizer
+from kapso.cross_run.expert.proposal import ExpertCandidateProposalEngine
+from kapso.cross_run.expert.store import ExpertCandidateStore
+from kapso.cross_run.expert.triggers import (
+    ExpertTriggerEvidencePacket,
+    ExpertTriggerEvaluator,
+)
+from kapso.cross_run.expert.workspace import ExpertCandidateWorkspaceManager
 from kapso.cross_run.github.command import GitHubCommandClient, SubprocessCommandRunner
 from kapso.cross_run.github.materializer import GitHubArtifactMaterializer
 from kapso.cross_run.github.publisher import AutonomousGitHubPublisher
 from kapso.cross_run.github.resolver import GitHubArtifactResolver
 from kapso.cross_run.knowledge.publisher import KnowledgeSnapshotPublisher
+from kapso.cross_run.launch.contracts import LaunchTaskContextRequest
+from kapso.cross_run.launch.handoff import prepare_fresh_run_handoff
+from kapso.cross_run.launch.production import (
+    build_production_launch_preparation,
+    build_production_launch_services,
+)
 from kapso.cross_run.settings import CrossRunSettings
+from kapso.execution.coding_agents.structured_call import (
+    CodingAgentRunnerSettings,
+    SubprocessCodingAgentCallRunner,
+)
 
 
 class CrossRunOperationError(ValueError):
@@ -217,6 +238,196 @@ def publish_knowledge_cross_run(
     }
 
 
+def propose_expert_cross_run(
+    *,
+    config_path: str,
+    mode: str,
+    request_path: Path,
+    state_root: Path,
+) -> Mapping[str, Any]:
+    """Run the configured coding-agent proposer and seal one candidate."""
+
+    settings = _settings(config_path, mode)
+    request = _object_request(request_path, {"evidence_packet"})
+    packet = ExpertTriggerEvidencePacket.from_dict(request["evidence_packet"])
+    decision = ExpertTriggerEvaluator(settings.expert.triggers).evaluate(packet)
+    if not decision.candidate_required or decision.change_kind is None:
+        raise CrossRunOperationError("expert trigger does not require a candidate")
+    root = _private_state_root(state_root)
+    github = _github_services(settings, root)
+    materialized_source = None
+    if packet.source_base_release_id is not None:
+        resolved = github.resolver.resolve_artifact(
+            packet.scope_contract.scope_id,
+            PublicationArtifactKind.EXPERT_BASE_RELEASE,
+            packet.source_base_release_id,
+        )
+        materialized_source = github.materializer.materialize(resolved)
+    expert_state_root = _expert_state_root(settings, root)
+    validator = ExpertCandidateValidator(settings.expert, settings.sanitation)
+    candidate_store = ExpertCandidateStore(
+        expert_state_root / Path(settings.expert.candidate_path).name,
+        expert_state_root,
+        validator,
+    )
+    workspace_manager = ExpertCandidateWorkspaceManager(
+        expert_state_root / Path(settings.expert.workspace_path).name,
+        expert_state_root,
+        settings.expert,
+        github.materializer,
+    )
+    engine = ExpertCandidateProposalEngine(
+        settings=settings.expert,
+        runner=_coding_agent_runner(settings, root),
+        workspace_manager=workspace_manager,
+        candidate_store=candidate_store,
+    )
+    if decision.change_kind is CandidateChangeKind.REPOSITORY_ARCHITECTURE:
+        proposal = ExpertRepositoryArchitect(engine).propose(
+            packet=packet,
+            decision=decision,
+            materialized_source_base=materialized_source,
+        )
+    else:
+        if materialized_source is None:
+            raise CrossRunOperationError(
+                "capability proposal requires a materialized source release"
+            )
+        proposal = ExpertCapabilityGeneralizer(engine).propose(
+            packet=packet,
+            decision=decision,
+            materialized_source_base=materialized_source,
+        )
+    closure = proposal.stored_candidate.closure
+    operation = closure.derivation.operation
+    return {
+        "operation": "propose-expert",
+        "scope_id": closure.validation_context.scope_contract.scope_id,
+        "candidate_id": closure.manifest.candidate_id,
+        "candidate_tree_hash": closure.manifest.candidate_tree_hash,
+        "source_base_release_id": closure.manifest.source_base_release_id,
+        "trigger_decision_id": decision.trigger_decision_id,
+        "proposal_operation_id": operation.operation_receipt.operation_id,
+        "change_kind": decision.change_kind.value,
+        "next_action": "validate-expert",
+    }
+
+
+def resolve_launch_cross_run(
+    *,
+    config_path: str,
+    mode: str,
+    request_path: Path,
+    state_root: Path,
+    run_root: Path,
+) -> Mapping[str, Any]:
+    """Resolve, materialize, and pin one fresh launch without paid work."""
+
+    effective = load_effective_config(config_path, mode)
+    settings = effective.cross_run
+    if type(settings) is not CrossRunSettings:
+        raise CrossRunOperationError("selected configuration has no cross-run settings")
+    request = _object_request(
+        request_path,
+        {
+            "goal",
+            "additional_context",
+            "task_context_request",
+            "starting_artifacts",
+            "dependency_runtime_contract",
+            "budget_fidelity_envelope",
+            "scope_id",
+            "task_family_id",
+            "task_adapter_id",
+            "requested_coding_agent",
+            "objective_direction",
+            "empty_scope_bootstrap_authorization_id",
+        },
+    )
+    starting_artifacts = request["starting_artifacts"]
+    if not isinstance(starting_artifacts, Mapping):
+        raise CrossRunOperationError("starting_artifacts must be an object")
+    sources = {}
+    for artifact_ref, artifact in starting_artifacts.items():
+        if (
+            not isinstance(artifact_ref, str)
+            or not isinstance(artifact, Mapping)
+            or set(artifact) != {"source", "mount_path"}
+        ):
+            raise CrossRunOperationError("starting artifact input is invalid")
+        sources[artifact_ref] = (
+            _request_path(request_path, artifact["source"]),
+            _required_text(artifact["mount_path"], "starting artifact mount_path"),
+        )
+    dependency_runtime = request["dependency_runtime_contract"]
+    budget_fidelity = request["budget_fidelity_envelope"]
+    if not isinstance(dependency_runtime, Mapping) or not dependency_runtime:
+        raise CrossRunOperationError("dependency_runtime_contract is invalid")
+    if not isinstance(budget_fidelity, Mapping) or not budget_fidelity:
+        raise CrossRunOperationError("budget_fidelity_envelope is invalid")
+    preparation = build_production_launch_preparation(
+        effective_config=effective,
+        goal=_required_text(request["goal"], "goal"),
+        additional_context=_required_string(
+            request["additional_context"], "additional_context"
+        ),
+        task_context_request=LaunchTaskContextRequest.from_dict(
+            request["task_context_request"]
+        ),
+        starting_artifact_sources=sources,
+        dependency_runtime_contract=dependency_runtime,
+        budget_fidelity_envelope=budget_fidelity,
+        scope_id=_optional_text(request["scope_id"], "scope_id"),
+        task_family_id=_optional_text(request["task_family_id"], "task_family_id"),
+        task_adapter_id=_optional_text(request["task_adapter_id"], "task_adapter_id"),
+        requested_coding_agent=_optional_text(
+            request["requested_coding_agent"], "requested_coding_agent"
+        ),
+        empty_scope_bootstrap_authorization_id=_optional_text(
+            request["empty_scope_bootstrap_authorization_id"],
+            "empty_scope_bootstrap_authorization_id",
+        ),
+    )
+    root = _private_state_root(state_root)
+    services = build_production_launch_services(
+        settings=settings,
+        binding=preparation.binding,
+        experiment_embedding_space=preparation.experiment_embedding_space,
+        starting_artifacts=preparation.starting_artifacts,
+        state_root=root,
+    )
+    handoff = prepare_fresh_run_handoff(
+        coordinator=services.coordinator,
+        settings=settings,
+        security_authority=services.security_authority,
+        request=preparation.request,
+        run_root=Path(os.path.abspath(run_root)),
+        objective_direction=_required_text(
+            request["objective_direction"], "objective_direction"
+        ),
+    )
+    identity = handoff.identity
+    baseline_commit = (
+        handoff.active_workspace.bootstrap_pin.installation_receipt.workspace_baseline_commit_sha
+    )
+    handoff.close()
+    return {
+        "operation": "resolve-launch",
+        "run_id": identity.run_id,
+        "campaign_id": identity.campaign_id,
+        "scope_id": identity.scope_id,
+        "task_family_id": identity.task_family_id,
+        "task_adapter_id": identity.task_adapter_id,
+        "launch_manifest_id": identity.launch_manifest_id,
+        "bootstrap_pin_id": identity.bootstrap_pin_id,
+        "expert_release_id": identity.expert_release_id,
+        "knowledge_snapshot_id": identity.knowledge_snapshot_id,
+        "task_adapter_manifest_id": identity.task_adapter_manifest_id,
+        "workspace_baseline_commit_sha": baseline_commit,
+        "next_action": "evolve --resume",
+    }
+
+
 def operation_json(result: Mapping[str, Any]) -> bytes:
     """Render one canonical non-secret operational result."""
 
@@ -257,6 +468,28 @@ def _github_services(
             settings.github,
         ),
     )
+
+
+def _coding_agent_runner(
+    settings: CrossRunSettings,
+    state_root: Path,
+) -> SubprocessCodingAgentCallRunner:
+    return SubprocessCodingAgentCallRunner(
+        CodingAgentRunnerSettings(
+            artifact_root=str(state_root / settings.expert.agent_artifact_path),
+            termination_grace_seconds=settings.expert.termination_grace_seconds,
+            sensitive_file_glob_scan_max_depth=(
+                settings.expert.sensitive_file_glob_scan_max_depth
+            ),
+        )
+    )
+
+
+def _expert_state_root(settings: CrossRunSettings, state_root: Path) -> Path:
+    candidate_parent = Path(settings.expert.candidate_path).parent
+    if candidate_parent != Path(settings.expert.workspace_path).parent:
+        raise CrossRunOperationError("expert state paths do not share one parent")
+    return _private_state_root(state_root / candidate_parent)
 
 
 def _private_state_root(state_root: Path) -> Path:
@@ -386,3 +619,15 @@ def _required_text(value: object, name: str) -> str:
     if not isinstance(value, str) or not value:
         raise CrossRunOperationError(f"{name} must be non-empty text")
     return value
+
+
+def _required_string(value: object, name: str) -> str:
+    if not isinstance(value, str):
+        raise CrossRunOperationError(f"{name} must be text")
+    return value
+
+
+def _optional_text(value: object, name: str) -> str | None:
+    if value is None:
+        return None
+    return _required_text(value, name)
