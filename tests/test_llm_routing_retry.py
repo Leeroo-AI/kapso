@@ -560,9 +560,13 @@ def embedding_response(vector, cost=0.0):
     )
 
 
-def test_create_embedding_routes_role_and_passes_full_text(monkeypatch):
-    """The embedding role resolves from config routes and the input text is
-    never clipped — an embedding of a prefix misrepresents the document."""
+def test_create_embedding_routes_role_and_caps_at_provider_limit(monkeypatch):
+    """Embedding inputs are truncated to the provider's 8192-token hard cap
+    (user-approved 2026-07-28): an over-cap request raises a non-transient
+    400 that would kill a campaign at bookkeeping. Under-cap inputs pass
+    through byte-identical."""
+    import tiktoken
+
     calls = []
 
     def fake_embedding(**kwargs):
@@ -575,13 +579,21 @@ def test_create_embedding_routes_role_and_passes_full_text(monkeypatch):
         retry_policy=no_jitter_policy(),
     )
 
-    long_text = "solution body " * 5000  # far beyond any prefix cap
-    vector = backend.create_embedding(long_text)
-
+    encoder = tiktoken.get_encoding("cl100k_base")
+    over_cap = "solution body " * 5000  # ~15k tokens, over the 8192 cap
+    vector = backend.create_embedding(over_cap)
     assert vector == [0.1, 0.2]
     assert calls[0]["model"] == "text-embedding-3-small"
-    assert calls[0]["input"] == [long_text]
-    assert backend.get_cumulative_cost() == pytest.approx(0.001)
+    sent = calls[0]["input"][0]
+    assert len(encoder.encode(sent)) == llm_module.EMBEDDING_MAX_TOKENS
+    assert sent == encoder.decode(
+        encoder.encode(over_cap)[: llm_module.EMBEDDING_MAX_TOKENS]
+    )
+
+    under_cap = "short document"
+    backend.create_embedding(under_cap)
+    assert calls[1]["input"] == [under_cap]
+    assert backend.get_cumulative_cost() == pytest.approx(0.002)
 
 
 def test_create_embedding_default_role_and_explicit_override(monkeypatch):

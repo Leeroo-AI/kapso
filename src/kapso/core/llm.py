@@ -10,6 +10,7 @@ import time
 from dataclasses import asdict, dataclass
 from typing import Any, Awaitable, Callable, Dict, List, Mapping, Optional, Sequence
 
+import tiktoken
 from litellm import acompletion, completion, embedding
 
 # Suppress verbose LiteLLM logs.
@@ -17,6 +18,12 @@ logging.getLogger("LiteLLM").setLevel(logging.WARNING)
 logging.getLogger("litellm").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
+
+# Provider hard cap for embedding inputs (OpenAI text-embedding-3 family):
+# requests above this raise a non-transient 400. Structural API limit, not a
+# tunable. cl100k_base is the tokenizer for the text-embedding-3 models.
+EMBEDDING_MAX_TOKENS = 8192
+_EMBEDDING_ENCODING = "cl100k_base"
 
 MODEL_ROLES = frozenset({"utility", "reasoning", "web_search", "embedding"})
 DEFAULT_MODEL_ROUTES: Dict[str, str] = {
@@ -602,12 +609,25 @@ class LLMBackend:
         text: str,
         model: Optional[str] = None,
     ) -> List[float]:
-        """Embed the FULL text via the router's embedding role.
+        """Embed the text via the router's embedding role.
 
-        The text is never clipped on the way in (an embedding of a prefix
-        silently misrepresents the document). Transient provider failures
-        retry under the backend's policy; genuine errors propagate.
+        Inputs beyond the provider's EMBEDDING_MAX_TOKENS hard cap are
+        truncated to the cap (user-approved exception to the no-truncation
+        rule, 2026-07-28: an over-cap request 400s non-transiently and kills
+        the campaign at bookkeeping; a prefix embedding of an already
+        model-authored solution is an acceptable similarity key). Transient
+        provider failures retry under the backend's policy; genuine errors
+        propagate.
         """
+        encoder = tiktoken.get_encoding(_EMBEDDING_ENCODING)
+        tokens = encoder.encode(text)
+        if len(tokens) > EMBEDDING_MAX_TOKENS:
+            logger.warning(
+                "Embedding input truncated from %d to %d tokens",
+                len(tokens),
+                EMBEDDING_MAX_TOKENS,
+            )
+            text = encoder.decode(tokens[:EMBEDDING_MAX_TOKENS])
         resolved = self.model_router.resolve(model, default_role="embedding")
         response = self._run_sync(
             "embedding",
