@@ -365,6 +365,7 @@ def test_build_repo_map_deterministic(sample_repo):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.skip(reason="manual paid provider test")
 def test_bootstrap_baseline_model_with_real_llm(sample_repo, llm):
     """
     Test that bootstrap_baseline_model produces evidence-backed memory.
@@ -424,6 +425,7 @@ def test_bootstrap_baseline_model_with_real_llm(sample_repo, llm):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.skip(reason="manual paid provider test")
 def test_update_after_experiment_with_real_llm(sample_repo, llm):
     """
     Test that update_after_experiment correctly updates memory after code changes.
@@ -621,6 +623,7 @@ def test_validate_evidence_catches_invalid_quotes():
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.skip(reason="manual paid provider test")
 def test_render_summary_and_toc_produces_usable_prompt(sample_repo, llm):
     """Test that render_summary_and_toc produces a usable prompt summary."""
     # Bootstrap

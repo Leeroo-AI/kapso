@@ -6,6 +6,7 @@ benchmark_tree_search. Tests that need a populated relbench cache are skipped
 unless the cache exists.
 """
 
+import importlib.util
 import json
 import os
 from contextlib import contextmanager
@@ -23,6 +24,8 @@ from benchmarks.relbench.task_specs import (
     RECOMMENDATION,
     TaskSpec,
 )
+
+RELBENCH_INSTALLED = importlib.util.find_spec("relbench") is not None
 
 
 def make_handler(spec: TaskSpec, n_val=10, n_test=8):
@@ -239,8 +242,8 @@ RELBENCH_CACHE = Path(
 
 
 @pytest.mark.skipif(
-    not (RELBENCH_CACHE / "rel-f1" / "db").exists(),
-    reason="requires a populated rel-f1 relbench cache",
+    not RELBENCH_INSTALLED or not (RELBENCH_CACHE / "rel-f1" / "db").exists(),
+    reason="requires RelBench and a populated rel-f1 cache",
 )
 class TestSandboxOnRealData:
     def test_forecasting_cache_is_leak_free(self, tmp_path):
@@ -505,8 +508,8 @@ class TestGenericModeConfig:
 
 
 @pytest.mark.skipif(
-    not (RELBENCH_CACHE / "rel-f1" / "db").exists(),
-    reason="requires a populated rel-f1 relbench cache",
+    not RELBENCH_INSTALLED or not (RELBENCH_CACHE / "rel-f1" / "db").exists(),
+    reason="requires RelBench and a populated rel-f1 cache",
 )
 class TestProvidedGrader:
     def _repo(self, tmp_path):
@@ -586,8 +589,8 @@ class TestProvidedGrader:
 
 
 @pytest.mark.skipif(
-    not (RELBENCH_CACHE / "rel-f1" / "db").exists(),
-    reason="requires a populated rel-f1 relbench cache",
+    not RELBENCH_INSTALLED or not (RELBENCH_CACHE / "rel-f1" / "db").exists(),
+    reason="requires RelBench and a populated rel-f1 cache",
 )
 class TestFinalEvaluateTestFill:
     def test_val_only_archive_gets_test_scored_once(self, tmp_path):
