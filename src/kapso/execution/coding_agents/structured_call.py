@@ -16,6 +16,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Protocol
 
+from jsonschema import Draft202012Validator
+
 from kapso.cross_run.canonical import canonical_json_bytes, tree_or_blob_digest
 from kapso.cross_run.coding_agent_compatibility import (
     coding_agent_supported_tools,
@@ -47,7 +49,7 @@ from kapso.execution.coding_agents.workspace_delta import (
 _OPERATION_IDENTIFIER_PATTERN = re.compile(r"^agent_call_[0-9a-f]{32}$")
 _EMPTY_MCP_AUDIT_DIGEST = tree_or_blob_digest(b"")
 _CREDENTIAL_ENVIRONMENT_POLICY_VERSION = "kapso.coding_agent_credentials.v1"
-_FILESYSTEM_POLICY_VERSION = "kapso.coding_agent_workspace.v2"
+_FILESYSTEM_POLICY_VERSION = "kapso.coding_agent_workspace.v3"
 _MCP_AUDIT_POLICY_VERSION = "kapso.mcp_audit.v1"
 _SENSITIVE_HOME_PATHS = (
     "~/.aws",
@@ -71,6 +73,24 @@ def coding_agent_response_schema_bytes(
     return (
         json.dumps(response_schema, indent=2, sort_keys=True, allow_nan=False) + "\n"
     ).encode("utf-8")
+
+
+def _claude_response_schema_argument(schema_text: str) -> str:
+    schema = json.loads(schema_text)
+    if not isinstance(schema, dict):
+        raise ValueError("Claude response schema must be an object")
+    dialect = schema.pop("$schema", None)
+    if dialect not in {
+        None,
+        "https://json-schema.org/draft/2020-12/schema",
+    }:
+        raise ValueError("Claude response schema dialect is unsupported")
+    return json.dumps(
+        schema,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
 
 
 def coding_agent_invocation_bytes(
@@ -1162,7 +1182,6 @@ class SubprocessCodingAgentCallRunner:
             "mcp_audit.jsonl",
             "",
         )
-        schema_path = artifact_directory / "response_schema.json"
         final_path = artifact_directory / "final.json"
         mcp_config_path = artifact_directory / "mcp_config.json"
         if request.cli == "codex":
@@ -1170,16 +1189,11 @@ class SubprocessCodingAgentCallRunner:
         command = self._command(
             request,
             schema_text,
-            schema_path,
             final_path,
             mcp_config_path,
             workspace_descriptor,
         )
-        execution_workspace = (
-            Path(request.workspace)
-            if workspace_descriptor is None
-            else Path("/proc/self/fd") / str(workspace_descriptor)
-        )
+        execution_workspace = Path(request.workspace)
         started = time.monotonic()
         completed = subprocess.run(
             command,
@@ -1189,7 +1203,7 @@ class SubprocessCodingAgentCallRunner:
             text=True,
             capture_output=True,
             check=False,
-            pass_fds=(() if workspace_descriptor is None else (workspace_descriptor,)),
+            pass_fds=(),
         )
         duration = time.monotonic() - started
         self._write_atomic_text(
@@ -1226,6 +1240,7 @@ class SubprocessCodingAgentCallRunner:
                 "final.json",
                 output,
             )
+        self._validate_response_output(schema_text, output)
         workspace_delta_digest = None
         if baseline is not None:
             edited = self._inspect_editable_workspace(
@@ -1404,6 +1419,11 @@ class SubprocessCodingAgentCallRunner:
             raise CodingAgentInvocationError(
                 "cached coding-agent parsed output conflicts with final artifact"
             )
+        response_schema = self._read_regular_text(
+            operation_descriptor,
+            "response_schema.json",
+        )
+        self._validate_response_output(response_schema, final_output)
         audit_event_count, audit_digest = self._validate_mcp_audit(
             request,
             self._read_regular_text(operation_descriptor, "mcp_audit.jsonl"),
@@ -1512,6 +1532,12 @@ class SubprocessCodingAgentCallRunner:
         ).decode("utf-8")
 
     @staticmethod
+    def _validate_response_output(schema_text: str, output: str) -> None:
+        schema = json.loads(schema_text)
+        Draft202012Validator.check_schema(schema)
+        Draft202012Validator(schema).validate(json.loads(output))
+
+    @staticmethod
     def _validate_mcp_audit(
         request: CodingAgentCallRequest,
         audit_text: str,
@@ -1526,7 +1552,6 @@ class SubprocessCodingAgentCallRunner:
         self,
         request: CodingAgentCallRequest,
         schema_text: str,
-        schema_path: Path,
         final_path: Path,
         mcp_config_path: Path,
         workspace_descriptor: int | None,
@@ -1553,9 +1578,7 @@ class SubprocessCodingAgentCallRunner:
                     "--skip-git-repo-check",
                     "--ignore-user-config",
                     "--cd",
-                    "." if workspace_descriptor is not None else request.workspace,
-                    "--output-schema",
-                    str(schema_path),
+                    request.workspace,
                     "--output-last-message",
                     str(final_path),
                     "--json",
@@ -1588,12 +1611,7 @@ class SubprocessCodingAgentCallRunner:
                 )
             command.append("-")
             return command
-        schema = json.dumps(
-            json.loads(schema_text),
-            sort_keys=True,
-            separators=(",", ":"),
-            allow_nan=False,
-        )
+        schema = _claude_response_schema_argument(schema_text)
         command = prefix + [
             "claude",
             "--print",
@@ -1605,7 +1623,6 @@ class SubprocessCodingAgentCallRunner:
             self._claude_security_settings(
                 request,
                 mcp_config_path.parent,
-                workspace_descriptor,
             ),
             "--permission-mode",
             (
@@ -1682,7 +1699,6 @@ class SubprocessCodingAgentCallRunner:
     def _claude_security_settings(
         request: CodingAgentCallRequest,
         artifact_directory: Path,
-        workspace_descriptor: int | None,
     ) -> str:
         denied_reads = [
             "Read(//proc/**)",
@@ -1710,11 +1726,7 @@ class SubprocessCodingAgentCallRunner:
                     "filesystem": {
                         "denyRead": ["/"],
                         "allowRead": [
-                            (
-                                "."
-                                if workspace_descriptor is not None
-                                else request.workspace
-                            ),
+                            request.workspace,
                             str(artifact_directory),
                         ],
                     },

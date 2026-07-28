@@ -31,6 +31,7 @@ keywords = ["ai", "ml", "optimization", "code-generation", "llm", "agents"]
 # in the same environment. See requirements.txt for details.
 dependencies = [
     "GitPython",
+    "jsonschema>=4.0.0",
     "aider-chat>=0.35.0",
     # Pinned to the locally-validated version: newer litellm capability maps
     # null out reasoning_effort for gpt-5.6 models on the chat route (run #9,

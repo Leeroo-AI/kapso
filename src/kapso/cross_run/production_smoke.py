@@ -28,6 +28,8 @@ from kapso.cross_run.contracts import (
     ArtifactCompleteness,
     ArtifactEnvironment,
     CompletionState,
+    CrossRunTaskBindingSettings,
+    EMPTY_EXPERT_TREE_DIGEST,
     ExpertScopeContract,
     PriorIdea,
     PriorIdeaStatus,
@@ -41,6 +43,7 @@ from kapso.cross_run.contracts import (
     TaskContextBinding,
 )
 from kapso.cross_run.docker.runtime import DockerImageAuthority, PinnedDockerRuntime
+from kapso.cross_run.expert.triggers import ExpertTriggerEvidencePacketBuilder
 from kapso.cross_run.github.publisher import PublicationEnvelope, ReleaseAssetInput
 from kapso.cross_run.github.resolver import security_denylist_tag
 from kapso.cross_run.knowledge.package import KnowledgeSnapshotPackage
@@ -54,6 +57,7 @@ from kapso.cross_run.operations import (
     GitHubOperationServices,
     _github_services,
     _private_state_root,
+    propose_expert_cross_run,
 )
 from kapso.cross_run.record_contracts import (
     SANITATION_REPORT_SCHEMA,
@@ -91,6 +95,7 @@ _STAGE_ORDER = (
     "docker-authority",
     "knowledge-publication",
     "coding-agent-ideation",
+    "expert-proposal",
 )
 _FIXTURE_FILENAME = "transport-smoke.json"
 _RECEIPT_FILENAME = "production-smoke-receipt.json"
@@ -140,6 +145,8 @@ def run_production_smoke(
         started_at = _timestamp()
         evidence = _run_stage(
             stage=stage,
+            config_path=config_path,
+            mode=mode,
             settings=settings,
             smoke_root=smoke_root,
             fixture=fixture,
@@ -172,6 +179,8 @@ def run_production_smoke(
 def _run_stage(
     *,
     stage: str,
+    config_path: str,
+    mode: str,
     settings: CrossRunSettings,
     smoke_root: Path,
     fixture: Mapping[str, Any],
@@ -204,6 +213,14 @@ def _run_stage(
             settings,
             smoke_root,
             fixture,
+            scope_contract,
+        )
+    if stage == "expert-proposal":
+        return _expert_proposal_smoke(
+            config_path,
+            mode,
+            settings,
+            smoke_root,
             scope_contract,
         )
     raise ProductionSmokeError("unknown production smoke stage")
@@ -938,6 +955,101 @@ def _validate_production_ideation_output(
             "production ideation output does not cite the selected prior idea"
         )
     return parsed
+
+
+def _expert_proposal_smoke(
+    config_path: str,
+    mode: str,
+    settings: CrossRunSettings,
+    smoke_root: Path,
+    scope_contract: ExpertScopeContract,
+) -> Mapping[str, Any]:
+    """Create, but never approve, one real empty-scope architecture candidate."""
+
+    github = _github_services(settings, smoke_root / "expert-proposal-github-read")
+    expert_state = github.resolver.read_current_pointer_state(
+        scope_contract.scope_id,
+        PublicationArtifactKind.EXPERT_BASE_RELEASE,
+        allow_missing=True,
+    )
+    if expert_state.pointer is not None:
+        resolved = github.resolver.resolve_current(
+            scope_contract.scope_id,
+            PublicationArtifactKind.EXPERT_BASE_RELEASE,
+        )
+        return {
+            "existing_release_id": resolved.pointer.publication_record.artifact_id,
+            "existing_release_commit_sha": resolved.pointer_commit_sha,
+            "proposal_skipped": True,
+        }
+    resolved_knowledge = github.resolver.resolve_current(
+        scope_contract.scope_id,
+        PublicationArtifactKind.KNOWLEDGE_SNAPSHOT,
+    )
+    materialized = github.materializer.materialize(resolved_knowledge)
+    package = KnowledgeSnapshotPackage.open(materialized.content)
+    if package.prepared.scope_contract != scope_contract:
+        raise ProductionSmokeError(
+            "expert proposal knowledge snapshot has another scope contract"
+        )
+    packet = ExpertTriggerEvidencePacketBuilder(settings.expert.triggers).build(
+        knowledge_snapshot=package,
+        scope_contract=scope_contract,
+        source_base_scope_contract=None,
+        source_base_release=None,
+        source_base_tree_receipt=None,
+        source_base_tree_hash=EMPTY_EXPERT_TREE_DIGEST,
+        source_base_repository_map=None,
+        source_base_module_contracts=(),
+        active_task_bindings=_scope_task_bindings(scope_contract),
+    )
+    with tempfile.TemporaryDirectory(
+        prefix="expert-proposal-request-",
+        dir=smoke_root,
+    ) as temporary:
+        request_path = Path(temporary) / "request.json"
+        request_path.write_bytes(
+            canonical_json_bytes({"evidence_packet": packet.to_dict()})
+        )
+        result = propose_expert_cross_run(
+            config_path=config_path,
+            mode=mode,
+            request_path=request_path,
+            state_root=smoke_root,
+        )
+    if (
+        result.get("scope_id") != scope_contract.scope_id
+        or result.get("source_base_release_id") is not None
+        or result.get("change_kind") != "repository_architecture"
+    ):
+        raise ProductionSmokeError(
+            "expert bootstrap proposer returned another candidate class"
+        )
+    return {
+        "candidate_id": result["candidate_id"],
+        "candidate_tree_hash": result["candidate_tree_hash"],
+        "change_kind": result["change_kind"],
+        "knowledge_snapshot_id": package.manifest.snapshot_id,
+        "proposal_operation_id": result["proposal_operation_id"],
+        "source_base_release_id": result["source_base_release_id"],
+        "task_binding_count": len(packet.active_task_bindings),
+        "trigger_decision_id": result["trigger_decision_id"],
+        "proposal_skipped": False,
+    }
+
+
+def _scope_task_bindings(
+    scope_contract: ExpertScopeContract,
+) -> tuple[CrossRunTaskBindingSettings, ...]:
+    return tuple(
+        CrossRunTaskBindingSettings(
+            scope_id=scope_contract.scope_id,
+            task_family_id=binding.task_family_id,
+            task_adapter_id=task_adapter_id,
+        )
+        for binding in scope_contract.task_adapter_contract
+        for task_adapter_id in binding.task_adapter_ids
+    )
 
 
 def _synthetic_projection(

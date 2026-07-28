@@ -26,7 +26,12 @@ and every complete semantic module contract, without IDs, hashes, descriptors,
 receipts, manifests, sanitation results, dependency edges, generated controls, or
 book content. Dependency edges are derived from module dependency IDs. Arrays
 must be sorted and unique. Declare the exact changed and deleted paths observed
-in the workspace.
+in the workspace. The adapter mount and every path reference must be a normalized
+repository-relative path: never an absolute path, URI, `.` or `..`. Every authored
+ordinary file, including each validation entrypoint, must appear under exactly one
+capability node's `owned_paths`. Capability nodes and module contracts form a
+bijection: each node's `capability_id` must exactly equal its corresponding module
+contract's `module_id`.
 
 Return only an object satisfying the supplied JSON schema.
 

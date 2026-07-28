@@ -72,8 +72,8 @@ def test_expert_proposers_and_trigger_policy_are_fully_typed():
     )
     settings = cross_run_settings.expert
 
-    assert settings.architect.cli == "claude_code"
-    assert settings.architect.model == "fable"
+    assert settings.architect.cli == "codex"
+    assert settings.architect.model == "gpt-5.6-sol"
     assert settings.architect.effort == "xhigh"
     assert settings.generalizer.cli == "codex"
     assert settings.generalizer.model == "gpt-5.6-sol"

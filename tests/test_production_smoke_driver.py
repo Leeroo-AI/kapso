@@ -132,3 +132,20 @@ def test_production_ideation_output_must_cite_the_retrieved_prior():
             output,
             "prior-idea:sha256:" + "2" * 64,
         )
+
+
+def test_expert_bootstrap_exposes_every_scope_task_binding():
+    settings = load_effective_config(_CONFIG_PATH, "GENERIC").cross_run
+    fixture, _fixture_digest = smoke_module._load_fixture(settings)
+    scope_contract = smoke_module.ExpertScopeContract.from_dict(
+        fixture["scope_contract"]
+    )
+
+    bindings = smoke_module._scope_task_bindings(scope_contract)
+
+    assert tuple(
+        (binding.task_family_id, binding.task_adapter_id) for binding in bindings
+    ) == (
+        ("language_model_post_training", "posttrain"),
+        ("relational_tabular_prediction", "relbench"),
+    )

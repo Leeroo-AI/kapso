@@ -22,7 +22,8 @@ kapso cross-run production-smoke \
   --mode GENERIC \
   --state-root /var/lib/kapso-validation \
   --stages preflight bootstrap-authorities github-read embeddings \
-           docker-authority knowledge-publication coding-agent-ideation
+           docker-authority knowledge-publication coding-agent-ideation \
+           expert-proposal
 ```
 
 Stages run only in canonical order and append to one durable receipt at
@@ -67,4 +68,3 @@ A successful transport smoke proves authentication, immutability, deterministic
 materialization, OpenAI embedding identity, bounded Docker authority, and audited
 coding-agent access. It does not prove scientific transfer benefit. Claim that only
 from matched task runs with equal budgets and evaluator fingerprints.
-

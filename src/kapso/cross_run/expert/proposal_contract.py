@@ -478,9 +478,16 @@ def build_expert_proposal_prompt(
     template = template_path.read_text(encoding="utf-8")
     if template.count(EXPERT_PROPOSAL_PACKET_MARKER) != 1:
         raise ExpertProposalContractError("expert proposal template marker is invalid")
-    return template.replace(
+    prompt = template.replace(
         EXPERT_PROPOSAL_PACKET_MARKER,
         canonical_json_bytes(proposal_packet).decode("utf-8"),
+    )
+    return (
+        prompt
+        + "\n\nSUPPLIED_JSON_SCHEMA\n"
+        + canonical_json_bytes(expert_proposal_response_schema(operation_kind)).decode(
+            "utf-8"
+        )
     )
 
 

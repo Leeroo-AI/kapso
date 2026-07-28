@@ -186,11 +186,11 @@ cross_run:
     architect_id: "expert_repository_architect"
     architect_role: "expert_repository_architect"
     architect:
-      cli: "claude_code"
-      model: "fable"
+      cli: "codex"
+      model: "gpt-5.6-sol"
       timeout_seconds: 900
       effort: "xhigh"
-      allowed_tools: ["Edit", "Glob", "Grep", "Read", "Write"]
+      allowed_tools: ["Read"]
     generalizer_id: "expert_capability_generalizer"
     generalizer_role: "expert_capability_generalizer"
     generalizer:

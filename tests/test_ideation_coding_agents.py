@@ -10,6 +10,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
+from jsonschema.exceptions import ValidationError
 
 from kapso.core.config import load_config
 from kapso.cross_run.settings import CodingAgentSettings
@@ -128,22 +129,15 @@ arguments = pathlib.Path(__file__).with_name(pathlib.Path(__file__).stem + "-edi
 arguments.write_text(__import__("json").dumps(sys.argv[1:]))
 """
     if cli == "codex":
-        source = (
-            "#!/usr/bin/env python3\nimport json\nimport sys\n"
-            + edit_source
-            + """
+        source = "#!/usr/bin/env python3\nimport json\nimport sys\n" + edit_source + """
 args = sys.argv[1:]
 final_path = pathlib.Path(args[args.index("--output-last-message") + 1])
 final_path.write_text('{"changed_paths":["created.py","existing.txt"],"deleted_paths":["deleted.txt"]}')
 print(json.dumps({"type":"turn.completed","usage":{"input_tokens":3,"output_tokens":2}}))
 """
-        )
         install_executable(directory, "codex", source)
         return
-    source = (
-        "#!/usr/bin/env python3\nimport json\n"
-        + edit_source
-        + """
+    source = "#!/usr/bin/env python3\nimport json\n" + edit_source + """
 print(json.dumps({
   "is_error": False,
   "structured_output": {
@@ -154,7 +148,6 @@ print(json.dumps({
   "total_cost_usd": 0.1
 }))
 """
-    )
     install_executable(directory, "claude", source)
 
 
@@ -253,6 +246,7 @@ def test_credential_broker_exposes_only_the_selected_cli_auth_family(monkeypatch
     values = {
         "ANTHROPIC_API_KEY": "anthropic-secret",
         "AWS_ACCESS_KEY_ID": "aws-id",
+        "AWS_BEARER_TOKEN_BEDROCK": "aws-bearer-secret",
         "AWS_SECRET_ACCESS_KEY": "aws-secret",
         "CODEX_HOME": "/tmp/codex-auth",
         "GH_TOKEN": "github-secret",
@@ -278,6 +272,10 @@ def test_credential_broker_exposes_only_the_selected_cli_auth_family(monkeypatch
     )
     assert claude_environment["ANTHROPIC_API_KEY"] == values["ANTHROPIC_API_KEY"]
     assert claude_environment["AWS_ACCESS_KEY_ID"] == values["AWS_ACCESS_KEY_ID"]
+    assert (
+        claude_environment["AWS_BEARER_TOKEN_BEDROCK"]
+        == values["AWS_BEARER_TOKEN_BEDROCK"]
+    )
     assert (
         claude_environment["AWS_SECRET_ACCESS_KEY"] == values["AWS_SECRET_ACCESS_KEY"]
     )
@@ -323,6 +321,7 @@ print(json.dumps({"type":"turn.completed","usage":{"input_tokens":11,"output_tok
     assert "--ephemeral" in args
     assert "--skip-git-repo-check" in args
     assert "--ignore-user-config" in args
+    assert "--output-schema" not in args
     assert "--search" in args
     permission_overrides = [
         args[position + 1] for position, value in enumerate(args) if value == "--config"
@@ -338,6 +337,39 @@ print(json.dumps({"type":"turn.completed","usage":{"input_tokens":11,"output_tok
     assert result.cost_usd is None
     assert all(Path(path).is_file() for path in result.artifacts)
     assert Path(result.artifacts[0]).read_text() == request(tmp_path, "codex").prompt
+
+
+def test_coding_agent_output_is_validated_against_the_durable_schema(
+    tmp_path,
+    monkeypatch,
+):
+    install_executable(
+        tmp_path,
+        "codex",
+        """#!/usr/bin/env python3
+import json
+import pathlib
+import sys
+args = sys.argv[1:]
+final_path = pathlib.Path(args[args.index("--output-last-message") + 1])
+final_path.write_text('{"proposal":1}')
+print(json.dumps({
+  "type":"turn.completed",
+  "usage":{"input_tokens":1,"output_tokens":1}
+}))
+""",
+    )
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
+
+    with pytest.raises(ValidationError):
+        runner(tmp_path).run(
+            request(tmp_path, "codex"),
+            {
+                "type": "object",
+                "required": ["proposal"],
+                "properties": {"proposal": {"type": "string"}},
+            },
+        )
 
 
 def test_claude_receives_full_prompt_in_plan_mode_without_embedding_key(
@@ -389,6 +421,7 @@ print(json.dumps({
     assert "Read(//proc/**)" in settings_payload["permissions"]["deny"]
     assert "Read(~/.config/gh/**)" in settings_payload["permissions"]["deny"]
     assert args[args.index("--disallowedTools") + 1] == ("Bash,Edit,Write,NotebookEdit")
+    assert json.loads(args[args.index("--json-schema") + 1]) == {"type": "object"}
     assert "--no-session-persistence" in args
     assert args[args.index("--tools") + 1] == "Read,WebSearch"
     assert json.loads(result.output) == {"proposal": "structured"}
@@ -396,6 +429,47 @@ print(json.dumps({
     assert result.output_tokens == 5
     assert result.cost_usd == 0.25
     assert all(Path(path).is_file() for path in result.artifacts)
+
+
+def test_claude_transport_omits_the_locally_enforced_schema_dialect(
+    tmp_path,
+    monkeypatch,
+):
+    install_executable(
+        tmp_path,
+        "claude",
+        """#!/usr/bin/env python3
+import json
+import pathlib
+import sys
+pathlib.Path("claude_args.json").write_text(json.dumps(sys.argv[1:]))
+print(json.dumps({
+  "is_error": False,
+  "structured_output": {"proposal": "structured"},
+  "usage": {"input_tokens": 1, "output_tokens": 1},
+  "total_cost_usd": 0.01
+}))
+""",
+    )
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
+    response_schema = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+    }
+
+    runner(tmp_path).run(request(tmp_path, "claude_code"), response_schema)
+
+    args = json.loads((tmp_path / "claude_args.json").read_text())
+    assert json.loads(args[args.index("--json-schema") + 1]) == {"type": "object"}
+    stored_schema = json.loads(
+        (
+            tmp_path
+            / "artifacts"
+            / request(tmp_path, "claude_code").operation_id
+            / "response_schema.json"
+        ).read_text()
+    )
+    assert stored_schema == response_schema
 
 
 @pytest.mark.parametrize("cli", ("codex", "claude_code"))
@@ -415,6 +489,9 @@ def test_edit_workspace_call_seals_exact_replayable_delta(
     call_request = editable_request(workspace, cli)
 
     result = runner(tmp_path).run(call_request, {"type": "object"})
+    if cli == "codex":
+        arguments = json.loads((tmp_path / "codex-edit-args.json").read_text())
+        assert arguments[arguments.index("--cd") + 1] == str(workspace)
     sealed = seal_coding_agent_operation(
         request=call_request,
         response_schema={"type": "object"},
