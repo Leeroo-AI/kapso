@@ -686,6 +686,19 @@ def main_create_arguments(
             ),
         )
     )
+    network_policy = policy.network_policy
+    if network_policy.broker_socket_source_path is not None:
+        arguments.extend(
+            (
+                "--mount",
+                (
+                    "type=bind,"
+                    f"source={network_policy.broker_socket_source_path},"
+                    f"target={network_policy.broker_socket_destination_path},"
+                    "readonly,bind-recursive=disabled,bind-propagation=rprivate"
+                ),
+            )
+        )
     for mount in preparation_main_mounts(claim, authority):
         mount_parts = [
             "type=volume",

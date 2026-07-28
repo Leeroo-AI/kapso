@@ -1330,6 +1330,20 @@ def _main_host_config_mounts(
             "Type": "bind",
         }
     ]
+    network_policy = claim.execution_policy.network_policy
+    if network_policy.broker_socket_source_path is not None:
+        rendered.append(
+            {
+                "BindOptions": {
+                    "NonRecursive": True,
+                    "Propagation": "rprivate",
+                },
+                "ReadOnly": True,
+                "Source": network_policy.broker_socket_source_path,
+                "Target": network_policy.broker_socket_destination_path,
+                "Type": "bind",
+            }
+        )
     for mount in mounts:
         observed: dict[str, Any] = {
             "Source": mount.volume_name,
@@ -1352,7 +1366,7 @@ def _main_top_level_mounts(
     mounts: tuple[RunActionPreparedMount, ...],
     volume: DockerRunActionVolumeObservation,
 ) -> list[dict[str, Any]]:
-    return [
+    rendered = [
         {
             "Destination": RUN_ACTION_SUPERVISOR_HELPER_DESTINATION,
             "Mode": "",
@@ -1361,7 +1375,21 @@ def _main_top_level_mounts(
             "Source": claim.execution_policy.supervisor_helper_source_path,
             "Type": "bind",
         },
-        *[
+    ]
+    network_policy = claim.execution_policy.network_policy
+    if network_policy.broker_socket_source_path is not None:
+        rendered.append(
+            {
+                "Destination": network_policy.broker_socket_destination_path,
+                "Mode": "",
+                "Propagation": "rprivate",
+                "RW": False,
+                "Source": network_policy.broker_socket_source_path,
+                "Type": "bind",
+            }
+        )
+    rendered.extend(
+        [
             {
                 "Destination": mount.container_destination,
                 "Driver": "local",
@@ -1375,8 +1403,9 @@ def _main_top_level_mounts(
                 "Type": "volume",
             }
             for mount in mounts
-        ],
-    ]
+        ]
+    )
+    return rendered
 
 
 def _keeper_host_config_mounts(

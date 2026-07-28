@@ -45,6 +45,8 @@ from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RunActionNetworkPolicy,
     RunActionStaticEnvironmentVariable,
     RunActionSupervisorLimits,
+    RUN_ACTION_NETWORK_BROKER_DESTINATION,
+    run_action_network_broker_endpoint_id,
     run_action_docker_init_authority_id,
     run_action_supervisor_helper_authority_id,
 )
@@ -182,6 +184,7 @@ def build_coding_agent_execution_policy(
     image_authority: DockerImageAuthority,
     interpretation_policy: CodingAgentInterpretationPolicy,
     credential_mode: RunActionCredentialMode,
+    egress_broker_socket_source_path: str | None,
 ) -> tuple[DockerRunActionExecutionPolicy, DockerRunActionCommand]:
     """Build the exact Docker policy and supervisor command for one provider."""
 
@@ -196,6 +199,11 @@ def build_coding_agent_execution_policy(
         != settings.launch.coding_agent_supervisor_user_id
         or interpretation_policy.provider_user_id
         != settings.launch.coding_agent_provider_user_id
+        or (
+            interpretation_policy.provider_egress_mode
+            is CodingAgentProviderEgressMode.HTTPS_CONNECT_PROXY
+        )
+        != (egress_broker_socket_source_path is not None)
     ):
         raise ProductionCodingAgentPolicyError(
             "coding-agent Docker inputs contain mixed authority"
@@ -266,7 +274,22 @@ def build_coding_agent_execution_policy(
             ),
             network_policy=RunActionNetworkPolicy.mint(
                 activation_mode=RunActionActivationNetworkMode.NONE,
-                broker_endpoint_ids=(),
+                broker_endpoint_ids=(
+                    ()
+                    if egress_broker_socket_source_path is None
+                    else (
+                        run_action_network_broker_endpoint_id(
+                            egress_broker_socket_source_path,
+                            RUN_ACTION_NETWORK_BROKER_DESTINATION,
+                        ),
+                    )
+                ),
+                broker_socket_source_path=egress_broker_socket_source_path,
+                broker_socket_destination_path=(
+                    None
+                    if egress_broker_socket_source_path is None
+                    else RUN_ACTION_NETWORK_BROKER_DESTINATION
+                ),
             ),
             credential_policy=credential_policy,
             docker_resource_limits=_resource_limits(settings),

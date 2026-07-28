@@ -65,6 +65,7 @@ def test_production_builder_joins_configured_interpretation_docker_and_boundary(
         image_authority=_image(),
         interpretation_policy=interpretation,
         credential_mode=RunActionCredentialMode.SUPERVISOR_FILE,
+        egress_broker_socket_source_path="/private/egress/broker.sock",
     )
     boundary = build_coding_agent_boundary_identity(execution, interpretation)
 
@@ -122,6 +123,7 @@ def test_production_builder_rejects_uncontained_timeout_and_credential_splice():
             image_authority=_image(),
             interpretation_policy=interpretation,
             credential_mode=RunActionCredentialMode.NONE,
+            egress_broker_socket_source_path=None,
         )
 
     with pytest.raises(ValueError, match="network-disabled"):

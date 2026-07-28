@@ -26,7 +26,9 @@ from kapso.cross_run.launch.run_action_docker_projection import (
 )
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RUN_ACTION_BARRIER_PROTOCOL_VERSION,
+    RUN_ACTION_NETWORK_BROKER_DESTINATION,
     RunActionCredentialMode,
+    run_action_network_broker_endpoint_id,
     RunActionRuntimeVolumeAuthority,
     preparation_container_labels,
     preparation_container_name,
@@ -41,6 +43,7 @@ from kapso.cross_run.settings import CrossRunSettings
 from test_run_action_supervisor_contracts import (
     _claim,
     _execution_policy,
+    _remint_contract,
     _remint_policy,
     _remint_resource_limits,
     _remint_sandbox,
@@ -440,6 +443,45 @@ def test_main_creation_uses_only_sorted_bounded_volume_subpaths(docker_settings)
     assert "/kapso/runtime-volume" not in joined
     assert "complete request" not in joined
     assert "credential" in joined
+
+
+def test_main_creation_mounts_only_the_policy_bound_private_egress_socket(
+    docker_settings,
+):
+    command = _fixed_command()
+    policy = _policy(
+        docker_settings,
+        command_template_id=command.command_template_id,
+    )
+    source_path = "/private/kapso/egress.sock"
+    network_policy = _remint_contract(
+        policy.network_policy,
+        broker_endpoint_ids=(
+            run_action_network_broker_endpoint_id(
+                source_path,
+                RUN_ACTION_NETWORK_BROKER_DESTINATION,
+            ),
+        ),
+        broker_socket_source_path=source_path,
+        broker_socket_destination_path=RUN_ACTION_NETWORK_BROKER_DESTINATION,
+    )
+    brokered_policy = _remint_policy(policy, network_policy=network_policy)
+    claim = _claim(policy=brokered_policy)
+    authority = _volume_authority(claim, nonce=_GENERATION_NONCE)
+
+    arguments = main_create_arguments(
+        claim,
+        authority,
+        command,
+        _image(brokered_policy),
+        docker_settings,
+    )
+
+    assert (
+        "type=bind,source=/private/kapso/egress.sock,"
+        "target=/kapso/egress/broker.sock,readonly,"
+        "bind-recursive=disabled,bind-propagation=rprivate"
+    ) in arguments
 
 
 def test_coding_agent_privilege_transition_exists_only_on_the_main_occurrence(

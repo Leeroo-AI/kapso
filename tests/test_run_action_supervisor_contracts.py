@@ -346,6 +346,8 @@ def _execution_policy(
         network_policy=RunActionNetworkPolicy.mint(
             activation_mode=RunActionActivationNetworkMode.NONE,
             broker_endpoint_ids=(),
+            broker_socket_source_path=None,
+            broker_socket_destination_path=None,
         ),
         credential_policy=credential_policy,
         docker_resource_limits=DockerRunActionResourceLimits.mint(

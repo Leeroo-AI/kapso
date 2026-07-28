@@ -1628,6 +1628,7 @@ class LaunchSettings(StrictContract):
     coding_agent_egress_relay_backlog: int
     coding_agent_egress_relay_chunk_size_bytes: int
     coding_agent_egress_connect_timeout_seconds: int
+    coding_agent_egress_broker_socket_path: str
     coding_agent_supervisor_user_id: int
     coding_agent_supervisor_group_id: int
     coding_agent_provider_user_id: int
@@ -1898,6 +1899,10 @@ class LaunchSettings(StrictContract):
             ),
         ):
             _require_positive(value, f"launch.{name}")
+        _require_relative_path(
+            self.coding_agent_egress_broker_socket_path,
+            "launch.coding_agent_egress_broker_socket_path",
+        )
         _require_path(
             self.coding_agent_codex_auth_source_path,
             "launch.coding_agent_codex_auth_source_path",

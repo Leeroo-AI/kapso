@@ -75,6 +75,7 @@ def _policy(settings):
         image_authority=image,
         interpretation_policy=interpretation,
         credential_mode=RunActionCredentialMode.SUPERVISOR_FILE,
+        egress_broker_socket_source_path="/private/egress/broker.sock",
     )
     return execution.credential_policy
 

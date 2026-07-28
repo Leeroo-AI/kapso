@@ -94,6 +94,7 @@ RUN_ACTION_DOCKER_INIT_DESTINATION = "/sbin/docker-init"
 RUN_ACTION_CREDENTIAL_LEASE_AUTHORITY_NAMESPACE = (
     "run-action-credential-lease-authority"
 )
+RUN_ACTION_NETWORK_BROKER_DESTINATION = "/kapso/egress/broker.sock"
 RUN_ACTION_BARRIER_CONTROL_DESTINATION = "/kapso-supervisor/control"
 RUN_ACTION_BARRIER_RELEASE_DESTINATION = "/kapso-supervisor/control/release"
 RUN_ACTION_BARRIER_PROTOCOL_VERSION = "kapso.run_action_barrier.v2"
@@ -266,18 +267,63 @@ class RunActionNetworkPolicy(StrictContract):
     network_policy_id: str
     activation_mode: RunActionActivationNetworkMode
     broker_endpoint_ids: tuple[str, ...]
+    broker_socket_source_path: str | None
+    broker_socket_destination_path: str | None
 
     CONTENT_NAMESPACE: ClassVar[str] = "run-action-network-policy"
     IDENTITY_FIELD: ClassVar[str] = "network_policy_id"
 
     def _validate(self) -> None:
-        if (
-            self.activation_mode is not RunActionActivationNetworkMode.NONE
-            or self.broker_endpoint_ids
-        ):
+        if self.activation_mode is not RunActionActivationNetworkMode.NONE:
             raise RunActionSupervisorContractError(
                 "run action network policy must deny all network authority"
             )
+        if not self.broker_endpoint_ids:
+            if (
+                self.broker_socket_source_path is not None
+                or self.broker_socket_destination_path is not None
+            ):
+                raise RunActionSupervisorContractError(
+                    "broker-free run action retains a broker socket"
+                )
+            return
+        if (
+            len(self.broker_endpoint_ids) != 1
+            or not isinstance(self.broker_socket_source_path, str)
+            or not isinstance(self.broker_socket_destination_path, str)
+            or self.broker_socket_destination_path
+            != RUN_ACTION_NETWORK_BROKER_DESTINATION
+            or self.broker_endpoint_ids
+            != (
+                run_action_network_broker_endpoint_id(
+                    self.broker_socket_source_path,
+                    self.broker_socket_destination_path,
+                ),
+            )
+        ):
+            raise RunActionSupervisorContractError(
+                "run action network broker authority is invalid"
+            )
+
+
+def run_action_network_broker_endpoint_id(
+    source_path: str,
+    destination_path: str,
+) -> str:
+    """Bind one host Unix socket path to its fixed container destination."""
+
+    _require_absolute_host_path(source_path, "run action broker socket source")
+    if destination_path != RUN_ACTION_NETWORK_BROKER_DESTINATION:
+        raise RunActionSupervisorContractError(
+            "run action broker socket destination is invalid"
+        )
+    return content_id(
+        "run-action-network-broker-endpoint",
+        {
+            "destination_path": destination_path,
+            "source_path": source_path,
+        },
+    )
 
 
 @dataclass(frozen=True)
@@ -3874,6 +3920,7 @@ __all__ = [
     "RUN_ACTION_CREDENTIAL_LEASE_AUTHORITY_NAMESPACE",
     "RUN_ACTION_DOCKER_INIT_DESTINATION",
     "RUN_ACTION_MAXIMUM_PHYSICAL_INTEGER",
+    "RUN_ACTION_NETWORK_BROKER_DESTINATION",
     "RUN_ACTION_RUNTIME_VOLUME_KEEPER_DESTINATION",
     "RUN_ACTION_SUPERVISOR_HELPER_DESTINATION",
     "RunActionActivatedFileObservation",
@@ -3924,6 +3971,7 @@ __all__ = [
     "run_action_supervisor_helper_authority_id",
     "runtime_volume_sentinel_identity",
     "run_action_keeper_process_cgroup_path",
+    "run_action_network_broker_endpoint_id",
     "run_action_activated_volume_evidence_matches",
     "run_action_docker_init_authority_id",
     "run_action_runtime_volume_occurrence_matches",

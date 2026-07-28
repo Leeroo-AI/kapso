@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import stat
 from threading import Lock
 from typing import Any, Mapping
 from weakref import WeakKeyDictionary
@@ -50,6 +52,7 @@ from kapso.cross_run.launch.run_action_runtime_volume import (
     reobserve_runtime_volume_layout,
 )
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
+    DockerRunActionExecutionPolicy,
     RunActionDockerInitSourceEvidence,
     RunActionPreparationAllocation,
     RunActionPreparedExecution,
@@ -136,6 +139,7 @@ class DockerRunActionPreparationManager:
         durable = capability.durable_prepared_execution
         workspace_descriptor = capability.workspace_descriptor
         policy = allocation.preparation_claim.execution_policy
+        _require_network_broker_socket(policy)
         if command.command_template_id != policy.command_template_id:
             raise RunActionDockerPreparationError(
                 "run-action preparation command differs from durable policy"
@@ -522,6 +526,26 @@ class DockerRunActionPreparationManager:
                 "run-action prepared occurrence differs from durable event 3"
             )
         return durable
+
+
+def _require_network_broker_socket(policy: DockerRunActionExecutionPolicy) -> None:
+    if type(policy) is not DockerRunActionExecutionPolicy:
+        raise RunActionDockerPreparationError(
+            "run-action network broker lacks its execution policy"
+        )
+    source_path = policy.network_policy.broker_socket_source_path
+    if source_path is None:
+        return
+    metadata = os.stat(source_path, follow_symlinks=False)
+    if (
+        not stat.S_ISSOCK(metadata.st_mode)
+        or metadata.st_uid != os.geteuid()
+        or metadata.st_nlink != 1
+        or stat.S_IMODE(metadata.st_mode) != 0o600
+    ):
+        raise RunActionDockerPreparationError(
+            "run-action network broker is not an owned private Unix socket"
+        )
 
 
 def _preparation_authority(
