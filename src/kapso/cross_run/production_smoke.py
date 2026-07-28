@@ -331,7 +331,12 @@ def _expert_evaluator_authority(settings: CrossRunSettings) -> Mapping[str, Any]
             evaluator.evaluator_id
         )
         for evaluator in validation.policy.evaluators
-        if evaluator.stage is not ExpertValidationStage.SEALED_CANARY
+        if evaluator.stage
+        not in {
+            ExpertValidationStage.SEALED_CANARY,
+            ExpertValidationStage.SOURCE_RUN_REPLAY,
+            ExpertValidationStage.RELEASE_MATRIX,
+        }
     }
     missing = tuple(
         sorted(issuer_id for issuer_id, root_id in issuers.items() if root_id is None)

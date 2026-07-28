@@ -170,6 +170,8 @@ def test_preflight_evaluator_summary_exposes_missing_roots_without_keys():
     assert authority["configured"] is False
     assert "expert_contract_evaluator" in authority["missing_issuer_ids"]
     assert authority["issuer_trust_roots"]["expert_contract_evaluator"] is None
+    assert "expert_source_replay_evaluator" not in authority["issuer_trust_roots"]
+    assert "expert_release_matrix_evaluator" not in authority["issuer_trust_roots"]
     assert set(authority) == {
         "configured",
         "issuer_trust_roots",
