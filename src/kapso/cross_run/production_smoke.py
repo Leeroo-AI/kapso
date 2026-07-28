@@ -888,12 +888,18 @@ def _knowledge_publication_smoke(
     )
     current_materialized = github.materializer.materialize(current)
     current_package = KnowledgeSnapshotPackage.open(current_materialized.content)
+    task_adapter_manifest_id, verification_receipt_id = _production_task_adapter_pin(
+        prior_evidence,
+        task_adapter_id="posttrain",
+    )
     projection = _synthetic_projection_for_snapshot(
         settings,
         fixture,
         scope_contract,
         current_package,
         expert_release_id,
+        task_adapter_manifest_id,
+        verification_receipt_id,
     )
     if (
         projection.source_bundle.bundle_id
@@ -1015,12 +1021,18 @@ def _coding_agent_ideation_smoke(
     )
     materialized = github.materializer.materialize(resolved)
     package = KnowledgeSnapshotPackage.open(materialized.content)
+    task_adapter_manifest_id, verification_receipt_id = _production_task_adapter_pin(
+        prior_evidence,
+        task_adapter_id="posttrain",
+    )
     projection = _synthetic_projection_for_snapshot(
         settings,
         fixture,
         scope_contract,
         package,
         bootstrap_publication["release_id"],
+        task_adapter_manifest_id,
+        verification_receipt_id,
     )
     expected_prior_idea = projection.prior_ideas[0]
     index_files = {
@@ -2106,6 +2118,8 @@ def _synthetic_projection(
     fixture: Mapping[str, Any],
     scope_contract: ExpertScopeContract,
     expert_base_release_id: str,
+    task_adapter_manifest_id: str,
+    task_adapter_verification_receipt_id: str,
     *,
     predecessor_bundle: RunBundle | None = None,
     predecessor_episode: TransferEpisode | None = None,
@@ -2138,16 +2152,17 @@ def _synthetic_projection(
     require_content_id(expert_base_release_id, "transport smoke expert release")
     if expert_base_release_id.split(":sha256:", 1)[0] != "expert-base-release":
         raise ProductionSmokeError("transport smoke expert release has wrong namespace")
+    require_content_id(task_adapter_manifest_id, "transport smoke adapter manifest")
+    require_content_id(
+        task_adapter_verification_receipt_id,
+        "transport smoke adapter verification receipt",
+    )
     environment = ArtifactEnvironment.mint(
         kapso_commit="0" * 40,
         expert_base_release_id=expert_base_release_id,
-        task_adapter_manifest_id=content_id(
-            "task-adapter-manifest",
-            {"task_adapter_id": task_context.task_adapter_id},
-        ),
-        task_adapter_verification_receipt_id=content_id(
-            "task-adapter-verification-receipt",
-            {"task_adapter_id": task_context.task_adapter_id},
+        task_adapter_manifest_id=task_adapter_manifest_id,
+        task_adapter_verification_receipt_id=(
+            task_adapter_verification_receipt_id
         ),
         starting_artifact_content_ids={},
         dependency_lock_hash=tree_or_blob_digest(b"transport-smoke-lock"),
@@ -2174,8 +2189,16 @@ def _synthetic_projection(
         raise ProductionSmokeError(
             "synthetic projection predecessor closure is incomplete"
         )
+    run_id = _synthetic_run_id(
+        scope_contract=scope_contract,
+        expert_base_release_id=expert_base_release_id,
+        task_adapter_manifest_id=task_adapter_manifest_id,
+        task_adapter_verification_receipt_id=(
+            task_adapter_verification_receipt_id
+        ),
+    )
     if predecessor_bundle is not None and (
-        predecessor_bundle.run_id != "production_smoke_run"
+        predecessor_bundle.run_id != run_id
         or predecessor_bundle.campaign_id != "production_smoke_campaign"
         or predecessor_bundle.scope_contract_id != scope_contract.scope_contract_id
         or set(predecessor_bundle.capture_watermarks) != {"events"}
@@ -2191,7 +2214,7 @@ def _synthetic_projection(
     bundle = RunBundle.mint(
         scope_contract_id=scope_contract.scope_contract_id,
         scope_id=scope_contract.scope_id,
-        run_id="production_smoke_run",
+        run_id=run_id,
         campaign_id="production_smoke_campaign",
         completion_state=CompletionState.STOPPED,
         capture_generation=(
@@ -2350,9 +2373,19 @@ def _synthetic_projection_for_snapshot(
     scope_contract: ExpertScopeContract,
     package: KnowledgeSnapshotPackage,
     expert_base_release_id: str,
+    task_adapter_manifest_id: str,
+    task_adapter_verification_receipt_id: str,
 ) -> ProjectionResult:
     """Recover this config's transport projection or mint its direct successor."""
 
+    run_id = _synthetic_run_id(
+        scope_contract=scope_contract,
+        expert_base_release_id=expert_base_release_id,
+        task_adapter_manifest_id=task_adapter_manifest_id,
+        task_adapter_verification_receipt_id=(
+            task_adapter_verification_receipt_id
+        ),
+    )
     records = tuple(
         parse_knowledge_record_payload(
             envelope["record_kind"],
@@ -2366,7 +2399,7 @@ def _synthetic_projection_for_snapshot(
                 record
                 for record in records
                 if isinstance(record, RunBundle)
-                and record.run_id == "production_smoke_run"
+                and record.run_id == run_id
                 and record.campaign_id == "production_smoke_campaign"
             ),
             key=lambda bundle: bundle.capture_generation,
@@ -2378,6 +2411,8 @@ def _synthetic_projection_for_snapshot(
             fixture,
             scope_contract,
             expert_base_release_id,
+            task_adapter_manifest_id,
+            task_adapter_verification_receipt_id,
         )
     if tuple(bundle.capture_generation for bundle in bundles) != tuple(
         range(len(bundles))
@@ -2390,7 +2425,13 @@ def _synthetic_projection_for_snapshot(
             "knowledge snapshot has an invalid synthetic run lineage"
         )
     current_bundle = bundles[-1]
-    if current_bundle.configuration_fingerprint == settings.configuration_fingerprint:
+    if (
+        current_bundle.configuration_fingerprint == settings.configuration_fingerprint
+        and current_bundle.artifact_environment.task_adapter_manifest_id
+        == task_adapter_manifest_id
+        and current_bundle.artifact_environment.task_adapter_verification_receipt_id
+        == task_adapter_verification_receipt_id
+    ):
         if current_bundle.expert_base_release_id != expert_base_release_id:
             raise ProductionSmokeError(
                 "current synthetic bundle names another bootstrap expert release"
@@ -2458,12 +2499,68 @@ def _synthetic_projection_for_snapshot(
         fixture,
         scope_contract,
         expert_base_release_id,
+        task_adapter_manifest_id,
+        task_adapter_verification_receipt_id,
         predecessor_bundle=current_bundle,
         predecessor_episode=(
             None if not predecessor_episodes else predecessor_episodes[0]
         ),
         predecessor_prior_idea=predecessor_priors[0],
     )
+
+
+def _synthetic_run_id(
+    *,
+    scope_contract: ExpertScopeContract,
+    expert_base_release_id: str,
+    task_adapter_manifest_id: str,
+    task_adapter_verification_receipt_id: str,
+) -> str:
+    identity = content_id(
+        "production-smoke-run",
+        {
+            "scope_contract_id": scope_contract.scope_contract_id,
+            "expert_base_release_id": expert_base_release_id,
+            "task_adapter_manifest_id": task_adapter_manifest_id,
+            "task_adapter_verification_receipt_id": (
+                task_adapter_verification_receipt_id
+            ),
+        },
+    )
+    return "production_smoke_run_" + identity.split(":sha256:", 1)[1]
+
+
+def _production_task_adapter_pin(
+    prior_evidence: Mapping[str, Mapping[str, Any]],
+    *,
+    task_adapter_id: str,
+) -> tuple[str, str]:
+    bootstrap = prior_evidence.get("task-adapter-bootstrap")
+    if not isinstance(bootstrap, Mapping) or not isinstance(
+        bootstrap.get("adapters"), list
+    ):
+        raise ProductionSmokeError(
+            "synthetic projection requires verified task-adapter bootstrap evidence"
+        )
+    matches = tuple(
+        adapter
+        for adapter in bootstrap["adapters"]
+        if isinstance(adapter, Mapping)
+        and adapter.get("task_adapter_id") == task_adapter_id
+    )
+    if len(matches) != 1:
+        raise ProductionSmokeError(
+            "synthetic projection requires one exact task-adapter pin"
+        )
+    manifest_id = matches[0].get("task_adapter_manifest_id")
+    receipt_id = matches[0].get("verification_receipt_id")
+    if not isinstance(manifest_id, str) or not isinstance(receipt_id, str):
+        raise ProductionSmokeError(
+            "synthetic projection task-adapter pin is incomplete"
+        )
+    require_content_id(manifest_id, "transport smoke adapter manifest")
+    require_content_id(receipt_id, "transport smoke adapter verification receipt")
+    return manifest_id, receipt_id
 
 
 def _seed_catalog_from_snapshot(

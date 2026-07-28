@@ -46,6 +46,10 @@ from test_expert_triggers import inspection_operation, trigger_packet, trigger_s
 
 _CONFIG_PATH = "src/kapso/config.yaml"
 _EXPERT_RELEASE_ID = "expert-base-release:sha256:" + "1" * 64
+_TASK_ADAPTER_MANIFEST_ID = "task-adapter-manifest:sha256:" + "2" * 64
+_TASK_ADAPTER_VERIFICATION_RECEIPT_ID = (
+    "task-adapter-verification-receipt:sha256:" + "3" * 64
+)
 
 
 def _embedding_batch(settings, texts, vectors):
@@ -171,11 +175,21 @@ def test_synthetic_projection_is_one_admitted_domain_neutral_bundle():
         fixture,
         scope_contract,
         _EXPERT_RELEASE_ID,
+        _TASK_ADAPTER_MANIFEST_ID,
+        _TASK_ADAPTER_VERIFICATION_RECEIPT_ID,
     )
 
     assert projection.sanitation_report.status == "admitted"
     assert projection.source_bundle.scope_id == "ml_ai"
     assert projection.source_bundle.expert_base_release_id == _EXPERT_RELEASE_ID
+    assert (
+        projection.source_bundle.artifact_environment.task_adapter_manifest_id
+        == _TASK_ADAPTER_MANIFEST_ID
+    )
+    assert (
+        projection.source_bundle.artifact_environment.task_adapter_verification_receipt_id
+        == _TASK_ADAPTER_VERIFICATION_RECEIPT_ID
+    )
     assert len(projection.episodes) == 1
     assert projection.episodes[0].source_bundle_id == projection.source_bundle.bundle_id
     assert projection.episodes[0].attempts[0].technical_difficulties == (
@@ -552,6 +566,8 @@ def test_successor_launch_threads_exact_release_snapshot_and_typed_context(
         fixture,
         scope_contract,
         _EXPERT_RELEASE_ID,
+        _TASK_ADAPTER_MANIFEST_ID,
+        _TASK_ADAPTER_VERIFICATION_RECEIPT_ID,
     ).source_bundle.task_context_binding
     adapter = SimpleNamespace(
         manifest=SimpleNamespace(
@@ -765,18 +781,36 @@ def test_embedding_smoke_bounds_provider_drift_by_cosine_distance(
             smoke_module._embedding_smoke(settings, fixture)
 
 
-@pytest.mark.parametrize("predecessor_has_episode", (False, True))
+@pytest.mark.parametrize(
+    ("predecessor_has_episode", "configuration_changed", "adapter_changed"),
+    (
+        (False, True, False),
+        (True, True, False),
+        (True, False, True),
+    ),
+)
 def test_clean_root_imports_current_snapshot_and_mints_one_direct_successor(
     tmp_path,
     predecessor_has_episode,
+    configuration_changed,
+    adapter_changed,
 ):
     settings = load_effective_config(_CONFIG_PATH, "GENERIC").cross_run
-    old_settings = replace(
-        settings,
-        expert=replace(
-            settings.expert,
-            architect_id="production_transport_architect_old",
-        ),
+    old_settings = (
+        replace(
+            settings,
+            expert=replace(
+                settings.expert,
+                architect_id="production_transport_architect_old",
+            ),
+        )
+        if configuration_changed
+        else settings
+    )
+    old_adapter_manifest_id = (
+        "task-adapter-manifest:sha256:" + "4" * 64
+        if adapter_changed
+        else _TASK_ADAPTER_MANIFEST_ID
     )
     fixture, _fixture_digest = smoke_module._load_fixture(settings)
     scope_contract = smoke_module.ExpertScopeContract.from_dict(
@@ -787,6 +821,8 @@ def test_clean_root_imports_current_snapshot_and_mints_one_direct_successor(
         fixture,
         scope_contract,
         _EXPERT_RELEASE_ID,
+        old_adapter_manifest_id,
+        _TASK_ADAPTER_VERIFICATION_RECEIPT_ID,
     )
     old_catalog = CrossRunCatalog(
         tmp_path / "old-catalog",
@@ -825,18 +861,27 @@ def test_clean_root_imports_current_snapshot_and_mints_one_direct_successor(
         scope_contract,
         old_package,
         _EXPERT_RELEASE_ID,
+        _TASK_ADAPTER_MANIFEST_ID,
+        _TASK_ADAPTER_VERIFICATION_RECEIPT_ID,
     )
 
-    assert successor.source_bundle.capture_generation == 1
-    assert successor.source_bundle.supersedes_bundle_id == (
-        old_projection.source_bundle.bundle_id
-    )
-    assert successor.prior_ideas[0].supersedes_projection_id == (
-        old_projection.prior_ideas[0].prior_idea_id
-    )
-    assert successor.episodes[0].supersedes_projection_id == (
-        old_projection.episodes[0].episode_id if predecessor_has_episode else None
-    )
+    if adapter_changed:
+        assert successor.source_bundle.capture_generation == 0
+        assert successor.source_bundle.supersedes_bundle_id is None
+        assert successor.prior_ideas[0].supersedes_projection_id is None
+        assert successor.episodes[0].supersedes_projection_id is None
+        assert successor.source_bundle.run_id != old_projection.source_bundle.run_id
+    else:
+        assert successor.source_bundle.capture_generation == 1
+        assert successor.source_bundle.supersedes_bundle_id == (
+            old_projection.source_bundle.bundle_id
+        )
+        assert successor.prior_ideas[0].supersedes_projection_id == (
+            old_projection.prior_ideas[0].prior_idea_id
+        )
+        assert successor.episodes[0].supersedes_projection_id == (
+            old_projection.episodes[0].episode_id if predecessor_has_episode else None
+        )
     new_catalog = CrossRunCatalog(
         tmp_path / "new-catalog",
         scope_contract,
@@ -864,6 +909,8 @@ def test_clean_root_imports_current_snapshot_and_mints_one_direct_successor(
         scope_contract,
         successor_package,
         _EXPERT_RELEASE_ID,
+        _TASK_ADAPTER_MANIFEST_ID,
+        _TASK_ADAPTER_VERIFICATION_RECEIPT_ID,
     )
 
     assert recovered == successor
