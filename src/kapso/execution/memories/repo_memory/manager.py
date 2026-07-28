@@ -585,10 +585,7 @@ GeneratedAt: {doc.get('generated_at')}
         # no evidence-backed claims anywhere.
         previous_sections = previous_model["sections"]
         previous_claim_count = cls._count_claims_in_book_sections(previous_sections)
-        if (
-            not previous_model["summary"]
-            and previous_claim_count == 0
-        ):
+        if not previous_model["summary"] and previous_claim_count == 0:
             updated_model = infer_repo_model_with_retry(
                 llm=llm,
                 model=llm_model,

@@ -71,11 +71,13 @@ def _bootstrap_prepared(tmp_path, monkeypatch):
         prepared_plan=prepared_plan,
     ).reservation
     observation = _current_observation(prepared_plan)
-    coordinator, _candidate_reader, source_base_provider, _adapter_provider = _coordinator(
-        validation_store=validation_store,
-        prepared_plan=prepared_plan,
-        source_base=None,
-        current_authority=_CurrentAuthority((observation, observation)),
+    coordinator, _candidate_reader, source_base_provider, _adapter_provider = (
+        _coordinator(
+            validation_store=validation_store,
+            prepared_plan=prepared_plan,
+            source_base=None,
+            current_authority=_CurrentAuthority((observation, observation)),
+        )
     )
     return coordinator.build(plan_reservation), source_base_provider
 
@@ -511,6 +513,7 @@ def test_journal_execution_rejects_provider_identity_drift_without_retry(
     if drift_phase == "before":
         provider.dispatch_key = foreign_key
     else:
+
         def drift_after_call(invocation):
             provider.dispatch_key = foreign_key
             return _completion(tmp_path, invocation)

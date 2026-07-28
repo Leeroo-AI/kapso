@@ -171,7 +171,9 @@ class AgenticKGSearch:
 
         # --- Allowed tools ---
         allowed_tools = self._get(
-            "allowed_tools", "agent", "allowed_tools",
+            "allowed_tools",
+            "agent",
+            "allowed_tools",
             default=[
                 "Read",
                 f"mcp__{mcp_name}__search_knowledge",
@@ -457,15 +459,20 @@ class AgenticKGSearch:
                 index_path = Path(kg_index_path).expanduser().resolve()
                 if index_path.exists():
                     import json
+
                     index_data = json.loads(index_path.read_text(encoding="utf-8"))
                     metadata = KGIndexMetadata.from_dict(index_data)
-                    backend_type = (metadata.search_backend or "").strip() or "kg_graph_search"
+                    backend_type = (
+                        metadata.search_backend or ""
+                    ).strip() or "kg_graph_search"
                     backend_refs = metadata.backend_refs or {}
                     logger.info(f"KGGraphSearch for get_page from index: {index_path}")
             except Exception as e:
                 logger.warning(f"Failed to read kg_index_path for get_page: {e}")
 
-        self._kg_search = KnowledgeSearchFactory.create(backend_type, params=backend_refs)
+        self._kg_search = KnowledgeSearchFactory.create(
+            backend_type, params=backend_refs
+        )
         return self._kg_search
 
     def _format_page(self, page) -> str:
@@ -488,9 +495,9 @@ class AgenticKGSearch:
         if page.sources:
             parts.append("\n## Sources\n")
             for src in page.sources:
-                src_type = src.get('type', 'Link')
-                src_title = src.get('title', 'Reference')
-                src_url = src.get('url', '')
+                src_type = src.get("type", "Link")
+                src_title = src.get("title", "Reference")
+                src_url = src.get("url", "")
                 if src_url:
                     parts.append(f"- **{src_type}:** [{src_title}]({src_url})\n")
                 else:
@@ -499,9 +506,9 @@ class AgenticKGSearch:
         if page.outgoing_links:
             parts.append("\n## Related Pages\n")
             for link in page.outgoing_links[:10]:
-                edge_type = link.get('edge_type', 'related')
-                target = link.get('target_id', '')
-                target_type = link.get('target_type', '')
+                edge_type = link.get("edge_type", "related")
+                target = link.get("target_id", "")
+                target_type = link.get("target_type", "")
                 parts.append(f"- {edge_type} → {target_type}: {target}\n")
 
         return "".join(parts)
@@ -544,6 +551,7 @@ class AgenticKGSearch:
         self._agent = None
         if self._workspace and self._workspace.exists():
             import shutil
+
             try:
                 shutil.rmtree(self._workspace)
             except Exception as e:

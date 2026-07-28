@@ -26,6 +26,7 @@ from pathlib import Path
 
 # Load env
 from dotenv import load_dotenv
+
 load_dotenv()
 
 
@@ -33,11 +34,15 @@ load_dotenv()
 # Bedrock Credential Check
 # =============================================================================
 
+
 def _has_bedrock_creds() -> bool:
     """Check if AWS Bedrock credentials are available."""
     return bool(
         os.environ.get("AWS_BEARER_TOKEN_BEDROCK")
-        or (os.environ.get("AWS_ACCESS_KEY_ID") and os.environ.get("AWS_SECRET_ACCESS_KEY"))
+        or (
+            os.environ.get("AWS_ACCESS_KEY_ID")
+            and os.environ.get("AWS_SECRET_ACCESS_KEY")
+        )
         or os.environ.get("AWS_PROFILE")
     )
 
@@ -46,8 +51,11 @@ def _check_prerequisites() -> tuple[bool, str]:
     """Check all prerequisites for the test. Returns (ok, error_message)."""
     # Check Claude CLI
     if shutil.which("claude") is None:
-        return False, "Claude Code CLI not installed (run: npm install -g @anthropic-ai/claude-code)"
-    
+        return (
+            False,
+            "Claude Code CLI not installed (run: npm install -g @anthropic-ai/claude-code)",
+        )
+
     # Check Bedrock credentials
     if not _has_bedrock_creds():
         return False, (
@@ -56,17 +64,20 @@ def _check_prerequisites() -> tuple[bool, str]:
             "  - AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY\n"
             "  - AWS_PROFILE"
         )
-    
+
     # Check OpenAI key (for RepoMemory inference)
     if not os.environ.get("OPENAI_API_KEY"):
-        return False, "OPENAI_API_KEY not set (required for RepoMemory inference with gpt-4o-mini)"
-    
+        return (
+            False,
+            "OPENAI_API_KEY not set (required for RepoMemory inference with gpt-4o-mini)",
+        )
+
     return True, ""
+
 
 from kapso.execution.memories.repo_memory.observation import (
     extract_repo_memory_sections_consulted,
 )
-
 
 # =============================================================================
 # Test Configuration
@@ -113,25 +124,32 @@ TEST_CONFIG = {
 # Helpers
 # =============================================================================
 
+
 def _assert_repo_map_invariants(doc: dict, *, label: str) -> None:
     """
     Hard assertions for RepoMap portability + consistency.
-    
+
     These invariants are critical because `.kapso/repo_memory.json` is committed into git
     experiment branches and must be portable across machines/runs.
     """
     repo_map = doc.get("repo_map", {}) or {}
-    assert repo_map.get("repo_root") == ".", (
-        f"{label}: expected repo_map.repo_root == '.', got {repo_map.get('repo_root')!r}"
-    )
+    assert (
+        repo_map.get("repo_root") == "."
+    ), f"{label}: expected repo_map.repo_root == '.', got {repo_map.get('repo_root')!r}"
 
     files = repo_map.get("files", []) or []
     assert isinstance(files, list), f"{label}: expected repo_map.files to be a list"
 
     # Never include observability metadata or infrastructure paths in RepoMap.
-    assert "changes.log" not in files, f"{label}: repo_map.files unexpectedly contains changes.log"
-    assert not any(p.startswith(".kapso/") for p in files), f"{label}: repo_map.files contains .kapso/*"
-    assert not any(p.startswith("sessions/") for p in files), f"{label}: repo_map.files contains sessions/*"
+    assert (
+        "changes.log" not in files
+    ), f"{label}: repo_map.files unexpectedly contains changes.log"
+    assert not any(
+        p.startswith(".kapso/") for p in files
+    ), f"{label}: repo_map.files contains .kapso/*"
+    assert not any(
+        p.startswith("sessions/") for p in files
+    ), f"{label}: repo_map.files contains sessions/*"
 
 
 def _assert_changes_log_auditability(repo, *, branch_name: str, doc: dict) -> None:
@@ -144,21 +162,23 @@ def _assert_changes_log_auditability(repo, *, branch_name: str, doc: dict) -> No
     try:
         changes_text = repo.git.show(f"{branch_name}:changes.log")
     except Exception as e:
-        raise AssertionError(f"{branch_name}: changes.log not committed (git show failed): {e}") from e
+        raise AssertionError(
+            f"{branch_name}: changes.log not committed (git show failed): {e}"
+        ) from e
 
     # This is the contract we instruct agents to follow.
-    assert "repomemory sections consulted:" in changes_text.lower(), (
-        f"{branch_name}: changes.log missing 'RepoMemory sections consulted:' line"
-    )
+    assert (
+        "repomemory sections consulted:" in changes_text.lower()
+    ), f"{branch_name}: changes.log missing 'RepoMemory sections consulted:' line"
 
     from_log = extract_repo_memory_sections_consulted(changes_text)
 
     experiments = doc.get("experiments", []) or []
     assert experiments, f"{branch_name}: expected experiments recorded in repo memory"
     last = experiments[-1] or {}
-    assert last.get("branch") == branch_name, (
-        f"{branch_name}: last experiment branch mismatch in repo memory: {last.get('branch')!r}"
-    )
+    assert (
+        last.get("branch") == branch_name
+    ), f"{branch_name}: last experiment branch mismatch in repo memory: {last.get('branch')!r}"
 
     rr = last.get("run_result", {}) or {}
     persisted = rr.get("repo_memory_sections_consulted", [])
@@ -176,29 +196,29 @@ def _assert_changes_log_auditability(repo, *, branch_name: str, doc: dict) -> No
 def dump_repo_memory(workspace_dir: str, label: str) -> dict:
     """Load and print .kapso/repo_memory.json from a workspace."""
     memory_path = Path(workspace_dir) / ".kapso" / "repo_memory.json"
-    
+
     print(f"\n{'='*70}")
     print(f"REPO MEMORY: {label}")
     print(f"{'='*70}")
-    
+
     if not memory_path.exists():
         print("  [Not found]")
         return {}
-    
+
     with open(memory_path) as f:
         doc = json.load(f)
-    
+
     book = doc.get("book", {}) or {}
     quality = doc.get("quality", {})
     experiments = doc.get("experiments", [])
-    
+
     print(f"Generated at: {doc.get('generated_at', 'unknown')}")
     print(f"Schema: v{doc.get('schema_version')}")
     print(f"Book Summary: {(book.get('summary') or '(none)')[:200]}")
     print(f"Claims: {quality.get('claim_count', 0)}")
     print(f"Evidence OK: {quality.get('evidence_ok', False)}")
     print(f"Experiments recorded: {len(experiments)}")
-    
+
     # Show TOC + per-section claim counts (this is what agents use to navigate)
     toc = book.get("toc", []) or []
     sections = book.get("sections", {}) or {}
@@ -208,7 +228,11 @@ def dump_repo_memory(workspace_dir: str, label: str) -> dict:
             sid = (item or {}).get("id", "")
             title = (item or {}).get("title", "")
             sec = sections.get(sid, {}) if isinstance(sections, dict) else {}
-            claim_count = len((sec or {}).get("claims", []) or []) if isinstance((sec or {}).get("claims", []), list) else 0
+            claim_count = (
+                len((sec or {}).get("claims", []) or [])
+                if isinstance((sec or {}).get("claims", []), list)
+                else 0
+            )
             print(f"  - {sid}: {title} (claims={claim_count})")
 
     # High-signal semantic content (this is what matters for memory quality).
@@ -229,7 +253,7 @@ def dump_repo_memory(workspace_dir: str, label: str) -> dict:
                 stmt = (c or {}).get("statement", "")
                 kind = (c or {}).get("kind", "?")
                 print(f"    - [{kind}] {stmt}")
-    
+
     entrypoints = (sections.get("core.entrypoints", {}) or {}).get("content", [])
     if entrypoints:
         print("\nEntrypoints:")
@@ -238,7 +262,7 @@ def dump_repo_memory(workspace_dir: str, label: str) -> dict:
                 print(f"  - {ep.get('path')}: {ep.get('how_to_run', '')}")
             else:
                 print(f"  - {ep}")
-    
+
     if experiments:
         print("\nExperiment deltas:")
         for exp in experiments[-3:]:
@@ -251,7 +275,7 @@ def dump_repo_memory(workspace_dir: str, label: str) -> dict:
                 f"ideation_repo_memory_sections_consulted: {ideation_consulted}, "
                 f"repo_memory_sections_consulted: {consulted}"
             )
-    
+
     print(f"{'='*70}\n")
     return doc
 
@@ -259,20 +283,20 @@ def dump_repo_memory(workspace_dir: str, label: str) -> dict:
 def dump_branch_memory(repo, branch_name: str) -> dict:
     """Load repo memory from a specific branch without checkout."""
     from kapso.execution.memories.repo_memory import RepoMemoryManager
-    
+
     doc = RepoMemoryManager.load_from_git_branch(repo, branch_name)
     if not doc:
         print(f"\n[Branch {branch_name}] No repo memory found")
         return {}
-    
+
     print(f"\n{'='*70}")
     print(f"REPO MEMORY FROM BRANCH: {branch_name}")
     print(f"{'='*70}")
-    
+
     book = doc.get("book", {}) or {}
     quality = doc.get("quality", {})
     experiments = doc.get("experiments", [])
-    
+
     print(f"Schema: v{doc.get('schema_version')}")
     print(f"Book Summary: {(book.get('summary') or '(none)')[:200]}")
     print(
@@ -280,7 +304,7 @@ def dump_branch_memory(repo, branch_name: str) -> dict:
         f"Evidence OK: {quality.get('evidence_ok')}"
     )
     print(f"Experiments recorded: {len(experiments)}")
-    
+
     if experiments:
         last = experiments[-1]
         rr = last.get("run_result", {}) or {}
@@ -289,7 +313,7 @@ def dump_branch_memory(repo, branch_name: str) -> dict:
             f"ideation_repo_memory_sections_consulted={rr.get('ideation_repo_memory_sections_consulted', [])}, "
             f"repo_memory_sections_consulted={rr.get('repo_memory_sections_consulted', [])}"
         )
-    
+
     print(f"{'='*70}\n")
     return doc
 
@@ -298,10 +322,11 @@ def dump_branch_memory(repo, branch_name: str) -> dict:
 # Main Test
 # =============================================================================
 
+
 def _create_bedrock_config_file(output_dir: str) -> str:
     """Create a temporary config file with Claude Code + Bedrock settings."""
     import yaml
-    
+
     config = {
         "default_mode": "BEDROCK_TEST",
         "modes": {
@@ -320,7 +345,7 @@ def _create_bedrock_config_file(output_dir: str) -> str:
                         "per_step_maximum_solution_count": 5,
                         "exploration_budget_percent": 40,
                         "idea_generation_ensemble_models": ["gpt-4o-mini"],
-                    }
+                    },
                 },
                 "coding_agent": {
                     "type": "claude_code",
@@ -341,13 +366,13 @@ def _create_bedrock_config_file(output_dir: str) -> str:
                     "params": {},
                 },
             }
-        }
+        },
     }
-    
+
     config_path = os.path.join(output_dir, "bedrock_test_config.yaml")
     with open(config_path, "w") as f:
         yaml.dump(config, f, default_flow_style=False)
-    
+
     return config_path
 
 
@@ -357,17 +382,17 @@ def run_test():
     from kapso.execution.coding_agents.factory import CodingAgentFactory
     from kapso.environment.handlers.generic import GenericProblemHandler
     import git
-    
+
     print("\n" + "=" * 70)
     print("REPO MEMORY E2E TEST (Claude Code + Bedrock)")
     print("=" * 70)
-    
+
     # Check prerequisites
     ok, err = _check_prerequisites()
     if not ok:
         print(f"ERROR: {err}")
         return False
-    
+
     print(f"Seed repo: {SEED_REPO}")
     print(f"Goal: {TEST_CONFIG['goal'][:100]}...")
     print(f"Coding agent: {TEST_CONFIG['coding_agent']}")
@@ -375,24 +400,24 @@ def run_test():
     print(f"Max iterations: {TEST_CONFIG['max_iterations']}")
     print(f"Bedrock config: {TEST_CONFIG['coding_agent_params']}")
     print("=" * 70 + "\n")
-    
+
     # Verify seed repo exists
     if not SEED_REPO.exists():
         print(f"ERROR: Seed repo not found at {SEED_REPO}")
         return False
-    
+
     # Create output directory
     output_dir = tempfile.mkdtemp(prefix="repo_memory_e2e_bedrock_")
     workspace_dir = os.path.join(output_dir, "workspace")
     os.makedirs(workspace_dir, exist_ok=True)
     print(f"Output directory: {output_dir}")
     print(f"Workspace directory: {workspace_dir}\n")
-    
+
     try:
         # Create custom config file with Bedrock settings (in output_dir, not workspace)
         config_path = _create_bedrock_config_file(output_dir)
         print(f"Created config file: {config_path}\n")
-        
+
         # Create problem handler
         handler = GenericProblemHandler(
             problem_description=TEST_CONFIG["goal"],
@@ -402,7 +427,7 @@ def run_test():
             evaluator=TEST_CONFIG["evaluator"],
             evaluator_params=TEST_CONFIG["evaluator_params"],
         )
-        
+
         # Create orchestrator with custom config
         orchestrator = OrchestratorAgent(
             problem_handler=handler,
@@ -412,7 +437,7 @@ def run_test():
             workspace_dir=workspace_dir,  # Use separate workspace subdirectory
             starting_repo_path=str(SEED_REPO),
         )
-        
+
         # Verify the coding agent config was set correctly
         ca_config = orchestrator.search_strategy.workspace.coding_agent_config
         print(f"CodingAgentConfig:")
@@ -420,56 +445,57 @@ def run_test():
         print(f"  model: {ca_config.model}")
         print(f"  agent_specific: {ca_config.agent_specific}")
         print()
-        
+
         # Run experimentation
         print("Starting experimentation loop...\n")
         orchestrator.solve(experiment_max_iter=TEST_CONFIG["max_iterations"])
-        
+
         # Get workspace path (use the one from the strategy, which should match our workspace_dir)
         actual_workspace_dir = orchestrator.search_strategy.workspace.workspace_dir
-        
+
         print(f"\n{'='*70}")
         print("BUILD COMPLETE")
         print(f"{'='*70}")
         print(f"Workspace: {actual_workspace_dir}")
-        
+
         # Checkout to best solution
         orchestrator.search_strategy.checkout_to_best_experiment_branch()
-        
+
         # Dump baseline memory (from main branch)
         repo = git.Repo(actual_workspace_dir)
         main_doc = dump_branch_memory(repo, "main")
         if main_doc:
             _assert_repo_map_invariants(main_doc, label="branch=main")
-        
+
         # List all experiment branches and dump their memories
         branches = [ref.name for ref in repo.heads if ref.name != "main"]
         print(f"\nExperiment branches: {branches}")
-        
+
         for branch in branches:
             doc = dump_branch_memory(repo, branch)
             if not doc:
                 raise AssertionError(f"branch={branch}: expected repo memory to exist")
             _assert_repo_map_invariants(doc, label=f"branch={branch}")
             _assert_changes_log_auditability(repo, branch_name=branch, doc=doc)
-        
+
         # Dump current worktree memory (should be best branch after checkout)
         final_doc = dump_repo_memory(actual_workspace_dir, "FINAL (best branch)")
         if final_doc:
             _assert_repo_map_invariants(final_doc, label="worktree=final")
-        
+
         print("\n" + "=" * 70)
         print("TEST COMPLETE - Review memories above for quality")
         print("=" * 70)
-        
+
         return True
-        
+
     except Exception as e:
         print(f"\nERROR: {e}")
         import traceback
+
         traceback.print_exc()
         return False
-    
+
     finally:
         print(f"\nWorkspace kept at: {output_dir}")
         print("(Delete manually after review)")
@@ -481,5 +507,6 @@ def run_test():
 
 if __name__ == "__main__":
     import sys
+
     success = run_test()
     sys.exit(0 if success else 1)

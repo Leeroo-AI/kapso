@@ -23,9 +23,7 @@ def write_memory(
     )
     document["quality"]["section_count"] = len(document["book"]["sections"])
     document["quality"]["claim_count"] = (
-        RepoMemoryManager._count_claims_in_book_sections(
-            document["book"]["sections"]
-        )
+        RepoMemoryManager._count_claims_in_book_sections(document["book"]["sections"])
     )
     RepoMemoryManager.write_to_worktree(str(repo_root), document)
 
@@ -50,9 +48,7 @@ def test_repo_memory_gate_get_section(tmp_path: Path) -> None:
                         "kind": "architecture",
                         "statement": "Has a README",
                         "confidence": 1.0,
-                        "evidence": [
-                            {"path": "README.md", "quote": "hello"}
-                        ],
+                        "evidence": [{"path": "README.md", "quote": "hello"}],
                     }
                 ],
             }
@@ -88,9 +84,7 @@ def test_repo_memory_gate_list_sections(tmp_path: Path) -> None:
         },
     )
 
-    result = asyncio.run(
-        gate(repo_root).handle_call("list_repo_memory_sections", {})
-    )
+    result = asyncio.run(gate(repo_root).handle_call("list_repo_memory_sections", {}))
     assert "core.architecture" in result[0].text
     assert "core.gotchas" in result[0].text
 
@@ -109,8 +103,6 @@ def test_repo_memory_gate_get_summary(tmp_path: Path) -> None:
         },
     )
 
-    result = asyncio.run(
-        gate(repo_root).handle_call("get_repo_memory_summary", {})
-    )
+    result = asyncio.run(gate(repo_root).handle_call("get_repo_memory_summary", {}))
     assert "test repository" in result[0].text
     assert "core.architecture" in result[0].text

@@ -73,9 +73,7 @@ def test_get_section_renders_claims() -> None:
                     {
                         "kind": "architecture",
                         "statement": "Uses plugins",
-                        "evidence": [
-                            {"path": "foo.py", "quote": "class Plugin"}
-                        ],
+                        "evidence": [{"path": "foo.py", "quote": "class Plugin"}],
                     }
                 ],
             }
@@ -116,9 +114,7 @@ def test_evidence_validation_accepts_book_sections(tmp_path: Path) -> None:
                     {
                         "kind": "architecture",
                         "statement": "Has Plugin class",
-                        "evidence": [
-                            {"path": "foo.py", "quote": "class Plugin:"}
-                        ],
+                        "evidence": [{"path": "foo.py", "quote": "class Plugin:"}],
                     }
                 ],
             }

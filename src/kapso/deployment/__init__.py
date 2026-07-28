@@ -18,10 +18,10 @@
 #
 # Usage:
 #     from kapso.deployment import DeploymentFactory, DeployStrategy, DeployConfig
-#     
+#
 #     config = DeployConfig(code_path="./solution", goal="My Goal")
 #     software = DeploymentFactory.create(DeployStrategy.AUTO, config)
-#     
+#
 #     # Unified interface - works the same for LOCAL, MODAL, etc.
 #     result = software.run({"input": "data"})
 #     software.stop()
@@ -61,25 +61,20 @@ __all__ = [
     "DeployStrategy",
     "DeployConfig",
     "Software",
-    
     # Strategy registry
     "StrategyRegistry",
     "DeployStrategyConfig",
     "Runner",
-    
     # Implementation (for advanced use)
     "DeployedSoftware",
     "DeploymentInfo",
-    
     # Selector (LLM-based)
     "SelectorAgent",
     "DeploymentSetting",
-    
     # Adapter
     "AdapterAgent",
     "AdaptationValidator",
     "AdaptationResult",
-    
     # Strategy runners
     "LocalRunner",
     "ModalRunner",

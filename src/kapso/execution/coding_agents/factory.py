@@ -18,7 +18,6 @@ from typing import Dict, Type, List, Any, Optional
 
 from kapso.execution.coding_agents.base import CodingAgentInterface, CodingAgentConfig
 
-
 # Path to agents registry YAML
 AGENTS_YAML_PATH = Path(__file__).parent / "agents.yaml"
 

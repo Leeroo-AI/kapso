@@ -162,8 +162,7 @@ def run_production_smoke(
             fixture=fixture,
             scope_contract=scope_contract,
             prior_evidence={
-                item["stage"]: item["evidence"]
-                for item in receipt["stage_receipts"]
+                item["stage"]: item["evidence"] for item in receipt["stage_receipts"]
             },
         )
         completed_at = _timestamp()

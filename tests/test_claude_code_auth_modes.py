@@ -12,7 +12,6 @@ from kapso.execution.coding_agents.adapters.claude_code_agent import (
 )
 from kapso.execution.coding_agents.base import CodingAgentConfig
 
-
 AUTH_ENV_VARS = (
     "ANTHROPIC_API_KEY",
     "ANTHROPIC_AUTH_TOKEN",
@@ -50,9 +49,7 @@ def make_config(**agent_specific):
 def auth_status(*, logged_in=True, auth_method="claude.ai"):
     return SimpleNamespace(
         returncode=0 if logged_in else 1,
-        stdout=json.dumps(
-            {"loggedIn": logged_in, "authMethod": auth_method}
-        ),
+        stdout=json.dumps({"loggedIn": logged_in, "authMethod": auth_method}),
         stderr="",
     )
 
@@ -234,8 +231,8 @@ def test_env_defaults_are_set_if_absent_only(monkeypatch):
 
     env = agent._get_env()
 
-    assert env["BASH_DEFAULT_TIMEOUT_MS"] == "900000"   # ambient wins
-    assert env["BASH_MAX_TIMEOUT_MS"] == "14400000"     # gap filled
+    assert env["BASH_DEFAULT_TIMEOUT_MS"] == "900000"  # ambient wins
+    assert env["BASH_MAX_TIMEOUT_MS"] == "14400000"  # gap filled
 
 
 def test_print_mode_dead_tools_always_disallowed(monkeypatch):

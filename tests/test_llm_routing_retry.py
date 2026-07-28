@@ -176,14 +176,21 @@ def test_invalid_retry_policy_fails_during_configuration(config, match):
         RetryPolicy.from_config(config)
 
 
-@pytest.mark.parametrize("error", [TimeoutError(), ConnectionError(), StatusError(429), StatusError(503)])
+@pytest.mark.parametrize(
+    "error", [TimeoutError(), ConnectionError(), StatusError(429), StatusError(503)]
+)
 def test_transient_classifier_accepts_transport_throttle_and_server_errors(error):
     assert is_transient_llm_error(error) is True
 
 
 @pytest.mark.parametrize(
     "error",
-    [AuthenticationError(), StatusError(400), ValueError("bad config"), RuntimeError("bug")],
+    [
+        AuthenticationError(),
+        StatusError(400),
+        ValueError("bad config"),
+        RuntimeError("bug"),
+    ],
 )
 def test_transient_classifier_rejects_auth_config_and_programming_errors(error):
     assert is_transient_llm_error(error) is False

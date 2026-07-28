@@ -28,7 +28,9 @@ from kapso.core.prompt_loader import load_prompt, render_prompt
 class LLMLike(Protocol):
     """Minimal interface we need for repo-model inference (enables deterministic testing)."""
 
-    def llm_completion(self, model: str, messages: List[Dict[str, str]], **kwargs) -> str: ...
+    def llm_completion(
+        self, model: str, messages: List[Dict[str, str]], **kwargs
+    ) -> str: ...
 
 
 class RepoMemoryResponseError(ValueError):
@@ -77,7 +79,7 @@ def build_repo_map(
 ) -> Dict[str, Any]:
     """
     Deterministically summarize the repository structure.
-    
+
     This is used both as:
     - a stable "repo map" for coding agents, and
     - an input to the agentic repo-model inference workflow.
@@ -107,7 +109,15 @@ def build_repo_map(
     git_files: Optional[List[str]] = None
     try:
         out = subprocess.check_output(
-            ["git", "-C", repo_root, "ls-files", "--cached", "--others", "--exclude-standard"],
+            [
+                "git",
+                "-C",
+                repo_root,
+                "ls-files",
+                "--cached",
+                "--others",
+                "--exclude-standard",
+            ],
             stderr=subprocess.DEVNULL,
         ).decode("utf-8", "replace")
         git_files = [ln.strip() for ln in out.splitlines() if ln.strip()]
@@ -198,7 +208,15 @@ def build_repo_map(
     key_files = [p for p in key_file_candidates if p in key_file_set]
 
     # Simple entrypoint heuristics (cheap and usually correct).
-    entrypoint_names = {"main.py", "app.py", "server.py", "cli.py", "main.cpp", "main.cc", "main.c"}
+    entrypoint_names = {
+        "main.py",
+        "app.py",
+        "server.py",
+        "cli.py",
+        "main.cpp",
+        "main.cc",
+        "main.c",
+    }
     entrypoints = [p for p in file_paths if os.path.basename(p) in entrypoint_names]
 
     return {
@@ -206,7 +224,9 @@ def build_repo_map(
         "repo_root": ".",
         "file_count": len(file_paths),
         "files": file_paths[:2000],  # Keep bounded in memory file.
-        "languages_by_extension": dict(sorted(languages.items(), key=lambda kv: kv[1], reverse=True)),
+        "languages_by_extension": dict(
+            sorted(languages.items(), key=lambda kv: kv[1], reverse=True)
+        ),
         "key_files": key_files,
         "entrypoints": entrypoints[:50],
     }
@@ -242,7 +262,9 @@ def validate_evidence(repo_root: str, model: Dict[str, Any]) -> EvidenceCheck:
                     f".evidence[{evidence_position}]"
                 )
                 if not isinstance(item, dict):
-                    raise RepoMemoryResponseError("RepoMemory evidence must be an object")
+                    raise RepoMemoryResponseError(
+                        "RepoMemory evidence must be an object"
+                    )
                 relative_path = item.get("path")
                 quote = item.get("quote")
                 if (
@@ -261,16 +283,14 @@ def validate_evidence(repo_root: str, model: Dict[str, Any]) -> EvidenceCheck:
                 if quote not in text and " ".join(quote.split()) not in " ".join(
                     text.split()
                 ):
-                    missing.append(
-                        f"{location}: quote not found in {relative_path}"
-                    )
+                    missing.append(f"{location}: quote not found in {relative_path}")
     return EvidenceCheck(ok=not missing, missing=missing)
 
 
 def _build_toc_from_sections(sections: Dict[str, Any]) -> List[Dict[str, str]]:
     """
     Build a simple Table of Contents from a v2 `sections` dict.
-    
+
     This is intentionally lightweight and deterministic:
     - Sort by section id for stability
     - Include only id/title/one_liner (no content)
@@ -292,25 +312,25 @@ def _build_toc_from_sections(sections: Dict[str, Any]) -> List[Dict[str, str]]:
 def _add_line_numbers(text: str) -> str:
     """
     Add line numbers to file content for evidence referencing.
-    
+
     Format: "  N| content" where N is right-aligned line number.
     This allows the LLM to reference specific lines by number instead of
     requiring exact verbatim quotes.
     """
     if not text:
         return ""
-    lines = text.split('\n')
+    lines = text.split("\n")
     width = len(str(len(lines)))
     numbered = []
     for i, line in enumerate(lines, 1):
         numbered.append(f"{i:>{width}}| {line}")
-    return '\n'.join(numbered)
+    return "\n".join(numbered)
 
 
 def _format_file_payload(file_blobs: List[Tuple[str, str]]) -> str:
     """
     Format file blobs into a payload with line numbers.
-    
+
     Each file is formatted as:
         === FILE: path/to/file.py ===
           1| first line
@@ -328,7 +348,7 @@ def _format_file_payload(file_blobs: List[Tuple[str, str]]) -> str:
 def _extract_json(text: str) -> Dict[str, Any]:
     """
     Parse JSON robustly.
-    
+
     We intentionally keep this simple:
     - prefer full parse
     - otherwise try the first {...} block
@@ -358,13 +378,9 @@ def _extract_json(text: str) -> Dict[str, Any]:
 def _validate_repo_model(model: Dict[str, Any]) -> Dict[str, Any]:
     """Validate the stable outer shape used by RepoMemory builders."""
     if not isinstance(model.get("summary"), str):
-        raise RepoMemoryResponseError(
-            "RepoMemory JSON requires a string 'summary'"
-        )
+        raise RepoMemoryResponseError("RepoMemory JSON requires a string 'summary'")
 
-    if set(model) != {"summary", "sections"} or not isinstance(
-        model["sections"], dict
-    ):
+    if set(model) != {"summary", "sections"} or not isinstance(model["sections"], dict):
         raise RepoMemoryResponseError(
             "RepoMemory JSON requires exactly 'summary' and object 'sections'"
         )
@@ -401,16 +417,13 @@ def _complete_repo_model(
                 raise
 
             retry_template = load_prompt(
-                "execution/memories/repo_memory/prompts/"
-                "infer_repo_model_retry.md"
+                "execution/memories/repo_memory/prompts/" "infer_repo_model_retry.md"
             )
             retry_prompt = render_prompt(
                 retry_template,
                 {"validation_error": str(exc)},
             )
-            response_text = (
-                response if isinstance(response, str) else repr(response)
-            )
+            response_text = response if isinstance(response, str) else repr(response)
             messages = [
                 {"role": "user", "content": prompt},
                 {"role": "assistant", "content": response_text[:20000]},
@@ -429,7 +442,9 @@ def plan_files_to_read(
     key_files = repo_map.get("key_files", [])
     entrypoints = repo_map.get("entrypoints", [])
 
-    template = load_prompt("execution/memories/repo_memory/prompts/plan_files_to_read.md")
+    template = load_prompt(
+        "execution/memories/repo_memory/prompts/plan_files_to_read.md"
+    )
     prompt = render_prompt(
         template,
         {
@@ -483,7 +498,7 @@ def infer_repo_model_initial(
 ) -> Dict[str, Any]:
     """
     Build a semantic repo model from scratch using agentic file selection.
-    
+
     Output is JSON with evidence-backed claims.
     """
     files_to_read = plan_files_to_read(
@@ -499,7 +514,9 @@ def infer_repo_model_initial(
 
     files_payload = _format_file_payload(file_blobs)
 
-    template = load_prompt("execution/memories/repo_memory/prompts/infer_repo_model_initial.md")
+    template = load_prompt(
+        "execution/memories/repo_memory/prompts/infer_repo_model_initial.md"
+    )
     prompt = render_prompt(
         template,
         {
@@ -555,17 +572,21 @@ def infer_repo_model_update(
 ) -> Dict[str, Any]:
     """
     Incrementally update RepoModel using the previous model + diffs + changed files.
-    
+
     The updated model uses line-number-based evidence references.
     """
     changed_blobs: List[Tuple[str, str]] = []
     for rel in changed_files[:20]:
         abs_path = os.path.join(repo_root, rel)
         if os.path.exists(abs_path):
-            changed_blobs.append((rel, _safe_read_text(abs_path, max_chars=max_file_chars)))
+            changed_blobs.append(
+                (rel, _safe_read_text(abs_path, max_chars=max_file_chars))
+            )
     changed_payload = _format_file_payload(changed_blobs)
 
-    template = load_prompt("execution/memories/repo_memory/prompts/infer_repo_model_update.md")
+    template = load_prompt(
+        "execution/memories/repo_memory/prompts/infer_repo_model_update.md"
+    )
     prompt = render_prompt(
         template,
         {

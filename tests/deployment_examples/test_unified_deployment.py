@@ -5,7 +5,7 @@ Unified Deployment Test
 Tests the Kapso deployment flow as shown in the README:
 
     from kapso.kapso import Kapso, DeployStrategy
-    
+
     kapso = Kapso()
     solution = kapso.evolve(goal="...", output_path="./repo")  # We create SolutionResult manually
     software = kapso.deploy(solution, strategy=DeployStrategy.LOCAL)
@@ -47,13 +47,13 @@ sys.path.insert(0, str(PROJECT_ROOT))
 # ANSI Colors
 # =============================================================================
 class C:
-    GREEN = '\033[92m'
-    RED = '\033[91m'
-    YELLOW = '\033[93m'
-    BLUE = '\033[94m'
-    CYAN = '\033[96m'
-    BOLD = '\033[1m'
-    END = '\033[0m'
+    GREEN = "\033[92m"
+    RED = "\033[91m"
+    YELLOW = "\033[93m"
+    BLUE = "\033[94m"
+    CYAN = "\033[96m"
+    BOLD = "\033[1m"
+    END = "\033[0m"
 
 
 def header(text: str):
@@ -88,6 +88,7 @@ def warn(text: str):
 @dataclass
 class RepoConfig:
     """Configuration for a test repository (simulates a built solution)."""
+
     name: str
     goal: str
     sample_input: Dict[str, Any]
@@ -118,7 +119,10 @@ REPOS: List[RepoConfig] = [
     RepoConfig(
         name="qa",
         goal="Question answering using transformers pipeline",
-        sample_input={"question": "What is AI?", "context": "AI is artificial intelligence."},
+        sample_input={
+            "question": "What is AI?",
+            "context": "AI is artificial intelligence.",
+        },
     ),
     RepoConfig(
         name="classifier",
@@ -139,6 +143,7 @@ REPOS: List[RepoConfig] = [
 @dataclass
 class TestResult:
     """Result of testing a single repository."""
+
     name: str
     strategy: str
     deploy_ok: bool
@@ -160,7 +165,7 @@ class TestResult:
 def run_repo(repo: RepoConfig, strategy: str = "local") -> TestResult:
     """
     Test a single repository following the README user flow:
-    
+
         kapso = Kapso()
         software = kapso.deploy(solution, strategy=DeployStrategy.LOCAL)
         result = software.run(sample_input)
@@ -168,9 +173,9 @@ def run_repo(repo: RepoConfig, strategy: str = "local") -> TestResult:
     """
     from kapso.kapso import Kapso, DeployStrategy
     from kapso.execution.solution import SolutionResult
-    
+
     subheader(f"Testing: {repo.name}")
-    
+
     result = TestResult(
         name=repo.name,
         strategy=strategy,
@@ -179,24 +184,24 @@ def run_repo(repo: RepoConfig, strategy: str = "local") -> TestResult:
         output=None,
         error=None,
     )
-    
+
     input_path = INPUT_DIR / repo.name
-    
+
     if not input_path.exists():
         result.error = f"Input repo not found: {input_path}"
         error(result.error)
         return result
-    
+
     info(f"Repo path: {input_path}")
     info(f"Goal: {repo.goal}")
-    
+
     try:
         # =====================================================================
         # Step 1: Create Kapso (simulating user initialization)
         # =====================================================================
         kapso = Kapso()
         info("Created Kapso()")
-        
+
         # =====================================================================
         # Step 2: Create SolutionResult (simulating kapso.evolve() output)
         # In real usage, this comes from kapso.evolve()
@@ -206,8 +211,10 @@ def run_repo(repo: RepoConfig, strategy: str = "local") -> TestResult:
             goal=repo.goal,
             code_path=str(input_path),
         )
-        info(f"Created SolutionResult(goal='{repo.goal[:40]}...', code_path='{input_path}')")
-        
+        info(
+            f"Created SolutionResult(goal='{repo.goal[:40]}...', code_path='{input_path}')"
+        )
+
         # =====================================================================
         # Step 3: Deploy the solution
         # kapso.deploy(solution, strategy=DeployStrategy.LOCAL)
@@ -220,33 +227,36 @@ def run_repo(repo: RepoConfig, strategy: str = "local") -> TestResult:
             result.error = f"Unknown strategy '{strategy}'. Available: {available}"
             error(result.error)
             return result
-        
+
         import time
+
         deploy_start = time.time()
-        info(f"Calling kapso.deploy(solution, strategy=DeployStrategy.{strategy_upper})...")
-        
+        info(
+            f"Calling kapso.deploy(solution, strategy=DeployStrategy.{strategy_upper})..."
+        )
+
         software = kapso.deploy(solution, strategy=deploy_strategy)
-        
+
         deploy_elapsed = time.time() - deploy_start
         result.strategy = software.name
         result.deploy_ok = True
-        
+
         success(f"software = kapso.deploy() completed in {deploy_elapsed:.1f}s")
         info(f"  software.name: {software.name}")
         info(f"  software.is_healthy(): {software.is_healthy()}")
-        
+
         # =====================================================================
         # Step 4: Run the software
         # result = software.run(sample_input)
         # =====================================================================
         info(f"Calling software.run({repo.sample_input})...")
-        
+
         run_start = time.time()
         response = software.run(repo.sample_input)
         run_elapsed = time.time() - run_start
-        
+
         result.output = response
-        
+
         if response.get("status") == "success":
             result.run_ok = True
             success(f"result = software.run() completed in {run_elapsed:.1f}s")
@@ -256,44 +266,49 @@ def run_repo(repo: RepoConfig, strategy: str = "local") -> TestResult:
         else:
             result.run_ok = False
             warn(f"software.run() returned error: {response.get('error', 'Unknown')}")
-        
+
         # =====================================================================
         # Step 5: Stop the software
         # software.stop()
         # =====================================================================
         software.stop()
         info("software.stop() called")
-        
+
     except Exception as e:
         result.error = str(e)
         error(f"Error: {e}")
         import traceback
+
         traceback.print_exc()
-    
+
     return result
 
 
 def print_summary(results: List[TestResult]):
     """Print test summary."""
     header("SUMMARY")
-    
+
     print(f"{'Repo':<12} {'Strategy':<12} {'Deploy':<10} {'Run':<10} {'Error':<30}")
     print("-" * 80)
-    
+
     for r in results:
         deploy = f"{C.GREEN}✓{C.END}" if r.deploy_ok else f"{C.RED}✗{C.END}"
         run = f"{C.GREEN}✓{C.END}" if r.run_ok else f"{C.RED}✗{C.END}"
-        err = (r.error[:27] + "...") if r.error and len(r.error) > 30 else (r.error or "-")
-        
+        err = (
+            (r.error[:27] + "...")
+            if r.error and len(r.error) > 30
+            else (r.error or "-")
+        )
+
         print(f"{r.name:<12} {r.strategy:<12} {deploy:<19} {run:<19} {err:<30}")
-    
+
     print()
-    
+
     # Stats
     total = len(results)
     deploy_ok = sum(1 for r in results if r.deploy_ok)
     run_ok = sum(1 for r in results if r.run_ok)
-    
+
     print(f"Deploy success: {deploy_ok}/{total}")
     print(f"Run success: {run_ok}/{total}")
     print()
@@ -301,13 +316,19 @@ def print_summary(results: List[TestResult]):
 
 def main():
     import argparse
-    
+
     parser = argparse.ArgumentParser(description="Unified Deployment Test")
-    parser.add_argument("repos", nargs="*", help="Specific repos to test (default: all)")
-    parser.add_argument("--strategy", "-s", default="local", 
-                        help="Deployment strategy (auto, local, modal, bentoml, langgraph)")
+    parser.add_argument(
+        "repos", nargs="*", help="Specific repos to test (default: all)"
+    )
+    parser.add_argument(
+        "--strategy",
+        "-s",
+        default="local",
+        help="Deployment strategy (auto, local, modal, bentoml, langgraph)",
+    )
     args = parser.parse_args()
-    
+
     header("UNIFIED DEPLOYMENT TEST")
     print("Testing the Kapso deployment flow from README:\n")
     print("    kapso = Kapso()")
@@ -316,18 +337,18 @@ def main():
     print("    result = software.run(sample_input)")
     print("    software.stop()")
     print()
-    
+
     # Check credentials
     anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
     if not anthropic_key:
         warn("ANTHROPIC_API_KEY not set - AUTO strategy and adaptation may fail")
     else:
         info(f"ANTHROPIC_API_KEY: {anthropic_key[:20]}...")
-    
+
     print(f"\nInput repos: {INPUT_DIR}")
     print(f"Strategy: {args.strategy}")
     print()
-    
+
     # Filter repos if specified
     repos_to_test = REPOS
     if args.repos:
@@ -335,33 +356,35 @@ def main():
         if not repos_to_test:
             error(f"No matching repos found. Available: {[r.name for r in REPOS]}")
             return 1
-    
+
     # Show available strategies
     from kapso.kapso import DeployStrategy
+
     available_strategies = [s.name.lower() for s in DeployStrategy]
     info(f"Available strategies: {available_strategies}")
     print()
-    
+
     # Run tests
     results: List[TestResult] = []
-    
+
     import time
+
     total_start = time.time()
-    
+
     for i, repo in enumerate(repos_to_test, 1):
         info(f"[{i}/{len(repos_to_test)}] Testing {repo.name}...")
-        
+
         result = run_repo(repo, strategy=args.strategy)
         results.append(result)
-        
+
         print()
-    
+
     total_elapsed = time.time() - total_start
     info(f"Total time: {total_elapsed:.1f}s")
-    
+
     # Print summary
     print_summary(results)
-    
+
     # Return status
     all_ok = all(r.deploy_ok and r.run_ok for r in results)
     if all_ok:

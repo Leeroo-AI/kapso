@@ -14,7 +14,6 @@ from kapso.gated_mcp import (
 )
 from kapso.gated_mcp.server import _resolve_configuration
 
-
 CAPABILITY_ENV = (
     "KG_INDEX_PATH",
     "OPENAI_API_KEY",
@@ -134,9 +133,7 @@ def test_warn_config_keeps_available_gates_and_removes_missing_tools(tmp_path):
         include_base_tools=False,
     )
 
-    assert servers["gated-knowledge"]["env"]["MCP_ENABLED_GATES"] == (
-        "repo_memory"
-    )
+    assert servers["gated-knowledge"]["env"]["MCP_ENABLED_GATES"] == ("repo_memory")
     assert all("research_" not in tool for tool in tools)
     assert "mcp__gated-knowledge__get_repo_memory_summary" in tools
 

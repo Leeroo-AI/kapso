@@ -19,7 +19,9 @@ import json
 from pathlib import Path
 
 from kapso.execution.coding_agents.base import CodingAgentConfig
-from kapso.execution.experiment_workspace.experiment_workspace import ExperimentWorkspace
+from kapso.execution.experiment_workspace.experiment_workspace import (
+    ExperimentWorkspace,
+)
 from kapso.execution.memories.repo_memory import RepoMemoryManager
 
 
@@ -62,7 +64,9 @@ def test_repo_memory_update_runs_after_final_commit(tmp_path: Path):
         workspace.repo.git.commit("-m", "chore(kapso): add baseline repo memory")
 
     branch_name = "exp_latest_commit_semantics"
-    session = workspace.create_experiment_session(branch_name=branch_name, parent_branch_name="main", llm=llm)
+    session = workspace.create_experiment_session(
+        branch_name=branch_name, parent_branch_name="main", llm=llm
+    )
 
     # Make a committed code change (simulates agent commits).
     Path(session.session_folder, "main.py").write_text("print('hi')\n")
@@ -73,7 +77,9 @@ def test_repo_memory_update_runs_after_final_commit(tmp_path: Path):
     Path(session.run_dir, "result.txt").write_text("ok\n")
 
     # Create an uncommitted changes.log (committed by close_session final commit).
-    Path(session.session_folder, "changes.log").write_text("RepoMemory sections consulted: none\n")
+    Path(session.session_folder, "changes.log").write_text(
+        "RepoMemory sections consulted: none\n"
+    )
 
     # Schedule memory update (it will run during close_session after the commits above).
     session.schedule_repo_memory_update(
@@ -88,7 +94,9 @@ def test_repo_memory_update_runs_after_final_commit(tmp_path: Path):
     head = workspace.repo.commit(branch_name)
     assert "update repo memory" in head.message.lower()
 
-    doc_raw = workspace.repo.git.show(f"{branch_name}:{RepoMemoryManager.MEMORY_REL_PATH}")
+    doc_raw = workspace.repo.git.show(
+        f"{branch_name}:{RepoMemoryManager.MEMORY_REL_PATH}"
+    )
     doc = json.loads(doc_raw)
     experiments = doc.get("experiments", []) or []
     assert experiments, "Expected at least one experiment recorded in RepoMemory"

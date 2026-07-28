@@ -57,7 +57,4 @@ def test_load_from_git_branch_returns_none_when_memory_is_absent(
     repo.git.add("README.md")
     repo.git.commit("-m", "initial")
 
-    assert (
-        RepoMemoryManager.load_from_git_branch(repo, repo.active_branch.name)
-        is None
-    )
+    assert RepoMemoryManager.load_from_git_branch(repo, repo.active_branch.name) is None

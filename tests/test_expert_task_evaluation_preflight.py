@@ -293,10 +293,14 @@ def test_prepared_request_keeps_only_executable_packages_and_counts_each_once(
     assert len(prepared.adapters) == 1
     assert prepared.source_base is not None
     assert prepared.entry_count == (
-        prepared.candidate.entry_count + prepared.source_base.entry_count + adapter_usage[0]
+        prepared.candidate.entry_count
+        + prepared.source_base.entry_count
+        + adapter_usage[0]
     )
     assert prepared.byte_count == (
-        prepared.candidate.byte_count + prepared.source_base.byte_count + adapter_usage[1]
+        prepared.candidate.byte_count
+        + prepared.source_base.byte_count
+        + adapter_usage[1]
     )
     assert task_evaluation_materialization_usage(
         candidate=prepared.candidate,
@@ -406,11 +410,13 @@ def test_coordinator_materializes_exact_active_package_under_three_fences(
     _candidate, source_base = _expert_sources(prepared_plan)
     observation = _current_observation(prepared_plan)
     current_authority = _CurrentAuthority((observation, observation))
-    coordinator, candidate_reader, source_base_provider, adapter_provider = _coordinator(
-        validation_store=validation_store,
-        prepared_plan=prepared_plan,
-        source_base=source_base,
-        current_authority=current_authority,
+    coordinator, candidate_reader, source_base_provider, adapter_provider = (
+        _coordinator(
+            validation_store=validation_store,
+            prepared_plan=prepared_plan,
+            source_base=source_base,
+            current_authority=current_authority,
+        )
     )
 
     prepared = coordinator.build(plan_reservation)
@@ -449,11 +455,13 @@ def test_bootstrap_coordinator_never_calls_parent_provider(
     ).reservation
     observation = _current_observation(prepared_plan)
     current_authority = _CurrentAuthority((observation, observation))
-    coordinator, _candidate_reader, source_base_provider, adapter_provider = _coordinator(
-        validation_store=validation_store,
-        prepared_plan=prepared_plan,
-        source_base=None,
-        current_authority=current_authority,
+    coordinator, _candidate_reader, source_base_provider, adapter_provider = (
+        _coordinator(
+            validation_store=validation_store,
+            prepared_plan=prepared_plan,
+            source_base=None,
+            current_authority=current_authority,
+        )
     )
 
     prepared = coordinator.build(plan_reservation)
@@ -611,11 +619,13 @@ def test_coordinator_rejects_stale_plan_before_external_provider_calls(
     _candidate, source_base = _expert_sources(prepared_plan)
     observation = _current_observation(prepared_plan)
     current_authority = _CurrentAuthority((observation, observation))
-    coordinator, candidate_reader, source_base_provider, adapter_provider = _coordinator(
-        validation_store=validation_store,
-        prepared_plan=prepared_plan,
-        source_base=source_base,
-        current_authority=current_authority,
+    coordinator, candidate_reader, source_base_provider, adapter_provider = (
+        _coordinator(
+            validation_store=validation_store,
+            prepared_plan=prepared_plan,
+            source_base=source_base,
+            current_authority=current_authority,
+        )
     )
 
     with pytest.raises(ValueError, match="head changed"):

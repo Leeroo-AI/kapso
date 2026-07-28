@@ -55,25 +55,25 @@ _COLORS = {
 }
 
 from kapso.execution.coding_agents.base import (
-    CodingAgentInterface, 
-    CodingAgentConfig, 
-    CodingResult
+    CodingAgentInterface,
+    CodingAgentConfig,
+    CodingResult,
 )
 
 
 class ClaudeCodeCodingAgent(CodingAgentInterface):
     """
     Claude Code-based coding agent.
-    
+
     Uses Anthropic's Claude Code CLI for code generation.
     Excellent for complex feature development and refactoring.
-    
+
     Features:
     - Planning mode (outlines steps before executing)
     - CLAUDE.md project constitution support
     - Permission system for tools (Edit, Read, Write)
     - Supports OAuth, direct Anthropic API keys, and AWS Bedrock
-    
+
     Configuration (agent_specific):
     - claude_md_path: Path to CLAUDE.md file (optional)
     - planning_mode: True (default) - use planning
@@ -94,13 +94,13 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                 "env": {"MCP_ENABLED_GATES": "kg", "KG_INDEX_PATH": "/path/to/.index"}
             }
         }
-    
+
     Environment (API-key mode):
     - ANTHROPIC_API_KEY: Required for authentication
 
     Environment (OAuth mode):
     - A stored Claude CLI login, or CLAUDE_CODE_OAUTH_TOKEN
-    
+
     Environment (AWS Bedrock mode):
     - AWS_REGION: AWS region (can also be set via aws_region config)
     - One of:
@@ -115,19 +115,18 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         "CLAUDE_CODE_USE_VERTEX",
         "CLAUDE_CODE_USE_FOUNDRY",
     )
-    
+
     def __init__(self, config: CodingAgentConfig):
         """Initialize Claude Code coding agent."""
         super().__init__(config)
         self.workspace: Optional[str] = None
-        
+
         # Get Claude Code-specific settings
         self._claude_md_path = config.agent_specific.get("claude_md_path", None)
         self._planning_mode = config.agent_specific.get("planning_mode", True)
         self._timeout = config.agent_specific.get("timeout", 3600)
         self._allowed_tools = config.agent_specific.get(
-            "allowed_tools", 
-            ["Edit", "Read", "Write", "Bash"]
+            "allowed_tools", ["Edit", "Read", "Write", "Bash"]
         )
         # Optional environment overrides for the Claude Code subprocess.
         #
@@ -145,22 +144,26 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         self._streaming = config.agent_specific.get("streaming", True)
         # Show heartbeat messages during long operations (default False to reduce noise)
         self._show_heartbeat = config.agent_specific.get("show_heartbeat", False)
-        
+
         # Authentication behavior is based on one explicit mode.
         self._requested_auth_mode = self._get_requested_auth_mode(config.agent_specific)
         self._auth_mode = self._requested_auth_mode
         self._use_bedrock = self._auth_mode == "bedrock"
         self._aws_region = config.agent_specific.get("aws_region", "us-east-1")
-        
+
         # MCP server configuration
         # mcp_servers: Dict of MCP server configs to enable for this agent
         # Format: {"server-name": {"command": "...", "args": [...], "cwd": "...", "env": {...}}}
-        self._mcp_servers: Optional[Dict[str, Any]] = config.agent_specific.get("mcp_servers")
+        self._mcp_servers: Optional[Dict[str, Any]] = config.agent_specific.get(
+            "mcp_servers"
+        )
         self._mcp_config_path: Optional[Path] = None  # Set during initialize()
-        
+
         # Optional system prompt to append to Claude Code's default system prompt.
         # Useful for injecting workspace restrictions, project rules, etc.
-        self._append_system_prompt: Optional[str] = config.agent_specific.get("append_system_prompt")
+        self._append_system_prompt: Optional[str] = config.agent_specific.get(
+            "append_system_prompt"
+        )
 
         # Optional reasoning-effort level forwarded to the CLI (--effort).
         self._effort: Optional[str] = config.agent_specific.get("effort")
@@ -170,9 +173,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         # credential the agent must not inherit — e.g. PostTrainBench strips
         # OPENAI_API_KEY from agent sessions on non-judge benchmarks while
         # kapso's own utility LLM keeps using it.
-        self._env_strip: List[str] = list(
-            config.agent_specific.get("env_strip", [])
-        )
+        self._env_strip: List[str] = list(config.agent_specific.get("env_strip", []))
 
         # Env defaults applied set-if-absent to the CLI child env (ambient
         # values — e.g. a benchmark wrapper like solve.sh — keep precedence).
@@ -203,7 +204,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
 
         # Verify Claude Code CLI is installed and credentials are available
         self._verify_cli()
-    
+
     def _verify_cli(self):
         """
         Verify Claude Code CLI is installed and resolve authentication.
@@ -213,7 +214,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                 "Claude Code CLI not found. "
                 "Install with: npm install -g @anthropic-ai/claude-code"
             )
-        
+
         env = self._get_effective_env()
         self._auth_mode = self._resolve_auth_mode(env)
         self._use_bedrock = self._auth_mode == "bedrock"
@@ -225,7 +226,9 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                 raise ValueError(
                     "ANTHROPIC_API_KEY not set. Required when auth_mode='api_key'."
                 )
-        elif self._requested_auth_mode != "auto" and not self._has_oauth_credentials(env):
+        elif self._requested_auth_mode != "auto" and not self._has_oauth_credentials(
+            env
+        ):
             raise ValueError(
                 "Claude Code OAuth credentials not found. Run 'claude auth login' "
                 "or set CLAUDE_CODE_OAUTH_TOKEN."
@@ -238,7 +241,9 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
 
         if mode not in self.AUTH_MODES:
             choices = ", ".join(sorted(self.AUTH_MODES))
-            raise ValueError(f"Invalid Claude Code auth_mode {mode!r}. Expected one of: {choices}")
+            raise ValueError(
+                f"Invalid Claude Code auth_mode {mode!r}. Expected one of: {choices}"
+            )
 
         return mode
 
@@ -271,10 +276,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         """Return whether a complete supported AWS credential source is present."""
         return bool(
             env.get("AWS_BEARER_TOKEN_BEDROCK")
-            or (
-                env.get("AWS_ACCESS_KEY_ID")
-                and env.get("AWS_SECRET_ACCESS_KEY")
-            )
+            or (env.get("AWS_ACCESS_KEY_ID") and env.get("AWS_SECRET_ACCESS_KEY"))
             or env.get("AWS_PROFILE")
         )
 
@@ -321,12 +323,12 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
     def _verify_bedrock_credentials(self, env: Optional[Dict[str, str]] = None):
         """
         Verify AWS Bedrock credentials are available.
-        
+
         Checks for one of:
         - AWS_BEARER_TOKEN_BEDROCK (Bedrock API key - simplest)
         - AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY (IAM access keys)
         - AWS_PROFILE (SSO profile)
-        
+
         Also verifies AWS_REGION is set (required for Bedrock).
         """
         # Check for AWS region
@@ -338,15 +340,14 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                 "AWS_REGION not set. Required for Bedrock mode. "
                 "Set AWS_REGION environment variable or aws_region in config."
             )
-        
+
         # Check for at least one authentication method
         has_bearer_token = bool(env.get("AWS_BEARER_TOKEN_BEDROCK"))
         has_access_keys = bool(
-            env.get("AWS_ACCESS_KEY_ID") and
-            env.get("AWS_SECRET_ACCESS_KEY")
+            env.get("AWS_ACCESS_KEY_ID") and env.get("AWS_SECRET_ACCESS_KEY")
         )
         has_profile = bool(env.get("AWS_PROFILE"))
-        
+
         if not (has_bearer_token or has_access_keys or has_profile):
             raise ValueError(
                 "No AWS credentials found for Bedrock mode. Set one of:\n"
@@ -354,38 +355,38 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                 "  - AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY (IAM access keys)\n"
                 "  - AWS_PROFILE (SSO profile, after running 'aws sso login')"
             )
-    
+
     def initialize(self, workspace: str) -> None:
         """
         Initialize Claude Code agent for the workspace.
-        
+
         Args:
             workspace: Path to the working directory
         """
         self.workspace = workspace
-        
+
         # Create CLAUDE.md if specified path exists
         if self._claude_md_path and os.path.exists(self._claude_md_path):
             target = Path(workspace) / "CLAUDE.md"
             if not target.exists():
                 shutil.copy(self._claude_md_path, target)
-        
+
         # Write MCP config file if MCP servers are configured
         if self._mcp_servers:
             self._mcp_config_path = self._write_mcp_config()
             logger.info(f"MCP config written to: {self._mcp_config_path}")
-    
+
     def _write_mcp_config(self) -> Path:
         """
         Write MCP server configuration to a temporary JSON file.
-        
+
         The file is used by Claude Code CLI via --mcp-config flag.
-        
+
         Returns:
             Path to the temporary config file
         """
         mcp_config = {"mcpServers": self._mcp_servers}
-        
+
         # Create temp file that persists until cleanup()
         # Use workspace-based path for easier debugging
         # IMPORTANT: Use absolute path to avoid path duplication when Claude Code
@@ -393,12 +394,12 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         config_dir = Path(self.workspace).resolve() / ".claude_mcp"
         config_dir.mkdir(exist_ok=True)
         config_path = config_dir / "mcp_config.json"
-        
+
         config_path.write_text(json.dumps(mcp_config, indent=2))
         logger.debug(f"MCP config: {json.dumps(mcp_config, indent=2)}")
-        
+
         return config_path
-    
+
     def generate_code(
         self,
         prompt: str,
@@ -422,7 +423,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
             return CodingResult(
                 success=False,
                 output="",
-                error="Agent not initialized. Call initialize() first."
+                error="Agent not initialized. Call initialize() first.",
             )
 
         model = self.config.debug_model if debug_mode else self.config.model
@@ -442,15 +443,11 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
             return CodingResult(
                 success=False,
                 output="",
-                error=f"Claude Code CLI timed out after {effective_timeout} seconds"
+                error=f"Claude Code CLI timed out after {effective_timeout} seconds",
             )
         except Exception as e:
-            return CodingResult(
-                success=False,
-                output="",
-                error=str(e)
-            )
-    
+            return CodingResult(success=False, output="", error=str(e))
+
     def _run_buffered(
         self, prompt: str, model: str, timeout_seconds: Optional[float]
     ) -> CodingResult:
@@ -463,12 +460,12 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
             capture_output=True,
             text=True,
             timeout=timeout_seconds,
-            env=self._get_env()
+            env=self._get_env(),
         )
-        
+
         output = result.stdout
         stderr = result.stderr
-        
+
         if result.returncode != 0:
             # Check if it's a non-fatal warning
             if "warning" in stderr.lower() and output:
@@ -477,16 +474,16 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                 return CodingResult(
                     success=False,
                     output=output,
-                    error=stderr or f"CLI exited with code {result.returncode}"
+                    error=stderr or f"CLI exited with code {result.returncode}",
                 )
-        
+
         # Parse the response
         files_changed = self._get_changed_files()
-        
+
         # Estimate cost (Claude Code doesn't report directly)
         cost = self._estimate_cost(len(cmd[2]) if len(cmd) > 2 else 0, len(output))
         self._cumulative_cost += cost
-        
+
         return CodingResult(
             success=True,
             output=output,
@@ -496,30 +493,26 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                 "model": model,
                 "planning_mode": self._planning_mode,
                 "auth_mode": self._auth_mode,
-            }
+            },
         )
-    
+
     def _run_streaming(
         self, prompt: str, model: str, timeout_seconds: Optional[float]
     ) -> CodingResult:
         """
         Run Claude Code CLI with live streaming output using stream-json format.
-        
+
         Parses JSON events and displays Claude's thinking, tool calls, and results
         in real-time for maximum visibility.
         """
         stream_cmd = self._build_command(model, use_stream_json=True)
-        
+
         start_time = time.time()
         raw_lines: List[str] = []
         artifact_fh = None
         if self._stream_artifact_path:
-            os.makedirs(
-                os.path.dirname(self._stream_artifact_path), exist_ok=True
-            )
-            artifact_fh = open(
-                self._stream_artifact_path, "a", encoding="utf-8"
-            )
+            os.makedirs(os.path.dirname(self._stream_artifact_path), exist_ok=True)
+            artifact_fh = open(self._stream_artifact_path, "a", encoding="utf-8")
         assistant_texts: List[str] = []
         result_text: str = ""
         total_cost: float = 0.0
@@ -530,9 +523,9 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         last_tool: str = ""
         input_tokens: int = 0
         output_tokens: int = 0
-        
+
         c = _COLORS  # shorthand
-        
+
         print(f"\n{c['cyan']}━━━ Claude Code Starting ━━━{c['reset']}", flush=True)
 
         # Ensure stdout/stderr pipes are always closed.
@@ -562,17 +555,17 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         deadline_exceeded = False
         completed_reaped = False
         completion_armed_at = None  # set when a result event carries all markers
-        
+
         try:
             # Use select for non-blocking I/O on both stdout and stderr
             stdout_fd = process.stdout.fileno() if process.stdout else -1
             stderr_fd = process.stderr.fileno() if process.stderr else -1
             last_heartbeat = time.time()
             heartbeat_interval = 10.0  # Show heartbeat every 10 seconds of silence
-            
+
             while True:
                 retcode = process.poll()
-                
+
                 # Use select to check which streams have data (with 0.5s timeout)
                 readable = []
                 if stdout_fd >= 0 or stderr_fd >= 0:
@@ -586,14 +579,14 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                     except (ValueError, OSError):
                         # File descriptor closed
                         pass
-                
+
                 got_output = False
-                
+
                 # Read from stdout if data available
                 if process.stdout in readable:
                     line = process.stdout.readline()
                     if line:
-                        line = line.rstrip('\n')
+                        line = line.rstrip("\n")
                         raw_lines.append(line)
                         if artifact_fh is not None:
                             artifact_fh.write(line + "\n")
@@ -609,16 +602,20 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                         if self._completion_markers and '"result"' in line:
                             if all(m in line for m in self._completion_markers):
                                 completion_armed_at = time.time()
-                
+
                 # Read from stderr if data available
                 if process.stderr in readable:
                     err_line = process.stderr.readline()
                     if err_line:
-                        err_line = err_line.rstrip('\n')
-                        print(f"{c['yellow']}  [stderr] {err_line}{c['reset']}", file=sys.stderr, flush=True)
+                        err_line = err_line.rstrip("\n")
+                        print(
+                            f"{c['yellow']}  [stderr] {err_line}{c['reset']}",
+                            file=sys.stderr,
+                            flush=True,
+                        )
                         got_output = True
                         last_heartbeat = time.time()
-                
+
                 # Reap a session that declared completion (per its output
                 # contract) and then went silent without exiting: the CLI
                 # process alone is killed — NOT the group — so detached or
@@ -651,14 +648,17 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                     now = time.time()
                     if now - last_heartbeat > heartbeat_interval:
                         elapsed = now - start_time
-                        print(f"{c['dim']}  ... still working ({elapsed:.0f}s){c['reset']}", flush=True)
+                        print(
+                            f"{c['dim']}  ... still working ({elapsed:.0f}s){c['reset']}",
+                            flush=True,
+                        )
                         last_heartbeat = now
-                
+
                 if retcode is not None:
                     # Drain remaining output
                     if process.stdout:
                         for line in process.stdout:
-                            line = line.rstrip('\n')
+                            line = line.rstrip("\n")
                             raw_lines.append(line)
                             if artifact_fh is not None:
                                 artifact_fh.write(line + "\n")
@@ -666,7 +666,11 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                             self._display_stream_event(line, assistant_texts)
                     if process.stderr:
                         for err_line in process.stderr:
-                            print(f"{c['yellow']}  [stderr] {err_line.rstrip()}{c['reset']}", file=sys.stderr, flush=True)
+                            print(
+                                f"{c['yellow']}  [stderr] {err_line.rstrip()}{c['reset']}",
+                                file=sys.stderr,
+                                flush=True,
+                            )
                     break
 
                 # Enforce the configured deadline. SIGTERM first so the CLI can
@@ -697,7 +701,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                 # Collect anything the CLI flushed during the grace window so a
                 # terminated call still reports the cost it managed to emit.
                 for line in process.stdout:
-                    line = line.rstrip('\n')
+                    line = line.rstrip("\n")
                     raw_lines.append(line)
                     if artifact_fh is not None:
                         artifact_fh.write(line + "\n")
@@ -708,7 +712,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                 artifact_fh.close()
 
             elapsed = time.time() - start_time
-            
+
             # Parse final result from last JSON line
             for line in reversed(raw_lines):
                 try:
@@ -724,7 +728,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                         break
                 except json.JSONDecodeError:
                     continue
-            
+
             # Count tool calls and sum per-turn token usage from assistant events.
             # The per-turn usage is a reliable fallback when the result event
             # doesn't include aggregated token counts.
@@ -749,15 +753,18 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                         cumulative_output += usage.get("output_tokens", 0)
                 except json.JSONDecodeError:
                     continue
-            
+
             # Use result-level tokens if available, else fall back to summed per-turn
             if input_tokens == 0 and cumulative_input > 0:
                 input_tokens = cumulative_input
             if output_tokens == 0 and cumulative_output > 0:
                 output_tokens = cumulative_output
-            
-            print(f"{c['cyan']}━━━ Claude Code Finished ({elapsed:.1f}s, ${total_cost:.4f}, {tool_call_count} tools, {input_tokens}+{output_tokens} tokens) ━━━{c['reset']}\n", flush=True)
-            
+
+            print(
+                f"{c['cyan']}━━━ Claude Code Finished ({elapsed:.1f}s, ${total_cost:.4f}, {tool_call_count} tools, {input_tokens}+{output_tokens} tokens) ━━━{c['reset']}\n",
+                flush=True,
+            )
+
             # A kill after the session already delivered its complete final
             # report (all completion markers present in the captured stream)
             # is not a failure: classification keys on delivered CONTENT,
@@ -820,7 +827,9 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                 )
 
             if retcode != 0 or is_error:
-                error_msg = result_text if is_error else f"CLI exited with code {retcode}"
+                error_msg = (
+                    result_text if is_error else f"CLI exited with code {retcode}"
+                )
                 # Failed calls report their parsed cost like successful ones do;
                 # expensive failures are exactly what a cost budget must see.
                 self._cumulative_cost += total_cost
@@ -838,12 +847,12 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                         "input_tokens": input_tokens,
                         "output_tokens": output_tokens,
                         "raw_log_lines": raw_lines,
-                    }
+                    },
                 )
-            
+
             files_changed = self._get_changed_files()
             self._cumulative_cost += total_cost
-            
+
             return CodingResult(
                 success=True,
                 output=result_text or "\n".join(assistant_texts),
@@ -856,13 +865,13 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                     "streaming": True,
                     "auth_mode": self._auth_mode,
                     "tool_call_count": tool_call_count,
-                        "last_tool": last_tool,
+                    "last_tool": last_tool,
                     "input_tokens": input_tokens,
                     "output_tokens": output_tokens,
                     "raw_log_lines": raw_lines,
-                }
+                },
             )
-            
+
         except Exception:
             # Make best-effort to stop the child process on error.
             try:
@@ -883,36 +892,39 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                     process.stderr.close()
             except Exception:
                 pass
-            
+
             # Reap the child process (best-effort). If it's already exited this returns fast.
             try:
                 process.wait(timeout=1)
             except Exception:
                 pass
-    
+
     def _display_stream_event(self, line: str, assistant_texts: List[str]) -> None:
         """Parse and display a single stream-json event."""
         c = _COLORS
-        
+
         if not line.strip():
             return  # Skip empty lines
-        
+
         try:
             event = json.loads(line)
         except json.JSONDecodeError:
             # Not JSON, just print raw (might be progress indicator or other text)
             print(f"  {line}", flush=True)
             return
-        
+
         event_type = event.get("type", "")
         subtype = event.get("subtype", "")
-        
+
         if event_type == "system" and subtype == "init":
             # Initialization event
             model = event.get("model", "unknown")
             tools = event.get("tools", [])
-            print(f"{c['dim']}  [init] model={model}, tools={len(tools)}{c['reset']}", flush=True)
-        
+            print(
+                f"{c['dim']}  [init] model={model}, tools={len(tools)}{c['reset']}",
+                flush=True,
+            )
+
         elif event_type == "assistant":
             # Assistant message (thinking + tool calls)
             message = event.get("message", {})
@@ -923,24 +935,36 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                     if text:
                         assistant_texts.append(text)
                         # Show full thinking text (no truncation)
-                        print(f"{c['green']}  [thinking] {text}{c['reset']}", flush=True)
+                        print(
+                            f"{c['green']}  [thinking] {text}{c['reset']}", flush=True
+                        )
                 elif block.get("type") == "tool_use":
                     tool_name = block.get("name", "unknown")
                     tool_input = block.get("input", {})
                     # Show tool call summary with arguments
                     if tool_name in ("Read", "Edit", "Write"):
                         path = tool_input.get("file_path", tool_input.get("path", "?"))
-                        print(f"{c['blue']}  [tool:{tool_name}] {path}{c['reset']}", flush=True)
+                        print(
+                            f"{c['blue']}  [tool:{tool_name}] {path}{c['reset']}",
+                            flush=True,
+                        )
                     elif tool_name == "Bash":
                         cmd = tool_input.get("command", "")[:80]
-                        print(f"{c['magenta']}  [tool:Bash] {cmd}{c['reset']}", flush=True)
+                        print(
+                            f"{c['magenta']}  [tool:Bash] {cmd}{c['reset']}", flush=True
+                        )
                     elif tool_name.startswith("mcp__"):
                         # MCP tool - show full arguments for transparency
                         args_str = json.dumps(tool_input, ensure_ascii=False)
-                        print(f"{c['blue']}  [tool:{tool_name}] {args_str}{c['reset']}", flush=True)
+                        print(
+                            f"{c['blue']}  [tool:{tool_name}] {args_str}{c['reset']}",
+                            flush=True,
+                        )
                     else:
-                        print(f"{c['blue']}  [tool:{tool_name}]{c['reset']}", flush=True)
-        
+                        print(
+                            f"{c['blue']}  [tool:{tool_name}]{c['reset']}", flush=True
+                        )
+
         elif event_type == "user":
             # Tool result returned to Claude — show full content for transparency.
             #
@@ -971,23 +995,33 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                         result_text = str(raw) if raw else ""
 
                     if result_text.strip():
-                        print(f"{c['dim']}  [result:{status}] ↓{c['reset']}", flush=True)
+                        print(
+                            f"{c['dim']}  [result:{status}] ↓{c['reset']}", flush=True
+                        )
                         for result_line in result_text.splitlines():
-                            print(f"{c['dim']}    {result_line}{c['reset']}", flush=True)
+                            print(
+                                f"{c['dim']}    {result_line}{c['reset']}", flush=True
+                            )
                     else:
-                        print(f"{c['dim']}  [result:{status}] (empty){c['reset']}", flush=True)
-        
+                        print(
+                            f"{c['dim']}  [result:{status}] (empty){c['reset']}",
+                            flush=True,
+                        )
+
         elif event_type == "result":
             # Final result - show summary
             duration = event.get("duration_ms", 0) / 1000
             cost = event.get("total_cost_usd", 0)
-            print(f"{c['dim']}  [result] duration={duration:.1f}s, cost=${cost:.4f}{c['reset']}", flush=True)
-        
+            print(
+                f"{c['dim']}  [result] duration={duration:.1f}s, cost=${cost:.4f}{c['reset']}",
+                flush=True,
+            )
+
         else:
             # Unknown event type - show it for debugging
             if event_type:
                 print(f"{c['dim']}  [{event_type}:{subtype}]{c['reset']}", flush=True)
-    
+
     # Tools whose delivery machinery does not run in print (-p) sessions —
     # the only mode this adapter ever spawns. ScheduleWakeup accepts the
     # call and prints "the harness re-invokes you when the wakeup fires",
@@ -1014,13 +1048,13 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
             "-p",  # Non-interactive (print) mode; prompt arrives on stdin
             "--dangerously-skip-permissions",  # Auto-approve all tool calls
         ]
-        
+
         # Output format: stream-json for live visibility, text for buffered
         if use_stream_json:
             cmd.extend(["--output-format", "stream-json", "--verbose"])
         else:
             cmd.extend(["--output-format", "text"])
-        
+
         # Add model if specified
         if model:
             cmd.extend(["--model", model])
@@ -1028,7 +1062,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         # Reasoning effort for the session (CLI >= 2.x supports --effort)
         if self._effort:
             cmd.extend(["--effort", str(self._effort)])
-        
+
         # Add allowed tools
         if self._allowed_tools:
             cmd.extend(["--allowedTools", ",".join(self._allowed_tools)])
@@ -1037,21 +1071,21 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         # PRINT_MODE_DEAD_TOOLS). Verified on CLI 2.1.157: the flag removes
         # the tool from the session's tool list (init event).
         cmd.extend(["--disallowedTools", ",".join(self.PRINT_MODE_DEAD_TOOLS)])
-        
+
         # Add MCP config if available
         if self._mcp_config_path and self._mcp_config_path.exists():
             cmd.extend(["--mcp-config", str(self._mcp_config_path)])
-        
+
         # Append system prompt if configured (e.g. workspace sandbox instructions)
         if self._append_system_prompt:
             cmd.extend(["--append-system-prompt", self._append_system_prompt])
-        
+
         return cmd
-    
+
     def _get_env(self) -> Dict[str, str]:
         """
         Get environment variables for subprocess.
-        
+
         Sets up an isolated environment for the resolved mode. Provider flags
         and higher-precedence credentials from other modes are removed so an
         explicit selection cannot be silently overridden by Claude Code.
@@ -1065,18 +1099,20 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
             env.pop("ANTHROPIC_API_KEY", None)
             env.pop("ANTHROPIC_AUTH_TOKEN", None)
             env.pop("CLAUDE_CODE_OAUTH_TOKEN", None)
-            
+
             # Set AWS_REGION if not already in environment
             if "AWS_REGION" not in env:
                 env["AWS_REGION"] = self._aws_region
-            
+
             # Log which auth method is being used (for debugging)
             if env.get("AWS_BEARER_TOKEN_BEDROCK"):
                 logger.debug("Using Bedrock with bearer token authentication")
             elif env.get("AWS_ACCESS_KEY_ID"):
                 logger.debug("Using Bedrock with access key authentication")
             elif env.get("AWS_PROFILE"):
-                logger.debug(f"Using Bedrock with SSO profile: {env.get('AWS_PROFILE')}")
+                logger.debug(
+                    f"Using Bedrock with SSO profile: {env.get('AWS_PROFILE')}"
+                )
         elif self._auth_mode == "api_key":
             self._remove_provider_flags(env)
             env.pop("ANTHROPIC_AUTH_TOKEN", None)
@@ -1097,11 +1133,11 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
             env.setdefault(name, value)
 
         return env
-    
+
     def _get_changed_files(self) -> List[str]:
         """
         Get list of files changed in the workspace.
-        
+
         Uses git status to detect changes.
         """
         files = []
@@ -1110,10 +1146,10 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                 ["git", "status", "--porcelain"],
                 cwd=self.workspace,
                 capture_output=True,
-                text=True
+                text=True,
             )
             if result.returncode == 0:
-                for line in result.stdout.strip().split('\n'):
+                for line in result.stdout.strip().split("\n"):
                     if line:
                         # Format: "XY filename" or "XY old -> new"
                         parts = line.split()
@@ -1124,20 +1160,20 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         except:
             pass
         return files
-    
+
     def _estimate_cost(self, input_len: int, output_len: int) -> float:
         """
         Estimate cost for Claude Code usage.
-        
+
         Claude Sonnet pricing: ~$3 per 1M input, ~$15 per 1M output tokens
         Rough estimate: 4 chars per token
         """
         input_tokens = input_len / 4
         output_tokens = output_len / 4
-        
+
         cost = (input_tokens * 3 + output_tokens * 15) / 1_000_000
         return cost
-    
+
     def cleanup(self) -> None:
         """Clean up Claude Code resources."""
         # Clean up MCP config directory if it exists
@@ -1149,14 +1185,14 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                     logger.debug(f"Cleaned up MCP config: {config_dir}")
             except Exception as e:
                 logger.warning(f"Failed to clean up MCP config: {e}")
-        
+
         self._mcp_config_path = None
         self.workspace = None
-    
+
     def supports_native_git(self) -> bool:
         """Claude Code doesn't handle git commits natively."""
         return False
-    
+
     def get_capabilities(self) -> Dict[str, bool]:
         """Return Claude Code's capabilities."""
         return {

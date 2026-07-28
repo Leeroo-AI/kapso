@@ -31,7 +31,6 @@ from kapso.execution.memories.repo_memory.builders import (
     validate_evidence,
 )
 
-
 # ---------------------------------------------------------------------------
 # Test fixtures
 # ---------------------------------------------------------------------------
@@ -62,8 +61,7 @@ def sample_repo(tmp_path):
 
     # Create README.md
     readme = repo_dir / "README.md"
-    readme.write_text(
-        """# Sample ML Pipeline
+    readme.write_text("""# Sample ML Pipeline
 
 This repository implements a simple machine learning pipeline for classification.
 
@@ -84,13 +82,11 @@ The pipeline follows a modular design:
 2. `preprocessor.py` - feature engineering
 3. `classifier.py` - model training and prediction
 4. `evaluator.py` - metrics computation
-"""
-    )
+""")
 
     # Create main.py
     main_py = repo_dir / "main.py"
-    main_py.write_text(
-        '''"""
+    main_py.write_text('''"""
 Main entrypoint for the ML pipeline.
 
 Usage:
@@ -132,13 +128,11 @@ def main():
 
 if __name__ == "__main__":
     main()
-'''
-    )
+''')
 
     # Create classifier.py with actual algorithm
     classifier_py = repo_dir / "classifier.py"
-    classifier_py.write_text(
-        '''"""
+    classifier_py.write_text('''"""
 Logistic regression classifier implementation.
 
 Uses gradient descent optimization with configurable learning rate.
@@ -216,13 +210,11 @@ class LogisticClassifier:
         self.weights = data["weights"]
         self.bias = data["bias"]
         return self
-'''
-    )
+''')
 
     # Create data_loader.py
     data_loader_py = repo_dir / "data_loader.py"
-    data_loader_py.write_text(
-        '''"""
+    data_loader_py.write_text('''"""
 Data loading utilities for CSV files.
 """
 
@@ -253,13 +245,11 @@ def load_csv_data(path: str) -> Tuple[np.ndarray, np.ndarray]:
     X = data[:, :-1]
     y = data[:, -1].astype(int)
     return X, y
-'''
-    )
+''')
 
     # Create preprocessor.py
     preprocessor_py = repo_dir / "preprocessor.py"
-    preprocessor_py.write_text(
-        '''"""
+    preprocessor_py.write_text('''"""
 Feature preprocessing utilities.
 """
 
@@ -281,13 +271,11 @@ def normalize_features(X: np.ndarray) -> np.ndarray:
     # Avoid division by zero
     std = np.where(std == 0, 1, std)
     return (X - mean) / std
-'''
-    )
+''')
 
     # Create evaluator.py
     evaluator_py = repo_dir / "evaluator.py"
-    evaluator_py.write_text(
-        '''"""
+    evaluator_py.write_text('''"""
 Model evaluation utilities.
 """
 
@@ -306,13 +294,11 @@ def compute_accuracy(y_true: np.ndarray, y_pred: np.ndarray) -> float:
         Accuracy as a float in [0, 1]
     """
     return np.mean(y_true == y_pred)
-'''
-    )
+''')
 
     # Create config.yaml
     config_yaml = repo_dir / "config.yaml"
-    config_yaml.write_text(
-        """# ML Pipeline Configuration
+    config_yaml.write_text("""# ML Pipeline Configuration
 
 model:
   type: logistic_regression
@@ -324,8 +310,7 @@ preprocessing:
   
 evaluation:
   metric: accuracy
-"""
-    )
+""")
 
     # Commit all files
     repo.git.add("-A")
@@ -453,8 +438,7 @@ def test_update_after_experiment_with_real_llm(sample_repo, llm):
 
     # Add a new feature file
     new_file = sample_repo / "cross_validator.py"
-    new_file.write_text(
-        '''"""
+    new_file.write_text('''"""
 Cross-validation utilities for model evaluation.
 """
 
@@ -489,8 +473,7 @@ def k_fold_split(X: np.ndarray, y: np.ndarray, k: int = 5) -> List[Tuple[np.ndar
         folds.append((X[train_idx], X[val_idx], y[train_idx], y[val_idx]))
     
     return folds
-'''
-    )
+''')
 
     # Modify main.py to use cross-validation
     main_py = sample_repo / "main.py"
@@ -565,9 +548,7 @@ def test_validate_evidence_catches_invalid_quotes():
                         {
                             "kind": "algorithm",
                             "statement": "Has a hello function",
-                            "evidence": [
-                                {"path": "foo.py", "quote": "def hello():"}
-                            ],
+                            "evidence": [{"path": "foo.py", "quote": "def hello():"}],
                         }
                     ]
                 }
@@ -585,9 +566,7 @@ def test_validate_evidence_catches_invalid_quotes():
                         {
                             "kind": "algorithm",
                             "statement": "Has a goodbye function",
-                            "evidence": [
-                                {"path": "foo.py", "quote": "def goodbye():"}
-                            ],
+                            "evidence": [{"path": "foo.py", "quote": "def goodbye():"}],
                         }
                     ]
                 }
@@ -606,9 +585,7 @@ def test_validate_evidence_catches_invalid_quotes():
                         {
                             "kind": "algorithm",
                             "statement": "Has bar module",
-                            "evidence": [
-                                {"path": "bar.py", "quote": "anything"}
-                            ],
+                            "evidence": [{"path": "bar.py", "quote": "anything"}],
                         }
                     ]
                 }

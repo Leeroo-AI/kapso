@@ -86,6 +86,7 @@ def _prepare_effort(
     kwargs.setdefault("max_tokens", 16384)
     return None, kwargs
 
+
 class ModelRouter:
     """Resolve semantic model roles while preserving explicit model strings.
 
@@ -226,8 +227,7 @@ class RetryPolicy:
             raise ValueError("retry_number must be at least 1")
         delay = min(
             self.max_delay_seconds,
-            self.initial_delay_seconds
-            * (self.multiplier ** (retry_number - 1)),
+            self.initial_delay_seconds * (self.multiplier ** (retry_number - 1)),
         )
         return delay * random_fn() if self.jitter else delay
 
@@ -368,12 +368,8 @@ class LLMBackend:
                 if not is_transient_llm_error(error):
                     raise
                 if attempt == self.retry_policy.max_attempts:
-                    raise LLMRetryError(
-                        operation, model, attempt, error
-                    ) from error
-                delay = self.retry_policy.delay_for_retry(
-                    attempt, self._random
-                )
+                    raise LLMRetryError(operation, model, attempt, error) from error
+                delay = self.retry_policy.delay_for_retry(attempt, self._random)
                 logger.warning(
                     "Transient %s failure for model %s (%d/%d, %s); "
                     "retrying in %.2fs",
@@ -402,12 +398,8 @@ class LLMBackend:
                 if not is_transient_llm_error(error):
                     raise
                 if attempt == self.retry_policy.max_attempts:
-                    raise LLMRetryError(
-                        operation, model, attempt, error
-                    ) from error
-                delay = self.retry_policy.delay_for_retry(
-                    attempt, self._random
-                )
+                    raise LLMRetryError(operation, model, attempt, error) from error
+                delay = self.retry_policy.delay_for_retry(attempt, self._random)
                 logger.warning(
                     "Transient %s failure for model %s (%d/%d, %s); "
                     "retrying in %.2fs",
@@ -488,10 +480,12 @@ class LLMBackend:
             for requested, model in zip(models, resolved_models):
                 model_effort, model_kwargs = _prepare_effort(
                     model,
-                    reasoning_effort
-                    if reasoning_effort is not None
-                    else self.model_router.effort_for(
-                        requested, default_role="utility"
+                    (
+                        reasoning_effort
+                        if reasoning_effort is not None
+                        else self.model_router.effort_for(
+                            requested, default_role="utility"
+                        )
                     ),
                     kwargs,
                 )
@@ -583,6 +577,7 @@ class LLMBackend:
             return [self._content(item) for item in await asyncio.gather(*tasks)]
 
         return asyncio.run(_run())
+
 
 def main() -> None:
     llm = LLMBackend()
