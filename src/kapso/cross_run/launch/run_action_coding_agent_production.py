@@ -208,8 +208,14 @@ def build_coding_agent_execution_policy(
         raise ProductionCodingAgentPolicyError(
             "coding-agent Docker inputs contain mixed authority"
         )
-    if (interpretation_policy.cli == "codex") != (
+    if (
         credential_mode is RunActionCredentialMode.SUPERVISOR_FILE
+        and interpretation_policy.cli != "codex"
+    ) or (
+        interpretation_policy.cli == "codex"
+        and interpretation_policy.provider_egress_mode
+        is CodingAgentProviderEgressMode.HTTPS_CONNECT_PROXY
+        and credential_mode is not RunActionCredentialMode.SUPERVISOR_FILE
     ):
         raise ProductionCodingAgentPolicyError(
             "native Codex requires its supervisor-delivered credential"

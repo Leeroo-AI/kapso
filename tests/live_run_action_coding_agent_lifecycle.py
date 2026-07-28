@@ -26,19 +26,15 @@ from kapso.cross_run.docker.runtime import (
     DockerImageAuthority,
     PinnedDockerRuntime,
 )
-from kapso.cross_run.launch.run_action_coding_agent_consumer import (
-    NATIVE_CODING_AGENT_CONSUMER_ID,
-    NATIVE_CODING_AGENT_CONSUMER_VERSION,
-)
 from kapso.cross_run.launch.run_action_coding_agent_interpreter import (
     CodingAgentRunActionResultInterpreter,
-    coding_agent_result_interpreter_identity,
 )
-from kapso.cross_run.launch.run_action_coding_agent_supervisor import (
-    coding_agent_supervisor_command,
+from kapso.cross_run.launch.run_action_coding_agent_production import (
+    build_coding_agent_boundary_identity,
+    build_coding_agent_execution_policy,
+    build_coding_agent_interpretation_policy,
 )
 from kapso.cross_run.launch.run_action_contracts import (
-    RunActionBoundaryIdentity,
     RunFrontierActionKind,
     RunFrontierWorkspaceAccess,
 )
@@ -49,9 +45,6 @@ from kapso.cross_run.launch.run_action_docker_cleanup import (
     DockerRunActionCleanupManager,
     issue_docker_run_action_resource_finalization_authority,
 )
-from kapso.cross_run.launch.run_action_docker_projection import (
-    DockerRunActionCommand,
-)
 from kapso.cross_run.launch.run_action_docker_resources import (
     DockerRunActionResourceManager,
 )
@@ -61,31 +54,21 @@ from kapso.cross_run.launch.run_action_store import (
 from kapso.cross_run.launch.run_action_termination_contracts import (
     RunActionProviderTerminationReason,
 )
-from kapso.cross_run.launch.resume_contracts import RunSafetyBoundary
 from kapso.cross_run.launch.run_action_supervisor_contracts import (
     RunActionCredentialMode,
-    RunActionStaticEnvironmentVariable,
 )
+from kapso.cross_run.launch.resume_contracts import RunSafetyBoundary
 from kapso.cross_run.launch.workspace_frontier import (
     inspect_run_workspace_frontier,
 )
-from kapso.cross_run.settings import CrossRunSettings
+from kapso.cross_run.settings import CodingAgentSettings, CrossRunSettings
 from live_run_action_docker_projection import (
     _ORIGINAL_SUBPROCESS_RUN,
     _production_recovery_coordinator,
 )
-from test_run_action_coding_agent_contracts import (
-    interpretation_policy,
-    run_action_request,
-)
-from test_run_action_docker_projection import _policy
+from test_run_action_coding_agent_contracts import run_action_request
 from test_launch_resolver import resolver_case
-from test_run_action_supervisor_contracts import (
-    _remint_contract,
-    _remint_policy,
-    _remint_sandbox,
-)
-from test_run_frontier_action_gate import _action_case, _boundary_identity
+from test_run_frontier_action_gate import _action_case
 from test_run_state_publisher import publisher_case
 
 _CANONICAL_CONFIG_PATH = "src/kapso/config.yaml"
@@ -258,11 +241,20 @@ def test_native_offline_image_completes_the_eight_event_lifecycle(
             settings=publisher_case["settings"],
             expected_commit_sha=expected_workspace_commit,
         )
-        coding_policy = interpretation_policy(
-            consumer_id=NATIVE_CODING_AGENT_CONSUMER_ID,
-            consumer_version=NATIVE_CODING_AGENT_CONSUMER_VERSION,
+        coding_policy = build_coding_agent_interpretation_policy(
+            settings=cross_run_settings,
+            agent=CodingAgentSettings(
+                cli="codex",
+                model="gpt-5.6",
+                timeout_seconds=300,
+                effort="xhigh",
+                allowed_tools=("Read",),
+            ),
+            principal_id="kapso.ideation.generator",
+            role="candidate_generator",
             workspace_access=workspace_access,
             web_search_enabled=False,
+            provider_network_enabled=False,
         )
         request = run_action_request(
             coding_policy,
@@ -274,51 +266,16 @@ def test_native_offline_image_completes_the_eight_event_lifecycle(
         )
         if workspace_access is RunFrontierWorkspaceAccess.EDIT_WORKSPACE:
             request = replace(request, prompt=f"OFFLINE_EDIT\n{request.prompt}")
-        supervisor_command = coding_agent_supervisor_command(coding_policy)
-        command = DockerRunActionCommand.build(
-            entrypoint=supervisor_command[0],
-            arguments=supervisor_command[1:],
-        )
-        base_policy = _policy(
-            docker_settings,
-            workspace_access=workspace_access,
-            credential_mode=RunActionCredentialMode.NONE,
-            command_template_id=command.command_template_id,
-        )
-        execution_policy = _remint_policy(
-            base_policy,
+        execution_policy, command = build_coding_agent_execution_policy(
+            settings=cross_run_settings,
             image_authority=image_authority,
-            static_environment=(
-                RunActionStaticEnvironmentVariable(key="LANG", value="C"),
-                RunActionStaticEnvironmentVariable(
-                    key="PATH",
-                    value="/usr/local/bin:/usr/bin:/bin",
-                ),
-            ),
-            sandbox_spec=_remint_sandbox(
-                base_policy.sandbox_spec,
-                capability_additions=("KILL", "SETGID", "SETPCAP", "SETUID"),
-                supplementary_group_ids=(coding_policy.provider_group_id,),
-                no_new_privileges=False,
-                security_option_ids=(
-                    "apparmor:docker-default",
-                    "seccomp:builtin",
-                ),
-            ),
+            interpretation_policy=coding_policy,
+            credential_mode=RunActionCredentialMode.NONE,
+            egress_broker_socket_source_path=None,
         )
-        base_boundary = _boundary_identity(
-            RunFrontierActionKind.CODING_AGENT,
-            workspace_access,
-        )
-        boundary_identity = RunActionBoundaryIdentity.mint(
-            kind=RunFrontierActionKind.CODING_AGENT,
-            execution_lifecycle_identity=_remint_contract(
-                base_boundary.execution_lifecycle_identity,
-                execution_policy_id=execution_policy.docker_execution_policy_id,
-            ),
-            result_interpreter_identity=coding_agent_result_interpreter_identity(
-                coding_policy
-            ),
+        boundary_identity = build_coding_agent_boundary_identity(
+            execution_policy,
+            coding_policy,
         )
         reservation = action_gate.reserve(
             action_frontier,

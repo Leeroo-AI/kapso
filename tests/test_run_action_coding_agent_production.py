@@ -121,9 +121,17 @@ def test_production_builder_rejects_uncontained_timeout_and_credential_splice():
         build_coding_agent_execution_policy(
             settings=settings,
             image_authority=_image(),
-            interpretation_policy=interpretation,
+            interpretation_policy=build_coding_agent_interpretation_policy(
+                settings=settings,
+                agent=_agent(),
+                principal_id="kapso.ideation.generator",
+                role="candidate_generator",
+                workspace_access=RunFrontierWorkspaceAccess.READ_ONLY,
+                web_search_enabled=False,
+                provider_network_enabled=True,
+            ),
             credential_mode=RunActionCredentialMode.NONE,
-            egress_broker_socket_source_path=None,
+            egress_broker_socket_source_path="/private/egress/broker.sock",
         )
 
     with pytest.raises(ValueError, match="network-disabled"):
