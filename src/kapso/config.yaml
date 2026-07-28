@@ -385,9 +385,12 @@ cross_run:
       timeout_seconds: 900
       effort: "xhigh"
       allowed_tools: ["Read"]
-    # Deployment setup writes an exact pinned authority into the runtime config.
-    # Null is fail-loud and cannot reach a paid coding-agent action.
-    coding_agent_image: null
+    coding_agent_image:
+      image_reference: "ghcr.io/leeroo-ai/kapso-coding-agent@sha256:de26f7cee1b17aa71ccfa425bc7495b3c1ee93cd658771f1b7cac696eccc41e5"
+      image_config_digest: "sha256:162b7e21460530ae1c0e1d261dcaccd31aa929983ca22fcb1c630c48a4f9f6d4"
+      operating_system: "linux"
+      architecture: "amd64"
+      architecture_variant: null
     coding_agent_web_search_enabled: false
     coding_agent_provider_network_enabled: true
     cache_path: ".kapso/cross_run/launch_cache"

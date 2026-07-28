@@ -294,6 +294,9 @@ this external state rather than trusting the planning-time observation.
 - OpenAI embeddings authentication available to the trusted parent process through
   official SDK credential discovery; it must be absent from coding-agent/MCP child
   environments.
+- Private GHCR package access with `write:packages` (and its implied read access),
+  plus the content-pinned `ghcr.io/leeroo-ai/kapso-coding-agent` manifest and
+  inspected image-config digest recorded in `config.yaml`.
 - A root-provisioned Docker mutation lock matching the configured path, owned by
   `root:docker`, mode `0640`, in a root-owned directory with no group/world write;
   application code must not create or repair it.

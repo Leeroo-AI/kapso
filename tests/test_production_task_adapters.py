@@ -109,6 +109,10 @@ def test_bootstrap_publishes_every_scope_binding_and_replays(tmp_path):
 
 def test_bootstrap_fails_without_pinned_image(tmp_path):
     settings = load_effective_config(_CONFIG_PATH, "GENERIC").cross_run
+    settings = replace(
+        settings,
+        launch=replace(settings.launch, coding_agent_image=None),
+    )
     fixture, _fixture_digest = smoke_module._load_fixture(settings)
     scope_contract = smoke_module.ExpertScopeContract.from_dict(
         fixture["scope_contract"]
