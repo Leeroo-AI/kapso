@@ -136,7 +136,6 @@ def build_launch_starting_artifact_provider(
 
     if (
         not isinstance(sources, Mapping)
-        or not sources
         or type(settings) is not LaunchSettings
         or any(
             not isinstance(artifact_ref, str)
@@ -151,6 +150,8 @@ def build_launch_starting_artifact_provider(
         raise LaunchStartingArtifactProviderError(
             "starting-artifact sources require exact paths and mount points"
         )
+    if not sources:
+        return LaunchStartingArtifactSetProvider((), settings)
     artifacts = []
     total_entries = 0
     total_bytes = 0

@@ -368,6 +368,15 @@ cross_run:
               hard_regression_ratio: *expert_hard_regression_ratio
               noise_floor_ratio: *expert_noise_floor_ratio
   launch:
+    experiment_embeddings:
+      enabled: &experiment_embedding_enabled true
+      provider: &experiment_embedding_provider "openai"
+      model: *default_embedding_model
+      dimensions: *default_embedding_dimensions
+      batch_size: *default_embedding_batch_size
+      timeout_seconds: &experiment_embedding_timeout_seconds 30
+      max_retries: &experiment_embedding_max_retries 0
+      canonicalizer_version: &experiment_embedding_canonicalizer_version "kapso.idea_embedding.v1"
     cache_path: ".kapso/cross_run/launch_cache"
     workspace_path: "workspace"
     immutable_root_path: "readonly"
@@ -519,14 +528,14 @@ ideation_profiles:
         effort: "high"
         allowed_tools: ["Read"]
     embeddings:
-      enabled: true
-      provider: "openai"
+      enabled: *experiment_embedding_enabled
+      provider: *experiment_embedding_provider
       model: *default_embedding_model
       dimensions: *default_embedding_dimensions
       batch_size: *default_embedding_batch_size
-      timeout_seconds: 30
-      max_retries: 0
-      canonicalizer_version: "kapso.idea_embedding.v1"
+      timeout_seconds: *experiment_embedding_timeout_seconds
+      max_retries: *experiment_embedding_max_retries
+      canonicalizer_version: *experiment_embedding_canonicalizer_version
     analyzer:
       semantic_similarity_threshold: 0.92
       max_neighbors: 5

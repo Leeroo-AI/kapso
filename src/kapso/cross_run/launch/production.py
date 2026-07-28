@@ -6,7 +6,9 @@ import os
 import stat
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, Mapping
 
+from kapso.cross_run.canonical import canonical_json_bytes, tree_or_blob_digest
 from kapso.cross_run.contracts import CrossRunTaskBindingSettings
 from kapso.cross_run.embedding_space import EmbeddingSpace
 from kapso.cross_run.expert.release_authority import (
@@ -22,8 +24,11 @@ from kapso.cross_run.github.command import (
 from kapso.cross_run.github.materializer import GitHubArtifactMaterializer
 from kapso.cross_run.github.resolver import GitHubArtifactResolver
 from kapso.cross_run.launch.bootstrap import LaunchBootstrapCoordinator
+from kapso.cross_run.launch.contracts import LaunchRequest, LaunchTaskContextRequest
+from kapso.cross_run.launch.resolver import LaunchResolver
 from kapso.cross_run.launch.resume import RunResumeCoordinator
 from kapso.cross_run.launch.starting_artifacts import (
+    build_launch_starting_artifact_provider,
     LaunchStartingArtifactSetProvider,
 )
 from kapso.cross_run.security_denylist import (
@@ -31,17 +36,183 @@ from kapso.cross_run.security_denylist import (
     GitHubSecurityDenylistSnapshotProvider,
     SecurityDenylistCheckpointStore,
 )
-from kapso.cross_run.settings import CrossRunSettings
+from kapso.cross_run.settings import CrossRunSettings, EffectiveConfig
 from kapso.cross_run.task_adapter_authority import CanonicalTaskAdapterAuthority
 from kapso.cross_run.task_adapter_store import (
     TaskAdapterAuthorityRegistry,
     TaskAdapterPackageStore,
 )
-from kapso.cross_run.launch.resolver import LaunchResolver
 
 
 class ProductionLaunchCompositionError(RuntimeError):
     """Production launch services cannot share one configured authority root."""
+
+
+@dataclass(frozen=True)
+class ProductionLaunchPreparation:
+    """Complete repository-free launch inputs derived before any provider call."""
+
+    settings: CrossRunSettings
+    binding: CrossRunTaskBindingSettings
+    experiment_embedding_space: EmbeddingSpace
+    starting_artifacts: LaunchStartingArtifactSetProvider
+    request: LaunchRequest
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.settings) is not CrossRunSettings
+            or type(self.binding) is not CrossRunTaskBindingSettings
+            or type(self.experiment_embedding_space) is not EmbeddingSpace
+            or type(self.starting_artifacts) is not LaunchStartingArtifactSetProvider
+            or type(self.request) is not LaunchRequest
+            or self.request.binding != self.binding
+            or dict(self.request.starting_artifact_content_ids)
+            != dict(self.starting_artifacts.content_ids)
+        ):
+            raise ProductionLaunchCompositionError(
+                "production launch preparation contains mixed authority"
+            )
+        self.settings.scopes.resolve(self.binding.scope_id)
+
+
+def build_production_launch_preparation(
+    *,
+    effective_config: EffectiveConfig,
+    goal: str,
+    task_context_request: LaunchTaskContextRequest,
+    starting_artifact_sources: Mapping[str, tuple[Path, str]],
+    dependency_runtime_contract: Mapping[str, Any],
+    budget_fidelity_envelope: Mapping[str, Any],
+    scope_id: str | None,
+    task_family_id: str | None,
+    task_adapter_id: str | None,
+    requested_coding_agent: str | None,
+    empty_scope_bootstrap_authorization_id: str | None = None,
+) -> ProductionLaunchPreparation:
+    """Derive one exact request from config, task semantics, and sealed inputs."""
+
+    if (
+        type(effective_config) is not EffectiveConfig
+        or not isinstance(goal, str)
+        or not goal.strip()
+        or type(task_context_request) is not LaunchTaskContextRequest
+        or not isinstance(starting_artifact_sources, Mapping)
+        or not isinstance(dependency_runtime_contract, Mapping)
+        or not isinstance(budget_fidelity_envelope, Mapping)
+    ):
+        raise ProductionLaunchCompositionError(
+            "production launch preparation requires exact public inputs"
+        )
+    settings = effective_config.cross_run
+    if type(settings) is not CrossRunSettings:
+        raise ProductionLaunchCompositionError(
+            "selected configuration has no cross-run settings"
+        )
+    binding = _resolve_production_binding(
+        effective_config=effective_config,
+        scope_id=scope_id,
+        task_family_id=task_family_id,
+        task_adapter_id=task_adapter_id,
+    )
+    settings.scopes.resolve(binding.scope_id)
+    experiment_embedding_space = _experiment_embedding_space(settings)
+    starting_artifacts = build_launch_starting_artifact_provider(
+        sources=starting_artifact_sources,
+        settings=settings.launch,
+    )
+    configured_coding_agent = effective_config.mode.get("coding_agent")
+    if not isinstance(configured_coding_agent, Mapping):
+        raise ProductionLaunchCompositionError(
+            "selected mode has no coding-agent configuration"
+        )
+    coding_agent = (
+        configured_coding_agent.get("type")
+        if requested_coding_agent is None
+        else requested_coding_agent
+    )
+    search_strategy = effective_config.mode.get("search_strategy")
+    if not isinstance(search_strategy, Mapping):
+        raise ProductionLaunchCompositionError(
+            "selected mode has no search-strategy configuration"
+        )
+    search_mode = search_strategy.get("type")
+    if not isinstance(coding_agent, str) or not isinstance(search_mode, str):
+        raise ProductionLaunchCompositionError(
+            "selected mode has invalid coding-agent or search-strategy identity"
+        )
+    request = LaunchRequest.mint(
+        binding=binding,
+        task_context_request=task_context_request,
+        goal_digest=tree_or_blob_digest(goal.encode("utf-8")),
+        starting_artifact_content_ids=dict(starting_artifacts.content_ids),
+        requested_coding_agent=coding_agent,
+        search_mode=search_mode,
+        dependency_runtime_contract=dict(dependency_runtime_contract),
+        budget_fidelity_envelope=dict(budget_fidelity_envelope),
+        configuration_fingerprint=tree_or_blob_digest(
+            canonical_json_bytes(
+                {
+                    "mode_name": effective_config.mode_name,
+                    "mode": dict(effective_config.mode),
+                    "cross_run_configuration_fingerprint": (
+                        settings.configuration_fingerprint
+                    ),
+                }
+            )
+        ),
+        empty_scope_bootstrap_authorization_id=(empty_scope_bootstrap_authorization_id),
+    )
+    return ProductionLaunchPreparation(
+        settings=settings,
+        binding=binding,
+        experiment_embedding_space=experiment_embedding_space,
+        starting_artifacts=starting_artifacts,
+        request=request,
+    )
+
+
+def _resolve_production_binding(
+    *,
+    effective_config: EffectiveConfig,
+    scope_id: str | None,
+    task_family_id: str | None,
+    task_adapter_id: str | None,
+) -> CrossRunTaskBindingSettings:
+    explicit_values = (scope_id, task_family_id, task_adapter_id)
+    if all(value is None for value in explicit_values):
+        binding = effective_config.cross_run_binding
+        if type(binding) is not CrossRunTaskBindingSettings:
+            raise ProductionLaunchCompositionError(
+                "scope, task family, and task adapter are required"
+            )
+        return binding
+    if any(value is None for value in explicit_values):
+        raise ProductionLaunchCompositionError(
+            "scope, task family, and task adapter must be supplied together"
+        )
+    binding = CrossRunTaskBindingSettings(
+        scope_id=scope_id,
+        task_family_id=task_family_id,
+        task_adapter_id=task_adapter_id,
+    )
+    configured = effective_config.cross_run_binding
+    if configured is not None and binding != configured:
+        raise ProductionLaunchCompositionError(
+            "explicit task binding differs from the selected mode"
+        )
+    return binding
+
+
+def _experiment_embedding_space(
+    settings: CrossRunSettings,
+) -> EmbeddingSpace:
+    embedding_settings = settings.launch.experiment_embeddings
+    return EmbeddingSpace.mint(
+        provider=embedding_settings.provider,
+        model=embedding_settings.model,
+        dimensions=embedding_settings.dimensions,
+        canonicalizer_version=embedding_settings.canonicalizer_version,
+    )
 
 
 @dataclass(frozen=True)
@@ -212,7 +383,9 @@ def _require_private_directory(path: Path, state_root: Path) -> None:
 
 
 __all__ = [
+    "build_production_launch_preparation",
     "build_production_launch_services",
     "ProductionLaunchCompositionError",
+    "ProductionLaunchPreparation",
     "ProductionLaunchServices",
 ]

@@ -1572,6 +1572,7 @@ class ExpertSettings(StrictContract):
 
 @dataclass(frozen=True)
 class LaunchSettings(StrictContract):
+    experiment_embeddings: EmbeddingSettings
     cache_path: str
     workspace_path: str
     immutable_root_path: str
@@ -1656,6 +1657,13 @@ class LaunchSettings(StrictContract):
     security_denylist_lineage_limit: int
 
     def _validate(self) -> None:
+        if (
+            type(self.experiment_embeddings) is not EmbeddingSettings
+            or not self.experiment_embeddings.enabled
+        ):
+            raise CrossRunConfigurationError(
+                "launch experiment embeddings must be enabled and exact"
+            )
         _require_path(self.cache_path, "launch.cache_path")
         workspace = _require_relative_path(
             self.workspace_path,

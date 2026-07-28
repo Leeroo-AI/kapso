@@ -133,3 +133,12 @@ def test_builder_rejects_symlinks_and_configured_byte_overflow(
             sources={"task": (source, "task")},
             settings=settings,
         )
+
+
+def test_builder_accepts_an_exact_empty_closure(resolver_case):
+    provider = build_launch_starting_artifact_provider(
+        sources={},
+        settings=resolver_case["resolver"].settings.launch,
+    )
+
+    assert dict(provider.content_ids) == {}
