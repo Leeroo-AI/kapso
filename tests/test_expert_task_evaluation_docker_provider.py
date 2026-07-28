@@ -228,6 +228,23 @@ def test_provider_rejects_task_image_that_violates_sandbox_policy(
         provider.execute_leg(invocation)
 
 
+def test_provider_accepts_task_image_environment_order_chosen_by_registry(
+    tmp_path,
+    monkeypatch,
+    task_evaluation_authority,
+):
+    provider, runner, invocation = _provider(
+        tmp_path,
+        monkeypatch,
+        task_evaluation_authority,
+    )
+    runner.mutate_image = lambda image: image["Config"]["Env"].reverse()
+
+    completion = provider.execute_leg(invocation)
+
+    assert completion.result_payload == _RESULT_PAYLOAD
+
+
 def test_provider_runs_selected_task_leg_with_exact_mounts_and_reaps_resources(
     tmp_path,
     monkeypatch,

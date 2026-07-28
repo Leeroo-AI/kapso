@@ -1104,7 +1104,9 @@ def _require_container_contract(
             f"{provider_settings.container_user_id}:"
             f"{provider_settings.container_group_id}"
         )
-        or not _container_environment_is_exact(config.get("Env"), runtime)
+        or not _environment_is_exact(
+            config.get("Env"), dict(_container_environment(runtime))
+        )
         or config.get("Entrypoint") != [entrypoint]
         or config.get("Cmd") != expected_command
         or config.get("WorkingDir") != workdir
@@ -1176,9 +1178,9 @@ def _require_container_contract(
         )
 
 
-def _container_environment_is_exact(
+def _environment_is_exact(
     value: Any,
-    runtime: TaskAdapterRuntimeContract,
+    expected: Mapping[str, str],
 ) -> bool:
     if not isinstance(value, list) or any(
         not isinstance(assignment, str) or "=" not in assignment for assignment in value
@@ -1190,7 +1192,7 @@ def _container_environment_is_exact(
         if not key or key in environment:
             return False
         environment[key] = assigned_value
-    return environment == dict(_container_environment(runtime))
+    return environment == dict(expected)
 
 
 def _require_task_adapter_image_policy(
@@ -1201,11 +1203,8 @@ def _require_task_adapter_image_policy(
     environment = config.get("Env")
     command = config.get("Cmd")
     volumes = config.get("Volumes")
-    expected_environment = [
-        f"{key}={value}" for key, value in sorted(runtime.environment.items())
-    ]
     if (
-        environment != expected_environment
+        not _environment_is_exact(environment, runtime.environment)
         or (command is not None and command != [])
         or config.get("Entrypoint") is not None
         or (volumes is not None and volumes != {})
