@@ -21,23 +21,19 @@ import json
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Mapping, Optional, Union
 
-# Load environment variables from .env file (if present)
-from dotenv import load_dotenv
-load_dotenv()
-
-from kapso.execution.orchestrator import OrchestratorAgent
 from kapso.execution.solution import SolutionResult
-from kapso.execution.iteration_evaluator import IterationEvaluator
-from kapso.execution.evaluation_integrity import build_evaluation_manifest
-from kapso.environment.handlers.generic import GenericProblemHandler
+from kapso.cross_run.launch.contracts import LaunchTaskContextRequest
+from kapso.cross_run.launch.production_evolution import (
+    execute_production_evolution,
+)
 from kapso.knowledge_base.search import KnowledgeSearchFactory, KGIndexInput
 from kapso.knowledge_base.search.base import KGIndexMetadata
 from kapso.knowledge_base.learners import Source, KnowledgePipeline
 from kapso.researcher import Researcher, ResearchDepth, ResearchMode
 from kapso.knowledge_base.types import ResearchFindings
-from kapso.core.config import load_config
+from kapso.core.config import load_config, load_effective_config
 
 # Placeholder types for unimplemented learning
 class KnowledgeChunk:
@@ -105,9 +101,11 @@ class Kapso:
     Advanced usage with evaluation and data directories:
         solution = kapso.evolve(
             goal="Build a classifier with 95% accuracy",
-            eval_dir="./evaluation/",
-            data_dir="./datasets/",
-            initial_repo="https://github.com/owner/starter-repo",
+            output_path="./campaign",
+            task_context_request=task_context,
+            starting_artifact_sources=artifacts,
+            dependency_runtime_contract=runtime,
+            budget_fidelity_envelope=budget,
         )
     """
     
@@ -477,244 +475,67 @@ class Kapso:
     def evolve(
         self,
         goal: str,
-        context: Optional[List[Any]] = None,
-        output_path: Optional[str] = None,
-        initial_repo: Optional[str] = None,
-        max_iterations: int = 10,
-        time_budget_minutes: Optional[float] = None,
-        cost_budget: Optional[float] = None,
-        finalization_reserve_minutes: Optional[float] = None,
-        resume: bool = False,
-        iteration_evaluator: Optional[IterationEvaluator] = None,
-        iteration_evaluator_failure_policy: str = "record",
-        # --- Configuration options ---
+        output_path: str,
+        task_context_request: LaunchTaskContextRequest | None = None,
+        starting_artifact_sources: Mapping[
+            str,
+            tuple[str | Path, str],
+        ] | None = None,
+        dependency_runtime_contract: Mapping[str, Any] | None = None,
+        budget_fidelity_envelope: Mapping[str, Any] | None = None,
+        config_path: str | None = None,
+        scope_id: str | None = None,
+        task_family_id: str | None = None,
+        task_adapter_id: str | None = None,
         mode: Optional[str] = None,
         coding_agent: Optional[str] = None,
-        # --- Directory options ---
-        eval_dir: Optional[str] = None,
-        data_dir: Optional[str] = None,
-        # --- Extra context options ---
+        objective_direction: str = "maximize",
         additional_context: str = "",
+        resume: bool = False,
+        empty_scope_bootstrap_authorization_id: str | None = None,
     ) -> SolutionResult:
-        """
-        Evolve a solution for the given goal.
-        
-        Uses the Kapso's knowledge (KG) and online experimentation to
-        generate robust software.
-        
-        Args:
-            goal: The high-level objective (problem description)
-            context: Optional list of Source objects to learn before evolving
-            output_path: Where to save the generated code
-            initial_repo: Optional starting repository. Accepts:
-                - Local path: "/path/to/repo" or "./relative/path"
-                - GitHub URL: "https://github.com/owner/repo" (will be cloned)
-                - None: Will search for relevant workflow repo in KG
-            max_iterations: Maximum experiment iterations (default: 10)
-            time_budget_minutes: Wall-clock budget for the campaign. The
-                durable clock continues across resumes.
-            cost_budget: Best-effort spend budget in USD (cost metering is a
-                floor, not a meter — see the budget design doc).
-            finalization_reserve_minutes: Wall-clock escrowed so the campaign
-                always ends with checkout and final evaluation inside budget.
-            resume: Continue an existing campaign at ``output_path``. Resume
-                is strict: the workspace and compatible checkpoint must exist.
-            iteration_evaluator: Optional callback that evaluates each
-                finalized candidate in an isolated detached Git worktree.
-            iteration_evaluator_failure_policy: ``record`` stores callback
-                errors on the candidate; ``raise`` stops the run.
-            
-            mode: Configuration mode (GENERIC, MINIMAL, etc.)
-            coding_agent: Coding agent to use (aider, gemini, claude_code, openhands)
-            
-            eval_dir: Path to evaluation files (copied to workspace/kapso_evaluation/)
-            data_dir: Path to data files (copied to workspace/kapso_datasets/)
-            
-            additional_context: Extra context appended to the problem prompt.
-                This is the intended integration point for research context.
-            
-        Returns:
-            SolutionResult with code_path, experiment_logs, and metadata
-        """
-        if resume:
-            self._validate_resume_workspace(output_path)
-        if eval_dir:
-            # Validate caller-owned evaluation inputs before resolving an
-            # initial repository or initializing the experiment workspace.
-            build_evaluation_manifest(eval_dir)
+        """Run the sole GitHub-backed launch, retrieval, and edit path."""
 
-        print(f"\n{'='*60}")
-        print(f"EVOLVING: {goal}")
-        print(f"{'='*60}")
-        print(f"  Max iterations: {max_iterations}")
-        print(f"  Resume: {resume}")
-        print(f"  Coding agent: {coding_agent or 'from config'}")
-        if eval_dir:
-            print(f"  Eval dir: {eval_dir}")
-        if data_dir:
-            print(f"  Data dir: {data_dir}")
-        
-        # Resolve initial_repo: handle URLs, local paths, or workflow search
-        resolved_repo = (
-            None
-            if resume
-            else self._resolve_initial_repo(initial_repo, goal)
-        )
-        if resolved_repo:
-            print(f"  Initial repo: {resolved_repo}")
-        print()
-        
-        # Build problem description
-        problem = self._build_problem_description(goal)
-
-        # Build context string from context items (text, not sources)
-        # Context items are converted to strings and appended to additional_context
-        context_parts = []
-        if context:
-            for item in context:
-                # Convert each context item to string
-                context_parts.append(str(item))
-        
-        # Combine knowledge context + caller-provided context + context items
-        #
-        # Why:
-        # - The system already uses `additional_context` to inject KG snippets.
-        # - Research ideas should be injected the same way.
-        user_context = (additional_context or "").strip()
-        items_context = "\n\n".join(context_parts).strip()
-        combined_context = "\n\n".join([c for c in [user_context, items_context] if c])
-        
-        # Create problem handler with all options
-        handler = GenericProblemHandler(
-            problem_description=problem,
-            eval_dir=eval_dir,
-            data_dir=data_dir,
-            additional_context=combined_context,
-        )
-        
-        # Create orchestrator
-        orchestrator = OrchestratorAgent(
-            handler,
-            config_path=self.config_path,
-            mode=mode,
-            coding_agent=coding_agent,
-            is_kg_active=self.knowledge_search.is_enabled(),
-            knowledge_search=self.knowledge_search if self.knowledge_search.is_enabled() else None,
-            # IMPORTANT:
-            # - Many callers (CLI + E2E tests) pass `output_path` expecting the final repo to live there.
-            # - The orchestration layer owns the experiment workspace (a git repo with branches).
-            # - Therefore, when `output_path` is provided, we must use it as the workspace directory
-            #   so `solution.code_path` points at a real git repo (with `.kapso/repo_memory.json`).
-            workspace_dir=output_path,
+        run_root = Path(output_path).expanduser().resolve(strict=False)
+        sources = {
+            artifact_ref: (
+                Path(source).expanduser().resolve(strict=True),
+                mount_path,
+            )
+            for artifact_ref, (source, mount_path) in (
+                {} if starting_artifact_sources is None else starting_artifact_sources
+            ).items()
+        }
+        result = execute_production_evolution(
+            effective_config=load_effective_config(
+                config_path or self.config_path,
+                mode,
+            ),
+            goal=goal,
+            run_root=run_root,
+            state_root=run_root.parent,
+            task_context_request=task_context_request,
+            starting_artifact_sources=sources,
+            dependency_runtime_contract=dependency_runtime_contract,
+            budget_fidelity_envelope=budget_fidelity_envelope,
+            scope_id=scope_id,
+            task_family_id=task_family_id,
+            task_adapter_id=task_adapter_id,
+            requested_coding_agent=coding_agent,
+            objective_direction=objective_direction,
+            additional_context=additional_context,
             resume=resume,
-            iteration_evaluator=iteration_evaluator,
-            iteration_evaluator_failure_policy=(
-                iteration_evaluator_failure_policy
+            empty_scope_bootstrap_authorization_id=(
+                empty_scope_bootstrap_authorization_id
             ),
-            initial_repo=resolved_repo,
-            eval_dir=eval_dir,
-            data_dir=data_dir,
+        )
+        action_result = result.metadata["action_result"]
+        return SolutionResult(
             goal=goal,
+            code_path=str(result.code_path),
+            experiment_logs=[action_result["implementation_summary"]],
+            metadata=dict(result.metadata),
         )
-        
-        # Run experimentation
-        print("Running experiments...")
-        solve_result = orchestrator.solve(
-            experiment_max_iter=max_iterations,
-            time_budget_minutes=time_budget_minutes,
-            cost_budget=cost_budget,
-            finalization_reserve_minutes=finalization_reserve_minutes,
-        )
-        
-        # Collect results
-        experiment_logs = self._extract_experiment_logs(orchestrator)
-        workspace_path = orchestrator.search_strategy.workspace.workspace_dir
-        
-        # Checkout to best solution. The returned ref makes the selected code
-        # state explicit and lets callers verify or materialize it independently.
-        best_branch = (
-            orchestrator.search_strategy.checkout_to_best_experiment_branch()
-        )
-        
-        # Use custom output path if provided
-        code_path = output_path or workspace_path
-        
-        # Create solution result with final feedback
-        solution = SolutionResult(
-            goal=goal,
-            code_path=code_path,
-            experiment_logs=experiment_logs,
-            final_feedback=solve_result.final_feedback,
-            delivered_score=(
-                orchestrator.search_strategy.get_deliverable_score()
-            ),
-            metadata={
-                "iterations": solve_result.iterations_run,
-                "cumulative_iterations": solve_result.cumulative_iterations,
-                "cost": f"${solve_result.total_cost:.3f}",
-                "stopped_reason": solve_result.stopped_reason,
-                "stop_detail": solve_result.stop_detail,
-                "best_branch": best_branch,
-                "resumed": resume,
-                "external_metrics": dict(
-                    getattr(
-                        solve_result.best_experiment,
-                        "metrics",
-                        {},
-                    )
-                    or {}
-                ),
-                "external_primary_metric": getattr(
-                    solve_result.best_experiment,
-                    "primary_metric",
-                    None,
-                ),
-                "invalid_evaluations": sum(
-                    not getattr(node, "evaluation_valid", True)
-                    for node in (
-                        orchestrator.search_strategy.get_experiment_history()
-                    )
-                ),
-            }
-        )
-        
-        print(f"\n{'='*60}")
-        print("Evolution Complete")
-        print(f"{'='*60}")
-        print(f"Solution at: {code_path}")
-        print(f"Experiments run: {solve_result.iterations_run}")
-        print(f"Total cost: ${solve_result.total_cost:.3f}")
-        print(f"Stopped reason: {solve_result.stopped_reason}")
-        print(f"Goal achieved: {solution.succeeded}")
-        if solution.final_score is not None:
-            print(f"Final score: {solution.final_score}")
-        
-        return solution
-
-    @staticmethod
-    def _validate_resume_workspace(output_path: Optional[str]) -> None:
-        """Reject resume requests before they can initialize or mutate a repo."""
-        if not output_path:
-            raise ValueError("resume=True requires an existing output_path")
-
-        path = Path(output_path).expanduser()
-        if not path.is_dir():
-            raise FileNotFoundError(
-                f"Resume workspace does not exist or is not a directory: {path}"
-            )
-
-        import git
-
-        try:
-            repo = git.Repo(str(path), search_parent_directories=False)
-        except (git.InvalidGitRepositoryError, git.NoSuchPathError) as exc:
-            raise ValueError(
-                f"Resume workspace is not a Git repository: {path}"
-            ) from exc
-        if repo.bare:
-            raise ValueError(
-                f"Resume workspace must be a non-bare Git repository: {path}"
-            )
     
     def deploy(
         self,
@@ -770,134 +591,6 @@ class Kapso:
         
         return DeploymentFactory.create(strategy, config)
     
-    # =========================================================================
-    # INITIAL REPO RESOLUTION HELPERS
-    # =========================================================================
-    
-    def _resolve_initial_repo(self, initial_repo: Optional[str], goal: str) -> Optional[str]:
-        """
-        Resolve initial_repo to a local path.
-        
-        Handles three cases:
-        1. GitHub URL: Clone to temp directory
-        2. Local path: Use as-is
-        3. None: Search for workflow repo in KG
-        
-        Args:
-            initial_repo: Local path, GitHub URL, or None
-            goal: The goal (used for workflow search if initial_repo is None)
-            
-        Returns:
-            Local path to repo, or None if no repo found/provided
-        """
-        if initial_repo is not None:
-            # Check if it's a GitHub URL
-            if self._is_github_url(initial_repo):
-                return self._clone_github_repo(initial_repo)
-            # Assume local path
-            return initial_repo
-        
-        # No initial_repo provided - search for workflow repo
-        return self._search_workflow_repo(goal)
-    
-    def _is_github_url(self, path: str) -> bool:
-        """Check if path is a GitHub URL."""
-        return (
-            path.startswith("https://github.com/") or 
-            path.startswith("git@github.com:") or
-            path.startswith("http://github.com/")
-        )
-    
-    def _clone_github_repo(self, url: str) -> str:
-        """
-        Clone a GitHub repository to a temporary directory.
-        
-        Args:
-            url: GitHub repository URL
-            
-        Returns:
-            Local path to cloned repository
-        """
-        import tempfile
-        import git
-        
-        # Create temp directory with meaningful prefix
-        temp_dir = tempfile.mkdtemp(prefix="kapso_repo_")
-        
-        print(f"  Cloning {url}...")
-        try:
-            git.Repo.clone_from(url, temp_dir)
-            print(f"  Cloned to: {temp_dir}")
-            return temp_dir
-        except Exception as e:
-            print(f"  Warning: Failed to clone {url}: {e}")
-            # Clean up temp dir on failure
-            import shutil
-            shutil.rmtree(temp_dir, ignore_errors=True)
-            return None
-    
-    def _search_workflow_repo(self, goal: str) -> Optional[str]:
-        """
-        Search for a relevant workflow repository in the Knowledge Graph.
-        
-        Args:
-            goal: The goal to search for
-            
-        Returns:
-            Local path to cloned workflow repo, or None if not found
-        """
-        # Only search if KG is enabled
-        if not self.knowledge_search.is_enabled():
-            print("  No KG index - skipping workflow search")
-            return None
-        
-        try:
-            from kapso.knowledge_base.search.workflow_search import WorkflowRepoSearch
-            
-            print("  Searching for relevant workflow...")
-            workflow_search = WorkflowRepoSearch(kg_search=self.knowledge_search)
-            result = workflow_search.search(goal, top_k=1)
-            
-            if not result.is_empty and result.top_result.github_url:
-                starter_url = result.top_result.github_url
-                print(f"  Found workflow repo: {starter_url}")
-                return self._clone_github_repo(starter_url)
-            else:
-                print("  No matching workflow found")
-                return None
-        except Exception as e:
-            print(f"  Warning: Workflow search failed: {e}")
-            return None
-    
-    def _build_problem_description(self, goal: str) -> str:
-        """Build the full problem description for the orchestrator."""
-        return f"# Goal\n{goal}"
-    
-    def _extract_experiment_logs(self, orchestrator: OrchestratorAgent) -> List[str]:
-        """Extract experiment history as string logs."""
-        logs = []
-        history = orchestrator.search_strategy.get_experiment_history()
-        
-        for exp in history:
-            if hasattr(exp, 'had_error') and exp.had_error:
-                logs.append(f"Failed: {exp.solution[:100]}... (Error: {exp.error_message})")
-            elif not getattr(exp, "evaluation_valid", True):
-                integrity_error = getattr(
-                    exp,
-                    "evaluation_integrity_error",
-                    "Invalid evaluation",
-                )
-                logs.append(
-                    f"Rejected: {exp.solution[:100]}... "
-                    f"(Evaluation: {integrity_error})"
-                )
-            else:
-                score = getattr(exp, 'score', 'N/A')
-                logs.append(f"Success: {exp.solution[:100]}... (Score: {score})")
-        
-        return logs
-
-
 # =============================================================================
 # CONVENIENCE EXPORTS
 # =============================================================================
@@ -912,5 +605,4 @@ __all__ = [
     "DeployConfig",
     "DeploymentFactory",
     "ResearchFindings",
-    "IterationEvaluator",
 ]

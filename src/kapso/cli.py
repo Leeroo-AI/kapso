@@ -18,13 +18,13 @@
 #     kapso index_kg --wiki-dir ./data/wikis --save-to ./data/indexes/ml.index
 
 import argparse
+import json
 import sys
+from pathlib import Path
 from typing import Optional
 
-from dotenv import load_dotenv
-load_dotenv()
-
 from kapso.kapso import Kapso, Source, DeployStrategy
+from kapso.cross_run.launch.contracts import LaunchTaskContextRequest
 from kapso.execution.coding_agents.factory import CodingAgentFactory
 from kapso.researcher import ResearchMode, ResearchDepth
 
@@ -59,22 +59,40 @@ def cmd_evolve(args) -> None:
         print("Error: --goal or --goal-file required for evolve command")
         sys.exit(1)
     
-    # Create Kapso instance with optional KG index
-    kapso = Kapso(kg_index=args.kg_index)
+    task_context_request = None
+    starting_artifact_sources = None
+    dependency_runtime_contract = None
+    budget_fidelity_envelope = None
+    if args.resume:
+        if args.launch_inputs is not None:
+            raise ValueError("--resume cannot accept --launch-inputs")
+    else:
+        if args.launch_inputs is None:
+            raise ValueError("fresh evolve requires --launch-inputs")
+        (
+            task_context_request,
+            starting_artifact_sources,
+            dependency_runtime_contract,
+            budget_fidelity_envelope,
+        ) = _load_launch_inputs(Path(args.launch_inputs))
+
+    kapso = Kapso(config_path=args.config)
     
     # Build solution
     solution = kapso.evolve(
         goal=goal,
         output_path=args.output,
-        max_iterations=args.iterations,
-        time_budget_minutes=args.time_budget_minutes,
-        cost_budget=args.cost_budget,
-        finalization_reserve_minutes=args.finalization_reserve_minutes,
+        task_context_request=task_context_request,
+        starting_artifact_sources=starting_artifact_sources,
+        dependency_runtime_contract=dependency_runtime_contract,
+        budget_fidelity_envelope=budget_fidelity_envelope,
+        config_path=args.config,
+        scope_id=args.scope_id,
+        task_family_id=args.task_family_id,
+        task_adapter_id=args.task_adapter_id,
         mode=args.mode,
         coding_agent=args.coding_agent,
-        eval_dir=args.eval_dir,
-        data_dir=args.data_dir,
-        initial_repo=args.initial_repo,
+        objective_direction=args.objective_direction,
         resume=args.resume,
     )
     
@@ -86,8 +104,55 @@ def cmd_evolve(args) -> None:
     print(f"Goal achieved: {solution.succeeded}")
     if solution.final_score is not None:
         print(f"Final score: {solution.final_score}")
-    print(f"Cost: {solution.metadata.get('cost', 'N/A')}")
-    print(f"Stopped reason: {solution.metadata.get('stopped_reason', 'N/A')}")
+    print(f"Launch: {solution.metadata['launch_manifest_id']}")
+    print(f"Expert: {solution.metadata['expert_release_id']}")
+    print(f"Knowledge: {solution.metadata['knowledge_snapshot_id']}")
+    print(f"Adapter: {solution.metadata['task_adapter_manifest_id']}")
+    print(f"Cost: {solution.metadata.get('action_cost_usd')}")
+
+
+def _load_launch_inputs(path: Path):
+    """Read one domain-neutral fresh-launch input closure."""
+
+    normalized = path.expanduser().resolve(strict=True)
+    payload = json.loads(normalized.read_text(encoding="utf-8"))
+    expected = {
+        "task_context_request",
+        "starting_artifacts",
+        "dependency_runtime_contract",
+        "budget_fidelity_envelope",
+    }
+    if not isinstance(payload, dict) or set(payload) != expected:
+        raise ValueError("launch input fields are invalid")
+    artifacts = payload["starting_artifacts"]
+    if not isinstance(artifacts, dict):
+        raise ValueError("starting_artifacts must be an object")
+    sources = {}
+    for artifact_ref, artifact in artifacts.items():
+        if (
+            not isinstance(artifact_ref, str)
+            or not isinstance(artifact, dict)
+            or set(artifact) != {"source", "mount_path"}
+            or not isinstance(artifact["source"], str)
+            or not isinstance(artifact["mount_path"], str)
+        ):
+            raise ValueError("starting artifact input is invalid")
+        source = Path(artifact["source"]).expanduser()
+        if not source.is_absolute():
+            source = normalized.parent / source
+        sources[artifact_ref] = (
+            source.resolve(strict=True),
+            artifact["mount_path"],
+        )
+    for field in ("dependency_runtime_contract", "budget_fidelity_envelope"):
+        if not isinstance(payload[field], dict) or not payload[field]:
+            raise ValueError(f"{field} must be a non-empty object")
+    return (
+        LaunchTaskContextRequest.from_dict(payload["task_context_request"]),
+        sources,
+        payload["dependency_runtime_contract"],
+        payload["budget_fidelity_envelope"],
+    )
 
 
 def cmd_research(args) -> None:
@@ -357,10 +422,10 @@ Examples:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  kapso evolve --goal "Build a web scraper for news articles"
-  kapso evolve --goal-file problem.txt --iterations 20
-  kapso evolve --goal "Build a classifier" --eval-dir ./eval/ --data-dir ./data/
-  kapso evolve --goal "Build a classifier" --output ./campaign --resume
+  kapso evolve --goal-file problem.txt --output ./campaign \
+    --config runtime.yaml --launch-inputs launch-inputs.json
+  kapso evolve --goal-file problem.txt --output ./campaign \
+    --config runtime.yaml --resume
 """
     )
     
@@ -370,25 +435,20 @@ Examples:
     goal_group.add_argument("-f", "--goal-file", type=str, help="File containing goal")
     
     # Basic options
-    evolve_parser.add_argument("-i", "--iterations", type=int, default=10, help="Max iterations (default: 10)")
-    evolve_parser.add_argument("-o", "--output", type=str, help="Output directory")
+    evolve_parser.add_argument("-o", "--output", type=str, required=True, help="Run root")
     evolve_parser.add_argument(
-        "--time-budget-minutes",
-        type=float,
-        default=None,
-        help="Wall-clock budget for the campaign (durable across resumes)",
+        "--launch-inputs",
+        type=str,
+        help="Fresh-launch JSON closure; omit only with --resume",
     )
+    evolve_parser.add_argument("--config", type=str, help="Runtime config path")
+    evolve_parser.add_argument("--scope-id", type=str)
+    evolve_parser.add_argument("--task-family-id", type=str)
+    evolve_parser.add_argument("--task-adapter-id", type=str)
     evolve_parser.add_argument(
-        "--cost-budget",
-        type=float,
-        default=None,
-        help="Best-effort spend budget in USD",
-    )
-    evolve_parser.add_argument(
-        "--finalization-reserve-minutes",
-        type=float,
-        default=None,
-        help="Wall-clock escrowed for final checkout and evaluation",
+        "--objective-direction",
+        choices=["maximize", "minimize"],
+        default="maximize",
     )
     evolve_parser.add_argument(
         "--resume",
@@ -396,16 +456,14 @@ Examples:
         help="Continue the compatible checkpoint in --output",
     )
     # Configuration options
-    evolve_parser.add_argument("-m", "--mode", type=str, help="Config mode (GENERIC, MINIMAL)")
-    evolve_parser.add_argument("-a", "--coding-agent", type=str, choices=AVAILABLE_AGENTS, help="Coding agent")
-    
-    # Directory options
-    evolve_parser.add_argument("--eval-dir", type=str, help="Evaluation files directory")
-    evolve_parser.add_argument("--data-dir", type=str, help="Data files directory")
-    evolve_parser.add_argument("--initial-repo", type=str, help="Initial repository (path or GitHub URL)")
-    
-    # Knowledge graph
-    evolve_parser.add_argument("--kg-index", type=str, help="Path to KG index file")
+    evolve_parser.add_argument("-m", "--mode", type=str, help="Config mode")
+    evolve_parser.add_argument(
+        "-a",
+        "--coding-agent",
+        type=str,
+        choices=["codex"],
+        help="Must match the pinned launch agent",
+    )
     
     # =========================================================================
     # RESEARCH command
