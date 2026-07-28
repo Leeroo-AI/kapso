@@ -45,6 +45,7 @@ from test_cross_run_retrieval import snapshot_and_index, source_fixture
 from test_expert_triggers import inspection_operation, trigger_packet, trigger_settings
 
 _CONFIG_PATH = "src/kapso/config.yaml"
+_EXPERT_RELEASE_ID = "expert-base-release:sha256:" + "1" * 64
 
 
 def _embedding_batch(settings, texts, vectors):
@@ -169,10 +170,12 @@ def test_synthetic_projection_is_one_admitted_domain_neutral_bundle():
         settings,
         fixture,
         scope_contract,
+        _EXPERT_RELEASE_ID,
     )
 
     assert projection.sanitation_report.status == "admitted"
     assert projection.source_bundle.scope_id == "ml_ai"
+    assert projection.source_bundle.expert_base_release_id == _EXPERT_RELEASE_ID
     assert len(projection.episodes) == 1
     assert projection.episodes[0].source_bundle_id == projection.source_bundle.bundle_id
     assert projection.episodes[0].attempts[0].technical_difficulties == (
@@ -227,12 +230,19 @@ def test_task_adapter_bootstrap_precedes_expert_proposal():
     assert stages.index("expert-proposal") < stages.index(
         "expert-validation-enrollment"
     )
+    assert stages.index("expert-bootstrap-publication") < stages.index(
+        "knowledge-publication"
+    )
+    assert stages.index("coding-agent-ideation") < stages.index(
+        "expert-successor-proposal"
+    )
 
 
 def test_production_stage_tail_covers_the_complete_release_lifecycle():
-    assert smoke_module.production_smoke_stage_names()[-10:] == (
-        "expert-bootstrap-validation",
+    assert smoke_module.production_smoke_stage_names()[-11:] == (
         "expert-bootstrap-publication",
+        "knowledge-publication",
+        "coding-agent-ideation",
         "expert-successor-proposal",
         "expert-successor-validation",
         "expert-successor-publication",
@@ -512,6 +522,7 @@ def test_successor_launch_threads_exact_release_snapshot_and_typed_context(
         settings,
         fixture,
         scope_contract,
+        _EXPERT_RELEASE_ID,
     ).source_bundle.task_context_binding
     adapter = SimpleNamespace(
         manifest=SimpleNamespace(
@@ -746,6 +757,7 @@ def test_clean_root_imports_current_snapshot_and_mints_one_direct_successor(
         old_settings,
         fixture,
         scope_contract,
+        _EXPERT_RELEASE_ID,
     )
     old_catalog = CrossRunCatalog(
         tmp_path / "old-catalog",
@@ -783,6 +795,7 @@ def test_clean_root_imports_current_snapshot_and_mints_one_direct_successor(
         fixture,
         scope_contract,
         old_package,
+        _EXPERT_RELEASE_ID,
     )
 
     assert successor.source_bundle.capture_generation == 1
@@ -821,6 +834,7 @@ def test_clean_root_imports_current_snapshot_and_mints_one_direct_successor(
         fixture,
         scope_contract,
         successor_package,
+        _EXPERT_RELEASE_ID,
     )
 
     assert recovered == successor

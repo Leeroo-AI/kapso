@@ -20,6 +20,7 @@ from kapso.cross_run.canonical import (
     content_id,
     normalize_utc_timestamp,
     parse_json_bytes,
+    require_content_id,
     tree_or_blob_digest,
 )
 from kapso.cross_run.catalog.service import CrossRunCatalog
@@ -131,13 +132,13 @@ _STAGE_ORDER = (
     "github-read",
     "embeddings",
     "docker-authority",
-    "knowledge-publication",
-    "coding-agent-ideation",
     "task-adapter-bootstrap",
     "expert-proposal",
     "expert-validation-enrollment",
     "expert-bootstrap-validation",
     "expert-bootstrap-publication",
+    "knowledge-publication",
+    "coding-agent-ideation",
     "expert-successor-proposal",
     "expert-successor-validation",
     "expert-successor-publication",
@@ -261,6 +262,7 @@ def _run_stage(
             smoke_root,
             fixture,
             scope_contract,
+            prior_evidence,
         )
     if stage == "coding-agent-ideation":
         return _coding_agent_ideation_smoke(
@@ -268,6 +270,7 @@ def _run_stage(
             smoke_root,
             fixture,
             scope_contract,
+            prior_evidence,
         )
     if stage == "task-adapter-bootstrap":
         return _task_adapter_bootstrap_smoke(
@@ -865,8 +868,18 @@ def _knowledge_publication_smoke(
     smoke_root: Path,
     fixture: Mapping[str, Any],
     scope_contract: ExpertScopeContract,
+    prior_evidence: Mapping[str, Mapping[str, Any]],
 ) -> Mapping[str, Any]:
     """Publish one admitted synthetic bundle as the first non-empty snapshot."""
+
+    bootstrap_publication = prior_evidence.get("expert-bootstrap-publication")
+    if not isinstance(bootstrap_publication, Mapping) or not isinstance(
+        bootstrap_publication.get("release_id"), str
+    ):
+        raise ProductionSmokeError(
+            "knowledge publication requires the authenticated bootstrap expert release"
+        )
+    expert_release_id = bootstrap_publication["release_id"]
 
     github = _github_services(settings, smoke_root)
     current = github.resolver.resolve_current(
@@ -880,6 +893,7 @@ def _knowledge_publication_smoke(
         fixture,
         scope_contract,
         current_package,
+        expert_release_id,
     )
     if (
         projection.source_bundle.bundle_id
@@ -979,12 +993,20 @@ def _coding_agent_ideation_smoke(
     smoke_root: Path,
     fixture: Mapping[str, Any],
     scope_contract: ExpertScopeContract,
+    prior_evidence: Mapping[str, Mapping[str, Any]],
 ) -> Mapping[str, Any]:
     """Prove a real Codex call reads one record from the live S1 snapshot."""
 
     if not settings.production_validation.coding_agent_smoke:
         raise ProductionSmokeError(
             "coding-agent ideation smoke is disabled in configuration"
+        )
+    bootstrap_publication = prior_evidence.get("expert-bootstrap-publication")
+    if not isinstance(bootstrap_publication, Mapping) or not isinstance(
+        bootstrap_publication.get("release_id"), str
+    ):
+        raise ProductionSmokeError(
+            "coding-agent ideation requires the authenticated bootstrap expert release"
         )
     github = _github_services(settings, smoke_root / "coding-agent-github-read")
     resolved = github.resolver.resolve_current(
@@ -998,6 +1020,7 @@ def _coding_agent_ideation_smoke(
         fixture,
         scope_contract,
         package,
+        bootstrap_publication["release_id"],
     )
     expected_prior_idea = projection.prior_ideas[0]
     index_files = {
@@ -2057,6 +2080,7 @@ def _synthetic_projection(
     settings: CrossRunSettings,
     fixture: Mapping[str, Any],
     scope_contract: ExpertScopeContract,
+    expert_base_release_id: str,
     *,
     predecessor_bundle: RunBundle | None = None,
     predecessor_episode: TransferEpisode | None = None,
@@ -2086,13 +2110,12 @@ def _synthetic_projection(
         },
     )
     task_context.validate_against(scope_contract)
-    expert_release_id = content_id(
-        "expert-base-release",
-        {"transport_smoke": "source-release"},
-    )
+    require_content_id(expert_base_release_id, "transport smoke expert release")
+    if expert_base_release_id.split(":sha256:", 1)[0] != "expert-base-release":
+        raise ProductionSmokeError("transport smoke expert release has wrong namespace")
     environment = ArtifactEnvironment.mint(
         kapso_commit="0" * 40,
-        expert_base_release_id=expert_release_id,
+        expert_base_release_id=expert_base_release_id,
         task_adapter_manifest_id=content_id(
             "task-adapter-manifest",
             {"task_adapter_id": task_context.task_adapter_id},
@@ -2183,7 +2206,7 @@ def _synthetic_projection(
             if predecessor_bundle is None
             else predecessor_bundle.knowledge_snapshot_id
         ),
-        expert_base_release_id=expert_release_id,
+        expert_base_release_id=expert_base_release_id,
         task_context_binding=task_context,
         artifact_environment=environment,
         capture_descriptor_ref="capture_descriptor.json",
@@ -2301,6 +2324,7 @@ def _synthetic_projection_for_snapshot(
     fixture: Mapping[str, Any],
     scope_contract: ExpertScopeContract,
     package: KnowledgeSnapshotPackage,
+    expert_base_release_id: str,
 ) -> ProjectionResult:
     """Recover this config's transport projection or mint its direct successor."""
 
@@ -2324,7 +2348,12 @@ def _synthetic_projection_for_snapshot(
         )
     )
     if not bundles:
-        return _synthetic_projection(settings, fixture, scope_contract)
+        return _synthetic_projection(
+            settings,
+            fixture,
+            scope_contract,
+            expert_base_release_id,
+        )
     if tuple(bundle.capture_generation for bundle in bundles) != tuple(
         range(len(bundles))
     ) or any(
@@ -2337,6 +2366,10 @@ def _synthetic_projection_for_snapshot(
         )
     current_bundle = bundles[-1]
     if current_bundle.configuration_fingerprint == settings.configuration_fingerprint:
+        if current_bundle.expert_base_release_id != expert_base_release_id:
+            raise ProductionSmokeError(
+                "current synthetic bundle names another bootstrap expert release"
+            )
         manifests = tuple(
             record
             for record in records
@@ -2399,6 +2432,7 @@ def _synthetic_projection_for_snapshot(
         settings,
         fixture,
         scope_contract,
+        expert_base_release_id,
         predecessor_bundle=current_bundle,
         predecessor_episode=(
             None if not predecessor_episodes else predecessor_episodes[0]
