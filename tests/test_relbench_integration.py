@@ -463,14 +463,20 @@ class TestGenericModeConfig:
         assert mode["feedback_generator"]["type"] == "codex"
         assert mode["search_strategy"]["params"]["ideation_selector"]["cli"] == "codex"
         assert mode["models"]["utility"]["reasoning_effort"] == "xhigh"
-        # K=4 expansion (user-directed 2026-07-28): four implementation lanes
-        # on an a3-highgpu-4g, each PINNED to its own GPU (CUDA_VISIBLE_DEVICES
-        # 0..3) and thread-capped 24 so lanes don't starve each other.
-        assert mode["search_strategy"]["params"]["node_expansion_value"] == 4
+        # K=8 expansion (user-directed 2026-07-28, 24h escalation): eight
+        # implementation lanes on an a3-highgpu-8g, each PINNED to its own
+        # GPU (CUDA_VISIBLE_DEVICES 0..7) and thread-capped 24 (8x24=192 of
+        # 208 vCPU). Session cap removed (implementation_timeout 86400) —
+        # the 1440-minute clock budget bounds the campaign.
+        assert mode["search_strategy"]["params"]["node_expansion_value"] == 8
         lanes = mode["search_strategy"]["params"]["expansion_lane_env"]
-        assert len(lanes) == 4
+        assert len(lanes) == 8
         assert all(lane["OMP_NUM_THREADS"] == "24" for lane in lanes)
-        assert [lane["CUDA_VISIBLE_DEVICES"] for lane in lanes] == ["0", "1", "2", "3"]
+        assert [lane["CUDA_VISIBLE_DEVICES"] for lane in lanes] == [
+            "0", "1", "2", "3", "4", "5", "6", "7"
+        ]
+        assert mode["search_strategy"]["params"]["implementation_timeout"] == 86400
+        assert mode["budget"]["time_budget_minutes"] == 1440
 
 
 @pytest.mark.skipif(

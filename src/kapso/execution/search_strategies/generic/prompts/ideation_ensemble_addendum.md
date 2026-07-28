@@ -36,12 +36,17 @@ reward while the champion is far from the bar — and negative net value,
 because it burns an iteration. Reproducing or lightly polishing a stable
 baseline is a loss, not a result.
 
-Your {{candidate_count}} candidates must therefore split:
+Your {{candidate_count}} candidates must therefore span the return
+spectrum, in order:
 - Candidate 1 — highest-return continuation: the strongest move on the
   current line, chosen for expected return against the BAR, not for safety.
-- Candidate 2 — highest-ceiling structural attack: a different core
+- The last candidate — highest-ceiling structural attack: a different core
   mechanism with the most credible path to the bar if the current line
-  cannot reach it. A near-duplicate of candidate 1 wastes the slot.
+  cannot reach it.
+- Candidates in between — distinct intermediate bets (different axis moved,
+  different failure mode, or a different data/representation source), each
+  with its own credible ceiling argument. A near-duplicate of any other
+  candidate wastes its slot.
 
 Every candidate must state its CEILING: the score it credibly reaches if it
 works, and why — a candidate that cannot argue a ceiling meaningfully beyond
