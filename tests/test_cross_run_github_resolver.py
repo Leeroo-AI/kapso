@@ -31,7 +31,7 @@ from kapso.cross_run.github.resolver import (
 )
 from kapso.cross_run.settings import CrossRunSettings
 from kapso.cross_run.settings import CrossRunConfigurationError
-from tests.cross_run_github_fixtures import release_attestation
+from cross_run_github_fixtures import release_attestation
 
 CANONICAL_CONFIG_PATH = "src/kapso/config.yaml"
 REPOSITORY = "Leeroo-AI/kapso-knowledge"

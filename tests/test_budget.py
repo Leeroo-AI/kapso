@@ -19,7 +19,7 @@ from kapso.execution.budget import (
 )
 from kapso.execution.run_checkpoint import RunCheckpointStore
 
-from tests.test_run_checkpoint import (
+from test_run_checkpoint import (
     CHECKPOINT_PATH,
     _effective_config,
     _init_git_workspace,

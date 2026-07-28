@@ -58,8 +58,8 @@ from kapso.cross_run.security_authority_contracts import (
     SecurityAuthorityContractError,
 )
 from kapso.cross_run.settings import CrossRunSettings
-from tests.cross_run_github_fixtures import release_attestation
-from tests.test_cross_run_github_publisher import (
+from cross_run_github_fixtures import release_attestation
+from test_cross_run_github_publisher import (
     EXPECTED_PARENT,
     POINTER_COMMIT,
     SOURCE_COMMIT,

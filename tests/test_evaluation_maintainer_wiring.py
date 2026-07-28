@@ -19,7 +19,7 @@ from kapso.execution.run_checkpoint import RunCheckpointStore
 from kapso.execution.search_strategies.node import SearchNode
 from kapso.execution.search_strategies.generic.strategy import GenericSearch
 
-from tests.test_run_checkpoint import (
+from test_run_checkpoint import (
     CHECKPOINT_PATH,
     _init_git_workspace,
     _effective_config,

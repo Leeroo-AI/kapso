@@ -42,7 +42,7 @@ from kapso.cross_run.github.resolver import (
     RepositoryPolicyReport,
 )
 from kapso.cross_run.settings import CrossRunSettings
-from tests.cross_run_github_fixtures import release_attestation
+from cross_run_github_fixtures import release_attestation
 
 CANONICAL_CONFIG_PATH = "src/kapso/config.yaml"
 REPOSITORY = "Leeroo-AI/kapso-knowledge"

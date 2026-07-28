@@ -20,12 +20,12 @@ from kapso.execution.run_checkpoint import RunCheckpoint, RunCheckpointStore
 from kapso.execution.search_strategies.node import SearchNode
 from kapso.execution.search_strategies.generic.strategy import GenericSearch
 
-from tests.test_evaluation_maintainer_wiring import (
+from test_evaluation_maintainer_wiring import (
     ScriptedMaintainerAgent,
     patch_maintainer_environment,
     write_entrypoint,
 )
-from tests.test_run_checkpoint import (
+from test_run_checkpoint import (
     CHECKPOINT_PATH,
     _effective_config,
     _init_git_workspace,

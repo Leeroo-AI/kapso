@@ -26,7 +26,7 @@ from kapso.execution.run_checkpoint import (
     RunCheckpointStore,
 )
 from kapso.execution.search_strategies.node import SearchNode
-from tests.test_run_checkpoint import CHECKPOINT_PATH
+from test_run_checkpoint import CHECKPOINT_PATH
 
 
 def _init_workspace(path: Path) -> git.Repo:

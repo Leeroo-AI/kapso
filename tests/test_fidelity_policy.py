@@ -27,14 +27,14 @@ from kapso.execution.fidelity import (
 from kapso.execution.search_strategies.node import SearchNode
 from kapso.execution.search_strategies.generic.strategy import GenericSearch
 
-from tests.test_evaluation_maintainer_wiring import (
+from test_evaluation_maintainer_wiring import (
     ScriptedMaintainerAgent,
     manifest_stdout,
     patch_maintainer_environment,
     write_entrypoint,
 )
-from tests.test_evaluator_transition import fake_eval_subprocess
-from tests.test_run_checkpoint import (
+from test_evaluator_transition import fake_eval_subprocess
+from test_run_checkpoint import (
     _effective_config,
     _init_git_workspace,
     _orchestrator,
