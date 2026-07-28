@@ -94,7 +94,7 @@ The existing v3 contracts are correct and remain unchanged:
 | `GenericSearch.node_history` | Current campaign's contiguous executable nodes and parentage | Foreign nodes |
 | `IdeaArchive` (`kapso.ideation_archive.v4`) | Current campaign batches, ideas, claims, gaps, decisions, outcomes, frozen prior packets | Foreign ideas with missing local batches |
 | `CampaignEvidenceSnapshot` | Deterministic projection of the current archive and current nodes | Prior-run evidence |
-| `ExperimentHistoryStore` (`kapso.experiment_history.v4`) | Strict executed projection of the current run; contiguous local node IDs | Cross-run records or unexecuted ideas |
+| `ExperimentHistoryStore` (`kapso.experiment_history.v5`) | Strict executed projection of the current run; contiguous local node IDs | Cross-run records or unexecuted ideas |
 | `RepoMemory` | Understanding of the code in one run's branches | Cross-run scientific truth |
 | `RunCheckpoint` | Exact resumable state of one run | A mutable global knowledge pointer |
 

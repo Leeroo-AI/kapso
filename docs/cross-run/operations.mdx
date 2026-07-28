@@ -23,7 +23,8 @@ kapso cross-run production-smoke \
   --state-root /var/lib/kapso-validation \
   --stages preflight bootstrap-authorities github-read embeddings \
            docker-authority knowledge-publication coding-agent-ideation \
-           task-adapter-bootstrap expert-proposal
+           task-adapter-bootstrap expert-proposal \
+           expert-validation-enrollment
 ```
 
 Stages run only in canonical order and append to one durable receipt at
@@ -39,6 +40,12 @@ may leave read-only diagnostics usable, but validation and execution fail closed
 publishes and activates one deterministic public transport adapter for every task
 binding in the scope. These adapters exercise the real validation and release
 matrix contracts; they are synthetic transport fixtures, not benchmark evidence.
+
+`expert-validation-enrollment` loads the exact E0 candidate from the prior stage,
+enters it into the durable validation state machine, and stops at the first signed
+evaluator boundary (`contract_schema`). Advancing beyond that point requires the
+configured independent evaluator authority; the smoke never manufactures a
+passing decision.
 
 ## Normal lifecycle
 

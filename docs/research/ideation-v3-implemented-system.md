@@ -108,11 +108,11 @@ IdeaBatch.batch_id
 Unselected ideas never enter experiment memory. Candidate/repair packets carry
 the complete proposal archive; the selector receives the current eligible pool
 and its analyses, including archived candidates deliberately resurfaced into
-that pool. No idea-history MCP gate is needed. Experiment MCP tools retain
-executed-only semantics. Experiment records use the strict
-`kapso.experiment_history.v4` shape; each executed solution is embedded once,
-reconciliation reuses that vector, and a store without an embedding backend is
-explicitly recency-only.
+that pool. No idea-history MCP gate is needed. Experiment records use the strict
+`kapso.experiment_history.v5` shape; each executed solution is embedded once and
+reconciliation reuses that vector. Cross-run retrieval is exclusively the pinned
+knowledge packet; experiment history has no independent retrieval fallback or MCP
+reader.
 
 ## Evaluator evidence write-back
 

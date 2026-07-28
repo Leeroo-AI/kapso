@@ -62,14 +62,14 @@ kapso cross-run verify
 kapso cross-run revoke
 ```
 
-- [ ] Every command accepts `--config`; repository coordinates and operational
+- [x] Every command accepts `--config`; repository coordinates and operational
       values come from the config file.
-- [ ] Commands print IDs, commits, release tags, asset digests, validation states,
+- [x] Commands print IDs, commits, release tags, asset digests, validation states,
       and next actions—but never secrets or raw sensitive content.
-- [ ] Mutation commands require explicit complete artifact/candidate IDs and
+- [x] Mutation commands require explicit complete artifact/candidate IDs and
       expected parent identities.
-- [ ] `inspect`/`verify` are read-only and work against local pins when applicable.
-- [ ] Provider diagnostics distinguish missing authentication, insufficient
+- [x] `inspect`/`verify` are read-only and work against local pins when applicable.
+- [x] Provider diagnostics distinguish missing authentication, insufficient
       permission, stale-parent conflict, network failure, schema corruption, and
       digest failure without fallback.
 
@@ -122,6 +122,8 @@ The system scenario is `tests/test_cross_run_system_e2e.py`. It composes the
 sealed M3–M9 artifacts once for both PostTrain-shaped and RelBench-shaped task
 contexts: EMPTY/E0 launch, captured experiment, catalog generation, S1 publication
 and retrieval, validated E1 candidate, later-task selection, and old-run resume.
+The successor assertions are exact: the later launch pins E1 and S1, replays the
+published E1 source bytes, and the original run remains pinned to E0 and EMPTY.
 The lower-level failure seams stay owned by their focused tests:
 
 | System seam | Existing evidence |
@@ -212,6 +214,22 @@ Sealed benchmark/canary testing is a separate explicitly authorized production
 stage and must not expose hidden examples to coding-agent processes or GitHub
 artifacts.
 
+### Production checkpoint (2026-07-27)
+
+The credentialed smoke has passed GitHub authority bootstrap/read, knowledge S1
+publication and clean retrieval, OpenAI embedding construction, Codex packet-only
+ideation, task-adapter publication, expert E0 proposal, and exact E0 validation
+enrollment. Enrollment deliberately stops at the `contract_schema` evaluator
+transition: it proves the proposed candidate is the one durably entering the
+validation state machine, but it does not forge an evaluator decision.
+
+Production has therefore **not** passed signed generic evaluator validation, E0
+publication, E1 proposal/publication, an E1/S1 production launch, concurrency,
+revocation, clean-machine execution, or live daemon/host restart. Those stages
+remain blocked by external production authorities described below. A sealed
+canary is optional for E0 and mechanically classified E1 validation and is not the
+current blocker.
+
 ## Production access checklist
 
 Do not paste long-lived secrets into prompts, commits, config, test output, or this
@@ -276,16 +294,18 @@ are present without printing secret values.
 
 ## Legacy deletion
 
-After the credentialed path passes:
+Completed before the final complete-suite gate:
 
-- [ ] Delete old IdeaArchive/Generic checkpoint readers and fixtures.
-- [ ] Delete active `initial_repo`/starter-selection cloning and config/docs.
-- [ ] Delete any prototype merged cross-run experiment store.
-- [ ] Delete duplicate embedding providers and old imports.
-- [ ] Delete any prototype GitHub App, candidate-PR, or human approval path; retain
+- [x] Delete old IdeaArchive/Generic checkpoint readers and fixtures; retain only
+      canonical IdeaArchive v4, GenericSearch v5, run-checkpoint v2, and
+      ExperimentHistoryStore v5 authorities.
+- [x] Delete active `initial_repo`/starter-selection cloning and config/docs.
+- [x] Delete any prototype merged cross-run experiment store.
+- [x] Delete duplicate embedding providers and old imports.
+- [x] Delete any prototype GitHub App, candidate-PR, or human approval path; retain
       only the configured external Git/`gh` credential discovery.
-- [ ] Delete fallback retrieval/publication paths and legacy aliases.
-- [ ] Delete or move every Docker-SDK mutator outside the pinned cross-run daemon;
+- [x] Delete fallback retrieval/publication paths and legacy aliases.
+- [x] Delete or move every Docker-SDK mutator outside the pinned cross-run daemon;
       repository search must show no shared-socket mutation bypass.
 - [ ] Run the complete suite after deletion and verify repository search finds no
       superseded schema/config/prompt names.
