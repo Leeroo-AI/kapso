@@ -4,7 +4,7 @@ Parent plan: [`00-orchestrator-plan.md`](00-orchestrator-plan.md)
 
 Depends on: M2, M5, and M8.
 
-Status: **in progress**. The transactional launch resolver and exact authority
+Status: **complete**. The transactional launch resolver and exact authority
 contracts, atomic workspace/bootstrap-pin installation, exact run-checkpoint
 contracts, the protected checkpoint CAS store, the immutable derived-generation
 contract/layout, and the dependency-pure reconciled archive/history/journal
@@ -433,33 +433,33 @@ For a fresh launch:
 - [x] The baseline commit, tree, and index are deterministic across local paths,
       umasks, and host Git configuration; reopen requires the exact config,
       identity, ref, loose-object, index, file-mode, and directory closure.
-- [ ] Before activation, route every coding-agent/evaluator process through a
+- [x] Before activation, route every coding-agent/evaluator process through a
       fail-closed execution permit whose OS sandbox cannot resolve the run-root
       control plane; a writable working directory alone is not isolation.
-- [ ] `RepoMemory` is rebuilt from the actual composed workspace, not reused from
+- [x] `RepoMemory` is rebuilt from the actual composed workspace, not reused from
       the expert release or another run.
-- [ ] API activation proves no model/embedding/evaluator call begins before step 9
+- [x] API activation proves no model/embedding/evaluator call begins before step 9
       completes.
 
 ## API and CLI integration
 
-- [ ] Add explicit config-path plus `scope_id`/`task_family_id`/`task_adapter_id`
+- [x] Add explicit config-path plus `scope_id`/`task_family_id`/`task_adapter_id`
       launch inputs to `Kapso.evolve` and `kapso evolve`. Never accept expert or
       knowledge/security repository coordinates through the API/CLI.
-- [ ] Make benchmark runners obtain those three values from their typed
+- [x] Make benchmark runners obtain those three values from their typed
       `cross_run_binding`; callers normally select a benchmark mode rather than
       repeat the binding on every task.
 - [x] Bind PostTrainBench to
       `ml_ai/language_model_post_training/posttrain` and RelBench to
       `ml_ai/relational_tabular_prediction/relbench`; neither benchmark file may
       name any repository.
-- [ ] Replace direct `initial_repo` cloning and starter-repository selection with
+- [x] Replace direct `initial_repo` cloning and starter-repository selection with
       `LaunchResolver`/`StarterWorkspaceBuilder`.
-- [ ] Delete the old active arguments, config keys, selectors, cloning helpers,
+- [x] Delete the old active arguments, config keys, selectors, cloning helpers,
       prompts, tests, and docs when the new path activates; do not retain aliases.
-- [ ] Preserve an explicit task starting-artifact contract through the task adapter
+- [x] Preserve an explicit task starting-artifact contract through the task adapter
       rather than a generic repository escape hatch.
-- [ ] Return launch/snapshot/expert/task-adapter identities in result metadata.
+- [x] Return launch/snapshot/expert/task-adapter identities in result metadata.
 
 `EffectiveConfig.cross_run_binding` is the exact typed projection of the selected
 mode. `LaunchBootstrapCoordinator` requires that binding, the resolver, and the
