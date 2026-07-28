@@ -429,14 +429,10 @@ class Kapso:
         if not sources:
             raise ValueError("learn() requires at least one source")
 
-        # Backward-compatible handling: if a URL is provided, fall back to the default local wiki dir.
-        resolved_wiki_dir = wiki_dir
-        if isinstance(wiki_dir, str) and wiki_dir.startswith(("http://", "https://")):
-            print(
-                f"Warning: URL wiki_dir not supported yet ({wiki_dir}). "
-                "Using local wiki_dir='data/wikis' instead."
-            )
-            resolved_wiki_dir = "data/wikis"
+        if not isinstance(wiki_dir, str) or not wiki_dir.strip():
+            raise ValueError("wiki_dir must be a non-empty local filesystem path")
+        if wiki_dir.startswith(("http://", "https://")):
+            raise ValueError("wiki_dir must be a local filesystem path, not a URL")
 
         # Optional: propagate an existing `.index` file path into the merge agent.
         #
@@ -462,8 +458,7 @@ class Kapso:
         # These take precedence over config.yaml values
         if github_org is not None:
             ingestor_params["github_org"] = github_org
-        # is_private overrides github_repo_visibility from config
-        # Convert is_private (bool) to visibility string for backward compatibility
+        # is_private overrides github_repo_visibility from config.
         ingestor_params["github_repo_visibility"] = (
             "private" if is_private else "public"
         )
@@ -472,7 +467,7 @@ class Kapso:
         final_merger_params = {**config_merger_params, **merger_params}
 
         pipeline = KnowledgePipeline(
-            wiki_dir=resolved_wiki_dir,
+            wiki_dir=wiki_dir,
             ingestor_params=ingestor_params,
             merger_params=final_merger_params,
         )
