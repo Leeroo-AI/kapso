@@ -3,20 +3,18 @@
 What must hold: the handler context is the statement plus the minimal kapso
 contract (and stays free of the removed protocol/economics sermons), the
 runner's leaderboard parsing survives CLI pagination noise and windows
-submissions to the run, and the preparers build the exact layout the runner
-requires.
+submissions to the run, and the preflight parses a competition slug from its
+URL (fail-loud on a malformed one).
 """
 
-import json
 import os
 import time
 
 import pytest
 import yaml
 
-from benchmarks.kaggle.data.prepare_task1 import prepare
-from benchmarks.kaggle.data.prepare_task2 import prepare as prepare_task2
 from benchmarks.kaggle.handler import KaggleNotebookHandler
+from benchmarks.kaggle.preflight import slug_from_url
 from benchmarks.kaggle.runner import (
     audit_kernel,
     best_public_score,
@@ -107,58 +105,18 @@ def test_audit_kernel_flags_external_pulls(tmp_path):
     assert len(findings) == 1 and "MIT/ast-finetuned" in findings[0]
 
 
-def test_prepare_builds_runner_layout(tmp_path):
-    source = tmp_path / "src"
-    (source / "audio").mkdir(parents=True)
-    (source / "audio" / "a.wav").write_bytes(b"RIFF")
-    (source / "model").mkdir()
-    for name in ("config.json", "model.safetensors",
-                 "preprocessor_config.json"):
-        (source / "model" / name).write_text("{}")
-    (source / "train.csv").write_text(
-        "path,split,target,category\naudio/a.wav,train,0,Dog\n")
-    (source / "fine_tune.csv").write_text(
-        "path,split,target,category\naudio/a.wav,train,16,Axe\n")
-    (source / "submission.csv").write_text("path,target\naudio/a.wav,0\n")
-
-    root = prepare(str(tmp_path / "root"), str(source), "some-competition")
-
-    dataset = os.path.join(root, "task", "dataset")
-    for entry in ("audio/a.wav", "model/config.json", "train.csv",
-                  "fine_tune.csv", "submission.csv", "statement.md"):
-        assert os.path.exists(os.path.join(dataset, entry)), entry
-    with open(os.path.join(root, "task", "kaggle.json")) as f:
-        assert json.load(f) == {"competition": "some-competition"}
-
-
-def test_prepare_task2_builds_runner_layout(tmp_path):
-    import pickle
-
-    source = tmp_path / "src"
-    source.mkdir()
-    with open(source / "train_demos.pkl", "wb") as f:
-        pickle.dump({"trajectories": [{"layout_id": "train_0000"}]}, f)
-    for name in ("valid_scenarios.pkl", "test_scenarios.pkl"):
-        with open(source / name, "wb") as f:
-            pickle.dump([{"layout_id": "x", "episode_seed": 1}], f)
-
-    root = prepare_task2(str(tmp_path / "root"), str(source), "task2-comp")
-
-    dataset = os.path.join(root, "task", "dataset")
-    for entry in ("train_demos.pkl", "valid_scenarios.pkl",
-                  "test_scenarios.pkl", "statement.md"):
-        assert os.path.exists(os.path.join(dataset, entry)), entry
-    with open(os.path.join(root, "task", "kaggle.json")) as f:
-        assert json.load(f) == {"competition": "task2-comp"}
-    with pytest.raises(FileNotFoundError, match="train_demos"):
-        prepare_task2(str(tmp_path / "root2"), str(tmp_path), "c")
-
-
-def test_prepare_rejects_incomplete_source(tmp_path):
-    source = tmp_path / "src"
-    source.mkdir()
-    with pytest.raises(FileNotFoundError, match="audio"):
-        prepare(str(tmp_path / "root"), str(source), "c")
+def test_slug_from_url_parses_competition_forms():
+    cases = {
+        "https://www.kaggle.com/competitions/some-comp/overview": "some-comp",
+        "https://www.kaggle.com/competitions/some-comp": "some-comp",
+        "https://www.kaggle.com/c/another_comp/data": "another_comp",
+        "kaggle.com/competitions/ioai-2026-ai-models-track-practice-task-1/rules":
+            "ioai-2026-ai-models-track-practice-task-1",
+    }
+    for url, slug in cases.items():
+        assert slug_from_url(url) == slug
+    with pytest.raises(ValueError, match="slug"):
+        slug_from_url("https://example.com/not-a-competition")
 
 
 def test_kaggle_mode_config_minimal_knobs():

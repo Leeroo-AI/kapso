@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Kaggle code-competition runner (IOAI AI Models Track practice tasks).
 
-Runs the Kapso agent against a prepared run root (see prepare_task1.py),
+Runs the Kapso agent against a prepared run root (see preflight.py),
 then reads the ground truth from the Kaggle leaderboard: best publicScore
 among submissions made during the run window, plus a static audit of the
 submitted kernel source for external-resource violations.
@@ -188,7 +188,7 @@ def main():
     parser = argparse.ArgumentParser(
         description="Run Kapso on a Kaggle code competition")
     parser.add_argument("--root", required=True,
-                        help="Run root from prepare_task1.py")
+                        help="Run root from preflight.py")
     parser.add_argument("--hours", type=float, default=2.0)
     parser.add_argument("--guard-minutes", type=int, default=None)
     parser.add_argument("--iterations", type=int, default=20)
@@ -209,7 +209,7 @@ def main():
     kaggle_meta_path = os.path.join(task_dir, "kaggle.json")
     for required in (statement_path, kaggle_meta_path):
         if not os.path.isfile(required):
-            sys.exit(f"{required} missing — run prepare_task1.py first")
+            sys.exit(f"{required} missing — run preflight.py first")
     with open(kaggle_meta_path) as f:
         competition = json.load(f)["competition"]
 

@@ -72,6 +72,16 @@ modes:
     final_eval:
       timeout_seconds: 900
 
+    # URL->run-root preflight: one codex exec that downloads the competition
+    # (authenticated kaggle CLI) and authors dataset/statement.md per
+    # benchmarks/kaggle/preflight_spec.md. Model/effort mirror the codex
+    # coding roles (OpenAI's reasoning ceiling is xhigh, no "max" tier).
+    preflight:
+      model: "gpt-5.6-sol"
+      effort: "xhigh"
+      timeout: 1800
+      web_search: true
+
     models:
       utility:
         model: "gpt-5.6-luna"
