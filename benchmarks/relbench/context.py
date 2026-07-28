@@ -362,73 +362,48 @@ def _data_access_rules(spec: TaskSpec) -> str:
             "do not exist in your copy.\n"
         )
     return f"""
-Data access (read carefully — violations invalidate the run):
-- INTEGRITY — do NOT look up this problem's published solution. RelBench tasks
-  may derive from public datasets or past competitions (this one, for example,
-  may originate from a public challenge). You MUST NOT search the web for,
-  retrieve, read, or port a published SOLUTION to THIS specific task/dataset —
-  winning competition write-ups, leaderboard-winning code, an answer key, or a
-  feature recipe tuned to this exact dataset. If you find such material, stop
-  and do not use it. Searching for GENERAL methods, domain background, and
-  library usage is fine; obtaining the specific answer to this benchmark
-  problem from the web is forbidden and voids the run. Solve it yourself.
-- INTEGRITY (baseline weights) — you may NOT use the pretrained weights or
-  released checkpoints of the methods this run is compared against on the
-  RelBench leaderboard: KumoRFM / KumoRFM-2, Relational Transformer (RT),
-  PluRel, Griffin, Rel-LLM, or any other published RelBench-leaderboard
-  method — nor any checkpoint pretrained on RelBench databases (public
-  RelBench copies are un-truncated, so such checkpoints carry post-cutoff
-  facts). Beating a baseline by running the baseline is not a result; it
-  voids the run. The exclusion is their WEIGHTS only: their published
-  architectures and public code are fair game — cloning a method's
-  repository and training it from scratch on this task's sanctioned data
-  is legal and encouraged (disable and document any checkpoint
-  auto-download path in the cloned repo).
+Data access (violations invalidate the run):
+- INTEGRITY — do NOT look up this problem's published solution. This task may
+  derive from a public competition: never search for, read, or port a
+  published SOLUTION to THIS specific task/dataset (winning write-ups,
+  leaderboard code, answer keys, feature recipes tuned to it). General
+  methods, domain background, and library usage are fine. Solve it yourself.
+- INTEGRITY (baseline weights) — do NOT use the pretrained weights or
+  released checkpoints of the compared leaderboard methods — KumoRFM /
+  KumoRFM-2, Relational Transformer (RT), PluRel, Griffin, Rel-LLM, or any
+  other published RelBench-leaderboard method — nor any checkpoint
+  pretrained on RelBench databases (public copies are un-truncated). The
+  exclusion is their WEIGHTS only: cloning a method's public code and
+  training it from scratch on this task's data is legal and encouraged
+  (disable checkpoint auto-downloads).
 - Load data ONLY through the relbench API with download=False:
     from relbench.datasets import get_dataset
     from relbench.tasks import get_task
     dataset = get_dataset("{spec.dataset_name}", download=False)
     task = get_task("{spec.dataset_name}", "{spec.task_name}", download=False)
-    db = dataset.get_db()                      # input database
-    train = task.get_table("train")            # seed rows + labels
-    val   = task.get_table("val")              # seed rows + labels (tuning allowed)
-    test  = task.get_table("test")             # seed rows ONLY (labels held out)
-  RELBENCH_CACHE_DIR is preset to a sanitized read-only cache prepared for this task.
-- `download=True` will fail (read-only cache) — never use it. Never change
-  RELBENCH_CACHE_DIR, never read or write ~/.cache/relbench, and never re-fetch
-  the OFFICIAL RelBench distribution from the network — the raw distribution
-  contains post-cutoff rows, so fetching it is test leakage by definition.
+    db = dataset.get_db(); train/val = task.get_table(...)  # labels; val tuning allowed
+    test = task.get_table("test")                           # seed rows ONLY
+  RELBENCH_CACHE_DIR is preset to a sanitized read-only cache. Never use
+  download=True, change RELBENCH_CACHE_DIR, touch ~/.cache/relbench, or
+  re-fetch the OFFICIAL RelBench distribution — it contains post-cutoff
+  rows, so fetching it is test leakage by definition.
 - PRETRAINED MODELS (encouraged) — any pretrained model may be downloaded
-  and used: fine-tune it, distill it, use it as a feature extractor, or
-  build on it however helps. Leveraging the pretrained ecosystem is
-  encouraged, not merely tolerated — on this leaderboard the entries that
-  leverage pretraining form a tier above every from-scratch entry, so do
-  not rebuild what the ecosystem already provides. (The only carve-out is
-  the compared-baselines rule above.)
-- EXTERNAL DATASETS (encouraged) — downloading additional datasets is
-  allowed and encouraged, under one condition: ZERO leakage into this
-  task's test windows — ANY kind of leakage voids the experiment. The test
-  labels here are public real-world history (e.g. actual race results
-  after the cutoff), so a source that contains, or lets you derive,
-  post-cutoff facts about this database's domain must be truncated at the
-  cutoff before any feature touches it — the temporal-censoring rule
-  applies to external rows exactly as to db rows. Document each external
-  source in changes.log (provenance + why it is leak-free).
-- SYNTHETIC DATA — generating synthetic relational data yourself (e.g.
-  procedurally generated databases for pretraining) is legal and optionally
-  useful: it involves no external facts at all.
-{ac_note}- Temporal censoring is YOUR responsibility inside allowed data: every feature,
-  aggregation, join, or sampled neighborhood for a seed row at time t must only use
-  rows with time <= t.
-- Validation labels are for model selection AND may be used as training data for the
-  model that produces TEST predictions (they lie before the test cutoff) — but never
-  for the model that produces VAL predictions (see the prediction contract). Test rows
-  expose only ({spec.time_col}, {'src id' if spec.is_recommendation else 'entity id'}).
-- Do not call task.stats(), mask_input_cols=False on the test split, or
-  db.table_dict[...].removed_cols — they either crash on the sanitized cache or are
-  off-limits.
-- Determinism: seed numpy/torch/random; keep a fixed seed across runs so improvements
-  are attributable to ideas, not noise. If variance is suspected, average 2-3 seeds.
+  and used however helps (fine-tune, distill, feature-extract). Only
+  carve-out: the compared-baselines rule above.
+- EXTERNAL DATASETS (encouraged) — allowed under ONE condition: ZERO leakage
+  into the test windows; ANY leakage voids the experiment. Test labels are
+  public real-world history, so truncate any source covering this database's
+  domain at the cutoff before features touch it, and document each source in
+  changes.log (provenance + leak-free argument).
+- SYNTHETIC DATA — generating synthetic data yourself is legal.
+{ac_note}- Temporal censoring is YOUR responsibility: every feature/join for a seed
+  row at time t uses only rows with time <= t.
+- Val labels: model selection, and training ONLY for the test-predicting
+  model — never for the model producing val predictions (two-model
+  contract). Test rows expose only ({spec.time_col}, {'src id' if spec.is_recommendation else 'entity id'}).
+- Never call task.stats(), mask_input_cols=False on the test split, or
+  db.table_dict[...].removed_cols.
+- Determinism: fix seeds; average 2-3 seeds if variance is suspected.
 """
 
 
