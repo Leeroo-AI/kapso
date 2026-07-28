@@ -20,12 +20,21 @@
 import argparse
 import json
 import sys
+import time
 from pathlib import Path
 from typing import Optional
 
-from kapso.kapso import Kapso, Source, DeployStrategy
+from kapso.cross_run.operations import (
+    capture_cross_run,
+    inspect_cross_run,
+    operation_json,
+    publish_knowledge_cross_run,
+    verify_cross_run,
+)
 from kapso.cross_run.launch.contracts import LaunchTaskContextRequest
+from kapso.execution.solution import SolutionResult
 from kapso.execution.coding_agents.factory import CodingAgentFactory
+from kapso.kapso import DeployStrategy, Kapso, Source
 from kapso.researcher import ResearchMode, ResearchDepth
 
 
@@ -225,8 +234,6 @@ def cmd_research(args) -> None:
 
     # Save to file if requested
     if args.output:
-        import json
-
         output_data = {
             "objective": objective,
             "mode": modes,
@@ -293,8 +300,6 @@ def cmd_learn(args) -> None:
 
 def cmd_deploy(args) -> None:
     """Handle the deploy command - deploy solutions."""
-    from kapso.execution.solution import SolutionResult
-
     # Create a SolutionResult from the provided path
     solution = SolutionResult(
         goal=args.goal or "Deployed solution",
@@ -345,15 +350,8 @@ def cmd_deploy(args) -> None:
     # If interactive mode, keep running
     if args.interactive:
         print("\nSoftware deployed. Press Ctrl+C to stop.")
-        try:
-            import time
-
-            while True:
-                time.sleep(1)
-        except KeyboardInterrupt:
-            print("\nStopping software...")
-            software.stop()
-            print("Stopped.")
+        while True:
+            time.sleep(1)
 
 
 def cmd_index_kg(args) -> None:
@@ -385,7 +383,42 @@ def cmd_index_kg(args) -> None:
     print(f"Index saved to: {index_path}")
 
 
-def main():
+def cmd_cross_run(args) -> None:
+    """Delegate one cross-run operation to its sealed service composition."""
+
+    common = {
+        "config_path": args.config,
+        "mode": args.mode,
+    }
+    if args.cross_run_operation == "inspect":
+        result = inspect_cross_run(
+            **common,
+            scope_id=args.scope_id,
+            state_root=Path(args.state_root),
+        )
+    elif args.cross_run_operation == "capture":
+        result = capture_cross_run(
+            **common,
+            request_path=Path(args.input),
+        )
+    elif args.cross_run_operation == "publish-knowledge":
+        result = publish_knowledge_cross_run(
+            **common,
+            request_path=Path(args.input),
+            state_root=Path(args.state_root),
+        )
+    elif args.cross_run_operation == "verify":
+        result = verify_cross_run(
+            **common,
+            scope_id=args.scope_id,
+            state_root=Path(args.state_root),
+        )
+    else:
+        raise ValueError("unknown cross-run operation")
+    sys.stdout.buffer.write(operation_json(result))
+
+
+def main(argv=None):
     # Main parser
     parser = argparse.ArgumentParser(
         description="Kapso Agent - Build robust software from goals",
@@ -609,6 +642,30 @@ Examples:
     )
 
     # =========================================================================
+    # CROSS-RUN command
+    # =========================================================================
+    cross_run_parser = subparsers.add_parser(
+        "cross-run",
+        help="Operate GitHub-backed cross-run knowledge and expert releases",
+    )
+    cross_run_subparsers = cross_run_parser.add_subparsers(
+        dest="cross_run_operation",
+        required=True,
+    )
+    for operation in ("inspect", "capture", "publish-knowledge", "verify"):
+        operation_parser = cross_run_subparsers.add_parser(operation)
+        operation_parser.add_argument("--config", required=True)
+        operation_parser.add_argument("--mode", required=True)
+        if operation in {"inspect", "verify"}:
+            operation_parser.add_argument("--scope-id", required=True)
+            operation_parser.add_argument("--state-root", required=True)
+        elif operation == "capture":
+            operation_parser.add_argument("--input", required=True)
+        else:
+            operation_parser.add_argument("--input", required=True)
+            operation_parser.add_argument("--state-root", required=True)
+
+    # =========================================================================
     # INDEX_KG command
     # =========================================================================
     index_parser = subparsers.add_parser(
@@ -644,7 +701,7 @@ Examples:
     # =========================================================================
     # Parse and execute
     # =========================================================================
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     # Handle global options
     if args.list_agents:
@@ -662,6 +719,8 @@ Examples:
         cmd_deploy(args)
     elif args.command == "index_kg":
         cmd_index_kg(args)
+    elif args.command == "cross-run":
+        cmd_cross_run(args)
     else:
         parser.print_help()
         print(
