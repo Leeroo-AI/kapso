@@ -9,6 +9,7 @@ from kapso.cross_run.launch.run_action_coding_agent_contracts import (
     CodingAgentPriorKnowledgeAccessEvent,
     CodingAgentPriorKnowledgeAccessKind,
     RunActionCodingAgentContractError,
+    read_canonical_coding_agent_result,
 )
 from kapso.cross_run.launch.run_action_coding_agent_interpreter import (
     CODING_AGENT_RESULT_INTERPRETATION_PROTOCOL_VERSION,
@@ -101,7 +102,7 @@ def test_identity_is_exactly_content_bound_to_the_interpretation_policy():
         )
 
 
-def test_offline_consumer_and_interpreter_accept_only_the_structured_output():
+def test_offline_consumer_and_interpreter_accept_the_complete_result_envelope():
     policy = interpretation_policy()
     request = run_action_request(policy)
     request_payload = request.to_json_bytes()
@@ -122,9 +123,10 @@ def test_offline_consumer_and_interpreter_accept_only_the_structured_output():
     assert interpreted == repeated
     assert interpreted.disposition is RunActionResultDisposition.SUCCEEDED
     assert interpreted.operation_id == request.operation_id
-    assert interpreted.accepted_result_payload == canonical_json_bytes(
-        {"answer": "Use the exact evidence."}
-    )
+    assert interpreted.accepted_result_payload == result_payload
+    assert read_canonical_coding_agent_result(
+        interpreted.accepted_result_payload
+    ).structured_output == {"answer": "Use the exact evidence."}
     assert interpreted.expected_workspace_before_source_tree_digest is None
     assert interpreted.expected_workspace_after_source_tree_digest is None
 
@@ -251,9 +253,7 @@ def test_prior_knowledge_access_is_semantic_and_path_free():
         result_payload=result_payload,
     )
 
-    assert interpreted.accepted_result_payload == canonical_json_bytes(
-        {"answer": "Use the exact evidence."}
-    )
+    assert interpreted.accepted_result_payload == result_payload
     serialized = json.loads(result_payload)
     assert set(serialized) == {
         "consumer_id",

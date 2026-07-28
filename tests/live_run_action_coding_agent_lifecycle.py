@@ -29,6 +29,9 @@ from kapso.cross_run.docker.runtime import (
 from kapso.cross_run.launch.run_action_coding_agent_interpreter import (
     CodingAgentRunActionResultInterpreter,
 )
+from kapso.cross_run.launch.run_action_coding_agent_contracts import (
+    read_canonical_coding_agent_result,
+)
 from kapso.cross_run.launch.run_action_coding_agent_production import (
     build_coding_agent_boundary_identity,
     build_coding_agent_execution_policy,
@@ -387,9 +390,10 @@ def test_native_offline_image_completes_the_eight_event_lifecycle(
             RunActionExecutionEventKind.RESULT_DECIDED,
             RunActionExecutionEventKind.RESULT_ACCEPTED,
         )
-        assert terminal.recovered_operations[-1].accepted_result_payload == (
-            b'{"answer":"offline boundary passed"}'
+        accepted = read_canonical_coding_agent_result(
+            terminal.recovered_operations[-1].accepted_result_payload
         )
+        assert accepted.structured_output == {"answer": "offline boundary passed"}
         assert resource_manager.observe(
             terminal_events[1].preparation_allocation
         ).is_absent

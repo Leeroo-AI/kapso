@@ -124,7 +124,7 @@ class CodingAgentRunActionResultInterpreter:
         return RunActionInterpretedResult(
             disposition=RunActionResultDisposition.SUCCEEDED,
             operation_id=request.operation_id,
-            accepted_result_payload=canonical_json_bytes(result.structured_output),
+            accepted_result_payload=result.to_json_bytes(),
             expected_workspace_before_source_tree_digest=(
                 request.edit_predecessor_source_tree_digest if editing else None
             ),
