@@ -51,6 +51,7 @@ from kapso.cross_run.expert.validation import (
 from kapso.cross_run.settings import (
     CrossRunConfigurationError,
     CrossRunSettings,
+    ExpertEvaluatorTrustRootSettings,
 )
 from kapso.cross_run.github.materializer import SourceArchiveExtractionReceipt
 from kapso.cross_run.task_adapters import (
@@ -1493,7 +1494,16 @@ def test_bounded_evaluator_result_advances_only_the_exact_next_stage(tmp_path):
     store = candidate_store(tmp_path)
     stored = store.persist(bootstrap_candidate_closure())
     adapter = _task_adapter(stored.closure)
-    settings = _validation_settings()
+    settings = replace(
+        _validation_settings(),
+        evaluator_trust_roots=(
+            ExpertEvaluatorTrustRootSettings(
+                trust_root_id="contract_evaluator_root",
+                issuer_ids=("expert_contract_evaluator",),
+                public_key_base64="AA==",
+            ),
+        ),
+    )
     eligibility = _eligibility_evaluator(settings, store, adapter).decide(
         candidate_id=stored.closure.manifest.candidate_id,
     )
@@ -1516,6 +1526,10 @@ def test_bounded_evaluator_result_advances_only_the_exact_next_stage(tmp_path):
         duration_seconds=1.0,
         outcome=ExpertEvaluatorOutcome.PASSED,
         signature="test-signature",
+    )
+    assert (
+        result.attestation_envelope.attestation.trust_root_id
+        == "contract_evaluator_root"
     )
 
     advanced = _validation_reducer(settings, adapter).advance_evaluator_stage(

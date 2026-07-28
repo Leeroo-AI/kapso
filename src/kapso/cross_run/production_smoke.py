@@ -31,6 +31,7 @@ from kapso.cross_run.contracts import (
     CrossRunTaskBindingSettings,
     EMPTY_EXPERT_TREE_DIGEST,
     ExpertScopeContract,
+    ExpertValidationStage,
     PriorIdea,
     PriorIdeaStatus,
     PublicationArtifactKind,
@@ -301,6 +302,7 @@ def _preflight(
     image = settings.launch.coding_agent_image
     return {
         "repositories": repositories,
+        "expert_evaluator_authority": _expert_evaluator_authority(settings),
         "coding_agent_credential": {
             "present": True,
             "private": True,
@@ -316,6 +318,26 @@ def _preflight(
                 "architecture_variant": image.architecture_variant,
             }
         ),
+    }
+
+
+def _expert_evaluator_authority(settings: CrossRunSettings) -> Mapping[str, Any]:
+    validation = settings.expert.validation
+    issuers = {
+        evaluator.evaluator_id: validation.evaluator_trust_root_id(
+            evaluator.evaluator_id
+        )
+        for evaluator in validation.policy.evaluators
+        if evaluator.stage is not ExpertValidationStage.SEALED_CANARY
+    }
+    missing = tuple(
+        sorted(issuer_id for issuer_id, root_id in issuers.items() if root_id is None)
+    )
+    return {
+        "configured": not missing,
+        "issuer_trust_roots": issuers,
+        "missing_issuer_ids": missing,
+        "sealed_canary_trust_root": validation.policy.sealed_canary_trust_root,
     }
 
 

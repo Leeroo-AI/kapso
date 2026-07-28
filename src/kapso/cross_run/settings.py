@@ -1419,6 +1419,21 @@ class ExpertValidationSettings(StrictContract):
                 "task evaluation millicore limit has no exact runtime quota"
             )
 
+    def evaluator_trust_root_id(self, issuer_id: str) -> str | None:
+        """Resolve the unique configured Ed25519 root for one evaluator issuer."""
+
+        require_identifier(issuer_id, "expert evaluator issuer_id")
+        matches = tuple(
+            root.trust_root_id
+            for root in self.evaluator_trust_roots
+            if issuer_id in root.issuer_ids
+        )
+        if len(matches) > 1:
+            raise CrossRunConfigurationError(
+                "expert evaluator issuer maps to multiple trust roots"
+            )
+        return None if not matches else matches[0]
+
     @property
     def configuration_fingerprint(self) -> str:
         return tree_or_blob_digest(canonical_json_bytes(self.to_dict()))

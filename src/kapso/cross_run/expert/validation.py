@@ -689,7 +689,7 @@ class ExpertEvaluatorRunBuilder:
         trust_root_id = (
             self.settings.policy.sealed_canary_trust_root
             if stage is ExpertValidationStage.SEALED_CANARY
-            else None
+            else self.settings.evaluator_trust_root_id(evaluator.evaluator_id)
         )
         if stage is ExpertValidationStage.SEALED_CANARY and trust_root_id is None:
             raise ExpertValidationError("sealed canary trust root is unavailable")
@@ -1918,7 +1918,7 @@ class ExpertValidationReducer:
         expected_trust_root = (
             self.settings.policy.sealed_canary_trust_root
             if run.stage is ExpertValidationStage.SEALED_CANARY
-            else None
+            else self.settings.evaluator_trust_root_id(run.evaluator_id)
         )
         if attestation.trust_root_id != expected_trust_root:
             raise ExpertValidationError("evaluator attestation trust root is invalid")

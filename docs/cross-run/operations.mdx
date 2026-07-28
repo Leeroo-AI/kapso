@@ -31,6 +31,10 @@ Stages run only in canonical order and append to one durable receipt at
 a completed stage verifies and returns the same receipt without repeating paid or
 remote work. A changed config, fixture, stage order, or corrupt receipt fails.
 
+Preflight reports evaluator issuer-to-root coverage and the pinned image identity
+without exposing public-key or credential bytes. Missing roots or a missing image
+may leave read-only diagnostics usable, but validation and execution fail closed.
+
 `task-adapter-bootstrap` verifies the configured content-pinned image, then
 publishes and activates one deterministic public transport adapter for every task
 binding in the scope. These adapters exercise the real validation and release

@@ -60,3 +60,9 @@ def test_configured_ed25519_attestation_verifies_exact_issuer_and_bytes():
     )
     with pytest.raises(InvalidSignature):
         ConfiguredExpertAttestationVerifier(validation).verify(substituted)
+
+    assert (
+        validation.evaluator_trust_root_id("expert_contract_evaluator")
+        == "synthetic_evaluator_root"
+    )
+    assert validation.evaluator_trust_root_id("expert_code_evaluator") is None

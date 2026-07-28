@@ -153,3 +153,19 @@ def test_task_adapter_bootstrap_precedes_expert_proposal():
     stages = smoke_module.production_smoke_stage_names()
 
     assert stages.index("task-adapter-bootstrap") < stages.index("expert-proposal")
+
+
+def test_preflight_evaluator_summary_exposes_missing_roots_without_keys():
+    settings = load_effective_config(_CONFIG_PATH, "GENERIC").cross_run
+
+    authority = smoke_module._expert_evaluator_authority(settings)
+
+    assert authority["configured"] is False
+    assert "expert_contract_evaluator" in authority["missing_issuer_ids"]
+    assert authority["issuer_trust_roots"]["expert_contract_evaluator"] is None
+    assert set(authority) == {
+        "configured",
+        "issuer_trust_roots",
+        "missing_issuer_ids",
+        "sealed_canary_trust_root",
+    }
