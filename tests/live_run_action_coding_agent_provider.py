@@ -127,8 +127,10 @@ def _start_broker(
     return broker
 
 
+@pytest.mark.parametrize("use_prior_knowledge", (False, True))
 def test_real_codex_runs_inside_the_network_isolated_production_image(
     owned_tmp_path,
+    use_prior_knowledge,
 ):
     tmp_path = owned_tmp_path
     cross_run = CrossRunSettings.from_dict(load_config(_CONFIG_PATH)["cross_run"])
@@ -211,7 +213,9 @@ def test_real_codex_runs_inside_the_network_isolated_production_image(
     )
     request = run_action_request(
         policy,
-        prior_knowledge=citable_access_materialization(),
+        prior_knowledge=(
+            citable_access_materialization() if use_prior_knowledge else None
+        ),
         response_schema={
             "type": "object",
             "properties": {"answer": {"type": "string", "enum": [_EXPECTED_ANSWER]}},
@@ -223,11 +227,19 @@ def test_real_codex_runs_inside_the_network_isolated_production_image(
         **{
             **request.to_dict(),
             "prompt": (
-                "Without changing the workspace, you MUST first call "
-                "prior_knowledge.list_prior_knowledge, then call "
-                "prior_knowledge.get_prior_knowledge_record for the single record "
-                "returned by that list. Only after both calls succeed, return the "
-                f"required JSON answer exactly as {_EXPECTED_ANSWER!r}."
+                (
+                    "Without changing the workspace, you MUST first call "
+                    "prior_knowledge.list_prior_knowledge, then call "
+                    "prior_knowledge.get_prior_knowledge_record for the single "
+                    "record returned by that list. Only after both calls succeed, "
+                    "return the required JSON answer exactly as "
+                    f"{_EXPECTED_ANSWER!r}."
+                )
+                if use_prior_knowledge
+                else (
+                    "Without changing the workspace, return the required JSON "
+                    f"answer exactly as {_EXPECTED_ANSWER!r}."
+                )
             ),
         }
     )
@@ -319,12 +331,17 @@ def test_real_codex_runs_inside_the_network_isolated_production_image(
     )
     result.validate_against(policy=policy, request=request)
     assert result.structured_output == {"answer": _EXPECTED_ANSWER}
-    assert tuple(access.access_kind for access in result.prior_knowledge_accesses) == (
-        CodingAgentPriorKnowledgeAccessKind.LIST,
-        CodingAgentPriorKnowledgeAccessKind.GET,
-    )
-    assert result.prior_knowledge_accesses[1].returned_record_ids == (
-        request.prior_knowledge.prior_knowledge_snapshot.selected_record_ids[0],
-    )
+    if use_prior_knowledge:
+        assert tuple(
+            access.access_kind for access in result.prior_knowledge_accesses
+        ) == (
+            CodingAgentPriorKnowledgeAccessKind.LIST,
+            CodingAgentPriorKnowledgeAccessKind.GET,
+        )
+        assert result.prior_knowledge_accesses[1].returned_record_ids == (
+            request.prior_knowledge.prior_knowledge_snapshot.selected_record_ids[0],
+        )
+    else:
+        assert result.prior_knowledge_accesses == ()
     assert result.input_tokens > 0
     assert result.output_tokens > 0
