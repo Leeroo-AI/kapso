@@ -176,8 +176,26 @@ def test_signed_immutable_response_replays_without_another_dispatch(
     def read_ref(*_arguments, **_keywords):
         return _REVISION
 
-    def pages(_endpoint):
-        return tuple(releases)
+    def graphql(_query, variables):
+        matches = tuple(
+            release
+            for release in releases
+            if release["tag_name"] == variables["tag"]
+        )
+        assert variables["owner"] == "Leeroo-AI"
+        assert variables["repository"] == "kapso-security"
+        assert len(matches) <= 1
+        return {
+            "data": {
+                "repository": {
+                    "release": (
+                        None
+                        if not matches
+                        else {"databaseId": matches[0]["id"]}
+                    )
+                }
+            }
+        }
 
     def api_json(method, endpoint, body=None):
         if method == "POST" and endpoint.endswith("/releases"):
@@ -254,7 +272,7 @@ def test_signed_immutable_response_replays_without_another_dispatch(
         }
 
     monkeypatch.setattr(client, "read_ref_commit", read_ref)
-    monkeypatch.setattr(client, "api_json_pages", pages)
+    monkeypatch.setattr(client, "graphql", graphql)
     monkeypatch.setattr(client, "api_json", api_json)
     monkeypatch.setattr(client, "upload_release_asset", upload)
     monkeypatch.setattr(client, "download_release_asset", download)

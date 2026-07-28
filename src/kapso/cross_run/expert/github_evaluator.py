@@ -41,7 +41,6 @@ _WORKFLOW_FILE = "kapso-expert-evaluator.yml"
 _REQUEST_ASSET = "request.json"
 _EVALUATION_ASSET = "evaluation.json"
 _RESULT_ASSET = "result.json"
-_RELEASE_PAGE_SIZE = 100
 _SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 _DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 _EXTERNAL_STAGES = {
@@ -341,17 +340,46 @@ class GitHubExpertEvaluatorExchange:
         return release
 
     def _find_release(self, tag: str) -> Mapping[str, Any] | None:
-        releases = self.client.api_json_pages(
-            f"repos/{self.security_repository}/releases?per_page={_RELEASE_PAGE_SIZE}"
+        owner, repository = self.security_repository.split("/", 1)
+        response = self.client.graphql(
+            "query($owner:String!,$repository:String!,$tag:String!){"
+            "repository(owner:$owner,name:$repository){"
+            "release(tagName:$tag){databaseId}}}",
+            {
+                "owner": owner,
+                "repository": repository,
+                "tag": tag,
+            },
         )
-        matches = tuple(
-            release
-            for release in releases
-            if isinstance(release, Mapping) and release.get("tag_name") == tag
-        )
-        if len(matches) > 1:
-            raise GitHubExpertEvaluatorError("evaluator release tag is ambiguous")
-        return None if not matches else matches[0]
+        if not isinstance(response, Mapping) or set(response) != {"data"}:
+            raise GitHubExpertEvaluatorError(
+                "evaluator release lookup response is invalid"
+            )
+        data = response["data"]
+        if not isinstance(data, Mapping) or set(data) != {"repository"}:
+            raise GitHubExpertEvaluatorError(
+                "evaluator release lookup data is invalid"
+            )
+        repository_result = data["repository"]
+        if not isinstance(repository_result, Mapping) or set(repository_result) != {
+            "release"
+        }:
+            raise GitHubExpertEvaluatorError(
+                "evaluator release lookup repository is invalid"
+            )
+        release = repository_result["release"]
+        if release is None:
+            return None
+        if not isinstance(release, Mapping) or set(release) != {"databaseId"}:
+            raise GitHubExpertEvaluatorError(
+                "evaluator release lookup identity is invalid"
+            )
+        release_id = release["databaseId"]
+        if type(release_id) is not int or release_id < 1:
+            raise GitHubExpertEvaluatorError(
+                "evaluator release lookup identity is invalid"
+            )
+        return self._release(release_id)
 
     def _wait_for_immutable_response(
         self,
