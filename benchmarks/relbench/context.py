@@ -275,6 +275,8 @@ Experimentation notes for this search:
   $KAPSO_SHARED_CACHE_DIR. How to spend the remaining budget is your call.
 - Beat-the-number focus: the current published state of the art for this task is shown
   below (if known). Treat it as the bar; report progress against it in your logs.
+- Every iteration, before anything else: read features_history.md and apply the
+  FEATURE ENGINEERING rules above — new features first, all tables covered.
 """
 
 
@@ -283,18 +285,19 @@ Experimentation notes for this search:
 # ---------------------------------------------------------------------------
 
 FEATURE_ENGINEERING_NOTE = (
-    "Feature engineering over the relational database is a standing "
-    "high-value direction on this benchmark, not a one-time setup step. "
-    "Representation work — new joins across tables, temporally-censored "
+    "FEATURE ENGINEERING IS THE PRIMARY DIRECTION OF THIS CAMPAIGN — the "
+    "axis where iteration budget goes first and the one this instruction "
+    "emphasizes above everything else. Representation work over the "
+    "relational database — new joins across tables, temporally-censored "
     "transforms, cohort-level priors, interaction and trend encodings — "
     "repeatedly decides these tasks, and a documented failure mode of "
     "past campaigns is freezing the feature matrix once an early "
     "champion emerges and never re-widening it while later iterations "
     "swap model mechanisms. Treat the feature matrix as never finished: "
-    "keep probing for columns that improve the metric, and let an "
-    "iteration leave the matrix unchanged only on measured saturation "
-    "evidence (an ablation or importance study showing no headroom), "
-    "never by default.\n"
+    "every iteration should ask 'which features have we not tried?' "
+    "before it asks anything else, and an iteration may leave the matrix "
+    "unchanged only on measured saturation evidence (an ablation or "
+    "importance study showing no headroom), never by default.\n"
     "Two standing rules:\n"
     "1. ALL TABLES (hard rule) — your features must draw on EVERY table in "
     "the database. Excluding a table is allowed only with a justified, "
@@ -427,9 +430,9 @@ def build_problem_context(
         "\n## Database schema (your sanitized copy)\n" + describe_database(db, dataset),
         "\n## Prediction contract\n" + _prediction_contract(spec, len(val_df), n_test),
         "\n## Data access rules\n" + _data_access_rules(spec),
-        "\n## Resources\n" + _resources(spec, has_gpu, num_cpus, mem_gb, gpu_name),
-        "\n## Feature engineering (standing high-value direction)\n"
+        "\n## FEATURE ENGINEERING — THE PRIMARY DIRECTION\n"
         + FEATURE_ENGINEERING_NOTE,
+        "\n## Resources\n" + _resources(spec, has_gpu, num_cpus, mem_gb, gpu_name),
         "\n## Living documents (shared artifact workspace)\n"
         + LIVING_DOCUMENTS_NOTE,
         "\n## Iteration protocol\n" + _iteration_protocol(spec),
