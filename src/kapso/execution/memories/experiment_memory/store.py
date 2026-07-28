@@ -8,7 +8,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, Iterable, List, Mapping, Optional
 
-from kapso.core.llm import LLMBackend
+from kapso.core.embedding_contracts import EmbeddingProvider
 from kapso.cross_run.canonical import (
     canonical_json_bytes,
     require_identifier,
@@ -25,7 +25,6 @@ from kapso.cross_run.github.command import CommandOutputKind, CommandRunner
 from kapso.execution.memories.experiment_memory.record import (
     EXPERIMENT_HISTORY_SCHEMA as _EXPERIMENT_HISTORY_SCHEMA,
     ExperimentRecord as _ExperimentRecord,
-    cosine_similarity as _cosine_similarity,
 )
 
 
@@ -51,7 +50,7 @@ class ExperimentHistoryStore:
         objective_direction: Optional[str] = None,
         require_idea_links: Optional[bool] = None,
         goal: Optional[str] = None,
-        llm: Optional[LLMBackend] = None,
+        embedding_provider: Optional[EmbeddingProvider] = None,
         run_id: Optional[str] = None,
         campaign_id: Optional[str] = None,
         journal_path: Optional[str] = None,
@@ -61,7 +60,7 @@ class ExperimentHistoryStore:
     ):
         self.path = Path(json_path)
         self.goal = goal
-        self._llm = llm
+        self._embedding_provider = embedding_provider
         self.experiments: List[_ExperimentRecord] = []
         self.revision = 0
         self.run_id = run_id
@@ -152,8 +151,11 @@ class ExperimentHistoryStore:
         solution_embedding: Iterable[float] = ()
         if existing and existing[0].solution == node.solution:
             solution_embedding = existing[0].solution_embedding
-        elif self._llm is not None and node.solution.strip():
-            solution_embedding = self._llm.create_embedding(node.solution)
+        elif self._embedding_provider is not None and node.solution.strip():
+            batch = self._embedding_provider.embed((node.solution,))
+            if len(batch.records) != 1:
+                raise ValueError("solution embedding must return exactly one record")
+            solution_embedding = batch.records[0].vector
         record = _ExperimentRecord.from_node(
             node,
             self.objective_direction,
@@ -436,24 +438,6 @@ class ExperimentHistoryStore:
     def get_recent_experiments(self, k: int = 5) -> List[_ExperimentRecord]:
         self._require_limit(k)
         return self.experiments[-k:]
-
-    def search_similar(self, query: str, k: int = 3) -> List[_ExperimentRecord]:
-        self._require_limit(k)
-        if not isinstance(query, str) or not query.strip():
-            raise ValueError("experiment similarity query must be non-empty")
-        embedded = [record for record in self.experiments if record.solution_embedding]
-        if self._llm is None or not embedded:
-            return self.get_recent_experiments(k)
-        query_embedding = self._llm.create_embedding(query)
-        ranked = sorted(
-            embedded,
-            key=lambda record: (
-                _cosine_similarity(query_embedding, record.solution_embedding),
-                record.node_id,
-            ),
-            reverse=True,
-        )
-        return ranked[:k]
 
     def get_experiment_count(self) -> int:
         return len(self.experiments)

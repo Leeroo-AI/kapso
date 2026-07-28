@@ -32,8 +32,8 @@ from kapso.execution.search_strategies.generic.ideation.evidence_author import (
 )
 from kapso.environment.handlers.base import ProblemHandler
 from kapso.core.llm import LLMBackend
+from kapso.core.embedding_provider import OpenAIEmbeddingProvider
 from kapso.core.config import load_config, load_effective_config
-from kapso.execution.search_strategies.base import ExperimentResult
 from kapso.execution.search_strategies.node import SearchNode
 from kapso.execution.memories.experiment_memory.store import ExperimentHistoryStore
 from kapso.execution.search_strategies.generic.ideation.types import new_identifier
@@ -104,7 +104,7 @@ _MAINTAINER_BLOCK_KEYS = {
 class SolveResult:
     """Result from orchestrator.solve()."""
 
-    best_experiment: Optional[ExperimentResult]
+    best_experiment: Optional[SearchNode]
     final_feedback: Optional[FeedbackResult]
     stopped_reason: str  # "goal_achieved", "max_iterations", "budget_exhausted"
     iterations_run: int
@@ -381,7 +381,9 @@ class OrchestratorAgent:
                 )
             ),
             goal=self.goal,
-            llm=self.llm,
+            embedding_provider=OpenAIEmbeddingProvider(
+                self.cross_run_settings.launch.experiment_embeddings
+            ),
             run_id=run_id,
             campaign_id=campaign_id,
             journal_path=str(journal_path),

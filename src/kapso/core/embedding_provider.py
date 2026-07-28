@@ -23,15 +23,16 @@ class OpenAIEmbeddingProvider:
         if not settings.enabled:
             raise ValueError("disabled embeddings must not construct a provider")
         self.settings = settings
-        self.client = (
-            client
-            if client is not None
-            else OpenAI(
-                timeout=settings.timeout_seconds,
-                max_retries=settings.max_retries,
+        self.client = client
+
+    def _client(self) -> Any:
+        if self.client is None:
+            self.client = OpenAI(
+                timeout=self.settings.timeout_seconds,
+                max_retries=self.settings.max_retries,
                 _strict_response_validation=True,
             )
-        )
+        return self.client
 
     def embed(self, texts: Iterable[str]) -> EmbeddingBatch:
         inputs = tuple(texts)
@@ -46,7 +47,7 @@ class OpenAIEmbeddingProvider:
         started = time.monotonic()
         for start in range(0, len(inputs), self.settings.batch_size):
             input_batch = inputs[start : start + self.settings.batch_size]
-            response = self.client.embeddings.create(
+            response = self._client().embeddings.create(
                 model=self.settings.model,
                 dimensions=self.settings.dimensions,
                 encoding_format="float",

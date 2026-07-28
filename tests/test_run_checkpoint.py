@@ -5,11 +5,12 @@ from typing import Any, Dict, List, Optional
 import git
 import pytest
 
+import kapso.execution.orchestrator as orchestrator_module
 import kapso.execution.run_checkpoint as checkpoint_module
 from kapso.core.config import load_config
 from kapso.cross_run.settings import CrossRunSettings
 from kapso.cross_run.contracts import CompletionState
-from kapso.execution.orchestrator import OrchestratorAgent, SolveResult
+from kapso.execution.orchestrator import OrchestratorAgent
 from kapso.execution.run_checkpoint import (
     RunCheckpoint,
     RunCheckpointCompletedError,
@@ -76,9 +77,6 @@ def _init_git_workspace(path: Path) -> git.Repo:
 class FakeLLM:
     def get_cumulative_cost(self) -> float:
         return 0.0
-
-    def create_embedding(self, text, model=None):
-        return []
 
 
 class FakeProblemHandler:
@@ -239,9 +237,12 @@ def _patch_orchestrator(
     *,
     stop_next: bool = False,
 ) -> None:
-    import kapso.execution.orchestrator as orchestrator_module
-
     monkeypatch.setattr(orchestrator_module, "LLMBackend", FakeLLM)
+    monkeypatch.setattr(
+        orchestrator_module,
+        "OpenAIEmbeddingProvider",
+        lambda settings: None,
+    )
     monkeypatch.setattr(
         orchestrator_module,
         "load_effective_config",

@@ -20,12 +20,11 @@ from kapso.execution.search_strategies.generic.ideation.types import new_identif
 from test_ideation_domain import NOW
 
 
-def journaled_store(path, *, objective_direction, require_idea_links, llm=None):
+def journaled_store(path, *, objective_direction, require_idea_links):
     return ExperimentHistoryStore(
         str(path),
         objective_direction=objective_direction,
         require_idea_links=require_idea_links,
-        llm=llm,
         run_id="run_test",
         campaign_id="campaign_test",
         journal_path=str(path.with_name("execution_events.jsonl")),

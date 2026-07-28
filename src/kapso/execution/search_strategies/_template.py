@@ -191,7 +191,7 @@ class MyStrategy(SearchStrategy):
             best_last: If True, sort so best experiments are at the end
             
         Returns:
-            List of ExperimentResult objects
+            List of SearchNode objects
         """
         if best_last:
             # Sort by score (adjust based on maximize_scoring)
@@ -209,7 +209,7 @@ class MyStrategy(SearchStrategy):
         Return the best experiment result so far.
         
         Returns:
-            Best ExperimentResult, or None if no successful experiments
+            Best SearchNode, or None if no successful experiments
         """
         valid_experiments = [exp for exp in self.experiment_history if not exp.had_error]
         

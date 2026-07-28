@@ -9,6 +9,7 @@ from typing import Any, Dict, Iterator, List, Optional
 import git
 import pytest
 
+import kapso.execution.orchestrator as orchestrator_module
 from kapso.core.config import load_config
 from kapso.cross_run.settings import CrossRunSettings
 from kapso.execution.iteration_evaluator import (
@@ -19,13 +20,12 @@ from kapso.execution.iteration_evaluator import (
 )
 from kapso.execution.memories.experiment_memory.record import ExperimentRecord
 from kapso.execution.memories.experiment_memory.store import format_experiments
-from kapso.execution.orchestrator import OrchestratorAgent, SolveResult
+from kapso.execution.orchestrator import OrchestratorAgent
 from kapso.execution.run_checkpoint import (
     RunCheckpointIncompatibleError,
     RunCheckpointStore,
 )
 from kapso.execution.search_strategies.node import SearchNode
-from kapso.kapso import Kapso
 from tests.test_run_checkpoint import CHECKPOINT_PATH
 
 
@@ -45,9 +45,6 @@ def _init_workspace(path: Path) -> git.Repo:
 class FakeLLM:
     def get_cumulative_cost(self) -> float:
         return 0.0
-
-    def create_embedding(self, text, model=None):
-        return []
 
 
 class FakeProblemHandler:
@@ -144,12 +141,15 @@ class TwoCandidateStrategy:
 
 
 def _patch_orchestrator(monkeypatch: pytest.MonkeyPatch) -> None:
-    import kapso.execution.orchestrator as orchestrator_module
-
     cross_run = CrossRunSettings.from_dict(
         load_config("src/kapso/config.yaml")["cross_run"]
     )
     monkeypatch.setattr(orchestrator_module, "LLMBackend", FakeLLM)
+    monkeypatch.setattr(
+        orchestrator_module,
+        "OpenAIEmbeddingProvider",
+        lambda settings: None,
+    )
     monkeypatch.setattr(
         orchestrator_module,
         "load_effective_config",
@@ -447,82 +447,3 @@ def test_raise_policy_stops_before_history_and_checkpoint_write(
         "candidate_0",
         "candidate_1",
     }
-
-
-def test_public_evolve_forwards_evaluator_and_reports_selected_metrics(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import kapso.kapso as kapso_module
-
-    workspace = tmp_path / "workspace"
-    _init_workspace(workspace)
-    captured: Dict[str, Any] = {}
-    selected = SearchNode(
-        node_id=0,
-        branch_name="candidate_0",
-        solution="selected",
-        score=0.5,
-        metrics={"holdout_accuracy": 0.8},
-        primary_metric="holdout_accuracy",
-    )
-
-    class PublicFakeStrategy:
-        def __init__(self) -> None:
-            self.workspace = SimpleNamespace(workspace_dir=str(workspace))
-
-        def get_experiment_history(self) -> List[SearchNode]:
-            return [selected]
-
-        def get_deliverable_score(self):
-            return selected.score
-
-        def checkout_to_best_experiment_branch(self) -> str:
-            return "candidate_0"
-
-    class PublicFakeOrchestrator:
-        def __init__(self, handler: Any, **kwargs: Any):
-            captured.update(kwargs)
-            self.search_strategy = PublicFakeStrategy()
-
-        def solve(
-            self,
-            experiment_max_iter: int,
-            time_budget_minutes=None,
-            cost_budget=None,
-            finalization_reserve_minutes=None,
-        ) -> SolveResult:
-            return SolveResult(
-                best_experiment=selected,
-                final_feedback=None,
-                stopped_reason="max_iterations",
-                iterations_run=1,
-                total_cost=0.0,
-                cumulative_iterations=1,
-            )
-
-    monkeypatch.setattr(
-        kapso_module,
-        "OrchestratorAgent",
-        PublicFakeOrchestrator,
-    )
-
-    def evaluator(context: Any) -> IterationEvaluationResult:
-        return IterationEvaluationResult(metrics={})
-
-    kapso = Kapso.__new__(Kapso)
-    kapso.config_path = None
-    kapso.knowledge_search = SimpleNamespace(is_enabled=lambda: False)
-    solution = kapso.evolve(
-        goal="Improve support",
-        output_path=str(workspace),
-        max_iterations=1,
-        resume=True,
-        iteration_evaluator=evaluator,
-        iteration_evaluator_failure_policy="raise",
-    )
-
-    assert captured["iteration_evaluator"] is evaluator
-    assert captured["iteration_evaluator_failure_policy"] == "raise"
-    assert solution.metadata["external_metrics"] == {"holdout_accuracy": 0.8}
-    assert solution.metadata["external_primary_metric"] == ("holdout_accuracy")

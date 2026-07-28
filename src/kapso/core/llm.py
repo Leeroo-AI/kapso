@@ -10,7 +10,7 @@ import time
 from dataclasses import asdict, dataclass
 from typing import Any, Awaitable, Callable, Dict, List, Mapping, Optional, Sequence
 
-from litellm import acompletion, completion, embedding
+from litellm import acompletion, completion
 
 # Suppress verbose LiteLLM logs.
 logging.getLogger("LiteLLM").setLevel(logging.WARNING)
@@ -18,12 +18,11 @@ logging.getLogger("litellm").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 
-MODEL_ROLES = frozenset({"utility", "reasoning", "web_search", "embedding"})
+MODEL_ROLES = frozenset({"utility", "reasoning", "web_search"})
 DEFAULT_MODEL_ROUTES: Dict[str, str] = {
     "utility": "gpt-4.1-mini",
     "reasoning": "gpt-5-mini",
     "web_search": "openai/gpt-4o-search-preview",
-    "embedding": "text-embedding-3-small",
 }
 
 
@@ -584,26 +583,6 @@ class LLMBackend:
             return [self._content(item) for item in await asyncio.gather(*tasks)]
 
         return asyncio.run(_run())
-
-    def create_embedding(
-        self,
-        text: str,
-        model: Optional[str] = None,
-    ) -> List[float]:
-        """Embed the FULL text via the router's embedding role.
-
-        The text is never clipped on the way in (an embedding of a prefix
-        silently misrepresents the document). Transient provider failures
-        retry under the backend's policy; genuine errors propagate.
-        """
-        resolved = self.model_router.resolve(model, default_role="embedding")
-        response = self._run_sync(
-            "embedding",
-            resolved,
-            lambda: embedding(model=resolved, input=[text]),
-        )
-        return list(response.data[0]["embedding"])
-
 
 def main() -> None:
     llm = LLMBackend()
