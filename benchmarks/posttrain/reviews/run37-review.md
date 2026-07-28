@@ -91,3 +91,45 @@ grounds, to long-CoT scaling — and the logit-KD lever remains untried.**
 - State at cut: dev gate (2 decode points @16k) firing on the long-CoT
   model; ~3h to session close; RFT top-up and final official read queued
   behind the gate.
+
+## P3 (close-out: RUN_DONE 00:07Z → rescore 01:2xZ) — FINAL VERDICT
+
+**FINAL: official 0.0 via rescore (clean 30/30, 0 retries) · both judges
+clean · 3 iterations (0.0 / 0.0 / soup promoted, 0/30).** Shipped
+final_model = weight-space soup of the two training lineages (byte-verified,
+temp 0.8/rp 1.05) — dev-best of the campaign on this cell.
+
+What run #37 established:
+- **Capability moved for the first time in ANY gemma-AIME attempt**: base 0
+  → 19.6% MATH-L4/5; AIME-24 = 1/30 by genuine reasoning (no official
+  attempt, ours or the leaderboard's, ever produced that). The playbook's
+  mechanisms work as capability levers.
+- **The official cell did not convert**: 7 milestone reads + the rescore,
+  all 0/30. ~3% concentrated capability doesn't intersect AIME-2025's
+  specific 30. With the record now known to be an answer-only selection
+  artifact, the truthful leaderboard statement is: NO artifact has ever
+  solved an AIME-2025 problem on this cell by reasoning.
+- **Falsified this run**: teacher-trace SFT (sequence-level), RFT (works
+  once, saturates), long-CoT SFT, checkpoint soup — as OFFICIAL-score
+  levers at 4B. **Still unfalsified: true logit/soft-target KD** (deferred
+  in both iterations; never implemented).
+- **R37-P3-1 — codex ideation 401 in iter-3** (ChatGPT auth.json staled
+  mid-run; graceful degradation to prior candidates). The codex-auth
+  analogue of the OAuth-expiry problem — flag for an auth.json refresh
+  before long runs.
+- **R37-P3-2 — official-read count 7**: highest of the campaign; every
+  read was a distinct banked artifact milestone (no repeated draws of one
+  artifact), but future runs at a noise floor should cap explicitly.
+- Zero session-limit events / zero swaps across ~10h (fresh token).
+  Serving bug 9/9; rescore clean.
+
+## Experiment series verdict (runs 28 → 36 → 37)
+
+Cold (0.0) → recipe-seeded (0.0, process transformed) → playbook-seeded
+(0.0, capability transformed). Shared learning demonstrably improves each
+layer it can reach — plans, process, now measurable capability — and the
+official score stays pinned at the base model's ceiling. Cell disposition:
+CLOSED for 10h/1-GPU attempts unless someone implements the one untried
+mechanism (logit-KD) or the rules/base change. The honest campaign claim:
+our 0.0-by-reasoning ties every reasoning attempt ever made, and our
+artifact is the only one with demonstrated AIME-class capability.
