@@ -786,7 +786,7 @@ def test_clean_root_imports_current_snapshot_and_mints_one_direct_successor(
         parent_snapshot_ids=(content_id("knowledge-snapshot", {"transport": "empty"}),),
         sanitation_policy_version=settings.sanitation.policy_version,
         retrieval_policy_version="kapso.retrieval.v1",
-        published_at="2026-07-28T08:00:00Z",
+        published_at=fixture["committed_at"],
         publisher_attestation={"issuer": "test-publisher"},
     ).package
 
@@ -825,7 +825,7 @@ def test_clean_root_imports_current_snapshot_and_mints_one_direct_successor(
         parent_snapshot_ids=(old_package.manifest.snapshot_id,),
         sanitation_policy_version=settings.sanitation.policy_version,
         retrieval_policy_version="kapso.retrieval.v1",
-        published_at="2026-07-28T08:00:00Z",
+        published_at=fixture["committed_at"],
         publisher_attestation={"issuer": "test-publisher"},
     ).package
 

@@ -1,5 +1,5 @@
 {
-  "committed_at": "2026-07-28T08:00:00Z",
+  "committed_at": "2026-07-28T23:00:00Z",
   "embedding_inputs": [
     "Post-training synthetic transport fixture: improve a small model without hidden data.",
     "Relational prediction synthetic transport fixture: predict a public tabular target without hidden data."
