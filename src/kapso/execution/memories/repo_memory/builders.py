@@ -19,6 +19,7 @@ import os
 import re
 import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Protocol, Tuple
 
 from kapso.core.prompt_loader import load_prompt, render_prompt
@@ -217,6 +218,55 @@ class EvidenceCheck:
     missing: List[str]
 
 
+def validate_evidence(repo_root: str, model: Dict[str, Any]) -> EvidenceCheck:
+    """Verify every Book evidence quote against its referenced repository file."""
+
+    validated = _validate_repo_model(model)
+    root = Path(repo_root).resolve(strict=True)
+    missing: List[str] = []
+    for section_id, section in validated["sections"].items():
+        if not isinstance(section_id, str) or not isinstance(section, dict):
+            raise RepoMemoryResponseError("RepoMemory section is invalid")
+        claims = section.get("claims", [])
+        if not isinstance(claims, list):
+            raise RepoMemoryResponseError("RepoMemory section claims must be a list")
+        for claim_position, claim in enumerate(claims):
+            if not isinstance(claim, dict):
+                raise RepoMemoryResponseError("RepoMemory claim must be an object")
+            evidence = claim.get("evidence", [])
+            if not isinstance(evidence, list):
+                raise RepoMemoryResponseError("RepoMemory evidence must be a list")
+            for evidence_position, item in enumerate(evidence):
+                location = (
+                    f"sections[{section_id}].claims[{claim_position}]"
+                    f".evidence[{evidence_position}]"
+                )
+                if not isinstance(item, dict):
+                    raise RepoMemoryResponseError("RepoMemory evidence must be an object")
+                relative_path = item.get("path")
+                quote = item.get("quote")
+                if (
+                    not isinstance(relative_path, str)
+                    or not relative_path
+                    or not isinstance(quote, str)
+                    or not quote
+                ):
+                    missing.append(f"{location}: missing path/quote")
+                    continue
+                candidate = (root / relative_path).resolve()
+                if not candidate.is_relative_to(root) or not candidate.is_file():
+                    missing.append(f"{location}: file not found: {relative_path}")
+                    continue
+                text = candidate.read_text(encoding="utf-8", errors="replace")
+                if quote not in text and " ".join(quote.split()) not in " ".join(
+                    text.split()
+                ):
+                    missing.append(
+                        f"{location}: quote not found in {relative_path}"
+                    )
+    return EvidenceCheck(ok=not missing, missing=missing)
+
+
 def _build_toc_from_sections(sections: Dict[str, Any]) -> List[Dict[str, str]]:
     """
     Build a simple Table of Contents from a v2 `sections` dict.
@@ -237,21 +287,6 @@ def _build_toc_from_sections(sections: Dict[str, Any]) -> List[Dict[str, str]]:
             }
         )
     return toc
-
-
-def _sections_to_flat_claims(sections: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """
-    Flatten v2 sections -> a single list of claims (legacy compatibility helper).
-    
-    This is useful when a consumer still expects a v1-style `repo_model.claims[]`.
-    """
-    sections = sections or {}
-    flat: List[Dict[str, Any]] = []
-    for sec in sections.values():
-        for claim in (sec or {}).get("claims", []) or []:
-            if isinstance(claim, dict):
-                flat.append(claim)
-    return flat
 
 
 def _add_line_numbers(text: str) -> str:
@@ -327,24 +362,13 @@ def _validate_repo_model(model: Dict[str, Any]) -> Dict[str, Any]:
             "RepoMemory JSON requires a string 'summary'"
         )
 
-    if "sections" in model:
-        if not isinstance(model["sections"], dict):
-            raise RepoMemoryResponseError(
-                "RepoMemory JSON field 'sections' must be an object"
-            )
-        return model
-
-    legacy_fields = {
-        "entrypoints": list,
-        "where_to_edit": list,
-        "claims": list,
-    }
-    if all(isinstance(model.get(key), expected) for key, expected in legacy_fields.items()):
-        return model
-
-    raise RepoMemoryResponseError(
-        "RepoMemory JSON requires V2 'sections' or the complete legacy fields"
-    )
+    if set(model) != {"summary", "sections"} or not isinstance(
+        model["sections"], dict
+    ):
+        raise RepoMemoryResponseError(
+            "RepoMemory JSON requires exactly 'summary' and object 'sections'"
+        )
+    return model
 
 
 def _complete_repo_model(

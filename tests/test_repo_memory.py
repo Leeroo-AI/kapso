@@ -387,7 +387,6 @@ def test_bootstrap_baseline_model_with_real_llm(sample_repo, llm):
     # Check structure
     assert doc.get("schema_version") == 2
     assert "repo_map" in doc
-    assert "repo_model" in doc
     assert "book" in doc
     assert "quality" in doc
 
@@ -398,25 +397,25 @@ def test_bootstrap_baseline_model_with_real_llm(sample_repo, llm):
     ), f"Evidence validation failed: {quality.get('missing_evidence')}"
     assert quality["claim_count"] >= 1, "Should have at least one claim"
 
-    # Check repo_model has content
-    repo_model = doc["repo_model"]
-    assert repo_model.get("summary"), "Summary should not be empty"
-    assert len(repo_model.get("claims", [])) >= 1, "Should have at least one claim"
-
-    # Check book is present and has TOC/sections (v2)
-    book = doc.get("book", {}) or {}
+    book = doc["book"]
+    assert book["summary"], "Summary should not be empty"
     assert "toc" in book
     assert "sections" in book
 
     # Verify evidence validation independently
-    check = validate_evidence(str(sample_repo), repo_model)
+    check = validate_evidence(str(sample_repo), book)
     assert check.ok, f"Independent evidence check failed: {check.missing}"
 
     # Print summary for inspection
     print("\n=== Generated RepoMemory ===")
-    print(f"Summary: {repo_model.get('summary', '')[:500]}")
-    print(f"Claims: {len(repo_model.get('claims', []))}")
-    for claim in repo_model.get("claims", [])[:5]:
+    claims = [
+        claim
+        for section in book["sections"].values()
+        for claim in section.get("claims", [])
+    ]
+    print(f"Summary: {book['summary'][:500]}")
+    print(f"Claims: {len(claims)}")
+    for claim in claims[:5]:
         print(f"  - [{claim.get('kind')}] {claim.get('statement', '')[:100]}")
 
 
@@ -534,13 +533,13 @@ def k_fold_split(X: np.ndarray, y: np.ndarray, k: int = 5) -> List[Tuple[np.ndar
     assert "cross_validator.py" in exp["changed_files"]
 
     # Verify evidence independently
-    repo_model = doc["repo_model"]
-    check = validate_evidence(str(sample_repo), repo_model)
+    book = doc["book"]
+    check = validate_evidence(str(sample_repo), book)
     assert check.ok, f"Independent evidence check failed: {check.missing}"
 
     print("\n=== Updated RepoMemory ===")
-    print(f"Summary: {repo_model.get('summary', '')[:500]}")
-    print(f"Claims: {len(repo_model.get('claims', []))}")
+    print(f"Summary: {book['summary'][:500]}")
+    print(f"Claims: {quality['claim_count']}")
     print(f"Experiments recorded: {len(experiments)}")
 
 
@@ -557,26 +556,40 @@ def test_validate_evidence_catches_invalid_quotes():
 
         # Valid claim
         valid_model = {
-            "claims": [
-                {
-                    "kind": "algorithm",
-                    "statement": "Has a hello function",
-                    "evidence": [{"path": "foo.py", "quote": "def hello():"}],
+            "summary": "hello",
+            "sections": {
+                "core.architecture": {
+                    "claims": [
+                        {
+                            "kind": "algorithm",
+                            "statement": "Has a hello function",
+                            "evidence": [
+                                {"path": "foo.py", "quote": "def hello():"}
+                            ],
+                        }
+                    ]
                 }
-            ]
+            },
         }
         check = validate_evidence(tmp, valid_model)
         assert check.ok, "Valid quote should pass"
 
         # Invalid claim (hallucinated quote)
         invalid_model = {
-            "claims": [
-                {
-                    "kind": "algorithm",
-                    "statement": "Has a goodbye function",
-                    "evidence": [{"path": "foo.py", "quote": "def goodbye():"}],
+            "summary": "goodbye",
+            "sections": {
+                "core.architecture": {
+                    "claims": [
+                        {
+                            "kind": "algorithm",
+                            "statement": "Has a goodbye function",
+                            "evidence": [
+                                {"path": "foo.py", "quote": "def goodbye():"}
+                            ],
+                        }
+                    ]
                 }
-            ]
+            },
         }
         check = validate_evidence(tmp, invalid_model)
         assert not check.ok, "Hallucinated quote should fail"
@@ -584,13 +597,20 @@ def test_validate_evidence_catches_invalid_quotes():
 
         # Invalid claim (file doesn't exist)
         missing_file_model = {
-            "claims": [
-                {
-                    "kind": "algorithm",
-                    "statement": "Has bar module",
-                    "evidence": [{"path": "bar.py", "quote": "anything"}],
+            "summary": "bar",
+            "sections": {
+                "core.architecture": {
+                    "claims": [
+                        {
+                            "kind": "algorithm",
+                            "statement": "Has bar module",
+                            "evidence": [
+                                {"path": "bar.py", "quote": "anything"}
+                            ],
+                        }
+                    ]
                 }
-            ]
+            },
         }
         check = validate_evidence(tmp, missing_file_model)
         assert not check.ok, "Missing file should fail"
@@ -601,7 +621,7 @@ def test_validate_evidence_catches_invalid_quotes():
 # ---------------------------------------------------------------------------
 
 
-def test_render_brief_produces_usable_prompt(sample_repo, llm):
+def test_render_summary_and_toc_produces_usable_prompt(sample_repo, llm):
     """Test that render_summary_and_toc produces a usable prompt summary."""
     # Bootstrap
     RepoMemoryManager.bootstrap_baseline_model(

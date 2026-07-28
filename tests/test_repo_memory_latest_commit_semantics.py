@@ -11,7 +11,6 @@ This test asserts the resulting git history shape:
 - The recorded `head_commit` / `code_head_commit` inside RepoMemory matches the
   parent commit of the memory commit (the last code/data commit)
 
-NOTE: This test uses real LLM calls via `LLMBackend()` and costs money.
 """
 
 from __future__ import annotations
@@ -19,19 +18,23 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import git
-from dotenv import load_dotenv
-
-load_dotenv()
-
-from kapso.core.llm import LLMBackend
 from kapso.execution.coding_agents.base import CodingAgentConfig
 from kapso.execution.experiment_workspace.experiment_workspace import ExperimentWorkspace
 from kapso.execution.memories.repo_memory import RepoMemoryManager
 
 
+class DeterministicRepoMemoryLLM:
+    def llm_completion(self, model, messages, **kwargs):
+        if "files_to_read" in messages[0]["content"]:
+            return '{"files_to_read": [{"path": "README.md", "why": "overview"}]}'
+        return '{"summary": "Repository with an entrypoint", "sections": {}}'
+
+    def get_cumulative_cost(self):
+        return 0.0
+
+
 def test_repo_memory_update_runs_after_final_commit(tmp_path: Path):
-    llm = LLMBackend()
+    llm = DeterministicRepoMemoryLLM()
 
     # Use an agent adapter that can initialize without external deps/keys.
     agent_cfg = CodingAgentConfig(
@@ -97,4 +100,3 @@ def test_repo_memory_update_runs_after_final_commit(tmp_path: Path):
     parent_sha = head.parents[0].hexsha if head.parents else ""
     assert last.get("head_commit") == parent_sha
     assert last.get("code_head_commit") == parent_sha
-
