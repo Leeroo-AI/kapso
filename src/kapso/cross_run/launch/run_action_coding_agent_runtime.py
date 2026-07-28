@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import ctypes
+import errno
 import os
 import re
 import signal
@@ -48,6 +49,21 @@ _PR_SET_NO_NEW_PRIVS = 38
 _PR_GET_PDEATHSIG = 2
 _PR_SET_PDEATHSIG = 1
 _PR_CAPBSET_DROP = 24
+_PR_SET_SECCOMP = 22
+_SECCOMP_MODE_FILTER = 2
+_AUDIT_ARCH_X86_64 = 0xC000003E
+_SECCOMP_DATA_NUMBER_OFFSET = 0
+_SECCOMP_DATA_ARCHITECTURE_OFFSET = 4
+_X32_SYSCALL_BIT = 0x40000000
+_SET_PROCESS_GROUP_SYSCALL = 109
+_SET_SESSION_ID_SYSCALL = 112
+_BPF_LOAD_WORD_ABSOLUTE = 0x20
+_BPF_JUMP_EQUAL_CONSTANT = 0x15
+_BPF_RETURN_CONSTANT = 0x06
+_BPF_AND_CONSTANT = 0x54
+_SECCOMP_RETURN_KILL_PROCESS = 0x80000000
+_SECCOMP_RETURN_ERRNO = 0x00050000
+_SECCOMP_RETURN_ALLOW = 0x7FFF0000
 
 _ACCESS_EXECUTE = 1 << 0
 _ACCESS_WRITE_FILE = 1 << 1
@@ -128,6 +144,22 @@ class _UserCapabilityData(ctypes.Structure):
         ("effective", ctypes.c_uint32),
         ("permitted", ctypes.c_uint32),
         ("inheritable", ctypes.c_uint32),
+    )
+
+
+class _SocketFilter(ctypes.Structure):
+    _fields_ = (
+        ("code", ctypes.c_ushort),
+        ("jump_true", ctypes.c_ubyte),
+        ("jump_false", ctypes.c_ubyte),
+        ("constant", ctypes.c_uint32),
+    )
+
+
+class _SocketFilterProgram(ctypes.Structure):
+    _fields_ = (
+        ("length", ctypes.c_ushort),
+        ("filters", ctypes.POINTER(_SocketFilter)),
     )
 
 
@@ -424,6 +456,7 @@ def main() -> None:
             expected_abi_version=arguments.landlock_abi_version,
             descriptor_rules=descriptor_rules,
         )
+        apply_provider_session_containment()
         _require_inherited_descriptor_bindings(inherited_descriptors)
     for descriptor in inherited_descriptors.mutable_directories:
         os.close(descriptor)
@@ -502,6 +535,106 @@ def _drop_provider_privilege(arguments: argparse.Namespace) -> None:
     if os.getppid() != parent_process_id:
         raise RunActionCodingAgentRuntimeError(
             "provider trusted parent changed during privilege erasure"
+        )
+
+
+def apply_provider_session_containment() -> None:
+    """Deny every provider descendant a new session or process group."""
+
+    filters = (_SocketFilter * 10)(
+        _SocketFilter(
+            _BPF_LOAD_WORD_ABSOLUTE,
+            0,
+            0,
+            _SECCOMP_DATA_ARCHITECTURE_OFFSET,
+        ),
+        _SocketFilter(
+            _BPF_JUMP_EQUAL_CONSTANT,
+            1,
+            0,
+            _AUDIT_ARCH_X86_64,
+        ),
+        _SocketFilter(_BPF_RETURN_CONSTANT, 0, 0, _SECCOMP_RETURN_KILL_PROCESS),
+        _SocketFilter(
+            _BPF_LOAD_WORD_ABSOLUTE,
+            0,
+            0,
+            _SECCOMP_DATA_NUMBER_OFFSET,
+        ),
+        _SocketFilter(
+            _BPF_AND_CONSTANT,
+            0,
+            0,
+            ~_X32_SYSCALL_BIT & 0xFFFFFFFF,
+        ),
+        _SocketFilter(
+            _BPF_JUMP_EQUAL_CONSTANT,
+            0,
+            1,
+            _SET_PROCESS_GROUP_SYSCALL,
+        ),
+        _SocketFilter(
+            _BPF_RETURN_CONSTANT,
+            0,
+            0,
+            _SECCOMP_RETURN_ERRNO | errno.EPERM,
+        ),
+        _SocketFilter(
+            _BPF_JUMP_EQUAL_CONSTANT,
+            0,
+            1,
+            _SET_SESSION_ID_SYSCALL,
+        ),
+        _SocketFilter(
+            _BPF_RETURN_CONSTANT,
+            0,
+            0,
+            _SECCOMP_RETURN_ERRNO | errno.EPERM,
+        ),
+        _SocketFilter(_BPF_RETURN_CONSTANT, 0, 0, _SECCOMP_RETURN_ALLOW),
+    )
+    program = _SocketFilterProgram(len(filters), filters)
+    libc = ctypes.CDLL(None, use_errno=True)
+    if libc.prctl(_PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0:
+        _raise_system_call_error("set provider session no-new-privileges")
+    if (
+        libc.prctl(
+            _PR_SET_SECCOMP,
+            _SECCOMP_MODE_FILTER,
+            ctypes.byref(program),
+            0,
+            0,
+        )
+        != 0
+    ):
+        _raise_system_call_error("install provider session-containment filter")
+    _require_provider_session_containment()
+
+
+def _require_provider_session_containment() -> None:
+    child_process_id = os.fork()
+    if child_process_id == 0:
+        libc = ctypes.CDLL(None, use_errno=True)
+        set_group_result = libc.syscall(_SET_PROCESS_GROUP_SYSCALL, 0, 0)
+        set_group_error = ctypes.get_errno()
+        ctypes.set_errno(0)
+        set_session_result = libc.syscall(_SET_SESSION_ID_SYSCALL)
+        set_session_error = ctypes.get_errno()
+        contained = (
+            set_group_result == -1
+            and set_group_error == errno.EPERM
+            and set_session_result == -1
+            and set_session_error == errno.EPERM
+        )
+        os._exit(0 if contained else 1)
+    observed_process_id, status = os.waitpid(child_process_id, 0)
+    if (
+        observed_process_id != child_process_id
+        or not os.WIFEXITED(status)
+        or os.WEXITSTATUS(status) != 0
+    ):
+        raise RunActionCodingAgentRuntimeError(
+            "provider session containment was not enforced exactly"
         )
 
 
@@ -823,6 +956,7 @@ def _raise_system_call_error(action: str) -> None:
 
 __all__ = [
     "apply_provider_landlock",
+    "apply_provider_session_containment",
     "coding_agent_provider_sandbox_command",
     "PROVIDER_SANDBOX_MODULE",
     "main",

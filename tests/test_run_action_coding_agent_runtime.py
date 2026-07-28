@@ -26,6 +26,7 @@ from kapso.cross_run.launch.run_action_coding_agent_runtime import (
     ProviderSandboxDescriptors,
     RunActionCodingAgentRuntimeError,
     apply_provider_landlock,
+    apply_provider_session_containment,
     coding_agent_provider_sandbox_command,
 )
 from kapso.cross_run.launch.run_action_contracts import RunFrontierWorkspaceAccess
@@ -437,3 +438,30 @@ def test_landlock_signal_scope_blocks_the_provider_from_its_parent(tmp_path):
     assert completion.returncode != 0
     assert completion.stdout == b""
     assert b"PermissionError" in completion.stderr
+
+
+def test_session_containment_denies_provider_group_and_session_escape():
+    program = (
+        "from kapso.cross_run.launch.run_action_coding_agent_runtime import "
+        "apply_provider_session_containment;"
+        "import errno,os;"
+        "apply_provider_session_containment();"
+        "group_denied=False;session_denied=False;"
+        "\ntry: os.setpgid(0,0)"
+        "\nexcept PermissionError as error: group_denied=error.errno==errno.EPERM"
+        "\ntry: os.setsid()"
+        "\nexcept PermissionError as error: session_denied=error.errno==errno.EPERM"
+        "\nraise SystemExit(0 if group_denied and session_denied else 1)"
+    )
+
+    completion = subprocess.run(
+        (sys.executable, "-c", program),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+
+    assert completion.returncode == 0
+    assert completion.stdout == b""
+    assert completion.stderr == b""
