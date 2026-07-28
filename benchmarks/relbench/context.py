@@ -2,9 +2,8 @@
 
 Assembles the static problem description handed to the ideation LLM and the
 coding agent: schema, task definition (including the exact label-generating
-SQL), split protocol, prediction contract, hard leakage rules, resource
-constraints, and a family-specific playbook of techniques that are known to
-move the needle on RelBench.
+SQL), split protocol, prediction contract, hard leakage rules, and resource
+constraints.
 
 The context is built once per task (the orchestrator reads it a single time),
 so anything dynamic (budget progress, best-so-far) is surfaced through
@@ -147,154 +146,6 @@ def _task_definition(task, spec: TaskSpec) -> str:
         except (OSError, TypeError):
             pass
     return "\n".join(lines)
-
-
-# ---------------------------------------------------------------------------
-# Family playbooks
-# ---------------------------------------------------------------------------
-
-_COMMON_PLAYBOOK = """
-- Baseline first, then iterate: get a correct end-to-end run (even a simple model) writing
-  both prediction files before attempting anything sophisticated. A scored run beats a
-  brilliant crash.
-- The official SOTA reference for this benchmark is Relational Deep Learning (RDL): a
-  heterogeneous temporal GNN (GraphSAGE-style) over the pkey-fkey graph with per-table
-  PyTorch Frame column encoders and text embeddings, trained with time-aware neighbor
-  sampling.
-- Strong non-GNN contender on many tasks: temporally-censored SQL feature engineering
-  (duckdb) + gradient boosting (LightGBM/XGBoost/CatBoost). Aggregates over each fkey
-  relation at multiple lookback windows (7/30/90/365 days, all-time): counts, recency
-  (days since last event), velocity (ratio of recent to older counts), means/sums of
-  numeric columns, distinct counts, plus target-history features where legal. Every SQL
-  aggregation MUST carry `event_time <= seed_time`.
-- Extra training data is legal and valuable: labels for any seed time t are derivable from
-  the database as long as the full label window (t, t + timedelta] lies at or before the
-  test cutoff T. The official train table stops at V - timedelta; you may additionally
-  generate seed rows in (V - timedelta, T - timedelta] with the task's own `make_table`
-  logic and train on train + these + val. More-recent windows are closer to the test
-  distribution — use them (a recency-weighted loss often helps too).
-- For the final model, retrain on train+val (after model selection on val) when the val
-  metric is stable; keep an untouched early-stopping slice carved from the tail of train.
-- Text columns: GloVe averages are weak; upgrade to a stronger sentence
-  encoder (e.g. intfloat/e5-base-v2 or BAAI/bge-base-en-v1.5 if available locally) when
-  text is informative. Embed ONCE and cache in $KAPSO_SHARED_CACHE_DIR keyed by
-  (table, column, model); re-embedding every run wastes the time budget.
-- Ensembling reliably wins on this benchmark: combine diverse models (GNN + GBDT + linear
-  autoregressors). For AUROC/MAP use rank-averaging; for MAE use weighted means with
-  weights fit on val. Keep per-model val predictions in $KAPSO_SHARED_CACHE_DIR so later
-  experiments can ensemble earlier models without retraining.
-- Log the val metric per epoch, early-stop on the PRIMARY metric, and print final
-  val metrics clearly. Print a compact EDA at the start (label stats, key table sizes)
-  and an error analysis at the end (worst segments, prediction distribution).
-"""
-
-_ENTITY_CLS_PLAYBOOK = """
-Binary entity classification specifics (primary: roc_auc, higher is better):
-- AUROC is rank-based: monotone transforms of scores don't matter; focus on ordering.
-  Output probabilities in [0,1] anyway (accuracy/F1 at 0.5 are also reported).
-- Class imbalance: prefer more informative negatives per epoch over loss reweighting.
-- Label-history autoregression is powerful: the entity's own past label windows
-  (churned last month? active streak length?) computed with `make_table` logic at past
-  seed times are legal features at time t (window fully before t).
-- GNN: 2 layers, 128 channels, fanout ~[128, 128], sum aggregation, uniform temporal
-  sampling is the known-good starting point; try attention/PNA aggregation, deeper
-  fanouts on small DBs, and shallow entity embeddings for high-overlap entity sets.
-- GBDT on censored SQL features frequently matches or beats the GNN on sparse/behavioral
-  churn tasks — always field it, then ensemble both.
-"""
-
-_ENTITY_REG_PLAYBOOK = """
-Regression specifics (optimize the PRIMARY metric named above — the two published bars
-differ: the official leaderboard ranks by NMAE = MAE / std(train targets), which is
-per-task monotone with plain MAE; the v2 paper ranks the newer tasks by R^2, which is
-MSE-flavored — a median-style MAE-optimal model can score terribly on R^2 and vice versa):
-- If primary is MAE: the optimal point prediction is the conditional MEDIAN — train with
-  L1/quantile-0.5 objectives (LightGBM objective='regression_l1'), not MSE.
-- If primary is R^2: train with MSE/L2 (optionally on log1p scale with careful
-  back-transform), and mind outliers via clipping of TRAINING targets, not predictions.
-- Targets are typically heavy-tailed, non-negative, and often ZERO-INFLATED (counts,
-  LTV, attendance): the single biggest known win on such tasks is distribution-aware
-  prediction — hurdle models (P(y>0) x E[y|y>0]), tweedie objectives, or plain
-  quantile regression. On rel-event user-attendance this class of trick is worth ~10x
-  NMAE vs naive regression (0.03 vs the 0.31 cluster on the board).
-- Clip predictions to [0, q99.5(train)]; if the target is integer-valued, compare
-  rounded vs raw predictions on val.
-- All of mae/rmse/r2 are computed each run — track them all, optimize the primary.
-"""
-
-_ENTITY_MC_PLAYBOOK = """
-Multiclass specifics (primary: accuracy, higher is better):
-- Output an (N, num_classes) score matrix; argmax drives accuracy, full ordering drives
-  MRR (also reported). Softmax probabilities are fine.
-- Class priors shift over time; consider recency-weighted training and prior calibration
-  toward the val-period class distribution.
-"""
-
-_RECOMMENDATION_PLAYBOOK = """
-Recommendation specifics (primary: link_prediction_map = MAP@K, higher is better):
-- Output exactly (N, K) integer destination ids per val/test seed row, ranked best-first,
-  no duplicates within a row, all ids in [0, num_dst_nodes).
-- REPEAT BEHAVIOR IS KING: on purchase/visit-style tasks, most future interactions are
-  re-interactions. A time-decayed frequency+recency ranking of the source's own past
-  destinations, backfilled with global/recent popularity, is a brutal baseline that beats
-  most GNNs — implement it FIRST.
-- The winning pattern on H&M-style data is candidate-generation + GBDT re-ranking:
-  candidates = user's past items + item-item co-occurrence neighbors (items bought
-  together within sessions/windows) + recent-popularity by segment; features = per
-  (src, dst) recency/frequency/co-occurrence stats + entity features; train LightGBM
-  ranker (lambdarank) or binary classifier on historical windows built the same way.
-- GNN alternative: identity-aware GNN (ID-GNN) scoring destinations against each source's
-  temporal subgraph; 4-layer ID-GNN beats 2-layer nearly everywhere. The published SOTA
-  recipe (ContextGNN) is a hybrid: pair-wise NBFNet-style scores for destinations inside
-  the source's sampled subgraph + a two-tower with SHALLOW learnable destination
-  embeddings for everything outside it, fused per source; train with sampled softmax over
-  very many negatives (10^5-10^6), not BPR pairs. It roughly tripled two-tower MAP on
-  rel-amazon and doubled the board number on rel-trial site-sponsor-run. Starter provides
-  ID-GNN; upgrading it toward the hybrid is a high-value experiment.
-- Evaluate MAP@K on val exactly like the harness does before trusting a model; a custom
-  fast MAP implementation avoids surprises.
-- Popularity fallback for cold sources; never emit fewer than K distinct ids.
-"""
-
-_AUTOCOMPLETE_PLAYBOOK = """
-Autocomplete specifics:
-- This is row-attribute prediction at row-insert time: the split is by the row's own
-  timestamp (train <= V < val <= T < test). Inputs = the row's other columns + anything
-  reachable through its foreign keys, censored at the row's timestamp.
-- Gradient boosting over joined + censored-aggregate features is the strongest known
-  simple recipe here (the v2 baselines are beatable): join parent tables' attributes,
-  add per-parent historical aggregates of the TARGET where legal (e.g. the user's mean
-  past rating, the product's mean past rating for review-rating), plus counts/recency.
-  Historical target aggregates must only use rows with time strictly <= the seed row's
-  time, from train/val labels you legitimately have.
-- Temporal shift is real (test rows are the newest): recency-weight training rows and
-  retrain on train+val for the final test model.
-- Many autocomplete targets are JOIN-LOOKUPS in disguise: the same customer's previous
-  orders carry the same payterms/incoterms; an item's historical price nearly determines
-  the next transaction price; a user's and beer's past ratings pin down the next score.
-  Published GNN baselines beat LightGBM by 40-96 accuracy points on rel-salt only because
-  naive LightGBM never joined those lookups — an explicit most-recent-value-from-history
-  feature per (entity, target) closes that gap instantly. Build 'previous value of the
-  target for the same parent entity' features FIRST.
-- Text columns: TF-IDF features are surprisingly strong for autocomplete (worth up to
-  +10 AUROC on text-heavy tasks) — cheap to try alongside sentence embeddings.
-- A GNN that treats the new row as a node with its known columns and predicts the target
-  from the sampled temporal subgraph is a good complement for ensembling with GBDT.
-- Some 'known' columns of the target row may be missing at prediction time in spirit —
-  use exactly the columns present in the sanitized database, nothing else.
-"""
-
-_FAMILY_PLAYBOOKS = {
-    ENTITY_BINARY: _ENTITY_CLS_PLAYBOOK,
-    ENTITY_MULTICLASS: _ENTITY_MC_PLAYBOOK,
-    ENTITY_REGRESSION: _ENTITY_REG_PLAYBOOK,
-    RECOMMENDATION: _RECOMMENDATION_PLAYBOOK,
-    AUTOCOMPLETE_BINARY: _ENTITY_CLS_PLAYBOOK + _AUTOCOMPLETE_PLAYBOOK,
-    AUTOCOMPLETE_MULTICLASS: _ENTITY_MC_PLAYBOOK + _AUTOCOMPLETE_PLAYBOOK,
-    AUTOCOMPLETE_REGRESSION: _ENTITY_REG_PLAYBOOK + _AUTOCOMPLETE_PLAYBOOK,
-}
-
-
 # ---------------------------------------------------------------------------
 # Contract / rules / resources
 # ---------------------------------------------------------------------------
@@ -577,9 +428,6 @@ def build_problem_context(
         "\n## Prediction contract\n" + _prediction_contract(spec, len(val_df), n_test),
         "\n## Data access rules\n" + _data_access_rules(spec),
         "\n## Resources\n" + _resources(spec, has_gpu, num_cpus, mem_gb, gpu_name),
-        "\n## Playbook (battle-tested guidance — use it)\n"
-        + _COMMON_PLAYBOOK
-        + _FAMILY_PLAYBOOKS[spec.family],
         "\n## Feature engineering (standing high-value direction)\n"
         + FEATURE_ENGINEERING_NOTE,
         "\n## Living documents (shared artifact workspace)\n"
