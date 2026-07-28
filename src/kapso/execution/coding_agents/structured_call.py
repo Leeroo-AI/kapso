@@ -136,11 +136,16 @@ def coding_agent_mcp_configuration_fingerprint(
         "enabled": prior_knowledge is not None,
         "enabled_gates": (() if prior_knowledge is None else ("prior_knowledge",)),
         "gate_failure_policy": None if prior_knowledge is None else "error",
-        "module": (None if prior_knowledge is None else "kapso.gated_mcp.server"),
+        "module": (
+            None if prior_knowledge is None else "kapso.gated_mcp.prior_knowledge_cli"
+        ),
         "prior_knowledge_materialization_digest": (
             None if prior_knowledge is None else prior_knowledge.materialization_digest
         ),
         "prior_knowledge_maximum_bytes": (
+            None if prior_knowledge is None else len(prior_knowledge.to_json_bytes())
+        ),
+        "prior_knowledge_audit_maximum_bytes": (
             None if prior_knowledge is None else len(prior_knowledge.to_json_bytes())
         ),
     }
@@ -187,7 +192,7 @@ def coding_agent_mcp_server_configuration(
             f"PYTHONPATH={python_path}",
             str(Path(sys.executable).resolve()),
             "-m",
-            "kapso.gated_mcp.server",
+            "kapso.gated_mcp.prior_knowledge_cli",
             "--enabled-gates",
             "prior_knowledge",
             "--gate-failure-policy",
@@ -198,6 +203,8 @@ def coding_agent_mcp_server_configuration(
             str(len(request.prior_knowledge.to_json_bytes())),
             "--prior-knowledge-audit-path",
             str(artifact_directory / "mcp_audit.jsonl"),
+            "--prior-knowledge-audit-maximum-bytes",
+            str(len(request.prior_knowledge.to_json_bytes())),
             "--operation-id",
             request.operation_id,
         ],

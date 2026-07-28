@@ -128,15 +128,22 @@ arguments = pathlib.Path(__file__).with_name(pathlib.Path(__file__).stem + "-edi
 arguments.write_text(__import__("json").dumps(sys.argv[1:]))
 """
     if cli == "codex":
-        source = "#!/usr/bin/env python3\nimport json\nimport sys\n" + edit_source + """
+        source = (
+            "#!/usr/bin/env python3\nimport json\nimport sys\n"
+            + edit_source
+            + """
 args = sys.argv[1:]
 final_path = pathlib.Path(args[args.index("--output-last-message") + 1])
 final_path.write_text('{"changed_paths":["created.py","existing.txt"],"deleted_paths":["deleted.txt"]}')
 print(json.dumps({"type":"turn.completed","usage":{"input_tokens":3,"output_tokens":2}}))
 """
+        )
         install_executable(directory, "codex", source)
         return
-    source = "#!/usr/bin/env python3\nimport json\n" + edit_source + """
+    source = (
+        "#!/usr/bin/env python3\nimport json\n"
+        + edit_source
+        + """
 print(json.dumps({
   "is_error": False,
   "structured_output": {
@@ -147,6 +154,7 @@ print(json.dumps({
   "total_cost_usd": 0.1
 }))
 """
+    )
     install_executable(directory, "claude", source)
 
 
@@ -907,6 +915,10 @@ print(json.dumps({
     assert server["args"][server["args"].index("--operation-id") + 1] == (
         call_request.operation_id
     )
+    assert "--prior-knowledge-audit-maximum-bytes" in server["args"]
+    assert server["args"][
+        server["args"].index("--prior-knowledge-audit-maximum-bytes") + 1
+    ] == str(len(materialization.to_json_bytes()))
     assert artifact_by_name["mcp_audit.jsonl"].read_text(encoding="utf-8") == ""
     agent_environment = set(
         json.loads((tmp_path / "prior_agent_env.json").read_text(encoding="utf-8"))

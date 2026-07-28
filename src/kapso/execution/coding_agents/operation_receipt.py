@@ -406,7 +406,7 @@ def _validate_mcp_configuration(
     arguments = server["args"]
     if (
         not isinstance(arguments, list)
-        or len(arguments) != 17
+        or len(arguments) != 19
         or any(not isinstance(argument, str) for argument in arguments)
     ):
         raise CodingAgentOperationReceiptError(
@@ -415,7 +415,7 @@ def _validate_mcp_configuration(
     expected_fixed_arguments = {
         0: "-i",
         3: "-m",
-        4: "kapso.gated_mcp.server",
+        4: "kapso.gated_mcp.prior_knowledge_cli",
         5: "--enabled-gates",
         6: "prior_knowledge",
         7: "--gate-failure-policy",
@@ -424,8 +424,10 @@ def _validate_mcp_configuration(
         11: "--prior-knowledge-maximum-bytes",
         12: str(len(prior_knowledge.to_json_bytes())),
         13: "--prior-knowledge-audit-path",
-        15: "--operation-id",
-        16: operation_id,
+        15: "--prior-knowledge-audit-maximum-bytes",
+        16: str(len(prior_knowledge.to_json_bytes())),
+        17: "--operation-id",
+        18: operation_id,
     }
     if any(
         arguments[position] != expected

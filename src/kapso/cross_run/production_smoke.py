@@ -9,7 +9,7 @@ import tarfile
 import tempfile
 from contextlib import ExitStack
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Mapping
 
 from kapso.core.config import load_effective_config
@@ -45,6 +45,11 @@ from kapso.cross_run.github.publisher import PublicationEnvelope, ReleaseAssetIn
 from kapso.cross_run.github.resolver import security_denylist_tag
 from kapso.cross_run.knowledge.package import KnowledgeSnapshotPackage
 from kapso.cross_run.knowledge.publisher import KnowledgeSnapshotPublisher
+from kapso.cross_run.knowledge.index import SnapshotSearchIndex
+from kapso.cross_run.knowledge.retrieval import (
+    CrossRunRetriever,
+    PriorKnowledgeQuery,
+)
 from kapso.cross_run.operations import (
     GitHubOperationServices,
     _github_services,
@@ -62,6 +67,16 @@ from kapso.cross_run.security_denylist import (
     SecurityDenylistPublisher,
 )
 from kapso.cross_run.settings import CrossRunSettings
+from kapso.execution.coding_agents.operation_receipt import (
+    seal_coding_agent_operation,
+)
+from kapso.execution.coding_agents.structured_call import (
+    CodingAgentCallRequest,
+    CodingAgentRunnerSettings,
+    CodingAgentWorkspacePolicy,
+    SubprocessCodingAgentCallRunner,
+    coding_agent_mcp_configuration_fingerprint,
+)
 
 
 class ProductionSmokeError(ValueError):
@@ -75,6 +90,7 @@ _STAGE_ORDER = (
     "embeddings",
     "docker-authority",
     "knowledge-publication",
+    "coding-agent-ideation",
 )
 _FIXTURE_FILENAME = "transport-smoke.json"
 _RECEIPT_FILENAME = "production-smoke-receipt.json"
@@ -178,6 +194,13 @@ def _run_stage(
         return _docker_authority_smoke(settings, smoke_root)
     if stage == "knowledge-publication":
         return _knowledge_publication_smoke(
+            settings,
+            smoke_root,
+            fixture,
+            scope_contract,
+        )
+    if stage == "coding-agent-ideation":
+        return _coding_agent_ideation_smoke(
             settings,
             smoke_root,
             fixture,
@@ -705,6 +728,216 @@ def _knowledge_publication_smoke(
         "embedding_call_count": None if telemetry is None else telemetry.call_count,
         "recovered": False,
     }
+
+
+def _coding_agent_ideation_smoke(
+    settings: CrossRunSettings,
+    smoke_root: Path,
+    fixture: Mapping[str, Any],
+    scope_contract: ExpertScopeContract,
+) -> Mapping[str, Any]:
+    """Prove a real Codex call reads one record from the live S1 snapshot."""
+
+    if not settings.production_validation.coding_agent_smoke:
+        raise ProductionSmokeError(
+            "coding-agent ideation smoke is disabled in configuration"
+        )
+    projection = _synthetic_projection(settings, fixture, scope_contract)
+    expected_prior_idea = projection.prior_ideas[0]
+    github = _github_services(settings, smoke_root / "coding-agent-github-read")
+    resolved = github.resolver.resolve_current(
+        scope_contract.scope_id,
+        PublicationArtifactKind.KNOWLEDGE_SNAPSHOT,
+    )
+    materialized = github.materializer.materialize(resolved)
+    package = KnowledgeSnapshotPackage.open(materialized.content)
+    index_files = {
+        path: payload
+        for path, payload in package.files.items()
+        if PurePosixPath(path).parts[0] == "index"
+    }
+    if not index_files:
+        raise ProductionSmokeError("live knowledge snapshot lacks a search index")
+    retriever = CrossRunRetriever(
+        package,
+        SnapshotSearchIndex.open(package.prepared, index_files),
+        settings.knowledge.retrieval,
+    )
+    query = PriorKnowledgeQuery(
+        task_context_binding=projection.source_bundle.task_context_binding,
+        problem=expected_prior_idea.proposal,
+        current_gaps=expected_prior_idea.assumptions,
+        directive=(
+            "Retrieve a deferred representation-validation intervention that can "
+            "ground a novel next experiment."
+        ),
+    )
+    embedding_telemetry = None
+    if retriever.semantic_embedding_space_ids:
+        configured = settings.knowledge.embeddings
+        provider_settings = EmbeddingSettings(
+            enabled=configured.enabled,
+            provider=configured.provider,
+            model=configured.model,
+            dimensions=configured.dimensions,
+            batch_size=configured.batch_size,
+            timeout_seconds=configured.timeout_seconds,
+            max_retries=configured.max_retries,
+            canonicalizer_version=configured.canonicalizer_version,
+        )
+        embedded = OpenAIEmbeddingProvider(provider_settings).embed(
+            (query.lexical_text,)
+        )
+        if len(embedded.records) != 1:
+            raise ProductionSmokeError(
+                "production ideation query embedding returned an invalid batch"
+            )
+        query = PriorKnowledgeQuery(
+            task_context_binding=query.task_context_binding,
+            problem=query.problem,
+            current_gaps=query.current_gaps,
+            directive=query.directive,
+            query_embedding=embedded.records[0],
+        )
+        embedding_telemetry = embedded.telemetry
+    retrieval = retriever.retrieve(query)
+    selected_ids = retrieval.prior_knowledge_snapshot.selected_record_ids
+    if expected_prior_idea.prior_idea_id not in selected_ids:
+        raise ProductionSmokeError(
+            "production ideation retrieval omitted the expected prior idea"
+        )
+
+    workspace = _private_state_root(smoke_root / "coding-agent-ideation-workspace")
+    artifact_root = _private_state_root(smoke_root / "coding-agent-ideation-artifacts")
+    agent = settings.expert.generalizer
+    response_schema = _production_ideation_response_schema()
+    prompt = (
+        "Without changing the workspace, first call "
+        "prior_knowledge.list_prior_knowledge. Identify the prior-idea record, "
+        "then call prior_knowledge.get_prior_knowledge_record for that exact "
+        "record. Use the complete record to propose one concise, novel next "
+        "experiment that preserves its useful mechanism while changing one "
+        "scientifically meaningful dimension. Return only the required JSON, "
+        "including the exact record ID you read."
+    )
+    operation_seed = canonical_json_bytes(
+        {
+            "agent": agent.to_dict(),
+            "configuration_fingerprint": settings.configuration_fingerprint,
+            "materialization_digest": retrieval.access_materialization.materialization_digest,
+            "mcp_configuration_fingerprint": (
+                coding_agent_mcp_configuration_fingerprint(
+                    retrieval.access_materialization
+                )
+            ),
+            "prompt_digest": tree_or_blob_digest(prompt.encode("utf-8")),
+            "response_schema": response_schema,
+            "snapshot_id": package.manifest.snapshot_id,
+        }
+    )
+    operation_id = "agent_call_" + tree_or_blob_digest(operation_seed)[7:39]
+    request = CodingAgentCallRequest(
+        operation_id=operation_id,
+        role="production_smoke_ideation",
+        cli=agent.cli,
+        model=agent.model,
+        effort=agent.effort,
+        prompt=prompt,
+        workspace=str(workspace),
+        workspace_policy=CodingAgentWorkspacePolicy.read_only(),
+        timeout_seconds=agent.timeout_seconds,
+        allowed_tools=agent.allowed_tools,
+        prior_knowledge=retrieval.access_materialization,
+    )
+    runner = SubprocessCodingAgentCallRunner(
+        CodingAgentRunnerSettings(
+            artifact_root=str(artifact_root),
+            termination_grace_seconds=settings.expert.termination_grace_seconds,
+            sensitive_file_glob_scan_max_depth=(
+                settings.expert.sensitive_file_glob_scan_max_depth
+            ),
+        )
+    )
+    result = runner.run(request, response_schema)
+    output = _validate_production_ideation_output(
+        result.output,
+        expected_prior_idea.prior_idea_id,
+    )
+    sealed = seal_coding_agent_operation(
+        request=request,
+        response_schema=response_schema,
+        principal_id=settings.expert.generalizer_id,
+        agent=agent,
+        sensitive_file_glob_scan_max_depth=(
+            settings.expert.sensitive_file_glob_scan_max_depth
+        ),
+        result=result,
+    )
+    audit_events = tuple(
+        parse_json_bytes(line.encode("utf-8"))
+        for line in sealed.artifact_bytes["mcp_audit.jsonl"]
+        .decode("utf-8")
+        .splitlines()
+    )
+    if (
+        len(audit_events) < 2
+        or audit_events[0]["tool_name"] != "list_prior_knowledge"
+        or not any(
+            event["tool_name"] == "get_prior_knowledge_record"
+            and event["arguments"] == {"record_id": expected_prior_idea.prior_idea_id}
+            for event in audit_events
+        )
+    ):
+        raise ProductionSmokeError(
+            "production ideation did not list and read the selected prior idea"
+        )
+    return {
+        "snapshot_id": package.manifest.snapshot_id,
+        "prior_idea_id": output["prior_record_id"],
+        "selection_count": len(retrieval.selections),
+        "materialization_digest": retrieval.access_materialization.materialization_digest,
+        "operation_id": request.operation_id,
+        "operation_receipt_id": sealed.receipt.operation_receipt_id,
+        "final_output_digest": result.final_output_digest,
+        "mcp_audit_digest": result.mcp_audit_digest,
+        "mcp_audit_event_count": result.mcp_audit_event_count,
+        "embedding_call_count": (
+            None if embedding_telemetry is None else embedding_telemetry.call_count
+        ),
+    }
+
+
+def _production_ideation_response_schema() -> Mapping[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "idea": {"type": "string", "minLength": 1},
+            "mechanism": {"type": "string", "minLength": 1},
+            "prior_record_id": {"type": "string", "minLength": 1},
+        },
+        "required": ["idea", "mechanism", "prior_record_id"],
+        "additionalProperties": False,
+    }
+
+
+def _validate_production_ideation_output(
+    output: str,
+    expected_prior_idea_id: str,
+) -> Mapping[str, Any]:
+    parsed = parse_json_bytes(output.encode("utf-8"))
+    if (
+        not isinstance(parsed, Mapping)
+        or set(parsed) != {"idea", "mechanism", "prior_record_id"}
+        or any(
+            not isinstance(parsed[field], str) or not parsed[field].strip()
+            for field in ("idea", "mechanism", "prior_record_id")
+        )
+        or parsed["prior_record_id"] != expected_prior_idea_id
+    ):
+        raise ProductionSmokeError(
+            "production ideation output does not cite the selected prior idea"
+        )
+    return parsed
 
 
 def _synthetic_projection(
