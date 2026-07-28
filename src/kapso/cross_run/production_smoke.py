@@ -2065,14 +2065,13 @@ def _synthetic_projection(
         )
     }
     committed_at = _committed_at(fixture["committed_at"])
-    predecessors = (
-        predecessor_bundle,
-        predecessor_episode,
-        predecessor_prior_idea,
-    )
-    if any(predecessor is None for predecessor in predecessors) and not all(
-        predecessor is None for predecessor in predecessors
+    if predecessor_bundle is None and (
+        predecessor_episode is not None or predecessor_prior_idea is not None
     ):
+        raise ProductionSmokeError(
+            "synthetic projection predecessor closure is incomplete"
+        )
+    if predecessor_bundle is not None and predecessor_prior_idea is None:
         raise ProductionSmokeError(
             "synthetic projection predecessor closure is incomplete"
         )
@@ -2081,9 +2080,11 @@ def _synthetic_projection(
         or predecessor_bundle.campaign_id != "production_smoke_campaign"
         or predecessor_bundle.scope_contract_id != scope_contract.scope_contract_id
         or set(predecessor_bundle.capture_watermarks) != {"events"}
-        or predecessor_episode is None
-        or predecessor_episode.source_bundle_id != predecessor_bundle.bundle_id
         or predecessor_prior_idea.source_bundle_id != predecessor_bundle.bundle_id
+        or (
+            predecessor_episode is not None
+            and predecessor_episode.source_bundle_id != predecessor_bundle.bundle_id
+        )
     ):
         raise ProductionSmokeError(
             "synthetic projection predecessor belongs to another run"
@@ -2339,16 +2340,18 @@ def _synthetic_projection_for_snapshot(
         and record.source_bundle_id == current_bundle.bundle_id
         and record.source.get("idea_id") == "production_smoke_idea"
     )
-    if len(predecessor_episodes) != 1 or len(predecessor_priors) != 1:
+    if len(predecessor_episodes) > 1 or len(predecessor_priors) != 1:
         raise ProductionSmokeError(
-            "synthetic bundle lacks one predecessor episode and prior idea"
+            "synthetic bundle has an ambiguous predecessor projection"
         )
     return _synthetic_projection(
         settings,
         fixture,
         scope_contract,
         predecessor_bundle=current_bundle,
-        predecessor_episode=predecessor_episodes[0],
+        predecessor_episode=(
+            None if not predecessor_episodes else predecessor_episodes[0]
+        ),
         predecessor_prior_idea=predecessor_priors[0],
     )
 

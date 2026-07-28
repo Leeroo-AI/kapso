@@ -631,8 +631,10 @@ def test_preflight_evaluator_summary_exposes_missing_roots_without_keys():
     }
 
 
+@pytest.mark.parametrize("predecessor_has_episode", (False, True))
 def test_clean_root_imports_current_snapshot_and_mints_one_direct_successor(
     tmp_path,
+    predecessor_has_episode,
 ):
     settings = load_effective_config(_CONFIG_PATH, "GENERIC").cross_run
     old_settings = replace(
@@ -656,9 +658,14 @@ def test_clean_root_imports_current_snapshot_and_mints_one_direct_successor(
         scope_contract,
         settings.catalog,
     )
+    published_old_projection = (
+        old_projection
+        if predecessor_has_episode
+        else replace(old_projection, episodes=())
+    )
     old_generation = old_catalog.publish_projection(
         old_catalog.store.read_current(),
-        old_projection,
+        published_old_projection,
     ).generation
     publisher = KnowledgeSnapshotPublisher(
         RecordingPublicationAuthority(),
@@ -692,7 +699,7 @@ def test_clean_root_imports_current_snapshot_and_mints_one_direct_successor(
         old_projection.prior_ideas[0].prior_idea_id
     )
     assert successor.episodes[0].supersedes_projection_id == (
-        old_projection.episodes[0].episode_id
+        old_projection.episodes[0].episode_id if predecessor_has_episode else None
     )
     new_catalog = CrossRunCatalog(
         tmp_path / "new-catalog",
