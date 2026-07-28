@@ -1308,6 +1308,38 @@ class RunBundleStore:
             )
 
 
+class StoredSourceReplayContextProvider:
+    """Bind the shared CAS to one exact validation materialization policy."""
+
+    def __init__(
+        self,
+        store: RunBundleStore,
+        validation_settings: ExpertValidationSettings,
+    ) -> None:
+        if (
+            type(store) is not RunBundleStore
+            or type(validation_settings) is not ExpertValidationSettings
+        ):
+            raise RunBundlePublicationError(
+                "stored replay context requires exact store and validation settings"
+            )
+        self.store = store
+        self.validation_settings = validation_settings
+
+    def materialize_exact(
+        self,
+        task_context_binding: TaskContextBinding,
+        expected_artifact_content_ids: Mapping[str, str],
+        limits: TaskEvaluationMaterializationLimits,
+    ) -> VerifiedSourceReplayContext:
+        return self.store.materialize_exact(
+            task_context_binding,
+            expected_artifact_content_ids,
+            limits,
+            validation_settings=self.validation_settings,
+        )
+
+
 class RunBundlePublisher:
     """Publish one sanitized capture without GitHub calls or interpretation."""
 

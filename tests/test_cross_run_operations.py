@@ -26,6 +26,7 @@ from kapso.cross_run.expert.task_evaluation_execution import (
     project_prepared_task_evaluation_cases,
 )
 from kapso.cross_run.operations import (
+    ExpertValidationOperationServices,
     GitHubOperationServices,
     capture_cross_run,
     propose_expert_cross_run,
@@ -43,7 +44,17 @@ from test_expert_proposal import BootstrapProposalRunner, bootstrap_output
 from test_expert_review import _review_fixture
 from test_expert_publication_eligibility import _coordinator, _publish_matrix
 from test_expert_promotion_decision import _settings as promotion_settings
-from test_expert_release_matrix_reservation import _bootstrap_release_matrix_fixture
+from test_expert_replay_stage import _stage_fixture
+from test_expert_release_matrix_reservation import (
+    _bootstrap_release_matrix_fixture,
+    _release_matrix_fixture,
+)
+from test_expert_task_evaluation_preflight import (
+    _current_observation,
+    _CurrentAuthority,
+    _expert_sources,
+    _ParentProvider,
+)
 from test_expert_task_evaluation_execution_store import (
     _DenylistAuthority,
     _Provider,
@@ -419,6 +430,130 @@ def test_validate_expert_runs_the_existing_restart_aware_review_stage(
     )
 
 
+def test_validate_expert_composes_and_runs_typed_source_replay(
+    tmp_path,
+    monkeypatch,
+):
+    stage = _stage_fixture(tmp_path)
+    snapshot = stage.fixture.validation_store.snapshot(
+        stage.fixture.attempt.candidate_id
+    )
+    assert snapshot is not None
+    request_path = tmp_path / "validate-source-replay.json"
+    request_path.write_text(
+        json.dumps(
+            {
+                "candidate_id": stage.fixture.attempt.candidate_id,
+                "expected_transition_id": snapshot.transition.transition_id,
+                "evaluator_result": None,
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    configured = load_effective_config(_CONFIG_PATH, "GENERIC").cross_run
+    configured = replace(
+        configured,
+        docker=stage.fixture.settings.task_evaluation_provider.runtime,
+        expert=replace(
+            configured.expert,
+            validation=stage.fixture.settings,
+        ),
+    )
+    services = ExpertValidationOperationServices(
+        candidate_store=stage.fixture.coordinator.candidate_store,
+        validation_store=stage.fixture.validation_store,
+        task_adapter_store=stage.fixture.adapter_provider,
+    )
+    github = GitHubOperationServices(
+        resolver=object(),
+        materializer=object(),
+        publisher=object(),
+    )
+
+    class _ExecutionStoreFactory:
+        @staticmethod
+        def canonical_root(_validation_root):
+            return stage.execution_store.root
+
+        def __new__(cls, *_arguments):
+            return stage.execution_store
+
+    monkeypatch.setattr(operations_module, "_settings", lambda *_arguments: configured)
+    monkeypatch.setattr(
+        operations_module,
+        "_github_services",
+        lambda *_arguments: github,
+    )
+    monkeypatch.setattr(
+        operations_module,
+        "_expert_validation_services",
+        lambda *_arguments: services,
+    )
+    monkeypatch.setattr(
+        operations_module,
+        "GitHubExpertCurrentReleaseProvider",
+        type(stage.fixture.current_release_provider),
+    )
+    monkeypatch.setattr(
+        operations_module,
+        "GitHubExpertCompositionBaseProvider",
+        lambda *_arguments: stage.fixture.source_base_provider,
+    )
+    monkeypatch.setattr(
+        operations_module,
+        "RunBundleLineageProvider",
+        lambda *_arguments: stage.fixture.bundle_provider,
+    )
+    monkeypatch.setattr(
+        operations_module,
+        "StoredSourceReplayContextProvider",
+        lambda *_arguments: stage.fixture.context_provider,
+    )
+    monkeypatch.setattr(
+        operations_module,
+        "ExpertSourceReplayPreflightCoordinator",
+        lambda **_arguments: stage.fixture.coordinator,
+    )
+    monkeypatch.setattr(
+        operations_module,
+        "ExpertSourceReplayExecutionStore",
+        _ExecutionStoreFactory,
+    )
+    monkeypatch.setattr(
+        operations_module,
+        "ExpertSourceReplayFreshAuthorityCoordinator",
+        lambda **_arguments: stage.spawn_coordinator,
+    )
+    monkeypatch.setattr(
+        operations_module,
+        "ExpertSourceReplayDecisionPublicationCoordinator",
+        lambda **_arguments: stage.orchestrator.publication_coordinator,
+    )
+    monkeypatch.setattr(
+        operations_module,
+        "build_source_replay_docker_provider_registry",
+        lambda **_arguments: stage.registry,
+    )
+    monkeypatch.setattr(
+        operations_module,
+        "_policy_services",
+        lambda *_arguments: SimpleNamespace(
+            security_authority=stage.spawn_coordinator.security_denylist_authority
+        ),
+    )
+
+    result = validate_expert_cross_run(
+        config_path=_CONFIG_PATH,
+        mode="GENERIC",
+        request_path=request_path,
+        state_root=tmp_path / "operation-state",
+    )
+
+    assert result["next_stage"] == ExpertValidationStage.AUTOMATED_REVIEW.value
+    assert len(stage.provider.invocations) == 2
+
+
 def test_validate_expert_recovers_and_publishes_bootstrap_release_matrix(
     tmp_path,
     monkeypatch,
@@ -549,6 +684,131 @@ def test_validate_expert_recovers_and_publishes_bootstrap_release_matrix(
     assert (
         sum(len(provider.execution_calls) for provider in providers) == execution_count
     )
+
+
+def test_validate_expert_executes_successor_matrix_from_accepted_replay(
+    tmp_path,
+    monkeypatch,
+):
+    validation_store, snapshot, prepared_plan = _release_matrix_fixture(
+        tmp_path,
+        monkeypatch,
+    )
+    _candidate, source_base = _expert_sources(prepared_plan)
+    assert source_base is not None
+    observation = _current_observation(prepared_plan)
+
+    class _SuccessorCurrentAuthority(_CurrentAuthority):
+        def current_release_id(self, scope_id):
+            assert scope_id == observation.scope_id
+            return observation.release_id
+
+    current_release = _SuccessorCurrentAuthority((observation,) * 100)
+    validation_store.reducer.current_release_provider = current_release
+    adapter_provider = validation_store.reducer.task_adapter_provider
+    services = ExpertValidationOperationServices(
+        candidate_store=validation_store.reducer.candidate_store,
+        validation_store=validation_store,
+        task_adapter_store=adapter_provider,
+    )
+    settings = load_effective_config(_CONFIG_PATH, "GENERIC").cross_run
+    settings = replace(
+        settings,
+        docker=validation_store.settings.task_evaluation_provider.runtime,
+        expert=replace(
+            settings.expert,
+            validation=validation_store.settings,
+        ),
+    )
+    github = GitHubOperationServices(
+        resolver=object(),
+        materializer=object(),
+        publisher=object(),
+    )
+    source_provider = _ParentProvider(source_base)
+    runtime = {}
+
+    def registry(*, prepared_request, workspace_root):
+        assert workspace_root == (tmp_path / "successor-state").resolve()
+        runtime["prepared"] = prepared_request
+        provider_keys = tuple(
+            sorted(
+                {
+                    case.provider_key
+                    for case in project_prepared_task_evaluation_cases(prepared_request)
+                },
+                key=lambda provider_key: provider_key.identity,
+            )
+        )
+        providers = tuple(
+            _Provider(validation_store.root, provider_key)
+            for provider_key in provider_keys
+        )
+        return TaskEvaluationExecutionProviderRegistry(prepared_request, providers)
+
+    monkeypatch.setattr(operations_module, "_settings", lambda *_arguments: settings)
+    monkeypatch.setattr(
+        operations_module,
+        "_github_services",
+        lambda *_arguments: github,
+    )
+    monkeypatch.setattr(
+        operations_module,
+        "_expert_validation_services",
+        lambda *_arguments: services,
+    )
+    monkeypatch.setattr(
+        operations_module,
+        "GitHubExpertCurrentReleaseProvider",
+        type(current_release),
+    )
+    monkeypatch.setattr(
+        operations_module,
+        "GitHubExpertCompositionBaseProvider",
+        lambda *_arguments: source_provider,
+    )
+    monkeypatch.setattr(
+        operations_module,
+        "build_task_evaluation_docker_provider_registry",
+        registry,
+    )
+    monkeypatch.setattr(
+        operations_module,
+        "_policy_services",
+        lambda *_arguments: SimpleNamespace(
+            security_authority=_DenylistAuthority(runtime["prepared"]),
+        ),
+    )
+    request_path = tmp_path / "successor-matrix.json"
+    request_path.write_text(
+        json.dumps(
+            {
+                "candidate_id": snapshot.state.candidate_id,
+                "expected_transition_id": snapshot.transition.transition_id,
+                "evaluator_result": None,
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    accepted_request = validation_store.reopen_accepted_source_replay_request(
+        candidate_id=snapshot.state.candidate_id,
+        expected_transition_id=snapshot.transition.transition_id,
+    )
+    result = validate_expert_cross_run(
+        config_path=_CONFIG_PATH,
+        mode="GENERIC",
+        request_path=request_path,
+        state_root=tmp_path / "successor-state",
+    )
+
+    assert accepted_request == prepared_plan.source_replay_request
+    assert runtime["prepared"].plan_join.plan_reservation.evaluation_plan == (
+        prepared_plan.plan
+    )
+    assert source_provider.calls
+    assert result["next_stage"] == ExpertValidationStage.PUBLICATION_ELIGIBILITY.value
 
 
 def test_validate_expert_executes_typed_publication_eligibility(

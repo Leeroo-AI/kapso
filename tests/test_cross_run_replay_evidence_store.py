@@ -9,6 +9,7 @@ import pytest
 from kapso.cross_run.capture.bundle import (
     RunBundlePublicationError,
     RunBundleStore,
+    StoredSourceReplayContextProvider,
 )
 from kapso.cross_run.capture.pipeline import RunCaptureContext, RunCapturePipeline
 from kapso.cross_run.expert.task_evaluation_materialization import (
@@ -64,11 +65,13 @@ def test_shared_store_imports_bundle_and_launch_artifacts_exactly(
         )
         for item in context.starting_artifacts
     }
-    rematerialized = reopened.materialize_exact(
+    rematerialized = StoredSourceReplayContextProvider(
+        reopened,
+        capture.settings.expert.validation,
+    ).materialize_exact(
         task_context,
         expected_ids,
         _limits(capture),
-        validation_settings=capture.settings.expert.validation,
     )
 
     assert imported == stored

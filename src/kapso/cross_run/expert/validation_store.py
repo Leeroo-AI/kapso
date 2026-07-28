@@ -848,6 +848,33 @@ class ExpertValidationStore:
         with self._lock(exclusive=False):
             return self._snapshot_unlocked(candidate_id)
 
+    def reopen_accepted_source_replay_request(
+        self,
+        *,
+        candidate_id: str,
+        expected_transition_id: str,
+    ) -> ExpertSourceReplayExecutionRequest | None:
+        """Reopen the exact accepted replay request at the current validation head."""
+
+        require_content_id(candidate_id, "source replay candidate_id")
+        require_content_id(
+            expected_transition_id,
+            "source replay expected_transition_id",
+        )
+        with self._lock(exclusive=False):
+            journal = self._read_journal_unlocked(candidate_id)
+            current = self._current_from_journal_unlocked(journal)
+            if (
+                current is None
+                or current.transition.transition_id != expected_transition_id
+            ):
+                raise ExpertValidationStoreError(
+                    "accepted source replay request head changed"
+                )
+            return self._source_replay_request_for_results_unlocked(
+                current.accepted_stage_results
+            )
+
     def _reserve_release_publication(
         self,
         publisher: object,

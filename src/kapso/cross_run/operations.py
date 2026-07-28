@@ -11,9 +11,14 @@ from typing import Any, Mapping
 
 from kapso.core.config import load_effective_config
 from kapso.cross_run.canonical import canonical_json_bytes, parse_json_bytes
-from kapso.cross_run.capture.bundle import RunBundleStore
+from kapso.cross_run.capture.bundle import (
+    RunBundleStore,
+    StoredSourceReplayContextProvider,
+)
 from kapso.cross_run.capture.exporter import RunCaptureRequest
 from kapso.cross_run.capture.pipeline import RunCaptureContext, RunCapturePipeline
+from kapso.cross_run.catalog.lineage import RunBundleLineageProvider
+from kapso.cross_run.catalog.projector import RunBundleProjector
 from kapso.cross_run.catalog.service import CrossRunCatalog
 from kapso.cross_run.contracts import (
     ArtifactEnvironment,
@@ -29,6 +34,9 @@ from kapso.cross_run.contracts import (
 from kapso.cross_run.expert.architect import ExpertRepositoryArchitect
 from kapso.cross_run.expert.attestation import ConfiguredExpertAttestationVerifier
 from kapso.cross_run.expert.candidates import ExpertCandidateValidator
+from kapso.cross_run.expert.composition_base_provider import (
+    GitHubExpertCompositionBaseProvider,
+)
 from kapso.cross_run.expert.generalizer import ExpertCapabilityGeneralizer
 from kapso.cross_run.expert.providers import GitHubExpertCurrentReleaseProvider
 from kapso.cross_run.expert.publisher import ExpertReleasePublisher
@@ -38,6 +46,24 @@ from kapso.cross_run.expert.release_authority import (
 )
 from kapso.cross_run.expert.release_use_policy import (
     GitHubExpertReleaseUsePolicyAuthority,
+)
+from kapso.cross_run.expert.replay_authority import (
+    ExpertSourceReplayFreshAuthorityCoordinator,
+)
+from kapso.cross_run.expert.replay_docker_bootstrap import (
+    build_source_replay_docker_provider_registry,
+)
+from kapso.cross_run.expert.replay_execution_store import (
+    ExpertSourceReplayExecutionStore,
+)
+from kapso.cross_run.expert.replay_publication import (
+    ExpertSourceReplayDecisionPublicationCoordinator,
+)
+from kapso.cross_run.expert.replay_request import (
+    ExpertSourceReplayPreflightCoordinator,
+)
+from kapso.cross_run.expert.replay_stage import (
+    ExpertSourceReplayStageOrchestrator,
 )
 from kapso.cross_run.expert.revocation import ExpertReleaseRevocationCoordinator
 from kapso.cross_run.expert.promotion_authority import (
@@ -612,6 +638,13 @@ def validate_expert_cross_run(
                 raise CrossRunOperationError(
                     "typed validation stage cannot consume a generic evaluator result"
                 )
+            snapshot = _execute_source_replay_stage(
+                settings=settings,
+                state_root=root,
+                github=github,
+                services=services,
+                snapshot=snapshot,
+            )
         else:
             evaluator_result = request["evaluator_result"]
             if not isinstance(evaluator_result, Mapping):
@@ -624,6 +657,97 @@ def validate_expert_cross_run(
                 result=ExpertEvaluatorResultRecord.from_dict(evaluator_result),
             ).snapshot
     return _validation_summary(snapshot)
+
+
+def _execute_source_replay_stage(
+    *,
+    settings: CrossRunSettings,
+    state_root: Path,
+    github: GitHubOperationServices,
+    services: ExpertValidationOperationServices,
+    snapshot: ExpertValidationSnapshot,
+) -> ExpertValidationSnapshot:
+    attempt = snapshot.latest_attempt
+    if (
+        snapshot.state.next_stage is not ExpertValidationStage.SOURCE_RUN_REPLAY
+        or attempt is None
+    ):
+        raise CrossRunOperationError(
+            "source replay execution requires the active typed stage"
+        )
+    current_release = services.validation_store.reducer.current_release_provider
+    if type(current_release) is not GitHubExpertCurrentReleaseProvider:
+        raise CrossRunOperationError(
+            "source replay requires the configured GitHub CURRENT authority"
+        )
+    bundle_store = RunBundleStore.initialize(
+        state_root / settings.capture.state_path,
+        settings.capture,
+        settings.sanitation,
+    )
+    preflight = ExpertSourceReplayPreflightCoordinator(
+        settings=settings.expert.validation,
+        candidate_store=services.candidate_store,
+        validation_authority=services.validation_store,
+        current_release_provider=current_release,
+        source_base_provider=GitHubExpertCompositionBaseProvider(
+            github.resolver,
+            github.materializer,
+            settings.expert,
+        ),
+        bundle_provider=RunBundleLineageProvider(
+            bundle_store,
+            RunBundleProjector(
+                settings.expert.validation.policy.task_evaluation_aggregate_tolerance
+            ),
+            settings.capture.bundle_lineage_limit,
+        ),
+        task_adapter_provider=services.task_adapter_store,
+        task_context_provider=StoredSourceReplayContextProvider(
+            bundle_store,
+            settings.expert.validation,
+        ),
+        monotonic_clock=time.monotonic,
+    )
+    execution_store = ExpertSourceReplayExecutionStore(
+        ExpertSourceReplayExecutionStore.canonical_root(
+            services.validation_store.root
+        ).resolve(),
+        services.validation_store.root,
+        settings.expert.validation.policy,
+    )
+    security_authority = _policy_services(
+        settings,
+        state_root,
+        github,
+    ).security_authority
+    spawn_authority = ExpertSourceReplayFreshAuthorityCoordinator(
+        reservation_authority=services.validation_store,
+        execution_store=execution_store,
+        current_release_authority=current_release,
+        task_adapter_authority=services.task_adapter_store,
+        security_denylist_authority=security_authority,
+    )
+    publication = ExpertSourceReplayDecisionPublicationCoordinator(
+        validation_store=services.validation_store,
+        execution_store=execution_store,
+        current_release_authority=current_release,
+        task_adapter_authority=services.task_adapter_store,
+        security_denylist_authority=security_authority,
+    )
+    return ExpertSourceReplayStageOrchestrator(
+        validation_store=services.validation_store,
+        preflight_coordinator=preflight,
+        execution_store=execution_store,
+        provider_registry_factory=lambda prepared: (
+            build_source_replay_docker_provider_registry(
+                prepared_request=prepared,
+                workspace_root=state_root,
+            )
+        ),
+        spawn_authority_coordinator=spawn_authority,
+        publication_coordinator=publication,
+    ).run(attempt)
 
 
 def _execute_release_matrix_stage(
@@ -650,11 +774,17 @@ def _execute_release_matrix_stage(
         )
         for pin in attempt.task_adapter_pins
     )
+    source_replay_request = (
+        services.validation_store.reopen_accepted_source_replay_request(
+            candidate_id=attempt.candidate_id,
+            expected_transition_id=snapshot.transition.transition_id,
+        )
+    )
     prepared_plan = derive_expert_release_matrix_plan(
         state=snapshot.state,
         attempt=attempt,
         accepted_stage_results=snapshot.accepted_stage_results,
-        source_replay_request=None,
+        source_replay_request=source_replay_request,
         stored_candidate=stored_candidate,
         verified_adapters=verified_adapters,
         validation_policy=settings.expert.validation.policy.validation_policy(),
@@ -673,7 +803,15 @@ def _execute_release_matrix_stage(
         settings=settings.expert.validation,
         plan_reservation_authority=services.validation_store,
         candidate_reader=services.candidate_store,
-        source_base_provider=None,
+        source_base_provider=(
+            None
+            if source_replay_request is None
+            else GitHubExpertCompositionBaseProvider(
+                github.resolver,
+                github.materializer,
+                settings.expert,
+            )
+        ),
         adapter_provider=services.task_adapter_store,
         current_release_authority=current_release,
         monotonic_clock=time.monotonic,
