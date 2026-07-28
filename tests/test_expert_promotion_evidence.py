@@ -89,9 +89,20 @@ class _SemanticProvider(_Provider):
         return super().execute_leg(invocation)
 
 
-def _bootstrap_prepared_with_store(tmp_path, monkeypatch):
+def _bootstrap_prepared_with_store(
+    tmp_path,
+    monkeypatch,
+    *,
+    candidate_closure=None,
+    source_adapter=None,
+):
     validation_store, snapshot, prepared_plan, _active_provider = (
-        _bootstrap_release_matrix_fixture(tmp_path, monkeypatch)
+        _bootstrap_release_matrix_fixture(
+            tmp_path,
+            monkeypatch,
+            candidate_closure=candidate_closure,
+            source_adapter=source_adapter,
+        )
     )
     plan_reservation = validation_store.reserve_release_matrix_plan(
         expected_transition_id=snapshot.transition.transition_id,

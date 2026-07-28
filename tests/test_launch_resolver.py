@@ -19,8 +19,11 @@ from kapso.cross_run.contracts import (
     CrossRunTaskBindingSettings,
     GitHubPublicationRecord,
     GitHubReleaseAsset,
+    ObjectiveDirection,
     PublicationArtifactKind,
     SourceFileDescriptor,
+    TaskAdapterContextBinding,
+    TaskAdapterManifest,
     TaskAdapterReleaseMatrixCase,
     TaskAdapterReleaseMatrixStartingArtifact,
     TaskContextBinding,
@@ -71,12 +74,15 @@ from kapso.cross_run.task_adapters import (
     TaskAdapterActivationRecord,
 )
 from test_cross_run_contracts import (
+    build_records,
     digest,
     task_adapter_source,
     verified_test_task_adapter,
 )
+from test_expert_candidates import bootstrap_candidate_closure
 from test_expert_release_assembly import _approved_bootstrap
 from test_knowledge_snapshot_package import empty_generation
+from task_adapter_matrix_fixtures import task_adapter_release_matrix_case
 
 CANONICAL_CONFIG_PATH = "src/kapso/config.yaml"
 RESOLVED_AT = "2026-07-23T12:30:00Z"
@@ -318,6 +324,50 @@ def _experiment_embedding_space():
     )
 
 
+def _source_adapter_for_binding(binding, scope_contract_id):
+    if binding.task_adapter_id == "posttrain":
+        return None
+    base_manifest = next(
+        record
+        for record in build_records()
+        if type(record) is TaskAdapterManifest
+        and record.scope_contract_id == scope_contract_id
+    )
+    base_adapter = verified_test_task_adapter(base_manifest)
+    manifest_values = base_manifest.to_dict()
+    manifest_values.pop("task_adapter_manifest_id")
+    manifest_values.update(
+        task_adapter_id=binding.task_adapter_id,
+        task_family_id=binding.task_family_id,
+        context_binding=TaskAdapterContextBinding(
+            consumed_dimension_ids=("dataset_family", "runtime_family")
+        ),
+        release_matrix_cases=(
+            task_adapter_release_matrix_case(
+                scope_contract_id=scope_contract_id,
+                scope_id=binding.scope_id,
+                task_family_id=binding.task_family_id,
+                task_adapter_id=binding.task_adapter_id,
+                evaluator_fingerprint=(
+                    base_manifest.task_evaluator.metric_comparison_bindings[
+                        0
+                    ].evaluator_fingerprint
+                ),
+                metric_directions=(("quality", ObjectiveDirection.MAXIMIZE),),
+                transfer_dimensions={
+                    "dataset_family": "relational_tabular",
+                    "runtime_family": "pytorch",
+                },
+                label="relbench-system-scenario",
+            ),
+        ),
+    )
+    return verified_test_task_adapter(
+        TaskAdapterManifest.mint(**manifest_values),
+        source_contents=base_adapter.source_contents,
+    )
+
+
 def _resolved_artifact(
     *,
     settings,
@@ -445,26 +495,54 @@ def _resolved_artifact(
     return current, intent, receipt, witness
 
 
-@pytest.fixture
-def resolver_case(tmp_path, monkeypatch):
+def build_resolver_case(
+    tmp_path,
+    monkeypatch,
+    binding=None,
+    *,
+    expert_case=None,
+    knowledge_package=None,
+):
     settings = _settings()
-    expert_fixture_root = tmp_path / "expert"
-    expert_fixture_root.mkdir()
-    validation_store, matrix, approval, _ = _approved_bootstrap(
-        expert_fixture_root,
-        monkeypatch,
-    )
-    candidate_store = validation_store.reducer.candidate_store
-    stored_candidate = candidate_store.read(approval.snapshot.state.candidate_id)
-    assembler = ExpertReleaseAssembler(
-        candidate_store=candidate_store,
-        validation_store=validation_store,
-        expert_settings=candidate_store.validator.settings,
-        github_settings=settings.github,
-    )
-    expert_package = assembler.build(
-        candidate_id=stored_candidate.closure.manifest.candidate_id
-    )
+    if expert_case is None:
+        expert_fixture_root = tmp_path / "expert"
+        expert_fixture_root.mkdir()
+        candidate_closure = (
+            None
+            if binding is None
+            else bootstrap_candidate_closure(active_task_bindings=(binding,))
+        )
+        source_adapter = (
+            None
+            if candidate_closure is None
+            else _source_adapter_for_binding(
+                binding,
+                candidate_closure.validation_context.scope_contract.scope_contract_id,
+            )
+        )
+        validation_store, matrix, approval, _ = _approved_bootstrap(
+            expert_fixture_root,
+            monkeypatch,
+            candidate_closure=candidate_closure,
+            source_adapter=source_adapter,
+        )
+        candidate_store = validation_store.reducer.candidate_store
+        stored_candidate = candidate_store.read(approval.snapshot.state.candidate_id)
+        assembler = ExpertReleaseAssembler(
+            candidate_store=candidate_store,
+            validation_store=validation_store,
+            expert_settings=candidate_store.validator.settings,
+            github_settings=settings.github,
+        )
+        expert_package = assembler.build(
+            candidate_id=stored_candidate.closure.manifest.candidate_id
+        )
+        release_matrix_stage_result = matrix.stage_result
+    else:
+        stored_candidate = expert_case.stored_candidate
+        expert_package = expert_case.expert_package
+        release_matrix_stage_result = expert_case.release_matrix_stage_result
+        source_adapter = expert_case.verified_adapter
     expert_descriptors = tuple(
         SourceFileDescriptor(
             relative_path=relative_path,
@@ -494,20 +572,21 @@ def resolver_case(tmp_path, monkeypatch):
     )
 
     scope_contract = stored_candidate.closure.validation_context.scope_contract
-    prepared_knowledge = KnowledgeSnapshotPackageBuilder.prepare_empty(
-        scope_contract,
-        empty_generation(scope_contract),
-    )
-    knowledge_package = KnowledgeSnapshotPackageBuilder.finalize(
-        prepared_knowledge,
-        parent_snapshot_ids=(),
-        sanitation_policy_version="kapso.sanitation.v1",
-        retrieval_policy_version="kapso.retrieval.v1",
-        configuration_fingerprint=digest("knowledge-config"),
-        prompt_budget_policy={"maximum_records": 24},
-        published_at=PUBLISHED_AT,
-        publisher_attestation={"issuer": "test-publisher"},
-    )
+    if knowledge_package is None:
+        prepared_knowledge = KnowledgeSnapshotPackageBuilder.prepare_empty(
+            scope_contract,
+            empty_generation(scope_contract),
+        )
+        knowledge_package = KnowledgeSnapshotPackageBuilder.finalize(
+            prepared_knowledge,
+            parent_snapshot_ids=(),
+            sanitation_policy_version="kapso.sanitation.v1",
+            retrieval_policy_version="kapso.retrieval.v1",
+            configuration_fingerprint=digest("knowledge-config"),
+            prompt_budget_policy={"maximum_records": 24},
+            published_at=PUBLISHED_AT,
+            publisher_attestation={"issuer": "test-publisher"},
+        )
     knowledge_parent = tmp_path / "knowledge"
     knowledge_parent.mkdir()
     knowledge_content = knowledge_package.materialize(
@@ -559,12 +638,18 @@ def resolver_case(tmp_path, monkeypatch):
         reused=False,
     )
 
-    matrix_authority = (
-        matrix.stage_result.release_matrix_report.evaluation_plan.adapter_authorities[0]
+    matrix_authority = next(
+        authority
+        for authority in release_matrix_stage_result.release_matrix_report.evaluation_plan.adapter_authorities
+        if source_adapter is None
+        or authority.task_adapter_manifest == source_adapter.manifest
     )
-    verified_adapter = verified_test_task_adapter(
-        matrix_authority.task_adapter_manifest
+    verified_adapter = (
+        verified_test_task_adapter(matrix_authority.task_adapter_manifest)
+        if source_adapter is None
+        else source_adapter
     )
+    assert verified_adapter.manifest == matrix_authority.task_adapter_manifest
     assert verified_adapter.verification_receipt == (
         matrix_authority.verification_receipt
     )
@@ -759,9 +844,14 @@ def resolver_case(tmp_path, monkeypatch):
                     key=lambda module: module.module_contract_id,
                 )
             ),
-            release_matrix_stage_result=matrix.stage_result,
+            release_matrix_stage_result=release_matrix_stage_result,
         ),
     }
+
+
+@pytest.fixture
+def resolver_case(tmp_path, monkeypatch):
+    return build_resolver_case(tmp_path, monkeypatch)
 
 
 def test_resolver_admits_exact_verified_release_matrix_interface(

@@ -21,6 +21,7 @@ from kapso.cross_run.contracts import (
     CodingAgentWorkspaceChangedFile,
     CodingAgentWorkspaceDelta,
     ContractValidationError,
+    CrossRunTaskBindingSettings,
     ExpertCandidateDerivationKind,
     ExpertCandidateManifest,
     ExpertCandidateOperationKind,
@@ -144,10 +145,24 @@ def bootstrap_candidate_closure(
     workspace_access: CodingAgentWorkspaceAccess = (
         CodingAgentWorkspaceAccess.EDIT_WORKSPACE
     ),
+    active_task_bindings: tuple[CrossRunTaskBindingSettings, ...] = (
+        CrossRunTaskBindingSettings(
+            scope_id="ml_ai",
+            task_family_id="language_model_post_training",
+            task_adapter_id="posttrain",
+        ),
+    ),
 ) -> ExpertCandidateClosure:
     settings = trigger_settings()
-    packet = trigger_packet(settings=settings, bootstrap=True)
+    packet = trigger_packet(
+        settings=settings,
+        bootstrap=True,
+        active_task_bindings=active_task_bindings,
+    )
     decision = ExpertTriggerEvaluator(settings).evaluate(packet)
+    task_family_bindings = tuple(
+        sorted({binding.task_family_id for binding in active_task_bindings})
+    )
     test_ref = "tests/missing.py" if missing_test_ref else "tests/test_execution.py"
     module = ExpertModuleContract.mint(
         module_id="shared.execution",
@@ -175,7 +190,7 @@ def bootstrap_candidate_closure(
                 capability_id=module.module_id,
                 module_contract_ref=module.module_contract_id,
                 owned_paths=("src/execution.py", "tests/test_execution.py"),
-                task_family_bindings=("language_model_post_training",),
+                task_family_bindings=task_family_bindings,
             ),
         ),
         dependency_edges=(),
@@ -250,7 +265,7 @@ def bootstrap_candidate_closure(
                                 "src/execution.py",
                                 "tests/test_execution.py",
                             ),
-                            "task_family_bindings": ("language_model_post_training",),
+                            "task_family_bindings": task_family_bindings,
                         },
                     ),
                     "task_adapter_boundary": (

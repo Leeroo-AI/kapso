@@ -71,7 +71,13 @@ from kapso.cross_run.expert.promotion_stage import ExpertReleaseMatrixStageCoord
 CANONICAL_CONFIG_PATH = "src/kapso/config.yaml"
 
 
-def _approved_bootstrap(tmp_path, monkeypatch):
+def _approved_bootstrap(
+    tmp_path,
+    monkeypatch,
+    *,
+    candidate_closure=None,
+    source_adapter=None,
+):
     settings = _settings(minimum_replicates=1, minimum_pairs=1)
     monkeypatch.setattr(
         reservation_fixture_module,
@@ -81,6 +87,8 @@ def _approved_bootstrap(tmp_path, monkeypatch):
     validation_store, snapshot, prepared = _bootstrap_prepared_with_store(
         tmp_path,
         monkeypatch,
+        candidate_closure=candidate_closure,
+        source_adapter=source_adapter,
     )
     reservation, execution_store, completed = _completed_runtime(
         validation_store,
@@ -112,13 +120,23 @@ def _approved_bootstrap(tmp_path, monkeypatch):
     return validation_store, matrix, approval, authority
 
 
-def _approved_normal(tmp_path, monkeypatch):
+def _approved_normal(
+    tmp_path,
+    monkeypatch,
+    *,
+    source_fixture=None,
+    released_source=None,
+    source_adapter=None,
+):
     validation_settings = _settings(minimum_replicates=1, minimum_pairs=2)
     case = _publish_matrix(
         tmp_path,
         monkeypatch,
         bootstrap=False,
         settings=validation_settings,
+        source_fixture=source_fixture,
+        released_source=released_source,
+        source_adapter=source_adapter,
     )
     settings = CrossRunSettings.from_dict(
         load_config(CANONICAL_CONFIG_PATH)["cross_run"]

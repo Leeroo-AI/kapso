@@ -37,7 +37,7 @@ from test_expert_release_matrix_reservation import (
 )
 
 
-def _expert_sources(prepared_plan):
+def _expert_sources(prepared_plan, *, source_base_contents=None):
     stored = prepared_plan.stored_candidate
     candidate = VerifiedTaskEvaluationCandidate(
         manifest=stored.closure.manifest,
@@ -48,7 +48,10 @@ def _expert_sources(prepared_plan):
     packet = stored.closure.derivation.trigger_packet
     if packet.source_base_release is None or packet.source_base_tree_receipt is None:
         return candidate, None
-    _released_packet, _materialized, source_base_contents = released_workspace_fixture()
+    if source_base_contents is None:
+        _released_packet, _materialized, source_base_contents = (
+            released_workspace_fixture()
+        )
     return candidate, VerifiedTaskEvaluationSourceBase(
         release_manifest=packet.source_base_release,
         source_base_tree_receipt=packet.source_base_tree_receipt,

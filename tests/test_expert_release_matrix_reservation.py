@@ -73,7 +73,6 @@ from test_expert_candidates import (
 )
 from test_expert_proposal import (
     BootstrapProposalRunner,
-    generalizer_output,
     released_observation_packet,
 )
 from test_expert_replay_execution_store import _MatchedLegProvider, _coordinator
@@ -148,19 +147,30 @@ def _release_matrix_fixture(
     rotate_active_adapter=False,
     add_active_case=False,
     include_source_evidence_authority=False,
+    source_fixture=None,
+    released_source=None,
+    source_adapter=None,
 ):
     settings = _quality_only_validation_settings()
-    source_fixture = _request_fixture(
-        tmp_path,
-        validation_settings=settings,
-    )
-    source_packet = source_fixture.packet
-    released_packet, materialized_source_base, source_base_contents = (
-        released_observation_packet(
-            ExpertTriggerObservationKind.MECHANICALLY_GENERAL_FIX,
-            "A provenance field can be added without changing topology.",
+    if source_fixture is None:
+        source_fixture = _request_fixture(
+            tmp_path,
+            validation_settings=settings,
         )
-    )
+    source_packet = source_fixture.packet
+    if released_source is None:
+        released_packet, materialized_source_base, source_base_contents = (
+            released_observation_packet(
+                ExpertTriggerObservationKind.MECHANICALLY_GENERAL_FIX,
+                "A provenance field can be added without changing topology.",
+            )
+        )
+    else:
+        (
+            released_packet,
+            materialized_source_base,
+            source_base_contents,
+        ) = released_source
     packet = ExpertTriggerEvidencePacket.mint(
         knowledge_snapshot_manifest=source_packet.knowledge_snapshot_manifest,
         knowledge_record_closure_digest=(source_packet.knowledge_record_closure_digest),
@@ -196,17 +206,24 @@ def _release_matrix_fixture(
         ),
     )
     proposal_workspace_root = (cross_run_root / "proposal-workspaces").resolve()
-    proposal_payload = json.loads(generalizer_output(packet))
-    proposal_payload["changed_module_contracts"][0]["supporting_episode_ids"] = [
-        source_packet.episodes[0].episode_id
-    ]
+    source_module = packet.source_base_module_contracts[0]
+    changed_module = source_module.to_dict()
+    changed_module.pop("module_contract_id")
+    changed_module["version"] = f"v{int(source_module.version.removeprefix('v')) + 1}"
+    changed_module["supporting_episode_ids"] = [source_packet.episodes[0].episode_id]
+    changed_path = source_module.entrypoint_refs[0]
+    proposal_payload = {
+        "changed_module_contracts": [changed_module],
+        "changed_paths": [changed_path],
+        "deleted_paths": [],
+        "summary": "Added provenance capture to reusable execution.",
+    }
     proposal_runner = BootstrapProposalRunner(
         (workspace_root / configured_expert_settings.agent_artifact_path).resolve(),
         json.dumps(proposal_payload, sort_keys=True) + "\n",
         {
-            "src/reproducible_execution/__init__.py": (
-                b"def execute(task):\n    return task.run_with_provenance()\n"
-            )
+            changed_path: source_base_contents[changed_path]
+            + b"\n# Retain execution provenance.\n"
         },
     )
     proposal_engine = ExpertCandidateProposalEngine(
@@ -232,6 +249,7 @@ def _release_matrix_fixture(
     )
     adapter_provider = _AdapterProvider(
         packet,
+        source_adapter=source_adapter,
         rotate_active=rotate_active_adapter,
     )
     if add_active_case:
@@ -550,6 +568,9 @@ def test_plan_enumerates_every_case_from_the_active_signed_manifest(
 def _bootstrap_release_matrix_fixture(
     tmp_path,
     monkeypatch,
+    *,
+    candidate_closure=None,
+    source_adapter=None,
 ):
     settings = _quality_only_validation_settings()
     configured_expert_settings = replace(
@@ -568,9 +589,13 @@ def _bootstrap_release_matrix_fixture(
             sanitation_settings(),
         ),
     )
-    stored_candidate = candidates.persist(bootstrap_candidate_closure())
+    stored_candidate = candidates.persist(
+        bootstrap_candidate_closure()
+        if candidate_closure is None
+        else candidate_closure
+    )
     packet = stored_candidate.closure.derivation.trigger_packet
-    adapter_provider = _AdapterProvider(packet)
+    adapter_provider = _AdapterProvider(packet, source_adapter=source_adapter)
     current_release_provider = _CurrentReleaseProvider(None)
     eligibility = ExpertCandidateEligibilityEvaluator(
         settings,

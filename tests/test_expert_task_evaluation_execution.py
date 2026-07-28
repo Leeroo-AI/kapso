@@ -80,17 +80,30 @@ def _bootstrap_prepared(tmp_path, monkeypatch):
     return coordinator.build(plan_reservation), source_base_provider
 
 
-def _parent_prepared_with_additional_case(tmp_path, monkeypatch):
+def _parent_prepared_with_additional_case(
+    tmp_path,
+    monkeypatch,
+    *,
+    source_fixture=None,
+    released_source=None,
+    source_adapter=None,
+):
     validation_store, snapshot, prepared_plan = _release_matrix_fixture(
         tmp_path,
         monkeypatch,
         add_active_case=True,
+        source_fixture=source_fixture,
+        released_source=released_source,
+        source_adapter=source_adapter,
     )
     plan_reservation = validation_store.reserve_release_matrix_plan(
         expected_transition_id=snapshot.transition.transition_id,
         prepared_plan=prepared_plan,
     ).reservation
-    _candidate, source_base = _expert_sources(prepared_plan)
+    _candidate, source_base = _expert_sources(
+        prepared_plan,
+        source_base_contents=(None if released_source is None else released_source[2]),
+    )
     observation = _current_observation(prepared_plan)
     coordinator, *_providers = _coordinator(
         validation_store=validation_store,

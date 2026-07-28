@@ -288,6 +288,9 @@ def _publish_matrix(
     bootstrap,
     settings,
     negative_effect=False,
+    source_fixture=None,
+    released_source=None,
+    source_adapter=None,
 ):
     monkeypatch.setattr(
         reservation_fixture_module,
@@ -303,6 +306,9 @@ def _publish_matrix(
         validation_store, snapshot, prepared = _parent_prepared_with_additional_case(
             tmp_path,
             monkeypatch,
+            source_fixture=source_fixture,
+            released_source=released_source,
+            source_adapter=source_adapter,
         )
     if negative_effect:
         values = {
