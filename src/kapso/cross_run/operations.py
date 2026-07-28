@@ -771,8 +771,8 @@ def _expert_validation_services(
     )
     adapter_settings = settings.expert.task_adapters
     task_adapter_store = TaskAdapterPackageStore(
-        expert_root / Path(adapter_settings.state_path).name,
-        expert_root,
+        state_root / adapter_settings.state_path,
+        state_root,
         adapter_settings,
         TaskAdapterAuthorityRegistry(
             adapter_settings,

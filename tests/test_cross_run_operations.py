@@ -61,6 +61,26 @@ def test_capture_command_runs_the_real_pipeline_and_reports_exact_bundle(tmp_pat
     assert result["artifact_digests"]
 
 
+def test_expert_validation_services_use_the_canonical_task_adapter_root(tmp_path):
+    settings = load_effective_config(_CONFIG_PATH, "GENERIC").cross_run
+    state_root = tmp_path / "state"
+    state_root.mkdir(mode=0o700)
+    services = operations_module._expert_validation_services(
+        settings,
+        state_root,
+        GitHubOperationServices(
+            resolver=object(),
+            materializer=object(),
+            publisher=object(),
+        ),
+    )
+
+    assert services.task_adapter_store.state_root == state_root
+    assert services.task_adapter_store.state_path == (
+        state_root / settings.expert.task_adapters.state_path
+    )
+
+
 def test_publish_knowledge_delegates_exact_empty_generation_to_m2(
     tmp_path,
     monkeypatch,
