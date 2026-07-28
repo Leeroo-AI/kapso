@@ -645,3 +645,102 @@ class TestDesignAxes:
         assert "never finished" in FEATURE_ENGINEERING_NOTE
         assert "saturation" in FEATURE_ENGINEERING_NOTE
         assert "freezing the feature matrix" in FEATURE_ENGINEERING_NOTE
+
+
+class TestLivingDocuments:
+    def _fake_db_dataset(self):
+        import pandas as pd
+
+        class FakeTable:
+            def __init__(self, df, pkey, time_col, fkeys):
+                self.df = df
+                self.pkey_col = pkey
+                self.time_col = time_col
+                self.fkey_col_to_pkey_table = fkeys
+
+        results = FakeTable(
+            pd.DataFrame({"resultId": [1], "raceId": [1], "driverId": [1]}),
+            "resultId", "date", {"raceId": "races", "driverId": "drivers"},
+        )
+        races = FakeTable(
+            pd.DataFrame({"raceId": [1], "circuitId": [1], "round": [1]}),
+            "raceId", "date", {"circuitId": "circuits"},
+        )
+        circuits = FakeTable(
+            pd.DataFrame({"circuitId": [1], "country": ["x"]}),
+            "circuitId", None, {},
+        )
+        drivers = FakeTable(
+            pd.DataFrame({"driverId": [1]}), "driverId", None, {}
+        )
+        db = SimpleNamespace(
+            table_dict={
+                "results": results, "races": races,
+                "circuits": circuits, "drivers": drivers,
+            },
+            min_timestamp="1950", max_timestamp="2009",
+        )
+        dataset = SimpleNamespace(val_timestamp="2005", test_timestamp="2010")
+        return db, dataset
+
+    def test_table_information_has_schema_join_graph_and_two_hop(self):
+        """The seeded living doc must expose the full join graph including
+        the two-hop bridge paths past campaigns never built (results ->
+        races -> circuits was unread across 55 registered runs)."""
+        from benchmarks.relbench.context import build_table_information
+
+        db, dataset = self._fake_db_dataset()
+        doc = build_table_information(db, dataset, "rel-x")
+        assert "LIVING DOCUMENT" in doc
+        for t in ("results", "races", "circuits", "drivers"):
+            assert f"table `{t}`" in doc
+        assert "- `results.raceId` -> `races`" in doc
+        assert "- `races.circuitId` -> `circuits`" in doc
+        assert "`results` -> `races` (via `raceId`) -> `circuits` (via `circuitId`)" in doc
+        assert "Semantics and gotchas" in doc
+
+    def test_seeding_is_absent_only(self, tmp_path):
+        """Agent edits must survive handler restarts/resumes: an existing
+        living doc is never overwritten."""
+        from benchmarks.relbench.handler import RelBenchHandler
+
+        handler = RelBenchHandler.__new__(RelBenchHandler)
+        handler.shared_cache_dir = tmp_path
+        handler.dataset_name = "rel-x"
+        handler.problem_id = "rel-x--t"
+        db, dataset = self._fake_db_dataset()
+        handler.dataset = SimpleNamespace(get_db=lambda: db, **vars(dataset))
+
+        handler._seed_living_documents()
+        info = tmp_path / "table_information.md"
+        hist = tmp_path / "features_history.md"
+        assert info.exists() and hist.exists()
+        assert "rel-x--t" in hist.read_text()
+
+        info.write_text("AGENT EDITED\n")
+        hist.write_text("AGENT MEMORY\n")
+        handler._seed_living_documents()
+        assert info.read_text() == "AGENT EDITED\n"
+        assert hist.read_text() == "AGENT MEMORY\n"
+
+    def test_context_carries_living_docs_and_hard_rules(self):
+        """User-directed (2026-07-28): all-tables hard rule, features-over-
+        architecture preference, and the living-documents contract must be
+        in the problem context constants."""
+        from benchmarks.relbench.context import (
+            FEATURE_ENGINEERING_NOTE,
+            FEATURES_HISTORY_TEMPLATE,
+            LIVING_DOCUMENTS_NOTE,
+        )
+
+        assert "ALL TABLES (hard rule)" in FEATURE_ENGINEERING_NOTE
+        assert "EVERY table" in FEATURE_ENGINEERING_NOTE
+        assert "MEASURED reason" in FEATURE_ENGINEERING_NOTE
+        assert "99%" in FEATURE_ENGINEERING_NOTE
+        assert "FEATURES OVER ARCHITECTURE" in FEATURE_ENGINEERING_NOTE
+        assert "table_information.md" in LIVING_DOCUMENTS_NOTE
+        assert "features_history.md" in LIVING_DOCUMENTS_NOTE
+        assert "EDIT" in LIVING_DOCUMENTS_NOTE
+        assert "Append-only" in LIVING_DOCUMENTS_NOTE
+        assert "$KAPSO_SHARED_CACHE_DIR" in LIVING_DOCUMENTS_NOTE
+        assert "TESTED-REJECTED" in FEATURES_HISTORY_TEMPLATE

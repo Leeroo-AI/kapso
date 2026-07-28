@@ -495,8 +495,108 @@ FEATURE_ENGINEERING_NOTE = (
     "keep probing for columns that improve the metric, and let an "
     "iteration leave the matrix unchanged only on measured saturation "
     "evidence (an ablation or importance study showing no headroom), "
-    "never by default."
+    "never by default.\n"
+    "Two standing rules:\n"
+    "1. ALL TABLES (hard rule) — your features must draw on EVERY table in "
+    "the database. Excluding a table is allowed only with a justified, "
+    "MEASURED reason that it carries no extractable signal (a diagnostic "
+    "you ran, recorded in features_history.md) — and 99% of tables are not "
+    "useless, so an unread table is unfinished work, never a default. "
+    "Prior campaigns left entire tables unread without ever evaluating "
+    "them; this rule exists to kill exactly that failure.\n"
+    "2. FEATURES OVER ARCHITECTURE — when allocating iteration budget, "
+    "prefer proposing and experimenting with NEW FEATURES over new model "
+    "architectures: on this benchmark architecture swaps have repeatedly "
+    "measured dead while feature widening kept paying."
 )
+
+LIVING_DOCUMENTS_NOTE = (
+    "Two agent-maintained files live in the shared artifact workspace "
+    "($KAPSO_SHARED_CACHE_DIR) and persist across iterations and campaigns:\n"
+    "- table_information.md — schema, join graph, and table semantics. You "
+    "are allowed and expected to EDIT it as you learn new facts about the "
+    "tables during experimentation: append discovered semantics, unit "
+    "quirks, joins that worked, dead ends with their measured reasons. "
+    "Keep it factual; do not delete earlier notes unless they are measured "
+    "wrong.\n"
+    "- features_history.md — the campaign's persistent feature memory. READ "
+    "it before proposing features; APPEND one entry for every feature (or "
+    "feature group) you propose or test: what it is, its status (PROPOSED / "
+    "TESTED-KEPT / TESTED-REJECTED / BLOCKED), the measured outcome, and "
+    "the takeaway. Append-only — never delete or rewrite existing entries; "
+    "parallel lanes append concurrently.\n"
+    "Consult both files at the start of every session — they are the "
+    "campaign's memory of what has been learned and tried."
+)
+
+FEATURES_HISTORY_TEMPLATE = """# Feature history — {problem_id} (living memory)
+
+Append ONE entry per proposed or experimented feature (or coherent feature
+group). This file is the campaign's persistent memory of what has been
+tried: READ it before proposing features, APPEND after every experiment.
+Append-only — never delete or rewrite prior entries (parallel lanes append
+concurrently; earlier campaigns' entries are evidence, not clutter).
+
+Entry format:
+### <feature or group name>
+- run/experiment: <id> | status: PROPOSED | TESTED-KEPT | TESTED-REJECTED | BLOCKED
+- what: <tables/columns/transform in one line>
+- outcome: <measured metric deltas / gate numbers, or why it was blocked>
+- takeaway: <one line the next proposer should know>
+
+## Entries
+
+(none yet)
+"""
+
+
+def build_table_information(db, dataset, dataset_name: str) -> str:
+    """Seed content for the agent-editable table_information.md living doc.
+
+    Auto-derived from the actual database so it works for every RelBench
+    dataset: full schema, the foreign-key join graph, and two-hop join
+    paths through bridge tables (the paths past campaigns never built).
+    """
+    edges = []
+    for name, table in sorted(db.table_dict.items()):
+        for col, parent in table.fkey_col_to_pkey_table.items():
+            edges.append((name, col, parent))
+    edge_lines = [f"- `{child}.{col}` -> `{parent}`" for child, col, parent in edges]
+    parents_of: dict = {}
+    for child, col, parent in edges:
+        parents_of.setdefault(child, []).append((col, parent))
+    two_hop = []
+    for child, col, parent in edges:
+        for col2, grand in parents_of.get(parent, []):
+            two_hop.append(
+                f"- `{child}` -> `{parent}` (via `{col}`) -> `{grand}` (via `{col2}`)"
+            )
+    sections = [
+        f"# Table information — {dataset_name} (LIVING DOCUMENT)",
+        "",
+        "Agent-maintained: extend and correct this file as you learn table "
+        "semantics during experimentation. Append; do not delete factual "
+        "notes from earlier sessions unless they are measured wrong.",
+        "",
+        "## Schema",
+        "",
+        describe_database(db, dataset),
+        "",
+        "## Join graph (foreign keys)",
+        "",
+        "\n".join(edge_lines) if edge_lines else "(no foreign keys)",
+    ]
+    if two_hop:
+        sections += ["", "Two-hop join paths through bridge tables:", "", "\n".join(two_hop)]
+    sections += [
+        "",
+        "## Semantics and gotchas (append below)",
+        "",
+        "(column meanings, unit quirks, null semantics, joins that worked, "
+        "dead ends with their measured reasons)",
+        "",
+    ]
+    return "\n".join(sections)
 
 
 def build_problem_context(
@@ -534,6 +634,8 @@ def build_problem_context(
         + _FAMILY_PLAYBOOKS[spec.family],
         "\n## Feature engineering (standing high-value direction)\n"
         + FEATURE_ENGINEERING_NOTE,
+        "\n## Living documents (shared artifact workspace)\n"
+        + LIVING_DOCUMENTS_NOTE,
         "\n## Iteration protocol\n" + _iteration_protocol(spec),
     ]
     if sota_note:

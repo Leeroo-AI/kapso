@@ -36,7 +36,11 @@ import numpy as np
 
 from kapso.environment.handlers.base import ProblemHandler, ProblemRunResult
 
-from benchmarks.relbench.context import build_problem_context
+from benchmarks.relbench.context import (
+    FEATURES_HISTORY_TEMPLATE,
+    build_problem_context,
+    build_table_information,
+)
 from benchmarks.relbench.task_specs import TaskSpec, resolve_spec
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -104,6 +108,13 @@ class RelBenchHandler(ProblemHandler):
         # Sanitized cache for the candidate's process.
         # ------------------------------------------------------------------
         self._ensure_sanitized_cache(rebuild=rebuild_sanitized_cache)
+
+        # ------------------------------------------------------------------
+        # Living documents in the shared artifact workspace (absent-only:
+        # agents edit these during campaigns and they persist across runs
+        # and resumes — reseeding would destroy accumulated memory).
+        # ------------------------------------------------------------------
+        self._seed_living_documents()
 
         # ------------------------------------------------------------------
         # Problem context.
@@ -734,6 +745,28 @@ class RelBenchHandler(ProblemHandler):
             check=True,
         )
         marker.write_text(json.dumps(want))
+
+    def _seed_living_documents(self) -> None:
+        """Seed agent-editable living documents into the shared cache.
+
+        Absent-only by contract: table_information.md and features_history.md
+        are edited by agents mid-campaign and carry memory across runs and
+        campaigns — an existing file is never overwritten.
+        """
+        table_info = self.shared_cache_dir / "table_information.md"
+        if not table_info.exists():
+            table_info.write_text(
+                build_table_information(
+                    self.dataset.get_db(), self.dataset, self.dataset_name
+                )
+            )
+            print(f"[RelBenchHandler] seeded {table_info.name}")
+        history = self.shared_cache_dir / "features_history.md"
+        if not history.exists():
+            history.write_text(
+                FEATURES_HISTORY_TEMPLATE.format(problem_id=self.problem_id)
+            )
+            print(f"[RelBenchHandler] seeded {history.name}")
 
     def _load_sota_note(self, sota_file: Optional[str]) -> str:
         path = Path(sota_file) if sota_file else Path(__file__).parent / "data" / "sota.json"
