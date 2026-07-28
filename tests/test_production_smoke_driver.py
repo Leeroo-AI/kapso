@@ -183,8 +183,8 @@ def test_synthetic_projection_is_one_admitted_domain_neutral_bundle():
     assert projection.catalog_facts[-1] == projection.projection_manifest
 
 
-def test_production_ideation_output_must_cite_the_retrieved_prior():
-    expected = "prior-idea:sha256:" + "1" * 64
+def test_production_ideation_output_must_cite_the_retrieved_record():
+    expected = "transfer-episode:sha256:" + "1" * 64
     output = (
         '{"idea":"change one variable","mechanism":"preserve causality",'
         f'"prior_record_id":"{expected}"}}'
@@ -197,10 +197,10 @@ def test_production_ideation_output_must_cite_the_retrieved_prior():
         )["prior_record_id"]
         == expected
     )
-    with pytest.raises(ProductionSmokeError, match="selected prior idea"):
+    with pytest.raises(ProductionSmokeError, match="selected prior record"):
         smoke_module._validate_production_ideation_output(
             output,
-            "prior-idea:sha256:" + "2" * 64,
+            "transfer-episode:sha256:" + "2" * 64,
         )
 
 

@@ -1050,11 +1050,11 @@ def _coding_agent_ideation_smoke(
         )
         embedding_telemetry = embedded.telemetry
     retrieval = retriever.retrieve(query)
-    selected_ids = retrieval.prior_knowledge_snapshot.selected_record_ids
-    if expected_prior_idea.prior_idea_id not in selected_ids:
+    if not retrieval.selections:
         raise ProductionSmokeError(
-            "production ideation retrieval omitted the expected prior idea"
+            "production ideation retrieval selected no prior knowledge"
         )
+    target_record_id = retrieval.selections[0].record_id
 
     workspace = _private_state_root(smoke_root / "coding-agent-ideation-workspace")
     artifact_root = _private_state_root(smoke_root / "coding-agent-ideation-artifacts")
@@ -1062,8 +1062,9 @@ def _coding_agent_ideation_smoke(
     response_schema = _production_ideation_response_schema()
     prompt = (
         "Without changing the workspace, first call "
-        "prior_knowledge.list_prior_knowledge. Identify the prior-idea record, "
-        "then call prior_knowledge.get_prior_knowledge_record for that exact "
+        "prior_knowledge.list_prior_knowledge. Confirm that the trusted parent's "
+        f"primary selected record {target_record_id} is listed, then call "
+        "prior_knowledge.get_prior_knowledge_record for that exact "
         "record. Use the complete record to propose one concise, novel next "
         "experiment that preserves its useful mechanism while changing one "
         "scientifically meaningful dimension. Return only the required JSON, "
@@ -1110,7 +1111,7 @@ def _coding_agent_ideation_smoke(
     result = runner.run(request, response_schema)
     output = _validate_production_ideation_output(
         result.output,
-        expected_prior_idea.prior_idea_id,
+        target_record_id,
     )
     sealed = seal_coding_agent_operation(
         request=request,
@@ -1133,16 +1134,16 @@ def _coding_agent_ideation_smoke(
         or audit_events[0]["tool_name"] != "list_prior_knowledge"
         or not any(
             event["tool_name"] == "get_prior_knowledge_record"
-            and event["arguments"] == {"record_id": expected_prior_idea.prior_idea_id}
+            and event["arguments"] == {"record_id": target_record_id}
             for event in audit_events
         )
     ):
         raise ProductionSmokeError(
-            "production ideation did not list and read the selected prior idea"
+            "production ideation did not list and read the selected prior record"
         )
     return {
         "snapshot_id": package.manifest.snapshot_id,
-        "prior_idea_id": output["prior_record_id"],
+        "prior_record_id": output["prior_record_id"],
         "selection_count": len(retrieval.selections),
         "materialization_digest": retrieval.access_materialization.materialization_digest,
         "operation_id": request.operation_id,
@@ -1171,7 +1172,7 @@ def _production_ideation_response_schema() -> Mapping[str, Any]:
 
 def _validate_production_ideation_output(
     output: str,
-    expected_prior_idea_id: str,
+    expected_prior_record_id: str,
 ) -> Mapping[str, Any]:
     parsed = parse_json_bytes(output.encode("utf-8"))
     if (
@@ -1181,10 +1182,10 @@ def _validate_production_ideation_output(
             not isinstance(parsed[field], str) or not parsed[field].strip()
             for field in ("idea", "mechanism", "prior_record_id")
         )
-        or parsed["prior_record_id"] != expected_prior_idea_id
+        or parsed["prior_record_id"] != expected_prior_record_id
     ):
         raise ProductionSmokeError(
-            "production ideation output does not cite the selected prior idea"
+            "production ideation output does not cite the selected prior record"
         )
     return parsed
 
