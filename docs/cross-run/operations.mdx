@@ -23,13 +23,18 @@ kapso cross-run production-smoke \
   --state-root /var/lib/kapso-validation \
   --stages preflight bootstrap-authorities github-read embeddings \
            docker-authority knowledge-publication coding-agent-ideation \
-           expert-proposal
+           task-adapter-bootstrap expert-proposal
 ```
 
 Stages run only in canonical order and append to one durable receipt at
 `.kapso/cross_run/production_validation/production-smoke-receipt.json`. Repeating
 a completed stage verifies and returns the same receipt without repeating paid or
 remote work. A changed config, fixture, stage order, or corrupt receipt fails.
+
+`task-adapter-bootstrap` verifies the configured content-pinned image, then
+publishes and activates one deterministic public transport adapter for every task
+binding in the scope. These adapters exercise the real validation and release
+matrix contracts; they are synthetic transport fixtures, not benchmark evidence.
 
 ## Normal lifecycle
 

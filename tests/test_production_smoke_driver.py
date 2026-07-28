@@ -99,7 +99,6 @@ def test_synthetic_projection_is_one_admitted_domain_neutral_bundle():
     scope_contract = smoke_module.ExpertScopeContract.from_dict(
         fixture["scope_contract"]
     )
-
     projection = smoke_module._synthetic_projection(
         settings,
         fixture,
@@ -140,7 +139,6 @@ def test_expert_bootstrap_exposes_every_scope_task_binding():
     scope_contract = smoke_module.ExpertScopeContract.from_dict(
         fixture["scope_contract"]
     )
-
     bindings = smoke_module._scope_task_bindings(scope_contract)
 
     assert tuple(
@@ -149,3 +147,9 @@ def test_expert_bootstrap_exposes_every_scope_task_binding():
         ("language_model_post_training", "posttrain"),
         ("relational_tabular_prediction", "relbench"),
     )
+
+
+def test_task_adapter_bootstrap_precedes_expert_proposal():
+    stages = smoke_module.production_smoke_stage_names()
+
+    assert stages.index("task-adapter-bootstrap") < stages.index("expert-proposal")

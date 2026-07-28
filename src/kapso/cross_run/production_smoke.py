@@ -64,6 +64,9 @@ from kapso.cross_run.record_contracts import (
     SANITATION_SCANNER_VERSION,
     SanitationReport,
 )
+from kapso.cross_run.production_task_adapters import (
+    bootstrap_production_task_adapters,
+)
 from kapso.cross_run.security_denylist import (
     AuthenticatedSecurityDenylistAuthority,
     GitHubSecurityDenylistSnapshotProvider,
@@ -95,6 +98,7 @@ _STAGE_ORDER = (
     "docker-authority",
     "knowledge-publication",
     "coding-agent-ideation",
+    "task-adapter-bootstrap",
     "expert-proposal",
 )
 _FIXTURE_FILENAME = "transport-smoke.json"
@@ -215,6 +219,12 @@ def _run_stage(
             fixture,
             scope_contract,
         )
+    if stage == "task-adapter-bootstrap":
+        return _task_adapter_bootstrap_smoke(
+            settings,
+            smoke_root,
+            scope_contract,
+        )
     if stage == "expert-proposal":
         return _expert_proposal_smoke(
             config_path,
@@ -224,6 +234,39 @@ def _run_stage(
             scope_contract,
         )
     raise ProductionSmokeError("unknown production smoke stage")
+
+
+def _task_adapter_bootstrap_smoke(
+    settings: CrossRunSettings,
+    smoke_root: Path,
+    scope_contract: ExpertScopeContract,
+) -> Mapping[str, Any]:
+    """Activate public deterministic adapters for the transport-only cascade."""
+
+    image = settings.launch.coding_agent_image
+    if image is None:
+        raise ProductionSmokeError(
+            "task-adapter bootstrap requires a pinned coding-agent image"
+        )
+    runtime_root = _private_state_root(smoke_root / "task-adapter-docker")
+    runtime = PinnedDockerRuntime.create(
+        trusted_root=runtime_root,
+        settings=settings.docker,
+    )
+    authority = DockerImageAuthority.mint(
+        image_reference=image.image_reference,
+        image_config_digest=image.image_config_digest,
+        operating_system=image.operating_system,
+        architecture=image.architecture,
+        architecture_variant=image.architecture_variant,
+    )
+    inspection = runtime.inspect_exact_image(authority)
+    return bootstrap_production_task_adapters(
+        settings=settings,
+        state_root=smoke_root,
+        scope_contract=scope_contract,
+        image_inspection=inspection,
+    )
 
 
 def _preflight(
