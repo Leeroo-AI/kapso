@@ -96,7 +96,7 @@ The user-facing entry point that provides the four-pillar API:
 
 ```python
 class Kapso:
-    def research(objective, mode, depth) -> Source.Research
+    def research(objective, mode, depth) -> ResearchFindings | list[Source.Idea] | list[Source.Implementation] | Source.ResearchReport
     def learn(*sources, wiki_dir) -> PipelineResult
     def evolve(goal, ...) -> SolutionResult
     def deploy(solution, strategy) -> Software
