@@ -338,6 +338,10 @@ print(json.dumps({"type":"turn.completed","usage":{"input_tokens":11,"output_tok
         args[position + 1] for position, value in enumerate(args) if value == "--config"
     ]
     assert 'default_permissions="kapso_ideation_read"' in permission_overrides
+    assert any(
+        f'workspace_roots={{{json.dumps(str(tmp_path))}=true}}' in value
+        for value in permission_overrides
+    )
     assert any('"/proc"="deny"' in value for value in permission_overrides)
     assert any('"~/.config/gh"="deny"' in value for value in permission_overrides)
     assert any('"**/.env"="deny"' in value for value in permission_overrides)
@@ -611,6 +615,10 @@ def test_edit_workspace_call_seals_exact_replayable_delta(
             if value == "--config"
         ]
         assert 'default_permissions="kapso_workspace_edit"' in permission_overrides
+        assert any(
+            f'workspace_roots={{{json.dumps(call_request.workspace)}=true}}' in value
+            for value in permission_overrides
+        )
         assert any(
             '":workspace_roots"={"."="write"' in value for value in permission_overrides
         )

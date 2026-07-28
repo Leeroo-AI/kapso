@@ -293,6 +293,10 @@ this external state rather than trusting the planning-time observation.
 - Immutable releases enabled on all three repositories.
 - An authenticated supported coding-agent CLI: Codex login/profile or Claude Code
   login/provider configuration. Only the CLI selected in `config.yaml` is required.
+- For Codex activation on Linux, `bubblewrap` plus a loaded host policy that permits
+  its user namespace while retaining the global unprivileged-user-namespace
+  restriction, followed by an authenticated workspace read/write and secret-deny
+  probe against the exact installed CLI version.
 - For Claude activation, `bubblewrap` and `socat`, plus a successful authenticated
   allow-read/deny-read/MCP preflight against the exact installed CLI version.
 - OpenAI embeddings authentication available to the trusted parent process through

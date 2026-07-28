@@ -49,7 +49,7 @@ from kapso.execution.coding_agents.workspace_delta import (
 _OPERATION_IDENTIFIER_PATTERN = re.compile(r"^agent_call_[0-9a-f]{32}$")
 _EMPTY_MCP_AUDIT_DIGEST = tree_or_blob_digest(b"")
 _CREDENTIAL_ENVIRONMENT_POLICY_VERSION = "kapso.coding_agent_credentials.v1"
-_FILESYSTEM_POLICY_VERSION = "kapso.coding_agent_workspace.v3"
+_FILESYSTEM_POLICY_VERSION = "kapso.coding_agent_workspace.v4"
 _MCP_AUDIT_POLICY_VERSION = "kapso.mcp_audit.v1"
 _SENSITIVE_HOME_PATHS = (
     "~/.aws",
@@ -1622,7 +1622,10 @@ class SubprocessCodingAgentCallRunner:
             if _codex_supports_response_schema(schema_text):
                 command.extend(["--output-schema", str(schema_path)])
             command.extend(
-                self._codex_permission_profile(request.workspace_policy.access)
+                self._codex_permission_profile(
+                    request.workspace_policy.access,
+                    request.workspace,
+                )
             )
             if request.effort is not None:
                 command.extend(
@@ -1700,6 +1703,7 @@ class SubprocessCodingAgentCallRunner:
     def _codex_permission_profile(
         self,
         workspace_access: CodingAgentWorkspaceAccess,
+        workspace: str,
     ) -> list[str]:
         profile = (
             "kapso_workspace_edit"
@@ -1724,7 +1728,10 @@ class SubprocessCodingAgentCallRunner:
         )
         overrides = (
             f'default_permissions="{profile}"',
-            f"permissions={{{profile}={{filesystem={filesystem}}}}}",
+            "permissions={"
+            f"{profile}={{workspace_roots={{{json.dumps(workspace)}=true}},"
+            f"filesystem={filesystem}}}"
+            "}",
         )
         return [item for override in overrides for item in ("--config", override)]
 
