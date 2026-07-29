@@ -52,15 +52,21 @@ command -v uv >/dev/null 2>&1 || curl -LsSf https://astral.sh/uv/install.sh | sh
 uv tool install kaggle --python 3.11 --force
 echo "  kaggle: $(kaggle --version)"
 
-echo "### 4/6 clone kapso (@$KAPSO_BRANCH) — PAT used for the clone, then dropped from the remote"
+echo "### 4/6 clone kapso @$KAPSO_BRANCH — PAT used for the clone, then dropped from the remote"
+# Clone the BRANCH directly: a plain clone lands on main (no benchmarks/kaggle
+# work) and the follow-up authenticated fetch is where things break. The
+# `http.extraheader` basic-auth form does NOT authenticate against this repo
+# (git falls through to an interactive prompt -> "could not read Username"), so
+# the PAT goes in the URL for the one authenticated operation, then is stripped.
 if [ ! -d "$HOME/kapso/.git" ]; then
-  git clone "https://x-access-token:${GITHUB_PAT}@github.com/Leeroo-AI/kapso.git" "$HOME/kapso"
+  git clone --branch "$KAPSO_BRANCH" \
+    "https://x-access-token:${GITHUB_PAT}@github.com/Leeroo-AI/kapso.git" "$HOME/kapso"
 fi
 cd "$HOME/kapso"
 git remote set-url origin https://github.com/Leeroo-AI/kapso.git
-git -c "http.extraheader=AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GITHUB_PAT" | base64 -w0)" \
-    fetch origin "$KAPSO_BRANCH"
-git checkout "$KAPSO_BRANCH"
+test "$(git branch --show-current)" = "$KAPSO_BRANCH" \
+  || { echo "on $(git branch --show-current), expected $KAPSO_BRANCH"; exit 1; }
+echo "  branch $(git branch --show-current) @ $(git rev-parse --short HEAD)"
 
 echo "### 5/6 kapso deps (--user; torch inherited, NOT reinstalled)"
 python3 -m pip install --user -q \

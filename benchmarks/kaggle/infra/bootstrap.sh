@@ -17,16 +17,22 @@ set -euo pipefail
 : "${OPENAI_API_KEY:?}"; : "${CLAUDE_CODE_OAUTH_TOKEN:?}"; : "${GITHUB_PAT:?}"
 : "${CODEX_AUTH_JSON:?}"; : "${KAGGLE_ACCESS_TOKEN:?}"
 KAPSO_COMMIT="${KAPSO_COMMIT:-worktree-ioai-2025}"
-AUTH_HEADER="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GITHUB_PAT" | base64 -w0)"
+# PAT in the URL for the authenticated fetch, stripped again right after: the
+# `http.extraheader` basic-auth form does not authenticate against this repo.
+PAT_URL="https://x-access-token:${GITHUB_PAT}@github.com/Leeroo-AI/kapso.git"
+CLEAN_URL="https://github.com/Leeroo-AI/kapso.git"
 # System python3 owns torch on this image (see setup_box.sh); no venv exists.
 export PATH="$HOME/.local/bin:$PATH"
 export PYTHONPATH="$HOME/kapso/src:$HOME/kapso"
 
 echo "### code -> $KAPSO_COMMIT (bake the env, pull the code fresh)"
 cd "$HOME/kapso"
-git -c "http.extraheader=$AUTH_HEADER" fetch origin --tags --quiet
+git remote set-url origin "$PAT_URL"
+git fetch origin --tags --quiet
 git checkout "$KAPSO_COMMIT" --quiet
-git -c "http.extraheader=$AUTH_HEADER" pull --ff-only --quiet || true
+git pull --ff-only --quiet origin "$KAPSO_COMMIT" || true
+git remote set-url origin "$CLEAN_URL"
+echo "  on $(git branch --show-current 2>/dev/null || echo detached) @ $(git rev-parse --short HEAD)"
 
 echo "### curated .env (safe vars ONLY — never the Bedrock trio)"
 umask 077
