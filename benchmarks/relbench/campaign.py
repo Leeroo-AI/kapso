@@ -106,8 +106,9 @@ def derive_goal(task_id: str, goal_spec: str) -> tuple:
 
 def select_tasks(queue: list, hardware: str, work_root: Path,
                  allow_sensitive: bool, explicit: list | None) -> list:
-    from benchmarks.relbench.scorecard import PROTOCOL_SENSITIVE_TASKS
+    from benchmarks.relbench.scorecard import PROTOCOL_SENSITIVE_TASKS, ROLLING_VERIFIED
 
+    blocked = PROTOCOL_SENSITIVE_TASKS - ROLLING_VERIFIED
     chosen = []
     pool = explicit if explicit else queue
     for task_id in pool:
@@ -115,9 +116,9 @@ def select_tasks(queue: list, hardware: str, work_root: Path,
         if hardware == "cpu" and ds not in CPU_SAFE_DATASETS:
             print(f"  skip {task_id}: needs GPU-tier hardware")
             continue
-        if task_id in PROTOCOL_SENSITIVE_TASKS and not allow_sensitive:
-            print(f"  skip {task_id}: ⚠ regime-sensitive (EVALUATION_PROTOCOL.md) — "
-                  f"needs the rolling sandbox; pass --allow-regime-sensitive once it lands")
+        if task_id in blocked and not allow_sensitive:
+            print(f"  skip {task_id}: ⚠ rolling harness not yet verified for this task "
+                  f"(EVALUATION_PROTOCOL.md); pass --allow-regime-sensitive to override")
             continue
         if (work_root / f"{ds}--{task}" / "final_report.json").exists():
             print(f"  skip {task_id}: already done (final_report.json exists)")

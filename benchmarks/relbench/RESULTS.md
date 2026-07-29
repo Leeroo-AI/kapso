@@ -22,7 +22,7 @@ Verified primary-source numbers (see BASELINES.md for protocols and citations): 
 
 ## Evaluation protocol
 
-Per-task temporal regimes are documented in `EVALUATION_PROTOCOL.md` — the single authority on what data a solution may see at test time. Where RelBench's library default (freeze the database at `test_timestamp`) and the bar-setters' released evaluation (KumoRFM: full database, per-row seed-time anchoring) disagree, this campaign adopts the KumoRFM regime — its numbers are the comparison target. ⚠ marks the tasks where the regimes diverge (multi-tick rel-f1 windowed tasks): their bars are seed-time numbers while the current sandbox still enforces frozen-db — **do not campaign ⚠ tasks until the sandbox implements per-row censoring** (existing Kapso cells there were recorded under the frozen regime and undersell the seed-time score).
+Per-task temporal regimes are documented in `EVALUATION_PROTOCOL.md` — the single authority on what data a solution may see at test time. Where RelBench's library default (freeze the database at `test_timestamp`) and the bar-setters' released evaluation (KumoRFM: full database, per-row seed-time anchoring) disagree, this campaign adopts the KumoRFM regime — its numbers are the comparison target. ⚠ marks the tasks where the regimes diverge (multi-tick rel-f1 windowed tasks): these are evaluated through the **rolling harness** (per-tick snapshot cascade; verified 2026-07-29 — the reference model reproduced its hand-run seed-time score, test MAE 2.6516 vs the 2.731 bar). Kapso cells recorded before that date were frozen-regime numbers and undersell the seed-time score.
 
 ## Per-task table (v1 then v2; ROI order within each)
 

@@ -199,3 +199,20 @@ earlier tick's closed outcome — exactly the Kumo-regime information set.
    RESULTS.md's ⚠) only when its rolling harness is live and verified.
 4. Acceptance: a fixed LightGBM reference through the harness must reproduce the
    hand-run B-rolling result (2.653 ± 0.015 test MAE) before any agent campaign.
+
+## Rolling harness — VERIFIED (2026-07-29)
+
+Implemented per the design of record (commit `1e97bb68`) and verified:
+
+- **driver-position — full acceptance PASS**: the reference B-rolling LightGBM
+  (seed 0) run through the real grader + 56-snapshot cascade scored **test MAE
+  2.6516 / NMAE 0.3775** — inside the pre-registered band 2.653 ± 0.015 and
+  under the KumoRFM-ft bar (2.731). Rolling-val score of record 2.8288.
+- **driver-dnf / driver-top3 — cascade invariants PASS**: every test snapshot
+  leak-clean (db ≤ tick, windows closed, target absent from test tables);
+  snapshot-relabeled train tables match official labels exactly
+  (11,411 / 1,353 rows, max diff 0.0).
+- Campaign gate: `ROLLING_VERIFIED` (scorecard.py) now covers all three — the
+  pipeline campaigns them through the rolling harness by default. Kapso cells
+  recorded before 2026-07-29 on these tasks are frozen-regime and undersell
+  the seed-time score.

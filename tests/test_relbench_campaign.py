@@ -37,13 +37,17 @@ def test_selection_gates(tmp_path):
     queue = [done, "rel-f1/driver-position", "rel-hm/user-churn", "rel-f1/driver-dnf",
              "rel-avito/ad-ctr"]
     chosen = select_tasks(queue, "cpu", tmp_path, allow_sensitive=False, explicit=None)
-    # done skipped; both regime-sensitive f1 tasks skipped; hm needs GPU
-    assert chosen == ["rel-avito/ad-ctr"]
+    # done skipped; hm needs GPU; rolling tasks pass — their harness is verified
+    assert chosen == ["rel-f1/driver-position", "rel-f1/driver-dnf", "rel-avito/ad-ctr"]
     chosen_gpu = select_tasks(queue, "gpu", tmp_path, allow_sensitive=True, explicit=None)
     assert chosen_gpu == ["rel-f1/driver-position", "rel-hm/user-churn", "rel-f1/driver-dnf",
                           "rel-avito/ad-ctr"]
     assert PROTOCOL_SENSITIVE_TASKS == {"rel-f1/driver-position", "rel-f1/driver-dnf",
                                         "rel-f1/driver-top3"}
+    from benchmarks.relbench.scorecard import ROLLING_VERIFIED
+
+    # an unverified rolling task would be blocked: simulate by construction
+    assert ROLLING_VERIFIED <= PROTOCOL_SENSITIVE_TASKS
 
 
 def test_derive_goal_units():

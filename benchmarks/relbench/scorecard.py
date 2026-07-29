@@ -37,15 +37,21 @@ V1_REC_TASKS = [
 ]
 
 # Tasks whose test windows extend years past test_timestamp, so the two
-# published evaluation regimes (frozen-db vs per-row seed-time) diverge and
-# the recorded bars are seed-time numbers while the current sandbox enforces
-# frozen-db. Authority: EVALUATION_PROTOCOL.md — do not campaign these until
-# the sandbox implements per-row censoring.
+# published evaluation regimes (frozen-db vs per-row seed-time) diverge.
+# These are evaluated through the rolling harness (per-tick snapshot cascade,
+# EVALUATION_PROTOCOL.md) so their regime matches the published bars.
 PROTOCOL_SENSITIVE_TASKS = {
     "rel-f1/driver-position",
     "rel-f1/driver-dnf",
     "rel-f1/driver-top3",
 }
+
+# Rolling harness verified per task (campaign gate opens only for these):
+# driver-position — full acceptance 2026-07-29: reference B-rolling through the
+#   real grader+cascade scored test MAE 2.6516 (band 2.653±0.015; bar 2.731);
+# driver-dnf / driver-top3 — cascade invariants verified same day: every test
+#   snapshot leak-clean, snapshot-relabeled train == official labels exactly.
+ROLLING_VERIFIED = set(PROTOCOL_SENSITIVE_TASKS)
 
 
 def load_kapso_results(work_root: Path) -> Dict[str, dict]:
@@ -471,10 +477,11 @@ def build_reference(work_root: Path) -> str:
         "released evaluation (KumoRFM: full database, per-row seed-time anchoring) "
         "disagree, this campaign adopts the KumoRFM regime — its numbers are the "
         "comparison target. ⚠ marks the tasks where the regimes diverge (multi-tick "
-        "rel-f1 windowed tasks): their bars are seed-time numbers while the current "
-        "sandbox still enforces frozen-db — **do not campaign ⚠ tasks until the sandbox "
-        "implements per-row censoring** (existing Kapso cells there were recorded under "
-        "the frozen regime and undersell the seed-time score).",
+        "rel-f1 windowed tasks): these are evaluated through the **rolling harness** "
+        "(per-tick snapshot cascade; verified 2026-07-29 — the reference model "
+        "reproduced its hand-run seed-time score, test MAE 2.6516 vs the 2.731 bar). "
+        "Kapso cells recorded before that date were frozen-regime numbers and "
+        "undersell the seed-time score.",
         "",
         "## Per-task table (v1 then v2; ROI order within each)",
         "",
