@@ -83,6 +83,10 @@ MIN_IDEATION_SALVAGE_CHARS = 200
 ENSEMBLE_MEMBER_TIME_FRACTION = 0.7
 ENSEMBLE_SELECTOR_TIME_FRACTION = 0.3
 ENSEMBLE_SELECTOR_MIN_SECONDS = 240
+# Default only — the live value is search_strategy.params
+# ideation_candidates_per_member (see GenericSearch.__init__). A wider pool
+# gives the selector more to choose from and keeps K-way expansion alive when
+# one member under-delivers.
 ENSEMBLE_CANDIDATES_PER_MEMBER = 2
 
 # Extraction artifacts (prompt echoes, stream duplicates) are shorter than
@@ -535,6 +539,16 @@ class GenericSearch(SearchStrategy):
             raise ValueError(
                 "implementation_cli must be claude_code or codex, got "
                 f"{self.implementation_cli!r}"
+            )
+        self.ideation_candidates_per_member = int(
+            self.params.get(
+                "ideation_candidates_per_member", ENSEMBLE_CANDIDATES_PER_MEMBER
+            )
+        )
+        if self.ideation_candidates_per_member < 1:
+            raise ValueError(
+                "ideation_candidates_per_member must be >= 1, got "
+                f"{self.ideation_candidates_per_member}"
             )
         self.implementation_timeout = self.params.get("implementation_timeout", 600)
         self.gate_failure_policy = self.params.get("gate_failure_policy", "warn")
@@ -1128,7 +1142,7 @@ class GenericSearch(SearchStrategy):
                 addendum_template,
                 {
                     "lens": lens,
-                    "candidate_count": str(ENSEMBLE_CANDIDATES_PER_MEMBER),
+                    "candidate_count": str(self.ideation_candidates_per_member),
                 },
             )
             label = f"{member['cli']}:{member['model']}"
@@ -1296,15 +1310,15 @@ class GenericSearch(SearchStrategy):
             timing = f", {duration:.0f}s" if duration is not None else ""
             print(
                 f"[GenericSearch] member {member_result['label']}: "
-                f"candidates={kept}/{ENSEMBLE_CANDIDATES_PER_MEMBER} "
+                f"candidates={kept}/{self.ideation_candidates_per_member} "
                 f"(dropped {dropped}){timing}, "
                 f"timed_out={member_result.get('timed_out', False)}, {detail}"
             )
-            if kept < ENSEMBLE_CANDIDATES_PER_MEMBER:
+            if kept < self.ideation_candidates_per_member:
                 logger.warning(
                     f"[GenericSearch] member {member_result['label']} "
                     f"under-delivered: {kept} of "
-                    f"{ENSEMBLE_CANDIDATES_PER_MEMBER} candidates"
+                    f"{self.ideation_candidates_per_member} candidates"
                 )
 
         telemetry = {
