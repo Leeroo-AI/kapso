@@ -18,8 +18,11 @@ For the `ml_ai` scope the configured repositories are:
 
 All three require a `main` default branch, direct administrative writes by the
 autonomous actor, immutable releases, and no rule requiring a pull request or human
-approval. Kapso revalidates repository node identity, privacy, write authority, and
-release immutability before mutation.
+approval. The security repository additionally keeps the signed evaluator workflow
+on the structural `kapso-evaluator` branch. Its `main` branch is owned by security
+artifact publication and must not carry workflow source. Kapso revalidates
+repository node identity, privacy, write authority, and release immutability before
+mutation.
 
 ## Host authentication
 
@@ -55,3 +58,11 @@ source commit is not success; only the authenticated current pointer plus activa
 witness is authoritative. Retries reconcile the exact prior operation and never
 force-push or infer completion from partial remote state.
 
+An evaluator dispatch reads and targets the exact commit at
+`refs/heads/kapso-evaluator`; evaluator releases bind that revision into the signed
+request and result. This prevents workflow maintenance from advancing the
+artifact-owned security `main` branch. If a successor publication observes an
+unchanged pointer at a later authenticated commit, it accepts that state only when
+GitHub proves the observed head is a strict fast-forward descendant of the recorded
+activation witness, then restores an artifact-only `main` through the normal
+activation commit. Divergence is rejected.

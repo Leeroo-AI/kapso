@@ -23,6 +23,7 @@ diagnosis.
 | Docker authority failure | Socket, executable, API, config root, or root-owned mutation-lock identity changed | Re-provision externally and restart from a fresh observation; application code must not repair it |
 | Missing expert current release | The scope has no validated E0 | Run the explicit expert bootstrap/validation/publication workflow; launch must not bootstrap implicitly |
 | Evaluator or canary trust absent | Full expert promotion lacks an external trust root | Provision the configured evaluator/sealed service; do not fabricate results or disable the gate during promotion |
+| Evaluator branch or workflow missing | The security repository lacks the exact `kapso-evaluator` revision or `kapso-expert-evaluator.yml` workflow | Restore the reviewed workflow on `kapso-evaluator`; do not place it on artifact-owned `main` or bypass signed evaluation |
 
 For a production smoke failure, rerun the same stage and state root. Completed stages
 are receipt-replayed; an interrupted stage reconciles its provider operation. If the

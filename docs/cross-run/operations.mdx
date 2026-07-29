@@ -47,9 +47,9 @@ matrix contracts; they are synthetic transport fixtures, not benchmark evidence.
 
 `expert-validation-enrollment` loads the exact E0 candidate from the prior stage,
 enters it into the durable validation state machine, and stops at the first signed
-evaluator boundary (`contract_schema`). Advancing beyond that point requires the
-configured independent evaluator authority; the smoke never manufactures a
-passing decision.
+evaluator boundary (`contract_schema`). Full validation dispatches the configured
+independent GitHub Actions evaluator from the security repository's dedicated
+`kapso-evaluator` branch; the smoke never manufactures a passing decision.
 
 The synthetic S1 contains one admitted, lineage-tracked technical-failure episode.
 After E0 publication, `expert-successor-proposal` materializes the authenticated
@@ -58,16 +58,16 @@ call, and seals a `mechanically_general_fix` observation bound to that episode,
 capability, path, tree hash, and inspection policy before invoking the normal
 expert proposer. This proves the transport path; it is not benchmark evidence.
 
-The remaining stages are selectable even when an external authority is absent.
-`expert-bootstrap-validation` and `expert-successor-validation` advance only the
-automated review, source replay, release-matrix, and publication-eligibility
-stages; they fail before a generic evaluator stage unless an independently signed
-result has already been admitted with `validate-expert`. Publication stages call
-the normal expert publisher, and `successor-launch`/`clean-machine-launch` call the
-normal launch resolver while asserting the exact E1/S1 identities from prior
-receipts. `concurrent-publication` requires two independently eligible children of
-the same authenticated parents. `live-restart` requires external daemon/host
-restart control. `revocation` is last so it cannot taint the release needed by the
+Publication stages call the normal expert publisher, and
+`successor-launch`/`clean-machine-launch` call the normal launch resolver while
+asserting the exact E1/S1 identities from prior receipts. `concurrent-publication`
+races two writers from the same authenticated parent in isolated knowledge and
+expert branches and requires exactly one compare-and-swap winner. `live-restart`
+reconstructs production service graphs, resumes the same persisted run twice, and
+reobserves Docker authority; its receipt explicitly says whether an external host
+restart occurred. `revocation` publishes a cumulative security successor, records
+the release revocation, and proves fresh-launch, online-resume, and persisted
+pinned-offline rejection. It is last so it cannot taint the release needed by the
 clean launch and restart checks.
 
 ## Normal lifecycle

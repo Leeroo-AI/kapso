@@ -88,11 +88,11 @@ Build typed fixtures for:
 - late contamination causing claim/candidate/release taint and revocation; and
 - clean successor release plus rollback/reproducibility of older runs.
 
-- [ ] Use deterministic fake coding-agent, embedding, GitHub, automated-reviewer,
+- [x] Use deterministic fake coding-agent, embedding, GitHub, automated-reviewer,
       evaluator, and sealed-service boundaries for the primary CI suite.
-- [ ] Assert complete artifacts and side effects, not mock call counts alone.
-- [ ] Verify content IDs/bytes under input reordering and independent process runs.
-- [ ] Validate all fail-loud paths and absence of partial durable state.
+- [x] Assert complete artifacts and side effects, not mock call counts alone.
+- [x] Verify content IDs/bytes under input reordering and independent process runs.
+- [x] Validate all fail-loud paths and absence of partial durable state.
 
 ## Failure-injection matrix
 
@@ -130,10 +130,11 @@ The lower-level failure seams stay owned by their focused tests:
 |---|---|
 | Interrupted GitHub publication and retry | `test_cross_run_github_publisher.py::test_publication_failure_never_activates_current_early`, `::test_retry_resumes_partially_uploaded_draft_without_duplicate_asset`, and `::test_post_cas_witness_failure_leaves_recoverable_current` |
 | Knowledge `CURRENT` CAS conflict | `test_knowledge_snapshot_publisher.py::test_m2_compare_and_swap_failure_propagates_without_fallback` |
-| Concurrent knowledge/expert activation | `test_cross_run_github_publisher.py::test_two_publishers_from_one_head_produce_typed_compare_and_swap_conflict` and the sealed expert authorization tests in that module |
+| Concurrent knowledge/expert activation | `test_cross_run_github_publisher.py::test_two_publishers_from_one_head_produce_typed_compare_and_swap_conflict`, the sealed expert authorization tests in that module, and `test_production_smoke_driver.py::test_concurrency_smoke_produces_one_winner_and_one_typed_conflict` |
 | Clean-directory materialization | `test_cross_run_materializer.py::test_materializer_atomically_commits_read_only_cache_and_reuses_it` and `test_launch_workspace.py::test_builder_materializes_private_read_only_copies` |
 | Cross-module old-run resume | `test_cross_run_system_e2e.py::test_empty_launch_to_s1_e1_later_task_and_old_resume` and `test_launch_handoff.py::test_resume_handoff_maps_the_refreshed_checkpoint_head` |
-| Daemon/host restart | `test_run_action_recovery.py::test_provider_termination_has_exact_crash_restart_semantics`, `::test_result_received_recovers_after_full_runtime_restart`, and `::test_result_decided_recovers_after_full_runtime_restart_without_implementation` |
+| Runtime/service restart | `test_run_action_recovery.py::test_provider_termination_has_exact_crash_restart_semantics`, `::test_result_received_recovers_after_full_runtime_restart`, `::test_result_decided_recovers_after_full_runtime_restart_without_implementation`, and `test_production_smoke_driver.py::test_live_restart_recomposes_services_and_preserves_pins` |
+| Revocation launch/resume fence | `test_production_smoke_driver.py::test_revocation_fences_fresh_launch_and_persisted_resume` plus the denylist lineage, launch handoff, and release-revocation focused suites |
 | Final legacy cutover | `test_launch_workspace.py::test_published_envelope_rejects_legacy_run_action_lock`, `test_run_action_recovery.py::test_legacy_direct_spawn_interfaces_are_removed`, plus the final repository search and complete-suite gate |
 
 This ledger is deliberately referential: a seam gets a new M10 test only when no
@@ -215,48 +216,60 @@ Sealed benchmark/canary testing is a separate explicitly authorized production
 stage and must not expose hidden examples to coding-agent processes or GitHub
 artifacts.
 
-### Production checkpoint (2026-07-27)
+### Production checkpoint (2026-07-29)
 
-The credentialed smoke has passed GitHub authority bootstrap/read, knowledge S1
-publication and clean retrieval, OpenAI embedding construction, Codex packet-only
-ideation, task-adapter publication, expert E0 proposal, and exact E0 validation
-enrollment. Enrollment deliberately stops at the `contract_schema` evaluator
-transition: it proves the proposed candidate is the one durably entering the
-validation state machine, but it does not forge an evaluator decision.
-Embedding replay keeps input identities, embedding-space identity, dimensions,
-and response contracts exact while bounding live provider float drift with the
-configured cosine-distance tolerance; it does not claim bytewise provider
-determinism.
+The credentialed synthetic transport sequence completed in the configured private
+repositories under one sealed receipt:
+`production-smoke-receipt:sha256:0664eee0bfad24e8a0bcbcb8806713af0fce43bf391a2aada7391d3530eab639`.
+It used the real GitHub, OpenAI embeddings, Codex, GitHub Actions evaluator, GHCR,
+and Docker boundaries. No hidden benchmark or sealed-canary data was used.
 
-Production has therefore **not** passed signed generic evaluator validation, E0
-publication, E1 proposal/publication, an E1/S1 production launch, concurrency,
-revocation, clean-machine execution, or live daemon/host restart. Those stages
-remain blocked by external production authorities described below. A sealed
-canary is optional for E0 and mechanically classified E1 validation and is not the
-current blocker.
+The decisive activated artifacts were:
 
-All of those steps are now explicit selectable stages in the same durable smoke
-receipt. Existing operational services perform validation advancement,
-publication, launch, and revocation. S1 now carries one admitted lineage-tracked
-transport `TransferEpisode`; the E1 proposal stage performs a real read-only Codex
-inspection of E0 and seals an episode/path/capability-bound
-`mechanically_general_fix` observation before invoking the normal proposer. A
-missing signed evaluator result, second eligible concurrency child, pinned image,
-or external restart controller stops at that exact boundary and writes no passing
-stage receipt.
+- S1 `knowledge-snapshot:sha256:41119d1f5bfc5f8ea5cc55b8609649eb8601dfd25bb718951d273b0a11af818d`;
+- E1 `expert-base-release:sha256:ee94602e29943c99e72d82902d44bcce32440bd7cc0dd143b3731ab4ba98a859`;
+- security generation one
+  `security-denylist-snapshot:sha256:aa657d54003191af19dd5d95161db99ef1660e30cecf6a7e319474cfb2069347`;
+  and
+- E1 revocation
+  `security-denylist-revocation:sha256:5793d08eb4a26f6a943e29023a6485cf85dc965d6790fef8e9a99c98aea318ef`.
 
-The final implementation gate executed the complete repository suite after
-legacy deletion and the reviewer-requested E1 orchestration repair in
-`70590a1c`: 4,015 passed, 25 skipped, and no tests failed in 2:04:50. The skips
-are explicit optional/manual-provider boundaries;
-production is never reported as passing through them. All 61 surviving Python
-files changed since the M9 review boundary pass Black; the package, tests, and
-benchmarks compile; the repository diff check is clean; and the superseded
-schema/config/prompt-name search contains only documentation of their deletion.
-Before that complete-suite gate, the E1 repair passed 81 affected
-knowledge/expert/operations/system tests, including an actual stage-chain test
-from an admitted snapshot episode through deterministic trigger selection and
-the successor proposal operation.
+The evaluator workflow now lives on the dedicated `kapso-evaluator` branch of the
+security repository. Security `main` is artifact-owned. When an older activation
+has a preserved `CURRENT.json` but later authenticated commits, the publisher
+accepts only a GitHub-proven fast-forward descendant of its activation witness;
+the next activation makes `main` artifact-only again. Denylist observations bind
+to the immutable activation commit while authenticating such preserved-pointer
+observations through the same ancestry proof.
+
+The live concurrency stage raced two writers in both the knowledge and expert
+repositories. Each race had exactly one winner and one typed
+`GitHubCompareAndSwapError`; neither default branch nor current pointer changed and
+no force update was used. A state root with no prior launch history then resolved
+and ran the exact E1/S1 pair. Two newly constructed service graphs resumed that
+same run with unchanged pins and distinct successor checkpoints while reobserving
+the same Docker socket, mutation-lock, image, and runtime authority.
+
+The final security stage published the cumulative generation-one denylist, issued
+`expert-release-revocation-receipt:sha256:7d84a1ff8714922408ac5abb79cfe2b166b70fe28e9a8ac3c4f15401df38d861`,
+rejected a fresh launch before workspace creation, blocked online resume, and
+reopened the identical blocked checkpoint under pinned-offline resume:
+`run-checkpoint:sha256:585f608a67ee22b059f2fd3c73f68c2ba08140e6a3086583d97a69baf6f790a3`.
+The terminal revocation stage receipt is
+`production-smoke-stage-receipt:sha256:fd73efdb7bc78141134377d66f499e6c616d3edb31402be8a30c3a7c7817481f`.
+
+The shared production host and system Docker daemon were not physically restarted;
+the receipt records `external_host_restart_performed: false`. The live stage proves
+service-process reconstruction, persisted resume, and Docker-authority
+reobservation. Focused runtime tests prove daemon/keeper disappearance and
+lost-installation recovery. A physical host reboot remains an explicit external
+operational exercise, not evidence claimed by this receipt.
+
+Embedding replay preserves input identities, embedding-space identity, dimensions,
+and response contracts while bounding live provider float drift with the configured
+cosine-distance tolerance; it does not claim bytewise provider determinism. The
+synthetic E1/S1 path proves transport and authority composition, not scientific
+transfer benefit.
 
 ## Production access checklist
 

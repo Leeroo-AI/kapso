@@ -10,6 +10,12 @@ release. Generation zero is empty. Every successor names its predecessor and may
 only add content-addressed revocations; removal, rewrite, fork, or rollback is
 rejected against the persisted local floor.
 
+The observation's authority commit is the artifact activation witness, not an
+arbitrary later branch head. A pointer-preserving later commit is accepted only
+after GitHub proves it is a fast-forward descendant of that witness. The security
+repository's evaluator workflow is isolated on `kapso-evaluator`, so normal
+evaluator dispatch cannot mutate the artifact-owned `main` authority.
+
 Kapso refreshes this authority immediately before dangerous boundaries: expert
 promotion/publication, launch, resume, and coding-agent execution. Cached state may
 support audit or reproducibility, but never authorizes new work while offline.
@@ -44,7 +50,8 @@ and terminal validation state.
 3. Re-run read-only verification from a state root that already observed the prior
    generation; rollback/fork checks must pass.
 4. Invoke candidate revocation where applicable and verify new launch/resume fails
-   for the revoked subject.
+   for the revoked subject. Reopen the persisted blocked checkpoint in
+   pinned-offline mode and require the same block; offline mode cannot authorize a
+   rollback.
 5. Build and fully validate a clean successor. Never reactivate by rewriting or
    removing the historical revocation.
-
