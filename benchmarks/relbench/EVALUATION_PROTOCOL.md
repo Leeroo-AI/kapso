@@ -216,3 +216,23 @@ Implemented per the design of record (commit `1e97bb68`) and verified:
   pipeline campaigns them through the rolling harness by default. Kapso cells
   recorded before 2026-07-29 on these tasks are frozen-regime and undersell
   the seed-time score.
+
+## Verification coverage (completed 2026-07-29, second pass)
+
+What each claim in this document rests on:
+
+| claim | verified how |
+|---|---|
+| 3 rolling tasks' geometry + harness | full acceptance / cascade invariants (§above) |
+| 23 autocomplete spans | measured from actual test tables (event_interest via db) |
+| ~40 windowed tasks span-0 | class attrs (`num_eval_timestamps`, `timedelta`) for every task |
+| single tick sits EXACTLY at `test_timestamp` | empirical, 6 tasks × 4 DBs × all 3 families incl. recommendation (offset 0d each: user-attendance, ad-ctr, study-adverse, amazon/user-churn, user-ad-visit, condition-sponsor-run); cross-confirmed by Kumo's own `pql.py` hardcoding `anchor_time = <test_timestamp>` |
+| Kumo regime, 21 v1 entity tasks | `relbench_regression.py`/`relbench_classification.py` read (loader + anchors) |
+| Kumo regime, v2 entity tasks | single-tick ⇒ regime-vacuous; v2 scripts use the same per-row TaskTable anchoring |
+| Kumo regime, salt autocomplete | `salt.py` read (target masking + entity anchors) |
+
+Known limitation (explicitly NOT verified): KumoRFM's **9 v1 recommendation MAP
+numbers have no released evaluation script** in kumo-ai/kumo-rfm (only
+pql/classification/regression/from_s3 exist). Regime-irrelevant — every rec task
+is single-tick at `test_timestamp` (verified above) — but list-construction
+details (k, dedup, candidate set) for those cells rest on the tech report alone.
