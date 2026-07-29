@@ -22,7 +22,7 @@ kapso = Kapso(
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `config_path` | `str` | `src/config.yaml` | Path to configuration file |
+| `config_path` | `str` | `src/kapso/config.yaml` | Path to configuration file |
 | `kg_index` | `str` | `None` | Path to existing `.index` file for KG |
 
 ### Examples
@@ -39,7 +39,7 @@ kapso = Kapso(kg_index="data/indexes/my_knowledge.index")
 
 # Full initialization
 kapso = Kapso(
-    config_path="src/config.yaml",
+    config_path="src/kapso/config.yaml",
     kg_index="data/indexes/llm_finetuning.index",
 )
 ```

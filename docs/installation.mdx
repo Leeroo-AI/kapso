@@ -266,7 +266,7 @@ After infrastructure is running, index your wiki pages:
 from kapso.kapso import Kapso
 
 # Initialize Kapso
-kapso = Kapso(config_path="src/config.yaml")
+kapso = Kapso(config_path="src/kapso/config.yaml")
 
 # Index wiki pages (one-time operation)
 kapso.index_kg(
@@ -276,7 +276,7 @@ kapso.index_kg(
 
 # Load existing index on subsequent runs
 kapso = Kapso(
-    config_path="src/config.yaml",
+    config_path="src/kapso/config.yaml",
     kg_index="data/indexes/my_knowledge.index",
 )
 ```

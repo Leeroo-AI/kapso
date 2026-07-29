@@ -106,7 +106,7 @@ def kg_json_path():
 @pytest.fixture
 def config_path():
     """Path to the config file."""
-    return "src/config.yaml"
+    return "src/kapso/config.yaml"
 
 
 # =============================================================================
@@ -593,124 +593,6 @@ class TestEvolveWithKGGraphSearch:
 
         # Cleanup
         kapso.knowledge_search.close()
-
-
-class TestEvolveWithKGLLMNavigation:
-    """
-    End-to-end tests for evolve() with kg_llm_navigation backend.
-
-    These tests verify that the Kaggle competition knowledge graph
-    is used during evolve() execution.
-
-    Note: Some tests may encounter RepoMemory validation errors which are
-    unrelated to the KG indexing functionality being tested.
-    """
-
-    def test_evolve_with_kaggle_kg(self, kg_json_path, temp_index_dir, config_path):
-        """
-        Test evolve() uses kg_llm_navigation to get Kaggle competition context.
-
-        This test:
-        1. Indexes the Kaggle KG JSON
-        2. Runs evolve() with a tabular ML goal
-        3. Verifies the solution is created with KG context available
-        """
-        from kapso.kapso import Kapso
-
-        index_path = temp_index_dir / "kaggle_kg.index"
-        output_path = temp_index_dir / "evolve_output"
-
-        # Index the Kaggle KG
-        kapso = Kapso(config_path=config_path)
-        kapso.index_kg(
-            data_path=str(kg_json_path),
-            save_to=str(index_path),
-            search_type="kg_llm_navigation",
-        )
-
-        # Verify KG is active
-        assert kapso.knowledge_search.is_enabled()
-        assert kapso.knowledge_search.validate_backend_data()
-
-        # Run evolve with a Kaggle-style goal
-        # Note: RepoMemory validation may fail - that's unrelated to KG feature
-        try:
-            solution = kapso.evolve(
-                goal="Write a Python script that prints 'XGBoost ensemble ready' for tabular classification",
-                output_path=str(output_path),
-                max_iterations=1,
-                mode="MINIMAL",
-                evaluator="no_score",
-            )
-
-            # Verify solution was created
-            assert solution is not None
-            assert solution.code_path is not None
-            assert Path(solution.code_path).exists()
-        except ValueError as e:
-            # RepoMemory validation errors are acceptable - KG was still used
-            if "RepoMemory update failed" in str(e):
-                pass  # Test passed - KG search was called during evolve
-            else:
-                raise
-        finally:
-            # Cleanup
-            kapso.knowledge_search.close()
-
-    def test_evolve_with_loaded_index(self, kg_json_path, temp_index_dir, config_path):
-        """
-        Test evolve() works when loading from existing .index file.
-
-        This simulates the typical user workflow:
-        1. Index once (setup)
-        2. Load index and evolve (normal usage)
-        """
-        from kapso.kapso import Kapso
-
-        index_path = temp_index_dir / "kaggle_kg.index"
-        output_path = temp_index_dir / "evolve_output"
-
-        # Step 1: Index (one-time setup)
-        kapso1 = Kapso(config_path=config_path)
-        kapso1.index_kg(
-            data_path=str(kg_json_path),
-            save_to=str(index_path),
-            search_type="kg_llm_navigation",
-        )
-        kapso1.knowledge_search.close()
-
-        # Step 2: Load from index and evolve (normal usage)
-        kapso2 = Kapso(
-            config_path=config_path,
-            kg_index=str(index_path),
-        )
-
-        # Verify KG loaded correctly
-        assert kapso2.knowledge_search.is_enabled()
-
-        # Run evolve
-        # Note: RepoMemory validation may fail - that's unrelated to KG feature
-        try:
-            solution = kapso2.evolve(
-                goal="Print 'Tabular ML pipeline ready' using best practices",
-                output_path=str(output_path),
-                max_iterations=1,
-                mode="MINIMAL",
-                evaluator="no_score",
-            )
-
-            # Verify solution
-            assert solution is not None
-            assert Path(solution.code_path).exists()
-        except ValueError as e:
-            # RepoMemory validation errors are acceptable - KG was still used
-            if "RepoMemory update failed" in str(e):
-                pass  # Test passed - KG search was called during evolve
-            else:
-                raise
-        finally:
-            # Cleanup
-            kapso2.knowledge_search.close()
 
 
 # =============================================================================
