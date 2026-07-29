@@ -74,6 +74,7 @@ def test_goal_none_omits_target(tmp_path, capsys):
     out = capsys.readouterr().out
     assert verdict["status"] == "dry-run"
     assert "--target-val" not in out and "budget-bound" in out
+    assert "--knowledge-file" in out  # no-stop note rides the knowledge channel
 
 
 def test_time_budget_threading(tmp_path):

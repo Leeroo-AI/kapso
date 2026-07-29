@@ -25,6 +25,17 @@ import sys
 import uuid
 from pathlib import Path
 
+NO_STOP_NOTE = """# Budget-bound campaign — do not stop early
+
+This campaign has a wall-clock budget and NO score target. There is no
+validation value at which stopping is correct: published bars are context,
+not finish lines. Never conclude "good enough", "target reached", or
+"diminishing returns" — every remaining minute goes to attempting further
+improvement (new features, new mechanisms, better selection), and the only
+legitimate stop is the clock. Feedback verdicts must set stop=False while
+budget remains.
+"""
+
 BENCH_DIR = Path(__file__).parent
 DATA_DIR = BENCH_DIR / "data"
 REPO_ROOT = BENCH_DIR.parents[1]
@@ -129,12 +140,20 @@ def select_tasks(queue: list, hardware: str, work_root: Path,
 
 def run_one(task_id: str, args) -> dict:
     ds, task = task_id.split("/")
+    extra_args = []
     if args.goal == "none":
         # Budget-bound: no early stop — the search uses the full hour budget
-        # and keeps its best. The verdict still reports vs best-known.
+        # and keeps its best. The verdict still reports vs best-known. The
+        # note rides the knowledge-file channel (the proven stop-rule path)
+        # so the feedback generator never volunteers a stop of its own.
         target, target_desc = None, "budget-bound (no early stop)"
+        note_path = REPO_ROOT / "tmp" / "campaign_no_stop_note.md"
+        note_path.parent.mkdir(exist_ok=True)
+        note_path.write_text(NO_STOP_NOTE)
+        extra_args = ["--knowledge-file", str(note_path)]
     else:
         target, target_desc = derive_goal(task_id, args.goal)
+        extra_args = ["--target-val", str(target)]
     workspace = f"tmp/search_strategy_workspace/{uuid.uuid4()}"
     log_path = REPO_ROOT / "tmp" / f"campaign_{ds}--{task}.log"
     cmd = [
@@ -142,7 +161,7 @@ def run_one(task_id: str, args) -> dict:
         "-s", ds, "-t", task, "-i", str(args.iterations), "-m", args.mode,
         "--workspace", workspace,
         "--time-budget-hours", str(args.hours_per_task),
-    ] + ([] if target is None else ["--target-val", str(target)])
+    ] + extra_args
     shown = "—" if target is None else f"{target:.6g}"
     print(f"\n{'=' * 70}\nCAMPAIGN TASK: {task_id}\n"
           f"  target-val {shown} ({target_desc}) | {args.hours_per_task}h | log {log_path}\n{'=' * 70}")
