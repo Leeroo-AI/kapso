@@ -41,7 +41,10 @@ from kapso.cross_run.contracts import (
     SECURITY_DENYLIST_EVIDENCE_FILENAME,
     SECURITY_DENYLIST_POLICY_VERSION,
     SECURITY_DENYLIST_SCHEMA_VERSION,
+    SecurityDenylistEvidence,
     SecurityDenylistEvidenceBundle,
+    SecurityDenylistKind,
+    SecurityDenylistRevocation,
     SecurityDenylistSnapshot,
     TransferEpisode,
 )
@@ -87,6 +90,8 @@ from kapso.cross_run.launch.production import (
     build_production_launch_services,
     production_experiment_embedding_space,
 )
+from kapso.cross_run.launch.resolver import LaunchResolutionError
+from kapso.cross_run.launch.resume import BlockedRunResume
 from kapso.cross_run.launch.resume_contracts import RunReleaseUseMode
 from kapso.cross_run.launch.starting_artifacts import (
     build_launch_starting_artifact_provider,
@@ -394,8 +399,10 @@ def _run_stage(
         return _revocation_smoke(
             config_path,
             mode,
+            settings,
             smoke_root,
             fixture,
+            scope_contract,
             prior_evidence,
         )
     raise ProductionSmokeError("unknown production smoke stage")
@@ -2302,8 +2309,10 @@ def _live_restart_smoke(
 def _revocation_smoke(
     config_path: str,
     mode: str,
+    settings: CrossRunSettings,
     smoke_root: Path,
     fixture: Mapping[str, Any],
+    scope_contract: ExpertScopeContract,
     prior_evidence: Mapping[str, Mapping[str, Any]],
 ) -> Mapping[str, Any]:
     publication = prior_evidence.get("expert-successor-publication")
@@ -2313,6 +2322,39 @@ def _revocation_smoke(
         raise ProductionSmokeError(
             "revocation requires successor publication candidate evidence"
         )
+    github = _github_services(settings, smoke_root)
+    validation = _expert_validation_services(settings, smoke_root, github)
+    existing_revocation = validation.validation_store.reopen_release_revocation(
+        publication["candidate_id"]
+    )
+    if existing_revocation is None:
+        target = validation.validation_store.reopen_release_revocation_target(
+            publication["candidate_id"]
+        )
+        if target.manifest.release_id != publication.get("release_id"):
+            raise ProductionSmokeError("revocation target differs from E1 publication")
+        security_publication = _publish_security_revocation_smoke(
+            settings=settings,
+            github=github,
+            smoke_root=smoke_root,
+            scope_contract=scope_contract,
+            candidate_id=publication["candidate_id"],
+            release_id=target.manifest.release_id,
+            target_security_subject_ids=target.security_subject_ids,
+            committed_at=fixture["committed_at"],
+        )
+    else:
+        observation = existing_revocation.receipt.security_denylist_observation
+        if existing_revocation.receipt.release_id != publication.get("release_id"):
+            raise ProductionSmokeError("replayed revocation differs from E1")
+        security_publication = {
+            "snapshot_id": observation.snapshot_id,
+            "generation": observation.generation,
+            "revocation_id": observation.matched_revocations[0].revocation_id,
+            "publication_id": observation.publication_id,
+            "commit_sha": observation.authority_commit_sha,
+            "created": False,
+        }
     with tempfile.TemporaryDirectory(
         prefix="expert-revocation-request-",
         dir=smoke_root,
@@ -2334,6 +2376,14 @@ def _revocation_smoke(
         )
     if result.get("candidate_id") != publication["candidate_id"]:
         raise ProductionSmokeError("revocation returned another candidate")
+    blocking = _verify_revocation_fences(
+        config_path=config_path,
+        mode=mode,
+        settings=settings,
+        smoke_root=smoke_root,
+        scope_contract=scope_contract,
+        prior_evidence=prior_evidence,
+    )
     return {
         "candidate_id": result["candidate_id"],
         "release_id": result["release_id"],
@@ -2342,6 +2392,261 @@ def _revocation_smoke(
         "security_publication_id": result["security_publication_id"],
         "matched_revocation_ids": result["matched_revocation_ids"],
         "replayed": result["replayed"],
+        "security_publication": security_publication,
+        "blocking": blocking,
+    }
+
+
+def _publish_security_revocation_smoke(
+    *,
+    settings: CrossRunSettings,
+    github: GitHubOperationServices,
+    smoke_root: Path,
+    scope_contract: ExpertScopeContract,
+    candidate_id: str,
+    release_id: str,
+    target_security_subject_ids: tuple[str, ...],
+    committed_at: object,
+) -> Mapping[str, Any]:
+    """Publish one cumulative authenticated emergency revocation for E1."""
+
+    if release_id not in target_security_subject_ids:
+        raise ProductionSmokeError("release revocation target omits its release ID")
+    provider = GitHubSecurityDenylistSnapshotProvider(
+        github.resolver,
+        github.materializer,
+    )
+    current = provider.resolve_current(scope_contract.scope_id)
+    existing = tuple(
+        revocation
+        for revocation in current.snapshot.revocations
+        if revocation.subject_id == release_id
+    )
+    if existing:
+        return {
+            "snapshot_id": current.snapshot.snapshot_id,
+            "generation": current.snapshot.generation,
+            "revocation_id": existing[0].revocation_id,
+            "publication_id": current.publication_id,
+            "commit_sha": current.authority_commit_sha,
+            "created": False,
+        }
+    resolved = github.resolver.resolve_current(
+        scope_contract.scope_id,
+        PublicationArtifactKind.SECURITY_DENYLIST,
+    )
+    materialized = github.materializer.materialize(resolved)
+    current_evidence = SecurityDenylistEvidenceBundle.from_json_bytes(
+        (materialized.content / SECURITY_DENYLIST_EVIDENCE_FILENAME).read_bytes()
+    )
+    recorded_at = _committed_at(committed_at)
+    evidence = SecurityDenylistEvidence.mint(
+        evidence_kind="production_validation",
+        summary="Credentialed production validation revocation of E1.",
+        source_ids=tuple(sorted((candidate_id, release_id))),
+        recorded_at=recorded_at,
+    )
+    evidence_bundle = SecurityDenylistEvidenceBundle.mint(
+        evidence=tuple(
+            sorted(
+                (*current_evidence.evidence, evidence),
+                key=lambda item: item.evidence_id,
+            )
+        )
+    )
+    revocation = SecurityDenylistRevocation.mint(
+        subject_id=release_id,
+        kind=SecurityDenylistKind.SECURITY,
+        reason_code="production_validation_revocation",
+        evidence_ids=(evidence.evidence_id,),
+        recorded_at=recorded_at,
+    )
+    revocations = tuple(
+        sorted(
+            (*current.snapshot.revocations, revocation),
+            key=lambda item: item.revocation_id,
+        )
+    )
+    exact_dependency_ids = {
+        scope_contract.scope_contract_id,
+        current.snapshot.snapshot_id,
+        evidence_bundle.evidence_bundle_id,
+        *evidence_bundle.source_ids,
+        *(item.revocation_id for item in revocations),
+        *(item.subject_id for item in revocations),
+        *(evidence_id for item in revocations for evidence_id in item.evidence_ids),
+    }
+    snapshot = SecurityDenylistSnapshot.mint(
+        schema_version=SECURITY_DENYLIST_SCHEMA_VERSION,
+        policy_version=SECURITY_DENYLIST_POLICY_VERSION,
+        scope_id=scope_contract.scope_id,
+        scope_contract_id=scope_contract.scope_contract_id,
+        scope_repository_binding_hash=(
+            settings.scopes.resolve(scope_contract.scope_id).binding_fingerprint
+        ),
+        generation=current.snapshot.generation + 1,
+        predecessor_snapshot_id=current.snapshot.snapshot_id,
+        evidence_bundle_id=evidence_bundle.evidence_bundle_id,
+        evidence_source_ids=evidence_bundle.source_ids,
+        revocations=revocations,
+        exact_dependency_ids=tuple(sorted(exact_dependency_ids)),
+        checksums={
+            SECURITY_DENYLIST_EVIDENCE_FILENAME: tree_or_blob_digest(
+                evidence_bundle.to_json_bytes()
+            )
+        },
+    )
+    state = github.resolver.read_current_pointer_state(
+        scope_contract.scope_id,
+        PublicationArtifactKind.SECURITY_DENYLIST,
+        allow_missing=False,
+    )
+    if (
+        state.pointer is None
+        or state.head_commit_sha != current.authority_commit_sha
+        or state.pointer.publication_record.artifact_id != current.snapshot.snapshot_id
+    ):
+        raise ProductionSmokeError("security CURRENT changed before revocation")
+    with tempfile.TemporaryDirectory(
+        prefix="security-revocation-",
+        dir=smoke_root,
+    ) as temporary:
+        temporary_root = Path(temporary)
+        source = temporary_root / "source"
+        source.mkdir(mode=0o700)
+        (source / _SECURITY_MANIFEST_FILENAME).write_bytes(snapshot.to_json_bytes())
+        (source / SECURITY_DENYLIST_EVIDENCE_FILENAME).write_bytes(
+            evidence_bundle.to_json_bytes()
+        )
+        asset_path = temporary_root / _SECURITY_ASSET_FILENAME
+        _write_security_archive(asset_path, snapshot, evidence_bundle)
+        asset_payload = asset_path.read_bytes()
+        envelope = PublicationEnvelope(
+            artifact_kind=PublicationArtifactKind.SECURITY_DENYLIST,
+            artifact_id=snapshot.snapshot_id,
+            scope_id=scope_contract.scope_id,
+            expected_parent_sha=state.head_commit_sha,
+            source_tree=source,
+            manifest_relative_path=_SECURITY_MANIFEST_FILENAME,
+            assets=(
+                ReleaseAssetInput(
+                    path=asset_path,
+                    name=_SECURITY_ASSET_FILENAME,
+                    media_type="application/x-tar",
+                    size=len(asset_payload),
+                    sha256=tree_or_blob_digest(asset_payload),
+                ),
+            ),
+            tag=security_denylist_tag(settings.github, snapshot.generation),
+            committed_at=recorded_at,
+            validation_closure_ids=tuple(
+                sorted({snapshot.snapshot_id, *snapshot.exact_dependency_ids})
+            ),
+        )
+        telemetry = SecurityDenylistPublisher(
+            github.publisher,
+            github.resolver,
+            provider,
+            settings.launch,
+        ).publish(envelope)
+    return {
+        "snapshot_id": snapshot.snapshot_id,
+        "generation": snapshot.generation,
+        "revocation_id": revocation.revocation_id,
+        "publication_id": telemetry.publication_record.publication_id,
+        "commit_sha": telemetry.pointer_commit_sha,
+        "created": True,
+    }
+
+
+def _verify_revocation_fences(
+    *,
+    config_path: str,
+    mode: str,
+    settings: CrossRunSettings,
+    smoke_root: Path,
+    scope_contract: ExpertScopeContract,
+    prior_evidence: Mapping[str, Mapping[str, Any]],
+) -> Mapping[str, Any]:
+    """Prove fresh, online-resume, and persisted-state revocation fences."""
+
+    revoked_fresh_root = smoke_root / "revoked-fresh-launch"
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        fresh_future = executor.submit(
+            _successor_launch_smoke,
+            config_path,
+            mode,
+            settings,
+            revoked_fresh_root,
+            scope_contract,
+            prior_evidence,
+            clean_machine=True,
+        )
+    fresh_failure = fresh_future.exception()
+    if type(fresh_failure) is not LaunchResolutionError or not (
+        "revokes" in str(fresh_failure) or "denylist rejects" in str(fresh_failure)
+    ):
+        raise ProductionSmokeError(
+            "revocation did not produce the expected fresh-launch rejection"
+        )
+    fresh_launch_workspace = revoked_fresh_root / "clean-machine" / "successor-launch"
+    if fresh_launch_workspace.exists():
+        raise ProductionSmokeError("revoked fresh launch created a workspace")
+    clean_state_root = _private_state_root(smoke_root / "clean-machine")
+    run_root = clean_state_root / "successor-launch"
+    binding = _scope_task_bindings(scope_contract)[0]
+    starting_artifacts = build_launch_starting_artifact_provider(
+        sources={},
+        settings=settings.launch,
+    )
+    first_services = build_production_launch_services(
+        settings=settings,
+        binding=binding,
+        experiment_embedding_space=production_experiment_embedding_space(settings),
+        starting_artifacts=starting_artifacts,
+        state_root=clean_state_root,
+    )
+    blocked = prepare_resumed_run_handoff(
+        coordinator=first_services.coordinator,
+        settings=settings,
+        run_root=run_root,
+        release_use_mode=RunReleaseUseMode.ONLINE_CURRENT,
+    )
+    if type(blocked) is not BlockedRunResume:
+        if type(blocked) is PreparedRunHandoff:
+            blocked.close()
+        raise ProductionSmokeError("revocation did not block the existing run")
+    matched_revocation_ids = tuple(
+        item.revocation_id
+        for item in blocked.checkpoint.safety_state.security_observation.matched_revocations
+    )
+    if not matched_revocation_ids:
+        raise ProductionSmokeError("blocked resume has no matched security revocation")
+    second_services = build_production_launch_services(
+        settings=settings,
+        binding=binding,
+        experiment_embedding_space=production_experiment_embedding_space(settings),
+        starting_artifacts=starting_artifacts,
+        state_root=clean_state_root,
+    )
+    persisted = prepare_resumed_run_handoff(
+        coordinator=second_services.coordinator,
+        settings=settings,
+        run_root=run_root,
+        release_use_mode=RunReleaseUseMode.PINNED_OFFLINE,
+    )
+    if (
+        type(persisted) is not BlockedRunResume
+        or persisted.checkpoint.run_checkpoint_id
+        != blocked.checkpoint.run_checkpoint_id
+    ):
+        raise ProductionSmokeError("persisted revocation fence admitted rollback")
+    return {
+        "fresh_launch_error_type": LaunchResolutionError.__name__,
+        "fresh_launch_workspace_created": False,
+        "blocked_checkpoint_id": blocked.checkpoint.run_checkpoint_id,
+        "persisted_checkpoint_id": persisted.checkpoint.run_checkpoint_id,
+        "matched_revocation_ids": matched_revocation_ids,
     }
 
 

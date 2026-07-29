@@ -375,6 +375,7 @@ class FakeResolver:
     intent_payload_observer: Callable[[], bytes | None] | None = None
     activation_preparation_observer: Callable[[], str | None] | None = None
     activation_witness_observer: Callable[[], str | None] | None = None
+    accept_descendant: bool = False
 
     def __post_init__(self):
         self.verified = []
@@ -383,6 +384,7 @@ class FakeResolver:
         self.required_intents = []
         self.required_activation_preparations = []
         self.required_activation_witnesses = []
+        self.required_commit_ancestry = []
         self.policy = RepositoryPolicyReport(
             repository_full_name=self.repository,
             repository_node_id=self.repository_node_id,
@@ -401,6 +403,14 @@ class FakeResolver:
     def repositories_for_scope(self, scope_id):
         assert scope_id == "ml_ai"
         return repositories()
+
+    def commit_descends_from(
+        self, repository, ancestor_commit_sha, descendant_commit_sha
+    ):
+        self.required_commit_ancestry.append(
+            (repository, ancestor_commit_sha, descendant_commit_sha)
+        )
+        return ancestor_commit_sha == descendant_commit_sha or self.accept_descendant
 
     def read_current_pointer_state(
         self, repository_settings, artifact_kind, allow_missing
@@ -1037,12 +1047,34 @@ def test_successor_barrier_witnesses_exact_predecessor_before_cas(tmp_path):
         tmp_path,
     )
 
-    with pytest.raises(GitHubPublicationError, match="predecessor head differs"):
+    with pytest.raises(GitHubPublicationError, match="fast-forward descendant"):
         bypass_publisher._finalize_expected_parent_witness(
             replace(successor, expected_parent_sha="f" * 40)
         )
 
     assert bypass_client.events == []
+
+    descendant_resolver = FakeResolver(
+        existing=pointer,
+        identity=pointer,
+        intent=intent,
+        activation_preparation=POINTER_COMMIT,
+        activation_witness=POINTER_COMMIT,
+        current_head="f" * 40,
+        accept_descendant=True,
+    )
+    descendant_publisher = build_publisher(
+        FakePublisherClient(envelope.assets[0]),
+        descendant_resolver,
+        tmp_path,
+    )
+    descendant_publisher._finalize_expected_parent_witness(
+        replace(successor, expected_parent_sha="f" * 40)
+    )
+
+    assert descendant_resolver.required_commit_ancestry == [
+        (REPOSITORY, POINTER_COMMIT, "f" * 40)
+    ]
 
 
 def test_retry_resumes_existing_immutable_release_without_duplicate_upload(tmp_path):

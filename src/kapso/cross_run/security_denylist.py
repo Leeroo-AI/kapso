@@ -142,6 +142,13 @@ class SecurityDenylistSnapshotProvider(Protocol):
         snapshot_id: str,
     ) -> AuthenticatedSecurityDenylistSnapshot: ...
 
+    def commit_descends_from(
+        self,
+        repository: str,
+        ancestor_commit_sha: str,
+        descendant_commit_sha: str,
+    ) -> bool: ...
+
 
 class GitHubSecurityDenylistSnapshotProvider:
     """Resolve denylist manifests through verified immutable GitHub releases."""
@@ -181,6 +188,20 @@ class GitHubSecurityDenylistSnapshotProvider:
                 PublicationArtifactKind.SECURITY_DENYLIST,
                 snapshot_id,
             )
+        )
+
+    def commit_descends_from(
+        self,
+        repository: str,
+        ancestor_commit_sha: str,
+        descendant_commit_sha: str,
+    ) -> bool:
+        """Authenticate a preserved-pointer observation after a fast-forward."""
+
+        return self.resolver.commit_descends_from(
+            repository,
+            ancestor_commit_sha,
+            descendant_commit_sha,
         )
 
     def _materialize(
@@ -235,12 +256,32 @@ class GitHubSecurityDenylistSnapshotProvider:
                 "security denylist evidence bundle is not canonical"
             )
         snapshot.validate_evidence_bundle(evidence_bundle)
+        intent = self.resolver.read_artifact_intent(
+            snapshot.scope_id,
+            PublicationArtifactKind.SECURITY_DENYLIST,
+            snapshot.snapshot_id,
+        )
+        if intent is None:
+            raise SecurityDenylistError(
+                "security denylist publication intent is missing"
+            )
+        activation = self.resolver.resolve_artifact_activation_witness(
+            snapshot.scope_id,
+            PublicationArtifactKind.SECURITY_DENYLIST,
+            snapshot.snapshot_id,
+            intent,
+            pointer,
+        )
+        if activation is None:
+            raise SecurityDenylistError(
+                "security denylist activation witness is missing"
+            )
         return AuthenticatedSecurityDenylistSnapshot.mint(
             snapshot=snapshot,
             publication_id=record.publication_id,
             repository_full_name=record.repository_full_name,
             repository_node_id=record.repository_node_id,
-            authority_commit_sha=resolved.pointer_commit_sha,
+            authority_commit_sha=activation.activation_commit_sha,
             pointer_digest=tree_or_blob_digest(pointer.to_json_bytes()),
             release_attestation_ref=record.release_attestation_ref,
             validation_closure_ids=pointer.validation_closure_ids,
@@ -744,6 +785,17 @@ class AuthenticatedSecurityDenylistAuthority:
         provider: SecurityDenylistSnapshotProvider,
         checkpoint_store: SecurityDenylistCheckpointStore,
     ) -> None:
+        if not all(
+            hasattr(provider, method)
+            for method in (
+                "resolve_current",
+                "resolve_exact",
+                "commit_descends_from",
+            )
+        ):
+            raise SecurityDenylistError(
+                "security denylist provider lacks exact lineage authority"
+            )
         self.scopes = scopes
         self.launch_settings = launch_settings
         self.provider = provider
@@ -967,8 +1019,8 @@ class AuthenticatedSecurityDenylistAuthority:
             lineage.append(predecessor)
             snapshot = predecessor.snapshot
 
-    @staticmethod
     def _require_observation_snapshot(
+        self,
         *,
         current: AuthenticatedSecurityDenylistSnapshot,
         observation: SecurityDenylistObservation,
@@ -981,15 +1033,18 @@ class AuthenticatedSecurityDenylistAuthority:
             or current.repository_full_name != observation.repository_full_name
             or current.repository_node_id != observation.repository_node_id
             or current.pointer_digest != observation.pointer_digest
-            or current.authority_commit_sha != observation.authority_commit_sha
             or current.release_attestation_ref != observation.release_attestation_ref
+            or not self._authority_commit_matches(
+                current,
+                observation.authority_commit_sha,
+            )
         ):
             raise SecurityDenylistError(
                 "security denylist lineage substitutes the required run ancestor"
             )
 
-    @staticmethod
     def _require_checkpoint_snapshot(
+        self,
         *,
         current: AuthenticatedSecurityDenylistSnapshot,
         checkpoint: SecurityDenylistCheckpoint,
@@ -1002,11 +1057,27 @@ class AuthenticatedSecurityDenylistAuthority:
             or current.repository_full_name != checkpoint.repository_full_name
             or current.repository_node_id != checkpoint.repository_node_id
             or current.pointer_digest != checkpoint.pointer_digest
-            or current.authority_commit_sha != checkpoint.authority_commit_sha
+            or not self._authority_commit_matches(
+                current,
+                checkpoint.authority_commit_sha,
+            )
         ):
             raise SecurityDenylistError(
                 "security denylist lineage substitutes the local floor"
             )
+
+    def _authority_commit_matches(
+        self,
+        current: AuthenticatedSecurityDenylistSnapshot,
+        observed_commit_sha: str,
+    ) -> bool:
+        if current.authority_commit_sha == observed_commit_sha:
+            return True
+        return self.provider.commit_descends_from(
+            current.repository_full_name,
+            current.authority_commit_sha,
+            observed_commit_sha,
+        )
 
     def _lineage_to_floor(
         self,

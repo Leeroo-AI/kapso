@@ -66,6 +66,7 @@ query($owner: String!, $name: String!, $tag: String!) {
 
 ARTIFACT_POINTER_FILENAME = "PUBLICATION.json"
 ARTIFACT_PUBLICATION_INTENT_FILENAME = "PUBLICATION_INTENT.json"
+_REPOSITORY_PATTERN = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
 
 
 class GitHubResolutionError(RuntimeError):
@@ -465,6 +466,55 @@ class GitHubArtifactResolver:
     def repositories_for_scope(self, scope_id: str) -> ScopeRepositorySettings:
         """Return the sole canonical repository binding for a registered scope."""
         return self.scope_registry.resolve(scope_id)
+
+    def commit_descends_from(
+        self,
+        repository: str,
+        ancestor_commit_sha: str,
+        descendant_commit_sha: str,
+    ) -> bool:
+        """Authenticate one exact fast-forward relation between Git commits."""
+
+        if (
+            _REPOSITORY_PATTERN.fullmatch(repository) is None
+            or re.fullmatch(r"[0-9a-f]{40}", ancestor_commit_sha) is None
+            or re.fullmatch(r"[0-9a-f]{40}", descendant_commit_sha) is None
+        ):
+            raise GitHubResolutionError("commit ancestry input is invalid")
+        if ancestor_commit_sha == descendant_commit_sha:
+            return True
+        comparison = _require_mapping(
+            self.client.api_json(
+                "GET",
+                f"repos/{repository}/compare/"
+                f"{ancestor_commit_sha}...{descendant_commit_sha}?per_page=1",
+            ),
+            "commit comparison",
+        )
+        base = _require_mapping(comparison.get("base_commit"), "comparison base")
+        merge_base = _require_mapping(
+            comparison.get("merge_base_commit"),
+            "comparison merge base",
+        )
+        status = comparison.get("status")
+        ahead_by = comparison.get("ahead_by")
+        behind_by = comparison.get("behind_by")
+        if (
+            status not in {"ahead", "behind", "diverged", "identical"}
+            or type(ahead_by) is not int
+            or ahead_by < 0
+            or type(behind_by) is not int
+            or behind_by < 0
+            or base.get("sha") != ancestor_commit_sha
+            or not isinstance(merge_base.get("sha"), str)
+        ):
+            raise GitHubResolutionError("commit comparison is invalid")
+        return (
+            status == "ahead"
+            and ahead_by > 0
+            and behind_by == 0
+            and merge_base["sha"] == ancestor_commit_sha
+        )
 
     def diagnose_repository(
         self,

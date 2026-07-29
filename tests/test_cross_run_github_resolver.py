@@ -235,6 +235,7 @@ class FakeResolverClient:
         self.activation_commit_sha = ACTIVATION_SHA
         self.activation_tree_sha = None
         self.activation_parent_sha = None
+        self.commit_comparison = None
 
     def _control_text(self, control, payload):
         prefix = " " if self.noncanonical_control == control else ""
@@ -242,6 +243,9 @@ class FakeResolverClient:
 
     def api_json(self, method, endpoint, body=None):
         assert body is None
+        if endpoint.startswith(f"repos/{REPOSITORY}/compare/"):
+            assert self.commit_comparison is not None
+            return self.commit_comparison
         if endpoint == f"repos/{REPOSITORY}":
             return {
                 "full_name": REPOSITORY,
@@ -423,6 +427,33 @@ def test_resolver_pins_and_verifies_complete_immutable_release():
     assert resolved.policy.repository_node_id == "repository-node"
     assert resolved.policy.authenticated_actor == "leeroo-coder"
     assert resolved.policy.immutable_releases
+
+
+def test_resolver_authenticates_fast_forward_commit_ancestry():
+    pointer, release, attestation = publication_fixture()
+    client = FakeResolverClient(pointer, release, attestation)
+    descendant = "f" * 40
+    client.commit_comparison = {
+        "status": "ahead",
+        "ahead_by": 5,
+        "behind_by": 0,
+        "base_commit": {"sha": ACTIVATION_SHA},
+        "merge_base_commit": {"sha": ACTIVATION_SHA},
+    }
+    resolver = GitHubArtifactResolver(client, github_settings(), scope_registry())
+
+    assert resolver.commit_descends_from(REPOSITORY, ACTIVATION_SHA, descendant)
+
+    client.commit_comparison = {
+        **client.commit_comparison,
+        "status": "diverged",
+        "behind_by": 1,
+    }
+    assert not resolver.commit_descends_from(
+        REPOSITORY,
+        ACTIVATION_SHA,
+        descendant,
+    )
 
 
 @pytest.mark.parametrize("control", ("current", "identity", "intent"))

@@ -178,9 +178,7 @@ def test_signed_immutable_response_replays_without_another_dispatch(
 
     def graphql(_query, variables):
         matches = tuple(
-            release
-            for release in releases
-            if release["tag_name"] == variables["tag"]
+            release for release in releases if release["tag_name"] == variables["tag"]
         )
         assert variables["owner"] == "Leeroo-AI"
         assert variables["repository"] == "kapso-security"
@@ -189,9 +187,7 @@ def test_signed_immutable_response_replays_without_another_dispatch(
             "data": {
                 "repository": {
                     "release": (
-                        None
-                        if not matches
-                        else {"databaseId": matches[0]["id"]}
+                        None if not matches else {"databaseId": matches[0]["id"]}
                     )
                 }
             }
@@ -240,7 +236,7 @@ def test_signed_immutable_response_replays_without_another_dispatch(
     def dispatch(repository, workflow_file, ref, inputs):
         assert repository == "Leeroo-AI/kapso-security"
         assert workflow_file == "kapso-expert-evaluator.yml"
-        assert ref == settings.github.default_branch
+        assert ref == "kapso-evaluator"
         dispatches.append(inputs)
         response = next(
             release

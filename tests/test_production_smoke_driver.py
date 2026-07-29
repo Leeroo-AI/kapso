@@ -695,6 +695,75 @@ def test_live_restart_recomposes_services_and_preserves_pins(
     assert len(closed) == 2
 
 
+def test_revocation_fences_fresh_launch_and_persisted_resume(
+    tmp_path,
+    monkeypatch,
+):
+    settings = load_effective_config(_CONFIG_PATH, "GENERIC").cross_run
+    fixture, _fixture_digest = smoke_module._load_fixture(settings)
+    scope_contract = smoke_module.ExpertScopeContract.from_dict(
+        fixture["scope_contract"]
+    )
+    checkpoint = SimpleNamespace(
+        run_checkpoint_id="run-checkpoint:sha256:" + "5" * 64,
+        safety_state=SimpleNamespace(
+            security_observation=SimpleNamespace(
+                matched_revocations=(
+                    SimpleNamespace(
+                        revocation_id="security-denylist-revocation:sha256:" + "6" * 64
+                    ),
+                )
+            )
+        ),
+    )
+
+    class FakeBlockedRunResume:
+        def __init__(self):
+            self.checkpoint = checkpoint
+
+    def reject_fresh(*_arguments, **_keyword_arguments):
+        raise smoke_module.LaunchResolutionError(
+            "security denylist rejects the selected launch dependency closure"
+        )
+
+    monkeypatch.setattr(smoke_module, "_successor_launch_smoke", reject_fresh)
+    monkeypatch.setattr(
+        smoke_module,
+        "build_launch_starting_artifact_provider",
+        lambda **_arguments: object(),
+    )
+    monkeypatch.setattr(
+        smoke_module,
+        "production_experiment_embedding_space",
+        lambda _settings: object(),
+    )
+    monkeypatch.setattr(
+        smoke_module,
+        "build_production_launch_services",
+        lambda **_arguments: SimpleNamespace(coordinator=object()),
+    )
+    monkeypatch.setattr(
+        smoke_module,
+        "prepare_resumed_run_handoff",
+        lambda **_arguments: FakeBlockedRunResume(),
+    )
+    monkeypatch.setattr(smoke_module, "BlockedRunResume", FakeBlockedRunResume)
+
+    result = smoke_module._verify_revocation_fences(
+        config_path=_CONFIG_PATH,
+        mode="GENERIC",
+        settings=settings,
+        smoke_root=tmp_path,
+        scope_contract=scope_contract,
+        prior_evidence={},
+    )
+
+    assert result["fresh_launch_error_type"] == "LaunchResolutionError"
+    assert result["fresh_launch_workspace_created"] is False
+    assert result["blocked_checkpoint_id"] == checkpoint.run_checkpoint_id
+    assert result["persisted_checkpoint_id"] == checkpoint.run_checkpoint_id
+
+
 def test_trigger_inspection_schema_types_every_fixed_constant():
     fixed = {
         "affected_capability_ids": ["capability"],

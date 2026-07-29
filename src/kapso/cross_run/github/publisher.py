@@ -1916,9 +1916,16 @@ class AutonomousGitHubPublisher:
             intent,
             pointer,
         )
-        if witness.activation_commit_sha != current.head_commit_sha:
+        repositories = self.resolver.repositories_for_scope(envelope.scope_id)
+        repository = repository_for_artifact(repositories, envelope.artifact_kind)
+        if not self.resolver.commit_descends_from(
+            repository,
+            witness.activation_commit_sha,
+            current.head_commit_sha,
+        ):
             raise GitHubPublicationError(
-                "current predecessor head differs from its activation witness"
+                "current predecessor head is not a fast-forward descendant of its "
+                "activation witness"
             )
 
     def _commit_artifact_activation_preparation(

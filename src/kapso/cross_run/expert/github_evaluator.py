@@ -38,6 +38,7 @@ class GitHubExpertEvaluatorError(ValueError):
 
 _PROTOCOL_VERSION = "kapso.github_expert_evaluator.v1"
 _WORKFLOW_FILE = "kapso-expert-evaluator.yml"
+_EVALUATOR_BRANCH = "kapso-evaluator"
 _REQUEST_ASSET = "request.json"
 _EVALUATION_ASSET = "evaluation.json"
 _RESULT_ASSET = "result.json"
@@ -174,7 +175,7 @@ class GitHubExpertEvaluatorExchange:
         deadline = time.monotonic() + evaluator[0].timeout_seconds
         evaluator_revision = self.client.read_ref_commit(
             self.security_repository,
-            f"refs/heads/{self.github_settings.default_branch}",
+            f"refs/heads/{_EVALUATOR_BRANCH}",
             allow_missing=False,
         )
         if evaluator_revision is None:
@@ -219,7 +220,7 @@ class GitHubExpertEvaluatorExchange:
                 self.client.dispatch_workflow(
                     self.security_repository,
                     _WORKFLOW_FILE,
-                    self.github_settings.default_branch,
+                    _EVALUATOR_BRANCH,
                     {
                         "evaluator_revision": evaluator_revision,
                         "request_id": request["request_id"],
@@ -357,9 +358,7 @@ class GitHubExpertEvaluatorExchange:
             )
         data = response["data"]
         if not isinstance(data, Mapping) or set(data) != {"repository"}:
-            raise GitHubExpertEvaluatorError(
-                "evaluator release lookup data is invalid"
-            )
+            raise GitHubExpertEvaluatorError("evaluator release lookup data is invalid")
         repository_result = data["repository"]
         if not isinstance(repository_result, Mapping) or set(repository_result) != {
             "release"

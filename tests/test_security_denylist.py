@@ -89,11 +89,13 @@ class _SnapshotProvider:
         self,
         current: AuthenticatedSecurityDenylistSnapshot,
         historical: tuple[AuthenticatedSecurityDenylistSnapshot, ...] = (),
+        descendant_commits: tuple[tuple[str, str], ...] = (),
     ) -> None:
         self.current = current
         self.historical = {item.snapshot.snapshot_id: item for item in historical}
         self.calls: list[tuple[str, str]] = []
         self.current_failure: Exception | None = None
+        self.descendant_commits = set(descendant_commits)
 
     def resolve_current(self, scope_id):
         self.calls.append(("current", scope_id))
@@ -105,12 +107,21 @@ class _SnapshotProvider:
         self.calls.append(("exact", snapshot_id))
         return self.historical[snapshot_id]
 
+    def commit_descends_from(
+        self,
+        _repository,
+        ancestor_commit_sha,
+        descendant_commit_sha,
+    ):
+        return (ancestor_commit_sha, descendant_commit_sha) in self.descendant_commits
+
 
 class _ResolvedArtifactProvider:
     def __init__(self, resolved, settings):
         self.resolved = resolved
         self.settings = settings
         self.calls = []
+        self.activation_commit_sha = resolved.pointer_commit_sha
 
     def resolve_current(self, scope_id, artifact_kind):
         self.calls.append(("current", scope_id, artifact_kind))
@@ -119,6 +130,19 @@ class _ResolvedArtifactProvider:
     def resolve_artifact(self, scope_id, artifact_kind, artifact_id):
         self.calls.append(("exact", scope_id, artifact_kind, artifact_id))
         return self.resolved
+
+    def read_artifact_intent(self, _scope_id, _artifact_kind, _artifact_id):
+        return SimpleNamespace()
+
+    def resolve_artifact_activation_witness(
+        self,
+        _scope_id,
+        _artifact_kind,
+        _artifact_id,
+        _intent,
+        _pointer,
+    ):
+        return SimpleNamespace(activation_commit_sha=self.activation_commit_sha)
 
 
 class _MaterializedArtifactProvider:
@@ -241,6 +265,7 @@ def _authenticated(
     snapshot: SecurityDenylistSnapshot,
     *,
     repository_full_name: str | None = None,
+    authority_commit_sha: str | None = None,
 ) -> AuthenticatedSecurityDenylistSnapshot:
     repositories = _settings().scopes.resolve(SCOPE_ID)
     return AuthenticatedSecurityDenylistSnapshot.mint(
@@ -251,7 +276,11 @@ def _authenticated(
         ),
         repository_full_name=(repository_full_name or repositories.security_repository),
         repository_node_id="security_repo_node",
-        authority_commit_sha=(f"{snapshot.generation + 1:x}" * 40)[:40],
+        authority_commit_sha=(
+            authority_commit_sha
+            if authority_commit_sha is not None
+            else (f"{snapshot.generation + 1:x}" * 40)[:40]
+        ),
         pointer_digest=tree_or_blob_digest(snapshot.to_json_bytes()),
         release_attestation_ref=(
             f"attestations/security-denylist/{snapshot.generation}"
@@ -421,6 +450,42 @@ def test_generation_zero_establishes_a_durable_floor_and_live_resolves_again(
         ("current", SCOPE_ID),
     ]
     assert store.checkpoint(SCOPE_ID).snapshot_id == generation_zero.snapshot_id
+
+
+def test_resume_authenticates_preserved_pointer_fast_forward_observations(tmp_path):
+    generation_zero = _snapshot(0, None, ())
+    generation_one = _snapshot(1, generation_zero, ())
+    activation = _authenticated(generation_zero)
+    descendant_commit_sha = "f" * 40
+    observed_generation_zero = _authenticated(
+        generation_zero,
+        authority_commit_sha=descendant_commit_sha,
+    )
+    store = _store(tmp_path)
+    safe_subject = content_id("security-subject", {"label": "fast-forward"})
+    required_ancestor = _observe(
+        _authority(_SnapshotProvider(observed_generation_zero), store),
+        (safe_subject,),
+    )
+    provider = _SnapshotProvider(
+        _authenticated(generation_one),
+        (activation,),
+        descendant_commits=((activation.authority_commit_sha, descendant_commit_sha),),
+    )
+
+    resumed = _authority(provider, store).observe_exact_descendant_of(
+        scope_id=SCOPE_ID,
+        scope_contract_id=SCOPE_CONTRACT_ID,
+        checked_subject_ids=(safe_subject,),
+        required_ancestor=required_ancestor,
+    )
+
+    assert resumed.snapshot_id == generation_one.snapshot_id
+    assert provider.calls == [
+        ("current", SCOPE_ID),
+        ("exact", generation_zero.snapshot_id),
+    ]
+    assert store.checkpoint(SCOPE_ID).snapshot_id == generation_one.snapshot_id
 
 
 def test_multi_generation_lineage_is_authenticated_and_denials_intersect_exactly(
