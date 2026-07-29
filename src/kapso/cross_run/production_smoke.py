@@ -23,24 +23,17 @@ from kapso.cross_run.canonical import (
     require_content_id,
     tree_or_blob_digest,
 )
+from kapso.cross_run.capture.bundle import RunBundleStore
 from kapso.cross_run.catalog.service import CrossRunCatalog
 from kapso.cross_run.catalog.store import CatalogGenerationManifest
 from kapso.cross_run.catalog.projector import ProjectionResult
 from kapso.cross_run.contracts import (
-    ArtifactCompleteness,
-    ArtifactEnvironment,
-    ComparisonStatus,
-    CompletionState,
     CrossRunTaskBindingSettings,
     EMPTY_EXPERT_TREE_DIGEST,
-    EpisodeEvaluationStatus,
-    ExecutionStatus,
     ExpertEvaluatorResultRecord,
     ExpertScopeContract,
     ExpertValidationStage,
-    InterventionStructure,
     PriorIdea,
-    PriorIdeaStatus,
     PublicationArtifactKind,
     RunBundle,
     SECURITY_DENYLIST_EVIDENCE_FILENAME,
@@ -48,8 +41,6 @@ from kapso.cross_run.contracts import (
     SECURITY_DENYLIST_SCHEMA_VERSION,
     SecurityDenylistEvidenceBundle,
     SecurityDenylistSnapshot,
-    TaskContextBinding,
-    TransferAttempt,
     TransferEpisode,
 )
 from kapso.cross_run.docker.runtime import DockerImageAuthority, PinnedDockerRuntime
@@ -90,10 +81,13 @@ from kapso.cross_run.operations import (
     revoke_expert_cross_run,
     validate_expert_cross_run,
 )
+from kapso.cross_run.production_capture import (
+    ProductionCapture,
+    build_production_capture,
+)
 from kapso.cross_run.record_contracts import (
     BundleProjectionManifest,
-    SANITATION_REPORT_SCHEMA,
-    SANITATION_SCANNER_VERSION,
+    ExecutionRevisionEvent,
     SanitationReport,
 )
 from kapso.cross_run.record_registry import parse_knowledge_record_payload
@@ -892,7 +886,7 @@ def _knowledge_publication_smoke(
         prior_evidence,
         task_adapter_id="posttrain",
     )
-    projection = _synthetic_projection_for_snapshot(
+    capture = _synthetic_capture_for_snapshot(
         settings,
         fixture,
         scope_contract,
@@ -901,6 +895,12 @@ def _knowledge_publication_smoke(
         task_adapter_manifest_id,
         verification_receipt_id,
     )
+    RunBundleStore.initialize(
+        smoke_root / settings.capture.state_path,
+        settings.capture,
+        settings.sanitation,
+    ).import_exact(capture.stored_bundle)
+    projection = capture.projection
     if (
         projection.source_bundle.bundle_id
         in current_package.manifest.included_bundle_ids
@@ -2121,34 +2121,34 @@ def _synthetic_projection(
     task_adapter_manifest_id: str,
     task_adapter_verification_receipt_id: str,
     *,
-    predecessor_bundle: RunBundle | None = None,
-    predecessor_episode: TransferEpisode | None = None,
-    predecessor_prior_idea: PriorIdea | None = None,
+    previous: ProjectionResult | None = None,
 ) -> ProjectionResult:
-    """Build the one public, domain-neutral transport-smoke bundle."""
+    """Build and project the one replayable transport-smoke capture."""
 
+    return _synthetic_capture(
+        settings,
+        fixture,
+        scope_contract,
+        expert_base_release_id,
+        task_adapter_manifest_id,
+        task_adapter_verification_receipt_id,
+        previous=previous,
+    ).projection
+
+
+def _synthetic_capture(
+    settings: CrossRunSettings,
+    fixture: Mapping[str, Any],
+    scope_contract: ExpertScopeContract,
+    expert_base_release_id: str,
+    task_adapter_manifest_id: str,
+    task_adapter_verification_receipt_id: str,
+    *,
+    previous: ProjectionResult | None = None,
+) -> ProductionCapture:
     values = fixture["embedding_inputs"]
-    if not isinstance(values, list) or len(values) < 2:
+    if not isinstance(values, list):
         raise ProductionSmokeError("synthetic projection inputs are incomplete")
-    task_context = TaskContextBinding.mint(
-        scope_contract_id=scope_contract.scope_contract_id,
-        scope_id=scope_contract.scope_id,
-        task_family_id="language_model_post_training",
-        task_adapter_id="posttrain",
-        capability_tags=("language.training",),
-        input_contract_fingerprint=tree_or_blob_digest(values[0].encode("utf-8")),
-        target_contract_fingerprint=tree_or_blob_digest(values[1].encode("utf-8")),
-        starting_artifact_refs=(),
-        method_fingerprint=tree_or_blob_digest(b"transport-smoke-method"),
-        toolchain_fingerprint=tree_or_blob_digest(b"transport-smoke-toolchain"),
-        dependency_runtime_fingerprint=tree_or_blob_digest(b"transport-smoke-runtime"),
-        budget_hardware_envelope={"accelerator": "none", "hours": 1},
-        transfer_dimensions={
-            "dataset_family": "synthetic_public",
-            "runtime_family": "python",
-        },
-    )
-    task_context.validate_against(scope_contract)
     require_content_id(expert_base_release_id, "transport smoke expert release")
     if expert_base_release_id.split(":sha256:", 1)[0] != "expert-base-release":
         raise ProductionSmokeError("transport smoke expert release has wrong namespace")
@@ -2157,217 +2157,29 @@ def _synthetic_projection(
         task_adapter_verification_receipt_id,
         "transport smoke adapter verification receipt",
     )
-    environment = ArtifactEnvironment.mint(
-        kapso_commit="0" * 40,
-        expert_base_release_id=expert_base_release_id,
-        task_adapter_manifest_id=task_adapter_manifest_id,
-        task_adapter_verification_receipt_id=(
-            task_adapter_verification_receipt_id
-        ),
-        starting_artifact_content_ids={},
-        dependency_lock_hash=tree_or_blob_digest(b"transport-smoke-lock"),
-    )
-    checksums = {
-        path: tree_or_blob_digest(f"synthetic:{path}".encode("utf-8"))
-        for path in (
-            "capture_descriptor.json",
-            "checkpoint.json",
-            "events.jsonl",
-            "experiment_history.json",
-            "idea_archive.json",
-            "sanitation_report.json",
-        )
-    }
-    committed_at = _committed_at(fixture["committed_at"])
-    if predecessor_bundle is None and (
-        predecessor_episode is not None or predecessor_prior_idea is not None
-    ):
-        raise ProductionSmokeError(
-            "synthetic projection predecessor closure is incomplete"
-        )
-    if predecessor_bundle is not None and predecessor_prior_idea is None:
-        raise ProductionSmokeError(
-            "synthetic projection predecessor closure is incomplete"
-        )
-    run_id = _synthetic_run_id(
+    return build_production_capture(
+        settings=settings,
         scope_contract=scope_contract,
         expert_base_release_id=expert_base_release_id,
         task_adapter_manifest_id=task_adapter_manifest_id,
         task_adapter_verification_receipt_id=(
             task_adapter_verification_receipt_id
         ),
-    )
-    if predecessor_bundle is not None and (
-        predecessor_bundle.run_id != run_id
-        or predecessor_bundle.campaign_id != "production_smoke_campaign"
-        or predecessor_bundle.scope_contract_id != scope_contract.scope_contract_id
-        or set(predecessor_bundle.capture_watermarks) != {"events"}
-        or predecessor_prior_idea.source_bundle_id != predecessor_bundle.bundle_id
-        or (
-            predecessor_episode is not None
-            and predecessor_episode.source_bundle_id != predecessor_bundle.bundle_id
-        )
-    ):
-        raise ProductionSmokeError(
-            "synthetic projection predecessor belongs to another run"
-        )
-    bundle = RunBundle.mint(
-        scope_contract_id=scope_contract.scope_contract_id,
-        scope_id=scope_contract.scope_id,
-        run_id=run_id,
-        campaign_id="production_smoke_campaign",
-        completion_state=CompletionState.STOPPED,
-        capture_generation=(
-            0
-            if predecessor_bundle is None
-            else predecessor_bundle.capture_generation + 1
-        ),
-        supersedes_bundle_id=(
-            None if predecessor_bundle is None else predecessor_bundle.bundle_id
-        ),
-        checkpoint_frontier=(
-            1
-            if predecessor_bundle is None
-            else predecessor_bundle.checkpoint_frontier + 1
-        ),
-        capture_watermarks={
-            "events": (
-                1
-                if predecessor_bundle is None
-                else predecessor_bundle.capture_watermarks["events"] + 1
-            )
-        },
-        configuration_fingerprint=settings.configuration_fingerprint,
-        artifact_completeness={"checkpoint": ArtifactCompleteness.PRESENT},
-        started_at=committed_at,
-        captured_at=committed_at,
-        kapso_commit=environment.kapso_commit,
-        launch_manifest_id=content_id(
-            "launch-manifest",
-            {"transport_smoke": "first-launch"},
-        ),
-        knowledge_snapshot_id=(
-            content_id(
-                "knowledge-snapshot",
-                {"transport_smoke": "empty-snapshot"},
-            )
-            if predecessor_bundle is None
-            else predecessor_bundle.knowledge_snapshot_id
-        ),
-        expert_base_release_id=expert_base_release_id,
-        task_context_binding=task_context,
-        artifact_environment=environment,
-        capture_descriptor_ref="capture_descriptor.json",
-        checkpoint_ref="checkpoint.json",
-        execution_event_journal_ref="events.jsonl",
-        idea_archive_ref="idea_archive.json",
-        experiment_history_ref="experiment_history.json",
-        sanitation_report_ref="sanitation_report.json",
-        branch_snapshot_refs=(),
-        run_log_refs=(),
-        checksums=checksums,
-    )
-    report = SanitationReport.mint(
-        schema=SANITATION_REPORT_SCHEMA,
-        capture_manifest_id=content_id(
-            "capture-manifest",
-            {"bundle_id": bundle.bundle_id},
-        ),
-        scope_id=scope_contract.scope_id,
-        task_family_id=task_context.task_family_id,
-        policy_version=settings.sanitation.policy_version,
-        policy_fingerprint=tree_or_blob_digest(settings.sanitation.to_json_bytes()),
-        scanner_version=SANITATION_SCANNER_VERSION,
-        status="admitted",
-        findings=(),
-        excluded_paths=(),
-        taint_sources=(),
-        admitted_refs=checksums,
-    )
-    episode = TransferEpisode.mint(
-        source={
-            "scope_id": scope_contract.scope_id,
-            "run_id": bundle.run_id,
-            "campaign_id": bundle.campaign_id,
-            "node_id": "production_smoke_node",
-            "idea_id": "production_smoke_executed_idea",
-            "batch_id": "production_smoke_batch",
-        },
-        source_bundle_id=bundle.bundle_id,
-        supersedes_projection_id=(
-            None if predecessor_episode is None else predecessor_episode.episode_id
-        ),
-        task_context_binding=task_context,
-        artifact_environment=environment,
-        proposal=(
-            "Validate semantic parity before training through one reusable "
-            "representation boundary."
-        ),
-        parent_episode_ref=None,
-        attempts=(
-            TransferAttempt(
-                execution_revision=0,
-                captured_at=committed_at,
-                execution_status=ExecutionStatus.FAILED_TECHNICAL,
-                evaluation_status=EpisodeEvaluationStatus.NOT_RUN,
-                evaluation_fingerprints=(),
-                score_of_record_fingerprint_id=None,
-                comparison_status=ComparisonStatus.NOT_COMPARABLE,
-                measurements={},
-                source_parent_effect=None,
-                intervention_ref=None,
-                intervention_structure=InterventionStructure.UNDETERMINED,
-                feedback=(),
-                technical_difficulties=(
-                    "The reusable semantic-parity boundary lacks a common "
-                    "preflight diagnostic for representation mismatches.",
-                ),
-                confounders=(),
+        embedding_inputs=values,
+        committed_at=_committed_at(fixture["committed_at"]),
+        run_id=_synthetic_run_id(
+            scope_contract=scope_contract,
+            expert_base_release_id=expert_base_release_id,
+            task_adapter_manifest_id=task_adapter_manifest_id,
+            task_adapter_verification_receipt_id=(
+                task_adapter_verification_receipt_id
             ),
         ),
-        terminal_attempt_revision=0,
-        safe_observation_refs=(),
-        sanitation_report_id=report.report_id,
-        derivation_refs=(bundle.bundle_id,),
-    )
-    prior_idea = PriorIdea.mint(
-        source_bundle_id=bundle.bundle_id,
-        supersedes_projection_id=(
-            None
-            if predecessor_prior_idea is None
-            else predecessor_prior_idea.prior_idea_id
-        ),
-        source={
-            "scope_id": scope_contract.scope_id,
-            "run_id": bundle.run_id,
-            "campaign_id": bundle.campaign_id,
-            "batch_id": "production_smoke_batch",
-            "idea_id": "production_smoke_idea",
-        },
-        proposal=values[0],
-        descriptor={
-            "approach_family": "representation_validation",
-            "expected_effect": "reduce_interface_regressions",
-            "intervention_target": "input_projection",
-            "mechanism": "validate_semantic_parity_before_training",
-        },
-        assumptions=(values[1],),
-        source_status=PriorIdeaStatus.DEFERRED,
-        source_rationale="The synthetic run stopped before executing this idea.",
-        source_evidence_refs=(),
-        task_context_binding=task_context,
-        sanitation_report_id=report.report_id,
-    )
-    return ProjectionResult(
-        source_bundle=bundle,
-        sanitation_report=report,
-        episodes=(episode,),
-        prior_ideas=(prior_idea,),
-        derivation_objects=(),
+        previous=previous,
     )
 
 
-def _synthetic_projection_for_snapshot(
+def _synthetic_capture_for_snapshot(
     settings: CrossRunSettings,
     fixture: Mapping[str, Any],
     scope_contract: ExpertScopeContract,
@@ -2375,8 +2187,8 @@ def _synthetic_projection_for_snapshot(
     expert_base_release_id: str,
     task_adapter_manifest_id: str,
     task_adapter_verification_receipt_id: str,
-) -> ProjectionResult:
-    """Recover this config's transport projection or mint its direct successor."""
+) -> ProductionCapture:
+    """Rebuild this config's exact raw capture or mint its direct successor."""
 
     run_id = _synthetic_run_id(
         scope_contract=scope_contract,
@@ -2406,7 +2218,7 @@ def _synthetic_projection_for_snapshot(
         )
     )
     if not bundles:
-        return _synthetic_projection(
+        return _synthetic_capture(
             settings,
             fixture,
             scope_contract,
@@ -2424,7 +2236,11 @@ def _synthetic_projection_for_snapshot(
         raise ProductionSmokeError(
             "knowledge snapshot has an invalid synthetic run lineage"
         )
-    current_bundle = bundles[-1]
+    projections = tuple(
+        _projection_from_snapshot_records(bundle, records) for bundle in bundles
+    )
+    current_projection = projections[-1]
+    current_bundle = current_projection.source_bundle
     if (
         current_bundle.configuration_fingerprint == settings.configuration_fingerprint
         and current_bundle.artifact_environment.task_adapter_manifest_id
@@ -2436,76 +2252,87 @@ def _synthetic_projection_for_snapshot(
             raise ProductionSmokeError(
                 "current synthetic bundle names another bootstrap expert release"
             )
-        manifests = tuple(
-            record
-            for record in records
-            if isinstance(record, BundleProjectionManifest)
-            and record.source_bundle_id == current_bundle.bundle_id
+        rebuilt = _synthetic_capture(
+            settings,
+            fixture,
+            scope_contract,
+            expert_base_release_id,
+            task_adapter_manifest_id,
+            task_adapter_verification_receipt_id,
+            previous=None if len(projections) == 1 else projections[-2],
         )
-        if len(manifests) != 1:
+        if rebuilt.projection != current_projection:
             raise ProductionSmokeError(
-                "current synthetic bundle lacks one projection manifest"
+                "current synthetic projection cannot reproduce its raw capture"
             )
-        manifest = manifests[0]
-        reports = tuple(
-            record
-            for record in records
-            if isinstance(record, SanitationReport)
-            and record.report_id == manifest.sanitation_report_id
-        )
-        priors = tuple(
-            record
-            for record in records
-            if isinstance(record, PriorIdea)
-            and record.prior_idea_id in manifest.prior_idea_ids
-        )
-        episodes = tuple(
-            record
-            for record in records
-            if isinstance(record, TransferEpisode)
-            and record.episode_id in manifest.episode_ids
-        )
-        if len(reports) != 1 or len(priors) != 1 or len(episodes) != 1:
-            raise ProductionSmokeError(
-                "current synthetic projection closure is invalid"
-            )
-        return ProjectionResult(
-            source_bundle=current_bundle,
-            sanitation_report=reports[0],
-            episodes=episodes,
-            prior_ideas=priors,
-            derivation_objects=(),
-        )
-    predecessor_episodes = tuple(
-        record
-        for record in records
-        if isinstance(record, TransferEpisode)
-        and record.source_bundle_id == current_bundle.bundle_id
-        and record.source.get("idea_id") == "production_smoke_executed_idea"
-    )
-    predecessor_priors = tuple(
-        record
-        for record in records
-        if isinstance(record, PriorIdea)
-        and record.source_bundle_id == current_bundle.bundle_id
-        and record.source.get("idea_id") == "production_smoke_idea"
-    )
-    if len(predecessor_episodes) > 1 or len(predecessor_priors) != 1:
-        raise ProductionSmokeError(
-            "synthetic bundle has an ambiguous predecessor projection"
-        )
-    return _synthetic_projection(
+        return rebuilt
+    return _synthetic_capture(
         settings,
         fixture,
         scope_contract,
         expert_base_release_id,
         task_adapter_manifest_id,
         task_adapter_verification_receipt_id,
-        predecessor_bundle=current_bundle,
-        predecessor_episode=(
-            None if not predecessor_episodes else predecessor_episodes[0]
+        previous=current_projection,
+    )
+
+
+def _projection_from_snapshot_records(
+    bundle: RunBundle,
+    records: tuple[Any, ...],
+) -> ProjectionResult:
+    manifests = tuple(
+        record
+        for record in records
+        if isinstance(record, BundleProjectionManifest)
+        and record.source_bundle_id == bundle.bundle_id
+    )
+    if len(manifests) != 1:
+        raise ProductionSmokeError(
+            "current synthetic bundle lacks one projection manifest"
+        )
+    manifest = manifests[0]
+    reports = tuple(
+        record
+        for record in records
+        if isinstance(record, SanitationReport)
+        and record.report_id == manifest.sanitation_report_id
+    )
+    priors = tuple(
+        record
+        for record in records
+        if isinstance(record, PriorIdea)
+        and record.prior_idea_id in manifest.prior_idea_ids
+    )
+    episodes = tuple(
+        record
+        for record in records
+        if isinstance(record, TransferEpisode)
+        and record.episode_id in manifest.episode_ids
+    )
+    derivations = tuple(
+        record
+        for record in records
+        if isinstance(record, ExecutionRevisionEvent)
+        and record.event_id in manifest.derivation_object_ids
+    )
+    if (
+        len(reports) != 1
+        or tuple(sorted(item.prior_idea_id for item in priors))
+        != manifest.prior_idea_ids
+        or tuple(sorted(item.episode_id for item in episodes)) != manifest.episode_ids
+        or tuple(sorted(item.event_id for item in derivations))
+        != manifest.derivation_object_ids
+    ):
+        raise ProductionSmokeError("current synthetic projection closure is invalid")
+    return ProjectionResult(
+        source_bundle=bundle,
+        sanitation_report=reports[0],
+        episodes=tuple(sorted(episodes, key=lambda item: item.episode_id)),
+        prior_ideas=tuple(sorted(priors, key=lambda item: item.prior_idea_id)),
+        derivation_objects=tuple(
+            sorted(derivations, key=lambda item: item.event_id)
         ),
-        predecessor_prior_idea=predecessor_priors[0],
     )
 
 

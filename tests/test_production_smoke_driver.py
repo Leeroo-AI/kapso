@@ -22,6 +22,8 @@ from kapso.cross_run.canonical import (
     parse_json_bytes,
     tree_or_blob_digest,
 )
+from kapso.cross_run.capture.bundle import RunBundleStore
+from kapso.cross_run.catalog.projector import RunBundleProjector
 from kapso.cross_run.catalog.service import CrossRunCatalog
 from kapso.cross_run.contracts import ExpertBaseReleaseManifest
 from kapso.cross_run.expert.triggers import (
@@ -164,13 +166,13 @@ def test_driver_fails_loud_on_corrupt_durable_receipt(tmp_path, monkeypatch):
         )
 
 
-def test_synthetic_projection_is_one_admitted_domain_neutral_bundle():
+def test_synthetic_capture_is_replayable_and_importable(tmp_path):
     settings = load_effective_config(_CONFIG_PATH, "GENERIC").cross_run
     fixture, _fixture_digest = smoke_module._load_fixture(settings)
     scope_contract = smoke_module.ExpertScopeContract.from_dict(
         fixture["scope_contract"]
     )
-    projection = smoke_module._synthetic_projection(
+    capture = smoke_module._synthetic_capture(
         settings,
         fixture,
         scope_contract,
@@ -178,7 +180,21 @@ def test_synthetic_projection_is_one_admitted_domain_neutral_bundle():
         _TASK_ADAPTER_MANIFEST_ID,
         _TASK_ADAPTER_VERIFICATION_RECEIPT_ID,
     )
+    projection = capture.projection
+    replayed = RunBundleProjector(
+        settings.capture.score_comparison_tolerance
+    ).project(capture.stored_bundle)
+    store = RunBundleStore.initialize(
+        tmp_path / settings.capture.state_path,
+        settings.capture,
+        settings.sanitation,
+    )
 
+    assert replayed == projection
+    assert store.import_exact(capture.stored_bundle) == capture.stored_bundle
+    assert store.require_exact(projection.source_bundle.bundle_id) == (
+        capture.stored_bundle
+    )
     assert projection.sanitation_report.status == "admitted"
     assert projection.source_bundle.scope_id == "ml_ai"
     assert projection.source_bundle.expert_base_release_id == _EXPERT_RELEASE_ID
@@ -802,16 +818,11 @@ def test_embedding_smoke_bounds_provider_drift_by_cosine_distance(
 
 
 @pytest.mark.parametrize(
-    ("predecessor_has_episode", "configuration_changed", "adapter_changed"),
-    (
-        (False, True, False),
-        (True, True, False),
-        (True, False, True),
-    ),
+    ("configuration_changed", "adapter_changed"),
+    ((True, False), (False, True)),
 )
 def test_clean_root_imports_current_snapshot_and_mints_one_direct_successor(
     tmp_path,
-    predecessor_has_episode,
     configuration_changed,
     adapter_changed,
 ):
@@ -849,14 +860,9 @@ def test_clean_root_imports_current_snapshot_and_mints_one_direct_successor(
         scope_contract,
         settings.catalog,
     )
-    published_old_projection = (
-        old_projection
-        if predecessor_has_episode
-        else replace(old_projection, episodes=())
-    )
     old_generation = old_catalog.publish_projection(
         old_catalog.store.read_current(),
-        published_old_projection,
+        old_projection,
     ).generation
     publisher = KnowledgeSnapshotPublisher(
         RecordingPublicationAuthority(),
@@ -875,7 +881,7 @@ def test_clean_root_imports_current_snapshot_and_mints_one_direct_successor(
         publisher_attestation={"issuer": "test-publisher"},
     ).package
 
-    successor = smoke_module._synthetic_projection_for_snapshot(
+    successor_capture = smoke_module._synthetic_capture_for_snapshot(
         settings,
         fixture,
         scope_contract,
@@ -884,6 +890,7 @@ def test_clean_root_imports_current_snapshot_and_mints_one_direct_successor(
         _TASK_ADAPTER_MANIFEST_ID,
         _TASK_ADAPTER_VERIFICATION_RECEIPT_ID,
     )
+    successor = successor_capture.projection
 
     if adapter_changed:
         assert successor.source_bundle.capture_generation == 0
@@ -900,7 +907,7 @@ def test_clean_root_imports_current_snapshot_and_mints_one_direct_successor(
             old_projection.prior_ideas[0].prior_idea_id
         )
         assert successor.episodes[0].supersedes_projection_id == (
-            old_projection.episodes[0].episode_id if predecessor_has_episode else None
+            old_projection.episodes[0].episode_id
         )
     new_catalog = CrossRunCatalog(
         tmp_path / "new-catalog",
@@ -923,7 +930,7 @@ def test_clean_root_imports_current_snapshot_and_mints_one_direct_successor(
         publisher_attestation={"issuer": "test-publisher"},
     ).package
 
-    recovered = smoke_module._synthetic_projection_for_snapshot(
+    recovered = smoke_module._synthetic_capture_for_snapshot(
         settings,
         fixture,
         scope_contract,
@@ -933,4 +940,5 @@ def test_clean_root_imports_current_snapshot_and_mints_one_direct_successor(
         _TASK_ADAPTER_VERIFICATION_RECEIPT_ID,
     )
 
-    assert recovered == successor
+    assert recovered.projection == successor
+    assert recovered.stored_bundle == successor_capture.stored_bundle
