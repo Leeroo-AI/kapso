@@ -9,6 +9,7 @@ unless the cache exists.
 import importlib.util
 import json
 import os
+import sys
 from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
@@ -17,6 +18,7 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 
+from benchmarks.relbench import runner as relbench_runner
 from benchmarks.relbench.task_specs import (
     AUTOCOMPLETE_REGRESSION,
     ENTITY_BINARY,
@@ -506,6 +508,15 @@ class TestGenericModeConfig:
         assert mode["evaluation_maintainer"]["type"] == "claude_code"
         assert mode["models"]["utility"]["reasoning_effort"] == "xhigh"
 
+    def test_list_does_not_require_run_inputs(self, monkeypatch):
+        calls = []
+        monkeypatch.setattr(relbench_runner, "list_tasks", lambda: calls.append(True))
+        monkeypatch.setattr(sys, "argv", ["expert-relbench", "--list"])
+
+        relbench_runner.main()
+
+        assert calls == [True]
+
 
 @pytest.mark.skipif(
     not RELBENCH_INSTALLED or not (RELBENCH_CACHE / "rel-f1" / "db").exists(),
@@ -519,7 +530,7 @@ class TestProvidedGrader:
         root = tmp_path / "candidate"
         (root / "kapso_evaluation").mkdir(parents=True)
         suite = Path(__file__).parents[1] / "benchmarks/relbench/data/generic_eval"
-        for f in suite.glob("*"):
+        for f in (path for path in suite.iterdir() if path.is_file()):
             (root / "kapso_evaluation" / f.name).write_bytes(f.read_bytes())
         (root / "main.py").write_text(
             "import os, numpy as np\n"

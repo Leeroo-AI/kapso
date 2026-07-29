@@ -62,6 +62,14 @@ mle = [
 ale = [
     # ale-bench installed separately (requires docker setup)
 ]
+relbench = [
+    "relbench",
+    "duckdb",
+    "pooch",
+    "pyarrow",
+    "pandas",
+    "scikit-learn",
+]
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",

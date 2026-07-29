@@ -201,10 +201,10 @@ def main() -> None:
     parser.add_argument(
         "-d", "--coding-agent", type=str, choices=AVAILABLE_AGENTS, default=None
     )
-    parser.add_argument("--workspace", type=str, required=True)
+    parser.add_argument("--workspace", type=str)
     parser.add_argument("--resume", action="store_true")
-    parser.add_argument("--runtime-contract", type=str, required=True)
-    parser.add_argument("--image-authority", type=str, required=True)
+    parser.add_argument("--runtime-contract", type=str)
+    parser.add_argument("--image-authority", type=str)
     parser.add_argument("--knowledge-file", type=str, default=None)
     parser.add_argument(
         "--list", action="store_true", help="List native RelBench tasks"
@@ -220,6 +220,20 @@ def main() -> None:
     if args.list:
         list_tasks()
         return
+    missing_run_arguments = tuple(
+        name
+        for name, value in (
+            ("--workspace", args.workspace),
+            ("--runtime-contract", args.runtime_contract),
+            ("--image-authority", args.image_authority),
+        )
+        if value is None
+    )
+    if missing_run_arguments:
+        parser.error(
+            f"{', '.join(missing_run_arguments)} required unless using "
+            "--list or --list-agents"
+        )
     if not args.dataset or not args.task:
         parser.print_help()
         print("\nError: --dataset and --task are required unless using --list")

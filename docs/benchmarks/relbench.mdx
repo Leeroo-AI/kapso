@@ -66,7 +66,7 @@ PYTHONPATH=. python -m benchmarks.relbench.runner \
 ## Setup
 
 ```bash
-pip install relbench duckdb pooch pyarrow            # evaluation layer
+pip install ".[relbench]"                            # evaluation layer
 pip install "relbench[full]" sentence-transformers \
     lightgbm xgboost catboost tqdm                   # modeling stack (GPU machine)
 ```
