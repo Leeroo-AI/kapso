@@ -55,14 +55,19 @@ def list_tasks() -> None:
     print()
 
 
-def _write_runtime_config(mode: str, shared_cache_dir: str, work_dir) -> str:
-    """Write a per-run config injecting the task-scoped shared_cache_dir into
-    the mode's generic-search params, and return its path. The orchestrator
-    reloads config from disk, so a runtime value must live in a file."""
+def _write_runtime_config(
+    mode: str, shared_cache_dir: str, work_dir, time_budget_hours=None
+) -> str:
+    """Write a per-run config injecting the task-scoped shared_cache_dir (and,
+    when given, the wall-clock budget override) into the mode's config, and
+    return its path. The orchestrator reloads config from disk, so a runtime
+    value must live in a file."""
     with open(CONFIG_PATH) as f:
         config = yaml.safe_load(f)
     params = config["modes"][mode]["search_strategy"]["params"]
     params["shared_cache_dir"] = os.path.abspath(shared_cache_dir)
+    if time_budget_hours is not None:
+        config["modes"][mode]["budget"]["time_budget_minutes"] = time_budget_hours * 60
     runtime_dir = os.path.join(str(work_dir), ".kapso_runtime")
     os.makedirs(runtime_dir, exist_ok=True)
     runtime_path = os.path.join(runtime_dir, "config.yaml")
@@ -126,7 +131,12 @@ def solve_task(args) -> dict:
     # the orchestrator reloads config from disk (ioai-2025 runner pattern).
     config_path = CONFIG_PATH
     if generic:
-        config_path = _write_runtime_config(mode, str(handler.shared_cache_dir), handler.work_dir)
+        config_path = _write_runtime_config(
+            mode, str(handler.shared_cache_dir), handler.work_dir,
+            time_budget_hours=args.time_budget_hours,
+        )
+    elif args.time_budget_hours is not None:
+        raise ValueError("--time-budget-hours requires --strategy generic")
 
     orchestrator = OrchestratorAgent(
         handler,
@@ -184,6 +194,10 @@ def main() -> None:
         help="Seed the workspace from an existing repo (e.g. a scout's winning branch)",
     )
     parser.add_argument("--target-val", type=float, default=None)
+    parser.add_argument(
+        "--time-budget-hours", type=float, default=None,
+        help="Wall-clock budget override (config time_budget_minutes stays the default)",
+    )
     parser.add_argument("--rebuild-cache", action="store_true")
     parser.add_argument("--knowledge-file", type=str, default=None)
     parser.add_argument("--list", action="store_true", help="List native RelBench tasks")

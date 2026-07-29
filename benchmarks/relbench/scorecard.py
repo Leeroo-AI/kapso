@@ -202,20 +202,10 @@ def build_section(
 
 
 def _campaign_orders() -> Tuple[List[str], set]:
-    """ROI order + cpu-safe set, parsed from the campaign script (stays in sync)."""
-    import re
+    """ROI order + cpu-safe set — sourced from the campaign pipeline (one home)."""
+    from benchmarks.relbench.campaign import CPU_LOCAL_QUEUE, ROI_QUEUE
 
-    script = Path(__file__).parents[2] / "scripts" / "run_relbench_campaign.sh"
-    s = script.read_text() if script.exists() else ""
-
-    def arr(name: str) -> List[str]:
-        i = s.find(f"{name}=(")
-        if i < 0:
-            return []
-        j = s.find("\n)", i)
-        return [f"{d}/{t}" for d, t in re.findall(r'"(rel-\S+) (\S+)"', s[i:j])]
-
-    return arr("ROI"), set(arr("CPU_LOCAL"))
+    return list(ROI_QUEUE), set(CPU_LOCAL_QUEUE)
 
 
 def _kapso_primary(report: dict, spec) -> Optional[float]:
