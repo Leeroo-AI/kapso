@@ -20,6 +20,8 @@ from kapso.cross_run.contracts import (
 )
 from kapso.cross_run.expert.github_evaluator import (
     GitHubExpertEvaluatorExchange,
+    GitHubExpertEvaluatorRevision,
+    GitHubExpertEvaluatorRevisionInstaller,
     build_github_expert_evaluator_request,
 )
 from kapso.cross_run.expert.validation import ExpertEvaluatorRunBuilder
@@ -143,6 +145,143 @@ def test_request_identity_changes_with_transition_candidate_bytes_and_revision(
     assert request_id == content_id("expert-evaluator-request", content)
 
 
+def test_revision_installer_overlays_default_and_mints_immutable_dispatch_ref(
+    tmp_path,
+    monkeypatch,
+):
+    settings = load_effective_config(_CONFIG_PATH, "GENERIC").cross_run
+    client_root = tmp_path / "github-installer"
+    client_root.mkdir(mode=0o700)
+    client = GitHubCommandClient(
+        _UnusedRunner(),
+        working_directory=client_root,
+        timeout_seconds=settings.github.command_timeout_seconds,
+        api_version=settings.github.api_version,
+        minimum_cli_version=settings.github.minimum_cli_version,
+        release_visibility_poll_interval_seconds=(
+            settings.github.release_visibility_poll_interval_seconds
+        ),
+        control_blob_size_bytes=settings.github.control_blob_size_bytes,
+    )
+    repository = "Leeroo-AI/kapso-security"
+    source_revision = "a" * 40
+    current_revision = "b" * 40
+    source_tree_sha = "c" * 40
+    current_tree_sha = "d" * 40
+    overlay_tree_sha = "e" * 40
+    overlay_revision = "f" * 40
+    source_entries = (
+        (".github/workflows/kapso-expert-evaluator.yml", "1" * 40),
+        ("evaluator/evaluate.py", "2" * 40),
+        ("evaluator/sign.py", "3" * 40),
+    )
+    updated_refs = []
+    created_refs = []
+    active_workflows = []
+
+    def read_ref(_repository, qualified_ref, *, allow_missing):
+        assert _repository == repository
+        assert not allow_missing
+        return (
+            source_revision
+            if qualified_ref == "refs/heads/kapso-evaluator"
+            else current_revision
+        )
+
+    def api_json(method, endpoint, body=None):
+        if method == "GET" and endpoint.endswith(f"commits/{source_revision}"):
+            return {"sha": source_revision, "tree": {"sha": source_tree_sha}}
+        if method == "GET" and endpoint.endswith(f"commits/{current_revision}"):
+            return {"sha": current_revision, "tree": {"sha": current_tree_sha}}
+        if method == "GET" and f"trees/{source_tree_sha}" in endpoint:
+            return {
+                "tree": [
+                    {
+                        "mode": "100644",
+                        "path": path,
+                        "sha": sha,
+                        "type": "blob",
+                    }
+                    for path, sha in source_entries
+                ],
+                "truncated": False,
+            }
+        if method == "GET" and f"trees/{current_tree_sha}" in endpoint:
+            return {"tree": [], "truncated": False}
+        if method == "POST" and endpoint.endswith("/git/trees"):
+            assert body == {
+                "base_tree": current_tree_sha,
+                "tree": [
+                    {
+                        "mode": "100644",
+                        "path": path,
+                        "sha": sha,
+                        "type": "blob",
+                    }
+                    for path, sha in source_entries
+                ],
+            }
+            return {"sha": overlay_tree_sha}
+        if method == "POST" and endpoint.endswith("/git/commits"):
+            assert body == {
+                "message": "Install Kapso expert evaluator",
+                "parents": [current_revision],
+                "tree": overlay_tree_sha,
+            }
+            return {
+                "parents": [{"sha": current_revision}],
+                "sha": overlay_revision,
+                "tree": {"sha": overlay_tree_sha},
+            }
+        assert method == "GET" and endpoint == f"repos/{repository}"
+        return {"full_name": repository, "node_id": "security-repository-node"}
+
+    monkeypatch.setattr(client, "read_ref_commit", read_ref)
+    monkeypatch.setattr(client, "api_json", api_json)
+    monkeypatch.setattr(
+        client,
+        "update_ref_compare_and_swap",
+        lambda *arguments: updated_refs.append(arguments),
+    )
+    monkeypatch.setattr(
+        client,
+        "wait_for_active_workflow",
+        lambda *arguments: active_workflows.append(arguments),
+    )
+    monkeypatch.setattr(
+        client,
+        "create_ref_if_absent",
+        lambda *arguments: created_refs.append(arguments),
+    )
+
+    installed = GitHubExpertEvaluatorRevisionInstaller(
+        client,
+        settings.github,
+    ).install(repository)
+
+    assert installed == GitHubExpertEvaluatorRevision(
+        commit_sha=overlay_revision,
+        dispatch_ref=f"kapso-evaluator-revisions/{overlay_revision}",
+    )
+    assert updated_refs == [
+        (
+            repository,
+            "security-repository-node",
+            settings.github.default_branch,
+            current_revision,
+            overlay_revision,
+        )
+    ]
+    assert active_workflows == [(repository, "kapso-expert-evaluator.yml")]
+    assert created_refs == [
+        (
+            repository,
+            f"refs/heads/kapso-evaluator-revisions/{overlay_revision}",
+            overlay_revision,
+        )
+    ]
+
+
 def test_signed_immutable_response_replays_without_another_dispatch(
     tmp_path,
     monkeypatch,
@@ -172,9 +311,6 @@ def test_signed_immutable_response_replays_without_another_dispatch(
     releases = []
     payloads = {}
     dispatches = []
-
-    def read_ref(*_arguments, **_keywords):
-        return _REVISION
 
     def graphql(_query, variables):
         matches = tuple(
@@ -236,7 +372,7 @@ def test_signed_immutable_response_replays_without_another_dispatch(
     def dispatch(repository, workflow_file, ref, inputs):
         assert repository == "Leeroo-AI/kapso-security"
         assert workflow_file == "kapso-expert-evaluator.yml"
-        assert ref == "kapso-evaluator"
+        assert ref == f"kapso-evaluator-revisions/{_REVISION}"
         dispatches.append(inputs)
         response = next(
             release
@@ -267,7 +403,6 @@ def test_signed_immutable_response_replays_without_another_dispatch(
             "html_url": "https://github.com/run/1",
         }
 
-    monkeypatch.setattr(client, "read_ref_commit", read_ref)
     monkeypatch.setattr(client, "graphql", graphql)
     monkeypatch.setattr(client, "api_json", api_json)
     monkeypatch.setattr(client, "upload_release_asset", upload)
@@ -279,6 +414,14 @@ def test_signed_immutable_response_replays_without_another_dispatch(
         validation_settings=validation,
         sanitation_settings=settings.sanitation,
         security_repository="Leeroo-AI/kapso-security",
+    )
+    monkeypatch.setattr(
+        exchange.revision_installer,
+        "install",
+        lambda _repository: GitHubExpertEvaluatorRevision(
+            commit_sha=_REVISION,
+            dispatch_ref=f"kapso-evaluator-revisions/{_REVISION}",
+        ),
     )
 
     first = exchange.evaluate(

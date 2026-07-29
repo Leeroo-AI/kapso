@@ -19,10 +19,12 @@ For the `ml_ai` scope the configured repositories are:
 All three require a `main` default branch, direct administrative writes by the
 autonomous actor, immutable releases, and no rule requiring a pull request or human
 approval. The security repository additionally keeps the signed evaluator workflow
-on the structural `kapso-evaluator` branch. Its `main` branch is owned by security
-artifact publication and must not carry workflow source. Kapso revalidates
-repository node identity, privacy, write authority, and release immutability before
-mutation.
+and scripts on the reviewed structural `kapso-evaluator` source branch. Security
+artifact publication owns the baseline of `main`; before an external evaluation,
+Kapso CAS-installs the exact reviewed evaluator files as a pointer-preserving
+overlay on `main`, waits for GitHub to register the workflow, and creates a
+write-once revision branch. Kapso revalidates repository node identity, privacy,
+write authority, and release immutability before mutation.
 
 ## Host authentication
 
@@ -58,11 +60,16 @@ source commit is not success; only the authenticated current pointer plus activa
 witness is authoritative. Retries reconcile the exact prior operation and never
 force-push or infer completion from partial remote state.
 
-An evaluator dispatch reads and targets the exact commit at
-`refs/heads/kapso-evaluator`; evaluator releases bind that revision into the signed
-request and result. This prevents workflow maintenance from advancing the
-artifact-owned security `main` branch. If a successor publication observes an
-unchanged pointer at a later authenticated commit, it accepts that state only when
-GitHub proves the observed head is a strict fast-forward descendant of the recorded
-activation witness, then restores an artifact-only `main` through the normal
-activation commit. Divergence is rejected.
+An evaluator install reads only the three reviewed files from
+`refs/heads/kapso-evaluator`, overlays them on the current default-branch tree, and
+mints `kapso-evaluator-revisions/<overlay-commit>` at that exact commit. Dispatch
+targets the write-once revision branch; evaluator releases and signed records bind
+the same commit. This satisfies GitHub's requirement that a dispatchable workflow
+exist on the default branch without racing a mutable ref at execution time.
+
+The overlay does not rewrite `CURRENT.json`. Current security reads require GitHub
+to prove that the observed head is a fast-forward descendant of the artifact's
+activation witness. A successor security publication accepts the same authenticated
+state, then replaces the tree through its normal expected-parent activation. The
+next evaluation reinstalls the reviewed overlay. Divergence is rejected at current
+read, publication preflight, and final activation revalidation.

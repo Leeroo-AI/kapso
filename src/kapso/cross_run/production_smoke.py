@@ -2503,7 +2503,11 @@ def _publish_security_revocation_smoke(
     )
     if (
         state.pointer is None
-        or state.head_commit_sha != current.authority_commit_sha
+        or not provider.commit_descends_from(
+            current.repository_full_name,
+            current.authority_commit_sha,
+            state.head_commit_sha,
+        )
         or state.pointer.publication_record.artifact_id != current.snapshot.snapshot_id
     ):
         raise ProductionSmokeError("security CURRENT changed before revocation")

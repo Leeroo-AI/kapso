@@ -122,6 +122,8 @@ class _ResolvedArtifactProvider:
         self.settings = settings
         self.calls = []
         self.activation_commit_sha = resolved.pointer_commit_sha
+        self.accept_descendant = True
+        self.descendant_calls = []
 
     def resolve_current(self, scope_id, artifact_kind):
         self.calls.append(("current", scope_id, artifact_kind))
@@ -144,6 +146,17 @@ class _ResolvedArtifactProvider:
     ):
         return SimpleNamespace(activation_commit_sha=self.activation_commit_sha)
 
+    def commit_descends_from(
+        self,
+        repository,
+        ancestor_commit_sha,
+        descendant_commit_sha,
+    ):
+        self.descendant_calls.append(
+            (repository, ancestor_commit_sha, descendant_commit_sha)
+        )
+        return ancestor_commit_sha == descendant_commit_sha or self.accept_descendant
+
 
 class _MaterializedArtifactProvider:
     def __init__(self, content):
@@ -154,11 +167,19 @@ class _MaterializedArtifactProvider:
 
 
 class _LiveCurrentGitHubProvider(GitHubSecurityDenylistSnapshotProvider):
-    def __init__(self, resolver, materializer, current_snapshot, current_pointer):
+    def __init__(
+        self,
+        resolver,
+        materializer,
+        current_snapshot,
+        current_pointer,
+        authority_commit_sha=None,
+    ):
         super().__init__(resolver, materializer)
         self.current_snapshot = current_snapshot
         self.current_pointer = current_pointer
         self.current_calls = 0
+        self.authority_commit_sha = authority_commit_sha
 
     def resolve_current(self, scope_id):
         self.current_calls += 1
@@ -168,7 +189,11 @@ class _LiveCurrentGitHubProvider(GitHubSecurityDenylistSnapshotProvider):
             publication_id=record.publication_id,
             repository_full_name=record.repository_full_name,
             repository_node_id=record.repository_node_id,
-            authority_commit_sha=self.resolver.current_head,
+            authority_commit_sha=(
+                self.resolver.current_head
+                if self.authority_commit_sha is None
+                else self.authority_commit_sha
+            ),
             pointer_digest=tree_or_blob_digest(self.current_pointer.to_json_bytes()),
             release_attestation_ref=record.release_attestation_ref,
             validation_closure_ids=self.current_pointer.validation_closure_ids,
@@ -1103,6 +1128,45 @@ def test_github_provider_resolves_current_and_exact_authenticated_manifests(tmp_
             snapshot.snapshot_id,
         ),
     ]
+    assert resolver.descendant_calls == [
+        (
+            "Leeroo-AI/kapso-security",
+            resolved.pointer_commit_sha,
+            resolved.pointer_commit_sha,
+        )
+    ]
+
+
+def test_github_provider_rejects_current_head_outside_activation_lineage(tmp_path):
+    settings = _settings()
+    snapshot = _snapshot(0, None, ())
+    resolved = _resolved(snapshot)
+    content = tmp_path / "diverged-current"
+    content.mkdir()
+    (content / resolved.pointer.manifest_relative_path).write_bytes(
+        snapshot.to_json_bytes()
+    )
+    (content / SECURITY_DENYLIST_EVIDENCE_FILENAME).write_bytes(
+        _evidence_bundle(()).to_json_bytes()
+    )
+    resolver = _ResolvedArtifactProvider(resolved, settings.github)
+    resolver.activation_commit_sha = "d" * 40
+    resolver.accept_descendant = False
+    provider = GitHubSecurityDenylistSnapshotProvider(
+        resolver,
+        _MaterializedArtifactProvider(content),
+    )
+
+    with pytest.raises(SecurityDenylistError, match="does not descend"):
+        provider.resolve_current(SCOPE_ID)
+
+    assert resolver.descendant_calls == [
+        (
+            "Leeroo-AI/kapso-security",
+            "d" * 40,
+            resolved.pointer_commit_sha,
+        )
+    ]
 
 
 def test_github_provider_rejects_noncanonical_manifest_bytes(tmp_path):
@@ -1211,12 +1275,14 @@ def test_security_successor_transaction_reauthenticates_the_live_predecessor(
     current_pointer = _resolved(generation_zero).pointer
     envelope = _publication_envelope(tmp_path, generation_one, (evidence,))
     repository = settings.scopes.resolve(SCOPE_ID).security_repository
+    predecessor_activation = "8" * 40
     resolver = FakeResolver(
         existing=current_pointer,
         current_head=EXPECTED_PARENT,
         artifact_kind=PublicationArtifactKind.SECURITY_DENYLIST,
         repository=repository,
         repository_node_id="security_repo_node",
+        accept_descendant=True,
     )
     client = FakePublisherClient(
         envelope.assets[0],
@@ -1262,7 +1328,7 @@ def test_security_successor_transaction_reauthenticates_the_live_predecessor(
         artifact_kind=PublicationArtifactKind.SECURITY_DENYLIST,
         artifact_id=predecessor_id,
         repository_full_name=repository,
-        activation_commit_sha=EXPECTED_PARENT,
+        activation_commit_sha=predecessor_activation,
         publication_intent_digest=predecessor_intent.digest,
         current_pointer_digest=tree_or_blob_digest(current_pointer.to_json_bytes()),
     )
@@ -1277,7 +1343,7 @@ def test_security_successor_transaction_reauthenticates_the_live_predecessor(
         allow_missing=False,
     ):
         if artifact_id == predecessor_id:
-            return EXPECTED_PARENT
+            return predecessor_activation
         return resolve_activation_preparation(
             scope_id,
             artifact_kind,
@@ -1334,6 +1400,7 @@ def test_security_successor_transaction_reauthenticates_the_live_predecessor(
         materializer,
         generation_zero,
         current_pointer,
+        authority_commit_sha=predecessor_activation,
     )
     publisher = SecurityDenylistPublisher(
         generic_publisher,
@@ -1346,6 +1413,11 @@ def test_security_successor_transaction_reauthenticates_the_live_predecessor(
 
     assert telemetry.publication_record.artifact_id == generation_one.snapshot_id
     assert provider.current_calls == 2
+    assert (
+        repository,
+        predecessor_activation,
+        EXPECTED_PARENT,
+    ) in resolver.required_commit_ancestry
     assert client.events[-2:] == ["pointer_ref", "activation_witness_ref"]
 
 
@@ -1511,6 +1583,106 @@ def test_publication_gate_rejects_nonadjacent_or_nonmonotonic_successors(
             manifest=candidate,
             source_tree_digest=tree_or_blob_digest(b"candidate-source"),
             manifest_digest=tree_or_blob_digest(candidate.to_json_bytes()),
+        )
+
+
+def test_publication_gate_rejects_lineage_divergence_before_and_after_preflight(
+    tmp_path,
+):
+    generation_zero = _snapshot(0, None, ())
+    generation_one = _snapshot(1, generation_zero, ())
+    resolved = _resolved(generation_zero)
+    pointer = resolved.pointer
+    record = pointer.publication_record
+    activation_commit_sha = "d" * 40
+    authenticated = AuthenticatedSecurityDenylistSnapshot.mint(
+        snapshot=generation_zero,
+        publication_id=record.publication_id,
+        repository_full_name=record.repository_full_name,
+        repository_node_id=record.repository_node_id,
+        authority_commit_sha=activation_commit_sha,
+        pointer_digest=tree_or_blob_digest(pointer.to_json_bytes()),
+        release_attestation_ref=record.release_attestation_ref,
+        validation_closure_ids=pointer.validation_closure_ids,
+    )
+
+    class ToggleProvider:
+        accept_descendant = False
+
+        def resolve_current(self, _scope_id):
+            return authenticated
+
+        def commit_descends_from(
+            self,
+            _repository,
+            _ancestor_commit_sha,
+            _descendant_commit_sha,
+        ):
+            return self.accept_descendant
+
+    class StableResolver:
+        def read_current_pointer_state(
+            self,
+            _scope_id,
+            _artifact_kind,
+            *,
+            allow_missing,
+        ):
+            assert allow_missing
+            return CurrentPointerState(
+                pointer=pointer,
+                head_commit_sha=resolved.pointer_commit_sha,
+            )
+
+    provider = ToggleProvider()
+    resolver = StableResolver()
+    envelope = replace(
+        _publication_envelope(tmp_path, generation_one),
+        expected_parent_sha=resolved.pointer_commit_sha,
+    )
+    current_state = CurrentPointerState(
+        pointer=pointer,
+        head_commit_sha=resolved.pointer_commit_sha,
+    )
+    settings = _settings()
+    rejected_gate = SecurityDenylistPublicationGate(
+        resolver,
+        provider,
+        settings.launch,
+    )
+
+    with pytest.raises(SecurityDenylistError, match="current changed"):
+        rejected_gate.validate_before_publication(
+            envelope=envelope,
+            repositories=settings.scopes.resolve(SCOPE_ID),
+            current_state=current_state,
+            manifest=generation_one,
+            source_tree_digest=tree_or_blob_digest(b"candidate-source"),
+            manifest_digest=tree_or_blob_digest(generation_one.to_json_bytes()),
+        )
+
+    provider.accept_descendant = True
+    gate = SecurityDenylistPublicationGate(
+        resolver,
+        provider,
+        settings.launch,
+    )
+    gate.validate_before_publication(
+        envelope=envelope,
+        repositories=settings.scopes.resolve(SCOPE_ID),
+        current_state=current_state,
+        manifest=generation_one,
+        source_tree_digest=tree_or_blob_digest(b"candidate-source"),
+        manifest_digest=tree_or_blob_digest(generation_one.to_json_bytes()),
+    )
+    provider.accept_descendant = False
+
+    with pytest.raises(SecurityDenylistError, match="final authentication"):
+        gate.revalidate_before_activation(
+            envelope=envelope,
+            repositories=settings.scopes.resolve(SCOPE_ID),
+            pointer=pointer,
+            manifest=generation_one,
         )
 
 

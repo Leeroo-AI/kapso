@@ -481,6 +481,63 @@ class GitHubCommandClient:
             raise GitHubCommandError("workflow dispatch run identity is invalid")
         return response
 
+    def wait_for_active_workflow(
+        self,
+        repository: str,
+        workflow_file: str,
+    ) -> Mapping[str, Any]:
+        """Wait until GitHub registers one workflow from the default branch."""
+
+        if _REPOSITORY_PATTERN.fullmatch(repository) is None:
+            raise GitHubCommandError("workflow repository is invalid")
+        if _RELEASE_ASSET_NAME_PATTERN.fullmatch(workflow_file) is None:
+            raise GitHubCommandError("workflow filename is invalid")
+        request = CommandRequest(
+            argv=(
+                "gh",
+                "api",
+                "--method",
+                "GET",
+                "--header",
+                f"X-GitHub-Api-Version:{self.api_version}",
+                f"repos/{repository}/actions/workflows/{workflow_file}",
+            ),
+            cwd=self.working_directory,
+            timeout_seconds=self.timeout_seconds,
+            output_kind=CommandOutputKind.JSON,
+            capture_failure=True,
+            maximum_output_bytes=self.control_blob_size_bytes,
+        )
+        deadline = time.monotonic() + self.timeout_seconds
+        result = self.runner.run(request)
+        while result.returncode != 0:
+            diagnostic = result.stderr.decode("utf-8", errors="replace")
+            if re.search(r"\(HTTP 404\)(?:\s|$)", diagnostic) is None:
+                raise GitHubCommandError(
+                    "GitHub workflow registration failed: "
+                    + _redact_diagnostics(diagnostic.strip())
+                )
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise GitHubCommandError("GitHub workflow registration timed out")
+            time.sleep(
+                min(
+                    self.release_visibility_poll_interval_seconds,
+                    remaining,
+                )
+            )
+            result = self.runner.run(request)
+        workflow = _require_mapping(result.output, "registered workflow")
+        workflow_id = workflow.get("id")
+        if (
+            type(workflow_id) is not int
+            or workflow_id < 1
+            or workflow.get("path") != f".github/workflows/{workflow_file}"
+            or workflow.get("state") != "active"
+        ):
+            raise GitHubCommandError("registered workflow identity is invalid")
+        return workflow
+
     def api_json_pages(self, endpoint: str) -> tuple[Any, ...]:
         """Read every bounded REST page under one command deadline."""
 
@@ -945,6 +1002,7 @@ class GitHubCommandClient:
             capture_failure=True,
             maximum_output_bytes=self.control_blob_size_bytes,
         )
+        deadline = time.monotonic() + self.timeout_seconds
         result = self.runner.run(request)
         response = result.output
         mutation_succeeded = (
@@ -958,6 +1016,25 @@ class GitHubCommandClient:
         if not isinstance(current, dict) or not isinstance(current.get("object"), dict):
             raise GitHubCommandError("GitHub ref response must contain an object")
         current_sha = current["object"].get("sha")
+        while mutation_succeeded and current_sha == expected_sha:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            time.sleep(
+                min(
+                    self.release_visibility_poll_interval_seconds,
+                    remaining,
+                )
+            )
+            current = self.api_json(
+                "GET",
+                f"repos/{repository}/git/ref/heads/{branch}",
+            )
+            if not isinstance(current, dict) or not isinstance(
+                current.get("object"), dict
+            ):
+                raise GitHubCommandError("GitHub ref response must contain an object")
+            current_sha = current["object"].get("sha")
         if current_sha == commit_sha:
             return current
         if current_sha != expected_sha:

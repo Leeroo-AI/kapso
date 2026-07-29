@@ -6,6 +6,7 @@ import base64
 import re
 import tempfile
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -38,7 +39,13 @@ class GitHubExpertEvaluatorError(ValueError):
 
 _PROTOCOL_VERSION = "kapso.github_expert_evaluator.v1"
 _WORKFLOW_FILE = "kapso-expert-evaluator.yml"
-_EVALUATOR_BRANCH = "kapso-evaluator"
+_EVALUATOR_SOURCE_BRANCH = "kapso-evaluator"
+_EVALUATOR_REVISION_BRANCH_PREFIX = "kapso-evaluator-revisions"
+_EVALUATOR_SOURCE_PATHS = (
+    ".github/workflows/kapso-expert-evaluator.yml",
+    "evaluator/evaluate.py",
+    "evaluator/sign.py",
+)
 _REQUEST_ASSET = "request.json"
 _EVALUATION_ASSET = "evaluation.json"
 _RESULT_ASSET = "result.json"
@@ -50,6 +57,234 @@ _EXTERNAL_STAGES = {
     ExpertValidationStage.STATIC_UNIT_SECURITY_RESOURCE,
     ExpertValidationStage.SYNTHETIC_FRESH_TASK,
 }
+
+
+@dataclass(frozen=True)
+class GitHubExpertEvaluatorRevision:
+    commit_sha: str
+    dispatch_ref: str
+
+    def __post_init__(self) -> None:
+        if _SHA_PATTERN.fullmatch(self.commit_sha) is None:
+            raise GitHubExpertEvaluatorError("evaluator revision commit is invalid")
+        expected_ref = f"{_EVALUATOR_REVISION_BRANCH_PREFIX}/{self.commit_sha}"
+        if self.dispatch_ref != expected_ref:
+            raise GitHubExpertEvaluatorError("evaluator revision ref is invalid")
+
+
+class GitHubExpertEvaluatorRevisionInstaller:
+    """Overlay reviewed evaluator source on default and mint an immutable ref."""
+
+    def __init__(
+        self,
+        client: GitHubCommandClient,
+        github_settings: GitHubSettings,
+    ) -> None:
+        if type(client) is not GitHubCommandClient:
+            raise GitHubExpertEvaluatorError("evaluator installer requires GitHub")
+        if type(github_settings) is not GitHubSettings:
+            raise GitHubExpertEvaluatorError(
+                "evaluator installer requires GitHub settings"
+            )
+        self.client = client
+        self.github_settings = github_settings
+
+    def install(self, repository: str) -> GitHubExpertEvaluatorRevision:
+        if re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository) is None:
+            raise GitHubExpertEvaluatorError("evaluator repository is invalid")
+        source_revision = self.client.read_ref_commit(
+            repository,
+            f"refs/heads/{_EVALUATOR_SOURCE_BRANCH}",
+            allow_missing=False,
+        )
+        current_revision = self.client.read_ref_commit(
+            repository,
+            f"refs/heads/{self.github_settings.default_branch}",
+            allow_missing=False,
+        )
+        if source_revision is None or current_revision is None:
+            raise GitHubExpertEvaluatorError(
+                "evaluator source authority is unavailable"
+            )
+        source_files = self._source_files(repository, source_revision)
+        current_tree_sha, current_files = self._commit_tree(
+            repository,
+            current_revision,
+        )
+        expected_current = {
+            path: current_files.get(path) for path in _EVALUATOR_SOURCE_PATHS
+        }
+        if expected_current == source_files:
+            evaluator_revision = current_revision
+        else:
+            evaluator_revision = self._commit_overlay(
+                repository=repository,
+                current_revision=current_revision,
+                current_tree_sha=current_tree_sha,
+                source_files=source_files,
+            )
+        self.client.wait_for_active_workflow(repository, _WORKFLOW_FILE)
+        dispatch_ref = f"{_EVALUATOR_REVISION_BRANCH_PREFIX}/{evaluator_revision}"
+        self.client.create_ref_if_absent(
+            repository,
+            f"refs/heads/{dispatch_ref}",
+            evaluator_revision,
+        )
+        return GitHubExpertEvaluatorRevision(
+            commit_sha=evaluator_revision,
+            dispatch_ref=dispatch_ref,
+        )
+
+    def _source_files(
+        self,
+        repository: str,
+        source_revision: str,
+    ) -> Mapping[str, tuple[str, str]]:
+        _tree_sha, files = self._commit_tree(repository, source_revision)
+        source_files = {
+            path: files[path] for path in _EVALUATOR_SOURCE_PATHS if path in files
+        }
+        if set(source_files) != set(_EVALUATOR_SOURCE_PATHS) or any(
+            mode != "100644" for _sha, mode in source_files.values()
+        ):
+            raise GitHubExpertEvaluatorError(
+                "evaluator source branch lacks its exact file closure"
+            )
+        return source_files
+
+    def _commit_tree(
+        self,
+        repository: str,
+        commit_sha: str,
+    ) -> tuple[str, Mapping[str, tuple[str, str]]]:
+        commit = self._mapping(
+            self.client.api_json(
+                "GET",
+                f"repos/{repository}/git/commits/{commit_sha}",
+            ),
+            "evaluator commit",
+        )
+        tree = self._mapping(commit.get("tree"), "evaluator commit tree")
+        tree_sha = tree.get("sha")
+        if (
+            commit.get("sha") != commit_sha
+            or _SHA_PATTERN.fullmatch(str(tree_sha)) is None
+        ):
+            raise GitHubExpertEvaluatorError("evaluator commit identity is invalid")
+        listing = self._mapping(
+            self.client.api_json(
+                "GET",
+                f"repos/{repository}/git/trees/{tree_sha}?recursive=1",
+            ),
+            "evaluator tree listing",
+        )
+        entries = listing.get("tree")
+        if listing.get("truncated") is not False or not isinstance(entries, list):
+            raise GitHubExpertEvaluatorError("evaluator tree listing is incomplete")
+        files: dict[str, tuple[str, str]] = {}
+        for value in entries:
+            entry = self._mapping(value, "evaluator tree entry")
+            path = entry.get("path")
+            mode = entry.get("mode")
+            sha = entry.get("sha")
+            if (
+                not isinstance(path, str)
+                or not path
+                or path in files
+                or entry.get("type") not in {"blob", "tree"}
+                or not isinstance(mode, str)
+                or _SHA_PATTERN.fullmatch(str(sha)) is None
+            ):
+                raise GitHubExpertEvaluatorError("evaluator tree entry is invalid")
+            if entry["type"] == "blob":
+                files[path] = (sha, mode)
+        return tree_sha, files
+
+    def _commit_overlay(
+        self,
+        *,
+        repository: str,
+        current_revision: str,
+        current_tree_sha: str,
+        source_files: Mapping[str, tuple[str, str]],
+    ) -> str:
+        tree = self._mapping(
+            self.client.api_json(
+                "POST",
+                f"repos/{repository}/git/trees",
+                {
+                    "base_tree": current_tree_sha,
+                    "tree": [
+                        {
+                            "mode": source_files[path][1],
+                            "path": path,
+                            "sha": source_files[path][0],
+                            "type": "blob",
+                        }
+                        for path in _EVALUATOR_SOURCE_PATHS
+                    ],
+                },
+            ),
+            "evaluator overlay tree",
+        )
+        overlay_tree_sha = tree.get("sha")
+        if _SHA_PATTERN.fullmatch(str(overlay_tree_sha)) is None:
+            raise GitHubExpertEvaluatorError("evaluator overlay tree is invalid")
+        commit = self._mapping(
+            self.client.api_json(
+                "POST",
+                f"repos/{repository}/git/commits",
+                {
+                    "message": "Install Kapso expert evaluator",
+                    "parents": [current_revision],
+                    "tree": overlay_tree_sha,
+                },
+            ),
+            "evaluator overlay commit",
+        )
+        commit_sha = commit.get("sha")
+        commit_tree = self._mapping(
+            commit.get("tree"),
+            "evaluator overlay commit tree",
+        )
+        parents = commit.get("parents")
+        if (
+            _SHA_PATTERN.fullmatch(str(commit_sha)) is None
+            or commit_tree.get("sha") != overlay_tree_sha
+            or not isinstance(parents, list)
+            or len(parents) != 1
+            or self._mapping(
+                parents[0],
+                "evaluator overlay parent",
+            ).get("sha")
+            != current_revision
+        ):
+            raise GitHubExpertEvaluatorError("evaluator overlay commit is invalid")
+        repository_metadata = self._mapping(
+            self.client.api_json("GET", f"repos/{repository}"),
+            "evaluator repository",
+        )
+        repository_node_id = repository_metadata.get("node_id")
+        if (
+            repository_metadata.get("full_name") != repository
+            or not isinstance(repository_node_id, str)
+            or not repository_node_id
+        ):
+            raise GitHubExpertEvaluatorError("evaluator repository identity is invalid")
+        self.client.update_ref_compare_and_swap(
+            repository,
+            repository_node_id,
+            self.github_settings.default_branch,
+            current_revision,
+            commit_sha,
+        )
+        return commit_sha
+
+    @staticmethod
+    def _mapping(value: Any, name: str) -> Mapping[str, Any]:
+        if not isinstance(value, Mapping):
+            raise GitHubExpertEvaluatorError(f"{name} is invalid")
+        return value
 
 
 def build_github_expert_evaluator_request(
@@ -154,6 +389,10 @@ class GitHubExpertEvaluatorExchange:
         self.validation_settings = validation_settings
         self.sanitation_settings = sanitation_settings
         self.security_repository = security_repository
+        self.revision_installer = GitHubExpertEvaluatorRevisionInstaller(
+            client,
+            github_settings,
+        )
 
     def evaluate(
         self,
@@ -173,13 +412,8 @@ class GitHubExpertEvaluatorExchange:
                 "external evaluator authority is ambiguous"
             )
         deadline = time.monotonic() + evaluator[0].timeout_seconds
-        evaluator_revision = self.client.read_ref_commit(
-            self.security_repository,
-            f"refs/heads/{_EVALUATOR_BRANCH}",
-            allow_missing=False,
-        )
-        if evaluator_revision is None:
-            raise GitHubExpertEvaluatorError("evaluator revision is unavailable")
+        installed_revision = self.revision_installer.install(self.security_repository)
+        evaluator_revision = installed_revision.commit_sha
         request = build_github_expert_evaluator_request(
             stored_candidate=stored_candidate,
             attempt=attempt,
@@ -220,7 +454,7 @@ class GitHubExpertEvaluatorExchange:
                 self.client.dispatch_workflow(
                     self.security_repository,
                     _WORKFLOW_FILE,
-                    _EVALUATOR_BRANCH,
+                    installed_revision.dispatch_ref,
                     {
                         "evaluator_revision": evaluator_revision,
                         "request_id": request["request_id"],

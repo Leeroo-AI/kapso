@@ -165,12 +165,20 @@ class GitHubSecurityDenylistSnapshotProvider:
         self,
         scope_id: str,
     ) -> AuthenticatedSecurityDenylistSnapshot:
-        return self._materialize(
-            self.resolver.resolve_current(
-                scope_id,
-                PublicationArtifactKind.SECURITY_DENYLIST,
-            )
+        resolved = self.resolver.resolve_current(
+            scope_id,
+            PublicationArtifactKind.SECURITY_DENYLIST,
         )
+        authenticated = self._materialize(resolved)
+        if not self.commit_descends_from(
+            authenticated.repository_full_name,
+            authenticated.authority_commit_sha,
+            resolved.pointer_commit_sha,
+        ):
+            raise SecurityDenylistError(
+                "security denylist current head does not descend from activation"
+            )
+        return authenticated
 
     def resolve_exact(
         self,
@@ -366,7 +374,11 @@ class SecurityDenylistPublicationGate:
         else:
             current = self.provider.resolve_current(envelope.scope_id)
             if (
-                current.authority_commit_sha != current_state.head_commit_sha
+                not self.provider.commit_descends_from(
+                    current.repository_full_name,
+                    current.authority_commit_sha,
+                    current_state.head_commit_sha,
+                )
                 or current.snapshot.snapshot_id
                 != current_pointer.publication_record.artifact_id
                 or current.publication_id
@@ -421,7 +433,11 @@ class SecurityDenylistPublicationGate:
         if self.expected_current_pointer is not None:
             current = self.provider.resolve_current(envelope.scope_id)
             if (
-                current.authority_commit_sha != envelope.expected_parent_sha
+                not self.provider.commit_descends_from(
+                    current.repository_full_name,
+                    current.authority_commit_sha,
+                    envelope.expected_parent_sha,
+                )
                 or current.snapshot.snapshot_id != self.expected_current_snapshot_id
                 or current.pointer_digest
                 != tree_or_blob_digest(self.expected_current_pointer.to_json_bytes())

@@ -234,13 +234,14 @@ The decisive activated artifacts were:
 - E1 revocation
   `security-denylist-revocation:sha256:5793d08eb4a26f6a943e29023a6485cf85dc965d6790fef8e9a99c98aea318ef`.
 
-The evaluator workflow now lives on the dedicated `kapso-evaluator` branch of the
-security repository. Security `main` is artifact-owned. When an older activation
-has a preserved `CURRENT.json` but later authenticated commits, the publisher
-accepts only a GitHub-proven fast-forward descendant of its activation witness;
-the next activation makes `main` artifact-only again. Denylist observations bind
-to the immutable activation commit while authenticating such preserved-pointer
-observations through the same ancestry proof.
+Reviewed evaluator source lives on the dedicated `kapso-evaluator` branch of the
+security repository. Kapso CAS-installs its exact three-file closure on security
+`main` for GitHub workflow discovery, waits for active registration, and dispatches
+a write-once `kapso-evaluator-revisions/<commit>` ref. Security publication owns the
+default-branch baseline and may replace that overlay; the next evaluation reinstalls
+it. Denylist observations bind to the immutable activation commit while current
+reads, publication preflight, and activation revalidation all authenticate the
+pointer-preserving head through a GitHub fast-forward proof.
 
 The live concurrency stage raced two writers in both the knowledge and expert
 repositories. Each race had exactly one winner and one typed
@@ -257,6 +258,16 @@ reopened the identical blocked checkpoint under pinned-offline resume:
 `run-checkpoint:sha256:585f608a67ee22b059f2fd3c73f68c2ba08140e6a3086583d97a69baf6f790a3`.
 The terminal revocation stage receipt is
 `production-smoke-stage-receipt:sha256:fd73efdb7bc78141134377d66f499e6c616d3edb31402be8a30c3a7c7817481f`.
+
+After that security activation removed the prior workflow tree, the recovery probe
+installed overlay commit `4c1e8b332c06f7ab11e8252b6b9a9d6307615daa`, registered
+the workflow as active on default `main`, and dispatched the same commit through its
+write-once revision branch. GitHub Actions run `30420465213` completed successfully
+and Kapso authenticated signed result
+`expert-evaluator-result-record:sha256:44e9750756bc71a21378008619f4ee1ee891e8b4c3596a055d7536600dd773a6`.
+A live current-denylist read retained activation authority
+`f12976f3899341442af62df0345b8cb1f26a7fef` while proving the overlay head descends
+from it.
 
 The shared production host and system Docker daemon were not physically restarted;
 the receipt records `external_host_restart_performed: false`. The live stage proves

@@ -12,9 +12,11 @@ rejected against the persisted local floor.
 
 The observation's authority commit is the artifact activation witness, not an
 arbitrary later branch head. A pointer-preserving later commit is accepted only
-after GitHub proves it is a fast-forward descendant of that witness. The security
-repository's evaluator workflow is isolated on `kapso-evaluator`, so normal
-evaluator dispatch cannot mutate the artifact-owned `main` authority.
+after GitHub proves it is a fast-forward descendant of that witness. Evaluator
+source is reviewed on `kapso-evaluator`; its default-branch discovery overlay is
+CAS-installed without changing `CURRENT.json`, then dispatched through a write-once
+revision ref. Current reads and both security-publication gates authenticate the
+activation-to-overlay ancestry.
 
 Kapso refreshes this authority immediately before dangerous boundaries: expert
 promotion/publication, launch, resume, and coding-agent execution. Cached state may

@@ -48,8 +48,10 @@ matrix contracts; they are synthetic transport fixtures, not benchmark evidence.
 `expert-validation-enrollment` loads the exact E0 candidate from the prior stage,
 enters it into the durable validation state machine, and stops at the first signed
 evaluator boundary (`contract_schema`). Full validation dispatches the configured
-independent GitHub Actions evaluator from the security repository's dedicated
-`kapso-evaluator` branch; the smoke never manufactures a passing decision.
+independent GitHub Actions evaluator. Reviewed evaluator source lives on
+`kapso-evaluator`; Kapso installs it on default `main` for workflow discovery and
+dispatches an exact write-once `kapso-evaluator-revisions/<commit>` ref. The smoke
+never manufactures a passing decision.
 
 The synthetic S1 contains one admitted, lineage-tracked technical-failure episode.
 After E0 publication, `expert-successor-proposal` materializes the authenticated

@@ -147,6 +147,11 @@ def test_github_client_supports_run_bound_dispatch_and_bounded_pagination(tmp_pa
                     f"actions/runs/{run_id}"
                 ),
             },
+            {
+                "id": 17,
+                "path": ".github/workflows/evaluator.yml",
+                "state": "active",
+            },
             [[{"id": 1}], [{"id": 2}]],
         ]
     )
@@ -168,17 +173,26 @@ def test_github_client_supports_run_bound_dispatch_and_bounded_pagination(tmp_pa
         "main",
         {"request_id": "request"},
     )
+    workflow = client.wait_for_active_workflow(
+        "Leeroo-AI/kapso-security",
+        "evaluator.yml",
+    )
     releases = client.api_json_pages(
         "repos/Leeroo-AI/kapso-security/releases?per_page=100"
     )
 
     assert releases == ({"id": 1}, {"id": 2})
     assert dispatch["workflow_run_id"] == run_id
+    assert workflow["id"] == 17
     assert runner.requests[0].output_kind is CommandOutputKind.JSON
     assert runner.requests[0].stdin == (
         b'{"inputs":{"request_id":"request"},"ref":"main"}'
     )
-    assert runner.requests[1].argv[-3:] == (
+    assert runner.requests[1].capture_failure
+    assert runner.requests[1].argv[-1] == (
+        "repos/Leeroo-AI/kapso-security/actions/workflows/evaluator.yml"
+    )
+    assert runner.requests[2].argv[-3:] == (
         "--paginate",
         "--slurp",
         "repos/Leeroo-AI/kapso-security/releases?per_page=100",
@@ -582,6 +596,43 @@ def test_atomic_ref_update_sends_expected_parent_and_observes_requested_commit(
         ],
         "repositoryId": "repository-node",
     }
+
+
+def test_atomic_ref_update_waits_for_successful_graphql_visibility(
+    tmp_path,
+    monkeypatch,
+):
+    settings = github_settings()
+    runner = ScriptedRunner(
+        responses=[
+            (0, {"data": {"updateRefs": {"clientMutationId": None}}}, b""),
+            (0, {"object": {"sha": "a" * 40}}, b""),
+            (0, {"object": {"sha": "b" * 40}}, b""),
+        ]
+    )
+    client = GitHubCommandClient(
+        runner,
+        working_directory=tmp_path,
+        timeout_seconds=settings.command_timeout_seconds,
+        api_version=settings.api_version,
+        minimum_cli_version=settings.minimum_cli_version,
+        release_visibility_poll_interval_seconds=(
+            settings.release_visibility_poll_interval_seconds
+        ),
+        control_blob_size_bytes=settings.control_blob_size_bytes,
+    )
+    monkeypatch.setattr(command_module.time, "sleep", lambda _seconds: None)
+
+    result = client.update_ref_compare_and_swap(
+        "Leeroo-AI/kapso-security",
+        "repository-node",
+        "main",
+        "a" * 40,
+        "b" * 40,
+    )
+
+    assert result == {"object": {"sha": "b" * 40}}
+    assert len(runner.requests) == 3
 
 
 def test_successful_atomic_ref_update_rejects_immediate_supersession(tmp_path):
