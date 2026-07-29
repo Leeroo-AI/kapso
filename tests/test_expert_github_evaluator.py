@@ -260,8 +260,8 @@ def test_revision_installer_overlays_default_and_mints_immutable_dispatch_ref(
     ).install(repository)
 
     assert installed == GitHubExpertEvaluatorRevision(
-        commit_sha=overlay_revision,
-        dispatch_ref=f"kapso-evaluator-revisions/{overlay_revision}",
+        commit_sha=source_revision,
+        dispatch_ref=f"kapso-evaluator-revisions/{source_revision}",
     )
     assert updated_refs == [
         (
@@ -276,10 +276,122 @@ def test_revision_installer_overlays_default_and_mints_immutable_dispatch_ref(
     assert created_refs == [
         (
             repository,
-            f"refs/heads/kapso-evaluator-revisions/{overlay_revision}",
-            overlay_revision,
+            f"refs/heads/kapso-evaluator-revisions/{source_revision}",
+            source_revision,
         )
     ]
+
+
+def test_revision_identity_survives_default_branch_generations(
+    tmp_path,
+    monkeypatch,
+):
+    (
+        settings,
+        validation,
+        stored,
+        attempt,
+        transition_id,
+        _request,
+        _result,
+    ) = _case(tmp_path)
+    client_root = tmp_path / "github-installer"
+    client_root.mkdir(mode=0o700)
+    client = GitHubCommandClient(
+        _UnusedRunner(),
+        working_directory=client_root,
+        timeout_seconds=settings.github.command_timeout_seconds,
+        api_version=settings.github.api_version,
+        minimum_cli_version=settings.github.minimum_cli_version,
+        release_visibility_poll_interval_seconds=(
+            settings.github.release_visibility_poll_interval_seconds
+        ),
+        control_blob_size_bytes=settings.github.control_blob_size_bytes,
+    )
+    repository = "Leeroo-AI/kapso-security"
+    source_revision = _REVISION
+    current_revisions = ("b" * 40, "c" * 40)
+    current_revision_iterator = iter(current_revisions)
+    created_refs = []
+    overlay_revisions = iter(("6" * 40, "7" * 40))
+
+    def read_ref(_repository, qualified_ref, *, allow_missing):
+        assert _repository == repository
+        assert not allow_missing
+        if qualified_ref == "refs/heads/kapso-evaluator":
+            return source_revision
+        return next(current_revision_iterator)
+
+    monkeypatch.setattr(client, "read_ref_commit", read_ref)
+    monkeypatch.setattr(client, "wait_for_active_workflow", lambda *args: None)
+    monkeypatch.setattr(
+        client,
+        "create_ref_if_absent",
+        lambda *arguments: created_refs.append(arguments),
+    )
+    installer = GitHubExpertEvaluatorRevisionInstaller(client, settings.github)
+    monkeypatch.setattr(
+        installer,
+        "_source_files",
+        lambda _repository, _revision: {
+            ".github/workflows/kapso-expert-evaluator.yml": ("1" * 40, "100644"),
+            "evaluator/evaluate.py": ("2" * 40, "100644"),
+            "evaluator/sign.py": ("3" * 40, "100644"),
+        },
+    )
+    monkeypatch.setattr(
+        installer,
+        "_commit_tree",
+        lambda _repository, revision: (revision, {}),
+    )
+    monkeypatch.setattr(
+        installer,
+        "_commit_overlay",
+        lambda **_arguments: next(overlay_revisions),
+    )
+
+    first_revision = installer.install(repository)
+    second_revision = installer.install(repository)
+    first_request = build_github_expert_evaluator_request(
+        stored_candidate=stored,
+        attempt=attempt,
+        stage=ExpertValidationStage.CONTRACT_SCHEMA,
+        expected_transition_id=transition_id,
+        evaluator_revision=first_revision.commit_sha,
+        validation_settings=validation,
+        sanitation_settings=settings.sanitation,
+    )
+    second_request = build_github_expert_evaluator_request(
+        stored_candidate=stored,
+        attempt=attempt,
+        stage=ExpertValidationStage.CONTRACT_SCHEMA,
+        expected_transition_id=transition_id,
+        evaluator_revision=second_revision.commit_sha,
+        validation_settings=validation,
+        sanitation_settings=settings.sanitation,
+    )
+
+    assert (
+        first_revision
+        == second_revision
+        == GitHubExpertEvaluatorRevision(
+            commit_sha=source_revision,
+            dispatch_ref=f"kapso-evaluator-revisions/{source_revision}",
+        )
+    )
+    assert created_refs == [
+        (
+            repository,
+            f"refs/heads/kapso-evaluator-revisions/{source_revision}",
+            source_revision,
+        ),
+        (
+            repository,
+            f"refs/heads/kapso-evaluator-revisions/{source_revision}",
+            source_revision,
+        ),
+    ]
+    assert first_request["request_id"] == second_request["request_id"]
 
 
 def test_signed_immutable_response_replays_without_another_dispatch(

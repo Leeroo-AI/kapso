@@ -114,24 +114,22 @@ class GitHubExpertEvaluatorRevisionInstaller:
         expected_current = {
             path: current_files.get(path) for path in _EVALUATOR_SOURCE_PATHS
         }
-        if expected_current == source_files:
-            evaluator_revision = current_revision
-        else:
-            evaluator_revision = self._commit_overlay(
+        if expected_current != source_files:
+            self._commit_overlay(
                 repository=repository,
                 current_revision=current_revision,
                 current_tree_sha=current_tree_sha,
                 source_files=source_files,
             )
         self.client.wait_for_active_workflow(repository, _WORKFLOW_FILE)
-        dispatch_ref = f"{_EVALUATOR_REVISION_BRANCH_PREFIX}/{evaluator_revision}"
+        dispatch_ref = f"{_EVALUATOR_REVISION_BRANCH_PREFIX}/{source_revision}"
         self.client.create_ref_if_absent(
             repository,
             f"refs/heads/{dispatch_ref}",
-            evaluator_revision,
+            source_revision,
         )
         return GitHubExpertEvaluatorRevision(
-            commit_sha=evaluator_revision,
+            commit_sha=source_revision,
             dispatch_ref=dispatch_ref,
         )
 

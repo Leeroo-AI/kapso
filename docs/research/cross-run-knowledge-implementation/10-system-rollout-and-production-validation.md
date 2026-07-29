@@ -237,11 +237,12 @@ The decisive activated artifacts were:
 Reviewed evaluator source lives on the dedicated `kapso-evaluator` branch of the
 security repository. Kapso CAS-installs its exact three-file closure on security
 `main` for GitHub workflow discovery, waits for active registration, and dispatches
-a write-once `kapso-evaluator-revisions/<commit>` ref. Security publication owns the
-default-branch baseline and may replace that overlay; the next evaluation reinstalls
-it. Denylist observations bind to the immutable activation commit while current
-reads, publication preflight, and activation revalidation all authenticate the
-pointer-preserving head through a GitHub fast-forward proof.
+a write-once `kapso-evaluator-revisions/<source-commit>` ref at the captured reviewed
+source commit. Security publication owns the default-branch baseline and may replace
+the discovery overlay; the next evaluation reinstalls it without changing request
+identity. Denylist observations bind to the immutable activation commit while
+current reads, publication preflight, and activation revalidation all authenticate
+the pointer-preserving head through a GitHub fast-forward proof.
 
 The live concurrency stage raced two writers in both the knowledge and expert
 repositories. Each race had exactly one winner and one typed
@@ -260,12 +261,13 @@ The terminal revocation stage receipt is
 `production-smoke-stage-receipt:sha256:fd73efdb7bc78141134377d66f499e6c616d3edb31402be8a30c3a7c7817481f`.
 
 After that security activation removed the prior workflow tree, the recovery probe
-installed overlay commit `4c1e8b332c06f7ab11e8252b6b9a9d6307615daa`, registered
-the workflow as active on default `main`, and dispatched the same commit through its
-write-once revision branch. GitHub Actions run `30420465213` completed successfully
-and Kapso authenticated signed result
-`expert-evaluator-result-record:sha256:44e9750756bc71a21378008619f4ee1ee891e8b4c3596a055d7536600dd773a6`.
-A live current-denylist read retained activation authority
+installed overlay commit `4c1e8b332c06f7ab11e8252b6b9a9d6307615daa` and registered
+the workflow as active on default `main`. The final probe dispatched reviewed source
+commit `f1aa440939596463cebbfbb10e86935dc734f24d` through its write-once
+revision branch. GitHub Actions run `30421188344` completed successfully; Kapso
+authenticated signed result
+`expert-evaluator-result-record:sha256:61e398747347f5ad2377bcbf0ce3cde10752a7c98404efeab87fc1fc5655b1bb`,
+whose report binds that same source commit. A live current-denylist read retained activation authority
 `f12976f3899341442af62df0345b8cb1f26a7fef` while proving the overlay head descends
 from it.
 

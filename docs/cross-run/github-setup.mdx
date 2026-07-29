@@ -60,12 +60,14 @@ source commit is not success; only the authenticated current pointer plus activa
 witness is authoritative. Retries reconcile the exact prior operation and never
 force-push or infer completion from partial remote state.
 
-An evaluator install reads only the three reviewed files from
-`refs/heads/kapso-evaluator`, overlays them on the current default-branch tree, and
-mints `kapso-evaluator-revisions/<overlay-commit>` at that exact commit. Dispatch
-targets the write-once revision branch; evaluator releases and signed records bind
-the same commit. This satisfies GitHub's requirement that a dispatchable workflow
-exist on the default branch without racing a mutable ref at execution time.
+An evaluator install reads only the three reviewed files from one exact
+`refs/heads/kapso-evaluator` source commit, overlays them on the current
+default-branch tree, and mints `kapso-evaluator-revisions/<source-commit>` at the
+captured source commit. Dispatch targets that write-once revision branch; evaluator
+releases and signed records bind the same source commit. Thus an unrelated security
+generation cannot change evaluator request identity during retry. The default
+overlay satisfies GitHub's workflow-discovery rule without becoming execution
+authority.
 
 The overlay does not rewrite `CURRENT.json`. Current security reads require GitHub
 to prove that the observed head is a fast-forward descendant of the artifact's
