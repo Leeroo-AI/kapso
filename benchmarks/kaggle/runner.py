@@ -194,7 +194,9 @@ def main():
     parser.add_argument("--guard-minutes", type=int, default=None)
     parser.add_argument("--iterations", type=int, default=20)
     parser.add_argument("--mode", default="KAGGLE")
-    parser.add_argument("--coding-agent", default="claude_code")
+    parser.add_argument("--coding-agent", default=None,
+                        help="Override the config's coding_agent.type "
+                             "(default: None — the config block wins, codex here)")
     parser.add_argument("--cost-budget", type=float, default=None)
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--skip-final-eval", action="store_true")
