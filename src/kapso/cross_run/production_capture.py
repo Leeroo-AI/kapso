@@ -627,11 +627,12 @@ def _capture_frontier(
                 evaluator_id=evaluator_id,
                 fidelity=evaluation_fingerprint.fidelity,
                 fraction=evaluation_fingerprint.fraction,
-                seed=1,
+                seed=int(replicate_id.removeprefix("seed-")),
                 score=1.0,
                 duration_seconds=1.0,
                 metrics={metric_name: 1.0},
             )
+            for replicate_id in evaluation_fingerprint.seed_or_replicate_ids
         ],
         technical_difficulties=_TECHNICAL_DIFFICULTY,
     )
@@ -693,7 +694,10 @@ def _capture_frontier(
                 "branch": node.branch_name,
                 "candidate_commit": commit_sha,
                 "candidate_ref": revision_ref,
-                "evaluation_commit_0": commit_sha,
+                **{
+                    f"evaluation_commit_{position}": attempt.commit_sha
+                    for position, attempt in enumerate(node.evaluation_attempts)
+                },
             },
         ),
     )

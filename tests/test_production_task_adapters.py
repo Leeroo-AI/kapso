@@ -137,7 +137,17 @@ def test_bootstrap_publishes_every_scope_binding_and_replays(tmp_path):
             active.verified_adapter.manifest.task_evaluator
             .supported_evaluator_fingerprints
         )
-        assert capture_fingerprint.seed_or_replicate_ids == ("seed-1",)
+        assert len(capture_fingerprint.seed_or_replicate_ids) == (
+            settings.expert.validation.policy.promotion.minimum_replicates_per_cell
+        )
+        assert capture_fingerprint.seed_or_replicate_ids == tuple(
+            f"seed-{replicate_number}"
+            for replicate_number in range(
+                1,
+                settings.expert.validation.policy.promotion.minimum_replicates_per_cell
+                + 1,
+            )
+        )
 
 
 def test_bootstrap_fails_without_pinned_image(tmp_path):

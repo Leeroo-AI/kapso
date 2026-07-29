@@ -96,6 +96,14 @@ def production_capture_evaluation_fingerprint(
             "production capture requires one promotion dimension"
         )
     dimension = dimensions[0]
+    replicate_ids = tuple(
+        f"seed-{replicate_number}"
+        for replicate_number in range(
+            1,
+            settings.expert.validation.policy.promotion.minimum_replicates_per_cell
+            + 1,
+        )
+    )
     return EvaluationFingerprint.mint(
         benchmark_id=task_adapter_id,
         dataset_version="public_transport_capture",
@@ -105,7 +113,7 @@ def production_capture_evaluation_fingerprint(
         objective_direction=dimension.direction,
         fidelity="full",
         fraction=1.0,
-        seed_or_replicate_ids=("seed-1",),
+        seed_or_replicate_ids=replicate_ids,
         aggregation_protocol="arithmetic-mean",
         judge_version=None,
     )
