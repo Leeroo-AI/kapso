@@ -18,7 +18,7 @@ modes:
     # pins one GPU per lane (CUDA_VISIBLE_DEVICES 0..7), so k=8 assumes an
     # 8-GPU box — the hardware/lane strategy is tuned at launch, not here.
     run_defaults:
-      hours: 1.75
+      hours: 2.0
       node_expansion: 8
 
     search_strategy:
@@ -39,6 +39,11 @@ modes:
         effort: "xhigh"
         ideation_timeout: 1500
         implementation_timeout: 7200
+        # Candidates each ensemble member is asked for. With 2 members this
+        # pools up to 10, so the selector can still emit 8 ranked solutions for
+        # K=8 when one member under-delivers or times out (the 2-per-member
+        # default collapsed a k=8 run to a single lane on 2026-07-29).
+        ideation_candidates_per_member: 5
         ideation_gates: ["experiment_history", "repo_memory"]
         implementation_gates: ["repo_memory"]
         ideation_ensemble:
@@ -46,11 +51,11 @@ modes:
             model: "gpt-5.6-sol"
             effort: "xhigh"
           - cli: "claude_code"
-            model: "claude-opus-5"
+            model: "claude-fable-5"
             effort: "xhigh"
         ideation_lens_planner:
           cli: "claude_code"
-          model: "claude-opus-5"
+          model: "claude-fable-5"
           effort: "max"
           timeout: 600
         ideation_selector:
