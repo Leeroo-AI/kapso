@@ -7,6 +7,52 @@ what broke, the evidence, the fix (or the open proposal). Newest run first.
 
 ## Run 3 — 2026-07-29 15:29 UTC, spot 8×L4, k=8, 2h, fable-5, 5 candidates/member
 
+**OUTCOME: the URL→score loop closed end-to-end.** 4 kernels pushed, 4
+submissions, 4 public scores, best **0.83049**:
+
+| time | lane | recipe | public |
+|---|---|---|---|
+| 16:18 | lane0 | frozen AST full 29-way C1 probe (CV 0.900186) | 0.77838 |
+| 16:39 | lane1 | balanced rehearsal + mixup + specaugment distillation | 0.72857 |
+| 16:58 | lane4 | centroid imprint, cached top-2 (val 0.826209) | **0.83049** |
+| 17:19 | lane2 | retention-first two-view consistency (CV 0.828060) | 0.82422 |
+
+Context: this is a **cold start** (no seed, no champion offered). The comparable
+prior cold start — run 1, 2026-07-22, 2h, k=1 — scored 0.78054, so 6-lane
+expansion on a fresh task bought **+0.05**. Still below the seeded champion
+0.87664, which is untouched (Kaggle scores best-of).
+
+### I-7 (RESOLVED in practice) — end-to-end submission budgeting
+Run 2 pushed its first kernel 9 minutes before the deadline and scored nothing.
+Run 3's first submission landed at **T+38 min of 120**, and all four lanes
+submitted with margin. No mechanism was added — the difference was that lanes
+reached working kernels sooner — so the risk remains latent; the proposed hard
+"first submission by T+50%" rule is still worth having.
+
+### I-10 (OPEN) — `kernel_present: false` despite 4 successful submissions
+`results.json` reports `kernel_present: false` because it checks
+`task/submission/kernel/script.py`, but the lanes wrote namespaced directories
+(`submission/lane0_generic_exp_0_v1/…`) as the lane-brief instructs, to avoid
+clobbering siblings. The handler asks for `{submission_dir}/kernel/`; under K-way
+expansion that single path is exactly what lanes must *not* share. Consequence:
+the audit (`audit_kernel`) also scanned nothing — `"audit": []` — so the
+external-resource check silently did not run on a scored submission.
+**Fix direction:** make the contract per-lane (`submission/<lane>/kernel/`) and
+have the runner audit every lane directory, or have the winning lane promote its
+kernel to `submission/kernel/` at the end.
+
+### I-11 (OPEN) — orphaned GPU processes survive driver exit
+After the driver returned, 2 of 8 GPUs were still held by lane-spawned compute.
+Same class as the IOAI runner gap noted earlier: agent-spawned GPU work is not
+reaped on exit. Harmless when the box is deleted immediately, but it would
+corrupt a follow-on run on the same box and hides "am I actually done?".
+
+### I-12 (CONFIRMED, task-level) — CV inflation reproduced
+lane0 measured CV **0.900186** and scored **0.77838** public — a ~12 pp gap,
+matching run 1's 0.909 → 0.78054. Grouped/session-aware validation remains
+mandatory on this competition; naive random-fold CV is ~12 pp optimistic and will
+mis-rank recipes.
+
 ### I-1 (FIXED, verified under failure) — `k=8` silently collapsed to one lane
 **Symptom (run 2):** a k=8 run executed a single implementation lane.
 **Evidence (run 2):**
