@@ -227,12 +227,100 @@ def build_sanitized_cache(
     return str(dest)
 
 
+def build_rolling_caches(
+    dataset_name: str,
+    task_name: str,
+    dest_root: str,
+    source_cache_dir: str | None = None,
+) -> str:
+    """Per-tick snapshot cascade for regime-sensitive windowed tasks
+    (EVALUATION_PROTOCOL.md §"Rolling harness").
+
+    One sanitized mini-cache per eval tick (val + test). Leak-proof invariant:
+    a snapshot truncated at tick t cannot contain t's label window (t, t+Δ].
+    Each snapshot's task dir holds `train.parquet` = every window CLOSED by the
+    tick, relabeled by the task's OWN make_table SQL over the truncated db
+    (never from pristine labels), `test.parquet` = that tick's rows with input
+    cols only, and `indices.npy` = the rows' positions in the official split
+    table (for canonical-order assembly by the grader).
+    """
+    import numpy as np
+    import pandas as pd
+
+    from relbench.datasets import get_dataset
+    from relbench.tasks import get_task
+
+    from relbench.base import Table
+
+    source = Path(source_cache_dir or _default_source_cache())
+    if not (source / dataset_name / "db").exists():
+        raise FileNotFoundError(f"Pristine cache for {dataset_name} not found at {source}")
+    dest = Path(dest_root)
+    if dest.exists():
+        _make_writable(dest)
+        shutil.rmtree(dest)
+    dest.mkdir(parents=True)
+
+    dataset = get_dataset(dataset_name, download=False)
+    task = get_task(dataset_name, task_name, download=False)
+    if getattr(task, "num_eval_timestamps", 1) <= 1:
+        raise ValueError(f"{dataset_name}/{task_name} is not a rolling task")
+    td = task.timedelta
+    time_col, entity_col = task.time_col, task.entity_col
+    db_full = dataset.get_db(upto_test_timestamp=False)
+
+    split_tables = {s: task.get_table(s, mask_input_cols=False) for s in ("train", "val", "test")}
+    all_starts = pd.Series(
+        pd.concat([t.df[time_col] for t in split_tables.values()]).unique()
+    ).sort_values(ignore_index=True)
+
+    n_snaps = 0
+    for split in ("val", "test"):
+        df = split_tables[split].df.reset_index(drop=True)
+        for i, tick in enumerate(sorted(df[time_col].unique())):
+            tick = pd.Timestamp(tick)
+            snap = dest / f"{split}_{i:03d}_{tick.date()}"
+            db_dir = snap / dataset_name / "db"
+            task_dir = snap / dataset_name / "tasks" / task_name
+            db_dir.mkdir(parents=True)
+            task_dir.mkdir(parents=True)
+
+            db_snap = db_full.upto(tick)
+            for name, table in db_snap.table_dict.items():
+                table.save(str(db_dir / f"{name}.parquet"))
+
+            closed = all_starts[all_starts + td <= tick]
+            train_out = task.make_table(db_snap, pd.Series(closed.to_numpy()))
+            if len(train_out.df) and (train_out.df[time_col] + td > tick).any():
+                raise RuntimeError(f"open window leaked into {snap.name} train table")
+            train_out.save(str(task_dir / "train.parquet"))
+
+            rows = df[df[time_col] == tick]
+            masked = Table(
+                df=rows[[time_col, entity_col]].reset_index(drop=True),
+                fkey_col_to_pkey_table={entity_col: task.entity_table},
+                pkey_col=None,
+                time_col=time_col,
+            )
+            masked.save(str(task_dir / "test.parquet"))
+            np.save(task_dir / "indices.npy", rows.index.to_numpy())
+            n_snaps += 1
+
+    _make_read_only(dest)
+    print(f"[sandbox] rolling cascade ready at {dest}: {n_snaps} snapshots "
+          f"(val={split_tables['val'].df[time_col].nunique()}, "
+          f"test={split_tables['test'].df[time_col].nunique()})")
+    return str(dest)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dataset", required=True)
     parser.add_argument("--task", required=True)
     parser.add_argument("--dest", required=True)
     parser.add_argument("--source", default=None)
+    parser.add_argument("--rolling", action="store_true",
+                        help="build the per-tick snapshot cascade instead of the flat cache")
     args = parser.parse_args()
 
     if os.path.abspath(os.environ.get("RELBENCH_CACHE_DIR", "")) == os.path.abspath(args.dest):
@@ -242,7 +330,10 @@ def main() -> None:
         )
         sys.exit(2)
 
-    build_sanitized_cache(args.dataset, args.task, args.dest, args.source)
+    if args.rolling:
+        build_rolling_caches(args.dataset, args.task, args.dest, args.source)
+    else:
+        build_sanitized_cache(args.dataset, args.task, args.dest, args.source)
 
 
 if __name__ == "__main__":

@@ -91,6 +91,10 @@ class RelBenchHandler(ProblemHandler):
         self.task = get_task(dataset_name, task_name, download=True)
         self.spec: TaskSpec = resolve_spec(self.task, dataset_name, task_name)
         self.maximize_scoring = self.spec.maximize
+        # Regime-sensitive windowed tasks (test ticks extend past test_timestamp)
+        # get the per-tick rolling cascade (EVALUATION_PROTOCOL.md).
+        self.rolling = getattr(self.task, "num_eval_timestamps", 1) > 1
+        self.rolling_root = self.work_dir / "rolling_caches"
 
         self._train_table = self.task.get_table("train", mask_input_cols=False)
         self._val_table = self.task.get_table("val", mask_input_cols=False)
@@ -138,6 +142,7 @@ class RelBenchHandler(ProblemHandler):
             mem_gb=self._detect_mem_gb(),
             sota_note=sota_note,
             extra_knowledge=extra_knowledge,
+            rolling=self.rolling,
         )
 
         # Harden the whole process tree: coding agents (e.g. claude_code) can
@@ -170,6 +175,8 @@ class RelBenchHandler(ProblemHandler):
                 "RELBENCH_DEBUG_TIMEOUT": str(self.debug_timeout),
             }
         )
+        if self.rolling:
+            os.environ["RELBENCH_ROLLING_ROOT"] = str(self.rolling_root)
         # Coding-agent sessions run `python` from PATH; make sure that
         # resolves to this interpreter's env (which has relbench + the
         # modeling stack) rather than whatever the login profile puts first.
@@ -673,6 +680,7 @@ class RelBenchHandler(ProblemHandler):
         (r"mask_input_cols\s*=\s*False", "unmasks task tables (test labels)"),
         (r"removed_cols", "reads AutoComplete removed target columns"),
         (r"RELBENCH_CACHE_DIR", "tampers with the data cache location"),
+        (r"RELBENCH_ROLLING_ROOT|rolling_caches", "reaches outside the staged tick snapshot"),
         (r"\.cache[/\\]relbench", "touches the pristine relbench cache path"),
         (r"download\s*=\s*True", "attempts dataset re-download"),
         (r"relbench\.stanford\.edu|pooch", "fetches benchmark files directly"),
@@ -720,31 +728,40 @@ class RelBenchHandler(ProblemHandler):
     def _ensure_sanitized_cache(self, rebuild: bool) -> None:
         marker = self.work_dir / "sanitized_cache.meta.json"
         want = {"dataset": self.dataset_name, "task": self.task_name, "version": 3}
-        if not rebuild and marker.exists() and self.sanitized_cache_dir.exists():
-            try:
-                if json.loads(marker.read_text()) == want:
-                    print(f"[RelBenchHandler] sanitized cache OK at {self.sanitized_cache_dir}")
-                    return
-            except Exception:
-                pass
-        print("[RelBenchHandler] building sanitized cache (fresh subprocess)...")
         env = os.environ.copy()
         env.pop("RELBENCH_CACHE_DIR", None)  # sanitizer reads the pristine cache
         env["PYTHONPATH"] = str(REPO_ROOT) + os.pathsep + env.get("PYTHONPATH", "")
-        subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "benchmarks.relbench.sandbox",
+
+        def _cache_ok(mk: Path, dest: Path) -> bool:
+            if rebuild or not (mk.exists() and dest.exists()):
+                return False
+            try:
+                return json.loads(mk.read_text()) == want
+            except Exception:
+                return False
+
+        def _build(dest: Path, mk: Path, rolling: bool) -> None:
+            kind = "rolling cascade" if rolling else "sanitized cache"
+            print(f"[RelBenchHandler] building {kind} (fresh subprocess)...")
+            cmd = [
+                sys.executable, "-m", "benchmarks.relbench.sandbox",
                 "--dataset", self.dataset_name,
                 "--task", self.task_name,
-                "--dest", str(self.sanitized_cache_dir),
-            ],
-            cwd=str(REPO_ROOT),
-            env=env,
-            check=True,
-        )
-        marker.write_text(json.dumps(want))
+                "--dest", str(dest),
+            ] + (["--rolling"] if rolling else [])
+            subprocess.run(cmd, cwd=str(REPO_ROOT), env=env, check=True)
+            mk.write_text(json.dumps(want))
+
+        if _cache_ok(marker, self.sanitized_cache_dir):
+            print(f"[RelBenchHandler] sanitized cache OK at {self.sanitized_cache_dir}")
+        else:
+            _build(self.sanitized_cache_dir, marker, rolling=False)
+        if self.rolling:
+            rolling_marker = self.work_dir / "rolling_caches.meta.json"
+            if _cache_ok(rolling_marker, self.rolling_root):
+                print(f"[RelBenchHandler] rolling cascade OK at {self.rolling_root}")
+            else:
+                _build(self.rolling_root, rolling_marker, rolling=True)
 
     def _seed_living_documents(self) -> None:
         """Seed agent-editable living documents into the shared cache.

@@ -101,6 +101,81 @@ def run_candidate(fidelity: str, run_data_dir: Path) -> None:
         sys.exit(5)
 
 
+def _run_child(cmd: list, cwd: Path, env: dict, deadline: float) -> None:
+    proc = subprocess.Popen(
+        cmd, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        text=True, errors="replace", start_new_session=True,
+    )
+    for line in proc.stdout:
+        print(line, end="")
+    try:
+        proc.wait(timeout=max(1, int(deadline - time.time())))
+    except subprocess.TimeoutExpired:
+        os.killpg(os.getpgid(proc.pid), 9)
+        print("[grader] rolling deadline exceeded — candidate killed")
+        sys.exit(4)
+    if proc.returncode != 0:
+        print(f"[grader] candidate exited non-zero ({proc.returncode})")
+        sys.exit(5)
+
+
+def run_candidate_rolling(fidelity: str, run_data_dir: Path, rolling_root: Path) -> None:
+    """Rolling harness (EVALUATION_PROTOCOL.md): one candidate invocation per
+    tick, each seeing ONLY that tick's snapshot cache; predictions assembled
+    into the official row order. Downstream scoring/archiving is unchanged."""
+    root = _repo_root()
+    if not (root / "main.py").exists():
+        print("[grader] main.py not found at repo root — the solution must be main.py")
+        sys.exit(3)
+    timeout = int(
+        _env("RELBENCH_DEBUG_TIMEOUT") if fidelity == "fast" else _env("RELBENCH_FULL_TIMEOUT")
+    )
+    deadline = time.time() + timeout
+    cmd = [sys.executable, "main.py"] + (["--debug"] if fidelity == "fast" else [])
+
+    vectors = {}
+    for split, out_name in (("val", "val_predictions.npy"), ("test", "test_predictions.npy")):
+        snaps = sorted(rolling_root.glob(f"{split}_*"))
+        if not snaps:
+            print(f"[grader] rolling root has no {split} snapshots: {rolling_root}")
+            sys.exit(2)
+        parts, indices = [], []
+        for snap in snaps:
+            stage = Path(tempfile.mkdtemp(prefix=f"relbench_tick_{snap.name}_"))
+            shutil.copytree(snap, stage / "cache", copy_function=os.link)
+            tick_out = stage / "out"
+            tick_out.mkdir()
+            env = os.environ.copy()
+            env["RELBENCH_CACHE_DIR"] = str(stage / "cache")
+            env["KAPSO_RUN_DATA_DIR"] = str(tick_out)
+            env["PYTHONUNBUFFERED"] = "1"
+            print(f"[grader] rolling tick {snap.name} "
+                  f"({int(deadline - time.time())}s left)")
+            _run_child(cmd, root, env, deadline)
+            task_dirs = list((stage / "cache").glob("*/tasks/*"))
+            idx = np.load(task_dirs[0] / "indices.npy")
+            pred_path = tick_out / "test_predictions.npy"
+            if not pred_path.exists():
+                print(f"[grader] contract violation: tick {snap.name} wrote no test_predictions.npy")
+                sys.exit(6)
+            pred = np.asarray(np.load(pred_path, allow_pickle=False), dtype=np.float64)
+            if pred.ndim == 2 and pred.shape[1] == 1:
+                pred = pred[:, 0]
+            if len(pred) != len(idx):
+                print(f"[grader] contract violation: tick {snap.name} predictions "
+                      f"{len(pred)} != {len(idx)} rows")
+                sys.exit(6)
+            parts.append(pred)
+            indices.append(idx)
+            shutil.rmtree(stage, ignore_errors=True)
+        flat_idx = np.concatenate(indices)
+        vector = np.zeros(int(flat_idx.max()) + 1, dtype=np.float64)
+        vector[flat_idx] = np.concatenate(parts)
+        np.save(run_data_dir / out_name, vector)
+        vectors[split] = len(flat_idx)
+    print(f"[grader] rolling assembly complete: val={vectors['val']} test={vectors['test']} rows")
+
+
 def load_and_score(run_data_dir: Path):
     from relbench.base import RecommendationTask, TaskType
     from relbench.tasks import get_task
@@ -185,7 +260,11 @@ def main() -> None:
     primary = _env("RELBENCH_PRIMARY_METRIC")
     run_data_dir = Path(tempfile.mkdtemp(prefix="relbench_eval_"))
     try:
-        run_candidate(args.fidelity, run_data_dir)
+        rolling_root = os.environ.get("RELBENCH_ROLLING_ROOT", "")
+        if rolling_root:
+            run_candidate_rolling(args.fidelity, run_data_dir, Path(rolling_root))
+        else:
+            run_candidate(args.fidelity, run_data_dir)
         val_metrics, _val_pred, _test_pred, n_val = load_and_score(run_data_dir)
 
         archived = ""
