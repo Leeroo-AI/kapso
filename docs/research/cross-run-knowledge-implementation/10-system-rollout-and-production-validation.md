@@ -284,6 +284,12 @@ cosine-distance tolerance; it does not claim bytewise provider determinism. The
 synthetic E1/S1 path proves transport and authority composition, not scientific
 transfer benefit.
 
+The terminal repository gate on 2026-07-29 passed `4,051` tests with `13` expected
+skips and zero failures in `2:03:59`. It included live OpenAI-backed KG navigation,
+the installed RelBench runtime extra, and all deterministic failure-injection
+suites. The independent final review of clean HEAD `7577a3ef` reported no
+actionable P0-P2 findings.
+
 ## Production access checklist
 
 Do not paste long-lived secrets into prompts, commits, config, test output, or this
