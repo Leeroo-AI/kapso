@@ -54,7 +54,7 @@ pre-loaded on this machine and is YOUR working capital:
   reaches val ≈ 1.1 (large decoding headroom); ~43% of test rows are
   zero-history debutants (rising to ~64% by 2016).
 
-This campaign has 24 hours, 8 parallel lanes, and no session caps: spend
-that scale on what the previous campaign could not afford — deep
-frozen-geometry training, the decoding headroom, and the cold-start mass —
-not on rediscovering the banked map.
+This campaign inherits all of that capital: spend your budget on what the
+previous campaign could not afford — deep frozen-geometry training, the
+decoding headroom, and the cold-start mass — not on rediscovering the
+banked map.

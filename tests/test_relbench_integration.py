@@ -463,20 +463,16 @@ class TestGenericModeConfig:
         assert mode["feedback_generator"]["type"] == "codex"
         assert mode["search_strategy"]["params"]["ideation_selector"]["cli"] == "codex"
         assert mode["models"]["utility"]["reasoning_effort"] == "xhigh"
-        # K=8 expansion (user-directed 2026-07-28, 24h escalation): eight
-        # implementation lanes on an a3-highgpu-8g, each PINNED to its own
-        # GPU (CUDA_VISIBLE_DEVICES 0..7) and thread-capped 24 (8x24=192 of
-        # 208 vCPU). Session cap removed (implementation_timeout 86400) —
-        # the 1440-minute clock budget bounds the campaign.
-        assert mode["search_strategy"]["params"]["node_expansion_value"] == 8
+        # K=4 expansion (user-directed 2026-07-29, back from the K=8
+        # escalation after 8-GPU capacity drought): four GPU-pinned lanes,
+        # 10h budget, 5h session caps — the proven record-run shape.
+        assert mode["search_strategy"]["params"]["node_expansion_value"] == 4
         lanes = mode["search_strategy"]["params"]["expansion_lane_env"]
-        assert len(lanes) == 8
+        assert len(lanes) == 4
         assert all(lane["OMP_NUM_THREADS"] == "24" for lane in lanes)
-        assert [lane["CUDA_VISIBLE_DEVICES"] for lane in lanes] == [
-            "0", "1", "2", "3", "4", "5", "6", "7"
-        ]
-        assert mode["search_strategy"]["params"]["implementation_timeout"] == 86400
-        assert mode["budget"]["time_budget_minutes"] == 1440
+        assert [lane["CUDA_VISIBLE_DEVICES"] for lane in lanes] == ["0", "1", "2", "3"]
+        assert mode["search_strategy"]["params"]["implementation_timeout"] == 18000
+        assert mode["budget"]["time_budget_minutes"] == 600
 
 
 @pytest.mark.skipif(
@@ -744,6 +740,12 @@ class TestLivingDocuments:
         assert "MEASURED reason" in FEATURE_ENGINEERING_NOTE
         assert "99%" in FEATURE_ENGINEERING_NOTE
         assert "FEATURES OVER ARCHITECTURE" in FEATURE_ENGINEERING_NOTE
+        from benchmarks.relbench.context import BEST_PRACTICES_NOTE
+
+        assert "INFORMATION" in BEST_PRACTICES_NOTE
+        assert "REGIME-SHIFTED" in BEST_PRACTICES_NOTE
+        assert "frozen-origin" in BEST_PRACTICES_NOTE
+        assert "follow the measurement" in BEST_PRACTICES_NOTE
         assert "table_information.md" in LIVING_DOCUMENTS_NOTE
         assert "features_history.md" in LIVING_DOCUMENTS_NOTE
         assert "EDIT" in LIVING_DOCUMENTS_NOTE

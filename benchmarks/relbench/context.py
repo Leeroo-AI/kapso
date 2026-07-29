@@ -312,6 +312,28 @@ FEATURE_ENGINEERING_NOTE = (
     "measured dead while feature widening kept paying."
 )
 
+BEST_PRACTICES_NOTE = (
+    "**Error decomposition discipline.** Decompose error by INFORMATION "
+    "AVAILABILITY, not by feature family. Backtest under deployment-matched "
+    "conditions (for forward-prediction tasks: rolling frozen-origin "
+    "replays — freeze the available data at historical cutoffs, predict the "
+    "windows that follow, score on labels that lie before your real cutoff). "
+    "Split the measured error into two classes: (1) REGIME-SHIFTED rows — "
+    "entities whose state changed after the information boundary, so the "
+    "change is unobservable in your inputs; no feature engineered from the "
+    "available data can reduce this class — only recovering legal "
+    "additional information or exploiting structure in the task's own "
+    "revealed inputs can; (2) PREDICTABLE rows — entities continuing the "
+    "trajectory your inputs imply; this class rewards better features, "
+    "ordering, and calibration. Report the split every iteration, alongside "
+    "rank-quality metrics (not just aggregate error — compressed "
+    "predictions with weak ordering and sharp predictions with strong "
+    "ordering fail differently). Direct effort at whichever class carries "
+    "the dominant MEASURED mass, and treat any steering hypothesis as "
+    "subordinate to your own measurement: if the decomposition contradicts "
+    "an assumed error story, follow the measurement."
+)
+
 LIVING_DOCUMENTS_NOTE = (
     "Two agent-maintained files live in the shared artifact workspace "
     "($KAPSO_SHARED_CACHE_DIR) and persist across iterations and campaigns:\n"
@@ -432,6 +454,8 @@ def build_problem_context(
         "\n## Data access rules\n" + _data_access_rules(spec),
         "\n## FEATURE ENGINEERING — THE PRIMARY DIRECTION\n"
         + FEATURE_ENGINEERING_NOTE,
+        "\n## Best practices (strongly recommended — follow unless you have a measured reason not to)\n"
+        + BEST_PRACTICES_NOTE,
         "\n## Resources\n" + _resources(spec, has_gpu, num_cpus, mem_gb, gpu_name),
         "\n## Living documents (shared artifact workspace)\n"
         + LIVING_DOCUMENTS_NOTE,
