@@ -1025,7 +1025,7 @@ def _coding_agent_ideation_smoke(
         prior_evidence,
         task_adapter_id="posttrain",
     )
-    projection = _synthetic_projection_for_snapshot(
+    projection = _synthetic_capture_for_snapshot(
         settings,
         fixture,
         scope_contract,
@@ -1033,7 +1033,7 @@ def _coding_agent_ideation_smoke(
         bootstrap_publication["release_id"],
         task_adapter_manifest_id,
         verification_receipt_id,
-    )
+    ).projection
     expected_prior_idea = projection.prior_ideas[0]
     index_files = {
         path: payload
