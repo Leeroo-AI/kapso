@@ -33,10 +33,10 @@ pip install --upgrade pip wheel
 
 echo "### 3/5 clone kapso (@$KAPSO_BRANCH) — PAT used for the clone, then dropped from the remote"
 if [ ! -d "$HOME/kapso/.git" ]; then
-  git clone "https://x-access-token:${GITHUB_PAT}@github.com/leeroo/kapso.git" "$HOME/kapso"
+  git clone "https://x-access-token:${GITHUB_PAT}@github.com/Leeroo-AI/kapso.git" "$HOME/kapso"
 fi
 cd "$HOME/kapso"
-git remote set-url origin https://github.com/leeroo/kapso.git
+git remote set-url origin https://github.com/Leeroo-AI/kapso.git
 git -c "http.extraheader=AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GITHUB_PAT" | base64 -w0)" \
     fetch origin "$KAPSO_BRANCH"
 git checkout "$KAPSO_BRANCH"
