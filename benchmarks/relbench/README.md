@@ -69,7 +69,7 @@ then the handler runs it (`python main.py --debug`, then full) and scores it:
 
 ## Prerequisites
 
-1. **Core Kapso** (repo root): `pip install -r requirements.txt`
+1. **Core Kapso** (repo root): `pip install -e .`
 2. **Evaluation layer**: `pip install ".[relbench]"`
 3. **Modeling stack** (GPU machine; generated code shares the interpreter):
    ```bash

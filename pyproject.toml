@@ -63,7 +63,7 @@ ale = [
     # ale-bench installed separately (requires docker setup)
 ]
 relbench = [
-    "relbench",
+    "relbench>=2.1.2",
     "duckdb",
     "pooch",
     "pyarrow",
