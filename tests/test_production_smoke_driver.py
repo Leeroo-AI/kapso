@@ -208,6 +208,8 @@ def test_synthetic_capture_is_replayable_and_importable(tmp_path):
     )
     assert len(projection.episodes) == 1
     assert projection.episodes[0].source_bundle_id == projection.source_bundle.bundle_id
+    assert projection.episodes[0].attempts[0].score_of_record_fingerprint_id
+    assert projection.episodes[0].attempts[0].intervention_ref is not None
     assert projection.episodes[0].attempts[0].technical_difficulties == (
         "The reusable semantic-parity boundary lacks a common preflight "
         "diagnostic for representation mismatches.",

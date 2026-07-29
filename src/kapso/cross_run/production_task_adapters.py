@@ -79,6 +79,38 @@ Path(\"/kapso/writable/result.json\").write_text(
 _LOCK_CONTENT = b"python-standard-library-only\n"
 
 
+def production_capture_evaluation_fingerprint(
+    settings: CrossRunSettings,
+    task_adapter_id: str,
+) -> EvaluationFingerprint:
+    """Return the measured fingerprint used by the replayable smoke capture."""
+
+    dimensions = tuple(
+        sorted(
+            settings.expert.validation.policy.promotion.pareto_dimensions,
+            key=lambda dimension: dimension.dimension_id,
+        )
+    )
+    if not dimensions:
+        raise ProductionTaskAdapterError(
+            "production capture requires one promotion dimension"
+        )
+    dimension = dimensions[0]
+    return EvaluationFingerprint.mint(
+        benchmark_id=task_adapter_id,
+        dataset_version="public_transport_capture",
+        split_version="production_smoke_v1",
+        evaluator_fingerprint=tree_or_blob_digest(_EVALUATOR_SOURCE),
+        metric_name=dimension.dimension_id,
+        objective_direction=dimension.direction,
+        fidelity="full",
+        fraction=1.0,
+        seed_or_replicate_ids=("seed-1",),
+        aggregation_protocol="arithmetic-mean",
+        judge_version=None,
+    )
+
+
 def bootstrap_production_task_adapters(
     *,
     settings: CrossRunSettings,
@@ -436,4 +468,5 @@ def _source_archive(source_contents: Mapping[str, bytes]) -> bytes:
 __all__ = [
     "ProductionTaskAdapterError",
     "bootstrap_production_task_adapters",
+    "production_capture_evaluation_fingerprint",
 ]

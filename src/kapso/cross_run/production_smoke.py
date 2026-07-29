@@ -93,6 +93,7 @@ from kapso.cross_run.record_contracts import (
 from kapso.cross_run.record_registry import parse_knowledge_record_payload
 from kapso.cross_run.production_task_adapters import (
     bootstrap_production_task_adapters,
+    production_capture_evaluation_fingerprint,
 )
 from kapso.cross_run.security_denylist import (
     AuthenticatedSecurityDenylistAuthority,
@@ -2174,6 +2175,10 @@ def _synthetic_capture(
             task_adapter_verification_receipt_id=(
                 task_adapter_verification_receipt_id
             ),
+        ),
+        evaluation_fingerprint=production_capture_evaluation_fingerprint(
+            settings,
+            "posttrain",
         ),
         previous=previous,
     )

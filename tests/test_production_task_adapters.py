@@ -9,6 +9,7 @@ from kapso.core.config import load_effective_config
 from kapso.cross_run.production_task_adapters import (
     ProductionTaskAdapterError,
     bootstrap_production_task_adapters,
+    production_capture_evaluation_fingerprint,
 )
 from kapso.cross_run.settings import CodingAgentImageSettings
 from kapso.cross_run.task_adapter_authority import CanonicalTaskAdapterAuthority
@@ -128,6 +129,15 @@ def test_bootstrap_publishes_every_scope_binding_and_replays(tmp_path):
             len(case.evaluation_fingerprints) == len(promotion_dimensions)
             for case in active.verified_adapter.manifest.release_matrix_cases
         )
+        capture_fingerprint = production_capture_evaluation_fingerprint(
+            settings,
+            evidence["task_adapter_id"],
+        )
+        assert capture_fingerprint.evaluator_fingerprint in (
+            active.verified_adapter.manifest.task_evaluator
+            .supported_evaluator_fingerprints
+        )
+        assert capture_fingerprint.seed_or_replicate_ids == ("seed-1",)
 
 
 def test_bootstrap_fails_without_pinned_image(tmp_path):

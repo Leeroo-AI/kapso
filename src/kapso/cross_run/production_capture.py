@@ -3,19 +3,23 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Sequence
+from typing import Mapping, Sequence
 
 from kapso.cross_run.canonical import (
     canonical_json_bytes,
     content_id,
+    source_tree_digest,
     tree_or_blob_digest,
 )
 from kapso.cross_run.capture.bundle import StoredRunBundle
 from kapso.cross_run.capture.exporter import (
+    BRANCH_SNAPSHOT_SCHEMA,
     CAPTURE_DESCRIPTOR_REF,
     CAPTURE_DESCRIPTOR_SCHEMA,
+    BranchSnapshot,
     CaptureDescriptor,
 )
+from kapso.cross_run.capture.git_evidence import reconstruct_root_tree_sha
 from kapso.cross_run.capture.sanitation import SANITATION_REPORT_REF
 from kapso.cross_run.catalog.projector import ProjectionResult, RunBundleProjector
 from kapso.cross_run.contracts import (
@@ -23,11 +27,13 @@ from kapso.cross_run.contracts import (
     ArtifactEnvironment,
     CompletionState,
     EpisodeEvaluationStatus,
+    EvaluationFingerprint,
     ExecutionStatus,
     ExpertScopeContract,
     RunBundle,
     TaskContextBinding,
 )
+from kapso.cross_run.git_refs import git_object_sha
 from kapso.cross_run.record_contracts import (
     EXECUTION_REVISION_EVENT_SCHEMA,
     SANITATION_REPORT_SCHEMA,
@@ -37,6 +43,7 @@ from kapso.cross_run.record_contracts import (
 )
 from kapso.cross_run.settings import CrossRunSettings
 from kapso.execution.coding_agents.structured_call import CodingAgentCallResult
+from kapso.execution.fidelity import EvaluationAttempt
 from kapso.execution.memories.experiment_memory.record import (
     EXPERIMENT_HISTORY_SCHEMA,
     ExperimentRecord,
@@ -86,6 +93,8 @@ _CHECKPOINT_REF = "payload/checkpoint.json"
 _EVENT_JOURNAL_REF = "payload/execution_events.jsonl"
 _EXPERIMENT_HISTORY_REF = "payload/experiment_history.json"
 _IDEA_ARCHIVE_REF = "payload/idea_archive.json"
+_BRANCH_SNAPSHOT_REF = "payload/branches/00000000/00000000/manifest.json"
+_BRANCH_SOURCE_REF = "payload/branches/00000000/00000000/files/bounded_contract.py"
 _TECHNICAL_DIFFICULTY = (
     "The reusable semantic-parity boundary lacks a common preflight diagnostic "
     "for representation mismatches."
@@ -100,6 +109,13 @@ class ProductionCapture:
     projection: ProjectionResult
 
 
+@dataclass(frozen=True)
+class _ProductionBranchEvidence:
+    payloads: Mapping[str, bytes]
+    artifact_refs: Mapping[str, str]
+    event_artifact_refs: Mapping[str, str]
+
+
 def build_production_capture(
     *,
     settings: CrossRunSettings,
@@ -110,6 +126,7 @@ def build_production_capture(
     embedding_inputs: Sequence[str],
     committed_at: str,
     run_id: str,
+    evaluation_fingerprint: EvaluationFingerprint,
     previous: ProjectionResult | None = None,
 ) -> ProductionCapture:
     """Build and mechanically project the production smoke's raw evidence."""
@@ -138,8 +155,14 @@ def build_production_capture(
     ):
         raise ValueError("production capture predecessor belongs to another run")
 
-    archive, node = _capture_frontier(tuple(embedding_inputs), committed_at)
-    record = ExperimentRecord.from_node(node, "maximize", True)
+    archive, node, branch = _capture_frontier(
+        tuple(embedding_inputs),
+        committed_at,
+        run_id,
+        evaluation_fingerprint,
+    )
+    objective_direction = evaluation_fingerprint.objective_direction.value
+    record = ExperimentRecord.from_node(node, objective_direction, True)
     event = ExecutionRevisionEvent.mint(
         schema=EXECUTION_REVISION_EVENT_SCHEMA,
         run_id=run_id,
@@ -151,13 +174,15 @@ def build_production_capture(
         parent_node_id=node.parent_node_id,
         started_at=committed_at,
         recorded_at=committed_at,
-        execution_status=ExecutionStatus.FAILED_TECHNICAL,
-        evaluation_status=EpisodeEvaluationStatus.NOT_RUN,
-        evaluator_fingerprint_ids=(),
-        measurements={},
+        execution_status=ExecutionStatus.COMPLETED,
+        evaluation_status=EpisodeEvaluationStatus.VALID,
+        evaluator_fingerprint_ids=(
+            evaluation_fingerprint.evaluator_fingerprint.removeprefix("sha256:"),
+        ),
+        measurements={**record.metrics, "raw_score": record.raw_score},
         feedback=node.feedback,
         technical_difficulties=node.technical_difficulties,
-        artifact_refs={"branch": node.branch_name},
+        artifact_refs=branch.event_artifact_refs,
         projection=record.to_dict(),
     )
     checkpoint = _checkpoint(
@@ -166,6 +191,7 @@ def build_production_capture(
         configuration_fingerprint=settings.configuration_fingerprint,
     )
     core_payloads = {
+        **branch.payloads,
         _CHECKPOINT_REF: canonical_json_bytes(checkpoint.__dict__),
         _EVENT_JOURNAL_REF: event.to_json_bytes() + b"\n",
         _EXPERIMENT_HISTORY_REF: canonical_json_bytes(
@@ -174,7 +200,7 @@ def build_production_capture(
                 "run_id": run_id,
                 "campaign_id": _CAMPAIGN_ID,
                 "revision": 1,
-                "objective_direction": "maximize",
+                "objective_direction": objective_direction,
                 "require_idea_links": True,
                 "records": [record.to_dict()],
             }
@@ -191,7 +217,7 @@ def build_production_capture(
         "execution_event_journal": ArtifactCompleteness.PRESENT,
         "idea_archive": ArtifactCompleteness.PRESENT,
         "experiment_history": ArtifactCompleteness.PRESENT,
-        "branch:0:0": ArtifactCompleteness.UNAVAILABLE,
+        "branch:0:0": ArtifactCompleteness.PRESENT,
     }
     artifact_refs = {
         "capture_descriptor": CAPTURE_DESCRIPTOR_REF,
@@ -199,6 +225,7 @@ def build_production_capture(
         "execution_event_journal": _EVENT_JOURNAL_REF,
         "idea_archive": _IDEA_ARCHIVE_REF,
         "experiment_history": _EXPERIMENT_HISTORY_REF,
+        **branch.artifact_refs,
     }
     descriptor = CaptureDescriptor(
         schema=CAPTURE_DESCRIPTOR_SCHEMA,
@@ -226,10 +253,10 @@ def build_production_capture(
         expert_base_release_id=expert_base_release_id,
         task_context_binding=task_context,
         artifact_environment=environment,
-        evaluation_fingerprints=(),
+        evaluation_fingerprints=(evaluation_fingerprint,),
         artifact_completeness=completeness,
         artifact_refs=artifact_refs,
-        branch_snapshot_refs=(),
+        branch_snapshot_refs=(_BRANCH_SNAPSHOT_REF,),
         run_log_refs=(),
     )
     admitted_payloads = {
@@ -280,7 +307,7 @@ def build_production_capture(
         ),
         checkpoint_frontier=1,
         capture_watermarks={
-            "branch_snapshot_count": 0,
+            "branch_snapshot_count": 1,
             "checkpoint_completed_iterations": 1,
             "checkpoint_node_count": 1,
             "execution_journal_event_count": 1,
@@ -305,7 +332,7 @@ def build_production_capture(
         idea_archive_ref=_IDEA_ARCHIVE_REF,
         experiment_history_ref=_EXPERIMENT_HISTORY_REF,
         sanitation_report_ref=SANITATION_REPORT_REF,
-        branch_snapshot_refs=(),
+        branch_snapshot_refs=(_BRANCH_SNAPSHOT_REF,),
         run_log_refs=(),
         checksums=checksums,
     )
@@ -351,7 +378,9 @@ def _task_context(
 def _capture_frontier(
     embedding_inputs: tuple[str, ...],
     committed_at: str,
-) -> tuple[IdeaArchiveState, SearchNode]:
+    run_id: str,
+    evaluation_fingerprint: EvaluationFingerprint,
+) -> tuple[IdeaArchiveState, SearchNode, _ProductionBranchEvidence]:
     executed_idea_id = _typed_identifier("idea", "executed")
     deferred_idea_id = _typed_identifier("idea", "deferred")
     batch_id = _typed_identifier("batch", "batch")
@@ -376,7 +405,9 @@ def _capture_frontier(
     evidence = CampaignEvidenceSnapshot(
         snapshot_id=evidence_id,
         campaign_id=_CAMPAIGN_ID,
-        objective_direction=ObjectiveDirection.MAXIMIZE,
+        objective_direction=ObjectiveDirection(
+            evaluation_fingerprint.objective_direction.value
+        ),
         generated_at=committed_at,
         content_hash=evidence_digest,
         experiments=(),
@@ -506,7 +537,12 @@ def _capture_frontier(
         "predicted_cost": 1.0,
         "confidence": 0.8,
     }
-    failed_idea = IdeaRecord(
+    normalized_score = (
+        1.0
+        if evaluation_fingerprint.objective_direction.value == "maximize"
+        else -1.0
+    )
+    evaluated_idea = IdeaRecord(
         idea_id=executed_idea_id,
         proposal=(
             "Validate semantic parity before training through one reusable "
@@ -515,15 +551,15 @@ def _capture_frontier(
         assumptions=(
             "Representation mismatches are observable before training.",
         ),
-        status=IdeaStatus.FAILED_TECHNICAL,
+        status=IdeaStatus.EVALUATED,
         selected_in_batch_id=batch_id,
         selection_reason="Highest expected diagnostic value.",
         experiment_node_id=0,
         outcome=IdeaOutcome(
-            evaluation_status=EvaluationStatus.NOT_RUN,
-            implementation_status=ImplementationStatus.FAILED_TECHNICAL,
-            normalized_delta=None,
-            validation_tier="probe",
+            evaluation_status=EvaluationStatus.VALID,
+            implementation_status=ImplementationStatus.COMPLETED,
+            normalized_delta=normalized_score,
+            validation_tier="full",
             actual_cost=0.0,
             actual_duration=1.0,
         ),
@@ -544,27 +580,123 @@ def _capture_frontier(
         created_at=committed_at,
         updated_at=committed_at,
         batches=(batch,),
-        ideas=(failed_idea, deferred_idea),
+        ideas=(evaluated_idea, deferred_idea),
         claims=(),
         gaps=(),
     )
+    source_payload = (
+        b'"""Bounded semantic parity preflight."""\n\n'
+        b"def validate_representation(value):\n"
+        b"    return value is not None\n"
+    )
+    source_path = "bounded_contract.py"
+    source_mode = "100644"
+    source_blob_sha = git_object_sha("blob", source_payload)
+    root_tree_sha = reconstruct_root_tree_sha(
+        {source_path: (source_mode, source_blob_sha)}
+    )
+    commit_payload = (
+        f"tree {root_tree_sha}\n"
+        "author Kapso Production Smoke <kapso@example.invalid> 0 +0000\n"
+        "committer Kapso Production Smoke <kapso@example.invalid> 0 +0000\n"
+        "\n"
+        "Validate representation parity\n"
+    ).encode("utf-8")
+    commit_sha = git_object_sha("commit", commit_payload)
+    evaluator_id = evaluation_fingerprint.evaluator_fingerprint.removeprefix(
+        "sha256:"
+    )
+    metric_name = evaluation_fingerprint.metric_name
     node = SearchNode(
         node_id=0,
         idea_id=executed_idea_id,
         selection_batch_id=batch_id,
-        solution=failed_idea.proposal,
+        solution=evaluated_idea.proposal,
         branch_name="production_smoke_branch",
         feedback="",
-        evaluation_valid=False,
+        score=1.0,
+        evaluation_valid=True,
+        metrics={metric_name: 1.0},
+        primary_metric=metric_name,
         duration_seconds=1.0,
         cost_usd=0.0,
         started_at=committed_at,
-        had_error=True,
-        recoverable_error=True,
-        error_message=_TECHNICAL_DIFFICULTY,
+        evaluation_attempts=[
+            EvaluationAttempt(
+                commit_sha=commit_sha,
+                evaluator_id=evaluator_id,
+                fidelity=evaluation_fingerprint.fidelity,
+                fraction=evaluation_fingerprint.fraction,
+                seed=1,
+                score=1.0,
+                duration_seconds=1.0,
+                metrics={metric_name: 1.0},
+            )
+        ],
         technical_difficulties=_TECHNICAL_DIFFICULTY,
     )
-    return archive, node
+    revision_ref = (
+        f"refs/kapso/execution-revisions/{run_id}/node-0/revision-0"
+    )
+    commit_ref = (
+        "payload/branches/00000000/00000000/commits/"
+        f"{commit_sha}.txt"
+    )
+    source_digest = tree_or_blob_digest(source_payload)
+    branch = BranchSnapshot(
+        schema=BRANCH_SNAPSHOT_SCHEMA,
+        node_id=0,
+        execution_revision=0,
+        branch_name=node.branch_name,
+        parent_branch_name="",
+        revision_ref=revision_ref,
+        commit_sha=commit_sha,
+        implementation_base_ref="",
+        diff_base_ref="",
+        feedback_base_ref="",
+        base_commit_shas={},
+        evaluated_commit_shas=(commit_sha,),
+        root_tree_sha=root_tree_sha,
+        commit_objects=(
+            {"commit_sha": commit_sha, "payload_ref": commit_ref},
+        ),
+        source_tree_digest=source_tree_digest(
+            {source_path: (source_digest, source_mode, len(source_payload))}
+        ),
+        source_files=(
+            {
+                "git_blob_sha": source_blob_sha,
+                "mode": source_mode,
+                "payload_ref": _BRANCH_SOURCE_REF,
+                "sha256": source_digest,
+                "size": len(source_payload),
+                "source_path": source_path,
+            },
+        ),
+        excluded_files=(),
+    )
+    return (
+        archive,
+        node,
+        _ProductionBranchEvidence(
+            payloads={
+                _BRANCH_SNAPSHOT_REF: branch.to_json_bytes(),
+                _BRANCH_SOURCE_REF: source_payload,
+                commit_ref: commit_payload,
+            },
+            artifact_refs={
+                "branch:0:0": _BRANCH_SNAPSHOT_REF,
+                "git_commit:00000000": commit_ref,
+                "source:00000000": _BRANCH_SOURCE_REF,
+            },
+            event_artifact_refs={
+                "branch": node.branch_name,
+                "candidate_commit": commit_sha,
+                "candidate_ref": revision_ref,
+                "evaluation_commit_0": commit_sha,
+            },
+        ),
+    )
 
 
 def _checkpoint(
