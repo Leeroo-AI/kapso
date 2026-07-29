@@ -36,6 +36,17 @@ V1_REC_TASKS = [
     "rel-trial/site-sponsor-run",
 ]
 
+# Tasks whose test windows extend years past test_timestamp, so the two
+# published evaluation regimes (frozen-db vs per-row seed-time) diverge and
+# the recorded bars are seed-time numbers while the current sandbox enforces
+# frozen-db. Authority: EVALUATION_PROTOCOL.md — do not campaign these until
+# the sandbox implements per-row censoring.
+PROTOCOL_SENSITIVE_TASKS = {
+    "rel-f1/driver-position",
+    "rel-f1/driver-dnf",
+    "rel-f1/driver-top3",
+}
+
 
 def load_kapso_results(work_root: Path) -> Dict[str, dict]:
     results = {}
@@ -462,13 +473,26 @@ def build_reference(work_root: Path) -> str:
         "21 entity tasks, no recommendation), "
         "full board field in `data/leaderboard_snapshot.json`, per-task best-known in `data/sota.json`.",
         "",
+        "## Evaluation protocol",
+        "",
+        "Per-task temporal regimes are documented in `EVALUATION_PROTOCOL.md` — the "
+        "single authority on what data a solution may see at test time. Where RelBench's "
+        "library default (freeze the database at `test_timestamp`) and the bar-setters' "
+        "released evaluation (KumoRFM: full database, per-row seed-time anchoring) "
+        "disagree, this campaign adopts the KumoRFM regime — its numbers are the "
+        "comparison target. ⚠ marks the tasks where the regimes diverge (multi-tick "
+        "rel-f1 windowed tasks): their bars are seed-time numbers while the current "
+        "sandbox still enforces frozen-db — **do not campaign ⚠ tasks until the sandbox "
+        "implements per-row censoring** (existing Kapso cells there were recorded under "
+        "the frozen regime and undersell the seed-time score).",
+        "",
         "## Per-task table (v1 then v2; ROI order within each)",
         "",
         "Values in the best-known number's units (AUROC/acc/MAP in %, NMAE, R², raw MAE). "
         "'Best known' = strongest published result anywhere (board ∪ papers).",
         "",
         "'Ver' = benchmark version; ★ = one of the 31 tasks on the relbench-hf "
-        "submission leaderboard.",
+        "submission leaderboard; ⚠ = evaluation-regime-sensitive (see `EVALUATION_PROTOCOL.md`).",
         "",
         "| ROI# | Task | Fam | Ver | Best known (method) | RelAgent | KumoRFM-ft | KumoRFM-v1 (ic) | KumoRFM-v2 (ic) | Kapso | vs best | HW | Cap | Status |",
         "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
@@ -477,8 +501,9 @@ def build_reference(work_root: Path) -> str:
         e = r["sota"]
         best = f"{f(e.get('value'))} ({e.get('method', '?').split(' (')[0][:24]})" if e else "—"
         ver_cell = r.get("ver", "—") + ("★" if r.get("board") else "")
+        task_cell = r["task"] + (" ⚠" if r["task"] in PROTOCOL_SENSITIVE_TASKS else "")
         lines.append(
-            f"| {f(r['roi'], 0)} | {r['task']} | {r['family']} | {ver_cell} | {best} "
+            f"| {f(r['roi'], 0)} | {task_cell} | {r['family']} | {ver_cell} | {best} "
             f"| {f(r.get('relagent'))} | {f(r.get('kumo'))} "
             f"| {f(r.get('kumo_v1_ic'))} | {f(r.get('kumo_v2_ic'))} | {f(r.get('kapso'))} "
             f"| {r.get('beats') or '—'} | {r['hw']} | {r.get('tier', '—')} | {r['status']} |"

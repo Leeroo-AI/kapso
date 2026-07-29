@@ -20,19 +20,23 @@ Each task is tagged **v1** or **v2** in the `Ver` column. The public **relbench-
 
 Verified primary-source numbers (see BASELINES.md for protocols and citations): **RelAgent** (arXiv:2605.07840, val-selected test of 5 searches; v1 entity + 6-task v2 subset, no recommendation), **KumoRFM fine-tuned** (Kumo tech report Tables 2-4, single values, all 30 v1 tasks), **KumoRFM-v1/v2 in-context** (zero-shot; v1: tech report, all 30 tasks; v2: arXiv:2604.12596, 21 entity tasks, no recommendation), full board field in `data/leaderboard_snapshot.json`, per-task best-known in `data/sota.json`.
 
+## Evaluation protocol
+
+Per-task temporal regimes are documented in `EVALUATION_PROTOCOL.md` — the single authority on what data a solution may see at test time. Where RelBench's library default (freeze the database at `test_timestamp`) and the bar-setters' released evaluation (KumoRFM: full database, per-row seed-time anchoring) disagree, this campaign adopts the KumoRFM regime — its numbers are the comparison target. ⚠ marks the tasks where the regimes diverge (multi-tick rel-f1 windowed tasks): their bars are seed-time numbers while the current sandbox still enforces frozen-db — **do not campaign ⚠ tasks until the sandbox implements per-row censoring** (existing Kapso cells there were recorded under the frozen regime and undersell the seed-time score).
+
 ## Per-task table (v1 then v2; ROI order within each)
 
 Values in the best-known number's units (AUROC/acc/MAP in %, NMAE, R², raw MAE). 'Best known' = strongest published result anywhere (board ∪ papers).
 
-'Ver' = benchmark version; ★ = one of the 31 tasks on the relbench-hf submission leaderboard.
+'Ver' = benchmark version; ★ = one of the 31 tasks on the relbench-hf submission leaderboard; ⚠ = evaluation-regime-sensitive (see `EVALUATION_PROTOCOL.md`).
 
 | ROI# | Task | Fam | Ver | Best known (method) | RelAgent | KumoRFM-ft | KumoRFM-v1 (ic) | KumoRFM-v2 (ic) | Kapso | vs best | HW | Cap | Status |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | 1 | rel-event/user-attendance | reg | v1★ | 0.307 (KumoRFM-2) | 0.315 | 0.311 | 0.345 | 0.307 | 0.336 | below best-known | CPU-ok | 2h | ✅ done |
-| 5 | rel-f1/driver-position | reg | v1★ | 0.374 (PluRel-ft) | 0.572 | 0.389 | 0.391 | 0.406 | 0.503 | below best-known | CPU-ok | 2h | ✅ done |
+| 5 | rel-f1/driver-position ⚠ | reg | v1★ | 0.374 (PluRel-ft) | 0.572 | 0.389 | 0.391 | 0.406 | 0.503 | below best-known | CPU-ok | 2h | ✅ done |
 | 9 | rel-event/user-repeat | clf | v1★ | 83.6 (GelGT) | 78.2 | 80.6 | 76.1 | 81.7 | — | — | CPU-ok | 2h | · pending |
 | 10 | rel-event/user-ignore | clf | v1★ | 91.2 (PluRel-ft) | 87.2 | 89.4 | 89.2 | 90.8 | — | — | CPU-ok | 2h | · pending |
-| 11 | rel-f1/driver-dnf | clf | v1★ | 84.6 (KumoRFM-2) | 78.3 | 82.6 | 82.4 | 84.6 | — | — | CPU-ok | 2h | · pending |
+| 11 | rel-f1/driver-dnf ⚠ | clf | v1★ | 84.6 (KumoRFM-2) | 78.3 | 82.6 | 82.4 | 84.6 | — | — | CPU-ok | 2h | · pending |
 | 21 | rel-trial/study-adverse | reg | v1★ | 0.11 (RelAgent) | 0.11 | 0.13 | 0.172 | 0.128 | — | — | CPU-ok | 4h | · pending |
 | 22 | rel-avito/ad-ctr | reg | v1★ | 0.345 (RelAgent) | 0.345 | 0.355 | 0.366 | 0.355 | — | — | CPU-ok | 4h | · pending |
 | 23 | rel-trial/study-outcome | clf | v1★ | 94.6 (PluRel-ft) | 71.9 | 71.2 | 70.8 | 72 | — | — | CPU-ok | 4h | · pending |
@@ -57,7 +61,7 @@ Values in the best-known number's units (AUROC/acc/MAP in %, NMAE, R², raw MAE)
 | 59 | rel-amazon/user-item-rate | rec | v1★ | 2.25 (ContextGNN / KumoRFM-ft) | — | 2.25 | 1.14 | — | — | — | GPU box | 8h | · pending |
 | 60 | rel-amazon/user-item-review | rec | v1★ | 1.63 (ContextGNN / KumoRFM-ft) | — | 1.63 | 0.22 | — | — | — | GPU box | 8h | · pending |
 | 61 | rel-avito/user-visits | clf | v1★ | 78.3 (KumoRFM-ft) | 67.8 | 78.3 | 64.8 | 67.4 | — | — | CPU-ok | 4h | · pending |
-| 62 | rel-f1/driver-top3 | clf | v1★ | 99.6 (KumoRFM-ft) | 85.2 | 99.6 | 91.1 | 92.2 | — | — | CPU-ok | 2h | · pending |
+| 62 | rel-f1/driver-top3 ⚠ | clf | v1★ | 99.6 (KumoRFM-ft) | 85.2 | 99.6 | 91.1 | 92.2 | — | — | CPU-ok | 2h | · pending |
 | 2 | rel-f1/driver-circuit-compete | rec | v2★ | 76.2 (ID-GNN-4L) | — | — | — | — | — | — | CPU-ok | 2h | · pending |
 | 3 | rel-f1/results-position | AC-reg | v2 | 0.528 (RelGT-AC) | — | — | — | — | — | — | CPU-ok | 2h | · pending |
 | 4 | rel-f1/qualifying-position | AC-reg | v2 | 0.239 (RelGT-AC) | — | — | — | — | — | — | CPU-ok | 2h | · pending |
