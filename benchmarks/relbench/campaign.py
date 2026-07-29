@@ -129,17 +129,23 @@ def select_tasks(queue: list, hardware: str, work_root: Path,
 
 def run_one(task_id: str, args) -> dict:
     ds, task = task_id.split("/")
-    target, target_desc = derive_goal(task_id, args.goal)
+    if args.goal == "none":
+        # Budget-bound: no early stop — the search uses the full hour budget
+        # and keeps its best. The verdict still reports vs best-known.
+        target, target_desc = None, "budget-bound (no early stop)"
+    else:
+        target, target_desc = derive_goal(task_id, args.goal)
     workspace = f"tmp/search_strategy_workspace/{uuid.uuid4()}"
     log_path = REPO_ROOT / "tmp" / f"campaign_{ds}--{task}.log"
     cmd = [
         sys.executable, "-m", "benchmarks.relbench.runner",
         "-s", ds, "-t", task, "-i", str(args.iterations), "-m", args.mode,
-        "--target-val", str(target), "--workspace", workspace,
+        "--workspace", workspace,
         "--time-budget-hours", str(args.hours_per_task),
-    ]
+    ] + ([] if target is None else ["--target-val", str(target)])
+    shown = "—" if target is None else f"{target:.6g}"
     print(f"\n{'=' * 70}\nCAMPAIGN TASK: {task_id}\n"
-          f"  target-val {target:.6g} ({target_desc}) | {args.hours_per_task}h | log {log_path}\n{'=' * 70}")
+          f"  target-val {shown} ({target_desc}) | {args.hours_per_task}h | log {log_path}\n{'=' * 70}")
     if args.dry_run:
         print(f"  DRY RUN: {' '.join(cmd)}")
         return {"task": task_id, "status": "dry-run"}
@@ -164,7 +170,7 @@ def main() -> None:
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--hours-per-task", type=float, required=True)
     parser.add_argument("--goal", type=str, default="beat-best",
-                        help="beat-best | beat-kumo | explicit value in raw val units")
+                        help="beat-best | beat-kumo | none (budget-bound, no early stop) | explicit value in raw val units")
     parser.add_argument("--hardware", type=str, choices=["cpu", "gpu"], required=True)
     parser.add_argument("--tasks", type=str, default=None,
                         help="comma-separated task ids; default = ROI queue")

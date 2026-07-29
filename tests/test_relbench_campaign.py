@@ -63,6 +63,19 @@ def test_derive_goal_units():
     assert explicit == 2.6
 
 
+def test_goal_none_omits_target(tmp_path, capsys):
+    import argparse
+
+    from benchmarks.relbench.campaign import run_one
+
+    args = argparse.Namespace(goal="none", iterations=100, mode="RELBENCH_GENERIC",
+                              hours_per_task=4.0, dry_run=True)
+    verdict = run_one("rel-f1/driver-position", args)
+    out = capsys.readouterr().out
+    assert verdict["status"] == "dry-run"
+    assert "--target-val" not in out and "budget-bound" in out
+
+
 def test_time_budget_threading(tmp_path):
     path = _write_runtime_config("RELBENCH_GENERIC", str(tmp_path), tmp_path,
                                  time_budget_hours=7.5)
