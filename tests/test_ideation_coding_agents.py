@@ -129,15 +129,22 @@ arguments = pathlib.Path(__file__).with_name(pathlib.Path(__file__).stem + "-edi
 arguments.write_text(__import__("json").dumps(sys.argv[1:]))
 """
     if cli == "codex":
-        source = "#!/usr/bin/env python3\nimport json\nimport sys\n" + edit_source + """
+        source = (
+            "#!/usr/bin/env python3\nimport json\nimport sys\n"
+            + edit_source
+            + """
 args = sys.argv[1:]
 final_path = pathlib.Path(args[args.index("--output-last-message") + 1])
 final_path.write_text('{"changed_paths":["created.py","existing.txt"],"deleted_paths":["deleted.txt"]}')
 print(json.dumps({"type":"turn.completed","usage":{"input_tokens":3,"output_tokens":2}}))
 """
+        )
         install_executable(directory, "codex", source)
         return
-    source = "#!/usr/bin/env python3\nimport json\n" + edit_source + """
+    source = (
+        "#!/usr/bin/env python3\nimport json\n"
+        + edit_source
+        + """
 print(json.dumps({
   "is_error": False,
   "structured_output": {
@@ -148,6 +155,7 @@ print(json.dumps({
   "total_cost_usd": 0.1
 }))
 """
+    )
     install_executable(directory, "claude", source)
 
 
@@ -339,7 +347,7 @@ print(json.dumps({"type":"turn.completed","usage":{"input_tokens":11,"output_tok
     ]
     assert 'default_permissions="kapso_ideation_read"' in permission_overrides
     assert any(
-        f'workspace_roots={{{json.dumps(str(tmp_path))}=true}}' in value
+        f"workspace_roots={{{json.dumps(str(tmp_path))}=true}}" in value
         for value in permission_overrides
     )
     assert any('"/proc"="deny"' in value for value in permission_overrides)
@@ -616,7 +624,7 @@ def test_edit_workspace_call_seals_exact_replayable_delta(
         ]
         assert 'default_permissions="kapso_workspace_edit"' in permission_overrides
         assert any(
-            f'workspace_roots={{{json.dumps(call_request.workspace)}=true}}' in value
+            f"workspace_roots={{{json.dumps(call_request.workspace)}=true}}" in value
             for value in permission_overrides
         )
         assert any(

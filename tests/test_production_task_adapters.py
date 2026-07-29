@@ -134,8 +134,7 @@ def test_bootstrap_publishes_every_scope_binding_and_replays(tmp_path):
             evidence["task_adapter_id"],
         )
         assert capture_fingerprint.evaluator_fingerprint in (
-            active.verified_adapter.manifest.task_evaluator
-            .supported_evaluator_fingerprints
+            active.verified_adapter.manifest.task_evaluator.supported_evaluator_fingerprints
         )
         assert len(capture_fingerprint.seed_or_replicate_ids) == (
             settings.expert.validation.policy.promotion.minimum_replicates_per_cell

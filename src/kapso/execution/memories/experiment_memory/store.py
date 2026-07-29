@@ -633,7 +633,8 @@ def format_experiments(experiments: Iterable[_ExperimentRecord]) -> str:
                 else f"raw_score={record.raw_score}; utility={record.normalized_utility}"
             )
         )
-        lines.append(f"""
+        lines.append(
+            f"""
 ## Experiment {record.node_id} ({status})
 
 **Idea:** `{record.idea_id or 'not_applicable'}`
@@ -648,9 +649,12 @@ def format_experiments(experiments: Iterable[_ExperimentRecord]) -> str:
 {record.solution}
 
 **Feedback:**
-{record.feedback}""")
+{record.feedback}"""
+        )
         if record.technical_difficulties:
-            lines.append(f"""
+            lines.append(
+                f"""
 **Technical difficulties:**
-{record.technical_difficulties}""")
+{record.technical_difficulties}"""
+            )
     return "\n".join(lines)

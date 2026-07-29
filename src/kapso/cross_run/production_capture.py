@@ -141,17 +141,14 @@ def build_production_capture(
         kapso_commit="0" * 40,
         expert_base_release_id=expert_base_release_id,
         task_adapter_manifest_id=task_adapter_manifest_id,
-        task_adapter_verification_receipt_id=(
-            task_adapter_verification_receipt_id
-        ),
+        task_adapter_verification_receipt_id=(task_adapter_verification_receipt_id),
         starting_artifact_content_ids={},
         dependency_lock_hash=tree_or_blob_digest(b"transport-smoke-lock"),
     )
     if previous is not None and (
         previous.source_bundle.run_id != run_id
         or previous.source_bundle.campaign_id != _CAMPAIGN_ID
-        or previous.source_bundle.scope_contract_id
-        != scope_contract.scope_contract_id
+        or previous.source_bundle.scope_contract_id != scope_contract.scope_contract_id
     ):
         raise ValueError("production capture predecessor belongs to another run")
 
@@ -208,9 +205,7 @@ def build_production_capture(
         _IDEA_ARCHIVE_REF: canonical_json_bytes(archive.to_dict()),
     }
     capture_generation = (
-        0
-        if previous is None
-        else previous.source_bundle.capture_generation + 1
+        0 if previous is None else previous.source_bundle.capture_generation + 1
     )
     completeness = {
         "checkpoint": ArtifactCompleteness.PRESENT,
@@ -362,9 +357,7 @@ def _task_context(
         starting_artifact_refs=(),
         method_fingerprint=tree_or_blob_digest(b"transport-smoke-method"),
         toolchain_fingerprint=tree_or_blob_digest(b"transport-smoke-toolchain"),
-        dependency_runtime_fingerprint=tree_or_blob_digest(
-            b"transport-smoke-runtime"
-        ),
+        dependency_runtime_fingerprint=tree_or_blob_digest(b"transport-smoke-runtime"),
         budget_hardware_envelope={"accelerator": "none", "hours": 1},
         transfer_dimensions={
             "dataset_family": "synthetic_public",
@@ -530,17 +523,13 @@ def _capture_frontier(
         "evaluation_method": "Run the canonical evaluator.",
         "resource_request": "One bounded diagnostic.",
         "created_at": committed_at,
-        "expected_observations": (
-            "Expose representation mismatch before training.",
-        ),
+        "expected_observations": ("Expose representation mismatch before training.",),
         "predicted_gain": 0.0,
         "predicted_cost": 1.0,
         "confidence": 0.8,
     }
     normalized_score = (
-        1.0
-        if evaluation_fingerprint.objective_direction.value == "maximize"
-        else -1.0
+        1.0 if evaluation_fingerprint.objective_direction.value == "maximize" else -1.0
     )
     evaluated_idea = IdeaRecord(
         idea_id=executed_idea_id,
@@ -548,9 +537,7 @@ def _capture_frontier(
             "Validate semantic parity before training through one reusable "
             "representation boundary."
         ),
-        assumptions=(
-            "Representation mismatches are observable before training.",
-        ),
+        assumptions=("Representation mismatches are observable before training.",),
         status=IdeaStatus.EVALUATED,
         selected_in_batch_id=batch_id,
         selection_reason="Highest expected diagnostic value.",
@@ -603,9 +590,7 @@ def _capture_frontier(
         "Validate representation parity\n"
     ).encode("utf-8")
     commit_sha = git_object_sha("commit", commit_payload)
-    evaluator_id = evaluation_fingerprint.evaluator_fingerprint.removeprefix(
-        "sha256:"
-    )
+    evaluator_id = evaluation_fingerprint.evaluator_fingerprint.removeprefix("sha256:")
     metric_name = evaluation_fingerprint.metric_name
     node = SearchNode(
         node_id=0,
@@ -636,13 +621,8 @@ def _capture_frontier(
         ],
         technical_difficulties=_TECHNICAL_DIFFICULTY,
     )
-    revision_ref = (
-        f"refs/kapso/execution-revisions/{run_id}/node-0/revision-0"
-    )
-    commit_ref = (
-        "payload/branches/00000000/00000000/commits/"
-        f"{commit_sha}.txt"
-    )
+    revision_ref = f"refs/kapso/execution-revisions/{run_id}/node-0/revision-0"
+    commit_ref = "payload/branches/00000000/00000000/commits/" f"{commit_sha}.txt"
     source_digest = tree_or_blob_digest(source_payload)
     branch = BranchSnapshot(
         schema=BRANCH_SNAPSHOT_SCHEMA,
@@ -658,9 +638,7 @@ def _capture_frontier(
         base_commit_shas={},
         evaluated_commit_shas=(commit_sha,),
         root_tree_sha=root_tree_sha,
-        commit_objects=(
-            {"commit_sha": commit_sha, "payload_ref": commit_ref},
-        ),
+        commit_objects=({"commit_sha": commit_sha, "payload_ref": commit_ref},),
         source_tree_digest=source_tree_digest(
             {source_path: (source_digest, source_mode, len(source_payload))}
         ),

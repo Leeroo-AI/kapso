@@ -102,7 +102,9 @@ def test_generalization_prompt_names_the_fixed_safety_envelope():
         "`incompatible_capability_ids`, and `resource_bounds` exactly"
         in normalized_prompt
     )
-    assert "you may add justified values, but never remove or rewrite" in normalized_prompt
+    assert (
+        "you may add justified values, but never remove or rewrite" in normalized_prompt
+    )
 
 
 class UnusedSourceMaterializer:

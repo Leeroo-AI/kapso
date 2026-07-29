@@ -100,8 +100,7 @@ def production_capture_evaluation_fingerprint(
         f"seed-{replicate_number}"
         for replicate_number in range(
             1,
-            settings.expert.validation.policy.promotion.minimum_replicates_per_cell
-            + 1,
+            settings.expert.validation.policy.promotion.minimum_replicates_per_cell + 1,
         )
     )
     return EvaluationFingerprint.mint(

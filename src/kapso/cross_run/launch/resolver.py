@@ -757,9 +757,7 @@ class LaunchResolver:
         payloads = self._materializer.read_verified_content_files(
             expert_artifact,
             paths,
-            maximum_bytes=(
-                self._settings.expert.validation.policy.artifact_byte_limit
-            ),
+            maximum_bytes=(self._settings.expert.validation.policy.artifact_byte_limit),
         )
         validation_context = self._parse_expert_record(
             payloads,
