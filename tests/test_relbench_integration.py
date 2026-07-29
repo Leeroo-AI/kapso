@@ -463,13 +463,13 @@ class TestGenericModeConfig:
         assert mode["feedback_generator"]["type"] == "codex"
         assert mode["search_strategy"]["params"]["ideation_selector"]["cli"] == "codex"
         assert mode["models"]["utility"]["reasoning_effort"] == "xhigh"
-        # K=4 expansion (user-directed 2026-07-29, back from the K=8
-        # escalation after 8-GPU capacity drought): four GPU-pinned lanes,
-        # 10h budget, 5h session caps — the proven record-run shape.
+        # K=4 expansion (user-directed 2026-07-29): four GPU-pinned lanes,
+        # 10h budget, 5h session caps; threads sized for the on-demand
+        # a2-highgpu-4g fallback (48 vCPU -> 11/lane).
         assert mode["search_strategy"]["params"]["node_expansion_value"] == 4
         lanes = mode["search_strategy"]["params"]["expansion_lane_env"]
         assert len(lanes) == 4
-        assert all(lane["OMP_NUM_THREADS"] == "24" for lane in lanes)
+        assert all(lane["OMP_NUM_THREADS"] == "11" for lane in lanes)
         assert [lane["CUDA_VISIBLE_DEVICES"] for lane in lanes] == ["0", "1", "2", "3"]
         assert mode["search_strategy"]["params"]["implementation_timeout"] == 18000
         assert mode["budget"]["time_budget_minutes"] == 600
@@ -746,6 +746,10 @@ class TestLivingDocuments:
         assert "REGIME-SHIFTED" in BEST_PRACTICES_NOTE
         assert "frozen-origin" in BEST_PRACTICES_NOTE
         assert "follow the measurement" in BEST_PRACTICES_NOTE
+        assert "Mixture and two-part modeling" in BEST_PRACTICES_NOTE
+        assert "Partial pooling" in BEST_PRACTICES_NOTE
+        assert "Structured prediction" in BEST_PRACTICES_NOTE
+        assert "not an exhaustive menu" in BEST_PRACTICES_NOTE
         assert "table_information.md" in LIVING_DOCUMENTS_NOTE
         assert "features_history.md" in LIVING_DOCUMENTS_NOTE
         assert "EDIT" in LIVING_DOCUMENTS_NOTE

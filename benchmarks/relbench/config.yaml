@@ -122,16 +122,15 @@ modes:
         # trainings cannot starve each other's evals (the 07-17 contention
         # lesson); both lanes share the single GPU (CUDA_DEVICE default 0).
         node_expansion_value: 4
-        # 4 parallel implementation lanes on an a3-highgpu-4g (104 vCPU /
-        # 936 GB / 4x H100): each lane PINNED to its own GPU via
-        # CUDA_VISIBLE_DEVICES and capped at 24 threads (4x24=96 of 104,
-        # leaving headroom for the orchestrator). One lane ~= a full
-        # a3-highgpu-1g slice, so no cross-lane GPU/CPU starvation.
+        # 4 parallel implementation lanes, each PINNED to its own GPU via
+        # CUDA_VISIBLE_DEVICES. Threads sized for the on-demand
+        # a2-highgpu-4g (48 vCPU / 340 GB / 4x A100-40GB): 4x11=44 of 48,
+        # leaving headroom for the orchestrator.
         expansion_lane_env:
-          - {CUDA_VISIBLE_DEVICES: "0", OMP_NUM_THREADS: "24", MKL_NUM_THREADS: "24", OPENBLAS_NUM_THREADS: "24", NUMEXPR_MAX_THREADS: "24"}
-          - {CUDA_VISIBLE_DEVICES: "1", OMP_NUM_THREADS: "24", MKL_NUM_THREADS: "24", OPENBLAS_NUM_THREADS: "24", NUMEXPR_MAX_THREADS: "24"}
-          - {CUDA_VISIBLE_DEVICES: "2", OMP_NUM_THREADS: "24", MKL_NUM_THREADS: "24", OPENBLAS_NUM_THREADS: "24", NUMEXPR_MAX_THREADS: "24"}
-          - {CUDA_VISIBLE_DEVICES: "3", OMP_NUM_THREADS: "24", MKL_NUM_THREADS: "24", OPENBLAS_NUM_THREADS: "24", NUMEXPR_MAX_THREADS: "24"}
+          - {CUDA_VISIBLE_DEVICES: "0", OMP_NUM_THREADS: "11", MKL_NUM_THREADS: "11", OPENBLAS_NUM_THREADS: "11", NUMEXPR_MAX_THREADS: "11"}
+          - {CUDA_VISIBLE_DEVICES: "1", OMP_NUM_THREADS: "11", MKL_NUM_THREADS: "11", OPENBLAS_NUM_THREADS: "11", NUMEXPR_MAX_THREADS: "11"}
+          - {CUDA_VISIBLE_DEVICES: "2", OMP_NUM_THREADS: "11", MKL_NUM_THREADS: "11", OPENBLAS_NUM_THREADS: "11", NUMEXPR_MAX_THREADS: "11"}
+          - {CUDA_VISIBLE_DEVICES: "3", OMP_NUM_THREADS: "11", MKL_NUM_THREADS: "11", OPENBLAS_NUM_THREADS: "11", NUMEXPR_MAX_THREADS: "11"}
         ideation_timeout: 1800
         # One experiment = implement + run the registered full evaluation
         # (candidate training, up to the task's full timeout) inside the
