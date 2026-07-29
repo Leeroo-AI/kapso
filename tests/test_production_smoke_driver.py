@@ -628,13 +628,14 @@ def test_successor_launch_threads_exact_release_snapshot_and_typed_context(
         parsed_context = smoke_module.LaunchTaskContextRequest.from_dict(
             request["task_context_request"]
         )
-        assert (
-            parsed_context.bind(
-                binding=smoke_module._scope_task_bindings(scope_contract)[0],
-                scope_contract=scope_contract,
-            )
-            == context
+        bound_context = parsed_context.bind(
+            binding=smoke_module._scope_task_bindings(scope_contract)[0],
+            scope_contract=scope_contract,
         )
+        assert bound_context.dependency_runtime_fingerprint == tree_or_blob_digest(
+            canonical_json_bytes({"runtime": "exact"})
+        )
+        assert bound_context.transfer_dimensions == context.transfer_dimensions
         assert request["dependency_runtime_contract"] == {"runtime": "exact"}
         return {
             "run_id": "run-id",

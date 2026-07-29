@@ -1982,6 +1982,7 @@ def _successor_launch_smoke(
         task_adapter_id=binding.task_adapter_id,
     )
     context = adapter.manifest.release_matrix_cases[0].task_context_binding
+    runtime_contract = adapter.manifest.runtime.to_dict()
     task_context_request = LaunchTaskContextRequest.mint(
         capability_tags=context.capability_tags,
         input_contract_fingerprint=context.input_contract_fingerprint,
@@ -1989,7 +1990,9 @@ def _successor_launch_smoke(
         starting_artifact_refs=context.starting_artifact_refs,
         method_fingerprint=context.method_fingerprint,
         toolchain_fingerprint=context.toolchain_fingerprint,
-        dependency_runtime_fingerprint=context.dependency_runtime_fingerprint,
+        dependency_runtime_fingerprint=tree_or_blob_digest(
+            canonical_json_bytes(runtime_contract)
+        ),
         budget_hardware_envelope=context.budget_hardware_envelope,
         transfer_dimensions=context.transfer_dimensions,
     )
@@ -2006,7 +2009,7 @@ def _successor_launch_smoke(
                     "additional_context": "",
                     "task_context_request": task_context_request.to_dict(),
                     "starting_artifacts": {},
-                    "dependency_runtime_contract": adapter.manifest.runtime.to_dict(),
+                    "dependency_runtime_contract": runtime_contract,
                     "budget_fidelity_envelope": {"transport_fixture": "full"},
                     "scope_id": binding.scope_id,
                     "task_family_id": binding.task_family_id,
