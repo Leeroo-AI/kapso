@@ -84,6 +84,8 @@ def test_expert_proposal_prompts_require_enforceable_resource_bounds(operation_k
     normalized_prompt = " ".join(prompt.split())
 
     assert "resource_bounds` as an enforceable safety contract" in normalized_prompt
+    assert "including its type and string contents" in normalized_prompt
+    assert "must not leak implementation exceptions" in normalized_prompt
     assert "explicit finite depth and cardinality limits" in normalized_prompt
     assert "Never claim asymptotic bounds lower" in normalized_prompt
 

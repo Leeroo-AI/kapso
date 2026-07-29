@@ -16,6 +16,14 @@ sorting and materializing collections. Before doing externally sized recursion,
 iteration, or allocation, enforce and test explicit finite depth and cardinality
 limits. Never claim asymptotic bounds lower than the implemented work or memory.
 
+Treat every externally supplied object, including its type and string contents,
+as adversarial. Rejection and diagnostic paths must not invoke user-defined
+hooks, descriptors, formatting, iteration, or encoding before exact built-in
+admission and bounds are proven, and must not leak implementation exceptions in
+place of the module's declared domain error. Add focused adversarial tests for
+every new diagnostic or rejection path, including malformed Unicode whenever
+the implementation encodes strings.
+
 Do not change repository topology, capability IDs, owned roots, task-family
 bindings, dependency edges, adapter boundary, architecture invariants, or
 validation entrypoints. Do not create or edit `EXPERT_REPO.md` or anything under

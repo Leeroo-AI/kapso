@@ -16,6 +16,14 @@ sorting and materializing collections. Before doing externally sized recursion,
 iteration, or allocation, enforce and test explicit finite depth and cardinality
 limits. Never claim asymptotic bounds lower than the implemented work or memory.
 
+Treat every externally supplied object, including its type and string contents,
+as adversarial. Rejection and diagnostic paths must not invoke user-defined
+hooks, descriptors, formatting, iteration, or encoding before exact built-in
+admission and bounds are proven, and must not leak implementation exceptions in
+place of the module's declared domain error. Add focused adversarial tests for
+every new diagnostic or rejection path, including malformed Unicode whenever
+the implementation encodes strings.
+
 Do not create or edit `EXPERT_REPO.md` or anything under `.kapso/expert`; Kapso
 generates those controls. Do not add datasets, weights, experiment memory, run
 logs, Git history, hidden evaluation material, benchmark answers, task-adapter
