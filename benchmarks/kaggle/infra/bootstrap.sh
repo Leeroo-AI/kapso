@@ -18,8 +18,9 @@ set -euo pipefail
 : "${CODEX_AUTH_JSON:?}"; : "${KAGGLE_ACCESS_TOKEN:?}"
 KAPSO_COMMIT="${KAPSO_COMMIT:-worktree-ioai-2025}"
 AUTH_HEADER="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GITHUB_PAT" | base64 -w0)"
-# shellcheck disable=SC1091
-source "$HOME/kapso-venv/bin/activate"
+# System python3 owns torch on this image (see setup_box.sh); no venv exists.
+export PATH="$HOME/.local/bin:$PATH"
+export PYTHONPATH="$HOME/kapso/src:$HOME/kapso"
 
 echo "### code -> $KAPSO_COMMIT (bake the env, pull the code fresh)"
 cd "$HOME/kapso"
@@ -41,7 +42,7 @@ printf '%s' "$CODEX_AUTH_JSON"     > "$HOME/.codex/auth.json"
 printf '%s' "$KAGGLE_ACCESS_TOKEN" > "$HOME/.kaggle/access_token"
 
 echo "### smoke-test (fail the BOOT here, not 40 min into the run)"
-python - <<'PY'
+python3 - <<'PY'
 import torch, kapso
 assert torch.cuda.is_available(), "CUDA not available"
 print("  torch", torch.__version__, "| GPUs", torch.cuda.device_count())
@@ -49,4 +50,5 @@ print("  kapso", kapso.__file__)
 PY
 kaggle competitions list >/dev/null 2>&1 && echo "  kaggle auth ok"
 codex --version >/dev/null 2>&1 && echo "  codex ok"
-echo "BOOTSTRAP OK: $(git rev-parse --short HEAD), $(python -c 'import torch;print(torch.cuda.device_count())') GPUs ready."
+claude --version >/dev/null 2>&1 && echo "  claude ok"
+echo "BOOTSTRAP OK: $(git rev-parse --short HEAD), $(python3 -c 'import torch;print(torch.cuda.device_count())') GPUs ready."

@@ -13,14 +13,15 @@ set -euo pipefail
 URL="${1:?usage: run_competition.sh <kaggle-competition-url> [extra runner flags]}"
 shift || true
 ROOT="${ROOT:-$HOME/kaggle_run_$(date +%s)}"
-# shellcheck disable=SC1091
-source "$HOME/kapso-venv/bin/activate"
-cd "$HOME/kapso"                 # repo root on sys.path for `python -m benchmarks...`
+# System python3 owns torch on this image; kapso runs off PYTHONPATH (no editable install).
+export PATH="$HOME/.local/bin:$PATH"
+export PYTHONPATH="$HOME/kapso/src:$HOME/kapso"
+cd "$HOME/kapso"
 
 echo "=== preflight: $URL  ->  $ROOT ==="
-python -m benchmarks.kaggle.preflight --url "$URL" --root "$ROOT"
+python3 -m benchmarks.kaggle.preflight --url "$URL" --root "$ROOT"
 
 echo "=== runner: campaign on $ROOT (k/hours from run_defaults unless overridden) ==="
-python -m benchmarks.kaggle.runner --root "$ROOT" "$@"
+python3 -m benchmarks.kaggle.runner --root "$ROOT" "$@"
 
 echo "=== done. results: $ROOT/results.json ==="
