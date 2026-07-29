@@ -18,6 +18,13 @@ export PATH="$HOME/.local/bin:$PATH"
 export PYTHONPATH="$HOME/kapso/src:$HOME/kapso"
 cd "$HOME/kapso"
 
+# bootstrap.sh writes this; running setup_box.sh alone leaves it missing and the
+# campaign dies mid-ideation with "Claude Code OAuth credentials not found".
+# Fail here instead, before any compute is spent.
+grep -q '^CLAUDE_CODE_OAUTH_TOKEN=' "$HOME/kapso/.env" 2>/dev/null || {
+  echo "FATAL: $HOME/kapso/.env missing CLAUDE_CODE_OAUTH_TOKEN — run bootstrap.sh first" >&2
+  exit 1; }
+
 echo "=== preflight: $URL  ->  $ROOT ==="
 python3 -m benchmarks.kaggle.preflight --url "$URL" --root "$ROOT"
 
