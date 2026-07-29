@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
+from threading import Barrier, Lock
 from types import SimpleNamespace
 
 import pytest
@@ -34,6 +35,7 @@ from kapso.cross_run.expert.triggers import (
     ExpertTriggerObservationKind,
 )
 from kapso.cross_run.github.materializer import SourceArchiveExtractionReceipt
+from kapso.cross_run.github.command import GitHubCompareAndSwapError
 from kapso.cross_run.knowledge.publisher import KnowledgeSnapshotPublisher
 from kapso.cross_run.production_smoke import (
     ProductionSmokeError,
@@ -181,9 +183,9 @@ def test_synthetic_capture_is_replayable_and_importable(tmp_path):
         _TASK_ADAPTER_VERIFICATION_RECEIPT_ID,
     )
     projection = capture.projection
-    replayed = RunBundleProjector(
-        settings.capture.score_comparison_tolerance
-    ).project(capture.stored_bundle)
+    replayed = RunBundleProjector(settings.capture.score_comparison_tolerance).project(
+        capture.stored_bundle
+    )
     store = RunBundleStore.initialize(
         tmp_path / settings.capture.state_path,
         settings.capture,
@@ -554,11 +556,143 @@ def test_successor_stage_builds_an_observed_episode_trigger_before_proposal(
     assert result["trigger_observation_id"] == observation.observation_id
 
 
-def test_live_restart_stage_names_the_external_restart_boundary():
-    with pytest.raises(ProductionSmokeError, match="external daemon and host"):
-        smoke_module._live_restart_smoke(
-            {"clean-machine-launch": {"run_id": "production-run"}}
+class _ConcurrentBranchClient:
+    def __init__(self):
+        self.default_head = "a" * 40
+        self.branch_head = None
+        self.barrier = Barrier(2)
+        self.lock = Lock()
+        self.updates = []
+
+    def read_ref_commit(self, _repository, qualified_ref, *, allow_missing):
+        if qualified_ref == "refs/heads/main":
+            return self.default_head
+        if self.branch_head is None and not allow_missing:
+            raise AssertionError("required branch is absent")
+        return self.branch_head
+
+    def create_ref_if_absent(self, _repository, _qualified_ref, commit_sha):
+        self.branch_head = commit_sha
+        return {"object": {"sha": commit_sha}}
+
+    def api_json(self, method, endpoint, body=None):
+        if method == "GET":
+            return {"tree": {"sha": "d" * 40}}
+        name = body["message"].rsplit(" ", 1)[-1]
+        return {"sha": ("b" if name == "alpha" else "c") * 40}
+
+    def update_ref_compare_and_swap(
+        self,
+        _repository,
+        _repository_node_id,
+        _branch,
+        expected_sha,
+        commit_sha,
+    ):
+        self.barrier.wait()
+        with self.lock:
+            self.updates.append((expected_sha, commit_sha))
+            if self.branch_head != expected_sha:
+                raise GitHubCompareAndSwapError("stale parent")
+            self.branch_head = commit_sha
+            return {"object": {"sha": commit_sha}}
+
+
+def test_concurrency_smoke_produces_one_winner_and_one_typed_conflict():
+    client = _ConcurrentBranchClient()
+
+    result = smoke_module._race_github_publication_branch(
+        client,
+        repository="Leeroo-AI/kapso-knowledge",
+        repository_node_id="repository-node",
+        default_branch="main",
+        smoke_branch="kapso-production-smoke/concurrent-knowledge",
+    )
+
+    assert result["parent_commit_sha"] == "a" * 40
+    assert result["winner_commit_sha"] in {"b" * 40, "c" * 40}
+    assert result["observed_commit_sha"] == result["winner_commit_sha"]
+    assert result["loser_error_type"] == "GitHubCompareAndSwapError"
+    assert len(client.updates) == 2
+    assert {update[0] for update in client.updates} == {"a" * 40}
+
+
+def test_live_restart_recomposes_services_and_preserves_pins(
+    tmp_path,
+    monkeypatch,
+):
+    settings = load_effective_config(_CONFIG_PATH, "GENERIC").cross_run
+    fixture, _fixture_digest = smoke_module._load_fixture(settings)
+    scope_contract = smoke_module.ExpertScopeContract.from_dict(
+        fixture["scope_contract"]
+    )
+    closed = []
+
+    class FakePreparedRunHandoff:
+        def __init__(self, checkpoint_id):
+            self.identity = SimpleNamespace(
+                run_id="production-run",
+                expert_release_id=_EXPERT_RELEASE_ID,
+                knowledge_snapshot_id="knowledge-snapshot:sha256:" + "4" * 64,
+            )
+            self.frontier = SimpleNamespace(
+                checkpoint=SimpleNamespace(run_checkpoint_id=checkpoint_id)
+            )
+            self.resumed = True
+
+        def close(self):
+            closed.append(self.frontier.checkpoint.run_checkpoint_id)
+
+    restart_count = {"value": 0}
+
+    def resume(**_arguments):
+        restart_count["value"] += 1
+        return FakePreparedRunHandoff(
+            "run-checkpoint:sha256:" + str(restart_count["value"]) * 64
         )
+
+    monkeypatch.setattr(
+        smoke_module,
+        "build_launch_starting_artifact_provider",
+        lambda **_arguments: object(),
+    )
+    monkeypatch.setattr(
+        smoke_module,
+        "production_experiment_embedding_space",
+        lambda _settings: object(),
+    )
+    monkeypatch.setattr(
+        smoke_module,
+        "build_production_launch_services",
+        lambda **_arguments: SimpleNamespace(coordinator=object()),
+    )
+    monkeypatch.setattr(smoke_module, "prepare_resumed_run_handoff", resume)
+    monkeypatch.setattr(
+        smoke_module,
+        "_docker_authority_smoke",
+        lambda *_arguments: {
+            "mutation_lock_device": 1,
+            "mutation_lock_inode": 2,
+        },
+    )
+    monkeypatch.setattr(smoke_module, "PreparedRunHandoff", FakePreparedRunHandoff)
+
+    result = smoke_module._live_restart_smoke(
+        settings,
+        tmp_path,
+        scope_contract,
+        {
+            "clean-machine-launch": {
+                "run_id": "production-run",
+                "expert_release_id": _EXPERT_RELEASE_ID,
+                "knowledge_snapshot_id": ("knowledge-snapshot:sha256:" + "4" * 64),
+            }
+        },
+    )
+
+    assert len(result["service_graph_restarts"]) == 2
+    assert result["external_host_restart_performed"] is False
+    assert len(closed) == 2
 
 
 def test_trigger_inspection_schema_types_every_fixed_constant():

@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import io
 import os
+import re
 import stat
 import tarfile
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
@@ -60,8 +62,15 @@ from kapso.cross_run.expert.triggers import (
     ExpertTriggerObservation,
     ExpertTriggerObservationKind,
 )
+from kapso.cross_run.github.command import (
+    GitHubCommandClient,
+    GitHubCompareAndSwapError,
+)
 from kapso.cross_run.github.publisher import PublicationEnvelope, ReleaseAssetInput
-from kapso.cross_run.github.resolver import security_denylist_tag
+from kapso.cross_run.github.resolver import (
+    repository_for_artifact,
+    security_denylist_tag,
+)
 from kapso.cross_run.knowledge.package import KnowledgeSnapshotPackage
 from kapso.cross_run.knowledge.publisher import KnowledgeSnapshotPublisher
 from kapso.cross_run.knowledge.index import SnapshotSearchIndex
@@ -70,6 +79,18 @@ from kapso.cross_run.knowledge.retrieval import (
     PriorKnowledgeQuery,
 )
 from kapso.cross_run.launch.contracts import LaunchTaskContextRequest
+from kapso.cross_run.launch.handoff import (
+    PreparedRunHandoff,
+    prepare_resumed_run_handoff,
+)
+from kapso.cross_run.launch.production import (
+    build_production_launch_services,
+    production_experiment_embedding_space,
+)
+from kapso.cross_run.launch.resume_contracts import RunReleaseUseMode
+from kapso.cross_run.launch.starting_artifacts import (
+    build_launch_starting_artifact_provider,
+)
 from kapso.cross_run.operations import (
     GitHubOperationServices,
     _expert_validation_services,
@@ -346,7 +367,12 @@ def _run_stage(
             clean_machine=False,
         )
     if stage == "concurrent-publication":
-        return _concurrent_publication_smoke(prior_evidence)
+        return _concurrent_publication_smoke(
+            settings,
+            smoke_root,
+            scope_contract,
+            prior_evidence,
+        )
     if stage == "clean-machine-launch":
         return _successor_launch_smoke(
             config_path,
@@ -358,7 +384,12 @@ def _run_stage(
             clean_machine=True,
         )
     if stage == "live-restart":
-        return _live_restart_smoke(prior_evidence)
+        return _live_restart_smoke(
+            settings,
+            smoke_root,
+            scope_contract,
+            prior_evidence,
+        )
     if stage == "revocation":
         return _revocation_smoke(
             config_path,
@@ -1909,8 +1940,7 @@ def _expert_trigger_inspection_response_schema(
     """Constrain a live inspection to one authenticated evidence boundary."""
 
     properties = {
-        name: _trigger_value_schema(value)
-        for name, value in fixed_payload.items()
+        name: _trigger_value_schema(value) for name, value in fixed_payload.items()
     }
     properties["description"] = {"type": "string", "minLength": 1}
     return {
@@ -2046,19 +2076,155 @@ def _successor_launch_smoke(
 
 
 def _concurrent_publication_smoke(
+    settings: CrossRunSettings,
+    smoke_root: Path,
+    scope_contract: ExpertScopeContract,
     prior_evidence: Mapping[str, Mapping[str, Any]],
 ) -> Mapping[str, Any]:
     if not isinstance(prior_evidence.get("expert-successor-publication"), Mapping):
         raise ProductionSmokeError(
             "concurrent publication requires the first eligible successor release"
         )
-    raise ProductionSmokeError(
-        "concurrent publication requires a second independently eligible knowledge "
-        "and expert child from the same authenticated parents"
+    github = _github_services(settings, smoke_root / "concurrent-publication")
+    repositories = github.resolver.repositories_for_scope(scope_contract.scope_id)
+    races = {}
+    for artifact_kind in (
+        PublicationArtifactKind.KNOWLEDGE_SNAPSHOT,
+        PublicationArtifactKind.EXPERT_BASE_RELEASE,
+    ):
+        repository = repository_for_artifact(repositories, artifact_kind)
+        policy = github.resolver.diagnose_repository(
+            scope_contract.scope_id,
+            artifact_kind,
+        )
+        races[artifact_kind.value] = _race_github_publication_branch(
+            github.resolver.client,
+            repository=repository,
+            repository_node_id=policy.repository_node_id,
+            default_branch=policy.default_branch,
+            smoke_branch=("kapso-production-smoke/concurrent-" + artifact_kind.value),
+        )
+    return {
+        "repository_races": races,
+        "current_pointer_mutated": False,
+        "force_updates_used": False,
+    }
+
+
+def _race_github_publication_branch(
+    client: GitHubCommandClient,
+    *,
+    repository: str,
+    repository_node_id: str,
+    default_branch: str,
+    smoke_branch: str,
+) -> Mapping[str, Any]:
+    """Race two direct children through the production GitHub CAS primitive."""
+
+    default_head = client.read_ref_commit(
+        repository,
+        f"refs/heads/{default_branch}",
+        allow_missing=False,
     )
+    if not isinstance(default_head, str):
+        raise ProductionSmokeError("concurrency smoke default branch is absent")
+    qualified_smoke_ref = f"refs/heads/{smoke_branch}"
+    branch_head = client.read_ref_commit(
+        repository,
+        qualified_smoke_ref,
+        allow_missing=True,
+    )
+    if branch_head is None:
+        client.create_ref_if_absent(repository, qualified_smoke_ref, default_head)
+        branch_head = default_head
+    base_commit = client.api_json(
+        "GET",
+        f"repos/{repository}/git/commits/{branch_head}",
+    )
+    if (
+        not isinstance(base_commit, Mapping)
+        or not isinstance(base_commit.get("tree"), Mapping)
+        or not isinstance(base_commit["tree"].get("sha"), str)
+        or re.fullmatch(r"[0-9a-f]{40}", base_commit["tree"]["sha"]) is None
+    ):
+        raise ProductionSmokeError("concurrency smoke base commit is invalid")
+    tree_sha = base_commit["tree"]["sha"]
+    child_shas = []
+    for candidate_name in ("alpha", "beta"):
+        child = client.api_json(
+            "POST",
+            f"repos/{repository}/git/commits",
+            {
+                "message": ("Kapso production CAS smoke candidate " + candidate_name),
+                "tree": tree_sha,
+                "parents": [branch_head],
+            },
+        )
+        if (
+            not isinstance(child, Mapping)
+            or not isinstance(child.get("sha"), str)
+            or re.fullmatch(r"[0-9a-f]{40}", child["sha"]) is None
+        ):
+            raise ProductionSmokeError("concurrency smoke child commit is invalid")
+        child_shas.append(child["sha"])
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = tuple(
+            executor.submit(
+                client.update_ref_compare_and_swap,
+                repository,
+                repository_node_id,
+                smoke_branch,
+                branch_head,
+                child_sha,
+            )
+            for child_sha in child_shas
+        )
+    failures = tuple(future.exception() for future in futures)
+    successful_indexes = tuple(
+        index for index, failure in enumerate(failures) if failure is None
+    )
+    conflict_indexes = tuple(
+        index
+        for index, failure in enumerate(failures)
+        if type(failure) is GitHubCompareAndSwapError
+    )
+    if len(successful_indexes) != 1 or len(conflict_indexes) != 1:
+        raise ProductionSmokeError(
+            "concurrency smoke did not produce one winner and one typed conflict"
+        )
+    winner_sha = child_shas[successful_indexes[0]]
+    observed_head = client.read_ref_commit(
+        repository,
+        qualified_smoke_ref,
+        allow_missing=False,
+    )
+    if observed_head != winner_sha:
+        raise ProductionSmokeError("concurrency smoke branch lost its winning child")
+    default_head_after = client.read_ref_commit(
+        repository,
+        f"refs/heads/{default_branch}",
+        allow_missing=False,
+    )
+    if default_head_after != default_head:
+        raise ProductionSmokeError(
+            "concurrency smoke observed a changed publication branch"
+        )
+    return {
+        "repository": repository,
+        "branch": smoke_branch,
+        "parent_commit_sha": branch_head,
+        "candidate_commit_shas": tuple(child_shas),
+        "winner_commit_sha": winner_sha,
+        "loser_error_type": GitHubCompareAndSwapError.__name__,
+        "observed_commit_sha": observed_head,
+        "publication_branch_commit_sha": default_head_after,
+    }
 
 
 def _live_restart_smoke(
+    settings: CrossRunSettings,
+    smoke_root: Path,
+    scope_contract: ExpertScopeContract,
     prior_evidence: Mapping[str, Mapping[str, Any]],
 ) -> Mapping[str, Any]:
     launch = prior_evidence.get("clean-machine-launch")
@@ -2066,9 +2232,71 @@ def _live_restart_smoke(
         raise ProductionSmokeError(
             "live restart requires a completed clean-machine launch receipt"
         )
-    raise ProductionSmokeError(
-        "live restart requires external daemon and host restart control"
+    clean_state_root = _private_state_root(smoke_root / "clean-machine")
+    run_root = clean_state_root / "successor-launch"
+    binding = _scope_task_bindings(scope_contract)[0]
+    empty_starting_artifacts = build_launch_starting_artifact_provider(
+        sources={},
+        settings=settings.launch,
     )
+    docker_before = _docker_authority_smoke(
+        settings,
+        smoke_root / "live-restart-before",
+    )
+    restart_receipts = []
+    for restart_name in ("first", "second"):
+        services = build_production_launch_services(
+            settings=settings,
+            binding=binding,
+            experiment_embedding_space=production_experiment_embedding_space(settings),
+            starting_artifacts=empty_starting_artifacts,
+            state_root=clean_state_root,
+        )
+        resumed = prepare_resumed_run_handoff(
+            coordinator=services.coordinator,
+            settings=settings,
+            run_root=run_root,
+            release_use_mode=RunReleaseUseMode.ONLINE_CURRENT,
+        )
+        if type(resumed) is not PreparedRunHandoff:
+            raise ProductionSmokeError(
+                "live restart unexpectedly blocked the clean run"
+            )
+        identity = resumed.identity
+        if (
+            identity.run_id != launch["run_id"]
+            or identity.expert_release_id != launch.get("expert_release_id")
+            or identity.knowledge_snapshot_id != launch.get("knowledge_snapshot_id")
+            or not resumed.resumed
+        ):
+            resumed.close()
+            raise ProductionSmokeError("live restart changed the pinned run identity")
+        restart_receipts.append(
+            {
+                "restart": restart_name,
+                "run_id": identity.run_id,
+                "expert_release_id": identity.expert_release_id,
+                "knowledge_snapshot_id": identity.knowledge_snapshot_id,
+                "checkpoint_id": (resumed.frontier.checkpoint.run_checkpoint_id),
+            }
+        )
+        resumed.close()
+    docker_after = _docker_authority_smoke(
+        settings,
+        smoke_root / "live-restart-after",
+    )
+    if (
+        docker_before["mutation_lock_device"] != docker_after["mutation_lock_device"]
+        or docker_before["mutation_lock_inode"] != docker_after["mutation_lock_inode"]
+    ):
+        raise ProductionSmokeError("Docker mutation-lock authority changed on restart")
+    return {
+        "run_id": launch["run_id"],
+        "service_graph_restarts": tuple(restart_receipts),
+        "docker_authority_before": docker_before,
+        "docker_authority_after": docker_after,
+        "external_host_restart_performed": False,
+    }
 
 
 def _revocation_smoke(
@@ -2166,18 +2394,14 @@ def _synthetic_capture(
         scope_contract=scope_contract,
         expert_base_release_id=expert_base_release_id,
         task_adapter_manifest_id=task_adapter_manifest_id,
-        task_adapter_verification_receipt_id=(
-            task_adapter_verification_receipt_id
-        ),
+        task_adapter_verification_receipt_id=(task_adapter_verification_receipt_id),
         embedding_inputs=values,
         committed_at=_committed_at(fixture["committed_at"]),
         run_id=_synthetic_run_id(
             scope_contract=scope_contract,
             expert_base_release_id=expert_base_release_id,
             task_adapter_manifest_id=task_adapter_manifest_id,
-            task_adapter_verification_receipt_id=(
-                task_adapter_verification_receipt_id
-            ),
+            task_adapter_verification_receipt_id=(task_adapter_verification_receipt_id),
         ),
         evaluation_fingerprint=production_capture_evaluation_fingerprint(
             settings,
@@ -2202,9 +2426,7 @@ def _synthetic_capture_for_snapshot(
         scope_contract=scope_contract,
         expert_base_release_id=expert_base_release_id,
         task_adapter_manifest_id=task_adapter_manifest_id,
-        task_adapter_verification_receipt_id=(
-            task_adapter_verification_receipt_id
-        ),
+        task_adapter_verification_receipt_id=(task_adapter_verification_receipt_id),
     )
     records = tuple(
         parse_knowledge_record_payload(
@@ -2338,9 +2560,7 @@ def _projection_from_snapshot_records(
         sanitation_report=reports[0],
         episodes=tuple(sorted(episodes, key=lambda item: item.episode_id)),
         prior_ideas=tuple(sorted(priors, key=lambda item: item.prior_idea_id)),
-        derivation_objects=tuple(
-            sorted(derivations, key=lambda item: item.event_id)
-        ),
+        derivation_objects=tuple(sorted(derivations, key=lambda item: item.event_id)),
     )
 
 
