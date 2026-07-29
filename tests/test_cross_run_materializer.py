@@ -556,6 +556,7 @@ def test_materializer_accepts_split_expert_source_and_release_assets(
     verified_records = materializer.read_verified_content_files(
         materialized,
         ("release-evidence/manifest.json",),
+        maximum_bytes=len(evidence_payload),
     )
     assert dict(verified_records) == {
         "release-evidence/manifest.json": evidence_payload
@@ -572,17 +573,19 @@ def test_materializer_accepts_split_expert_source_and_release_assets(
         materializer.read_verified_content_files(
             copied_artifact,
             ("release-evidence/manifest.json",),
+            maximum_bytes=len(evidence_payload),
         )
     original_reader = materializer._read_relative_control_file
     monkeypatch.setattr(
         materializer,
         "_read_relative_control_file",
-        lambda *_arguments: b'{"evidence":"swapped"}',
+        lambda *_arguments, **_keyword_arguments: b'{"evidence":"swapped"}',
     )
     with pytest.raises(CacheCorruptionError, match="manifest checksum"):
         materializer.read_verified_content_files(
             materialized,
             ("release-evidence/manifest.json",),
+            maximum_bytes=len(evidence_payload),
         )
     monkeypatch.setattr(
         materializer,
@@ -593,6 +596,13 @@ def test_materializer_accepts_split_expert_source_and_release_assets(
         materializer.read_verified_content_files(
             materialized,
             ("../release-evidence/manifest.json",),
+            maximum_bytes=len(evidence_payload),
+        )
+    with pytest.raises(CacheCorruptionError, match="control bound"):
+        materializer.read_verified_content_files(
+            materialized,
+            ("release-evidence/manifest.json",),
+            maximum_bytes=len(evidence_payload) - 1,
         )
     assert expert_source_snapshot.release_manifest == manifest
     assert expert_source_snapshot.source_extraction_receipt == source_receipt

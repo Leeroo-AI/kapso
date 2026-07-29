@@ -475,12 +475,22 @@ class GitHubArtifactMaterializer:
         self,
         materialized: MaterializedArtifact,
         relative_paths: tuple[str, ...],
+        *,
+        maximum_bytes: int,
     ) -> Mapping[str, bytes]:
-        """Read bounded control records while the complete cache entry stays valid."""
+        """Read bounded authenticated records while the cache entry stays valid."""
 
         if type(materialized) is not MaterializedArtifact:
             raise MaterializationError(
                 "verified content reads require one materialized artifact"
+            )
+        if (
+            type(maximum_bytes) is not int
+            or maximum_bytes <= 0
+            or maximum_bytes > self.settings.materialized_asset_size_bytes
+        ):
+            raise MaterializationError(
+                "verified content reads require a configured size limit"
             )
         if (
             not relative_paths
@@ -550,14 +560,17 @@ class GitHubArtifactMaterializer:
                     os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
                 )
                 descriptors.callback(os.close, content_descriptor)
-                payloads = {
-                    relative_path: self._read_relative_control_file(
+                payloads = {}
+                remaining_bytes = maximum_bytes
+                for relative_path in relative_paths:
+                    payload = self._read_relative_control_file(
                         content_descriptor,
                         PurePosixPath(relative_path),
                         f"verified content record {relative_path}",
+                        maximum_bytes=remaining_bytes,
                     )
-                    for relative_path in relative_paths
-                }
+                    payloads[relative_path] = payload
+                    remaining_bytes -= len(payload)
             if any(
                 tree_or_blob_digest(payloads[relative_path])
                 != manifest.checksums[relative_path]
@@ -581,6 +594,8 @@ class GitHubArtifactMaterializer:
         root_descriptor: int,
         relative_path: PurePosixPath,
         description: str,
+        *,
+        maximum_bytes: int,
     ) -> bytes:
         with ExitStack() as descriptors:
             directory_descriptor = os.dup(root_descriptor)
@@ -602,13 +617,13 @@ class GitHubArtifactMaterializer:
             if not stat.S_ISREG(metadata.st_mode):
                 os.close(file_descriptor)
                 raise CacheCorruptionError(f"{description} must be a regular file")
-            if metadata.st_size > self.settings.control_blob_size_bytes:
+            if metadata.st_size > maximum_bytes:
                 os.close(file_descriptor)
                 raise CacheCorruptionError(
                     f"{description} exceeds configured control bound"
                 )
             with os.fdopen(file_descriptor, "rb") as file_handle:
-                payload = file_handle.read(self.settings.control_blob_size_bytes + 1)
+                payload = file_handle.read(maximum_bytes + 1)
             if len(payload) != metadata.st_size:
                 raise CacheCorruptionError(
                     f"{description} changed during its verified read"

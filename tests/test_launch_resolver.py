@@ -162,7 +162,14 @@ class FakeMaterializer:
         assert maximum_bytes > 0
         return self.expert_source
 
-    def read_verified_content_files(self, materialized, relative_paths):
+    def read_verified_content_files(
+        self,
+        materialized,
+        relative_paths,
+        *,
+        maximum_bytes,
+    ):
+        assert maximum_bytes > 0
         return MappingProxyType(
             {
                 relative_path: self.expert_publication_files[relative_path][0]
