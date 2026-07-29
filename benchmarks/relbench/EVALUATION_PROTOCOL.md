@@ -174,3 +174,28 @@ window). ⚠ = regime-sensitive (frozen-db vs seed-time give materially differen
   `benchmarks/v1/relbench/relbench_regression.py` (loader line 60, anchors line ~149),
   `benchmarks/v2/salt.py` (target masking + `anchor_time='entity'`).
 - Regime clusters: `benchmarks/relbench/data/baselines.json` (sources embedded per entry).
+
+## Rolling harness — the seed-time sandbox for the ⚠ tasks (design of record)
+
+Unlock path for the three rel-f1 windowed tasks. Key invariant making it leak-proof:
+**a snapshot truncated at a tick's own seed time cannot contain that tick's label**
+(the label window (t, t+Δ] lies strictly after t), while legitimately containing every
+earlier tick's closed outcome — exactly the Kumo-regime information set.
+
+1. `sandbox.py --rolling` builds one sanitized mini-cache per eval tick (23 val + 33
+   test for driver-position; ticks = the task tables' unique timestamps): db tables
+   truncated at the tick; task dir with `train.parquet` = all windows CLOSED by the
+   tick (labels recomputed from the snapshot's own results — never from pristine),
+   `test.parquet` = that tick's rows, input cols only. rel-f1 db is 1 MB → ~56
+   snapshots ≈ free. Read-only, hardlinked, no zips (same guarantees as today).
+2. The grader (registered eval) in rolling mode loops ticks: stages a temp dir
+   containing ONLY that tick's snapshot, invokes the candidate once per tick with
+   `RELBENCH_CACHE_DIR=<snapshot>` (contract per invocation unchanged: read cache,
+   write predictions for the cache's test table), assembles predictions into the
+   official row order. Score of record = assembled VAL ticks vs official val labels;
+   assembled TEST ticks are archived unscored (final_evaluate scores once, as today).
+3. Handler: tasks with `num_eval_timestamps > 1` get the rolling sandbox + a context
+   note stating the per-tick contract; `PROTOCOL_SENSITIVE_TASKS` drops a task (and
+   RESULTS.md's ⚠) only when its rolling harness is live and verified.
+4. Acceptance: a fixed LightGBM reference through the harness must reproduce the
+   hand-run B-rolling result (2.653 ± 0.015 test MAE) before any agent campaign.
