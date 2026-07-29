@@ -131,7 +131,11 @@ modes:
           - {CUDA_VISIBLE_DEVICES: "1", OMP_NUM_THREADS: "11", MKL_NUM_THREADS: "11", OPENBLAS_NUM_THREADS: "11", NUMEXPR_MAX_THREADS: "11"}
           - {CUDA_VISIBLE_DEVICES: "2", OMP_NUM_THREADS: "11", MKL_NUM_THREADS: "11", OPENBLAS_NUM_THREADS: "11", NUMEXPR_MAX_THREADS: "11"}
           - {CUDA_VISIBLE_DEVICES: "3", OMP_NUM_THREADS: "11", MKL_NUM_THREADS: "11", OPENBLAS_NUM_THREADS: "11", NUMEXPR_MAX_THREADS: "11"}
-        ideation_timeout: 1800
+        # Ideation is deliberately unbounded: the strategy clamps every phase
+        # to the remaining wall-clock budget (_clamped_timeout), so with this
+        # sentinel-high cap the campaign clock is the ONLY limit on ideation —
+        # each iteration stays bounded, the phase inside it does not.
+        ideation_timeout: 86400
         # One experiment = implement + run the registered full evaluation
         # (candidate training, up to the task's full timeout) inside the
         # session: cap must cover both. Sized to contain a 4h full-eval cap

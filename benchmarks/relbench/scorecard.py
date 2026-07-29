@@ -394,6 +394,14 @@ def build_reference(work_root: Path) -> str:
                         beats = "✅ beats best-known" if ok else "below best-known"
                         n_beats_sota += ok
 
+            # Campaign runs record what actually ran (hardware, wall-clock cap)
+            # and where the full trace archive lives; those override the
+            # requirement-derived defaults for this row.
+            meta_path = work_root / f"{ds}--{task_name}" / "campaign_meta.json"
+            meta = json.loads(meta_path.read_text()) if meta_path.exists() else {}
+            archive_path = work_root / f"{ds}--{task_name}" / "artifact_archive.json"
+            archive = json.loads(archive_path.read_text()) if archive_path.exists() else {}
+
             rows.append({
                 "task": task_id, "family": fam, "metric": entry.get("metric", primary_metric),
                 "ver": "v1" if task_id in v1_tasks else "v2",
@@ -402,10 +410,12 @@ def build_reference(work_root: Path) -> str:
                 "kumo_v1_ic": in_context_cell(ic_v1, task_id),
                 "kumo_v2_ic": in_context_cell(ic_v2, task_id),
                 "kapso": kapso_val, "beats": beats,
-                "hw": "CPU-ok" if task_id in cpu_safe else "GPU box",
-                "tier": {"small": "2h", "medium": "4h", "large": "8h"}.get(SIZE_TIER.get(ds, "medium"), "4h"),
+                "hw": meta.get("hardware") or ("CPU-ok" if task_id in cpu_safe else "GPU box"),
+                "tier": (f"{meta['cap_hours']:g}h" if meta.get("cap_hours") else
+                         {"small": "2h", "medium": "4h", "large": "8h"}.get(SIZE_TIER.get(ds, "medium"), "4h")),
                 "status": "✅ done" if report else "· pending",
                 "roi": roi_order.index(task_id) + 1 if task_id in roi_order else None,
+                "archive": archive.get("uri"),
             })
 
     # Order: v1 tasks first, then v2; within each version by ROI rank
@@ -515,6 +525,21 @@ def build_reference(work_root: Path) -> str:
         "'done' rows from harness-validation runs are baseline-quality placeholders until "
         "the campaign proper replaces them.",
     ]
+    archived = [(r["task"], r["archive"]) for r in rows if r.get("archive")]
+    if archived:
+        lines += [
+            "",
+            "## Run artifacts (full traces)",
+            "",
+            "Complete campaign state per run — session transcripts, lens/ideation "
+            "history, every candidate run, workspace and logs — archived to durable "
+            "storage at task completion:",
+            "",
+            "| Task | Archive |",
+            "|---|---|",
+        ]
+        for t, uri in archived:
+            lines.append(f"| {t} | `{uri}` |")
     if claims:
         lines += [
             "",

@@ -168,6 +168,18 @@ def run_one(task_id: str, args) -> dict:
     if args.dry_run:
         print(f"  DRY RUN: {' '.join(cmd)}")
         return {"task": task_id, "status": "dry-run"}
+    # Record what actually runs (surfaces in RESULTS.md HW/Cap columns); the
+    # trace-archive URI is added post-hoc by the harvest step as
+    # artifact_archive.json in the same directory.
+    meta_path = REPO_ROOT / "tmp" / "relbench" / f"{ds}--{task}" / "campaign_meta.json"
+    meta_path.parent.mkdir(parents=True, exist_ok=True)
+    meta_path.write_text(json.dumps({
+        "hardware": args.hardware_desc or args.hardware,
+        "cap_hours": args.hours_per_task,
+        "lane": args.lane,
+        "goal": args.goal,
+        "workspace": workspace,
+    }, indent=1))
     with open(log_path, "w") as log:
         proc = subprocess.run(cmd, cwd=REPO_ROOT, stdout=log, stderr=subprocess.STDOUT)
     report_path = REPO_ROOT / "tmp" / "relbench" / f"{ds}--{task}" / "final_report.json"
@@ -197,6 +209,10 @@ def main() -> None:
     parser.add_argument("--iterations", type=int, default=100)
     parser.add_argument("--mode", type=str, default="RELBENCH_GENERIC")
     parser.add_argument("--allow-regime-sensitive", action="store_true")
+    parser.add_argument("--lane", type=str, default=None,
+                        help="label for this campaign lane (e.g. lane-a); recorded in campaign_meta")
+    parser.add_argument("--hardware-desc", type=str, default=None,
+                        help="human hardware description recorded in RESULTS.md (e.g. 4xA100)")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
