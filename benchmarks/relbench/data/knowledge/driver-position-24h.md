@@ -22,35 +22,7 @@ is measured against:
   "goal achieved" claim, or early termination is permitted while validation
   is above 1.9. Campaigns end on budget, not on validation optimism.
 
-# Where you stand (all prior campaigns on this exact task + the leaderboard)
-
-Five full campaigns preceded this one. Their OFFICIAL val→test finals:
-
-| Campaign (10h each)                | val    | test MAE | board NMAE |
-|------------------------------------|--------|----------|------------|
-| classical K=2 baseline             | 2.7969 | 3.5988   | 0.5123     |
-| external-leverage variant          | 2.7774 | 3.8472   | 0.5476 (worst drift: val gains did not transfer) |
-| axis-contract variant              | 2.6486 | 3.6259   | 0.5161     |
-| earlier cohort-rank ensemble       | 2.6260 | 3.5631   | 0.5072     |
-| **immediately preceding (K=4 FE-primary)** | **2.6575** | **3.5308** | **0.5026 — the incumbent record you must beat** |
-
-Read the pattern: best-val does NOT reliably mean best-test (the 2.6486
-campaign lost on test to two worse-val campaigns; the 2.7774 one collapsed
-to 0.5476). Drift is candidate-dependent — the record campaign won by
-pairing good val WITH the lowest drift (+0.873). Chase transfer, not val
-rank.
-
-Published leaderboard context (NMAE, lower better): PluRel-ft 0.3745 and
-RT-pretrained 0.3757 lead; **KumoRFM-ft 0.3887 is YOUR BAR**; RT zero-shot
-0.4310; best from-scratch published is RT-from-scratch **0.4775** — the
-next rung above you (~0.18 test MAE away); you already beat every classical
-GNN (GelGT 0.5315, RelGNN 0.5406) and every published agent system
-(RelAgent 0.5720). Every entry at or better than 0.4775 that is not you is
-a pretrained foundation model; crossing the KumoRFM bar from scratch means
-closing ~0.80 test MAE — the drift/decoding/cold-start headroom below is
-where that much improvement could live.
-
-# Inherited learning (the record campaign, in-run evidence)
+# Inherited learning (previous campaign on this exact task, in-run evidence)
 
 The immediately preceding 10-hour campaign finished officially at
 **validation MAE 2.6575 → hidden-test MAE 3.5308** (drift +0.873 — the
