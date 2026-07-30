@@ -3,7 +3,7 @@
 **Auto-generated — do not edit by hand.** Regenerate with:
 `PYTHONPATH=src:. python -m benchmarks.relbench.scorecard --reference`
 
-Status: **1/66 tasks run**, 0 beating the best published number. Category-level gates: run the scorecard (same module, no flags).
+Status: **2/66 tasks run**, 0 beating the best published number. Category-level gates: run the scorecard (same module, no flags).
 
 ## Benchmark version & leaderboard submission
 
@@ -35,7 +35,7 @@ Values in the best-known number's units (AUROC/acc/MAP in %, NMAE, R², raw MAE)
 | 1 | rel-event/user-attendance | reg | v1★ | 0.307 (KumoRFM-2) | 0.315 | 0.311 | 0.345 | 0.307 | 0.316 | below best-known | 4xA100 | 4h | ✅ done |
 | 5 | rel-f1/driver-position ⚠ | reg | v1★ | 0.374 (PluRel-ft) | 0.572 | 0.389 | 0.391 | 0.406 | — | — | 4xA100 | 4h | · pending |
 | 9 | rel-event/user-repeat | clf | v1★ | 83.6 (GelGT) | 78.2 | 80.6 | 76.1 | 81.7 | — | — | 4xA100 | 4h | · pending |
-| 10 | rel-event/user-ignore | clf | v1★ | 91.2 (PluRel-ft) | 87.2 | 89.4 | 89.2 | 90.8 | — | — | 4xA100 | 4h | · pending |
+| 10 | rel-event/user-ignore | clf | v1★ | 91.2 (PluRel-ft) | 87.2 | 89.4 | 89.2 | 90.8 | 80.6 | below best-known | 4xA100 | 4h | ✅ done |
 | 11 | rel-f1/driver-dnf ⚠ | clf | v1★ | 84.6 (KumoRFM-2) | 78.3 | 82.6 | 82.4 | 84.6 | — | — | 4xA100 | 4h | · pending |
 | 21 | rel-trial/study-adverse | reg | v1★ | 0.11 (RelAgent) | 0.11 | 0.13 | 0.172 | 0.128 | — | — | 4xA100 | 4h | · pending |
 | 22 | rel-avito/ad-ctr | reg | v1★ | 0.345 (RelAgent) | 0.345 | 0.355 | 0.366 | 0.355 | — | — | 4xA100 | 4h | · pending |
@@ -108,3 +108,4 @@ Complete campaign state per run — session transcripts, lens/ideation history, 
 | Task | Archive |
 |---|---|
 | rel-event/user-attendance | `gs://leeroo-kapso-relbench-artifacts/runs/rel-event--user-attendance/20260730T024152_lane-a.tgz` |
+| rel-event/user-ignore | `gs://leeroo-kapso-relbench-artifacts/runs/rel-event--user-ignore/20260730T031848_lane-b.tgz` |
