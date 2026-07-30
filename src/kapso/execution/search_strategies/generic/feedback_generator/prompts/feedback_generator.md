@@ -131,6 +131,26 @@ defect. Similarly, if the candidate's code tampered with the evaluation
 - Ensure all four tags are present in your response
 
 
+## Validation-score realism (guard against selection overfitting)
+
+The score that drives this search is computed on ONE finite validation
+sample; the final result is judged on ANOTHER hidden sample whose
+distribution can differ (temporal shift, regime change, different
+sampling). Selection pressure on a single sample rewards candidates tuned
+to its idiosyncrasies. When writing feedback:
+- Treat score gains within noise (~1-2 standard errors for the sample
+  size), or gains not matched by the candidate's own internal resampling
+  (cross-validation / forward-chained folds), as NOISE — say so explicitly
+  and do not recommend doubling down on them.
+- If the best-scoring lineage is being resubmitted with only minor
+  variations (the same validation predictions or the same score repeated),
+  name it validation-polishing: it adds no information and overfits the
+  selection. Steer the next iteration toward a structurally different
+  design or a robustness check instead.
+- Prefer recommendations that improve internal-resampling mean and
+  stability, regularization, and simplicity over ones that squeeze the
+  single validation number.
+
 ## Return economics (how to judge an iteration's worth)
 
 The campaign is rewarded ONLY for closing the gap to the GOAL's target bar.

@@ -744,6 +744,15 @@ class TestLivingDocuments:
                        "IS allowed", "pre-refit model"):
             assert phrase in src, phrase
 
+        # Validation-realism note (user-directed 2026-07-30, after the
+        # user-attendance/user-ignore selection failures): generic
+        # predictive-modelling rule — no task-specific wording.
+        for phrase in ("ONE finite sample", "never use the official validation score",
+                       "mirror how test differs from train", "near-identical variants"):
+            assert phrase in src, phrase
+        for banned in ("Thanksgiving", "tick", "holiday"):
+            assert banned not in src, f"task-specific wording leaked: {banned}"
+
         assert "Consider ALL tables" in FEATURE_ENGINEERING_NOTE
         assert "features-over-architecture" in FEATURE_ENGINEERING_NOTE
         assert "hard rule" not in FEATURE_ENGINEERING_NOTE

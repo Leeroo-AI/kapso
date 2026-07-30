@@ -188,6 +188,23 @@ the directory given by the environment variable KAPSO_RUN_DATA_DIR:
   score is self-defeating: validation is the only selection and feedback
   signal, so inflating it selects a weaker model over your genuinely better
   ones.
+- CRITICAL — the validation split is ONE finite sample; the hidden test set
+  is ANOTHER, and its distribution can differ (temporal shift, regime
+  change, different sampling). A small validation edge bought by tuning
+  against the validation score usually does not transfer and often inverts.
+  Concretely: never use the official validation score as a tuning target —
+  no hyperparameter search, feature/blend selection, early stopping, or
+  design pruning driven by it; tune only on internal resampling of the
+  training data whose splits mirror how test differs from train
+  (forward-chained splits for time-ordered data, grouped splits for grouped
+  data, K-fold otherwise). Prefer the design with the best and most stable
+  internal-resampling mean over the one maximizing the single validation
+  number; treat validation differences within noise (~1-2 standard errors)
+  as ties and break ties toward the simpler, more regularized, more
+  resampling-stable design. Do not resubmit near-identical variants of your
+  validation-best solution to polish the last decimals — repeats that keep
+  the same validation predictions add no information and overfit the
+  selection.
 - Optionally write metrics.json with any self-measured diagnostics.
 
 The evaluation harness computes the official metrics itself from these files. Your score

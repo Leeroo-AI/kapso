@@ -168,6 +168,27 @@ def test_return_economics_and_scoped_invariants_in_prompt():
     assert 'blanket "do NOT reopen' in prompt
 
 
+def test_validation_realism_guard_in_prompt():
+    """Selection-overfitting guard (user-directed 2026-07-30, after two live
+    argmax(val) failures): the feedback prompt must carry the generic
+    validation-realism rules — within-noise gains are noise, repeated
+    resubmission of the best-scoring lineage is validation-polishing, and
+    internal-resampling stability beats squeezing the single score."""
+    from kapso.core.prompt_loader import load_prompt
+
+    prompt = load_prompt(
+        "execution/search_strategies/generic/feedback_generator/prompts/"
+        "feedback_generator.md"
+    )
+    assert "Validation-score realism" in prompt
+    assert "ONE finite validation" in prompt
+    assert "validation-polishing" in prompt
+    assert "internal-resampling mean" in prompt
+    # Generic for all predictive tasks — no benchmark-specific wording.
+    for banned in ("RelBench", "tick", "Thanksgiving"):
+        assert banned not in prompt, f"task-specific wording leaked: {banned}"
+
+
 def test_axis_frontier_duty_and_design_axes_render():
     """Anti-freeze contract (user-directed 2026-07-27): the feedback prompt
     must carry the per-axis frontier duty (headroom evidence + untried moves
