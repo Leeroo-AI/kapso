@@ -140,7 +140,21 @@ checkpoint` after a crashed launch. Correct fail-loud behaviour. Recovery: delet
 `<root>/task/kapso_campaign` (and `run_meta.json`, `.kapso_runtime`) for a clean
 restart, or pass `--resume` to continue the existing one.
 
-### I-7 (OPEN) — end-to-end submission budgeting
+### I-7 (PARTLY FIXED — recovery + clock, not yet the decision)
+**Fixed in `af5a1160`:** (A) `run_final_eval` harvests every COMPLETE kernel the
+run pushed and submits it before polling, so a finished-but-unshipped kernel can
+no longer be lost — discovery is the union of the lanes' `kernel-metadata.json`
+and `kernels list -m` filtered to the run window, because run 3's lane 3 pushed a
+kernel and recorded nothing locally (union finds 7, local finds 5). (B) the
+finalization reserve is now a single `finalization_reserve_minutes: 20` sized to
+one round trip instead of 11.5 min from a 10% fraction, and the handler
+implements the core `deliverable_ready_reserve_seconds()` hook to release all but
+`insured_reserve_minutes` once a public score is banked.
+**Still open:** nothing yet *compels* an early ship (option C). A run can still
+burn most of its budget before submitting — it just can no longer end with
+nothing. Also, the harvest cannot rescue a kernel still RUNNING at teardown.
+
+### I-7 original report — end-to-end submission budgeting
 **Symptom:** run 2 pushed its first kernels at 12:50/12:53 against a 12:59 end —
 no margin to submit and score. Result: **0 submissions** despite ~93 min of work.
 
