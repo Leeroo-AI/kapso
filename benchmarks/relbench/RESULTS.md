@@ -112,6 +112,7 @@ Complete campaign state per run — session transcripts, lens/ideation history, 
 | rel-event/user-ignore | `gs://leeroo-kapso-relbench-artifacts/runs/rel-event--user-ignore/20260730T223427_lane-b1.tgz` |
 | rel-f1/driver-dnf | `gs://leeroo-kapso-relbench-artifacts/runs/rel-f1--driver-dnf/20260730T222259_lane-b2.tgz` |
 | rel-trial/study-adverse | `gs://leeroo-kapso-relbench-artifacts/runs/rel-trial--study-adverse/20260730T070548_lane-b.tgz` |
+| rel-avito/ad-ctr | `gs://leeroo-kapso-relbench-artifacts/runs/rel-avito--ad-ctr/20260730T223905_lane-b3.tgz` |
 
 ## Winning artifacts (durable, committed — for organizer handoff)
 
