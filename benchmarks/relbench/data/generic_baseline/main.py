@@ -8,6 +8,7 @@ Replace me with a real solution.
 
 import os
 import sys
+from pathlib import Path
 
 import numpy as np
 
@@ -16,10 +17,16 @@ from relbench.tasks import get_task
 
 
 def main() -> None:
-    task = get_task(
-        os.environ["RELBENCH_DATASET"], os.environ["RELBENCH_TASK"], download=False
-    )
-    n_val = len(task.get_table("val"))
+    dataset_name = os.environ["RELBENCH_DATASET"]
+    task_name = os.environ["RELBENCH_TASK"]
+    task = get_task(dataset_name, task_name, download=False)
+    # Rolling-harness snapshots (per-tick caches) carry train+test only; the
+    # per-invocation contract is test predictions for THIS tick, no val file.
+    rolling = not (
+        Path(os.environ["RELBENCH_CACHE_DIR"])
+        / dataset_name / "tasks" / task_name / "val.parquet"
+    ).exists()
+    n_val = 0 if rolling else len(task.get_table("val"))
     n_test = len(task.get_table("test"))
 
     if isinstance(task, RecommendationTask):
@@ -41,10 +48,12 @@ def main() -> None:
         test_pred = np.full(n_test, center)
 
     out = os.environ["KAPSO_RUN_DATA_DIR"]
-    np.save(os.path.join(out, "val_predictions.npy"), val_pred)
+    if not rolling:
+        np.save(os.path.join(out, "val_predictions.npy"), val_pred)
     np.save(os.path.join(out, "test_predictions.npy"), test_pred)
     print(
-        f"[baseline] wrote trivial predictions val{val_pred.shape} test{test_pred.shape} "
+        f"[baseline] wrote trivial predictions "
+        f"{'(rolling tick) ' if rolling else f'val{val_pred.shape} '}test{test_pred.shape} "
         f"(debug={'--debug' in sys.argv})"
     )
 
