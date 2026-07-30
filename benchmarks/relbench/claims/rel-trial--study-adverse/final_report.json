@@ -1,0 +1,36 @@
+{
+  "dataset": "rel-trial",
+  "task": "study-adverse",
+  "family": "entity_regression",
+  "primary_metric": "mae",
+  "selected_by": "best validation mae",
+  "run": "run_0011",
+  "val_metrics": {
+    "r2": 0.2661577789954819,
+    "mae": 32.18467449649278,
+    "rmse": 335.0476668272206
+  },
+  "test_metrics": {
+    "r2": 0.3627166099803998,
+    "mae": 29.561984366973427,
+    "rmse": 199.32459749730532
+  },
+  "audit": {
+    "clean": false,
+    "findings": [
+      {
+        "file": "feature_pipeline.py",
+        "line": 137,
+        "pattern": "mask_input_cols\\s*=\\s*False",
+        "concern": "unmasks task tables (test labels)",
+        "snippet": "frame = task.get_table(split, mask_input_cols=False).df["
+      }
+    ],
+    "note": "static scan; manually review flagged lines before publishing results"
+  },
+  "code_path": "/home/ubuntu/kapso/tmp/relbench/rel-trial--study-adverse/runs/run_0011/code",
+  "predictions": {
+    "val": "/home/ubuntu/kapso/tmp/relbench/rel-trial--study-adverse/runs/run_0011/val_predictions.npy",
+    "test": "/home/ubuntu/kapso/tmp/relbench/rel-trial--study-adverse/runs/run_0011/test_predictions.npy"
+  }
+}

@@ -3,7 +3,7 @@
 **Auto-generated — do not edit by hand.** Regenerate with:
 `PYTHONPATH=src:. python -m benchmarks.relbench.scorecard --reference`
 
-Status: **3/66 tasks run**, 0 beating the best published number. Category-level gates: run the scorecard (same module, no flags).
+Status: **4/66 tasks run**, 1 beating the best published number. Category-level gates: run the scorecard (same module, no flags).
 
 ## Benchmark version & leaderboard submission
 
@@ -37,7 +37,7 @@ Values in the best-known number's units (AUROC/acc/MAP in %, NMAE, R², raw MAE)
 | 9 | rel-event/user-repeat | clf | v1★ | 83.6 (GelGT) | 78.2 | 80.6 | 76.1 | 81.7 | 80.3 | below best-known | 4xA100 | 4h | ✅ done |
 | 10 | rel-event/user-ignore | clf | v1★ | 91.2 (PluRel-ft) | 87.2 | 89.4 | 89.2 | 90.8 | 80.6 | below best-known | 4xA100 | 4h | ✅ done |
 | 11 | rel-f1/driver-dnf ⚠ | clf | v1★ | 84.6 (KumoRFM-2) | 78.3 | 82.6 | 82.4 | 84.6 | — | — | 4xA100 | 4h | · pending |
-| 21 | rel-trial/study-adverse | reg | v1★ | 0.11 (RelAgent) | 0.11 | 0.13 | 0.172 | 0.128 | — | — | 4xA100 | 4h | · pending |
+| 21 | rel-trial/study-adverse | reg | v1★ | 0.11 (RelAgent) | 0.11 | 0.13 | 0.172 | 0.128 | 0.0872 | ✅ beats best-known | 4xA100 | 4h | ✅ done |
 | 22 | rel-avito/ad-ctr | reg | v1★ | 0.345 (RelAgent) | 0.345 | 0.355 | 0.366 | 0.355 | — | — | 4xA100 | 4h | · pending |
 | 23 | rel-trial/study-outcome | clf | v1★ | 94.6 (PluRel-ft) | 71.9 | 71.2 | 70.8 | 72 | — | — | 4xA100 | 4h | · pending |
 | 24 | rel-trial/condition-sponsor-run | rec | v1★ | 11.7 (ContextGNN / KumoRFM-ft) | — | 11.7 | 11.3 | — | — | — | 4xA100 | 4h | · pending |
@@ -110,3 +110,12 @@ Complete campaign state per run — session transcripts, lens/ideation history, 
 | rel-event/user-attendance | `gs://leeroo-kapso-relbench-artifacts/runs/rel-event--user-attendance/20260730T024152_lane-a.tgz` |
 | rel-event/user-repeat | `gs://leeroo-kapso-relbench-artifacts/runs/rel-event--user-repeat/20260730T063610_lane-a.tgz` |
 | rel-event/user-ignore | `gs://leeroo-kapso-relbench-artifacts/runs/rel-event--user-ignore/20260730T031848_lane-b.tgz` |
+| rel-trial/study-adverse | `gs://leeroo-kapso-relbench-artifacts/runs/rel-trial--study-adverse/20260730T070548_lane-b.tgz` |
+
+## Winning artifacts (durable, committed — for organizer handoff)
+
+Each claimed cell's evidence is copied from the box-local run archive into `benchmarks/relbench/claims/<task>/`: winning code snapshot, both prediction files, solution spec, and final report (val+test metrics, audit). SHA-256 prefixes pin the exact prediction files the metrics were computed from.
+
+| Task | Run | Evidence dir | val preds sha256 | test preds sha256 |
+|---|---|---|---|---|
+| rel-trial/study-adverse | run_0011 | `benchmarks/relbench/claims/rel-trial--study-adverse/` | `9dcd5a3c3adee77f` | `3575f8cbf767a3a6` |
