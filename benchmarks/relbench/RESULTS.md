@@ -3,7 +3,7 @@
 **Auto-generated — do not edit by hand.** Regenerate with:
 `PYTHONPATH=src:. python -m benchmarks.relbench.scorecard --reference`
 
-Status: **1/66 tasks run**, 1 beating the best published number. Category-level gates: run the scorecard (same module, no flags).
+Status: **2/66 tasks run**, 2 beating the best published number. Category-level gates: run the scorecard (same module, no flags).
 
 ## Benchmark version & leaderboard submission
 
@@ -33,7 +33,7 @@ Values in the best-known number's units (AUROC/acc/MAP in %, NMAE, R², raw MAE)
 | ROI# | Task | Fam | Ver | Best known (method) | RelAgent | KumoRFM-ft | KumoRFM-v1 (ic) | KumoRFM-v2 (ic) | Kapso | vs best | HW | Cap | Status |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | 1 | rel-event/user-attendance | reg | v1★ | 0.307 (KumoRFM-2) | 0.315 | 0.311 | 0.345 | 0.307 | — | — | 4xA100 | 6h | ▶ running |
-| 5 | rel-f1/driver-position ⚠ | reg | v1★ | 0.374 (PluRel-ft) | 0.572 | 0.389 | 0.391 | 0.406 | — | — | 4xA100 | 6h | ▶ running |
+| 5 | rel-f1/driver-position ⚠ | reg | v1★ | 0.374 (PluRel-ft) | 0.572 | 0.389 | 0.391 | 0.406 | 0.344 | ✅ beats best-known | 4xA100 | 6h | ✅ done |
 | 9 | rel-event/user-repeat | clf | v1★ | 83.6 (GelGT) | 78.2 | 80.6 | 76.1 | 81.7 | — | — | 4xA100 | 6h | ▶ running |
 | 10 | rel-event/user-ignore | clf | v1★ | 91.2 (PluRel-ft) | 87.2 | 89.4 | 89.2 | 90.8 | — | — | 4xA100 | 6h | ▶ running |
 | 11 | rel-f1/driver-dnf ⚠ | clf | v1★ | 84.6 (KumoRFM-2) | 78.3 | 82.6 | 82.4 | 84.6 | — | — | 4xA100 | 6h | ▶ running |
@@ -107,6 +107,7 @@ Complete campaign state per run — session transcripts, lens/ideation history, 
 
 | Task | Archive |
 |---|---|
+| rel-f1/driver-position | `gs://leeroo-kapso-relbench-artifacts/runs/rel-f1--driver-position/20260730T221816_lane-a2.tgz` |
 | rel-trial/study-adverse | `gs://leeroo-kapso-relbench-artifacts/runs/rel-trial--study-adverse/20260730T070548_lane-b.tgz` |
 
 ## Winning artifacts (durable, committed — for organizer handoff)
@@ -115,4 +116,5 @@ Each claimed cell's evidence is copied from the box-local run archive into `benc
 
 | Task | Run | Evidence dir | val preds sha256 | test preds sha256 |
 |---|---|---|---|---|
+| rel-f1/driver-position | run_0006 | `benchmarks/relbench/claims/rel-f1--driver-position/` | `f7022e190f7c7418` | `a1596e24c0de8951` |
 | rel-trial/study-adverse | run_0011 | `benchmarks/relbench/claims/rel-trial--study-adverse/` | `9dcd5a3c3adee77f` | `3575f8cbf767a3a6` |

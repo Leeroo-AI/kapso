@@ -1,0 +1,2486 @@
+{
+  "schema_version": 2,
+  "generated_at": "2026-07-30T19:18:24.409708+00:00",
+  "baseline": {
+    "initial_repo": "/tmp/relbench_baseline_haqq4qme"
+  },
+  "repo_map": {
+    "repo_root": ".",
+    "file_count": 13,
+    "files": [
+      ".gitignore",
+      "PLAN.md",
+      "kapso_datasets/CONTRACT.md",
+      "kapso_datasets/README.md",
+      "kapso_datasets/__init__.py",
+      "kapso_datasets/check_predictions.py",
+      "kapso_datasets/common.py",
+      "kapso_evaluation/README.md",
+      "kapso_evaluation/eval_profile.md",
+      "kapso_evaluation/grader.py",
+      "kapso_evaluation/kapso_eval.py",
+      "main.py",
+      "rel_f1_model.py"
+    ],
+    "languages_by_extension": {
+      ".py": 7,
+      ".md": 5
+    },
+    "key_files": [],
+    "entrypoints": [
+      "main.py"
+    ]
+  },
+  "repo_model": {
+    "summary": "This repository is a RelBench Formula 1 position-regression candidate. main.py now performs temporally causal feature construction, shared rolling feature caching, LightGBM/CatBoost ensemble prediction, validation output, and train-plus-validation test refitting. The registered full rolling evaluation completed 56 invocations with validation MAE 2.681566 over 499 rows.",
+    "entrypoints": [
+      {
+        "path": "main.py",
+        "how_to_run": "From the repository root, run `python main.py --debug` for reduced model iterations or `python main.py` for the full candidate path; the evaluator supplies RELBENCH_DATASET, RELBENCH_TASK, and KAPSO_RUN_DATA_DIR.",
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 38,
+            "description": "Detects the --debug flag."
+          },
+          {
+            "path": "main.py",
+            "line": 39,
+            "description": "Reads the output directory environment variable."
+          },
+          {
+            "path": "main.py",
+            "line": 102,
+            "description": "Provides the script entrypoint."
+          }
+        ]
+      },
+      {
+        "path": "kapso_evaluation/kapso_eval.py",
+        "how_to_run": "Use the registered `kapso_evaluation/kapso_eval.py` entrypoint for fast or full rolling evaluation.",
+        "evidence": [
+          {
+            "path": "kapso_evaluation/eval_profile.md",
+            "line": 5,
+            "description": "Identifies the registered entrypoint and its per-tick execution."
+          }
+        ]
+      },
+      {
+        "path": "kapso_evaluation/grader.py",
+        "how_to_run": "The direct grader CLI supports `python kapso_evaluation/grader.py --fidelity fast` or `--fidelity full`, with optional `--fraction F` and `--seed S`."
+      }
+    ],
+    "where_to_edit": [
+      {
+        "path": "main.py",
+        "role": "Candidate orchestration: task loading, rolling detection, cache selection, validation prediction, train-plus-validation refit, output writing, and diagnostics.",
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 36,
+            "description": "Defines the main candidate workflow."
+          },
+          {
+            "path": "main.py",
+            "line": 94,
+            "description": "Adds elapsed-time diagnostics."
+          }
+        ]
+      },
+      {
+        "path": "rel_f1_model.py",
+        "role": "F1-specific temporal feature engineering, shared cache resolution, baseline diagnostics, LightGBM/CatBoost fitting, blending, correction, and clipping.",
+        "evidence": [
+          {
+            "path": "rel_f1_model.py",
+            "line": 155,
+            "description": "Defines the feature builder."
+          },
+          {
+            "path": "rel_f1_model.py",
+            "line": 215,
+            "description": "Defines cached feature resolution."
+          },
+          {
+            "path": "rel_f1_model.py",
+            "line": 314,
+            "description": "Defines model fitting and prediction."
+          }
+        ]
+      },
+      {
+        "path": "kapso_datasets/common.py",
+        "role": "Reusable RelBench loader, prediction saver, temporal-safety guard, and MAP@K utility."
+      },
+      {
+        "path": "kapso_datasets/CONTRACT.md",
+        "role": "Evaluation contract reference for output files, shapes, dtypes, data access, and validation safety."
+      },
+      {
+        "path": "kapso_evaluation/grader.py",
+        "role": "Immutable scoring and isolation pipeline; do not modify as part of candidate solution work."
+      }
+    ],
+    "claims": [
+      {
+        "kind": "architecture",
+        "statement": "main.py is the candidate orchestrator: it reads the RelBench dataset and task from environment variables, loads them without downloading, obtains train/validation/test tables and the database, builds features, fits predictions, and writes outputs under KAPSO_RUN_DATA_DIR.",
+        "confidence": 1.0,
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 20,
+            "description": "Defines the dataset and task loading helper."
+          },
+          {
+            "path": "main.py",
+            "line": 21,
+            "description": "Reads RELBENCH_DATASET."
+          },
+          {
+            "path": "main.py",
+            "line": 22,
+            "description": "Reads RELBENCH_TASK."
+          },
+          {
+            "path": "main.py",
+            "line": 23,
+            "description": "Loads the dataset with download=False."
+          },
+          {
+            "path": "main.py",
+            "line": 24,
+            "description": "Loads the task with download=False."
+          },
+          {
+            "path": "main.py",
+            "line": 25,
+            "description": "Builds the database with upto_test_timestamp=False."
+          },
+          {
+            "path": "main.py",
+            "line": 41,
+            "description": "Loads task data and database before feature construction."
+          },
+          {
+            "path": "main.py",
+            "line": 55,
+            "description": "Builds cached training features."
+          },
+          {
+            "path": "main.py",
+            "line": 62,
+            "description": "Fits the model and predicts the test rows."
+          },
+          {
+            "path": "main.py",
+            "line": 63,
+            "description": "Saves test_predictions.npy."
+          }
+        ]
+      },
+      {
+        "kind": "architecture",
+        "statement": "FeatureBuilder owns the F1 feature pipeline: it snapshots database tables and prepares entities, results, task labels, standings, qualifying data, and races; its history slicing selects observations at or before each seed timestamp.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "rel_f1_model.py",
+            "line": 52,
+            "description": "Defines the temporal history slicer."
+          },
+          {
+            "path": "rel_f1_model.py",
+            "line": 61,
+            "description": "Uses timestamp-bounded search to select historical rows."
+          },
+          {
+            "path": "rel_f1_model.py",
+            "line": 155,
+            "description": "Defines FeatureBuilder."
+          },
+          {
+            "path": "rel_f1_model.py",
+            "line": 159,
+            "description": "Copies all database tables into the builder."
+          },
+          {
+            "path": "rel_f1_model.py",
+            "line": 160,
+            "description": "Prepares entity metadata."
+          },
+          {
+            "path": "rel_f1_model.py",
+            "line": 161,
+            "description": "Prepares race result features."
+          },
+          {
+            "path": "rel_f1_model.py",
+            "line": 162,
+            "description": "Prepares closed task labels."
+          },
+          {
+            "path": "rel_f1_model.py",
+            "line": 163,
+            "description": "Prepares standings."
+          },
+          {
+            "path": "rel_f1_model.py",
+            "line": 164,
+            "description": "Prepares qualifying data."
+          },
+          {
+            "path": "rel_f1_model.py",
+            "line": 165,
+            "description": "Prepares race metadata."
+          },
+          {
+            "path": "PLAN.md",
+            "line": 7,
+            "description": "Requires features to use records dated at or before each seed time."
+          }
+        ]
+      },
+      {
+        "kind": "architecture",
+        "statement": "Rolling invocations use a shared parquet feature cache keyed by seed date and driver ID. Missing rows are built by FeatureBuilder, appended to the cache, and committed through a temporary file plus atomic replacement.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "rel_f1_model.py",
+            "line": 215,
+            "description": "Defines the cached feature builder."
+          },
+          {
+            "path": "rel_f1_model.py",
+            "line": 224,
+            "description": "Uses the fixed shared cache filename."
+          },
+          {
+            "path": "rel_f1_model.py",
+            "line": 225,
+            "description": "Constructs cache keys from date and driver ID."
+          },
+          {
+            "path": "rel_f1_model.py",
+            "line": 241,
+            "description": "Checks which requested rows are already cached."
+          },
+          {
+            "path": "rel_f1_model.py",
+            "line": 249,
+            "description": "Builds missing feature groups."
+          },
+          {
+            "path": "rel_f1_model.py",
+            "line": 255,
+            "description": "Creates a process-specific temporary parquet path."
+          },
+          {
+            "path": "rel_f1_model.py",
+            "line": 257,
+            "description": "Atomically replaces the shared cache."
+          },
+          {
+            "path": "main.py",
+            "line": 54,
+            "description": "Selects KAPSO_SHARED_CACHE_DIR or its default."
+          },
+          {
+            "path": "main.py",
+            "line": 55,
+            "description": "Enables cached features only for rolling runs."
+          },
+          {
+            "path": "changes.log",
+            "line": 6,
+            "description": "Records the temporally censored shared cache artifact."
+          }
+        ]
+      },
+      {
+        "kind": "architecture",
+        "statement": "fit_predict compacts the feature set, trains a cohort-centered LightGBM regressor and a CatBoost MAE regressor, blends them 70/30, applies a within-seed cohort correction, clips predictions, and returns diagnostic component predictions.",
+        "confidence": 1.0,
+        "evidence": [
+          {
+            "path": "rel_f1_model.py",
+            "line": 292,
+            "description": "Defines compact feature selection."
+          },
+          {
+            "path": "rel_f1_model.py",
+            "line": 314,
+            "description": "Defines the ensemble prediction function."
+          },
+          {
+            "path": "rel_f1_model.py",
+            "line": 329,
+            "description": "Constructs the LightGBM model."
+          },
+          {
+            "path": "rel_f1_model.py",
+            "line": 345,
+            "description": "Fits LightGBM to targets centered on cohort position."
+          },
+          {
+            "path": "rel_f1_model.py",
+            "line": 352,
+            "description": "Constructs the CatBoost MAE model."
+          },
+          {
+            "path": "rel_f1_model.py",
+            "line": 364,
+            "description": "Fits CatBoost with categorical columns."
+          },
+          {
+            "path": "rel_f1_model.py",
+            "line": 366,
+            "description": "Blends LightGBM and CatBoost predictions at 70/30."
+          },
+          {
+            "path": "rel_f1_model.py",
+            "line": 367,
+            "description": "Groups predictions by seed year and day of year."
+          },
+          {
+            "path": "rel_f1_model.py",
+            "line": 371,
+            "description": "Applies the within-cohort mean correction."
+          },
+          {
+            "path": "rel_f1_model.py",
+            "line": 376,
+            "description": "Clips predictions to the allowed range."
+          },
+          {
+            "path": "rel_f1_model.py",
+            "line": 377,
+            "description": "Collects model components for diagnostics."
+          }
+        ]
+      },
+      {
+        "kind": "architecture",
+        "statement": "Ordinary runs first fit on training rows to generate validation predictions, then refit on train plus validation labels to produce the final test predictions; rolling runs skip validation output and predict only the current test snapshot.",
+        "confidence": 1.0,
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 46,
+            "description": "Identifies rolling mode from an empty validation table."
+          },
+          {
+            "path": "main.py",
+            "line": 61,
+            "description": "Extracts the training target."
+          },
+          {
+            "path": "main.py",
+            "line": 62,
+            "description": "Produces the initial test prediction."
+          },
+          {
+            "path": "main.py",
+            "line": 74,
+            "description": "Branches ordinary-run validation and refit logic."
+          },
+          {
+            "path": "main.py",
+            "line": 75,
+            "description": "Builds validation features."
+          },
+          {
+            "path": "main.py",
+            "line": 76,
+            "description": "Predicts validation rows from training-only features."
+          },
+          {
+            "path": "main.py",
+            "line": 77,
+            "description": "Saves validation predictions."
+          },
+          {
+            "path": "main.py",
+            "line": 78,
+            "description": "Combines train and validation rows for refitting."
+          },
+          {
+            "path": "main.py",
+            "line": 84,
+            "description": "Refits the ensemble on the combined data."
+          },
+          {
+            "path": "main.py",
+            "line": 90,
+            "description": "Overwrites test_predictions.npy with the refit prediction."
+          }
+        ]
+      },
+      {
+        "kind": "architecture",
+        "statement": "The protected grader is the scoring boundary: it runs main.py in isolation, validates outputs, evaluates official RelBench validation metrics, and assembles per-tick rolling predictions in official row order.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 3,
+            "description": "Documents isolated candidate execution and official validation scoring."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 77,
+            "description": "Starts the candidate as a child subprocess."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 192,
+            "description": "Locates candidate prediction files."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 215,
+            "description": "Computes official metrics with task.evaluate."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 174,
+            "description": "Writes assembled rolling prediction vectors."
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "Every ordinary candidate run must produce both val_predictions.npy and test_predictions.npy, with rows positionally aligned to the corresponding RelBench validation and test tables; validation predictions must be out-of-sample and must not be trained on validation labels.",
+        "confidence": 1.0,
+        "evidence": [
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 15,
+            "description": "Requires both prediction files after every run."
+          },
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 16,
+            "description": "Requires positional row alignment."
+          },
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 17,
+            "description": "Requires validation predictions to be out-of-sample."
+          },
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 18,
+            "description": "Restricts use of validation labels in training."
+          },
+          {
+            "path": "main.py",
+            "line": 76,
+            "description": "Generates validation predictions before validation labels are added to the refit."
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "Non-recommendation predictions must be finite float vectors of shape (N,), with multiclass predictions using shape (N, C); binary predictions must be probabilities in the inclusive range [0, 1].",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 20,
+            "description": "Defines binary, regression, and multiclass output formats."
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 49,
+            "description": "Derives the expected multiclass shape."
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 54,
+            "description": "Rejects unexpected prediction shapes."
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 56,
+            "description": "Rejects non-finite prediction values."
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 58,
+            "description": "Checks binary prediction bounds."
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "Recommendation predictions must be integer arrays of shape (N, K), containing ranked destination IDs that are distinct within each row and lie in [0, num_dst).",
+        "confidence": 1.0,
+        "evidence": [
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 21,
+            "description": "Defines recommendation shape, dtype, ranking, uniqueness, and ID range."
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 38,
+            "description": "Checks recommendation shape."
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 40,
+            "description": "Checks recommendation integer dtype."
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 44,
+            "description": "Detects duplicate destination IDs per row."
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "The search score of record is the configured official validation primary metric; test labels and test metrics are unavailable inside this workspace.",
+        "confidence": 1.0,
+        "evidence": [
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 23,
+            "description": "Defines the official validation primary metric as the search score."
+          },
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 24,
+            "description": "States that test metrics are private."
+          },
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 26,
+            "description": "States that test labels are physically absent."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 283,
+            "description": "Places the selected primary validation metric in the manifest score."
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "For this F1 rolling task, the official score of record is validation MAE over all 499 validation rows, where lower is better; R2 and RMSE are reporting metrics only.",
+        "confidence": 1.0,
+        "evidence": [
+          {
+            "path": "kapso_evaluation/eval_profile.md",
+            "line": 7,
+            "description": "Defines validation MAE as the score of record and states that all validation rows are scored."
+          },
+          {
+            "path": "kapso_evaluation/eval_profile.md",
+            "line": 16,
+            "description": "Reports 499 validation rows."
+          },
+          {
+            "path": "kapso_evaluation/eval_profile.md",
+            "line": 43,
+            "description": "Reports the final MAE, R2, and RMSE over 499 rows."
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "RelBench data access must use the sanitized read-only cache with download=False, and candidate code must not probe for test labels.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 25,
+            "description": "Requires RelBench API access with download=False."
+          },
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 26,
+            "description": "Forbids probing for absent test labels."
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 60,
+            "description": "Documents loading from the sanitized cache."
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 71,
+            "description": "Loads the dataset with download=False."
+          },
+          {
+            "path": "main.py",
+            "line": 23,
+            "description": "Loads the dataset with download=False."
+          },
+          {
+            "path": "main.py",
+            "line": 24,
+            "description": "Loads the task with download=False."
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "The F1 model writes float64 NumPy predictions and clips each prediction to at least 1 and at most max(18, recent field-size mean plus 2).",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "rel_f1_model.py",
+            "line": 372,
+            "description": "Begins prediction upper-bound construction."
+          },
+          {
+            "path": "rel_f1_model.py",
+            "line": 376,
+            "description": "Clips predictions to the lower and dynamic upper bounds."
+          },
+          {
+            "path": "rel_f1_model.py",
+            "line": 382,
+            "description": "Returns float64 predictions."
+          },
+          {
+            "path": "main.py",
+            "line": 32,
+            "description": "Defines the output save helper."
+          },
+          {
+            "path": "main.py",
+            "line": 33,
+            "description": "Casts saved arrays to float64."
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "Rolling snapshots are evaluated causally: each invocation receives a tick-truncated database, already-closed training label windows, an empty validation table, and the current tick as test data.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "kapso_evaluation/eval_profile.md",
+            "line": 5,
+            "description": "Defines the per-tick input snapshot and closed-label training window."
+          },
+          {
+            "path": "PLAN.md",
+            "line": 7,
+            "description": "Requires feature records to be dated at or before each seed time."
+          },
+          {
+            "path": "rel_f1_model.py",
+            "line": 61,
+            "description": "Bounds temporal history selection by the seed timestamp."
+          }
+        ]
+      },
+      {
+        "kind": "other",
+        "statement": "After writing predictions, run `python kapso_datasets/check_predictions.py` to verify required files, row counts, shapes, dtypes, finiteness, and binary probability bounds before official scoring.",
+        "confidence": 1.0,
+        "evidence": [
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 27,
+            "description": "Recommends the prediction checker for pre-validation."
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 30,
+            "description": "Checks both validation and test splits."
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 35,
+            "description": "Loads prediction files without pickle."
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 62,
+            "description": "Prints per-split successful checks."
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 69,
+            "description": "Prints the all-checks-passed result."
+          }
+        ]
+      },
+      {
+        "kind": "other",
+        "statement": "Use the grader's fast fidelity mode as the end-to-end dry run; it invokes the candidate with --debug while still scoring the complete official validation split.",
+        "confidence": 1.0,
+        "evidence": [
+          {
+            "path": "kapso_evaluation/README.md",
+            "line": 7,
+            "description": "Documents delegation to the grader CLI."
+          },
+          {
+            "path": "kapso_evaluation/README.md",
+            "line": 22,
+            "description": "Defines fast fidelity as main.py --debug."
+          },
+          {
+            "path": "kapso_evaluation/README.md",
+            "line": 23,
+            "description": "States that fast mode still scores the complete validation split."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 70,
+            "description": "Adds --debug for fast fidelity."
+          },
+          {
+            "path": "kapso_evaluation/eval_profile.md",
+            "line": 7,
+            "description": "Confirms that both fast and full fidelity score every validation row."
+          }
+        ]
+      },
+      {
+        "kind": "other",
+        "statement": "A successful official evaluation prints validation metrics and a machine-readable KAPSO_EVAL_MANIFEST whose score is the configured primary metric.",
+        "confidence": 1.0,
+        "evidence": [
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 274,
+            "description": "Prints official validation metrics."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 283,
+            "description": "Sets the manifest score to the primary validation metric."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 285,
+            "description": "Prints the machine-readable manifest line."
+          }
+        ]
+      },
+      {
+        "kind": "other",
+        "statement": "The frozen registered full run completed all 56 rolling invocations and achieved validation R2 0.436914, MAE 2.681566, and RMSE 3.478866 over 499 rows.",
+        "confidence": 1.0,
+        "evidence": [
+          {
+            "path": "kapso_evaluation/eval_profile.md",
+            "line": 43,
+            "description": "Records the completed 56-invocation run and official metrics."
+          },
+          {
+            "path": "changes.log",
+            "line": 11,
+            "description": "Records the archived run_0002 metrics."
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "main.py identifies rolling mode solely from len(val) == 0. In rolling debug runs it restricts training to the most recent 20 years, enables the shared cache, emits only current test predictions, and skips val_predictions.npy.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 46,
+            "description": "Determines rolling mode from an empty validation table."
+          },
+          {
+            "path": "main.py",
+            "line": 49,
+            "description": "Applies the rolling debug branch."
+          },
+          {
+            "path": "main.py",
+            "line": 51,
+            "description": "Limits rolling debug training to a 20-year window."
+          },
+          {
+            "path": "main.py",
+            "line": 55,
+            "description": "Enables cached features according to rolling mode."
+          },
+          {
+            "path": "main.py",
+            "line": 63,
+            "description": "Always writes the current test predictions."
+          },
+          {
+            "path": "main.py",
+            "line": 74,
+            "description": "Guards validation output and refitting behind non-rolling mode."
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "main.py explicitly requests get_db(upto_test_timestamp=False), but rolling evaluation remains safe because the protected evaluator supplies a database snapshot truncated at the current tick and the feature builder enforces seed-time history cutoffs.",
+        "confidence": 0.98,
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 25,
+            "description": "Requests the database without the default test-timestamp cutoff."
+          },
+          {
+            "path": "kapso_evaluation/eval_profile.md",
+            "line": 5,
+            "description": "States that every rolling invocation receives a tick-truncated database."
+          },
+          {
+            "path": "rel_f1_model.py",
+            "line": 61,
+            "description": "Selects only history through the requested timestamp."
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "The cache path defaults to output_data_generic_exp_0 unless KAPSO_SHARED_CACHE_DIR is set, and the fixed cache key is lane0_driver_position_temporal_rank_v3; stale or incompatible files at that location can affect rolling feature resolution.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 54,
+            "description": "Defines the shared-cache environment variable and default directory."
+          },
+          {
+            "path": "rel_f1_model.py",
+            "line": 22,
+            "description": "Defines the fixed feature cache key."
+          },
+          {
+            "path": "rel_f1_model.py",
+            "line": 224,
+            "description": "Builds the cache path from the fixed key."
+          },
+          {
+            "path": "rel_f1_model.py",
+            "line": 260,
+            "description": "Fails if requested rows cannot be resolved from the cache."
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "Debug and full inference use materially different iteration counts: LightGBM uses 80 versus 420 estimators and CatBoost uses 80 versus 240, so debug scores are a speed preflight rather than a final-fidelity estimate.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "rel_f1_model.py",
+            "line": 325,
+            "description": "Selects LightGBM iteration counts by debug mode."
+          },
+          {
+            "path": "rel_f1_model.py",
+            "line": 326,
+            "description": "Selects CatBoost iteration counts by debug mode."
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "For autocomplete tasks, load_task defaults to a database limited through the test timestamp; pass upto_test_timestamp=False when post-test-cutoff entity rows are needed as inputs because their targets are blanked.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 60,
+            "description": "Shows the default upto_test_timestamp=True."
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 63,
+            "description": "Specifies the autocomplete exception."
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 64,
+            "description": "Explains that post-cutoff targets are blanked inputs."
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "The prediction checker reports out-of-range recommendation IDs and duplicate IDs as warnings rather than failing immediately, even though the evaluation contract requires valid ranked destination IDs.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 21,
+            "description": "Requires valid, distinct recommendation IDs."
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 42,
+            "description": "Checks recommendation ID bounds."
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 43,
+            "description": "Prints a warning for out-of-range IDs."
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 46,
+            "description": "Prints a warning for duplicate IDs."
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "The grader's fraction and seed arguments do not subsample validation rows: fast mode changes only the candidate invocation, while the complete official validation set remains scored.",
+        "confidence": 1.0,
+        "evidence": [
+          {
+            "path": "kapso_evaluation/README.md",
+            "line": 22,
+            "description": "Defines fast mode as the candidate debug build."
+          },
+          {
+            "path": "kapso_evaluation/README.md",
+            "line": 23,
+            "description": "States that fast mode still scores the complete validation split."
+          }
+        ]
+      },
+      {
+        "kind": "dependency",
+        "statement": "The candidate runtime depends on RelBench dataset/task APIs, NumPy, pandas, and the local rel_f1_model module.",
+        "confidence": 1.0,
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 9,
+            "description": "Imports NumPy."
+          },
+          {
+            "path": "main.py",
+            "line": 10,
+            "description": "Imports pandas."
+          },
+          {
+            "path": "main.py",
+            "line": 11,
+            "description": "Imports the RelBench dataset API."
+          },
+          {
+            "path": "main.py",
+            "line": 12,
+            "description": "Imports the RelBench task API."
+          },
+          {
+            "path": "main.py",
+            "line": 14,
+            "description": "Imports the F1 feature and model functions."
+          }
+        ]
+      },
+      {
+        "kind": "dependency",
+        "statement": "Model fitting lazily requires CatBoost and LightGBM; OMP_NUM_THREADS controls both LightGBM and CatBoost thread counts.",
+        "confidence": 1.0,
+        "evidence": [
+          {
+            "path": "rel_f1_model.py",
+            "line": 320,
+            "description": "Imports CatBoostRegressor during fitting."
+          },
+          {
+            "path": "rel_f1_model.py",
+            "line": 321,
+            "description": "Imports LGBMRegressor during fitting."
+          },
+          {
+            "path": "rel_f1_model.py",
+            "line": 342,
+            "description": "Reads OMP_NUM_THREADS for LightGBM."
+          },
+          {
+            "path": "rel_f1_model.py",
+            "line": 362,
+            "description": "Reads OMP_NUM_THREADS for CatBoost."
+          }
+        ]
+      },
+      {
+        "kind": "dependency",
+        "statement": "Evaluation supplies RELBENCH_DATASET, RELBENCH_TASK, and KAPSO_RUN_DATA_DIR; rolling feature reuse additionally uses KAPSO_SHARED_CACHE_DIR when configured.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 21,
+            "description": "Reads RELBENCH_DATASET."
+          },
+          {
+            "path": "main.py",
+            "line": 22,
+            "description": "Reads RELBENCH_TASK."
+          },
+          {
+            "path": "main.py",
+            "line": 39,
+            "description": "Reads KAPSO_RUN_DATA_DIR."
+          },
+          {
+            "path": "main.py",
+            "line": 54,
+            "description": "Reads KAPSO_SHARED_CACHE_DIR with a default fallback."
+          }
+        ]
+      },
+      {
+        "kind": "model_selection",
+        "statement": "The selected model uses 358 compact features, a 70% cohort-centered LightGBM plus 30% MAE CatBoost ensemble, and a 20% cohort-mean correction; alternatives were rejected using training-only forward resampling.",
+        "confidence": 0.98,
+        "evidence": [
+          {
+            "path": "changes.log",
+            "line": 7,
+            "description": "Records the compact feature count, ensemble weights, selection method, and cohort correction."
+          },
+          {
+            "path": "changes.log",
+            "line": 8,
+            "description": "Records the rejected model and feature variants."
+          },
+          {
+            "path": "rel_f1_model.py",
+            "line": 366,
+            "description": "Implements the 70/30 ensemble blend."
+          },
+          {
+            "path": "rel_f1_model.py",
+            "line": 371,
+            "description": "Implements the cohort correction."
+          }
+        ]
+      },
+      {
+        "kind": "performance",
+        "statement": "The critical path is cached per-origin feature resolution: cache lookup takes about 3 seconds and a full candidate tick takes about 10.1-11.2 seconds, within the shared full-run budget.",
+        "confidence": 0.98,
+        "evidence": [
+          {
+            "path": "PLAN.md",
+            "line": 1,
+            "description": "Records measured candidate seconds and the revised target."
+          },
+          {
+            "path": "kapso_evaluation/eval_profile.md",
+            "line": 39,
+            "description": "Records cache resolution and full tick timings."
+          },
+          {
+            "path": "kapso_evaluation/eval_profile.md",
+            "line": 7,
+            "description": "Defines the 7,200-second full-fidelity shared budget."
+          }
+        ]
+      },
+      {
+        "kind": "evaluation",
+        "statement": "The sanctioned data contains 7,453 training rows across 254 origins, 499 validation rows across 23 origins, and 760 test rows across 33 origins; origin gaps are usually 60 days but can be irregular.",
+        "confidence": 1.0,
+        "evidence": [
+          {
+            "path": "kapso_evaluation/eval_profile.md",
+            "line": 13,
+            "description": "Defines the split distribution table."
+          },
+          {
+            "path": "kapso_evaluation/eval_profile.md",
+            "line": 15,
+            "description": "Reports training rows and origins."
+          },
+          {
+            "path": "kapso_evaluation/eval_profile.md",
+            "line": 16,
+            "description": "Reports validation rows and origins."
+          },
+          {
+            "path": "kapso_evaluation/eval_profile.md",
+            "line": 17,
+            "description": "Reports test rows and origins."
+          },
+          {
+            "path": "kapso_evaluation/eval_profile.md",
+            "line": 19,
+            "description": "Reports normal and irregular origin gaps."
+          }
+        ]
+      },
+      {
+        "kind": "diagnostic",
+        "statement": "Post-hoc diagnostics identify preseason months 1-3 as the largest loss regime, with MAE 3.5582 versus 2.3087 for midseason months 4-8; the dominant limitation is missing upcoming-season qualifying and race evidence.",
+        "confidence": 1.0,
+        "evidence": [
+          {
+            "path": "kapso_evaluation/eval_profile.md",
+            "line": 54,
+            "description": "Reports preseason diagnostic MAE."
+          },
+          {
+            "path": "kapso_evaluation/eval_profile.md",
+            "line": 55,
+            "description": "Reports midseason diagnostic MAE."
+          },
+          {
+            "path": "kapso_evaluation/eval_profile.md",
+            "line": 61,
+            "description": "Explains the preseason information limitation."
+          }
+        ]
+      },
+      {
+        "kind": "planning",
+        "statement": "Feature development should cover driver, constructor, standing, qualifying, race, calendar, closed-label, and within-cohort signals while avoiding future-circuit joins that are unavailable in legal snapshots.",
+        "confidence": 0.98,
+        "evidence": [
+          {
+            "path": "changes.log",
+            "line": 5,
+            "description": "Records the implemented causal feature families."
+          },
+          {
+            "path": "kapso_evaluation/eval_profile.md",
+            "line": 27,
+            "description": "Lists time and regulation coverage axes."
+          },
+          {
+            "path": "kapso_evaluation/eval_profile.md",
+            "line": 28,
+            "description": "Lists driver evidence coverage axes."
+          },
+          {
+            "path": "kapso_evaluation/eval_profile.md",
+            "line": 29,
+            "description": "Lists team evidence coverage axes."
+          },
+          {
+            "path": "kapso_evaluation/eval_profile.md",
+            "line": 35,
+            "description": "Explains why future circuit joins are unknowable."
+          }
+        ]
+      }
+    ]
+  },
+  "book": {
+    "summary": "This repository is a RelBench Formula 1 position-regression candidate. main.py now performs temporally causal feature construction, shared rolling feature caching, LightGBM/CatBoost ensemble prediction, validation output, and train-plus-validation test refitting. The registered full rolling evaluation completed 56 invocations with validation MAE 2.681566 over 499 rows.",
+    "toc": [
+      {
+        "id": "core.architecture",
+        "title": "Architecture",
+        "one_liner": "Temporal feature construction feeds an ensemble regressor through ordinary or rolling evaluation paths"
+      },
+      {
+        "id": "core.entrypoints",
+        "title": "Entrypoints",
+        "one_liner": "Commands for candidate and registered evaluation runs"
+      },
+      {
+        "id": "core.where_to_edit",
+        "title": "Where to edit",
+        "one_liner": "Primary candidate logic and protected evaluation boundaries"
+      },
+      {
+        "id": "core.invariants",
+        "title": "Invariants",
+        "one_liner": "Output contracts, temporal safety, and evaluation requirements"
+      },
+      {
+        "id": "core.testing",
+        "title": "Testing",
+        "one_liner": "Use the prediction checker and registered fast/full evaluators"
+      },
+      {
+        "id": "core.gotchas",
+        "title": "Gotchas",
+        "one_liner": "Rolling mode, cache provenance, refitting, and evaluation edge cases"
+      },
+      {
+        "id": "core.dependencies",
+        "title": "Dependencies",
+        "one_liner": "RelBench data access plus NumPy/pandas and tree-ensemble runtimes"
+      },
+      {
+        "id": "opt.f1_evaluation",
+        "title": "F1 evaluation profile",
+        "one_liner": "Rolling coverage, data distribution, and post-hoc diagnostic guidance"
+      },
+      {
+        "id": "opt.f1_model",
+        "title": "F1 model recipe",
+        "one_liner": "Frozen compact ensemble selected through forward-origin resampling"
+      }
+    ],
+    "sections": {
+      "core.architecture": {
+        "title": "Architecture",
+        "one_liner": "Temporal feature construction feeds an ensemble regressor through ordinary or rolling evaluation paths",
+        "claims": [
+          {
+            "kind": "architecture",
+            "statement": "main.py is the candidate orchestrator: it reads the RelBench dataset and task from environment variables, loads them without downloading, obtains train/validation/test tables and the database, builds features, fits predictions, and writes outputs under KAPSO_RUN_DATA_DIR.",
+            "confidence": 1.0,
+            "evidence": [
+              {
+                "path": "main.py",
+                "line": 20,
+                "description": "Defines the dataset and task loading helper."
+              },
+              {
+                "path": "main.py",
+                "line": 21,
+                "description": "Reads RELBENCH_DATASET."
+              },
+              {
+                "path": "main.py",
+                "line": 22,
+                "description": "Reads RELBENCH_TASK."
+              },
+              {
+                "path": "main.py",
+                "line": 23,
+                "description": "Loads the dataset with download=False."
+              },
+              {
+                "path": "main.py",
+                "line": 24,
+                "description": "Loads the task with download=False."
+              },
+              {
+                "path": "main.py",
+                "line": 25,
+                "description": "Builds the database with upto_test_timestamp=False."
+              },
+              {
+                "path": "main.py",
+                "line": 41,
+                "description": "Loads task data and database before feature construction."
+              },
+              {
+                "path": "main.py",
+                "line": 55,
+                "description": "Builds cached training features."
+              },
+              {
+                "path": "main.py",
+                "line": 62,
+                "description": "Fits the model and predicts the test rows."
+              },
+              {
+                "path": "main.py",
+                "line": 63,
+                "description": "Saves test_predictions.npy."
+              }
+            ]
+          },
+          {
+            "kind": "architecture",
+            "statement": "FeatureBuilder owns the F1 feature pipeline: it snapshots database tables and prepares entities, results, task labels, standings, qualifying data, and races; its history slicing selects observations at or before each seed timestamp.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "rel_f1_model.py",
+                "line": 52,
+                "description": "Defines the temporal history slicer."
+              },
+              {
+                "path": "rel_f1_model.py",
+                "line": 61,
+                "description": "Uses timestamp-bounded search to select historical rows."
+              },
+              {
+                "path": "rel_f1_model.py",
+                "line": 155,
+                "description": "Defines FeatureBuilder."
+              },
+              {
+                "path": "rel_f1_model.py",
+                "line": 159,
+                "description": "Copies all database tables into the builder."
+              },
+              {
+                "path": "rel_f1_model.py",
+                "line": 160,
+                "description": "Prepares entity metadata."
+              },
+              {
+                "path": "rel_f1_model.py",
+                "line": 161,
+                "description": "Prepares race result features."
+              },
+              {
+                "path": "rel_f1_model.py",
+                "line": 162,
+                "description": "Prepares closed task labels."
+              },
+              {
+                "path": "rel_f1_model.py",
+                "line": 163,
+                "description": "Prepares standings."
+              },
+              {
+                "path": "rel_f1_model.py",
+                "line": 164,
+                "description": "Prepares qualifying data."
+              },
+              {
+                "path": "rel_f1_model.py",
+                "line": 165,
+                "description": "Prepares race metadata."
+              },
+              {
+                "path": "PLAN.md",
+                "line": 7,
+                "description": "Requires features to use records dated at or before each seed time."
+              }
+            ]
+          },
+          {
+            "kind": "architecture",
+            "statement": "Rolling invocations use a shared parquet feature cache keyed by seed date and driver ID. Missing rows are built by FeatureBuilder, appended to the cache, and committed through a temporary file plus atomic replacement.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "rel_f1_model.py",
+                "line": 215,
+                "description": "Defines the cached feature builder."
+              },
+              {
+                "path": "rel_f1_model.py",
+                "line": 224,
+                "description": "Uses the fixed shared cache filename."
+              },
+              {
+                "path": "rel_f1_model.py",
+                "line": 225,
+                "description": "Constructs cache keys from date and driver ID."
+              },
+              {
+                "path": "rel_f1_model.py",
+                "line": 241,
+                "description": "Checks which requested rows are already cached."
+              },
+              {
+                "path": "rel_f1_model.py",
+                "line": 249,
+                "description": "Builds missing feature groups."
+              },
+              {
+                "path": "rel_f1_model.py",
+                "line": 255,
+                "description": "Creates a process-specific temporary parquet path."
+              },
+              {
+                "path": "rel_f1_model.py",
+                "line": 257,
+                "description": "Atomically replaces the shared cache."
+              },
+              {
+                "path": "main.py",
+                "line": 54,
+                "description": "Selects KAPSO_SHARED_CACHE_DIR or its default."
+              },
+              {
+                "path": "main.py",
+                "line": 55,
+                "description": "Enables cached features only for rolling runs."
+              },
+              {
+                "path": "changes.log",
+                "line": 6,
+                "description": "Records the temporally censored shared cache artifact."
+              }
+            ]
+          },
+          {
+            "kind": "architecture",
+            "statement": "fit_predict compacts the feature set, trains a cohort-centered LightGBM regressor and a CatBoost MAE regressor, blends them 70/30, applies a within-seed cohort correction, clips predictions, and returns diagnostic component predictions.",
+            "confidence": 1.0,
+            "evidence": [
+              {
+                "path": "rel_f1_model.py",
+                "line": 292,
+                "description": "Defines compact feature selection."
+              },
+              {
+                "path": "rel_f1_model.py",
+                "line": 314,
+                "description": "Defines the ensemble prediction function."
+              },
+              {
+                "path": "rel_f1_model.py",
+                "line": 329,
+                "description": "Constructs the LightGBM model."
+              },
+              {
+                "path": "rel_f1_model.py",
+                "line": 345,
+                "description": "Fits LightGBM to targets centered on cohort position."
+              },
+              {
+                "path": "rel_f1_model.py",
+                "line": 352,
+                "description": "Constructs the CatBoost MAE model."
+              },
+              {
+                "path": "rel_f1_model.py",
+                "line": 364,
+                "description": "Fits CatBoost with categorical columns."
+              },
+              {
+                "path": "rel_f1_model.py",
+                "line": 366,
+                "description": "Blends LightGBM and CatBoost predictions at 70/30."
+              },
+              {
+                "path": "rel_f1_model.py",
+                "line": 367,
+                "description": "Groups predictions by seed year and day of year."
+              },
+              {
+                "path": "rel_f1_model.py",
+                "line": 371,
+                "description": "Applies the within-cohort mean correction."
+              },
+              {
+                "path": "rel_f1_model.py",
+                "line": 376,
+                "description": "Clips predictions to the allowed range."
+              },
+              {
+                "path": "rel_f1_model.py",
+                "line": 377,
+                "description": "Collects model components for diagnostics."
+              }
+            ]
+          },
+          {
+            "kind": "architecture",
+            "statement": "Ordinary runs first fit on training rows to generate validation predictions, then refit on train plus validation labels to produce the final test predictions; rolling runs skip validation output and predict only the current test snapshot.",
+            "confidence": 1.0,
+            "evidence": [
+              {
+                "path": "main.py",
+                "line": 46,
+                "description": "Identifies rolling mode from an empty validation table."
+              },
+              {
+                "path": "main.py",
+                "line": 61,
+                "description": "Extracts the training target."
+              },
+              {
+                "path": "main.py",
+                "line": 62,
+                "description": "Produces the initial test prediction."
+              },
+              {
+                "path": "main.py",
+                "line": 74,
+                "description": "Branches ordinary-run validation and refit logic."
+              },
+              {
+                "path": "main.py",
+                "line": 75,
+                "description": "Builds validation features."
+              },
+              {
+                "path": "main.py",
+                "line": 76,
+                "description": "Predicts validation rows from training-only features."
+              },
+              {
+                "path": "main.py",
+                "line": 77,
+                "description": "Saves validation predictions."
+              },
+              {
+                "path": "main.py",
+                "line": 78,
+                "description": "Combines train and validation rows for refitting."
+              },
+              {
+                "path": "main.py",
+                "line": 84,
+                "description": "Refits the ensemble on the combined data."
+              },
+              {
+                "path": "main.py",
+                "line": 90,
+                "description": "Overwrites test_predictions.npy with the refit prediction."
+              }
+            ]
+          },
+          {
+            "kind": "architecture",
+            "statement": "The protected grader is the scoring boundary: it runs main.py in isolation, validates outputs, evaluates official RelBench validation metrics, and assembles per-tick rolling predictions in official row order.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 3,
+                "description": "Documents isolated candidate execution and official validation scoring."
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 77,
+                "description": "Starts the candidate as a child subprocess."
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 192,
+                "description": "Locates candidate prediction files."
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 215,
+                "description": "Computes official metrics with task.evaluate."
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 174,
+                "description": "Writes assembled rolling prediction vectors."
+              }
+            ]
+          }
+        ]
+      },
+      "core.entrypoints": {
+        "title": "Entrypoints",
+        "one_liner": "Commands for candidate and registered evaluation runs",
+        "content": [
+          {
+            "path": "main.py",
+            "how_to_run": "From the repository root, run `python main.py --debug` for reduced model iterations or `python main.py` for the full candidate path; the evaluator supplies RELBENCH_DATASET, RELBENCH_TASK, and KAPSO_RUN_DATA_DIR.",
+            "evidence": [
+              {
+                "path": "main.py",
+                "line": 38,
+                "description": "Detects the --debug flag."
+              },
+              {
+                "path": "main.py",
+                "line": 39,
+                "description": "Reads the output directory environment variable."
+              },
+              {
+                "path": "main.py",
+                "line": 102,
+                "description": "Provides the script entrypoint."
+              }
+            ]
+          },
+          {
+            "path": "kapso_evaluation/kapso_eval.py",
+            "how_to_run": "Use the registered `kapso_evaluation/kapso_eval.py` entrypoint for fast or full rolling evaluation.",
+            "evidence": [
+              {
+                "path": "kapso_evaluation/eval_profile.md",
+                "line": 5,
+                "description": "Identifies the registered entrypoint and its per-tick execution."
+              }
+            ]
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "how_to_run": "The direct grader CLI supports `python kapso_evaluation/grader.py --fidelity fast` or `--fidelity full`, with optional `--fraction F` and `--seed S`."
+          }
+        ]
+      },
+      "core.where_to_edit": {
+        "title": "Where to edit",
+        "one_liner": "Primary candidate logic and protected evaluation boundaries",
+        "content": [
+          {
+            "path": "main.py",
+            "role": "Candidate orchestration: task loading, rolling detection, cache selection, validation prediction, train-plus-validation refit, output writing, and diagnostics.",
+            "evidence": [
+              {
+                "path": "main.py",
+                "line": 36,
+                "description": "Defines the main candidate workflow."
+              },
+              {
+                "path": "main.py",
+                "line": 94,
+                "description": "Adds elapsed-time diagnostics."
+              }
+            ]
+          },
+          {
+            "path": "rel_f1_model.py",
+            "role": "F1-specific temporal feature engineering, shared cache resolution, baseline diagnostics, LightGBM/CatBoost fitting, blending, correction, and clipping.",
+            "evidence": [
+              {
+                "path": "rel_f1_model.py",
+                "line": 155,
+                "description": "Defines the feature builder."
+              },
+              {
+                "path": "rel_f1_model.py",
+                "line": 215,
+                "description": "Defines cached feature resolution."
+              },
+              {
+                "path": "rel_f1_model.py",
+                "line": 314,
+                "description": "Defines model fitting and prediction."
+              }
+            ]
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "role": "Reusable RelBench loader, prediction saver, temporal-safety guard, and MAP@K utility."
+          },
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "role": "Evaluation contract reference for output files, shapes, dtypes, data access, and validation safety."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "role": "Immutable scoring and isolation pipeline; do not modify as part of candidate solution work."
+          }
+        ]
+      },
+      "core.invariants": {
+        "title": "Invariants",
+        "one_liner": "Output contracts, temporal safety, and evaluation requirements",
+        "claims": [
+          {
+            "kind": "contract",
+            "statement": "Every ordinary candidate run must produce both val_predictions.npy and test_predictions.npy, with rows positionally aligned to the corresponding RelBench validation and test tables; validation predictions must be out-of-sample and must not be trained on validation labels.",
+            "confidence": 1.0,
+            "evidence": [
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 15,
+                "description": "Requires both prediction files after every run."
+              },
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 16,
+                "description": "Requires positional row alignment."
+              },
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 17,
+                "description": "Requires validation predictions to be out-of-sample."
+              },
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 18,
+                "description": "Restricts use of validation labels in training."
+              },
+              {
+                "path": "main.py",
+                "line": 76,
+                "description": "Generates validation predictions before validation labels are added to the refit."
+              }
+            ]
+          },
+          {
+            "kind": "contract",
+            "statement": "Non-recommendation predictions must be finite float vectors of shape (N,), with multiclass predictions using shape (N, C); binary predictions must be probabilities in the inclusive range [0, 1].",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 20,
+                "description": "Defines binary, regression, and multiclass output formats."
+              },
+              {
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 49,
+                "description": "Derives the expected multiclass shape."
+              },
+              {
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 54,
+                "description": "Rejects unexpected prediction shapes."
+              },
+              {
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 56,
+                "description": "Rejects non-finite prediction values."
+              },
+              {
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 58,
+                "description": "Checks binary prediction bounds."
+              }
+            ]
+          },
+          {
+            "kind": "contract",
+            "statement": "Recommendation predictions must be integer arrays of shape (N, K), containing ranked destination IDs that are distinct within each row and lie in [0, num_dst).",
+            "confidence": 1.0,
+            "evidence": [
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 21,
+                "description": "Defines recommendation shape, dtype, ranking, uniqueness, and ID range."
+              },
+              {
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 38,
+                "description": "Checks recommendation shape."
+              },
+              {
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 40,
+                "description": "Checks recommendation integer dtype."
+              },
+              {
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 44,
+                "description": "Detects duplicate destination IDs per row."
+              }
+            ]
+          },
+          {
+            "kind": "contract",
+            "statement": "The search score of record is the configured official validation primary metric; test labels and test metrics are unavailable inside this workspace.",
+            "confidence": 1.0,
+            "evidence": [
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 23,
+                "description": "Defines the official validation primary metric as the search score."
+              },
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 24,
+                "description": "States that test metrics are private."
+              },
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 26,
+                "description": "States that test labels are physically absent."
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 283,
+                "description": "Places the selected primary validation metric in the manifest score."
+              }
+            ]
+          },
+          {
+            "kind": "contract",
+            "statement": "For this F1 rolling task, the official score of record is validation MAE over all 499 validation rows, where lower is better; R2 and RMSE are reporting metrics only.",
+            "confidence": 1.0,
+            "evidence": [
+              {
+                "path": "kapso_evaluation/eval_profile.md",
+                "line": 7,
+                "description": "Defines validation MAE as the score of record and states that all validation rows are scored."
+              },
+              {
+                "path": "kapso_evaluation/eval_profile.md",
+                "line": 16,
+                "description": "Reports 499 validation rows."
+              },
+              {
+                "path": "kapso_evaluation/eval_profile.md",
+                "line": 43,
+                "description": "Reports the final MAE, R2, and RMSE over 499 rows."
+              }
+            ]
+          },
+          {
+            "kind": "contract",
+            "statement": "RelBench data access must use the sanitized read-only cache with download=False, and candidate code must not probe for test labels.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 25,
+                "description": "Requires RelBench API access with download=False."
+              },
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 26,
+                "description": "Forbids probing for absent test labels."
+              },
+              {
+                "path": "kapso_datasets/common.py",
+                "line": 60,
+                "description": "Documents loading from the sanitized cache."
+              },
+              {
+                "path": "kapso_datasets/common.py",
+                "line": 71,
+                "description": "Loads the dataset with download=False."
+              },
+              {
+                "path": "main.py",
+                "line": 23,
+                "description": "Loads the dataset with download=False."
+              },
+              {
+                "path": "main.py",
+                "line": 24,
+                "description": "Loads the task with download=False."
+              }
+            ]
+          },
+          {
+            "kind": "contract",
+            "statement": "The F1 model writes float64 NumPy predictions and clips each prediction to at least 1 and at most max(18, recent field-size mean plus 2).",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "rel_f1_model.py",
+                "line": 372,
+                "description": "Begins prediction upper-bound construction."
+              },
+              {
+                "path": "rel_f1_model.py",
+                "line": 376,
+                "description": "Clips predictions to the lower and dynamic upper bounds."
+              },
+              {
+                "path": "rel_f1_model.py",
+                "line": 382,
+                "description": "Returns float64 predictions."
+              },
+              {
+                "path": "main.py",
+                "line": 32,
+                "description": "Defines the output save helper."
+              },
+              {
+                "path": "main.py",
+                "line": 33,
+                "description": "Casts saved arrays to float64."
+              }
+            ]
+          },
+          {
+            "kind": "contract",
+            "statement": "Rolling snapshots are evaluated causally: each invocation receives a tick-truncated database, already-closed training label windows, an empty validation table, and the current tick as test data.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "kapso_evaluation/eval_profile.md",
+                "line": 5,
+                "description": "Defines the per-tick input snapshot and closed-label training window."
+              },
+              {
+                "path": "PLAN.md",
+                "line": 7,
+                "description": "Requires feature records to be dated at or before each seed time."
+              },
+              {
+                "path": "rel_f1_model.py",
+                "line": 61,
+                "description": "Bounds temporal history selection by the seed timestamp."
+              }
+            ]
+          }
+        ]
+      },
+      "core.testing": {
+        "title": "Testing",
+        "one_liner": "Use the prediction checker and registered fast/full evaluators",
+        "claims": [
+          {
+            "kind": "other",
+            "statement": "After writing predictions, run `python kapso_datasets/check_predictions.py` to verify required files, row counts, shapes, dtypes, finiteness, and binary probability bounds before official scoring.",
+            "confidence": 1.0,
+            "evidence": [
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 27,
+                "description": "Recommends the prediction checker for pre-validation."
+              },
+              {
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 30,
+                "description": "Checks both validation and test splits."
+              },
+              {
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 35,
+                "description": "Loads prediction files without pickle."
+              },
+              {
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 62,
+                "description": "Prints per-split successful checks."
+              },
+              {
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 69,
+                "description": "Prints the all-checks-passed result."
+              }
+            ]
+          },
+          {
+            "kind": "other",
+            "statement": "Use the grader's fast fidelity mode as the end-to-end dry run; it invokes the candidate with --debug while still scoring the complete official validation split.",
+            "confidence": 1.0,
+            "evidence": [
+              {
+                "path": "kapso_evaluation/README.md",
+                "line": 7,
+                "description": "Documents delegation to the grader CLI."
+              },
+              {
+                "path": "kapso_evaluation/README.md",
+                "line": 22,
+                "description": "Defines fast fidelity as main.py --debug."
+              },
+              {
+                "path": "kapso_evaluation/README.md",
+                "line": 23,
+                "description": "States that fast mode still scores the complete validation split."
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 70,
+                "description": "Adds --debug for fast fidelity."
+              },
+              {
+                "path": "kapso_evaluation/eval_profile.md",
+                "line": 7,
+                "description": "Confirms that both fast and full fidelity score every validation row."
+              }
+            ]
+          },
+          {
+            "kind": "other",
+            "statement": "A successful official evaluation prints validation metrics and a machine-readable KAPSO_EVAL_MANIFEST whose score is the configured primary metric.",
+            "confidence": 1.0,
+            "evidence": [
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 274,
+                "description": "Prints official validation metrics."
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 283,
+                "description": "Sets the manifest score to the primary validation metric."
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 285,
+                "description": "Prints the machine-readable manifest line."
+              }
+            ]
+          },
+          {
+            "kind": "other",
+            "statement": "The frozen registered full run completed all 56 rolling invocations and achieved validation R2 0.436914, MAE 2.681566, and RMSE 3.478866 over 499 rows.",
+            "confidence": 1.0,
+            "evidence": [
+              {
+                "path": "kapso_evaluation/eval_profile.md",
+                "line": 43,
+                "description": "Records the completed 56-invocation run and official metrics."
+              },
+              {
+                "path": "changes.log",
+                "line": 11,
+                "description": "Records the archived run_0002 metrics."
+              }
+            ]
+          }
+        ]
+      },
+      "core.gotchas": {
+        "title": "Gotchas",
+        "one_liner": "Rolling mode, cache provenance, refitting, and evaluation edge cases",
+        "claims": [
+          {
+            "kind": "contract",
+            "statement": "main.py identifies rolling mode solely from len(val) == 0. In rolling debug runs it restricts training to the most recent 20 years, enables the shared cache, emits only current test predictions, and skips val_predictions.npy.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "main.py",
+                "line": 46,
+                "description": "Determines rolling mode from an empty validation table."
+              },
+              {
+                "path": "main.py",
+                "line": 49,
+                "description": "Applies the rolling debug branch."
+              },
+              {
+                "path": "main.py",
+                "line": 51,
+                "description": "Limits rolling debug training to a 20-year window."
+              },
+              {
+                "path": "main.py",
+                "line": 55,
+                "description": "Enables cached features according to rolling mode."
+              },
+              {
+                "path": "main.py",
+                "line": 63,
+                "description": "Always writes the current test predictions."
+              },
+              {
+                "path": "main.py",
+                "line": 74,
+                "description": "Guards validation output and refitting behind non-rolling mode."
+              }
+            ]
+          },
+          {
+            "kind": "contract",
+            "statement": "main.py explicitly requests get_db(upto_test_timestamp=False), but rolling evaluation remains safe because the protected evaluator supplies a database snapshot truncated at the current tick and the feature builder enforces seed-time history cutoffs.",
+            "confidence": 0.98,
+            "evidence": [
+              {
+                "path": "main.py",
+                "line": 25,
+                "description": "Requests the database without the default test-timestamp cutoff."
+              },
+              {
+                "path": "kapso_evaluation/eval_profile.md",
+                "line": 5,
+                "description": "States that every rolling invocation receives a tick-truncated database."
+              },
+              {
+                "path": "rel_f1_model.py",
+                "line": 61,
+                "description": "Selects only history through the requested timestamp."
+              }
+            ]
+          },
+          {
+            "kind": "contract",
+            "statement": "The cache path defaults to output_data_generic_exp_0 unless KAPSO_SHARED_CACHE_DIR is set, and the fixed cache key is lane0_driver_position_temporal_rank_v3; stale or incompatible files at that location can affect rolling feature resolution.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "main.py",
+                "line": 54,
+                "description": "Defines the shared-cache environment variable and default directory."
+              },
+              {
+                "path": "rel_f1_model.py",
+                "line": 22,
+                "description": "Defines the fixed feature cache key."
+              },
+              {
+                "path": "rel_f1_model.py",
+                "line": 224,
+                "description": "Builds the cache path from the fixed key."
+              },
+              {
+                "path": "rel_f1_model.py",
+                "line": 260,
+                "description": "Fails if requested rows cannot be resolved from the cache."
+              }
+            ]
+          },
+          {
+            "kind": "contract",
+            "statement": "Debug and full inference use materially different iteration counts: LightGBM uses 80 versus 420 estimators and CatBoost uses 80 versus 240, so debug scores are a speed preflight rather than a final-fidelity estimate.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "rel_f1_model.py",
+                "line": 325,
+                "description": "Selects LightGBM iteration counts by debug mode."
+              },
+              {
+                "path": "rel_f1_model.py",
+                "line": 326,
+                "description": "Selects CatBoost iteration counts by debug mode."
+              }
+            ]
+          },
+          {
+            "kind": "contract",
+            "statement": "For autocomplete tasks, load_task defaults to a database limited through the test timestamp; pass upto_test_timestamp=False when post-test-cutoff entity rows are needed as inputs because their targets are blanked.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "kapso_datasets/common.py",
+                "line": 60,
+                "description": "Shows the default upto_test_timestamp=True."
+              },
+              {
+                "path": "kapso_datasets/common.py",
+                "line": 63,
+                "description": "Specifies the autocomplete exception."
+              },
+              {
+                "path": "kapso_datasets/common.py",
+                "line": 64,
+                "description": "Explains that post-cutoff targets are blanked inputs."
+              }
+            ]
+          },
+          {
+            "kind": "contract",
+            "statement": "The prediction checker reports out-of-range recommendation IDs and duplicate IDs as warnings rather than failing immediately, even though the evaluation contract requires valid ranked destination IDs.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 21,
+                "description": "Requires valid, distinct recommendation IDs."
+              },
+              {
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 42,
+                "description": "Checks recommendation ID bounds."
+              },
+              {
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 43,
+                "description": "Prints a warning for out-of-range IDs."
+              },
+              {
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 46,
+                "description": "Prints a warning for duplicate IDs."
+              }
+            ]
+          },
+          {
+            "kind": "contract",
+            "statement": "The grader's fraction and seed arguments do not subsample validation rows: fast mode changes only the candidate invocation, while the complete official validation set remains scored.",
+            "confidence": 1.0,
+            "evidence": [
+              {
+                "path": "kapso_evaluation/README.md",
+                "line": 22,
+                "description": "Defines fast mode as the candidate debug build."
+              },
+              {
+                "path": "kapso_evaluation/README.md",
+                "line": 23,
+                "description": "States that fast mode still scores the complete validation split."
+              }
+            ]
+          }
+        ]
+      },
+      "core.dependencies": {
+        "title": "Dependencies",
+        "one_liner": "RelBench data access plus NumPy/pandas and tree-ensemble runtimes",
+        "claims": [
+          {
+            "kind": "dependency",
+            "statement": "The candidate runtime depends on RelBench dataset/task APIs, NumPy, pandas, and the local rel_f1_model module.",
+            "confidence": 1.0,
+            "evidence": [
+              {
+                "path": "main.py",
+                "line": 9,
+                "description": "Imports NumPy."
+              },
+              {
+                "path": "main.py",
+                "line": 10,
+                "description": "Imports pandas."
+              },
+              {
+                "path": "main.py",
+                "line": 11,
+                "description": "Imports the RelBench dataset API."
+              },
+              {
+                "path": "main.py",
+                "line": 12,
+                "description": "Imports the RelBench task API."
+              },
+              {
+                "path": "main.py",
+                "line": 14,
+                "description": "Imports the F1 feature and model functions."
+              }
+            ]
+          },
+          {
+            "kind": "dependency",
+            "statement": "Model fitting lazily requires CatBoost and LightGBM; OMP_NUM_THREADS controls both LightGBM and CatBoost thread counts.",
+            "confidence": 1.0,
+            "evidence": [
+              {
+                "path": "rel_f1_model.py",
+                "line": 320,
+                "description": "Imports CatBoostRegressor during fitting."
+              },
+              {
+                "path": "rel_f1_model.py",
+                "line": 321,
+                "description": "Imports LGBMRegressor during fitting."
+              },
+              {
+                "path": "rel_f1_model.py",
+                "line": 342,
+                "description": "Reads OMP_NUM_THREADS for LightGBM."
+              },
+              {
+                "path": "rel_f1_model.py",
+                "line": 362,
+                "description": "Reads OMP_NUM_THREADS for CatBoost."
+              }
+            ]
+          },
+          {
+            "kind": "dependency",
+            "statement": "Evaluation supplies RELBENCH_DATASET, RELBENCH_TASK, and KAPSO_RUN_DATA_DIR; rolling feature reuse additionally uses KAPSO_SHARED_CACHE_DIR when configured.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "main.py",
+                "line": 21,
+                "description": "Reads RELBENCH_DATASET."
+              },
+              {
+                "path": "main.py",
+                "line": 22,
+                "description": "Reads RELBENCH_TASK."
+              },
+              {
+                "path": "main.py",
+                "line": 39,
+                "description": "Reads KAPSO_RUN_DATA_DIR."
+              },
+              {
+                "path": "main.py",
+                "line": 54,
+                "description": "Reads KAPSO_SHARED_CACHE_DIR with a default fallback."
+              }
+            ]
+          }
+        ]
+      },
+      "opt.f1_model": {
+        "title": "F1 model recipe",
+        "one_liner": "Frozen compact ensemble selected through forward-origin resampling",
+        "claims": [
+          {
+            "kind": "model_selection",
+            "statement": "The selected model uses 358 compact features, a 70% cohort-centered LightGBM plus 30% MAE CatBoost ensemble, and a 20% cohort-mean correction; alternatives were rejected using training-only forward resampling.",
+            "confidence": 0.98,
+            "evidence": [
+              {
+                "path": "changes.log",
+                "line": 7,
+                "description": "Records the compact feature count, ensemble weights, selection method, and cohort correction."
+              },
+              {
+                "path": "changes.log",
+                "line": 8,
+                "description": "Records the rejected model and feature variants."
+              },
+              {
+                "path": "rel_f1_model.py",
+                "line": 366,
+                "description": "Implements the 70/30 ensemble blend."
+              },
+              {
+                "path": "rel_f1_model.py",
+                "line": 371,
+                "description": "Implements the cohort correction."
+              }
+            ]
+          },
+          {
+            "kind": "performance",
+            "statement": "The critical path is cached per-origin feature resolution: cache lookup takes about 3 seconds and a full candidate tick takes about 10.1-11.2 seconds, within the shared full-run budget.",
+            "confidence": 0.98,
+            "evidence": [
+              {
+                "path": "PLAN.md",
+                "line": 1,
+                "description": "Records measured candidate seconds and the revised target."
+              },
+              {
+                "path": "kapso_evaluation/eval_profile.md",
+                "line": 39,
+                "description": "Records cache resolution and full tick timings."
+              },
+              {
+                "path": "kapso_evaluation/eval_profile.md",
+                "line": 7,
+                "description": "Defines the 7,200-second full-fidelity shared budget."
+              }
+            ]
+          }
+        ]
+      },
+      "opt.f1_evaluation": {
+        "title": "F1 evaluation profile",
+        "one_liner": "Rolling coverage, data distribution, and post-hoc diagnostic guidance",
+        "claims": [
+          {
+            "kind": "evaluation",
+            "statement": "The sanctioned data contains 7,453 training rows across 254 origins, 499 validation rows across 23 origins, and 760 test rows across 33 origins; origin gaps are usually 60 days but can be irregular.",
+            "confidence": 1.0,
+            "evidence": [
+              {
+                "path": "kapso_evaluation/eval_profile.md",
+                "line": 13,
+                "description": "Defines the split distribution table."
+              },
+              {
+                "path": "kapso_evaluation/eval_profile.md",
+                "line": 15,
+                "description": "Reports training rows and origins."
+              },
+              {
+                "path": "kapso_evaluation/eval_profile.md",
+                "line": 16,
+                "description": "Reports validation rows and origins."
+              },
+              {
+                "path": "kapso_evaluation/eval_profile.md",
+                "line": 17,
+                "description": "Reports test rows and origins."
+              },
+              {
+                "path": "kapso_evaluation/eval_profile.md",
+                "line": 19,
+                "description": "Reports normal and irregular origin gaps."
+              }
+            ]
+          },
+          {
+            "kind": "diagnostic",
+            "statement": "Post-hoc diagnostics identify preseason months 1-3 as the largest loss regime, with MAE 3.5582 versus 2.3087 for midseason months 4-8; the dominant limitation is missing upcoming-season qualifying and race evidence.",
+            "confidence": 1.0,
+            "evidence": [
+              {
+                "path": "kapso_evaluation/eval_profile.md",
+                "line": 54,
+                "description": "Reports preseason diagnostic MAE."
+              },
+              {
+                "path": "kapso_evaluation/eval_profile.md",
+                "line": 55,
+                "description": "Reports midseason diagnostic MAE."
+              },
+              {
+                "path": "kapso_evaluation/eval_profile.md",
+                "line": 61,
+                "description": "Explains the preseason information limitation."
+              }
+            ]
+          },
+          {
+            "kind": "planning",
+            "statement": "Feature development should cover driver, constructor, standing, qualifying, race, calendar, closed-label, and within-cohort signals while avoiding future-circuit joins that are unavailable in legal snapshots.",
+            "confidence": 0.98,
+            "evidence": [
+              {
+                "path": "changes.log",
+                "line": 5,
+                "description": "Records the implemented causal feature families."
+              },
+              {
+                "path": "kapso_evaluation/eval_profile.md",
+                "line": 27,
+                "description": "Lists time and regulation coverage axes."
+              },
+              {
+                "path": "kapso_evaluation/eval_profile.md",
+                "line": 28,
+                "description": "Lists driver evidence coverage axes."
+              },
+              {
+                "path": "kapso_evaluation/eval_profile.md",
+                "line": 29,
+                "description": "Lists team evidence coverage axes."
+              },
+              {
+                "path": "kapso_evaluation/eval_profile.md",
+                "line": 35,
+                "description": "Explains why future circuit joins are unknowable."
+              }
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "experiments": [
+    {
+      "recorded_at": "2026-07-30T19:18:24.417268+00:00",
+      "branch": "generic_exp_0",
+      "parent_branch": "main",
+      "base_commit": "e3d37fd5097fd6f5e162b6368d87dfe11b076e11",
+      "head_commit": "fce1fb20369134bb9700f5717d3ec50a9cfaab45",
+      "code_head_commit": "fce1fb20369134bb9700f5717d3ec50a9cfaab45",
+      "solution_spec": "...",
+      "changed_files": [
+        "PLAN.md",
+        "changes.log",
+        "kapso_evaluation/eval_profile.md",
+        "main.py",
+        "rel_f1_model.py"
+      ],
+      "diff_numstat": [
+        {
+          "added": "10",
+          "deleted": "0",
+          "path": "PLAN.md"
+        },
+        {
+          "added": "12",
+          "deleted": "0",
+          "path": "changes.log"
+        },
+        {
+          "added": "61",
+          "deleted": "0",
+          "path": "kapso_evaluation/eval_profile.md"
+        },
+        {
+          "added": "83",
+          "deleted": "41",
+          "path": "main.py"
+        },
+        {
+          "added": "765",
+          "deleted": "0",
+          "path": "rel_f1_model.py"
+        }
+      ],
+      "run_result": {
+        "score": 0,
+        "run_had_error": false,
+        "error_message": "",
+        "error_details": "",
+        "feedbacks": "",
+        "ideation_repo_memory_sections_consulted": [],
+        "repo_memory_sections_consulted": [
+          "core.architecture",
+          "core.entrypoints",
+          "core.invariants",
+          "core.where_to_edit"
+        ]
+      }
+    }
+  ],
+  "quality": {
+    "evidence_ok": true,
+    "missing_evidence": [],
+    "section_count": 9,
+    "claim_count": 33
+  }
+}

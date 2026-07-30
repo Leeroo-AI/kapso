@@ -1,0 +1,57 @@
+{
+  "dataset": "rel-f1",
+  "task": "driver-position",
+  "family": "entity_regression",
+  "primary_metric": "mae",
+  "selected_by": "best validation mae",
+  "run": "run_0006",
+  "val_metrics": {
+    "r2": 0.44250723252658863,
+    "mae": 2.6708640633558476,
+    "rmse": 3.461544414858101
+  },
+  "test_metrics": {
+    "r2": 0.644723346474652,
+    "mae": 2.417166837514724,
+    "rmse": 3.105654865772113
+  },
+  "audit": {
+    "clean": false,
+    "findings": [
+      {
+        "file": "main.py",
+        "line": 35,
+        "pattern": "mask_input_cols\\s*=\\s*False",
+        "concern": "unmasks task tables (test labels)",
+        "snippet": "train = task.get_table(\"train\", mask_input_cols=False).df.copy()"
+      },
+      {
+        "file": "main.py",
+        "line": 36,
+        "pattern": "mask_input_cols\\s*=\\s*False",
+        "concern": "unmasks task tables (test labels)",
+        "snippet": "val = task.get_table(\"val\", mask_input_cols=False).df.copy()"
+      },
+      {
+        "file": "main.py",
+        "line": 141,
+        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
+        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
+        "snippet": "combined = pd.concat([train, val], ignore_index=True)"
+      },
+      {
+        "file": "main.py",
+        "line": 34,
+        "pattern": "upto_test_timestamp\\s*=\\s*False",
+        "concern": "requests untruncated database",
+        "snippet": "db = dataset.get_db(upto_test_timestamp=False)"
+      }
+    ],
+    "note": "static scan; manually review flagged lines before publishing results. 'verify:' findings are advisory OOS-contract review hooks (legal patterns that warrant tracing), not violations."
+  },
+  "code_path": "/home/ubuntu/kapso/tmp/relbench/rel-f1--driver-position/runs/run_0006/code",
+  "predictions": {
+    "val": "/home/ubuntu/kapso/tmp/relbench/rel-f1--driver-position/runs/run_0006/val_predictions.npy",
+    "test": "/home/ubuntu/kapso/tmp/relbench/rel-f1--driver-position/runs/run_0006/test_predictions.npy"
+  }
+}
