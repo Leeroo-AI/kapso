@@ -306,6 +306,31 @@ FEATURE_ENGINEERING_NOTE = (
     "iteration budget."
 )
 
+ROLLING_CONTRACT_NOTE = (
+    "This task's eval timestamps roll YEARS past the database freeze, so it is "
+    "evaluated tick-by-tick under per-row seed-time censoring (the same regime "
+    "the published bars were set in). The evaluation invokes your `main.py` "
+    "ONCE PER TICK. On each invocation:\n"
+    "- $RELBENCH_CACHE_DIR is a snapshot containing ONLY data dated <= that "
+    "tick: db tables truncated at the tick; `train.parquet` = every label "
+    "window already CLOSED by the tick (fully labeled — train on it); "
+    "`test.parquet` = just that tick's rows (inputs only).\n"
+    "- Write predictions for the cache's test table rows, in order, to "
+    "$KAPSO_RUN_DATA_DIR/test_predictions.npy. Do NOT write "
+    "val_predictions.npy — the grader assembles ticks itself.\n"
+    "- Later ticks see more history (earlier windows' outcomes are ordinary "
+    "closed results by then): recompute features per tick; retraining per tick "
+    "is allowed and usually pays.\n"
+    "- Budget: the per-run timeout covers ALL ticks together (~56 invocations); "
+    "`--debug` must finish a tick in a few seconds (subsample origins/trees). "
+    "Cache expensive per-origin artifacts in $KAPSO_SHARED_CACHE_DIR keyed by "
+    "origin date — snapshots grow monotonically, so earlier-origin features "
+    "are reusable verbatim across ticks.\n"
+    "- Never try to locate other ticks' snapshots or the rolling root: each "
+    "invocation legally sees its own snapshot only, and reaching outside it "
+    "is flagged by the audit."
+)
+
 LIVING_DOCUMENTS_NOTE = (
     "Two agent-maintained files live in the shared artifact workspace "
     "($KAPSO_SHARED_CACHE_DIR) and persist across iterations and campaigns:\n"

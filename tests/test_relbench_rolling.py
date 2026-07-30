@@ -30,6 +30,18 @@ def test_rolling_detection_matches_protocol_set():
     assert rolling == PROTOCOL_SENSITIVE_TASKS
 
 
+def test_rolling_contract_note_in_context():
+    """Regression: the rolling contract must exist and be wired into
+    build_problem_context (a constants-block edit once deleted it and only
+    live rolling-task runs would have caught the NameError)."""
+    import inspect
+
+    from benchmarks.relbench.context import ROLLING_CONTRACT_NOTE, build_problem_context
+
+    assert "ONCE PER TICK" in ROLLING_CONTRACT_NOTE
+    assert "ROLLING_CONTRACT_NOTE" in inspect.getsource(build_problem_context)
+
+
 def test_grader_rolling_assembly(tmp_path):
     """Two fake ticks, interleaved official positions: the assembled vector must
     place each tick's predictions at its indices.npy positions."""
