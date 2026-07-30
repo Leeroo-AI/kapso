@@ -143,6 +143,32 @@ restart, or pass `--resume` to continue the existing one.
 ### I-7 (OPEN) — end-to-end submission budgeting
 **Symptom:** run 2 pushed its first kernels at 12:50/12:53 against a 12:59 end —
 no margin to submit and score. Result: **0 submissions** despite ~93 min of work.
+
+**What it actually cost (measured 2026-07-30).** Kernels live on Kaggle's
+servers, so run 2's survived the box teardown. Submitting one a day later scored
+**0.83626** — *better than run 3's champion 0.83049*, i.e. the run we recorded as
+a total failure was holding the best cold-start result of the whole campaign and
+simply never shipped it. I-7 is therefore not "we lost a run"; it is "we lost the
+best result we had". Harvest detail: `ioai-task1-kapso-t4-lane0` v1, byte
+identical to `ioai-task1-kapso-cpu512-lane0` (363/363 agreement — one submission
+covers both).
+
+**Corollary — always harvest before teardown.** Any COMPLETE kernel that was
+pushed but never submitted is still submittable later:
+`kaggle kernels list --user <u>` → `kernels status` → `kernels output` to
+validate the CSV → `competitions submit -k <ref> -v <version> -f submission.csv`.
+Kernel versions are **per kernel** and start at 1; a wrong `-v` returns
+403 Forbidden, so try upward from 1.
+
+**Pre-submission triage that works.** Sanity-check a candidate CSV before
+spending a submission: compare its **new-class prediction rate** against a
+reference submission of known score. Run 3's 0.83049 predicts new classes
+48.8% of the time and the 0.87664 champion 43.3%, so the true new share is
+~43-49%. A candidate predicting new only 18% of the time (run 3's unsubmitted
+`llrd-dual-anchor-lane-3`) is arithmetically capped at
+`acc_new <= 67/~170 = 38%` → score ceiling ~0.69, and can be ruled out without
+spending anything. A candidate at 46% (the run-2 kernel) has no such cap — and
+it is the one that scored 0.83626.
 **Root cause:** the handler's END-TO-END paragraph is advice, not a mechanism;
 nothing forces an early first submission.
 **Proposed fix:** a hard "first scored submission by T+50% of budget" rule in the
