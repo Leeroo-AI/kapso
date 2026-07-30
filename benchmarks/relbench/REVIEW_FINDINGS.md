@@ -205,13 +205,20 @@ Runs reviewed:
    finalized into the selection (still in flight / not registered), or
    something actively holds them back (audit flag, per-iteration champion
    scoping, promotion rule). This matters because it decides what actually
-   ships: local one-way scoring puts the 0.8497 champion at **test 83.55**
-   and the val-max pick (run_0030) at **test 81.53** — i.e. the tracker's
-   disagreement is currently worth +2.0 AUROC in our favour, but by accident
-   rather than by design, and we do not know the rule that produced it.
-   Check at harvest: which run final_evaluate selects, whether 0030-0033 have
-   manifests/audit verdicts, and whether the tracker scopes to the current
-   iteration. Context for the same lane, from the full 33-run val/test flow
+   ships — and that question is now RESOLVED, in the unfavourable direction.
+   `final_evaluate()` (handler.py:207) does not consult the search's champion
+   at all: it scans every `run_*/private/metrics.json`, takes the highest
+   validation primary metric, and reports that run's test score. Runs
+   0030-0033 each carry a complete `private/metrics.json` with
+   `roc_auc: 0.8932735426008969`, so the shipped result will be run_0030 at
+   **test 81.53**, not the digest's 0.8497 champion (test 83.55). The
+   tracker's non-promotion is therefore COSMETIC — it is the search's own
+   bookkeeping and has no protective effect on the final report. Net: we are
+   set to ship ~8 AUROC points below our own best archived candidate
+   (run_0014, test 89.49). Remaining open sub-question, lower stakes: what
+   rule makes the internal tracker disagree (audit flag? per-iteration
+   scoping? promotion gate?) — worth knowing, but it does not change the
+   outcome. Context for the same lane, from the full 33-run val/test flow
    (scored locally, never fed back): corr(val, test) = **-0.279** — val is
    anti-correlated with test on this task; argmax(val) would ship 81.53 while
    run_0014 sat available at **89.49** (selection cost ~8 AUROC points, bar
