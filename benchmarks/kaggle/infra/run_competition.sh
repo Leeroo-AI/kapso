@@ -25,10 +25,16 @@ grep -q '^CLAUDE_CODE_OAUTH_TOKEN=' "$HOME/kapso/.env" 2>/dev/null || {
   echo "FATAL: $HOME/kapso/.env missing CLAUDE_CODE_OAUTH_TOKEN — run bootstrap.sh first" >&2
   exit 1; }
 
+# Every line is stamped with UTC wall-clock. The strategy's own log lines carry
+# no time of their own, so without this a finished run cannot say how long any
+# phase took — only the durations a component happens to print itself.
+stamp() { awk '{ "date -u +%H:%M:%S" | getline t; close("date -u +%H:%M:%S");
+                 print t " " $0; fflush() }'; }
+
 echo "=== preflight: $URL  ->  $ROOT ==="
-python3 -m benchmarks.kaggle.preflight --url "$URL" --root "$ROOT"
+python3 -m benchmarks.kaggle.preflight --url "$URL" --root "$ROOT" 2>&1 | stamp
 
 echo "=== runner: campaign on $ROOT (k/hours from run_defaults unless overridden) ==="
-python3 -m benchmarks.kaggle.runner --root "$ROOT" "$@"
+python3 -m benchmarks.kaggle.runner --root "$ROOT" "$@" 2>&1 | stamp
 
 echo "=== done. results: $ROOT/results.json ==="
