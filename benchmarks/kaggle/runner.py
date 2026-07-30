@@ -12,6 +12,8 @@ Usage:
 """
 
 import argparse
+import csv
+import hashlib
 import json
 import os
 import re
@@ -151,8 +153,165 @@ def best_public_score(submissions: list, since_utc_iso: str) -> dict:
     return {"best": best, "submissions": considered}
 
 
-def run_final_eval(root: str, competition: str, timeout_seconds: int) -> dict:
+def discover_run_kernels(task_dir: str) -> list:
+    """Kernel refs this run pushed, read from the lanes' kernel-metadata.json.
+
+    K-way lanes namespace their own submission directories, so there is no
+    single canonical kernel path to look in; the metadata files each lane wrote
+    are the authoritative record of what this run created.
+    """
+    refs = []
+    for dirpath, _, filenames in os.walk(os.path.join(task_dir, "submission")):
+        if "kernel-metadata.json" not in filenames:
+            continue
+        meta_path = os.path.join(dirpath, "kernel-metadata.json")
+        with open(meta_path, encoding="utf-8") as f:
+            meta = json.load(f)
+        if not meta.get("id"):
+            raise ValueError(f"{meta_path} has no 'id' field")
+        refs.append(meta["id"])
+    return sorted(set(refs))
+
+
+def kernels_run_since(kaggle_bin: str, since_utc_iso: str, page_size: int,
+                      timeout_seconds: int) -> list:
+    """Our own kernels whose last run started at/after the campaign did.
+
+    Local metadata alone is not enough: a lane can push a kernel and never
+    record it under submission/ (run 3's lane 3 did exactly that, leaving a
+    COMPLETE kernel discoverable only from the account listing).
+    """
+    proc = subprocess.run(
+        [kaggle_bin, "kernels", "list", "-m", "--sort-by", "dateRun",
+         "--page-size", str(page_size), "--format", "json"],
+        capture_output=True, text=True, timeout=timeout_seconds,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"kaggle kernels list exited {proc.returncode}: {proc.stderr[-500:]}")
+    since_key = since_utc_iso.replace("T", " ")[:19]
+    return sorted(
+        entry["ref"] for entry in json.loads(proc.stdout)
+        if str(entry.get("lastRunTime", "")).replace("T", " ")[:19] >= since_key
+    )
+
+
+def kernel_status(kaggle_bin: str, ref: str, timeout_seconds: int) -> str:
+    """KernelWorkerStatus for a kernel ref (COMPLETE / RUNNING / ...)."""
+    proc = subprocess.run(
+        [kaggle_bin, "kernels", "status", ref],
+        capture_output=True, text=True, timeout=timeout_seconds,
+    )
+    match = re.search(r"KernelWorkerStatus\.([A-Z_]+)", proc.stdout + proc.stderr)
+    return match.group(1) if match else "UNKNOWN"
+
+
+def submission_matches_template(candidate_path: str, template_path: str) -> bool:
+    """Same header, row count and id column (in order) as the sample file."""
+    with open(template_path, newline="", encoding="utf-8") as f:
+        template = list(csv.reader(f))
+    with open(candidate_path, newline="", encoding="utf-8") as f:
+        candidate = list(csv.reader(f))
+    if len(candidate) != len(template) or candidate[0] != template[0]:
+        return False
+    return all(c[0] == t[0] for c, t in zip(candidate[1:], template[1:]))
+
+
+def submit_kernel_output(kaggle_bin: str, competition: str, ref: str,
+                         message: str, max_version: int,
+                         timeout_seconds: int) -> "int | None":
+    """Submit the NEWEST submittable version of a kernel; None if none took.
+
+    `-v` is mandatory for code competitions and the CLI exposes the version
+    nowhere (neither `kernels list --format json` nor `kernels status` carries
+    it), so the version is discovered by probing. The probe runs DOWNWARD:
+    upward would stop at the oldest submittable version instead of the newest.
+    """
+    for version in range(max_version, 0, -1):
+        proc = subprocess.run(
+            [kaggle_bin, "competitions", "submit", "-c", competition,
+             "-k", ref, "-v", str(version), "-f", "submission.csv",
+             "-m", message],
+            capture_output=True, text=True, timeout=timeout_seconds,
+        )
+        blob = proc.stdout + proc.stderr
+        if proc.returncode == 0 and "403" not in blob and "Error" not in blob:
+            return version
+    return None
+
+
+def harvest_unsubmitted_kernels(root: str, competition: str,
+                                run_started_utc: str,
+                                final_eval_cfg: dict) -> dict:
+    """Submit every COMPLETE kernel this run pushed, before reading scores.
+
+    A kernel and its output live on Kaggle independently of the run box, so a
+    campaign that ends before firing `competitions submit` has still produced a
+    scoreable artifact — run 2 left one worth 0.83626 unshipped. Duplicate
+    submissions are harmless (Kaggle scores best-of) and attributing a past
+    submission to a kernel is not possible from the API, so candidates are
+    deduped by output content alone rather than by guessing what was already
+    sent.
+    """
+    timeout_seconds = final_eval_cfg["timeout_seconds"]
+    task_dir = os.path.join(root, "task")
+    template = os.path.join(task_dir, "dataset", "submission.csv")
+    kaggle_bin = shutil.which("kaggle")
+    if not kaggle_bin:
+        raise FileNotFoundError("kaggle CLI not on PATH — cannot harvest")
+    if not os.path.isfile(template):
+        raise FileNotFoundError(f"{template} missing — cannot validate outputs")
+
+    refs = sorted(set(discover_run_kernels(task_dir)) | set(kernels_run_since(
+        kaggle_bin, run_started_utc,
+        final_eval_cfg["harvest_kernel_list_size"], timeout_seconds)))
+    report = {"kernels_found": len(refs), "submitted": [], "skipped": []}
+    workdir = os.path.join(root, ".harvest")
+    seen_digests = {}
+
+    for ref in refs:
+        status = kernel_status(kaggle_bin, ref, timeout_seconds)
+        if status != "COMPLETE":
+            report["skipped"].append({"kernel": ref, "reason": f"status {status}"})
+            continue
+        dest = os.path.join(workdir, ref.replace("/", "__"))
+        os.makedirs(dest, exist_ok=True)
+        subprocess.run(
+            [kaggle_bin, "kernels", "output", ref, "-p", dest, "--force"],
+            capture_output=True, text=True, timeout=timeout_seconds,
+        )
+        produced = os.path.join(dest, "submission.csv")
+        if not os.path.isfile(produced):
+            report["skipped"].append({"kernel": ref, "reason": "no submission.csv"})
+            continue
+        if not submission_matches_template(produced, template):
+            report["skipped"].append({"kernel": ref, "reason": "shape mismatch"})
+            continue
+        with open(produced, "rb") as f:
+            digest = hashlib.sha256(f.read()).hexdigest()
+        if digest in seen_digests:
+            report["skipped"].append(
+                {"kernel": ref, "reason": f"identical to {seen_digests[digest]}"})
+            continue
+        seen_digests[digest] = ref
+        version = submit_kernel_output(
+            kaggle_bin, competition, ref,
+            f"harvest: {ref.split('/')[-1]} (pushed by the run, not submitted)",
+            final_eval_cfg["harvest_max_kernel_version"], timeout_seconds,
+        )
+        if version is None:
+            report["skipped"].append({"kernel": ref, "reason": "no version took"})
+            continue
+        report["submitted"].append({"kernel": ref, "version": version})
+
+    print(f"[harvest] kernels={report['kernels_found']} "
+          f"submitted={len(report['submitted'])} skipped={len(report['skipped'])}")
+    return report
+
+
+def run_final_eval(root: str, competition: str, final_eval_cfg: dict) -> dict:
     """Read the leaderboard truth: best publicScore in the run window."""
+    timeout_seconds = final_eval_cfg["timeout_seconds"]
     meta_path = os.path.join(root, "run_meta.json")
     if not os.path.isfile(meta_path):
         raise FileNotFoundError(
@@ -164,6 +323,18 @@ def run_final_eval(root: str, competition: str, timeout_seconds: int) -> dict:
     kaggle_bin = shutil.which("kaggle")
     if not kaggle_bin:
         raise FileNotFoundError("kaggle CLI not on PATH — cannot read scores")
+
+    # Ship before reading: a kernel left unsubmitted scores nothing, and the
+    # harvested entries must be in flight before the leaderboard is polled.
+    harvest = None
+    if final_eval_cfg["harvest_unsubmitted"]:
+        harvest = harvest_unsubmitted_kernels(
+            root, competition, run_started, final_eval_cfg)
+        if harvest["submitted"]:
+            wait = final_eval_cfg["harvest_score_wait_seconds"]
+            print(f"[harvest] waiting {wait}s for harvested submissions to score")
+            time.sleep(wait)
+
     proc = subprocess.run(
         [kaggle_bin, "competitions", "submissions", competition,
          "--format", "json", "-q"],
@@ -178,6 +349,8 @@ def run_final_eval(root: str, competition: str, timeout_seconds: int) -> dict:
     report["audit"] = audit_kernel(
         os.path.join(root, "task", "submission", "kernel")
     )
+    if harvest is not None:
+        report["harvest"] = harvest
     return report
 
 
@@ -218,8 +391,7 @@ def main():
         mode_cfg = yaml.safe_load(f)["modes"][args.mode]
 
     if args.final_eval_only:
-        report = run_final_eval(root, competition,
-                                mode_cfg["final_eval"]["timeout_seconds"])
+        report = run_final_eval(root, competition, mode_cfg["final_eval"])
         results_path = os.path.join(root, "results.json")
         with open(results_path, "w") as f:
             json.dump(report, f, indent=2)
@@ -239,13 +411,11 @@ def main():
     guard_minutes = (args.guard_minutes if args.guard_minutes is not None
                      else knobs["guard_minutes"])
     budget_minutes = max(5, int(hours * 60) - guard_minutes)
-    reserve_minutes = min(
-        knobs["finalization_reserve_max_minutes"],
-        max(
-            knobs["finalization_reserve_min_minutes"],
-            budget_minutes * knobs["finalization_reserve_fraction"],
-        ),
-    )
+    # Sized to ONE submission round trip (push -> kernel run -> submit ->
+    # score), not to a fraction of the run: a campaign that ends before
+    # shipping scores nothing. The handler hands most of it back once a public
+    # score is banked (deliverable_ready_reserve_seconds).
+    reserve_minutes = knobs["finalization_reserve_minutes"]
     session_timeouts = shape_session_timeouts(mode_cfg, total_run_seconds)
 
     if not (os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("CLAUDE_CODE_OAUTH_TOKEN")):
@@ -276,6 +446,7 @@ def main():
         deadline_ts=deadline_ts,
         session_caps=session_timeouts,
         kaggle={"competition": competition},
+        insured_reserve_seconds=knobs["insured_reserve_minutes"] * 60,
     )
 
     orchestrator = OrchestratorAgent(
@@ -312,7 +483,7 @@ def main():
     }
     if not args.skip_final_eval:
         summary["final"] = run_final_eval(
-            root, competition, mode_cfg["final_eval"]["timeout_seconds"])
+            root, competition, mode_cfg["final_eval"])
     results_path = os.path.join(root, "results.json")
     with open(results_path, "w") as f:
         json.dump(summary, f, indent=2)

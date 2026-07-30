@@ -7,6 +7,7 @@ submissions to the run, and the preflight parses a competition slug from its
 URL (fail-loud on a malformed one).
 """
 
+import json
 import os
 import time
 
@@ -18,7 +19,9 @@ from benchmarks.kaggle.preflight import slug_from_url
 from benchmarks.kaggle.runner import (
     audit_kernel,
     best_public_score,
+    discover_run_kernels,
     parse_submissions_json,
+    submission_matches_template,
 )
 
 CONFIG_PATH = os.path.join(
@@ -36,6 +39,7 @@ def make_handler(tmp_path, **overrides):
         deadline_ts=time.time() + 7200,
         session_caps=SESSION_CAPS,
         kaggle=KAGGLE,
+        insured_reserve_seconds=300.0,
     )
     kwargs.update(overrides)
     return KaggleNotebookHandler(**kwargs)
@@ -103,6 +107,51 @@ def test_audit_kernel_flags_external_pulls(tmp_path):
     )
     findings = audit_kernel(str(kernel))
     assert len(findings) == 1 and "MIT/ast-finetuned" in findings[0]
+
+
+def test_reserve_is_insured_only_once_a_public_score_is_banked(tmp_path):
+    # The full reserve covers one submission round trip; it is released only
+    # when a score is actually on the leaderboard, never merely attempted.
+    handler = make_handler(tmp_path)
+    assert handler.deliverable_ready_reserve_seconds() is None
+    log = os.path.join(handler.task_dir, "best_score.log")
+    with open(log, "w") as f:
+        f.write("0.0 2026-07-29T16:00:00Z placeholder\n")
+    assert handler.deliverable_ready_reserve_seconds() is None
+    with open(log, "a") as f:
+        f.write("0.83626 2026-07-29T16:20:00Z lane0\n")
+    assert handler.deliverable_ready_reserve_seconds() == 300.0
+
+
+def test_discover_run_kernels_finds_namespaced_lane_dirs(tmp_path):
+    # K-way lanes namespace their submission dirs, so there is no single
+    # canonical kernel path — discovery must walk them and dedupe.
+    submission = tmp_path / "task" / "submission"
+    for lane, ref in (("lane0_exp_0", "u/kernel-a"), ("lane2_exp_2", "u/kernel-b"),
+                      ("lane5_exp_5", "u/kernel-a")):
+        (submission / lane).mkdir(parents=True)
+        (submission / lane / "kernel-metadata.json").write_text(
+            json.dumps({"id": ref, "code_file": "script.py"}))
+    assert discover_run_kernels(str(tmp_path / "task")) == ["u/kernel-a", "u/kernel-b"]
+    (submission / "broken").mkdir()
+    (submission / "broken" / "kernel-metadata.json").write_text('{"title": "x"}')
+    with pytest.raises(ValueError, match="'id'"):
+        discover_run_kernels(str(tmp_path / "task"))
+
+
+def test_submission_matches_template_gates_on_ids_not_just_size(tmp_path):
+    template = tmp_path / "template.csv"
+    template.write_text("path,target\naudio/a.wav,0\naudio/b.wav,0\n")
+    good = tmp_path / "good.csv"
+    good.write_text("path,target\naudio/a.wav,17\naudio/b.wav,3\n")
+    assert submission_matches_template(str(good), str(template))
+    # right row count, wrong ids — the failure a length check would miss
+    reordered = tmp_path / "reordered.csv"
+    reordered.write_text("path,target\naudio/b.wav,3\naudio/a.wav,17\n")
+    assert not submission_matches_template(str(reordered), str(template))
+    short = tmp_path / "short.csv"
+    short.write_text("path,target\naudio/a.wav,17\n")
+    assert not submission_matches_template(str(short), str(template))
 
 
 def test_slug_from_url_parses_competition_forms():

@@ -69,12 +69,15 @@ modes:
           BASH_DEFAULT_TIMEOUT_MS: "900000"
           BASH_MAX_TIMEOUT_MS: "7200000"
 
-    # Only the end-of-run reserve and guard: there are no per-phase fractions,
-    # the session ceilings above are bounded by the run budget alone.
+    # No per-phase fractions (session ceilings are bounded by the run budget
+    # alone). The finalization reserve is sized to ONE submission round trip —
+    # push -> Kaggle runs the kernel -> submit -> score — because a run that
+    # ends before shipping scores nothing at all: run 2 finished holding a
+    # COMPLETE kernel worth 0.83626 that was never submitted. Once a public
+    # score is banked the handler releases all but insured_reserve_minutes.
     session_budget:
-      finalization_reserve_fraction: 0.10
-      finalization_reserve_min_minutes: 5
-      finalization_reserve_max_minutes: 15
+      finalization_reserve_minutes: 20
+      insured_reserve_minutes: 5
       guard_minutes: 5
 
 
@@ -82,9 +85,16 @@ modes:
     budget:
       min_iteration_seconds: 900
 
-    # Post-campaign scoring = polling the Kaggle submissions list.
+    # Post-campaign scoring = harvest, then poll the Kaggle submissions list.
+    # The harvest submits every COMPLETE kernel the run pushed but never
+    # submitted; `-v` is mandatory and the CLI exposes no version, so it probes
+    # downward from harvest_max_kernel_version to find the newest that takes.
     final_eval:
       timeout_seconds: 900
+      harvest_unsubmitted: true
+      harvest_max_kernel_version: 12
+      harvest_kernel_list_size: 50
+      harvest_score_wait_seconds: 300
 
     # URL->run-root preflight: one codex exec that downloads the competition
     # (authenticated kaggle CLI) and authors dataset/statement.md per
