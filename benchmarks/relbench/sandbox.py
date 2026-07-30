@@ -303,6 +303,18 @@ def build_rolling_caches(
                 time_col=time_col,
             )
             masked.save(str(task_dir / "test.parquet"))
+            # Empty schema-correct val table: relbench's get_table("val") on a
+            # cache miss REGENERATES and SAVES — which the read-only tree turns
+            # into a deep pyarrow PermissionError for any candidate (or helper)
+            # that touches val. Shipping an empty table makes every val path
+            # load 0 rows instead of crashing; per-tick evaluation ignores it.
+            empty_val = Table(
+                df=split_tables["val"].df.iloc[0:0].reset_index(drop=True),
+                fkey_col_to_pkey_table={entity_col: task.entity_table},
+                pkey_col=None,
+                time_col=time_col,
+            )
+            empty_val.save(str(task_dir / "val.parquet"))
             np.save(task_dir / "indices.npy", rows.index.to_numpy())
             n_snaps += 1
 

@@ -20,13 +20,12 @@ def main() -> None:
     dataset_name = os.environ["RELBENCH_DATASET"]
     task_name = os.environ["RELBENCH_TASK"]
     task = get_task(dataset_name, task_name, download=False)
-    # Rolling-harness snapshots (per-tick caches) carry train+test only; the
+    # Rolling-harness snapshots (per-tick caches) ship an EMPTY val table; the
     # per-invocation contract is test predictions for THIS tick, no val file.
-    rolling = not (
-        Path(os.environ["RELBENCH_CACHE_DIR"])
-        / dataset_name / "tasks" / task_name / "val.parquet"
-    ).exists()
-    n_val = 0 if rolling else len(task.get_table("val"))
+    val_path = (Path(os.environ["RELBENCH_CACHE_DIR"])
+                / dataset_name / "tasks" / task_name / "val.parquet")
+    n_val = len(task.get_table("val")) if val_path.exists() else 0
+    rolling = n_val == 0
     n_test = len(task.get_table("test"))
 
     if isinstance(task, RecommendationTask):

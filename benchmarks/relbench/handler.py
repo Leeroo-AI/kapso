@@ -724,7 +724,7 @@ class RelBenchHandler(ProblemHandler):
 
     def _ensure_sanitized_cache(self, rebuild: bool) -> None:
         marker = self.work_dir / "sanitized_cache.meta.json"
-        want = {"dataset": self.dataset_name, "task": self.task_name, "version": 3}
+        want = {"dataset": self.dataset_name, "task": self.task_name, "version": 4}
         env = os.environ.copy()
         env.pop("RELBENCH_CACHE_DIR", None)  # sanitizer reads the pristine cache
         env["PYTHONPATH"] = str(REPO_ROOT) + os.pathsep + env.get("PYTHONPATH", "")
