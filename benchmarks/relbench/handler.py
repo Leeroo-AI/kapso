@@ -62,7 +62,6 @@ class RelBenchHandler(ProblemHandler):
         work_root: str = "tmp/relbench",
         planned_iterations: int = 20,
         target_val_score: Optional[float] = None,
-        sota_file: Optional[str] = None,
         extra_knowledge_file: Optional[str] = None,
         rebuild_sanitized_cache: bool = False,
     ):
@@ -123,7 +122,6 @@ class RelBenchHandler(ProblemHandler):
         # ------------------------------------------------------------------
         # Problem context.
         # ------------------------------------------------------------------
-        sota_note = self._load_sota_note(sota_file)
         extra_knowledge = ""
         if extra_knowledge_file and os.path.exists(extra_knowledge_file):
             extra_knowledge = Path(extra_knowledge_file).read_text()
@@ -140,7 +138,6 @@ class RelBenchHandler(ProblemHandler):
             gpu_name=self._detect_gpu_name(),
             num_cpus=os.cpu_count() or 8,
             mem_gb=self._detect_mem_gb(),
-            sota_note=sota_note,
             extra_knowledge=extra_knowledge,
             rolling=self.rolling,
         )
@@ -785,32 +782,6 @@ class RelBenchHandler(ProblemHandler):
             )
             print(f"[RelBenchHandler] seeded {history.name}")
 
-    def _load_sota_note(self, sota_file: Optional[str]) -> str:
-        path = Path(sota_file) if sota_file else Path(__file__).parent / "data" / "sota.json"
-        if not path.exists():
-            return ""
-        try:
-            table = json.loads(path.read_text())
-        except Exception:
-            return ""
-        entry = table.get(f"{self.dataset_name}/{self.task_name}")
-        if not entry:
-            return ""
-        lines = [
-            f"Best published TEST {entry.get('metric', self.spec.primary_metric)}: "
-            f"{entry.get('value')} ({entry.get('method', 'unknown method')})."
-        ]
-        if entry.get("runner_up"):
-            lines.append(f"Runner-up: {entry['runner_up']}.")
-        if entry.get("note"):
-            lines.append(entry["note"])
-        lines.append(
-            "Validation and test are correlated but not identical; use the number as a bar "
-            "for ambition, not as a fitting target."
-        )
-        return "\n".join(lines)
-
-    @staticmethod
     def _detect_gpu() -> bool:
         return shutil.which("nvidia-smi") is not None and subprocess.run(
             ["nvidia-smi", "-L"], capture_output=True

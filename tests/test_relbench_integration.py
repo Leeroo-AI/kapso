@@ -643,10 +643,10 @@ class TestDesignAxes:
 
         from benchmarks.relbench.context import FEATURE_ENGINEERING_NOTE
 
-        assert "standing" in FEATURE_ENGINEERING_NOTE
+        assert "highest-value direction" in FEATURE_ENGINEERING_NOTE
         assert "never finished" in FEATURE_ENGINEERING_NOTE
-        assert "saturation" in FEATURE_ENGINEERING_NOTE
         assert "freezing the feature matrix" in FEATURE_ENGINEERING_NOTE
+        assert "guidance, not constraints" in FEATURE_ENGINEERING_NOTE
 
 
 class TestLivingDocuments:
@@ -725,31 +725,22 @@ class TestLivingDocuments:
         assert info.read_text() == "AGENT EDITED\n"
         assert hist.read_text() == "AGENT MEMORY\n"
 
-    def test_context_carries_living_docs_and_hard_rules(self):
-        """User-directed (2026-07-28): all-tables hard rule, features-over-
-        architecture preference, and the living-documents contract must be
-        in the problem context constants."""
+    def test_context_carries_living_docs_and_suggestions(self):
+        """User-directed (2026-07-30): FE guidance is suggestion-strength
+        (all-tables + features-over-architecture as leans, not hard rules),
+        no best-practices or published-SOTA sections, and the
+        living-documents contract stays in the problem context constants."""
+        import benchmarks.relbench.context as ctx
         from benchmarks.relbench.context import (
             FEATURE_ENGINEERING_NOTE,
             FEATURES_HISTORY_TEMPLATE,
             LIVING_DOCUMENTS_NOTE,
         )
 
-        assert "ALL TABLES (hard rule)" in FEATURE_ENGINEERING_NOTE
-        assert "EVERY table" in FEATURE_ENGINEERING_NOTE
-        assert "MEASURED reason" in FEATURE_ENGINEERING_NOTE
-        assert "99%" in FEATURE_ENGINEERING_NOTE
-        assert "FEATURES OVER ARCHITECTURE" in FEATURE_ENGINEERING_NOTE
-        from benchmarks.relbench.context import BEST_PRACTICES_NOTE
-
-        assert "INFORMATION" in BEST_PRACTICES_NOTE
-        assert "REGIME-SHIFTED" in BEST_PRACTICES_NOTE
-        assert "frozen-origin" in BEST_PRACTICES_NOTE
-        assert "follow the measurement" in BEST_PRACTICES_NOTE
-        assert "Mixture and two-part modeling" in BEST_PRACTICES_NOTE
-        assert "Partial pooling" in BEST_PRACTICES_NOTE
-        assert "Structured prediction" in BEST_PRACTICES_NOTE
-        assert "not an exhaustive menu" in BEST_PRACTICES_NOTE
+        assert "Consider ALL tables" in FEATURE_ENGINEERING_NOTE
+        assert "features-over-architecture" in FEATURE_ENGINEERING_NOTE
+        assert "hard rule" not in FEATURE_ENGINEERING_NOTE
+        assert not hasattr(ctx, "BEST_PRACTICES_NOTE")
         assert "table_information.md" in LIVING_DOCUMENTS_NOTE
         assert "features_history.md" in LIVING_DOCUMENTS_NOTE
         assert "EDIT" in LIVING_DOCUMENTS_NOTE
