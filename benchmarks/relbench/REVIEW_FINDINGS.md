@@ -219,18 +219,81 @@ Runs reviewed:
    (run_0014, test 89.49). Remaining open sub-question, lower stakes: what
    rule makes the internal tracker disagree (audit flag? per-iteration
    scoping? promotion gate?) — worth knowing, but it does not change the
-   outcome. Context for the same lane, from the full 33-run val/test flow
-   (scored locally, never fed back): corr(val, test) = **-0.279** — val is
-   anti-correlated with test on this task; argmax(val) would ship 81.53 while
-   run_0014 sat available at **89.49** (selection cost ~8 AUROC points, bar
-   91.2). Runs 0030-0033 are byte-identical in both scores, so the search has
-   converged on re-submitting one candidate. Code audit of run_0030 found the
-   OOS contract honoured on every path traced — val predictions from a
-   train-only model, test from a separate train+val refit, early stopping on
-   forward folds carved from train alone, val-label features gated behind a
-   strict timestamp check — so this is selection overfitting to the val
-   period (val 11.1% positive vs test 13.0%), not leakage. Blend-weight
-   provenance was not fully traced; that is the one unchecked path.
+   outcome. Full deep-dive evidence below (all scored locally, one-way, never
+   fed back; script `evidence/user_ignore_val_test_flow.py`,
+   `evidence/f15_stats.py`).
+
+   **E1. Two effects, not one.** 33 runs collapse to 27 unique candidates
+   (runs 0030-0033 are byte-identical; so are 0011/0022, 0023/0029,
+   0025/0028). On unique candidates corr(val, test) = **-0.093, p=0.645**
+   (Spearman +0.099; permutation P=0.32) — val and test are UNCORRELATED, not
+   significantly anti-correlated. An earlier note in this finding claimed
+   -0.279; that figure was inflated by counting the four identical val-max
+   copies as independent samples and is WITHDRAWN.
+
+   **E2. Within a design family, val is pure noise.** The `pipeline` lineage
+   (n=12 unique) spans val [84.13, 85.10] — a 1-point spread — while its test
+   spans [85.63, 89.49], ~4 points. Bootstrap AUROC standard errors are 1.0-1.6
+   points, so the entire within-family val spread sits below the noise floor:
+   argmax(val) inside a family is a coin flip, costing 2.09 AUROC here (picks
+   run_0025 test 87.40 over run_0014 test 89.49). Same shape in the `other`
+   lineage (n=13, cost 3.71).
+
+   **E3. Between families, the inversion is real and reproducible.** The
+   `community_blast` lineage (run_0010, run_0030) sits at val 88.5-89.3 /
+   test 81.2-81.5 while every other design sits at val 83-86 / test 85-89.5.
+   Paired bootstrap: run_0030's val edge over run_0014 is +4.84 pts at
+   **5.0 sigma**; run_0014's test edge over run_0030 is +7.96 pts at
+   **7.7 sigma**. Both are real — this is NOT selection-at-noise, and two
+   independent instances of the design reproduce it.
+
+   **E4. Population shift is REFUTED as the cause.** val and test are each a
+   SINGLE tick (val 2012-11-21 n=2013, test 2012-11-29 n=1958, 8 days apart),
+   and they cover essentially the same people: **1957 of 1958 test users
+   (99.9%) also appear in val**, with matching train-seen fractions (74.0% vs
+   74.4%). community_blast loses on BOTH subgroups (seen 83.24 vs pipeline's
+   89.79; new 77.55 vs 88.99), so it is uniformly worse, not worse on a
+   shifted subpopulation. The base-rate difference (val 11.1% vs test 13.0%)
+   cannot explain a ranking metric. A staleness hypothesis was also tested and
+   refuted: the label-history gap is 7 days for val rows and 8 for test rows.
+
+   **E5. Mechanism — train/inference feature-semantics mismatch in the
+   candidate's Model B.** community_blast builds community-level label-prior
+   features per timestamp, gated by
+   `include_validation = timestamp_ns > bundle.val["timestamp"].max()`
+   (features.py:657). Model B — the model that produces TEST predictions — is
+   fit on `splits == "train" | splits == "val"` (modeling.py:603), and every
+   one of those rows has a timestamp <= val's max, so all of them get the
+   feature computed WITHOUT val labels. It is then asked to predict test rows,
+   whose same-named features DO include val labels. The feature changes
+   meaning between fit and inference, and the learned splits no longer apply.
+   Model A (the val chain) has no such mismatch: fit on train rows (gate
+   False), predicting val rows (gate False) — internally consistent, hence a
+   genuinely strong val score. This is a bug in the candidate's own code, not
+   in our harness, and the OOS contract does not forbid it (nothing is fit on
+   val labels; val labels enter only test-row features, which the contract
+   explicitly allows).
+
+   **E6. The deeper lesson: val is structurally blind to this bug class.**
+   Any candidate whose test-time features are constructed differently from its
+   training-time features looks excellent on validation and fails on test,
+   because validation only ever exercises the self-consistent Model A path.
+   argmax(val) then actively *prefers* such candidates. Counterfactual
+   selection rules on this lane: argmax(val) ships **81.53**; the
+   median-val candidate would ship **87.70**; dropping val-outliers >2sd
+   ships 82.64; the unreachable oracle is 89.49; the mean over all unique
+   candidates is 84.55 — i.e. **the current rule is 3.02 AUROC points WORSE
+   than picking a candidate at random.**
+
+   **E7. Scope — this is user-ignore-specific, not systemic.** On the other
+   peeked tasks argmax(val) is fine: driver-position corr(val,test)=+0.940 and
+   the pick is OPTIMAL; user-repeat corr=+0.906, OPTIMAL; user-attendance
+   corr=+0.217 and the pick ties the best test run. So val remains a good
+   selector in general; it fails here because one design family carries a
+   val-invisible defect. Remedy direction (NOT implemented — the held-out
+   selection split and noise-band selection remain shelved by user decision):
+   a fit/inference feature-parity check would catch E5 directly, and would do
+   so without touching the selection rule.
 
 ## R9 — driver-position, GPU + codex-primary + return-economics (2026-07-26/27, COMPLETED)
 
