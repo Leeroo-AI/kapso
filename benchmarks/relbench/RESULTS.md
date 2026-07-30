@@ -39,7 +39,7 @@ Values in the best-known number's units (AUROC/acc/MAP in %, NMAE, R², raw MAE)
 | 11 | rel-f1/driver-dnf ⚠ | clf | v1★ | 84.6 (KumoRFM-2) | 78.3 | 82.6 | 82.4 | 84.6 | — | — | 4xA100 | 6h | ▶ running |
 | 21 | rel-trial/study-adverse | reg | v1★ | 0.11 (RelAgent) | 0.11 | 0.13 | 0.172 | 0.128 | 0.0872 | ✅ beats best-known | 4xA100 | 4h | ✅ done |
 | 22 | rel-avito/ad-ctr | reg | v1★ | 0.345 (RelAgent) | 0.345 | 0.355 | 0.366 | 0.355 | — | — | 4xA100 | 6h | ▶ running |
-| 23 | rel-trial/study-outcome | clf | v1★ | 94.6 (PluRel-ft) | 71.9 | 71.2 | 70.8 | 72 | — | — | 4xA100 | 6h | · pending |
+| 23 | rel-trial/study-outcome | clf | v1★ | 94.6 (PluRel-ft) | 71.9 | 71.2 | 70.8 | 72 | — | — | 4xA100 | 6h | ▶ running |
 | 24 | rel-trial/condition-sponsor-run | rec | v1★ | 11.7 (ContextGNN / KumoRFM-ft) | — | 11.7 | 11.3 | — | — | — | 4xA100 | 6h | · pending |
 | 25 | rel-avito/user-ad-visit | rec | v1★ | 4.17 (KumoRFM-ft) | — | 4.17 | 4.02 | — | — | — | 4xA100 | 6h | · pending |
 | 26 | rel-avito/user-clicks | clf | v1★ | 69.4 (RGP) | 68.4 | 66.8 | 64.1 | 69.4 | — | — | 4xA100 | 6h | · pending |
