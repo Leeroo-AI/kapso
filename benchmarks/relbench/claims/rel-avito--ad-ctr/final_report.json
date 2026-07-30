@@ -1,0 +1,36 @@
+{
+  "dataset": "rel-avito",
+  "task": "ad-ctr",
+  "family": "entity_regression",
+  "primary_metric": "mae",
+  "selected_by": "best validation mae",
+  "run": "run_0012",
+  "val_metrics": {
+    "r2": 0.2251919247948928,
+    "mae": 0.029037361707915058,
+    "rmse": 0.08731999234961514
+  },
+  "test_metrics": {
+    "r2": 0.20874541662366564,
+    "mae": 0.03193171580767391,
+    "rmse": 0.09762804591142923
+  },
+  "audit": {
+    "clean": false,
+    "findings": [
+      {
+        "file": "avito_pipeline.py",
+        "line": 31,
+        "pattern": "RELBENCH_CACHE_DIR",
+        "concern": "tampers with the data cache location",
+        "snippet": "Path(os.environ[\"RELBENCH_CACHE_DIR\"])"
+      }
+    ],
+    "note": "static scan; manually review flagged lines before publishing results. 'verify:' findings are advisory OOS-contract review hooks (legal patterns that warrant tracing), not violations."
+  },
+  "code_path": "/home/ubuntu/kapso/tmp/relbench/rel-avito--ad-ctr/runs/run_0012/code",
+  "predictions": {
+    "val": "/home/ubuntu/kapso/tmp/relbench/rel-avito--ad-ctr/runs/run_0012/val_predictions.npy",
+    "test": "/home/ubuntu/kapso/tmp/relbench/rel-avito--ad-ctr/runs/run_0012/test_predictions.npy"
+  }
+}

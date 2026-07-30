@@ -1,0 +1,2794 @@
+{
+  "schema_version": 2,
+  "generated_at": "2026-07-30T19:15:29.885950+00:00",
+  "baseline": {
+    "initial_repo": "/tmp/relbench_baseline_hi9ehjen"
+  },
+  "repo_map": {
+    "repo_root": ".",
+    "file_count": 16,
+    "files": [
+      ".gitignore",
+      "PLAN.md",
+      "avito_pipeline.py",
+      "eval_profile.md",
+      "kapso_datasets/CONTRACT.md",
+      "kapso_datasets/README.md",
+      "kapso_datasets/__init__.py",
+      "kapso_datasets/check_predictions.py",
+      "kapso_datasets/common.py",
+      "kapso_evaluation/README.md",
+      "kapso_evaluation/grader.py",
+      "kapso_evaluation/kapso_eval.py",
+      "main.py",
+      "output_data_generic_exp_0/metrics.json",
+      "output_data_generic_exp_0/test_predictions.npy",
+      "output_data_generic_exp_0/val_predictions.npy"
+    ],
+    "languages_by_extension": {
+      ".py": 7,
+      ".md": 5,
+      ".npy": 2,
+      ".json": 1
+    },
+    "key_files": [],
+    "entrypoints": [
+      "main.py"
+    ]
+  },
+  "repo_model": {
+    "summary": "This is a RelBench Avito CTR regression candidate. `main.py` runs an end-to-end replay, temporally censored feature, forward-selection, and raw/log LightGBM plus ordered CatBoost ensemble pipeline, producing validation/test predictions and diagnostics for the immutable evaluation harness.",
+    "entrypoints": [
+      {
+        "path": "main.py",
+        "how_to_run": "Run `python main.py --debug` for the reduced debug pipeline or `python main.py` for the full pipeline.",
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 14,
+            "description": "Recognizes the --debug flag."
+          },
+          {
+            "path": "main.py",
+            "line": 37,
+            "description": "Runs main when invoked as a script."
+          }
+        ]
+      },
+      {
+        "path": "kapso_evaluation/grader.py",
+        "how_to_run": "Run `python kapso_evaluation/grader.py --fidelity fast|full [--fraction F] [--seed S]`."
+      }
+    ],
+    "where_to_edit": [
+      {
+        "path": "main.py",
+        "role": "Candidate entrypoint; controls debug mode, pipeline phases, output paths, prediction artifacts, diagnostics, and campaign recording.",
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 14,
+            "description": "Controls debug mode."
+          },
+          {
+            "path": "main.py",
+            "line": 16,
+            "description": "Starts preparation."
+          },
+          {
+            "path": "main.py",
+            "line": 18,
+            "description": "Starts forward selection."
+          },
+          {
+            "path": "main.py",
+            "line": 20,
+            "description": "Starts validation fitting."
+          },
+          {
+            "path": "main.py",
+            "line": 25,
+            "description": "Starts test fitting."
+          },
+          {
+            "path": "main.py",
+            "line": 29,
+            "description": "Writes diagnostics."
+          }
+        ]
+      },
+      {
+        "path": "avito_pipeline.py",
+        "role": "Primary implementation for replay labels, temporal feature construction, forward selection, model fitting, diagnostics, and campaign artifacts.",
+        "evidence": [
+          {
+            "path": "avito_pipeline.py",
+            "line": 23,
+            "description": "Defines the primary pipeline class."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 63,
+            "description": "Defines data preparation."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 131,
+            "description": "Defines replay-label construction."
+          }
+        ]
+      },
+      {
+        "path": "kapso_datasets/common.py",
+        "role": "Optional reusable task-loading, prediction-saving, temporal-safety, and MAP@K helpers."
+      },
+      {
+        "path": "kapso_datasets/CONTRACT.md",
+        "role": "Authoritative prediction and evaluation contract to consult before changing outputs."
+      },
+      {
+        "path": "kapso_evaluation/grader.py",
+        "role": "Immutable scoring and isolation pipeline; do not reimplement or modify it."
+      }
+    ],
+    "claims": [
+      {
+        "kind": "architecture",
+        "statement": "The executable now orchestrates a full Avito pipeline: prepare replay/features, run forward selection, fit the validation model, save validation predictions, fit the test model, save test predictions, and record diagnostics and campaign metadata.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 12,
+            "description": "Defines the pipeline entrypoint."
+          },
+          {
+            "path": "main.py",
+            "line": 16,
+            "description": "Prepares replay labels and features."
+          },
+          {
+            "path": "main.py",
+            "line": 18,
+            "description": "Runs forward feature/model selection."
+          },
+          {
+            "path": "main.py",
+            "line": 20,
+            "description": "Fits the validation-producing model."
+          },
+          {
+            "path": "main.py",
+            "line": 23,
+            "description": "Writes validation predictions."
+          },
+          {
+            "path": "main.py",
+            "line": 25,
+            "description": "Fits the test-producing model."
+          },
+          {
+            "path": "main.py",
+            "line": 26,
+            "description": "Writes test predictions."
+          },
+          {
+            "path": "main.py",
+            "line": 27,
+            "description": "Computes diagnostics."
+          },
+          {
+            "path": "main.py",
+            "line": 30,
+            "description": "Records the campaign metrics."
+          }
+        ]
+      },
+      {
+        "kind": "architecture",
+        "statement": "AvitoPipeline configures a DuckDB connection, shared intermediate cache, RelBench database parquet root, debug-dependent workloads, and the AdsInfo, Category, Location, SearchStream, SearchInfo, UserInfo, VisitStream, and PhoneRequestsStream tables.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "avito_pipeline.py",
+            "line": 23,
+            "description": "Defines AvitoPipeline."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 27,
+            "description": "Reads the thread-count environment setting."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 28,
+            "description": "Creates the shared replay-feature cache root."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 30,
+            "description": "Builds the RelBench database parquet root."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 35,
+            "description": "Selects debug versus full feature horizons."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 36,
+            "description": "Selects debug versus full LightGBM iteration limits."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 37,
+            "description": "Selects debug versus full CatBoost iteration limits."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 43,
+            "description": "Creates and configures the DuckDB connection."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 45,
+            "description": "Initializes the database table paths."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 57,
+            "description": "Completes the configured parquet table map."
+          }
+        ]
+      },
+      {
+        "kind": "architecture",
+        "statement": "Preparation loads the RelBench task without downloading, keeps train labels and validation/test seed keys, constructs two replay-label datasets, builds shared features, merges them one-to-one, restores validation/test input order, and checks feature alignment.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "avito_pipeline.py",
+            "line": 63,
+            "description": "Defines the preparation phase."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 66,
+            "description": "Requests the RelBench task."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 69,
+            "description": "Disables downloads."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 71,
+            "description": "Loads train identifiers, timestamps, and targets."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 72,
+            "description": "Loads validation seed identifiers and timestamps."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 73,
+            "description": "Loads test seed identifiers and timestamps."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 75,
+            "description": "Builds the first replay-label set."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 76,
+            "description": "Builds the second replay-label set."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 102,
+            "description": "Builds or loads shared features."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 103,
+            "description": "Merges features into the first training replay set."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 107,
+            "description": "Merges features into validation rows."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 114,
+            "description": "Merges features into test rows while preserving evaluation order."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 117,
+            "description": "Checks for missing feature rows and validation length mismatch."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 123,
+            "description": "Returns prepared train, validation, and test datasets."
+          }
+        ]
+      },
+      {
+        "kind": "architecture",
+        "statement": "Replay labels are generated from daily origins and SearchStream events whose SearchDate is strictly after the origin and no later than four days after it; the aggregation records clicks, exposures, labeled exposures, object-type counts, and CTR targets.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "avito_pipeline.py",
+            "line": 131,
+            "description": "Defines replay-label generation."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 135,
+            "description": "Starts the daily origin query."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 139,
+            "description": "Uses a one-day origin interval through the requested end date."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 143,
+            "description": "Selects the ad identifier."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 145,
+            "description": "Selects the replay origin timestamp."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 146,
+            "description": "Aggregates clicks."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 147,
+            "description": "Counts all impressions/searches."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 152,
+            "description": "Computes the exposure-denominated target."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 153,
+            "description": "Computes the labeled-exposure target."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 155,
+            "description": "Reads SearchStream from the configured parquet source."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 157,
+            "description": "Applies the four-day replay window."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 159,
+            "description": "Retains only groups with at least one click."
+          }
+        ]
+      },
+      {
+        "kind": "algorithm",
+        "statement": "The implemented modeling stack uses exact daily replay labels, temporally censored multi-table and multi-horizon features, cohort empirical-Bayes priors, character n-gram SVD, raw/log-L1 LightGBM, and an ordered CatBoost ensemble selected with forward folds.",
+        "confidence": 0.98,
+        "evidence": [
+          {
+            "path": "changes.log",
+            "line": 1,
+            "description": "Records the implemented replay, feature, prior, text, and ensemble components."
+          },
+          {
+            "path": "PLAN.md",
+            "line": 8,
+            "description": "Plans exact daily replay targets and censored multi-table features."
+          },
+          {
+            "path": "PLAN.md",
+            "line": 9,
+            "description": "Plans forward-fold training of raw-L1, log-L1, and ordered-categorical models."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 11,
+            "description": "Imports DuckDB."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 12,
+            "description": "Imports LightGBM."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 15,
+            "description": "Imports CatBoostRegressor."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 16,
+            "description": "Imports TF-IDF feature construction."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 18,
+            "description": "Imports truncated SVD."
+          }
+        ]
+      },
+      {
+        "kind": "algorithm",
+        "statement": "The recorded full run used 391 selected features, empirical-Bayes strength 20, a 0.6 raw/0.2 log/0.2 CatBoost default blend, and 722/601/437 iterations respectively; its default forward blend had mean MAE 0.03131447 and worst-fold MAE 0.03393563.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "output_data_generic_exp_0/metrics.json",
+            "line": 3,
+            "description": "Records the replay-A row count."
+          },
+          {
+            "path": "output_data_generic_exp_0/metrics.json",
+            "line": 5,
+            "description": "Records the selected feature count."
+          },
+          {
+            "path": "output_data_generic_exp_0/metrics.json",
+            "line": 6,
+            "description": "Records empirical-Bayes strength."
+          },
+          {
+            "path": "output_data_generic_exp_0/metrics.json",
+            "line": 12,
+            "description": "Starts the recorded blend weights."
+          },
+          {
+            "path": "output_data_generic_exp_0/metrics.json",
+            "line": 15,
+            "description": "Records the CatBoost blend weight."
+          },
+          {
+            "path": "output_data_generic_exp_0/metrics.json",
+            "line": 17,
+            "description": "Starts the selected iteration counts."
+          },
+          {
+            "path": "output_data_generic_exp_0/metrics.json",
+            "line": 20,
+            "description": "Records the CatBoost iteration count."
+          },
+          {
+            "path": "output_data_generic_exp_0/metrics.json",
+            "line": 22,
+            "description": "Starts the forward-blend diagnostics."
+          },
+          {
+            "path": "output_data_generic_exp_0/metrics.json",
+            "line": 24,
+            "description": "Records the default blend mean MAE."
+          },
+          {
+            "path": "output_data_generic_exp_0/metrics.json",
+            "line": 25,
+            "description": "Records the default blend worst-fold MAE."
+          }
+        ]
+      },
+      {
+        "kind": "architecture",
+        "statement": "The candidate writes NumPy validation and test artifacts under KAPSO_RUN_DATA_DIR; the normal grader launches the candidate as an isolated subprocess and scores the resulting validation predictions.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 21,
+            "description": "Reads the candidate output directory."
+          },
+          {
+            "path": "main.py",
+            "line": 23,
+            "description": "Writes validation predictions."
+          },
+          {
+            "path": "main.py",
+            "line": 26,
+            "description": "Writes test predictions."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 70,
+            "description": "Builds the isolated child command."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 77,
+            "description": "Runs the candidate subprocess."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 215,
+            "description": "Evaluates validation predictions."
+          }
+        ]
+      },
+      {
+        "kind": "architecture",
+        "statement": "Rolling evaluation invokes the candidate once per cache snapshot, consumes each tick's test prediction, and assembles predictions into official row order using snapshot indices.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 122,
+            "description": "Defines the rolling one-invocation-per-tick protocol."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 144,
+            "description": "Creates an isolated stage for each snapshot."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 149,
+            "description": "Provides the snapshot cache to the child."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 157,
+            "description": "Reads the tick's test predictions."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 171,
+            "description": "Concatenates snapshot indices."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 174,
+            "description": "Places predictions into the assembled official vector."
+          }
+        ]
+      },
+      {
+        "kind": "architecture",
+        "statement": "The optional starter helpers expose a TaskContext containing the dataset, database, and train/validation/test tables, plus standardized prediction saving, temporal-safety checks, and MAP@K evaluation.",
+        "confidence": 0.98,
+        "evidence": [
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 44,
+            "description": "Defines TaskContext."
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 50,
+            "description": "Stores the database handle."
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 51,
+            "description": "Stores the training table."
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 52,
+            "description": "Stores the validation table."
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 53,
+            "description": "Stores the test table."
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 86,
+            "description": "Defines standardized prediction saving."
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 97,
+            "description": "Defines temporal-safety validation."
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "Every run must produce both val_predictions.npy and test_predictions.npy with rows positionally aligned to the task tables; validation predictions must be out-of-sample and must not use validation labels for training.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 15,
+            "description": "Requires both prediction files after every run."
+          },
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 16,
+            "description": "Requires positional row alignment."
+          },
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 17,
+            "description": "Requires validation predictions to be out-of-sample."
+          },
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 18,
+            "description": "Restricts use of validation labels to the test-producing model."
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "Required output formats are binary and regression float vectors of shape (N,), multiclass float scores of shape (N,C), and recommendation integer rankings of shape (N,K) containing distinct destination IDs within the valid destination range.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 20,
+            "description": "Defines binary, regression, and multiclass output types and shapes."
+          },
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 21,
+            "description": "Defines recommendation integer ranking requirements."
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 38,
+            "description": "Checks recommendation shape."
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 40,
+            "description": "Checks recommendation integer dtype."
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "Data must come from the sanitized read-only cache through RelBench with download=False; test labels are physically absent and must not be probed for.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 25,
+            "description": "Requires download=False and sanitized-cache access."
+          },
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 26,
+            "description": "States that test labels are absent."
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 60,
+            "description": "Documents loading from the sanitized cache."
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 71,
+            "description": "Loads the dataset with download=False."
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 72,
+            "description": "Loads the task with download=False."
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "The score of record is the official validation primary metric; test metrics are private and must not be used as the search score or assumed to be available.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 23,
+            "description": "Defines the official validation primary metric as the search score."
+          },
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 24,
+            "description": "States that test metrics are private."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 283,
+            "description": "Stores the primary validation metric as manifest score."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 285,
+            "description": "Prints the machine-readable score manifest."
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "When the temporal-safety helper is used, every feature row must have its time column less than or equal to the corresponding seed time.",
+        "confidence": 0.98,
+        "evidence": [
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 97,
+            "description": "Documents the temporal-safety invariant."
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 99,
+            "description": "Detects rows after the seed time."
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 101,
+            "description": "Raises an error on temporal leakage."
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "The current candidate restores validation and test predictions to their original split order after feature merging and requires one-to-one feature alignment for each seed key.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "avito_pipeline.py",
+            "line": 103,
+            "description": "Uses one-to-one validation for replay feature merging."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 106,
+            "description": "Adds the original validation row position."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 109,
+            "description": "Sorts validation features back by original row position."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 111,
+            "description": "Adds the original test row position."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 114,
+            "description": "Sorts test features back by original row position."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 117,
+            "description": "Rejects missing feature rows or validation length mismatch."
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "The replay target uses a four-day post-origin SearchStream window and retains only ad-origin groups with at least one click; official train rows are added with replay-only statistics set to missing.",
+        "confidence": 0.98,
+        "evidence": [
+          {
+            "path": "avito_pipeline.py",
+            "line": 155,
+            "description": "Joins SearchStream events."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 157,
+            "description": "Defines the four-day post-origin window."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 159,
+            "description": "Filters replay groups to positive-click groups."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 166,
+            "description": "Defines official/replay label combination."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 168,
+            "description": "Initializes replay click count as missing for official rows."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 176,
+            "description": "Concatenates replay and official rows."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 177,
+            "description": "Removes duplicate ad-origin keys."
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "The current recorded validation and test artifacts are one-dimensional float64 vectors with 1,766 and 1,816 rows respectively.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 23,
+            "description": "Saves the validation prediction vector."
+          },
+          {
+            "path": "main.py",
+            "line": 26,
+            "description": "Saves the test prediction vector."
+          },
+          {
+            "path": "output_data_generic_exp_0/val_predictions.npy",
+            "line": 1,
+            "description": "NumPy header records float64 dtype and shape (1766,)."
+          },
+          {
+            "path": "output_data_generic_exp_0/test_predictions.npy",
+            "line": 1,
+            "description": "NumPy header records float64 dtype and shape (1816,)."
+          }
+        ]
+      },
+      {
+        "kind": "other",
+        "statement": "The harness runs both `python main.py --debug` and `python main.py`; each run must finish and leave prediction artifacts for validation.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 3,
+            "description": "States that the harness runs the program twice."
+          },
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 5,
+            "description": "Defines the debug command."
+          },
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 6,
+            "description": "Defines the full command."
+          },
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 8,
+            "description": "Explains that outputs are then validated and scored."
+          }
+        ]
+      },
+      {
+        "kind": "other",
+        "statement": "Run `python kapso_datasets/check_predictions.py` after writing predictions to catch missing files, shape errors, non-finite values, invalid binary probabilities, and recommendation dtype issues before official scoring.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 27,
+            "description": "Provides the self-check command."
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 30,
+            "description": "Checks both validation and test splits."
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 35,
+            "description": "Loads prediction files."
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 54,
+            "description": "Checks non-recommendation shapes."
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 56,
+            "description": "Checks finite values."
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 62,
+            "description": "Reports successful split checks."
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 68,
+            "description": "Reports that all checks passed."
+          }
+        ]
+      },
+      {
+        "kind": "other",
+        "statement": "A successful grader run prints official validation metrics and a KAPSO_EVAL_MANIFEST line; full-fidelity runs additionally archive the predictions and candidate code.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 268,
+            "description": "Loads and scores candidate outputs."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 271,
+            "description": "Archives full-fidelity runs."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 274,
+            "description": "Prints official validation metrics."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 285,
+            "description": "Prints the score manifest."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 291,
+            "description": "Persists the manifest for archived full runs."
+          }
+        ]
+      },
+      {
+        "kind": "other",
+        "statement": "The prescribed validation sequence is to characterize the fixed mechanics, build replay/censored features, measure forward folds, then run the debug gate, prediction checker, and immutable full-fidelity evaluation.",
+        "confidence": 0.98,
+        "evidence": [
+          {
+            "path": "PLAN.md",
+            "line": 7,
+            "description": "Requires characterizing evaluation mechanics and temporal origins."
+          },
+          {
+            "path": "PLAN.md",
+            "line": 8,
+            "description": "Requires building replay targets and censored features."
+          },
+          {
+            "path": "PLAN.md",
+            "line": 9,
+            "description": "Requires measuring forward folds."
+          },
+          {
+            "path": "PLAN.md",
+            "line": 10,
+            "description": "Requires the debug gate, checker, and full evaluation."
+          }
+        ]
+      },
+      {
+        "kind": "other",
+        "statement": "The candidate writes a metrics.json diagnostic artifact containing replay sizes, feature count, blend/iteration settings, forward-fold metrics, strata, and elapsed time.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 27,
+            "description": "Computes candidate diagnostics."
+          },
+          {
+            "path": "main.py",
+            "line": 28,
+            "description": "Adds elapsed runtime."
+          },
+          {
+            "path": "main.py",
+            "line": 29,
+            "description": "Writes metrics.json."
+          },
+          {
+            "path": "output_data_generic_exp_0/metrics.json",
+            "line": 3,
+            "description": "Records replay row counts."
+          },
+          {
+            "path": "output_data_generic_exp_0/metrics.json",
+            "line": 5,
+            "description": "Records feature count."
+          },
+          {
+            "path": "output_data_generic_exp_0/metrics.json",
+            "line": 22,
+            "description": "Records forward blend diagnostics."
+          },
+          {
+            "path": "output_data_generic_exp_0/metrics.json",
+            "line": 84,
+            "description": "Records forward stratification diagnostics."
+          },
+          {
+            "path": "output_data_generic_exp_0/metrics.json",
+            "line": 154,
+            "description": "Records elapsed seconds."
+          }
+        ]
+      },
+      {
+        "kind": "other",
+        "statement": "The immutable evaluation profile scores all 1,766 validation rows with validation MAE as the primary metric; full fidelity does not subsample and test labels remain hidden.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "eval_profile.md",
+            "line": 3,
+            "description": "Defines isolated execution, original-order validation vectors, all-row scoring, and primary MAE."
+          },
+          {
+            "path": "eval_profile.md",
+            "line": 5,
+            "description": "Records the train, validation, and hidden test sizes."
+          },
+          {
+            "path": "eval_profile.md",
+            "line": 7,
+            "description": "Identifies the temporally censored matrix as score-bound and prohibits validation-label-driven tuning."
+          },
+          {
+            "path": "eval_profile.md",
+            "line": 9,
+            "description": "Records the measured forward-fold and coverage profile."
+          }
+        ]
+      },
+      {
+        "kind": "other",
+        "statement": "Debug mode is now a genuinely reduced workload rather than only a logging flag: it uses a shorter horizon list, lower LightGBM/CatBoost iteration limits, an alternate feature version, an earlier replay end date, and only the first 500 ads from each of the first two origins.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 14,
+            "description": "Detects --debug."
+          },
+          {
+            "path": "main.py",
+            "line": 15,
+            "description": "Passes debug mode into AvitoPipeline."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 35,
+            "description": "Uses fewer horizons in debug mode."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 36,
+            "description": "Uses a smaller LightGBM budget in debug mode."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 37,
+            "description": "Uses a smaller CatBoost budget in debug mode."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 38,
+            "description": "Selects a separate debug feature version."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 132,
+            "description": "Checks debug behavior during replay construction."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 133,
+            "description": "Moves the debug replay end date earlier."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 180,
+            "description": "Defines debug sampling."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 184,
+            "description": "Limits each selected origin to 500 ads."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 186,
+            "description": "Returns the reduced debug sample."
+          }
+        ]
+      },
+      {
+        "kind": "other",
+        "statement": "Replay labels exclude zero-click ad-origin groups because the SQL has a positive-click HAVING clause; official training rows are separately combined with missing replay-only statistics.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "avito_pipeline.py",
+            "line": 159,
+            "description": "Filters replay groups to positive-click groups."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 166,
+            "description": "Defines combination of replay and official labels."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 168,
+            "description": "Sets replay click counts to missing for official rows."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 176,
+            "description": "Concatenates replay and official rows."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 177,
+            "description": "Drops duplicate ad-origin keys."
+          }
+        ]
+      },
+      {
+        "kind": "other",
+        "statement": "DuckDB 1.5.4 did not support the previously used log1p SQL form, so SQL feature expressions must use ln(1+x) instead.",
+        "confidence": 0.98,
+        "evidence": [
+          {
+            "path": "changes.log",
+            "line": 4,
+            "description": "Records the DuckDB CatalogException and the ln(1+x) replacement."
+          }
+        ]
+      },
+      {
+        "kind": "other",
+        "statement": "A prior feature derivation bug dropped the timestamp join key along with intermediate datetime columns; the fix preserves timestamp and bumps the cache content version, so stale cached matrices should not be trusted across that change.",
+        "confidence": 0.98,
+        "evidence": [
+          {
+            "path": "changes.log",
+            "line": 5,
+            "description": "Records the timestamp-key fix and cache content-version bump."
+          }
+        ]
+      },
+      {
+        "kind": "other",
+        "statement": "The final routed ensemble is intentionally asymmetric: the compact 319-field representation is used for raw-L1, while log-L1 and CatBoost retain all 391 selected fields; CatBoost also excludes the normalized-title categorical and character-SVD text coordinates.",
+        "confidence": 0.98,
+        "evidence": [
+          {
+            "path": "changes.log",
+            "line": 18,
+            "description": "Records the 319-field raw head and 391-field log/CatBoost routing."
+          },
+          {
+            "path": "changes.log",
+            "line": 23,
+            "description": "Records removal of the normalized-title categorical from CatBoost."
+          },
+          {
+            "path": "changes.log",
+            "line": 24,
+            "description": "Records removal of character-SVD coordinates from CatBoost."
+          },
+          {
+            "path": "output_data_generic_exp_0/metrics.json",
+            "line": 5,
+            "description": "Records the 391-field selected feature matrix."
+          },
+          {
+            "path": "output_data_generic_exp_0/metrics.json",
+            "line": 12,
+            "description": "Records the default routed blend weights."
+          }
+        ]
+      },
+      {
+        "kind": "other",
+        "statement": "Direct VisitStream and PhoneRequestsStream overlap is zero for evaluation ads in the measured task universe, so their signal is represented through category-price and category-region cohort features rather than direct evaluation-ad events.",
+        "confidence": 0.96,
+        "evidence": [
+          {
+            "path": "eval_profile.md",
+            "line": 9,
+            "description": "Records zero direct VisitStream and PhoneRequestsStream overlap and the cohort representation."
+          }
+        ]
+      },
+      {
+        "kind": "dependency",
+        "statement": "The pipeline directly depends on DuckDB, LightGBM, NumPy, pandas, CatBoost, scikit-learn TF-IDF/SVD, and scikit-learn MAE utilities.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "avito_pipeline.py",
+            "line": 11,
+            "description": "Imports DuckDB."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 12,
+            "description": "Imports LightGBM."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 13,
+            "description": "Imports NumPy."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 14,
+            "description": "Imports pandas."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 15,
+            "description": "Imports CatBoost."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 16,
+            "description": "Imports TF-IDF vectorization."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 17,
+            "description": "Imports mean absolute error."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 18,
+            "description": "Imports truncated SVD."
+          }
+        ]
+      },
+      {
+        "kind": "dependency",
+        "statement": "Runtime data access requires RelBench task metadata and a local parquet database under RELBENCH_CACHE_DIR/RELBENCH_DATASET/db; task loading is performed with downloads disabled.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "avito_pipeline.py",
+            "line": 30,
+            "description": "Builds the RelBench database root from environment variables."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 45,
+            "description": "Builds parquet paths for the required database tables."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 64,
+            "description": "Imports the RelBench task loader."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 66,
+            "description": "Requests the configured dataset/task."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 69,
+            "description": "Disables downloads."
+          }
+        ]
+      },
+      {
+        "kind": "dependency",
+        "statement": "The pipeline expects RELBENCH_CACHE_DIR, RELBENCH_DATASET, RELBENCH_TASK, KAPSO_SHARED_CACHE_DIR, OMP_NUM_THREADS, and KAPSO_RUN_DATA_DIR; the output directory defaults to ./kapso_output when KAPSO_RUN_DATA_DIR is absent.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "avito_pipeline.py",
+            "line": 27,
+            "description": "Reads OMP_NUM_THREADS."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 28,
+            "description": "Reads KAPSO_SHARED_CACHE_DIR."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 31,
+            "description": "Reads RELBENCH_CACHE_DIR."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 32,
+            "description": "Reads RELBENCH_DATASET for the database path."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 67,
+            "description": "Reads RELBENCH_DATASET for task loading."
+          },
+          {
+            "path": "avito_pipeline.py",
+            "line": 68,
+            "description": "Reads RELBENCH_TASK for task loading."
+          },
+          {
+            "path": "main.py",
+            "line": 21,
+            "description": "Reads KAPSO_RUN_DATA_DIR with a local default."
+          }
+        ]
+      }
+    ]
+  },
+  "book": {
+    "summary": "This is a RelBench Avito CTR regression candidate. `main.py` runs an end-to-end replay, temporally censored feature, forward-selection, and raw/log LightGBM plus ordered CatBoost ensemble pipeline, producing validation/test predictions and diagnostics for the immutable evaluation harness.",
+    "toc": [
+      {
+        "id": "core.architecture",
+        "title": "Architecture",
+        "one_liner": "Avito replay-and-feature pipeline surrounded by the fixed RelBench evaluation harness"
+      },
+      {
+        "id": "core.entrypoints",
+        "title": "Entrypoints",
+        "one_liner": "Run the Avito candidate directly or invoke the provided grader"
+      },
+      {
+        "id": "core.where_to_edit",
+        "title": "Where to edit",
+        "one_liner": "Modify the Avito pipeline implementation while preserving the prediction and evaluation contract"
+      },
+      {
+        "id": "core.invariants",
+        "title": "Invariants",
+        "one_liner": "Replay construction, prediction artifacts, data access, and scoring must obey the RelBench contract"
+      },
+      {
+        "id": "core.testing",
+        "title": "Testing",
+        "one_liner": "Use the debug gate, prediction checker, diagnostics, and immutable full-fidelity evaluation"
+      },
+      {
+        "id": "core.gotchas",
+        "title": "Gotchas",
+        "one_liner": "Debug truncation, replay filtering, cache compatibility, and selected feature routing matter for reproducible runs"
+      },
+      {
+        "id": "core.dependencies",
+        "title": "Dependencies",
+        "one_liner": "RelBench/cache data plus DuckDB, boosting, text, and scientific Python libraries"
+      }
+    ],
+    "sections": {
+      "core.architecture": {
+        "title": "Architecture",
+        "one_liner": "Avito replay-and-feature pipeline surrounded by the fixed RelBench evaluation harness",
+        "claims": [
+          {
+            "kind": "architecture",
+            "statement": "The executable now orchestrates a full Avito pipeline: prepare replay/features, run forward selection, fit the validation model, save validation predictions, fit the test model, save test predictions, and record diagnostics and campaign metadata.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "main.py",
+                "line": 12,
+                "description": "Defines the pipeline entrypoint."
+              },
+              {
+                "path": "main.py",
+                "line": 16,
+                "description": "Prepares replay labels and features."
+              },
+              {
+                "path": "main.py",
+                "line": 18,
+                "description": "Runs forward feature/model selection."
+              },
+              {
+                "path": "main.py",
+                "line": 20,
+                "description": "Fits the validation-producing model."
+              },
+              {
+                "path": "main.py",
+                "line": 23,
+                "description": "Writes validation predictions."
+              },
+              {
+                "path": "main.py",
+                "line": 25,
+                "description": "Fits the test-producing model."
+              },
+              {
+                "path": "main.py",
+                "line": 26,
+                "description": "Writes test predictions."
+              },
+              {
+                "path": "main.py",
+                "line": 27,
+                "description": "Computes diagnostics."
+              },
+              {
+                "path": "main.py",
+                "line": 30,
+                "description": "Records the campaign metrics."
+              }
+            ]
+          },
+          {
+            "kind": "architecture",
+            "statement": "AvitoPipeline configures a DuckDB connection, shared intermediate cache, RelBench database parquet root, debug-dependent workloads, and the AdsInfo, Category, Location, SearchStream, SearchInfo, UserInfo, VisitStream, and PhoneRequestsStream tables.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "avito_pipeline.py",
+                "line": 23,
+                "description": "Defines AvitoPipeline."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 27,
+                "description": "Reads the thread-count environment setting."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 28,
+                "description": "Creates the shared replay-feature cache root."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 30,
+                "description": "Builds the RelBench database parquet root."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 35,
+                "description": "Selects debug versus full feature horizons."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 36,
+                "description": "Selects debug versus full LightGBM iteration limits."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 37,
+                "description": "Selects debug versus full CatBoost iteration limits."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 43,
+                "description": "Creates and configures the DuckDB connection."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 45,
+                "description": "Initializes the database table paths."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 57,
+                "description": "Completes the configured parquet table map."
+              }
+            ]
+          },
+          {
+            "kind": "architecture",
+            "statement": "Preparation loads the RelBench task without downloading, keeps train labels and validation/test seed keys, constructs two replay-label datasets, builds shared features, merges them one-to-one, restores validation/test input order, and checks feature alignment.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "avito_pipeline.py",
+                "line": 63,
+                "description": "Defines the preparation phase."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 66,
+                "description": "Requests the RelBench task."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 69,
+                "description": "Disables downloads."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 71,
+                "description": "Loads train identifiers, timestamps, and targets."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 72,
+                "description": "Loads validation seed identifiers and timestamps."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 73,
+                "description": "Loads test seed identifiers and timestamps."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 75,
+                "description": "Builds the first replay-label set."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 76,
+                "description": "Builds the second replay-label set."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 102,
+                "description": "Builds or loads shared features."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 103,
+                "description": "Merges features into the first training replay set."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 107,
+                "description": "Merges features into validation rows."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 114,
+                "description": "Merges features into test rows while preserving evaluation order."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 117,
+                "description": "Checks for missing feature rows and validation length mismatch."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 123,
+                "description": "Returns prepared train, validation, and test datasets."
+              }
+            ]
+          },
+          {
+            "kind": "architecture",
+            "statement": "Replay labels are generated from daily origins and SearchStream events whose SearchDate is strictly after the origin and no later than four days after it; the aggregation records clicks, exposures, labeled exposures, object-type counts, and CTR targets.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "avito_pipeline.py",
+                "line": 131,
+                "description": "Defines replay-label generation."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 135,
+                "description": "Starts the daily origin query."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 139,
+                "description": "Uses a one-day origin interval through the requested end date."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 143,
+                "description": "Selects the ad identifier."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 145,
+                "description": "Selects the replay origin timestamp."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 146,
+                "description": "Aggregates clicks."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 147,
+                "description": "Counts all impressions/searches."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 152,
+                "description": "Computes the exposure-denominated target."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 153,
+                "description": "Computes the labeled-exposure target."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 155,
+                "description": "Reads SearchStream from the configured parquet source."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 157,
+                "description": "Applies the four-day replay window."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 159,
+                "description": "Retains only groups with at least one click."
+              }
+            ]
+          },
+          {
+            "kind": "algorithm",
+            "statement": "The implemented modeling stack uses exact daily replay labels, temporally censored multi-table and multi-horizon features, cohort empirical-Bayes priors, character n-gram SVD, raw/log-L1 LightGBM, and an ordered CatBoost ensemble selected with forward folds.",
+            "confidence": 0.98,
+            "evidence": [
+              {
+                "path": "changes.log",
+                "line": 1,
+                "description": "Records the implemented replay, feature, prior, text, and ensemble components."
+              },
+              {
+                "path": "PLAN.md",
+                "line": 8,
+                "description": "Plans exact daily replay targets and censored multi-table features."
+              },
+              {
+                "path": "PLAN.md",
+                "line": 9,
+                "description": "Plans forward-fold training of raw-L1, log-L1, and ordered-categorical models."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 11,
+                "description": "Imports DuckDB."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 12,
+                "description": "Imports LightGBM."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 15,
+                "description": "Imports CatBoostRegressor."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 16,
+                "description": "Imports TF-IDF feature construction."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 18,
+                "description": "Imports truncated SVD."
+              }
+            ]
+          },
+          {
+            "kind": "algorithm",
+            "statement": "The recorded full run used 391 selected features, empirical-Bayes strength 20, a 0.6 raw/0.2 log/0.2 CatBoost default blend, and 722/601/437 iterations respectively; its default forward blend had mean MAE 0.03131447 and worst-fold MAE 0.03393563.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "output_data_generic_exp_0/metrics.json",
+                "line": 3,
+                "description": "Records the replay-A row count."
+              },
+              {
+                "path": "output_data_generic_exp_0/metrics.json",
+                "line": 5,
+                "description": "Records the selected feature count."
+              },
+              {
+                "path": "output_data_generic_exp_0/metrics.json",
+                "line": 6,
+                "description": "Records empirical-Bayes strength."
+              },
+              {
+                "path": "output_data_generic_exp_0/metrics.json",
+                "line": 12,
+                "description": "Starts the recorded blend weights."
+              },
+              {
+                "path": "output_data_generic_exp_0/metrics.json",
+                "line": 15,
+                "description": "Records the CatBoost blend weight."
+              },
+              {
+                "path": "output_data_generic_exp_0/metrics.json",
+                "line": 17,
+                "description": "Starts the selected iteration counts."
+              },
+              {
+                "path": "output_data_generic_exp_0/metrics.json",
+                "line": 20,
+                "description": "Records the CatBoost iteration count."
+              },
+              {
+                "path": "output_data_generic_exp_0/metrics.json",
+                "line": 22,
+                "description": "Starts the forward-blend diagnostics."
+              },
+              {
+                "path": "output_data_generic_exp_0/metrics.json",
+                "line": 24,
+                "description": "Records the default blend mean MAE."
+              },
+              {
+                "path": "output_data_generic_exp_0/metrics.json",
+                "line": 25,
+                "description": "Records the default blend worst-fold MAE."
+              }
+            ]
+          },
+          {
+            "kind": "architecture",
+            "statement": "The candidate writes NumPy validation and test artifacts under KAPSO_RUN_DATA_DIR; the normal grader launches the candidate as an isolated subprocess and scores the resulting validation predictions.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "main.py",
+                "line": 21,
+                "description": "Reads the candidate output directory."
+              },
+              {
+                "path": "main.py",
+                "line": 23,
+                "description": "Writes validation predictions."
+              },
+              {
+                "path": "main.py",
+                "line": 26,
+                "description": "Writes test predictions."
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 70,
+                "description": "Builds the isolated child command."
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 77,
+                "description": "Runs the candidate subprocess."
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 215,
+                "description": "Evaluates validation predictions."
+              }
+            ]
+          },
+          {
+            "kind": "architecture",
+            "statement": "Rolling evaluation invokes the candidate once per cache snapshot, consumes each tick's test prediction, and assembles predictions into official row order using snapshot indices.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 122,
+                "description": "Defines the rolling one-invocation-per-tick protocol."
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 144,
+                "description": "Creates an isolated stage for each snapshot."
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 149,
+                "description": "Provides the snapshot cache to the child."
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 157,
+                "description": "Reads the tick's test predictions."
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 171,
+                "description": "Concatenates snapshot indices."
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 174,
+                "description": "Places predictions into the assembled official vector."
+              }
+            ]
+          },
+          {
+            "kind": "architecture",
+            "statement": "The optional starter helpers expose a TaskContext containing the dataset, database, and train/validation/test tables, plus standardized prediction saving, temporal-safety checks, and MAP@K evaluation.",
+            "confidence": 0.98,
+            "evidence": [
+              {
+                "path": "kapso_datasets/common.py",
+                "line": 44,
+                "description": "Defines TaskContext."
+              },
+              {
+                "path": "kapso_datasets/common.py",
+                "line": 50,
+                "description": "Stores the database handle."
+              },
+              {
+                "path": "kapso_datasets/common.py",
+                "line": 51,
+                "description": "Stores the training table."
+              },
+              {
+                "path": "kapso_datasets/common.py",
+                "line": 52,
+                "description": "Stores the validation table."
+              },
+              {
+                "path": "kapso_datasets/common.py",
+                "line": 53,
+                "description": "Stores the test table."
+              },
+              {
+                "path": "kapso_datasets/common.py",
+                "line": 86,
+                "description": "Defines standardized prediction saving."
+              },
+              {
+                "path": "kapso_datasets/common.py",
+                "line": 97,
+                "description": "Defines temporal-safety validation."
+              }
+            ]
+          }
+        ]
+      },
+      "core.entrypoints": {
+        "title": "Entrypoints",
+        "one_liner": "Run the Avito candidate directly or invoke the provided grader",
+        "content": [
+          {
+            "path": "main.py",
+            "how_to_run": "Run `python main.py --debug` for the reduced debug pipeline or `python main.py` for the full pipeline.",
+            "evidence": [
+              {
+                "path": "main.py",
+                "line": 14,
+                "description": "Recognizes the --debug flag."
+              },
+              {
+                "path": "main.py",
+                "line": 37,
+                "description": "Runs main when invoked as a script."
+              }
+            ]
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "how_to_run": "Run `python kapso_evaluation/grader.py --fidelity fast|full [--fraction F] [--seed S]`."
+          }
+        ]
+      },
+      "core.where_to_edit": {
+        "title": "Where to edit",
+        "one_liner": "Modify the Avito pipeline implementation while preserving the prediction and evaluation contract",
+        "content": [
+          {
+            "path": "main.py",
+            "role": "Candidate entrypoint; controls debug mode, pipeline phases, output paths, prediction artifacts, diagnostics, and campaign recording.",
+            "evidence": [
+              {
+                "path": "main.py",
+                "line": 14,
+                "description": "Controls debug mode."
+              },
+              {
+                "path": "main.py",
+                "line": 16,
+                "description": "Starts preparation."
+              },
+              {
+                "path": "main.py",
+                "line": 18,
+                "description": "Starts forward selection."
+              },
+              {
+                "path": "main.py",
+                "line": 20,
+                "description": "Starts validation fitting."
+              },
+              {
+                "path": "main.py",
+                "line": 25,
+                "description": "Starts test fitting."
+              },
+              {
+                "path": "main.py",
+                "line": 29,
+                "description": "Writes diagnostics."
+              }
+            ]
+          },
+          {
+            "path": "avito_pipeline.py",
+            "role": "Primary implementation for replay labels, temporal feature construction, forward selection, model fitting, diagnostics, and campaign artifacts.",
+            "evidence": [
+              {
+                "path": "avito_pipeline.py",
+                "line": 23,
+                "description": "Defines the primary pipeline class."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 63,
+                "description": "Defines data preparation."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 131,
+                "description": "Defines replay-label construction."
+              }
+            ]
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "role": "Optional reusable task-loading, prediction-saving, temporal-safety, and MAP@K helpers."
+          },
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "role": "Authoritative prediction and evaluation contract to consult before changing outputs."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "role": "Immutable scoring and isolation pipeline; do not reimplement or modify it."
+          }
+        ]
+      },
+      "core.invariants": {
+        "title": "Invariants",
+        "one_liner": "Replay construction, prediction artifacts, data access, and scoring must obey the RelBench contract",
+        "claims": [
+          {
+            "kind": "contract",
+            "statement": "Every run must produce both val_predictions.npy and test_predictions.npy with rows positionally aligned to the task tables; validation predictions must be out-of-sample and must not use validation labels for training.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 15,
+                "description": "Requires both prediction files after every run."
+              },
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 16,
+                "description": "Requires positional row alignment."
+              },
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 17,
+                "description": "Requires validation predictions to be out-of-sample."
+              },
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 18,
+                "description": "Restricts use of validation labels to the test-producing model."
+              }
+            ]
+          },
+          {
+            "kind": "contract",
+            "statement": "Required output formats are binary and regression float vectors of shape (N,), multiclass float scores of shape (N,C), and recommendation integer rankings of shape (N,K) containing distinct destination IDs within the valid destination range.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 20,
+                "description": "Defines binary, regression, and multiclass output types and shapes."
+              },
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 21,
+                "description": "Defines recommendation integer ranking requirements."
+              },
+              {
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 38,
+                "description": "Checks recommendation shape."
+              },
+              {
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 40,
+                "description": "Checks recommendation integer dtype."
+              }
+            ]
+          },
+          {
+            "kind": "contract",
+            "statement": "Data must come from the sanitized read-only cache through RelBench with download=False; test labels are physically absent and must not be probed for.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 25,
+                "description": "Requires download=False and sanitized-cache access."
+              },
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 26,
+                "description": "States that test labels are absent."
+              },
+              {
+                "path": "kapso_datasets/common.py",
+                "line": 60,
+                "description": "Documents loading from the sanitized cache."
+              },
+              {
+                "path": "kapso_datasets/common.py",
+                "line": 71,
+                "description": "Loads the dataset with download=False."
+              },
+              {
+                "path": "kapso_datasets/common.py",
+                "line": 72,
+                "description": "Loads the task with download=False."
+              }
+            ]
+          },
+          {
+            "kind": "contract",
+            "statement": "The score of record is the official validation primary metric; test metrics are private and must not be used as the search score or assumed to be available.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 23,
+                "description": "Defines the official validation primary metric as the search score."
+              },
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 24,
+                "description": "States that test metrics are private."
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 283,
+                "description": "Stores the primary validation metric as manifest score."
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 285,
+                "description": "Prints the machine-readable score manifest."
+              }
+            ]
+          },
+          {
+            "kind": "contract",
+            "statement": "When the temporal-safety helper is used, every feature row must have its time column less than or equal to the corresponding seed time.",
+            "confidence": 0.98,
+            "evidence": [
+              {
+                "path": "kapso_datasets/common.py",
+                "line": 97,
+                "description": "Documents the temporal-safety invariant."
+              },
+              {
+                "path": "kapso_datasets/common.py",
+                "line": 99,
+                "description": "Detects rows after the seed time."
+              },
+              {
+                "path": "kapso_datasets/common.py",
+                "line": 101,
+                "description": "Raises an error on temporal leakage."
+              }
+            ]
+          },
+          {
+            "kind": "contract",
+            "statement": "The current candidate restores validation and test predictions to their original split order after feature merging and requires one-to-one feature alignment for each seed key.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "avito_pipeline.py",
+                "line": 103,
+                "description": "Uses one-to-one validation for replay feature merging."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 106,
+                "description": "Adds the original validation row position."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 109,
+                "description": "Sorts validation features back by original row position."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 111,
+                "description": "Adds the original test row position."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 114,
+                "description": "Sorts test features back by original row position."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 117,
+                "description": "Rejects missing feature rows or validation length mismatch."
+              }
+            ]
+          },
+          {
+            "kind": "contract",
+            "statement": "The replay target uses a four-day post-origin SearchStream window and retains only ad-origin groups with at least one click; official train rows are added with replay-only statistics set to missing.",
+            "confidence": 0.98,
+            "evidence": [
+              {
+                "path": "avito_pipeline.py",
+                "line": 155,
+                "description": "Joins SearchStream events."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 157,
+                "description": "Defines the four-day post-origin window."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 159,
+                "description": "Filters replay groups to positive-click groups."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 166,
+                "description": "Defines official/replay label combination."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 168,
+                "description": "Initializes replay click count as missing for official rows."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 176,
+                "description": "Concatenates replay and official rows."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 177,
+                "description": "Removes duplicate ad-origin keys."
+              }
+            ]
+          },
+          {
+            "kind": "contract",
+            "statement": "The current recorded validation and test artifacts are one-dimensional float64 vectors with 1,766 and 1,816 rows respectively.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "main.py",
+                "line": 23,
+                "description": "Saves the validation prediction vector."
+              },
+              {
+                "path": "main.py",
+                "line": 26,
+                "description": "Saves the test prediction vector."
+              },
+              {
+                "path": "output_data_generic_exp_0/val_predictions.npy",
+                "line": 1,
+                "description": "NumPy header records float64 dtype and shape (1766,)."
+              },
+              {
+                "path": "output_data_generic_exp_0/test_predictions.npy",
+                "line": 1,
+                "description": "NumPy header records float64 dtype and shape (1816,)."
+              }
+            ]
+          }
+        ]
+      },
+      "core.testing": {
+        "title": "Testing",
+        "one_liner": "Use the debug gate, prediction checker, diagnostics, and immutable full-fidelity evaluation",
+        "claims": [
+          {
+            "kind": "other",
+            "statement": "The harness runs both `python main.py --debug` and `python main.py`; each run must finish and leave prediction artifacts for validation.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 3,
+                "description": "States that the harness runs the program twice."
+              },
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 5,
+                "description": "Defines the debug command."
+              },
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 6,
+                "description": "Defines the full command."
+              },
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 8,
+                "description": "Explains that outputs are then validated and scored."
+              }
+            ]
+          },
+          {
+            "kind": "other",
+            "statement": "Run `python kapso_datasets/check_predictions.py` after writing predictions to catch missing files, shape errors, non-finite values, invalid binary probabilities, and recommendation dtype issues before official scoring.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 27,
+                "description": "Provides the self-check command."
+              },
+              {
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 30,
+                "description": "Checks both validation and test splits."
+              },
+              {
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 35,
+                "description": "Loads prediction files."
+              },
+              {
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 54,
+                "description": "Checks non-recommendation shapes."
+              },
+              {
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 56,
+                "description": "Checks finite values."
+              },
+              {
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 62,
+                "description": "Reports successful split checks."
+              },
+              {
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 68,
+                "description": "Reports that all checks passed."
+              }
+            ]
+          },
+          {
+            "kind": "other",
+            "statement": "A successful grader run prints official validation metrics and a KAPSO_EVAL_MANIFEST line; full-fidelity runs additionally archive the predictions and candidate code.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 268,
+                "description": "Loads and scores candidate outputs."
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 271,
+                "description": "Archives full-fidelity runs."
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 274,
+                "description": "Prints official validation metrics."
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 285,
+                "description": "Prints the score manifest."
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 291,
+                "description": "Persists the manifest for archived full runs."
+              }
+            ]
+          },
+          {
+            "kind": "other",
+            "statement": "The prescribed validation sequence is to characterize the fixed mechanics, build replay/censored features, measure forward folds, then run the debug gate, prediction checker, and immutable full-fidelity evaluation.",
+            "confidence": 0.98,
+            "evidence": [
+              {
+                "path": "PLAN.md",
+                "line": 7,
+                "description": "Requires characterizing evaluation mechanics and temporal origins."
+              },
+              {
+                "path": "PLAN.md",
+                "line": 8,
+                "description": "Requires building replay targets and censored features."
+              },
+              {
+                "path": "PLAN.md",
+                "line": 9,
+                "description": "Requires measuring forward folds."
+              },
+              {
+                "path": "PLAN.md",
+                "line": 10,
+                "description": "Requires the debug gate, checker, and full evaluation."
+              }
+            ]
+          },
+          {
+            "kind": "other",
+            "statement": "The candidate writes a metrics.json diagnostic artifact containing replay sizes, feature count, blend/iteration settings, forward-fold metrics, strata, and elapsed time.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "main.py",
+                "line": 27,
+                "description": "Computes candidate diagnostics."
+              },
+              {
+                "path": "main.py",
+                "line": 28,
+                "description": "Adds elapsed runtime."
+              },
+              {
+                "path": "main.py",
+                "line": 29,
+                "description": "Writes metrics.json."
+              },
+              {
+                "path": "output_data_generic_exp_0/metrics.json",
+                "line": 3,
+                "description": "Records replay row counts."
+              },
+              {
+                "path": "output_data_generic_exp_0/metrics.json",
+                "line": 5,
+                "description": "Records feature count."
+              },
+              {
+                "path": "output_data_generic_exp_0/metrics.json",
+                "line": 22,
+                "description": "Records forward blend diagnostics."
+              },
+              {
+                "path": "output_data_generic_exp_0/metrics.json",
+                "line": 84,
+                "description": "Records forward stratification diagnostics."
+              },
+              {
+                "path": "output_data_generic_exp_0/metrics.json",
+                "line": 154,
+                "description": "Records elapsed seconds."
+              }
+            ]
+          },
+          {
+            "kind": "other",
+            "statement": "The immutable evaluation profile scores all 1,766 validation rows with validation MAE as the primary metric; full fidelity does not subsample and test labels remain hidden.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "eval_profile.md",
+                "line": 3,
+                "description": "Defines isolated execution, original-order validation vectors, all-row scoring, and primary MAE."
+              },
+              {
+                "path": "eval_profile.md",
+                "line": 5,
+                "description": "Records the train, validation, and hidden test sizes."
+              },
+              {
+                "path": "eval_profile.md",
+                "line": 7,
+                "description": "Identifies the temporally censored matrix as score-bound and prohibits validation-label-driven tuning."
+              },
+              {
+                "path": "eval_profile.md",
+                "line": 9,
+                "description": "Records the measured forward-fold and coverage profile."
+              }
+            ]
+          }
+        ]
+      },
+      "core.gotchas": {
+        "title": "Gotchas",
+        "one_liner": "Debug truncation, replay filtering, cache compatibility, and selected feature routing matter for reproducible runs",
+        "claims": [
+          {
+            "kind": "other",
+            "statement": "Debug mode is now a genuinely reduced workload rather than only a logging flag: it uses a shorter horizon list, lower LightGBM/CatBoost iteration limits, an alternate feature version, an earlier replay end date, and only the first 500 ads from each of the first two origins.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "main.py",
+                "line": 14,
+                "description": "Detects --debug."
+              },
+              {
+                "path": "main.py",
+                "line": 15,
+                "description": "Passes debug mode into AvitoPipeline."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 35,
+                "description": "Uses fewer horizons in debug mode."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 36,
+                "description": "Uses a smaller LightGBM budget in debug mode."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 37,
+                "description": "Uses a smaller CatBoost budget in debug mode."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 38,
+                "description": "Selects a separate debug feature version."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 132,
+                "description": "Checks debug behavior during replay construction."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 133,
+                "description": "Moves the debug replay end date earlier."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 180,
+                "description": "Defines debug sampling."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 184,
+                "description": "Limits each selected origin to 500 ads."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 186,
+                "description": "Returns the reduced debug sample."
+              }
+            ]
+          },
+          {
+            "kind": "other",
+            "statement": "Replay labels exclude zero-click ad-origin groups because the SQL has a positive-click HAVING clause; official training rows are separately combined with missing replay-only statistics.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "avito_pipeline.py",
+                "line": 159,
+                "description": "Filters replay groups to positive-click groups."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 166,
+                "description": "Defines combination of replay and official labels."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 168,
+                "description": "Sets replay click counts to missing for official rows."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 176,
+                "description": "Concatenates replay and official rows."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 177,
+                "description": "Drops duplicate ad-origin keys."
+              }
+            ]
+          },
+          {
+            "kind": "other",
+            "statement": "DuckDB 1.5.4 did not support the previously used log1p SQL form, so SQL feature expressions must use ln(1+x) instead.",
+            "confidence": 0.98,
+            "evidence": [
+              {
+                "path": "changes.log",
+                "line": 4,
+                "description": "Records the DuckDB CatalogException and the ln(1+x) replacement."
+              }
+            ]
+          },
+          {
+            "kind": "other",
+            "statement": "A prior feature derivation bug dropped the timestamp join key along with intermediate datetime columns; the fix preserves timestamp and bumps the cache content version, so stale cached matrices should not be trusted across that change.",
+            "confidence": 0.98,
+            "evidence": [
+              {
+                "path": "changes.log",
+                "line": 5,
+                "description": "Records the timestamp-key fix and cache content-version bump."
+              }
+            ]
+          },
+          {
+            "kind": "other",
+            "statement": "The final routed ensemble is intentionally asymmetric: the compact 319-field representation is used for raw-L1, while log-L1 and CatBoost retain all 391 selected fields; CatBoost also excludes the normalized-title categorical and character-SVD text coordinates.",
+            "confidence": 0.98,
+            "evidence": [
+              {
+                "path": "changes.log",
+                "line": 18,
+                "description": "Records the 319-field raw head and 391-field log/CatBoost routing."
+              },
+              {
+                "path": "changes.log",
+                "line": 23,
+                "description": "Records removal of the normalized-title categorical from CatBoost."
+              },
+              {
+                "path": "changes.log",
+                "line": 24,
+                "description": "Records removal of character-SVD coordinates from CatBoost."
+              },
+              {
+                "path": "output_data_generic_exp_0/metrics.json",
+                "line": 5,
+                "description": "Records the 391-field selected feature matrix."
+              },
+              {
+                "path": "output_data_generic_exp_0/metrics.json",
+                "line": 12,
+                "description": "Records the default routed blend weights."
+              }
+            ]
+          },
+          {
+            "kind": "other",
+            "statement": "Direct VisitStream and PhoneRequestsStream overlap is zero for evaluation ads in the measured task universe, so their signal is represented through category-price and category-region cohort features rather than direct evaluation-ad events.",
+            "confidence": 0.96,
+            "evidence": [
+              {
+                "path": "eval_profile.md",
+                "line": 9,
+                "description": "Records zero direct VisitStream and PhoneRequestsStream overlap and the cohort representation."
+              }
+            ]
+          }
+        ]
+      },
+      "core.dependencies": {
+        "title": "Dependencies",
+        "one_liner": "RelBench/cache data plus DuckDB, boosting, text, and scientific Python libraries",
+        "claims": [
+          {
+            "kind": "dependency",
+            "statement": "The pipeline directly depends on DuckDB, LightGBM, NumPy, pandas, CatBoost, scikit-learn TF-IDF/SVD, and scikit-learn MAE utilities.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "avito_pipeline.py",
+                "line": 11,
+                "description": "Imports DuckDB."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 12,
+                "description": "Imports LightGBM."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 13,
+                "description": "Imports NumPy."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 14,
+                "description": "Imports pandas."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 15,
+                "description": "Imports CatBoost."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 16,
+                "description": "Imports TF-IDF vectorization."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 17,
+                "description": "Imports mean absolute error."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 18,
+                "description": "Imports truncated SVD."
+              }
+            ]
+          },
+          {
+            "kind": "dependency",
+            "statement": "Runtime data access requires RelBench task metadata and a local parquet database under RELBENCH_CACHE_DIR/RELBENCH_DATASET/db; task loading is performed with downloads disabled.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "avito_pipeline.py",
+                "line": 30,
+                "description": "Builds the RelBench database root from environment variables."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 45,
+                "description": "Builds parquet paths for the required database tables."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 64,
+                "description": "Imports the RelBench task loader."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 66,
+                "description": "Requests the configured dataset/task."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 69,
+                "description": "Disables downloads."
+              }
+            ]
+          },
+          {
+            "kind": "dependency",
+            "statement": "The pipeline expects RELBENCH_CACHE_DIR, RELBENCH_DATASET, RELBENCH_TASK, KAPSO_SHARED_CACHE_DIR, OMP_NUM_THREADS, and KAPSO_RUN_DATA_DIR; the output directory defaults to ./kapso_output when KAPSO_RUN_DATA_DIR is absent.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "avito_pipeline.py",
+                "line": 27,
+                "description": "Reads OMP_NUM_THREADS."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 28,
+                "description": "Reads KAPSO_SHARED_CACHE_DIR."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 31,
+                "description": "Reads RELBENCH_CACHE_DIR."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 32,
+                "description": "Reads RELBENCH_DATASET for the database path."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 67,
+                "description": "Reads RELBENCH_DATASET for task loading."
+              },
+              {
+                "path": "avito_pipeline.py",
+                "line": 68,
+                "description": "Reads RELBENCH_TASK for task loading."
+              },
+              {
+                "path": "main.py",
+                "line": 21,
+                "description": "Reads KAPSO_RUN_DATA_DIR with a local default."
+              }
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "experiments": [
+    {
+      "recorded_at": "2026-07-30T19:15:29.895324+00:00",
+      "branch": "generic_exp_0",
+      "parent_branch": "main",
+      "base_commit": "b55800baf17f3c48e05f73ee26094211139798cd",
+      "head_commit": "5b28f8cef2f93436243e598ec8636ef4c9be036e",
+      "code_head_commit": "5b28f8cef2f93436243e598ec8636ef4c9be036e",
+      "solution_spec": "# Core Idea\n\nBuild the strongest low-risk first score: exact daily label replay, temporally censored multi-horizon features from all eight tables, previous-window label replicas, and a forward-CV-selected ensemble of raw-target and log-target L1 gradient boosters.\n\n# Why This Ranks First\n\nThe current repository is only a constant-median baseline, while exact replay reportedly expands model-A training from 5,100 to 15,222 rows and model-B training to 26,646. Historical impressions, clicks, HistCTR, position, and the previous four-day CTR directly mirror the target mechanism. This route has the shortest time to a competitive score and leaves enough runtime for widening.\n\nExpected MAE range is ASSUMED at roughly 0.030–0.035 until forward-fold measurements exist.\n\n# Implementation Steps\n\n1. Read or create `features_history.md` and `table_information.md`. Record every feature group and measured forward-fold result append-only.\n\n2. Load the task with downloads disabled. Preserve each split’s original row index throughout prediction.\n\n3. Reproduce the official label query exactly, additionally retaining:\n\n   - `C = SUM(IsClick)`\n   - `N_all = COUNT(SearchID)`\n   - counts for each `ObjectType`\n   - `N_labeled`\n   - `C/N_all` and `C/N_labeled`\n\n4. Generate daily replay labels:\n\n   - Model A: origins 2015-04-26 through 2015-05-04, so every target window ends by validation cutoff V.\n   - Model B: origins through 2015-05-10, so every target window ends by T.\n   - Add official train rows to A and train plus validation rows to B, deduplicating only the training pool by `(AdID,timestamp)`.\n   - Never deduplicate or reorder evaluation rows.\n\n5. Preaggregate streams into daily and six-hour parquet partitions. Every feature query must explicitly enforce event time `<= seed timestamp`.\n\n6. Build the core SearchStream features over 6h, 1d, 2d, 4d, 8d, and all history:\n\n   - all-object impressions, labeled impressions, clicks, and ObjectType shares\n   - raw and Beta-smoothed CTRs using both official and labeled denominators\n   - exact previous-window replicas over `(t-4d,t]` and `(t-8d,t-4d]`\n   - `k/(k+N)` decode features for `k ∈ {1,2,3}`\n   - recent/long volume and CTR trends\n   - HistCTR mean, standard deviation, extrema, last value, and recency-weighted mean\n   - position moments and rank-bucket shares\n   - distinct searches, active hours, last impression/click age\n\n7. Join SearchInfo and UserInfo before aggregation. Add unique users/IPs, logged-on share, query-presence share, search/ad category mismatch, audience location mixture, repeated-user share, and device/OS/family diversity.\n\n8. Add entity and cohort features:\n\n   - log price, category-relative price percentile/band\n   - Category, parent, subcategory, and hierarchy level\n   - title length, token count, digit share, script mix, and character n-gram SVD\n   - category×price-band and category×audience-region historical CTR priors\n   - VisitStream and PhoneRequestsStream intensity, unique users/IPs, and phone/visit ratio aggregated by category×price band and category×region\n   - history depth, weekday composition of the future window, and first-seen age\n\n   Direct visit/phone features should be retained only if overlap is nonzero; otherwise use cohort features.\n\n9. Compute empirical-Bayes priors from events before each seed, backing off from ad to normalized title, category×region×price band, category, and global. Any replay-label target encoding must be forward-cross-fitted.\n\n10. Use availability-aware forward folds. For an evaluation origin `e`, train only on origins `s` satisfying `s+4 days <= e`. Suggested folds end on May 1, May 2, and May 4. Choose feature blocks, iteration counts, and blend weights solely from mean and worst-fold MAE.\n\n11. Train:\n\n   - LightGBM L1 on raw CTR\n   - LightGBM L1 on `log(CTR)`\n   - CatBoost MAE with ordered categoricals and chronological order\n\n   Keep the simpler model or fixed average when fold differences are within one standard error.\n\n12. Fit model A, save validation predictions immediately, then fit a separate model B using the enlarged pool and generate test predictions. Clip to `[2e-4,1]`, save with `np.save`, and run the supplied shape checker.\n\n13. Stage expensive text embeddings after the core score is secured. Use multilingual E5 only if already cached or obtainable early enough; character n-grams remain the reliable text baseline.\n\n# Hyperparameters\n\n- LightGBM: `objective=regression_l1`, 1,800 trees, learning rate 0.025, 31–63 leaves, minimum leaf 40, feature fraction 0.75, bagging fraction 0.8, L2 5\n- CatBoost: MAE, ordered boosting, depth 7, learning rate 0.035, 1,600 iterations, L2 8\n- EB prior strengths: 20, 50, 100, selected on forward folds\n- Default blend before internal selection: 60% raw LGB, 20% log LGB, 20% CatBoost\n- Full runtime target: 60–120 minutes\n- Debug: two replay origins, reduced feature windows, at most 1,000 training rows, 100 trees, no transformer; still write full-shape files\n\n# Coverage\n\n- Input distribution — MEASURED: history grows across a 19-day database range and evaluation uses later single timestamps. Fixed windows, history depth, trends, and daily replay address this shift.\n- Warm/cold entities — MEASURED: most evaluation ads have history, but roughly 100 per split do not. Ad-level behavior handles warm ads; title, category, price, and cohort priors handle cold ads.\n- Target structure — MEASURED: the label is positive-click-selected `C/N_all`. Historical replicas and separate numerator/denominator features encode the same arithmetic.\n- Tables — MEASURED: all eight tables have defined direct or cohort feature paths; seed-ad location and direct visit/phone overlap require reconfirmation before relying on them.\n- Metric mechanics — MEASURED: MAE is primary, so all primary heads use median-consistent L1 objectives.\n- Harness — MEASURED: outputs must be float arrays of shapes `(1766,)` and `(1816,)`, in original row order.\n- Temporal safety — MEASURED from the contract: model-A labels end by V and its features stop at each seed; validation labels enter only model B.\n- Expected performance — ASSUMED until forward CV: MAE around 0.030–0.035.",
+      "changed_files": [
+        "PLAN.md",
+        "avito_pipeline.py",
+        "changes.log",
+        "eval_profile.md",
+        "main.py",
+        "output_data_generic_exp_0/metrics.json",
+        "output_data_generic_exp_0/test_predictions.npy",
+        "output_data_generic_exp_0/val_predictions.npy"
+      ],
+      "diff_numstat": [
+        {
+          "added": "10",
+          "deleted": "0",
+          "path": "PLAN.md"
+        },
+        {
+          "added": "1482",
+          "deleted": "0",
+          "path": "avito_pipeline.py"
+        },
+        {
+          "added": "27",
+          "deleted": "0",
+          "path": "changes.log"
+        },
+        {
+          "added": "9",
+          "deleted": "0",
+          "path": "eval_profile.md"
+        },
+        {
+          "added": "23",
+          "deleted": "46",
+          "path": "main.py"
+        },
+        {
+          "added": "155",
+          "deleted": "0",
+          "path": "output_data_generic_exp_0/metrics.json"
+        },
+        {
+          "added": "-",
+          "deleted": "-",
+          "path": "output_data_generic_exp_0/test_predictions.npy"
+        },
+        {
+          "added": "-",
+          "deleted": "-",
+          "path": "output_data_generic_exp_0/val_predictions.npy"
+        }
+      ],
+      "run_result": {
+        "score": 0,
+        "run_had_error": false,
+        "error_message": "",
+        "error_details": "",
+        "feedbacks": "",
+        "ideation_repo_memory_sections_consulted": [],
+        "repo_memory_sections_consulted": [
+          "core.architecture",
+          "core.dependencies",
+          "core.entrypoints",
+          "core.gotchas",
+          "core.invariants",
+          "core.testing",
+          "core.where_to_edit"
+        ]
+      }
+    }
+  ],
+  "quality": {
+    "evidence_ok": true,
+    "missing_evidence": [],
+    "section_count": 7,
+    "claim_count": 32
+  }
+}
