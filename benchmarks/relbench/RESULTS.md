@@ -3,7 +3,7 @@
 **Auto-generated — do not edit by hand.** Regenerate with:
 `PYTHONPATH=src:. python -m benchmarks.relbench.scorecard --reference`
 
-Status: **0/66 tasks run**, 0 beating the best published number. Category-level gates: run the scorecard (same module, no flags).
+Status: **1/66 tasks run**, 0 beating the best published number. Category-level gates: run the scorecard (same module, no flags).
 
 ## Benchmark version & leaderboard submission
 
@@ -32,7 +32,7 @@ Values in the best-known number's units (AUROC/acc/MAP in %, NMAE, R², raw MAE)
 
 | ROI# | Task | Fam | Ver | Best known (method) | RelAgent | KumoRFM-ft | KumoRFM-v1 (ic) | KumoRFM-v2 (ic) | Kapso | vs best | HW | Cap | Status |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | rel-event/user-attendance | reg | v1★ | 0.307 (KumoRFM-2) | 0.315 | 0.311 | 0.345 | 0.307 | — | — | 4xA100 | 4h | · pending |
+| 1 | rel-event/user-attendance | reg | v1★ | 0.307 (KumoRFM-2) | 0.315 | 0.311 | 0.345 | 0.307 | 0.316 | below best-known | 4xA100 | 4h | ✅ done |
 | 5 | rel-f1/driver-position ⚠ | reg | v1★ | 0.374 (PluRel-ft) | 0.572 | 0.389 | 0.391 | 0.406 | — | — | 4xA100 | 4h | · pending |
 | 9 | rel-event/user-repeat | clf | v1★ | 83.6 (GelGT) | 78.2 | 80.6 | 76.1 | 81.7 | — | — | 4xA100 | 4h | · pending |
 | 10 | rel-event/user-ignore | clf | v1★ | 91.2 (PluRel-ft) | 87.2 | 89.4 | 89.2 | 90.8 | — | — | 4xA100 | 4h | · pending |
@@ -100,3 +100,11 @@ Values in the best-known number's units (AUROC/acc/MAP in %, NMAE, R², raw MAE)
 | — | rel-mimic/patient-iculengthofstay | clf | v2 | 55 (GraphSAGE) | — | — | — | — | — | — | blocked | — | ⛔ credentialed data |
 
 Notes: baseline columns show per-task values in the same units where the method published one (— where it did not evaluate). KumoRFM-ft is the fine-tuned regime (Kumo tech report Tables 2-4); KumoRFM-v1/v2 (ic) are the zero-shot in-context regimes (v1: tech report; v2: arXiv:2604.12596, cross-checked against RelAgent's KumoRFM-v2 rows — no published v1 recommendation numbers exist for v2). Current 'done' rows from harness-validation runs are baseline-quality placeholders until the campaign proper replaces them.
+
+## Run artifacts (full traces)
+
+Complete campaign state per run — session transcripts, lens/ideation history, every candidate run, workspace and logs — archived to durable storage at task completion:
+
+| Task | Archive |
+|---|---|
+| rel-event/user-attendance | `gs://leeroo-kapso-relbench-artifacts/runs/rel-event--user-attendance/20260730T024152_lane-a.tgz` |
