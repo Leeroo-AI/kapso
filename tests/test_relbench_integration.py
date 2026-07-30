@@ -685,21 +685,19 @@ class TestLivingDocuments:
         dataset = SimpleNamespace(val_timestamp="2005", test_timestamp="2010")
         return db, dataset
 
-    def test_table_information_has_schema_join_graph_and_two_hop(self):
-        """The seeded living doc must expose the full join graph including
-        the two-hop bridge paths past campaigns never built (results ->
-        races -> circuits was unread across 55 registered runs)."""
+    def test_table_information_seed_is_agent_built_template(self):
+        """User-directed (2026-07-30): the living doc starts near-empty — no
+        deterministic schema/join dump (the schema already lives in the
+        problem context); the seed instructs agents to build the knowledge
+        base themselves."""
         from benchmarks.relbench.context import build_table_information
 
-        db, dataset = self._fake_db_dataset()
-        doc = build_table_information(db, dataset, "rel-x")
+        doc = build_table_information("rel-x")
         assert "LIVING DOCUMENT" in doc
-        for t in ("results", "races", "circuits", "drivers"):
-            assert f"table `{t}`" in doc
-        assert "- `results.raceId` -> `races`" in doc
-        assert "- `races.circuitId` -> `circuits`" in doc
-        assert "`results` -> `races` (via `raceId`) -> `circuits` (via `circuitId`)" in doc
-        assert "Semantics and gotchas" in doc
+        assert "empty by design" in doc
+        assert "multi-hop join paths" in doc
+        assert "measured reasons" in doc
+        assert "table `" not in doc  # no pre-generated schema rows
 
     def test_seeding_is_absent_only(self, tmp_path):
         """Agent edits must survive handler restarts/resumes: an existing
@@ -752,7 +750,7 @@ class TestLivingDocuments:
         assert not hasattr(ctx, "BEST_PRACTICES_NOTE")
         assert "table_information.md" in LIVING_DOCUMENTS_NOTE
         assert "features_history.md" in LIVING_DOCUMENTS_NOTE
-        assert "EDIT" in LIVING_DOCUMENTS_NOTE
+        assert "starting empty" in LIVING_DOCUMENTS_NOTE  # agent-built, not pre-generated
         assert "Append-only" in LIVING_DOCUMENTS_NOTE
         assert "$KAPSO_SHARED_CACHE_DIR" in LIVING_DOCUMENTS_NOTE
         assert "TESTED-REJECTED" in FEATURES_HISTORY_TEMPLATE

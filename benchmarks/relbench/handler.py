@@ -783,11 +783,7 @@ class RelBenchHandler(ProblemHandler):
         """
         table_info = self.shared_cache_dir / "table_information.md"
         if not table_info.exists():
-            table_info.write_text(
-                build_table_information(
-                    self.dataset.get_db(), self.dataset, self.dataset_name
-                )
-            )
+            table_info.write_text(build_table_information(self.dataset_name))
             print(f"[RelBenchHandler] seeded {table_info.name}")
         history = self.shared_cache_dir / "features_history.md"
         if not history.exists():

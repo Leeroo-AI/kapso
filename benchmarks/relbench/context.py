@@ -345,10 +345,10 @@ ROLLING_CONTRACT_NOTE = (
 LIVING_DOCUMENTS_NOTE = (
     "Two agent-maintained files live in the shared artifact workspace "
     "($KAPSO_SHARED_CACHE_DIR) and persist across iterations and campaigns:\n"
-    "- table_information.md — schema, join graph, and table semantics. You "
-    "are allowed and expected to EDIT it as you learn new facts about the "
-    "tables during experimentation: append discovered semantics, unit "
-    "quirks, joins that worked, dead ends with their measured reasons. "
+    "- table_information.md — YOUR knowledge base about the database, "
+    "starting empty. Build it as you explore: table and column semantics, "
+    "the join graph and multi-hop join paths you use, unit quirks, null "
+    "semantics, joins that worked, dead ends with their measured reasons. "
     "Keep it factual; do not delete earlier notes unless they are measured "
     "wrong.\n"
     "- features_history.md — the campaign's persistent feature memory. READ "
@@ -382,53 +382,29 @@ Entry format:
 """
 
 
-def build_table_information(db, dataset, dataset_name: str) -> str:
-    """Seed content for the agent-editable table_information.md living doc.
+def build_table_information(dataset_name: str) -> str:
+    """Seed for the agent-built table_information.md living doc.
 
-    Auto-derived from the actual database so it works for every RelBench
-    dataset: full schema, the foreign-key join graph, and two-hop join
-    paths through bridge tables (the paths past campaigns never built).
-    """
-    edges = []
-    for name, table in sorted(db.table_dict.items()):
-        for col, parent in table.fkey_col_to_pkey_table.items():
-            edges.append((name, col, parent))
-    edge_lines = [f"- `{child}.{col}` -> `{parent}`" for child, col, parent in edges]
-    parents_of: dict = {}
-    for child, col, parent in edges:
-        parents_of.setdefault(child, []).append((col, parent))
-    two_hop = []
-    for child, col, parent in edges:
-        for col2, grand in parents_of.get(parent, []):
-            two_hop.append(
-                f"- `{child}` -> `{parent}` (via `{col}`) -> `{grand}` (via `{col2}`)"
-            )
-    sections = [
-        f"# Table information — {dataset_name} (LIVING DOCUMENT)",
+    Deliberately near-empty: the full schema is already in the problem
+    context, so this file holds only what agents VERIFY themselves —
+    populated during exploration, persistent across iterations and
+    campaigns."""
+    return "\n".join([
+        f"# Table information — {dataset_name} (LIVING DOCUMENT — build it yourself)",
         "",
-        "Agent-maintained: extend and correct this file as you learn table "
-        "semantics during experimentation. Append; do not delete factual "
-        "notes from earlier sessions unless they are measured wrong.",
+        "Agent-maintained knowledge base for this database, empty by design: "
+        "populate it as you explore and keep it current. Document what you "
+        "verify: table and column semantics, the foreign-key join graph and "
+        "the multi-hop join paths you actually use, unit quirks, null "
+        "semantics, joins that worked, and dead ends with their measured "
+        "reasons. Append; do not delete factual notes from earlier sessions "
+        "unless they are measured wrong. (The full schema listing is in your "
+        "problem context — this file is for everything the schema does NOT "
+        "tell you.)",
         "",
-        "## Schema",
+        "## Notes (append below)",
         "",
-        describe_database(db, dataset),
-        "",
-        "## Join graph (foreign keys)",
-        "",
-        "\n".join(edge_lines) if edge_lines else "(no foreign keys)",
-    ]
-    if two_hop:
-        sections += ["", "Two-hop join paths through bridge tables:", "", "\n".join(two_hop)]
-    sections += [
-        "",
-        "## Semantics and gotchas (append below)",
-        "",
-        "(column meanings, unit quirks, null semantics, joins that worked, "
-        "dead ends with their measured reasons)",
-        "",
-    ]
-    return "\n".join(sections)
+    ])
 
 
 def build_problem_context(
