@@ -413,7 +413,8 @@ def build_reference(work_root: Path) -> str:
                 "hw": meta.get("hardware") or ("CPU-ok" if task_id in cpu_safe else "GPU box"),
                 "tier": (f"{meta['cap_hours']:g}h" if meta.get("cap_hours") else
                          {"small": "2h", "medium": "4h", "large": "8h"}.get(SIZE_TIER.get(ds, "medium"), "4h")),
-                "status": "✅ done" if report else "· pending",
+                "status": ("✅ done" if report else
+                           ("▶ running" if meta and not meta.get("planned") else "· pending")),
                 "roi": roi_order.index(task_id) + 1 if task_id in roi_order else None,
                 "archive": archive.get("uri"),
             })
