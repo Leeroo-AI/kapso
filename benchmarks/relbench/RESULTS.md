@@ -42,9 +42,9 @@ Values in the best-known number's units (AUROC/acc/MAP in %, NMAE, R², raw MAE)
 | 23 | rel-trial/study-outcome | clf | v1★ | 94.6 (PluRel-ft) | 71.9 | 71.2 | 70.8 | 72 | — | — | 4xA100 | 6h | ▶ running |
 | 24 | rel-trial/condition-sponsor-run | rec | v1★ | 11.7 (ContextGNN / KumoRFM-ft) | — | 11.7 | 11.3 | — | — | — | 4xA100 | 6h | ▶ running |
 | 25 | rel-avito/user-ad-visit | rec | v1★ | 4.17 (KumoRFM-ft) | — | 4.17 | 4.02 | — | — | — | 4xA100 | 6h | ▶ running |
-| 26 | rel-avito/user-clicks | clf | v1★ | 69.4 (RGP) | 68.4 | 66.8 | 64.1 | 69.4 | — | — | CPU-ok | 4h | · pending |
-| 27 | rel-trial/site-success | reg | v1★ | 0.552 (RT-ft) | 0.811 | 0.632 | 0.876 | 0.91 | — | — | 4xA100 | 6h | · pending |
-| 28 | rel-trial/site-sponsor-run | rec | v1★ | 28 (ContextGNN / KumoRFM-ft) | — | 28 | 20.8 | — | — | — | 4xA100 | 6h | · pending |
+| 26 | rel-avito/user-clicks | clf | v1★ | 69.4 (RGP) | 68.4 | 66.8 | 64.1 | 69.4 | — | — | 4xA100 | 6h | ▶ running |
+| 27 | rel-trial/site-success | reg | v1★ | 0.552 (RT-ft) | 0.811 | 0.632 | 0.876 | 0.91 | — | — | 4xA100 | 6h | ▶ running |
+| 28 | rel-trial/site-sponsor-run | rec | v1★ | 28 (ContextGNN / KumoRFM-ft) | — | 28 | 20.8 | — | — | — | 4xA100 | 6h | ▶ running |
 | 46 | rel-hm/user-churn | clf | v1★ | 71.2 (KumoRFM-ft) | 71.1 | 71.2 | 67.7 | 69.3 | — | — | GPU box | 8h | · pending |
 | 47 | rel-hm/item-sales | reg | v1★ | 0.0686 (KumoRFM-ft/-2) | 0.0707 | 0.0686 | 0.0807 | 0.0686 | — | — | GPU box | 8h | · pending |
 | 48 | rel-hm/user-item-purchase | rec | v1★ | 3.14 (KumoRFM-ft) | — | 3.14 | 2.73 | — | — | — | GPU box | 8h | · pending |
