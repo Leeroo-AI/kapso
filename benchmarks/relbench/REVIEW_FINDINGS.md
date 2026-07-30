@@ -329,6 +329,24 @@ Runs reviewed:
    anomalous-regime ticks) instead of the single val tick, which is the
    shelved held-out-selection-split family of remedies.
 
+   **E8. End-to-end confirmation under the instruction guards (2026-07-30
+   re-run, harvested 22:34Z).** The user-ignore re-run with the
+   validation-realism guards active (context contract + feedback-generator
+   section, commit 49c2e269) reproduced the failure in RESULTS: shipped
+   run_0001 (val 87.19, the activity-window hybrid flagged by the deep
+   monitor at run 1) -> **test 77.36**, while run_0003 (val 82.60) sat
+   archived at **test 90.39** — the best user-ignore candidate we have ever
+   produced, 0.8 from the 91.2 bar. Val/test anti-correlation across the
+   13-run pool: -0.89 (p=0.001), sharply bimodal by design family. The
+   guards measurably improved the FIELD (honest designs reached 90.4 vs
+   89.5 last time; forward-fold internal validation appeared in run-1 code)
+   and slowed but did not stop validation-polishing (the inverted family
+   still accumulated 5 byte-identical resubmissions vs 4-6 last campaign;
+   the last-hour budget went to re-landing a design testing at 76.7).
+   Verdict: instruction-level guards raise candidate quality and cannot fix
+   selection; the argmax(val) single-tick rule remains the binding
+   constraint on this task family.
+
 ## R9 — driver-position, GPU + codex-primary + return-economics (2026-07-26/27, COMPLETED)
 
 First GPU run (H100, box relbench-dp-gpu-0726, auto-deleted on completion),
