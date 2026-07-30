@@ -782,6 +782,7 @@ class RelBenchHandler(ProblemHandler):
             )
             print(f"[RelBenchHandler] seeded {history.name}")
 
+    @staticmethod
     def _detect_gpu() -> bool:
         return shutil.which("nvidia-smi") is not None and subprocess.run(
             ["nvidia-smi", "-L"], capture_output=True
