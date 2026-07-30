@@ -11,7 +11,8 @@
 #
 # Required env: OPENAI_API_KEY, CLAUDE_CODE_OAUTH_TOKEN, GITHUB_PAT,
 #               CODEX_AUTH_JSON (file contents), KAGGLE_ACCESS_TOKEN (contents)
-# Optional:     HF_TOKEN, KAPSO_COMMIT (branch/sha, default worktree-ioai-2025)
+# Optional:     FIREWORKS_API_KEY (the oss_claude_code ideation member fails
+#               without it), HF_TOKEN, KAPSO_COMMIT (default worktree-ioai-2025)
 # =============================================================================
 set -euo pipefail
 : "${OPENAI_API_KEY:?}"; : "${CLAUDE_CODE_OAUTH_TOKEN:?}"; : "${GITHUB_PAT:?}"
@@ -39,6 +40,7 @@ umask 077
 cat > "$HOME/kapso/.env" <<EOF
 OPENAI_API_KEY=${OPENAI_API_KEY}
 CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN}
+FIREWORKS_API_KEY=${FIREWORKS_API_KEY:-}
 HF_TOKEN=${HF_TOKEN:-}
 EOF
 
