@@ -77,12 +77,6 @@ IMPLEMENTATION_COMPLETION_MARKERS = ["</score>", "</technical_difficulties>"]
 
 MIN_IDEATION_SALVAGE_CHARS = 200
 
-# Ensemble ideation: members run in parallel, so the member share is
-# wall-clock for the whole fan-out; the selector gets the remainder with a
-# floor below which a read-verify-choose session cannot do useful work.
-ENSEMBLE_MEMBER_TIME_FRACTION = 0.7
-ENSEMBLE_SELECTOR_TIME_FRACTION = 0.3
-ENSEMBLE_SELECTOR_MIN_SECONDS = 240
 # Default only — the live value is search_strategy.params
 # ideation_candidates_per_member (see GenericSearch.__init__). A wider pool
 # gives the selector more to choose from and keeps K-way expansion alive when
@@ -1122,11 +1116,13 @@ class GenericSearch(SearchStrategy):
         -> first claude_code candidate -> any candidate -> template fallback.
         """
         phase_started = time.monotonic()
-        clamp = self._clamped_timeout(self.ideation_timeout)
-        member_deadline = max(60.0, clamp * ENSEMBLE_MEMBER_TIME_FRACTION)
-        selector_deadline = max(
-            ENSEMBLE_SELECTOR_MIN_SECONDS, clamp * ENSEMBLE_SELECTOR_TIME_FRACTION
-        )
+        # ONE deadline: the ideation ceiling bounded by the searchable budget
+        # that actually remains. There is no member/selector sub-split — a
+        # fraction-of-ideation ceiling starved both roles (a member delivered
+        # 1 of 5 candidates and the selector timed out entirely, leaving the
+        # pool unranked). The selector recomputes its own clamp after the
+        # members finish, so it sees the budget they did not spend.
+        member_deadline = self._clamped_timeout(self.ideation_timeout)
 
         base_prompt = self._build_ideation_prompt(
             problem=problem, repo_memory_brief=repo_memory_brief
@@ -1340,7 +1336,7 @@ class GenericSearch(SearchStrategy):
             repo_memory_brief=repo_memory_brief,
             pool=pool,
             ideation_dir=ideation_dir,
-            selector_deadline=selector_deadline,
+            selector_deadline=self._clamped_timeout(self.ideation_timeout),
         )
         telemetry["cost_usd"] += chosen["cost_usd"]
         telemetry["duration_seconds"] = time.monotonic() - phase_started

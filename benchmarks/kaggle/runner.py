@@ -48,24 +48,21 @@ AUDIT_PATTERNS = [
 
 
 def shape_session_timeouts(mode_cfg: dict, total_run_seconds: float) -> dict:
-    """Scale per-session deadlines to the run size (posttrain runner pattern)."""
-    knobs = mode_cfg["session_budget"]
+    """Per-session ceilings, bounded only by the run itself.
+
+    There is deliberately no per-phase fraction: a phase sub-budget starved
+    ideation (a member delivered 1 of 5 candidates, the selector timed out and
+    the pool went unranked) while the sessions still had run budget left. The
+    single enforcer is the strategy's dynamic clamp against the searchable
+    budget that remains — so a session that finishes early hands its unused
+    time to the next phase instead of forfeiting it.
+    """
     params = mode_cfg["search_strategy"]["params"]
     return {
         "ideation_timeout": int(min(
-            params["ideation_timeout"],
-            max(
-                knobs["ideation_min_seconds"],
-                total_run_seconds * knobs["ideation_fraction"],
-            ),
-        )),
+            params["ideation_timeout"], total_run_seconds)),
         "implementation_timeout": int(min(
-            params["implementation_timeout"],
-            max(
-                knobs["implementation_min_seconds"],
-                total_run_seconds * knobs["implementation_fraction"],
-            ),
-        )),
+            params["implementation_timeout"], total_run_seconds)),
     }
 
 
