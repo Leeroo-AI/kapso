@@ -73,7 +73,7 @@ set to `5` for this benchmark (commit `10f1b4dd`). Pool is now up to 10 ≥ K=8.
 *and* the selector timed out, yet codex delivered 5/5 → pool 6 → **6 lanes
 expanded** instead of collapsing to 1.
 
-### I-2 (OPEN) — ideation time split starves members and the selector
+### I-2 (FIXED) — ideation time split starved members and the selector
 **Symptom:** at a 2h budget both the claude member and the selector hit their caps.
 **Evidence:**
 ```
@@ -89,10 +89,20 @@ more than 324s.
 **Consequences:** fewer candidates than configured, and — when the selector dies —
 no ranking/synthesis at all, just the raw pool (complementarity across lanes is
 then unmanaged).
-**Proposed fix (core, needs approval):** raise `ideation_fraction` for long runs
-and/or rebalance `ENSEMBLE_MEMBER_TIME_FRACTION`; both are module constants in
-`generic/strategy.py` and, being tunables, belong in config per Rule 1 — the same
-treatment `ideation_candidates_per_member` just received.
+**Fix (commit `9243724b`):** the sub-budget is gone rather than retuned. Ideation
+was capped three times over — the runner's `ideation_fraction`, the config
+ceiling, then the 0.7/0.3 member/selector split. Now there is **one** limit: the
+searchable budget that actually remains, via the strategy's existing dynamic
+clamp. `ENSEMBLE_MEMBER_TIME_FRACTION` / `ENSEMBLE_SELECTOR_TIME_FRACTION` /
+`ENSEMBLE_SELECTOR_MIN_SECONDS` deleted; members take the clamp directly and the
+selector **recomputes it after the members finish**, so time they did not spend
+flows to the selector instead of being forfeited. The kaggle runner no longer
+applies per-phase fractions and its config drops the four dead shaping knobs,
+with both session ceilings (14400s) set above any run we launch.
+**Residual risk:** with no phase sub-budget, a genuinely hung ideation member can
+consume more of the run than before. What still bounds it: the dynamic clamp, the
+finalization reserve, the iteration admission floor, and the CLI adapters' own
+deadline kill.
 
 ### I-3 (OPEN) — pool size caps expansion below configured K
 `node_expansion_value=8` with 8 lane pins configured, but the pool was 6 → 6
