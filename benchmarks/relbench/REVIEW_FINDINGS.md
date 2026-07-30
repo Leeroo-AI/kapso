@@ -216,10 +216,11 @@ Runs reviewed:
    tracker's non-promotion is therefore COSMETIC — it is the search's own
    bookkeeping and has no protective effect on the final report. Net: we are
    set to ship ~8 AUROC points below our own best archived candidate
-   (run_0014, test 89.49). Remaining open sub-question, lower stakes: what
-   rule makes the internal tracker disagree (audit flag? per-iteration
-   scoping? promotion gate?) — worth knowing, but it does not change the
-   outcome. Full deep-dive evidence below (all scored locally, one-way, never
+   (run_0014, test 89.49). The tracker sub-question RESOLVED itself at the
+   5h digest: the champion flipped to 0.8933 once iteration 3 finalized —
+   the digest's champion simply lags per-iteration finalization; there was
+   never a promotion gate. Digest and final_evaluate now agree on shipping
+   the run_0030 family. Full deep-dive evidence below (all scored locally, one-way, never
    fed back; script `evidence/user_ignore_val_test_flow.py`,
    `evidence/f15_stats.py`).
 
@@ -257,28 +258,58 @@ Runs reviewed:
    cannot explain a ranking metric. A staleness hypothesis was also tested and
    refuted: the label-history gap is 7 days for val rows and 8 for test rows.
 
-   **E5. Mechanism — train/inference feature-semantics mismatch in the
-   candidate's Model B.** community_blast builds community-level label-prior
-   features per timestamp, gated by
-   `include_validation = timestamp_ns > bundle.val["timestamp"].max()`
-   (features.py:657). Model B — the model that produces TEST predictions — is
-   fit on `splits == "train" | splits == "val"` (modeling.py:603), and every
-   one of those rows has a timestamp <= val's max, so all of them get the
-   feature computed WITHOUT val labels. It is then asked to predict test rows,
-   whose same-named features DO include val labels. The feature changes
-   meaning between fit and inference, and the learned splits no longer apply.
-   Model A (the val chain) has no such mismatch: fit on train rows (gate
-   False), predicting val rows (gate False) — internally consistent, hence a
-   genuinely strong val score. This is a bug in the candidate's own code, not
-   in our harness, and the OOS contract does not forbid it (nothing is fit on
-   val labels; val labels enter only test-row features, which the contract
-   explicitly allows).
+   **E5. Mechanism (THIRD revision — the first two were wrong; this one is
+   verified with independent evidence). Holiday covariate shift at the single
+   test tick, hitting the design's recent-activity features.** Chain of
+   evidence, each step refuting the previous hypothesis:
+   (a) An earlier version of this entry claimed a fit/inference
+   feature-semantics mismatch around the `include_validation` gate
+   (features.py:657). RETRACTED: `_available_labels` applies a causal filter
+   `source_time + 7*DAY <= timestamp_ns` (features.py:272), which makes
+   label-availability uniform across splits — train rows see labels lagged
+   7d (their preceding tick), val rows 7d (train's last tick), test rows 8d
+   (the val tick). The gate merely implements that rule (it is redundant for
+   train rows, whose lag filter already excludes val labels). Semantics are
+   consistent; no mismatch.
+   (b) The design's skill estimate is HONEST: run_0010's archived
+   `full_out/metrics.json` records train_forward_oof_auc = **0.8878**,
+   agreeing with its val 88.52/89.33 — so the high val is not an artifact,
+   and (with E5c) not val-in-training either.
+   (c) In-sample-val is refuted on every traced path: Model A fit on
+   `splits == "train"` only; early stopping on forward folds carved from
+   train; calibration fit on train-forward OOF; blend weights — the one
+   previously unchecked path, NOW CLOSED — tuned by `_select_blend_weights`
+   on `oof_indices` ⊂ train rows via `_stability_auc` (modeling.py:432-540),
+   and the banked leader constants (blend 0.9, rounds 134/133) come from
+   run_0010's own train-only procedure recorded in its metrics.json.
+   Empirically: an in-sample val fit would show val >> OOF (prior campaign's
+   genuine case, run_0008, hit val 91.05); here val ~= OOF, and no candidate
+   in 27 exceeds 89.33.
+   (d) The signal family is healthy: a trivial 7d-lagged per-user label-prior
+   rebuilt from raw tables (no model) scores val 81.37 -> test **83.99**
+   (+2.6) — the test day is intrinsically EASIER for label-history designs,
+   which is why the `pipeline` family gains +1..+5 there.
+   (e) The verified mechanism: community_blast leans on 7/28/56-day
+   recent-activity windows (`active_7`, `inv_7`, `interest_7`,
+   features.py:106-144) plus community diffusion. The test tick is
+   2012-11-29, so its 7-day feature window is 11-22..11-29 — **US
+   Thanksgiving week** (Thanksgiving was 2012-11-22). Raw-DB volumes in that
+   window vs the val tick's window: events **-45.1%**, attendances -13.7%,
+   event-interest -39.5%. Every recent-activity feature is far outside the
+   range the GBDT saw at fit time (all 22 train ticks and the val tick are
+   normal-regime Wednesdays; day-of-week features: none — checked), so its
+   learned splits misfire, uniformly across seen (83.2 vs 89.8) and new
+   (77.6 vs 89.0) users — new users lean hardest on activity/graph features.
+   Meanwhile designs anchored on label priors benefit from the easier test
+   day. Both effects compound into the 11-point relative inversion.
 
-   **E6. The deeper lesson: val is structurally blind to this bug class.**
-   Any candidate whose test-time features are constructed differently from its
-   training-time features looks excellent on validation and fails on test,
-   because validation only ever exercises the self-consistent Model A path.
-   argmax(val) then actively *prefers* such candidates. Counterfactual
+   **E6. The deeper lesson: a single-tick val one week before a single-tick
+   test cannot price regime change at the test tick.** Val (11-21, normal
+   week) contains zero information about Thanksgiving-week feature collapse;
+   argmax(val) across HETEROGENEOUS designs therefore selects the design most
+   tuned to the val-era regime — precisely the most holiday-fragile one.
+   This is not a contract violation and not a harness bug; it is a structural
+   blind spot of single-tick validation. Counterfactual
    selection rules on this lane: argmax(val) ships **81.53**; the
    median-val candidate would ship **87.70**; dropping val-outliers >2sd
    ships 82.64; the unreachable oracle is 89.49; the mean over all unique
@@ -292,8 +323,11 @@ Runs reviewed:
    selector in general; it fails here because one design family carries a
    val-invisible defect. Remedy direction (NOT implemented — the held-out
    selection split and noise-band selection remain shelved by user decision):
-   a fit/inference feature-parity check would catch E5 directly, and would do
-   so without touching the selection rule.
+   the E5 mechanism (regime shift at the test tick) is NOT catchable by any
+   code check — the candidate's code is correct; what would price it is
+   evaluating candidates on several held-back train ticks (including any
+   anomalous-regime ticks) instead of the single val tick, which is the
+   shelved held-out-selection-split family of remedies.
 
 ## R9 — driver-position, GPU + codex-primary + return-economics (2026-07-26/27, COMPLETED)
 
