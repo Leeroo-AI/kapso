@@ -737,6 +737,15 @@ class TestLivingDocuments:
             LIVING_DOCUMENTS_NOTE,
         )
 
+        # OOS-val contract (user-directed 2026-07-30): generic rule with the
+        # explicit train+validation allowance for the test chain.
+        from benchmarks.relbench.context import _prediction_contract
+        import inspect
+        src = inspect.getsource(_prediction_contract)
+        for phrase in ("OUT-OF-SAMPLE", "stacking meta-learners",
+                       "IS allowed", "pre-refit model"):
+            assert phrase in src, phrase
+
         assert "Consider ALL tables" in FEATURE_ENGINEERING_NOTE
         assert "features-over-architecture" in FEATURE_ENGINEERING_NOTE
         assert "hard rule" not in FEATURE_ENGINEERING_NOTE
@@ -747,3 +756,29 @@ class TestLivingDocuments:
         assert "Append-only" in LIVING_DOCUMENTS_NOTE
         assert "$KAPSO_SHARED_CACHE_DIR" in LIVING_DOCUMENTS_NOTE
         assert "TESTED-REJECTED" in FEATURES_HISTORY_TEMPLATE
+
+
+class TestOOSValAuditHooks:
+    def test_advisory_verify_flags_do_not_dirty_the_run(self, tmp_path):
+        """The OOS review hooks must surface train+val mixing (the exact shape
+        of the observed in-sample-val incident) WITHOUT marking the run dirty —
+        mixing is legal for the test chain; and a direct fit on val labels is
+        also surfaced."""
+        from types import SimpleNamespace
+
+        from benchmarks.relbench.handler import RelBenchHandler
+
+        (tmp_path / "model.py").write_text(
+            "train_val_idx = np.concatenate([self.train_idx, self.val_idx])\n"
+            "clf.fit(X[train_val_idx], y[train_val_idx])\n"
+            "calib.fit(scores, val_labels)\n"
+        )
+        stub = SimpleNamespace(spec=SimpleNamespace(is_autocomplete=False))
+        stub._AUDIT_PATTERNS = RelBenchHandler._AUDIT_PATTERNS
+        audit = RelBenchHandler._audit_code(
+            SimpleNamespace(_audit_patterns=RelBenchHandler._AUDIT_PATTERNS), tmp_path
+        )
+        concerns = [f["concern"] for f in audit["findings"]]
+        assert any(c.startswith("verify: train+val mixing") for c in concerns)
+        assert any(c.startswith("verify: possible fit on validation labels") for c in concerns)
+        assert audit["clean"] is True  # advisory only — no violation claimed

@@ -173,12 +173,21 @@ the directory given by the environment variable KAPSO_RUN_DATA_DIR:
   with row i of `task.get_table("test")` in its original order.
 - {dtype_line}.
 - Save with np.save; never reorder, drop, or deduplicate task-table rows.
-- CRITICAL — val predictions must be OUT-OF-SAMPLE: the model that produces
-  val_predictions.npy must never have seen val labels during training or tuning-fit.
-  Training on train+val is allowed ONLY for the model producing test_predictions.npy
-  (the two-model pattern: model A trained on train -> val preds; model B trained on
-  train+val -> test preds). Val predictions from a val-trained model inflate the
-  selection signal and the solution will collapse at the final test evaluation.
+- CRITICAL — validation predictions must be OUT-OF-SAMPLE: nothing in the
+  chain that produces your validation predictions may have been fit on
+  validation labels — the model, calibrators, decision thresholds, feature
+  selectors, early-stopping criteria, stacking meta-learners, and ensemble
+  weights all included. Training on train+validation IS allowed — and
+  encouraged — for the chain that produces your test predictions (the
+  two-model pattern: model A, fit without validation labels, produces the
+  validation predictions; model B, refit on train+validation, produces the
+  test predictions). If one pipeline refits on train+validation for test,
+  keep the validation predictions from the pre-refit model — never
+  regenerate them from the refit. Before every evaluation you submit, verify
+  which fit produced the validation predictions. An in-sample validation
+  score is self-defeating: validation is the only selection and feedback
+  signal, so inflating it selects a weaker model over your genuinely better
+  ones.
 - Optionally write metrics.json with any self-measured diagnostics.
 
 The evaluation harness computes the official metrics itself from these files. Your score

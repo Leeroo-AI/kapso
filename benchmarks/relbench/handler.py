@@ -678,6 +678,14 @@ class RelBenchHandler(ProblemHandler):
         (r"removed_cols", "reads AutoComplete removed target columns"),
         (r"RELBENCH_CACHE_DIR", "tampers with the data cache location"),
         (r"RELBENCH_ROLLING_ROOT|rolling_caches", "reaches outside the staged tick snapshot"),
+        # OOS-val contract review hooks — ADVISORY ("verify:" prefix does not
+        # mark the run dirty): train+val mixing is legal for the test-side
+        # chain; the audit surfaces every mixing site so a reviewer can trace
+        # whether the validation-prediction chain saw validation labels.
+        (r"(concatenate|concat|hstack|vstack|np\.r_)[^\n]{0,80}(train[^\n]{0,30}val|val[^\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
+         "verify: train+val mixing — confirm the validation-prediction chain is pre-refit (OOS contract)"),
+        (r"\.fit\([^\n]{0,60}val_(y|label|labels|target|targets)",
+         "verify: possible fit on validation labels"),
         (r"\.cache[/\\]relbench", "touches the pristine relbench cache path"),
         (r"download\s*=\s*True", "attempts dataset re-download"),
         (r"relbench\.stanford\.edu|pooch", "fetches benchmark files directly"),
@@ -713,9 +721,15 @@ class RelBenchHandler(ProblemHandler):
                         "snippet": text.splitlines()[line_no - 1][:200].strip(),
                     })
         return {
-            "clean": not any(f["concern"] != "manual review" for f in findings),
+            "clean": not any(
+                f["concern"] != "manual review"
+                and not f["concern"].startswith("verify:")
+                for f in findings
+            ),
             "findings": findings,
-            "note": "static scan; manually review flagged lines before publishing results",
+            "note": "static scan; manually review flagged lines before publishing "
+                    "results. 'verify:' findings are advisory OOS-contract review "
+                    "hooks (legal patterns that warrant tracing), not violations.",
         }
 
     # ======================================================================
