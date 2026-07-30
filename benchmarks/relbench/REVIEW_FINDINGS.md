@@ -196,8 +196,9 @@ Runs reviewed:
    judge tag-retry nudge ran with empty context and correctly failed safe
    (evaluation_valid=False) — the retry wiring deserves its own look.
 
-15. **Champion tracker disagrees with argmax(val) — val-max family never
-   promoted (user-ignore, lane-b2, OPEN — confirm at harvest).** At 3h and
+15. **Champion tracker disagrees with argmax(val) — but the tracker is
+   cosmetic; argmax(val) ships the worse run (user-ignore, lane-b2,
+   RESOLVED 2026-07-30; sub-question on the tracker's rule still open).** At 3h and
    again at 4h the campaign digest reported `best: score=0.8497432171756395`,
    while runs 0030-0033 sitting in the same workspace carry val 0.8933. The
    harness's own best-tracker has therefore NOT promoted the val-max family.
