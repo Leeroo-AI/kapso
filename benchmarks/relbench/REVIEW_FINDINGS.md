@@ -196,6 +196,34 @@ Runs reviewed:
    judge tag-retry nudge ran with empty context and correctly failed safe
    (evaluation_valid=False) — the retry wiring deserves its own look.
 
+15. **Champion tracker disagrees with argmax(val) — val-max family never
+   promoted (user-ignore, lane-b2, OPEN — confirm at harvest).** At 3h and
+   again at 4h the campaign digest reported `best: score=0.8497432171756395`,
+   while runs 0030-0033 sitting in the same workspace carry val 0.8933. The
+   harness's own best-tracker has therefore NOT promoted the val-max family.
+   Two candidate explanations, undistinguished so far: those runs were never
+   finalized into the selection (still in flight / not registered), or
+   something actively holds them back (audit flag, per-iteration champion
+   scoping, promotion rule). This matters because it decides what actually
+   ships: local one-way scoring puts the 0.8497 champion at **test 83.55**
+   and the val-max pick (run_0030) at **test 81.53** — i.e. the tracker's
+   disagreement is currently worth +2.0 AUROC in our favour, but by accident
+   rather than by design, and we do not know the rule that produced it.
+   Check at harvest: which run final_evaluate selects, whether 0030-0033 have
+   manifests/audit verdicts, and whether the tracker scopes to the current
+   iteration. Context for the same lane, from the full 33-run val/test flow
+   (scored locally, never fed back): corr(val, test) = **-0.279** — val is
+   anti-correlated with test on this task; argmax(val) would ship 81.53 while
+   run_0014 sat available at **89.49** (selection cost ~8 AUROC points, bar
+   91.2). Runs 0030-0033 are byte-identical in both scores, so the search has
+   converged on re-submitting one candidate. Code audit of run_0030 found the
+   OOS contract honoured on every path traced — val predictions from a
+   train-only model, test from a separate train+val refit, early stopping on
+   forward folds carved from train alone, val-label features gated behind a
+   strict timestamp check — so this is selection overfitting to the val
+   period (val 11.1% positive vs test 13.0%), not leakage. Blend-weight
+   provenance was not fully traced; that is the one unchecked path.
+
 ## R9 — driver-position, GPU + codex-primary + return-economics (2026-07-26/27, COMPLETED)
 
 First GPU run (H100, box relbench-dp-gpu-0726, auto-deleted on completion),
