@@ -3,7 +3,7 @@
 **Auto-generated — do not edit by hand.** Regenerate with:
 `PYTHONPATH=src:. python -m benchmarks.relbench.scorecard --reference`
 
-Status: **4/66 tasks run**, 1 beating the best published number. Category-level gates: run the scorecard (same module, no flags).
+Status: **1/66 tasks run**, 1 beating the best published number. Category-level gates: run the scorecard (same module, no flags).
 
 ## Benchmark version & leaderboard submission
 
@@ -32,17 +32,17 @@ Values in the best-known number's units (AUROC/acc/MAP in %, NMAE, R², raw MAE)
 
 | ROI# | Task | Fam | Ver | Best known (method) | RelAgent | KumoRFM-ft | KumoRFM-v1 (ic) | KumoRFM-v2 (ic) | Kapso | vs best | HW | Cap | Status |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | rel-event/user-attendance | reg | v1★ | 0.307 (KumoRFM-2) | 0.315 | 0.311 | 0.345 | 0.307 | 0.32 | below best-known | 4xA100 | 6h | ✅ done |
-| 5 | rel-f1/driver-position ⚠ | reg | v1★ | 0.374 (PluRel-ft) | 0.572 | 0.389 | 0.391 | 0.406 | 0.39 | below best-known | 4xA100 | 6h | ✅ done |
-| 9 | rel-event/user-repeat | clf | v1★ | 83.6 (GelGT) | 78.2 | 80.6 | 76.1 | 81.7 | 82.2 | below best-known | 4xA100 | 6h | ✅ done |
+| 1 | rel-event/user-attendance | reg | v1★ | 0.307 (KumoRFM-2) | 0.315 | 0.311 | 0.345 | 0.307 | — | — | 4xA100 | 6h | ▶ running |
+| 5 | rel-f1/driver-position ⚠ | reg | v1★ | 0.374 (PluRel-ft) | 0.572 | 0.389 | 0.391 | 0.406 | — | — | 4xA100 | 6h | ▶ running |
+| 9 | rel-event/user-repeat | clf | v1★ | 83.6 (GelGT) | 78.2 | 80.6 | 76.1 | 81.7 | — | — | 4xA100 | 6h | ▶ running |
 | 10 | rel-event/user-ignore | clf | v1★ | 91.2 (PluRel-ft) | 87.2 | 89.4 | 89.2 | 90.8 | — | — | 4xA100 | 6h | ▶ running |
 | 11 | rel-f1/driver-dnf ⚠ | clf | v1★ | 84.6 (KumoRFM-2) | 78.3 | 82.6 | 82.4 | 84.6 | — | — | 4xA100 | 6h | ▶ running |
 | 21 | rel-trial/study-adverse | reg | v1★ | 0.11 (RelAgent) | 0.11 | 0.13 | 0.172 | 0.128 | 0.0872 | ✅ beats best-known | 4xA100 | 4h | ✅ done |
 | 22 | rel-avito/ad-ctr | reg | v1★ | 0.345 (RelAgent) | 0.345 | 0.355 | 0.366 | 0.355 | — | — | 4xA100 | 6h | ▶ running |
-| 23 | rel-trial/study-outcome | clf | v1★ | 94.6 (PluRel-ft) | 71.9 | 71.2 | 70.8 | 72 | — | — | 4xA100 | 6h | ▶ running |
+| 23 | rel-trial/study-outcome | clf | v1★ | 94.6 (PluRel-ft) | 71.9 | 71.2 | 70.8 | 72 | — | — | CPU-ok | 4h | · pending |
 | 24 | rel-trial/condition-sponsor-run | rec | v1★ | 11.7 (ContextGNN / KumoRFM-ft) | — | 11.7 | 11.3 | — | — | — | 4xA100 | 6h | · pending |
-| 25 | rel-avito/user-ad-visit | rec | v1★ | 4.17 (KumoRFM-ft) | — | 4.17 | 4.02 | — | — | — | 4xA100 | 6h | ▶ running |
-| 26 | rel-avito/user-clicks | clf | v1★ | 69.4 (RGP) | 68.4 | 66.8 | 64.1 | 69.4 | — | — | 4xA100 | 6h | ▶ running |
+| 25 | rel-avito/user-ad-visit | rec | v1★ | 4.17 (KumoRFM-ft) | — | 4.17 | 4.02 | — | — | — | CPU-ok | 4h | · pending |
+| 26 | rel-avito/user-clicks | clf | v1★ | 69.4 (RGP) | 68.4 | 66.8 | 64.1 | 69.4 | — | — | CPU-ok | 4h | · pending |
 | 27 | rel-trial/site-success | reg | v1★ | 0.552 (RT-ft) | 0.811 | 0.632 | 0.876 | 0.91 | — | — | 4xA100 | 6h | · pending |
 | 28 | rel-trial/site-sponsor-run | rec | v1★ | 28 (ContextGNN / KumoRFM-ft) | — | 28 | 20.8 | — | — | — | 4xA100 | 6h | · pending |
 | 46 | rel-hm/user-churn | clf | v1★ | 71.2 (KumoRFM-ft) | 71.1 | 71.2 | 67.7 | 69.3 | — | — | GPU box | 8h | · pending |
@@ -107,9 +107,6 @@ Complete campaign state per run — session transcripts, lens/ideation history, 
 
 | Task | Archive |
 |---|---|
-| rel-event/user-attendance | `gs://leeroo-kapso-relbench-artifacts/runs/rel-event--user-attendance/20260730T154739_lane-a1.tgz` |
-| rel-f1/driver-position | `gs://leeroo-kapso-relbench-artifacts/runs/rel-f1--driver-position/20260730T160837_lane-a2.tgz` |
-| rel-event/user-repeat | `gs://leeroo-kapso-relbench-artifacts/runs/rel-event--user-repeat/20260730T153525_lane-b1.tgz` |
 | rel-trial/study-adverse | `gs://leeroo-kapso-relbench-artifacts/runs/rel-trial--study-adverse/20260730T070548_lane-b.tgz` |
 
 ## Winning artifacts (durable, committed — for organizer handoff)
