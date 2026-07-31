@@ -46,7 +46,7 @@ Values in the best-known number's units (AUROC/acc/MAP in %, NMAE, R², raw MAE)
 | 27 | rel-trial/site-success | reg | v1★ | 0.552 (RT-ft) | 0.811 | 0.632 | 0.876 | 0.91 | — | — | 4xA100 | 6h | ▶ running |
 | 28 | rel-trial/site-sponsor-run | rec | v1★ | 28 (ContextGNN / KumoRFM-ft) | — | 28 | 20.8 | — | — | — | 4xA100 | 6h | ▶ running |
 | 46 | rel-hm/user-churn | clf | v1★ | 71.2 (KumoRFM-ft) | 71.1 | 71.2 | 67.7 | 69.3 | — | — | 4xA100 | 6h | ▶ running |
-| 47 | rel-hm/item-sales | reg | v1★ | 0.0686 (KumoRFM-ft/-2) | 0.0707 | 0.0686 | 0.0807 | 0.0686 | — | — | GPU box | 8h | · pending |
+| 47 | rel-hm/item-sales | reg | v1★ | 0.0686 (KumoRFM-ft/-2) | 0.0707 | 0.0686 | 0.0807 | 0.0686 | — | — | 4xA100 | 6h | ▶ running |
 | 48 | rel-hm/user-item-purchase | rec | v1★ | 3.14 (KumoRFM-ft) | — | 3.14 | 2.73 | — | — | — | GPU box | 8h | · pending |
 | 49 | rel-stack/user-engagement | clf | v1★ | 95.6 (PluRel-ft) | 90.4 | 90.7 | 87.1 | 89.4 | — | — | GPU box | 8h | · pending |
 | 50 | rel-stack/user-badge | clf | v1★ | 94.3 (PluRel-ft) | 88.4 | 89.9 | 80 | 87.2 | — | — | GPU box | 8h | · pending |
