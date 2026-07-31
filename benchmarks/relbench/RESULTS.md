@@ -37,7 +37,7 @@ Values in the best-known number's units (AUROC/acc/MAP in %, NMAE, R², raw MAE)
 | 9 | rel-event/user-repeat | clf | v1★ | 83.6 (GelGT) | 78.2 | 80.6 | 76.1 | 81.7 | 81.2 | below best-known | 4xA100 | 6h | ✅ done |
 | 10 | rel-event/user-ignore | clf | v1★ | 91.2 (PluRel-ft) | 87.2 | 89.4 | 89.2 | 90.8 | — | — | 4xA100 | 6h | · pending |
 | 11 | rel-f1/driver-dnf ⚠ | clf | v1★ | 84.6 (KumoRFM-2) | 78.3 | 82.6 | 82.4 | 84.6 | 80.6 | below best-known | 4xA100 | 6h | ✅ done |
-| 21 | rel-trial/study-adverse | reg | v1★ | 0.11 (RelAgent) | 0.11 | 0.13 | 0.172 | 0.128 | 0.0872 | ✅ beats best-known | 4xA100 | 4h | ✅ done |
+| 21 | rel-trial/study-adverse | reg | v1★ | 0.11 (RelAgent) | 0.11 | 0.13 | 0.172 | 0.128 | 0.0872 | ✅ beats best-known | 4xA100 | 6h | ✅ done |
 | 22 | rel-avito/ad-ctr | reg | v1★ | 0.345 (RelAgent) | 0.345 | 0.355 | 0.366 | 0.355 | 0.334 | ✅ beats best-known | 4xA100 | 6h | ✅ done |
 | 23 | rel-trial/study-outcome | clf | v1★ | 94.6 (PluRel-ft) | 71.9 | 71.2 | 70.8 | 72 | 74.3 | below best-known | 4xA100 | 6h | ✅ done |
 | 24 | rel-trial/condition-sponsor-run | rec | v1★ | 11.7 (ContextGNN / KumoRFM-ft) | — | 11.7 | 11.3 | — | 12.3 | ✅ beats best-known | 4xA100 | 6h | ✅ done |
@@ -68,11 +68,11 @@ Values in the best-known number's units (AUROC/acc/MAP in %, NMAE, R², raw MAE)
 | 6 | rel-event/event_interest-interested | AC-bin | v2 | 49.6 (LightGBM) | — | — | — | — | — | — | 4xA100 | 6h | · pending |
 | 7 | rel-event/event_interest-not_interested | AC-bin | v2 | 60.4 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 6h | · pending |
 | 8 | rel-event/users-birthyear | AC-reg | v2 | -0.03 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 6h | · pending |
-| 12 | rel-salt/sales-group | AC-mul | v2 | 15.8 (GraphSAGE) | — | — | — | — | — | — | CPU-ok | 4h | · pending |
-| 13 | rel-salt/sales-payterms | AC-mul | v2 | 37.5 (GraphSAGE) | — | — | — | — | — | — | CPU-ok | 4h | · pending |
-| 14 | rel-salt/sales-shipcond | AC-mul | v2 | 56.9 (GraphSAGE) | — | — | — | — | — | — | CPU-ok | 4h | · pending |
-| 15 | rel-salt/sales-incoterms | AC-mul | v2 | 62.2 (GraphSAGE) | — | — | — | — | — | — | CPU-ok | 4h | · pending |
-| 16 | rel-salt/item-incoterms | AC-mul | v2 | 69.4 (GraphSAGE) | — | — | — | — | — | — | CPU-ok | 4h | · pending |
+| 12 | rel-salt/sales-group | AC-mul | v2 | 15.8 (GraphSAGE) | — | — | — | — | — | — | CPU-ok | 6h | · pending |
+| 13 | rel-salt/sales-payterms | AC-mul | v2 | 37.5 (GraphSAGE) | — | — | — | — | — | — | CPU-ok | 6h | · pending |
+| 14 | rel-salt/sales-shipcond | AC-mul | v2 | 56.9 (GraphSAGE) | — | — | — | — | — | — | CPU-ok | 6h | · pending |
+| 15 | rel-salt/sales-incoterms | AC-mul | v2 | 62.2 (GraphSAGE) | — | — | — | — | — | — | CPU-ok | 6h | · pending |
+| 16 | rel-salt/item-incoterms | AC-mul | v2 | 69.4 (GraphSAGE) | — | — | — | — | — | — | CPU-ok | 6h | · pending |
 | 17 | rel-trial/studies-enrollment | AC-reg | v2 | 0.436 (RelGT-AC) | — | — | — | — | — | — | 4xA100 | 6h | · pending |
 | 18 | rel-trial/studies-has_dmc | AC-bin | v2 | 78.5 (RelGT-AC) | — | — | — | — | — | — | 4xA100 | 6h | · pending |
 | 19 | rel-avito/searchinfo-isuserloggedon | AC-bin | v2 | 73 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 6h | · pending |
@@ -94,9 +94,9 @@ Values in the best-known number's units (AUROC/acc/MAP in %, NMAE, R², raw MAE)
 | 43 | rel-stack/badges-class | AC-mul | v2 | 82.8 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 6h | · pending |
 | 44 | rel-hm/transactions-price | AC-reg | v2 | 0.736 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 6h | · pending |
 | 45 | rel-amazon/review-rating | AC-reg | v2 | -0.356 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 6h | · pending |
-| 63 | rel-salt/item-plant | AC-mul | v2 | 99.5 (GraphSAGE) | — | — | — | — | — | — | CPU-ok | 4h | · pending |
-| 64 | rel-salt/item-shippoint | AC-mul | v2 | 98.4 (GraphSAGE) | — | — | — | — | — | — | CPU-ok | 4h | · pending |
-| 65 | rel-salt/sales-office | AC-mul | v2 | 99.9 (either baseline) | — | — | — | — | — | — | CPU-ok | 4h | · pending |
+| 63 | rel-salt/item-plant | AC-mul | v2 | 99.5 (GraphSAGE) | — | — | — | — | — | — | CPU-ok | 6h | · pending |
+| 64 | rel-salt/item-shippoint | AC-mul | v2 | 98.4 (GraphSAGE) | — | — | — | — | — | — | CPU-ok | 6h | · pending |
+| 65 | rel-salt/sales-office | AC-mul | v2 | 99.9 (either baseline) | — | — | — | — | — | — | CPU-ok | 6h | · pending |
 | — | rel-mimic/patient-iculengthofstay | clf | v2 | 55 (GraphSAGE) | — | — | — | — | — | — | blocked | — | ⛔ credentialed data |
 
 Notes: baseline columns show per-task values in the same units where the method published one (— where it did not evaluate). KumoRFM-ft is the fine-tuned regime (Kumo tech report Tables 2-4); KumoRFM-v1/v2 (ic) are the zero-shot in-context regimes (v1: tech report; v2: arXiv:2604.12596, cross-checked against RelAgent's KumoRFM-v2 rows — no published v1 recommendation numbers exist for v2). Current 'done' rows from harness-validation runs are baseline-quality placeholders until the campaign proper replaces them.
