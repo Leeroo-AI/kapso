@@ -426,8 +426,8 @@ def build_table_information(dataset_name: str) -> str:
 
 VALIDATION_RELIABILITY_NOTE = """The validation split is ONE finite sample from a process that may be moving;
 before trusting it as your selection signal, measure how reliable it is.
-During your first measurement pass, run two cheap diagnostics (training data,
-validation split, and input-side context only — never test labels):
+During your first measurement pass, run three cheap diagnostics (training
+data, validation split, and input-side context only — never test labels):
 
 1. Label stability along the split axis: segment the training range (e.g.
    weekly), compute the target mean per segment, and compare the variance of
@@ -440,11 +440,23 @@ validation split, and input-side context only — never test labels):
    the window that fed validation, in units of the normal segment-to-segment
    change across training. Several times a normal change means validation
    and test are not draws from the same regime.
+3. Stratum drift: define 2-4 strata from input-observable properties (entity
+   novelty — seen before versus never; activity level; feature
+   completeness). For each training segment and for the validation split,
+   measure each stratum's SHARE OF ROWS and its TARGET RATE. Then compare the
+   stratum shares at the prediction target — observable, because stratum
+   membership comes from inputs, not labels. Warning signs: a stratum's
+   prevalence ratio to the others moves by a large multiple across segments,
+   or the target's stratum mix falls outside the range the segments and
+   validation cover. Either means the aggregate validation metric weights a
+   different problem than the one you are scored on.
 
-If BOTH are extreme, there is a high chance the model that maximizes the
+If (1) and (2) are both extreme, or (3) shows a stratum whose share or
+prevalence ratio moves substantially between the segments, validation, and
+the prediction target, there is a high chance the model that maximizes the
 validation score is NOT the best model on test — a design tuned to the
 validation segment's regime can rank first on validation and last on test.
-Record the two measurements in your living documents so later iterations
+Record the measurements in your living documents so later iterations
 inherit the verdict, and adjust how you work:
 - Prefer designs whose internal resampling scores are stable across ALL
   segments — including any anomalous ones — over designs that peak on the
@@ -477,6 +489,30 @@ with them:
    hyperparameters, and pick between designs by the MEDIAN of segment-fold
    scores with the anomalous segments included — the validation score only
    confirms the winner, it never chooses it.
+4. Stratum-aware structure: model the strata explicitly — a stratum prior
+   combined with a within-stratum model — rather than hoping a single model
+   infers the split. Re-estimate stratum priors from context observable at
+   prediction time; never inherit them as constants fitted on one segment,
+   because the mix is visible in the inputs even when labels are not. Report
+   per-stratum scores alongside every aggregate in your internal evaluation,
+   so a design that wins on aggregate by sacrificing a stratum is visible as
+   such.
+5. Average rather than pick when the referee is unreliable: if these
+   diagnostics fire, rank-average your top candidates by the internal referee
+   instead of crowning one. When the referee cannot discriminate, averaging
+   reduces variance while picking gambles on it.
+4. Stratum-aware structure: model the strata explicitly — a stratum prior
+   combined with a within-stratum model — rather than hoping a single model
+   infers the split. Re-estimate stratum priors from context observable at
+   prediction time; never inherit them as constants fitted on one segment,
+   because the mix is visible in the inputs even when labels are not. Report
+   per-stratum scores alongside every aggregate in your internal evaluation,
+   so a design that wins on aggregate by sacrificing a stratum is visible as
+   such.
+5. Average rather than pick when the referee is unreliable: if these
+   diagnostics fire, rank-average your top candidates by the internal referee
+   instead of crowning one. When the referee cannot discriminate, averaging
+   reduces variance while picking gambles on it.
 
 If neither diagnostic is extreme, validation is representative for ranking —
 work normally and do not over-hedge."""

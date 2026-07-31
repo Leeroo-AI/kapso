@@ -906,7 +906,10 @@ class TestLivingDocuments:
                        # the three evidence-backed build directions
                        "per-entity-history backbone", "count-weighted shrinkage",
                        "Level-invariant behavior encodings",
-                       "Median-across-segments as the referee"):
+                       "Median-across-segments as the referee",
+                       # stratum-drift diagnostic + its directions
+                       "three cheap diagnostics", "Stratum drift",
+                       "Stratum-aware structure", "Average rather than pick"):
             assert phrase in VALIDATION_RELIABILITY_NOTE, phrase
         for banned in ("Thanksgiving", "tick", "RelBench", "rel-event"):
             assert banned not in VALIDATION_RELIABILITY_NOTE, banned
