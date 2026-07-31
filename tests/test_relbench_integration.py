@@ -594,10 +594,10 @@ class TestRunSelectionLabels:
         val_y = task.get_table("val", mask_input_cols=False).df[
             task.target_col].to_numpy(dtype=float)
 
-        # Pending intermediate with a FORGED perfect metrics.json val and
+        # Superseded intermediate with a FORGED perfect metrics.json val and
         # genuinely best predictions — must not be selectable.
         _archive_run(handler.runs_dir, "run_0001", val_y.copy(),
-                     np.full(n_test, 11.0), "pending",
+                     np.full(n_test, 11.0), "superseded",
                      forged_val={"mae": 0.0001})
         # Registered final: mediocre but real.
         _archive_run(handler.runs_dir, "run_0002", np.full(n_val, 11.0),
@@ -613,12 +613,52 @@ class TestRunSelectionLabels:
         assert abs(report["val_metrics"]["mae"] - expected) < 1e-9
         assert report["test_metrics"]["mae"] > 0
 
+    def test_session_finals_are_inferred_when_the_hook_never_fired(self, tmp_path):
+        """The manifest of record is printed by the maintainer-owned wrapper and
+        may carry no run/session identity, so the hook can silently never fire
+        (observed live: every run left 'pending' -> final_evaluate errored and a
+        completed task recorded as failed). selection.json always records the
+        session, so the handler derives each session's last run as its final."""
+        handler, task = _bare_driver_position_handler(tmp_path)
+        n_val = len(task.get_table("val")); n_test = len(task.get_table("test"))
+        val_y = task.get_table("val", mask_input_cols=False).df[
+            task.target_col].to_numpy(dtype=float)
+        # session A: two runs, the later one is the final; session B: one run
+        _archive_run(handler.runs_dir, "run_0001", np.full(n_val, 20.0),
+                     np.full(n_test, 20.0), "pending", session="exp_A")
+        _archive_run(handler.runs_dir, "run_0002", np.full(n_val, 11.0),
+                     np.full(n_test, 11.0), "pending", session="exp_A")
+        _archive_run(handler.runs_dir, "run_0003", np.full(n_val, 30.0),
+                     np.full(n_test, 30.0), "pending", session="exp_B")
+        report = handler.final_evaluate()
+        status = lambda n: json.loads(
+            (handler.runs_dir / n / "private/selection.json").read_text())["status"]
+        assert status("run_0001") == "superseded"
+        assert status("run_0002") == "final"
+        assert status("run_0003") == "final"
+        # of the two finals, argmax(val) on a minimize metric picks run_0002
+        assert report["run"] == "run_0002"
+        expected = float(np.abs(val_y - 11.0).mean())
+        assert abs(report["val_metrics"]["mae"] - expected) < 1e-9
+
+    def test_inference_never_overrides_a_decided_label(self, tmp_path):
+        handler, task = _bare_driver_position_handler(tmp_path)
+        n_val = len(task.get_table("val")); n_test = len(task.get_table("test"))
+        _archive_run(handler.runs_dir, "run_0001", np.full(n_val, 11.0),
+                     np.full(n_test, 11.0), "self-voided", session="exp_A")
+        _archive_run(handler.runs_dir, "run_0002", np.full(n_val, 11.0),
+                     np.full(n_test, 11.0), "invalid", session="exp_A")
+        assert "error" in handler.final_evaluate()   # nothing eligible
+        status = lambda n: json.loads(
+            (handler.runs_dir / n / "private/selection.json").read_text())["status"]
+        assert status("run_0001") == "self-voided" and status("run_0002") == "invalid"
+
     def test_zero_finals_is_the_documented_error(self, tmp_path):
         handler, task = _bare_driver_position_handler(tmp_path)
         n_val = len(task.get_table("val"))
         n_test = len(task.get_table("test"))
         _archive_run(handler.runs_dir, "run_0001", np.full(n_val, 11.0),
-                     np.full(n_test, 11.0), "pending")
+                     np.full(n_test, 11.0), "self-voided")
         assert "error" in handler.final_evaluate()
 
     def test_missing_label_raises(self, tmp_path):

@@ -253,6 +253,40 @@ class RelBenchHandler(ProblemHandler):
             f"of session {session}"
         )
 
+    def _infer_session_finals(self) -> None:
+        """Resolve each session's registered final from the archive itself.
+
+        finalize_run_selection() stamps labels when the search hands us a
+        manifest of record, but the manifest is printed by the evaluation
+        wrapper the maintainer owns and does not always carry run/session
+        identity. selection.json always does (our grader writes it at archive
+        time), and a session's LAST archived run is its registered result, so
+        derive the labels here rather than depending on the wrapper's format.
+        Never overrides a decided label: self-voided and invalid runs, and
+        finals already stamped by the hook, are left untouched.
+        """
+        by_session: Dict[str, List[Path]] = {}
+        for run_dir in sorted(self.runs_dir.glob("run_*")):
+            sel_file = run_dir / "private" / "selection.json"
+            if not sel_file.exists():
+                continue
+            record = json.loads(sel_file.read_text())
+            if record["status"] != "pending":
+                continue
+            by_session.setdefault(record["session"], []).append(run_dir)
+        for session, runs in by_session.items():
+            final = max(runs, key=lambda r: r.name)
+            for run_dir in runs:
+                sel_file = run_dir / "private" / "selection.json"
+                record = json.loads(sel_file.read_text())
+                record["status"] = "final" if run_dir is final else "superseded"
+                record["by"] = "session-final inference"
+                sel_file.write_text(json.dumps(record, indent=2))
+            print(
+                f"[RelBenchHandler] session {session}: final={final.name} "
+                f"(+{len(runs) - 1} superseded)"
+            )
+
     def _recomputed_val_metrics(self, run_dir: Path) -> Dict:
         """Official val metrics recomputed from the archived predictions
         against pristine labels — the archived metrics.json is never trusted
@@ -273,6 +307,7 @@ class RelBenchHandler(ProblemHandler):
         intermediate precisely because the old pool was every archived run.
         Val is recomputed from predictions, never read from metrics.json.
         """
+        self._infer_session_finals()
         best = None
         for run_dir in sorted(self.runs_dir.glob("run_*")):
             sel_file = run_dir / "private" / "selection.json"
