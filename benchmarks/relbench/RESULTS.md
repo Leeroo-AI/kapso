@@ -50,7 +50,7 @@ Values in the best-known number's units (AUROC/acc/MAP in %, NMAE, R², raw MAE)
 | 48 | rel-hm/user-item-purchase | rec | v1★ | 3.14 (KumoRFM-ft) | — | 3.14 | 2.73 | — | — | — | 4xA100 | 6h | ▶ running |
 | 49 | rel-stack/user-engagement | clf | v1★ | 95.6 (PluRel-ft) | 90.4 | 90.7 | 87.1 | 89.4 | — | — | 4xA100 | 6h | ▶ running |
 | 50 | rel-stack/user-badge | clf | v1★ | 94.3 (PluRel-ft) | 88.4 | 89.9 | 80 | 87.2 | — | — | 4xA100 | 6h | ▶ running |
-| 51 | rel-stack/post-votes | reg | v1★ | 0.121 (Rel-LLM) | 0.125 | 0.127 | 0.127 | 0.125 | — | — | GPU box | 8h | · pending |
+| 51 | rel-stack/post-votes | reg | v1★ | 0.121 (Rel-LLM) | 0.125 | 0.127 | 0.127 | 0.125 | — | — | 4xA100 | 6h | ▶ running |
 | 52 | rel-stack/user-post-comment | rec | v1★ | 14 (RelGNN) | — | 13.3 | 11.8 | — | — | — | GPU box | 8h | · pending |
 | 53 | rel-stack/post-post-related | rec | v1★ | 12.5 (ID-GNN-4L) | — | 12.2 | 11.8 | — | — | — | GPU box | 8h | · pending |
 | 54 | rel-amazon/user-churn | clf | v1★ | 71.9 (Rel-LLM) | 70.8 | 70.5 | 67.3 | 69.1 | — | — | GPU box | 8h | · pending |
