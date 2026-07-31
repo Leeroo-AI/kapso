@@ -424,6 +424,45 @@ def build_table_information(dataset_name: str) -> str:
     ])
 
 
+VALIDATION_RELIABILITY_NOTE = """The validation split is ONE finite sample from a process that may be moving;
+before trusting it as your selection signal, measure how reliable it is.
+During your first measurement pass, run two cheap diagnostics (training data,
+validation split, and input-side context only — never test labels):
+
+1. Label stability along the split axis: segment the training range (e.g.
+   weekly), compute the target mean per segment, and compare the variance of
+   those means against the sampling variance expected from segment sizes. A
+   ratio in the TENS — not units — means the label process wanders far beyond
+   noise, and any single validation segment is one draw from a moving
+   process. Note any level break inside the training range.
+2. Boundary regime gap: on input-side activity (row volumes of the
+   time-stamped tables), compare the window feeding test predictions against
+   the window that fed validation, in units of the normal segment-to-segment
+   change across training. Several times a normal change means validation
+   and test are not draws from the same regime.
+
+If BOTH are extreme, there is a high chance the model that maximizes the
+validation score is NOT the best model on test — a design tuned to the
+validation segment's regime can rank first on validation and last on test.
+Record the two measurements in your living documents so later iterations
+inherit the verdict, and adjust how you work:
+- Prefer designs whose internal resampling scores are stable across ALL
+  segments — including any anomalous ones — over designs that peak on the
+  segment adjacent to validation. If the training range contains a
+  detectable regime change, make the segments around it mandatory folds:
+  they are your only rehearsal of what test may do.
+- Be suspicious of validation gains driven by aggregate context-level
+  features (anything measuring the overall level of recent activity or the
+  global state of the system): their meaning shifts across regime
+  boundaries. Per-entity history features are far more regime-stable.
+- When designs are close on validation, ship the more regularized, more
+  resampling-stable one — never the one that fits the validation segment
+  hardest.
+
+If neither diagnostic is extreme, validation is representative for ranking —
+work normally and do not over-hedge."""
+
+
 def build_problem_context(
     task,
     dataset,
@@ -453,6 +492,8 @@ def build_problem_context(
         "\n## Database schema (your sanitized copy)\n" + describe_database(db, dataset),
         "\n## Prediction contract\n" + _prediction_contract(spec, len(val_df), n_test),
         ("\n## ROLLING EVALUATION — read carefully\n" + ROLLING_CONTRACT_NOTE) if rolling else "",
+        "\n## Validation reliability (measure it before trusting it)\n"
+        + VALIDATION_RELIABILITY_NOTE,
         "\n## Data access rules\n" + _data_access_rules(spec),
         "\n## Feature engineering (high-value direction — suggestion)\n"
         + FEATURE_ENGINEERING_NOTE,

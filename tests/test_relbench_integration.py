@@ -894,6 +894,18 @@ class TestLivingDocuments:
             assert banned not in src, f"task-specific wording leaked: {banned}"
 
         assert "Consider ALL tables" in FEATURE_ENGINEERING_NOTE
+
+        # Validation-reliability self-diagnostics (user-directed 2026-07-31):
+        # the agent is taught to MEASURE val reliability (label-stability
+        # ratio + boundary regime gap) and how to act when both are extreme.
+        # Generic predictive-ML wording only.
+        from benchmarks.relbench.context import VALIDATION_RELIABILITY_NOTE
+        for phrase in ("ONE finite sample", "two cheap diagnostics",
+                       "Boundary regime gap", "mandatory folds",
+                       "Per-entity history features", "do not over-hedge"):
+            assert phrase in VALIDATION_RELIABILITY_NOTE, phrase
+        for banned in ("Thanksgiving", "tick", "RelBench", "rel-event"):
+            assert banned not in VALIDATION_RELIABILITY_NOTE, banned
         assert "features-over-architecture" in FEATURE_ENGINEERING_NOTE
         assert "hard rule" not in FEATURE_ENGINEERING_NOTE
         assert not hasattr(ctx, "BEST_PRACTICES_NOTE")
