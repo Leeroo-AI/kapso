@@ -347,6 +347,44 @@ Runs reviewed:
    selection; the argmax(val) single-tick rule remains the binding
    constraint on this task family.
 
+   **E9. Deep-dive into the guarded re-run (2026-07-31, archive
+   20260730T223427_lane-b1 + full campaign log): the shipped 87.19 was an
+   UNREGISTERED INTERMEDIATE that the candidate itself had disqualified as
+   leaky.** The search ran 8 nodes (two k=4 fan-outs) whose REGISTERED final
+   scores were 84.70/84.45/82.36/85.90 and 85.90/84.04/85.90/85.90 —
+   **87.19 was never any node's result**. It was one of node 0's 14
+   pre-audit intermediate evaluations; the session's own log (line 115730)
+   says verbatim: "Official run_0001 scored 0.871876644 ... neither is
+   eligible to bank: both predate correction of seed-day leakage, pre-joined
+   user attributes, future-event metadata, and retrospectively updated
+   stream summaries." The candidate audited itself, fixed the leaks, and
+   registered the corrected 84.70 (guard A working exactly as written).
+   Guard B also demonstrably fired: iteration-2 feedback wrote "identical or
+   noise-scale validation changes are validation-polishing — do not resubmit
+   run_0008 or minor run_0005/0007/0009 variations". The failure is in
+   `final_evaluate`: it argmaxes over the whole run ARCHIVE — every grader
+   invocation, including self-disqualified intermediates — so it resurrected
+   the leaky discarded variant and shipped it. (The best-test run_0003,
+   90.39, was likewise an unregistered intermediate.) Even absent this
+   defect the outcome barely changes: the search's true champion (85.90, a
+   recurring-invitation-stream hazard design) tests at 76.68 — regime-
+   fragile like every aggregate-activity design here. Distribution facts
+   that make the task structurally hostile: label prevalence is
+   non-stationary (22%→16% Sep-Oct, breaking to 10-11% after a 2012-10-24
+   volume doubling; val 11.1%, test 13.0%); weekly activity decays
+   monotonically into the eval period (1.27M→651k attendance events) with
+   the Thanksgiving hole on top (-45% events, -40% interest in the test
+   feature window); per-user ego covariates barely shift (mean 7d invites
+   0.82→0.69, zero-fraction 70.3% in both) so the damage concentrates in
+   GLOBAL/community aggregates; and the test label window lies wholly beyond
+   the public db truncation. Remedies, layered: (i) SURGICAL HARNESS FIX
+   (proposed, needs approval): final_evaluate must select only among each
+   session's REGISTERED final run, never intermediate archives; (ii) the
+   regime blindness remains only addressable by multi-tick selection
+   (shelved). Follow-up worth doing: audit the campaign's beat-best cells
+   for the same intermediate-pollution pattern (their test numbers are
+   valid measurements regardless; provenance hygiene for publishing).
+
 ## R9 — driver-position, GPU + codex-primary + return-economics (2026-07-26/27, COMPLETED)
 
 First GPU run (H100, box relbench-dp-gpu-0726, auto-deleted on completion),
