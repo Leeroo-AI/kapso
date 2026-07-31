@@ -3,6 +3,20 @@
 Set by the IOAI AI Models Track organizers. They apply to every kernel you
 submit, on every task. Breaking one can void the submission.
 
+## The session
+
+- Each task is its own **2-hour** Kaggle competition; the three tasks of a day
+  run back to back. Up to **50 submissions** per task.
+- **You are on your own.** A human may only paste a fixed starting or
+  continuation prompt, and restart a crashed backend service. They may not
+  debug, correct, edit or improve your work. Recover from your own errors.
+- **A submission counts only if it has finished scoring before the deadline.**
+  A kernel still running when time expires keeps going and even scores, but that
+  score never reaches the leaderboard and does not count. Push early and submit
+  with minutes to spare; `kaggle kernels push --timeout <seconds>` caps a run.
+- Your whole session is recorded — model inputs/outputs, tool calls, code
+  output, libraries used — and submitted to the IOAI Jury for verification.
+
 ## The kernel
 
 1. **Use ONE GPU.** `machine_shape: NvidiaTeslaT4` provisions **two** T4s; the

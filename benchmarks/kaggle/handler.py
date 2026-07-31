@@ -81,12 +81,12 @@ loop: design ONE experiment per iteration, implement it, evaluate it.
 - Competition: `{competition}` — the kaggle CLI is installed and
   authenticated; develop and validate locally before spending a submission.
 
-READ {self.rules_path} BEFORE WRITING ANY KERNEL, and obey it. It carries the
-organizers' binding rules — single GPU (`cuda:0`), T4-or-CPU only, no internet,
-no outside models or data, `.py` only — plus the fixed package list your kernel
-must run against. A kernel that breaks one of those rules can be voided no
-matter how well it scores, so treat the rules as a hard constraint on the design
-space rather than something to check at the end.
+READ {self.rules_path} BEFORE WRITING ANY KERNEL, and obey it: the organizers'
+binding rules (single GPU `cuda:0`, T4-or-CPU, no internet, no outside models or
+data, `.py` only, submissions must finish scoring before the deadline) plus the
+fixed package list your kernel runs against. Breaking one voids the submission
+however well it scores, so treat them as constraints on the design space, not an
+end-of-run checklist. Nobody will debug for you.
 
 What counts is the best PUBLIC leaderboard score among your submissions — a
 stable baseline that scores low earns nothing. Go for the approach with the
