@@ -1,0 +1,33 @@
+2026-07-30
+- Read immutable evaluation mechanics and profiled the latest three internal forward origins.
+- Added PLAN.md and eval_profile.md with evaluation mechanics, input statistics, coverage axes, candidate recall strata, and critical-path throughput.
+RepoMemory sections consulted: core.architecture, core.where_to_edit, core.invariants, core.testing, core.gotchas
+
+2026-07-31 baseline-prior residual feature
+- Added the complete group-normalized structural baseline score and percentile rank as explicit LambdaMART features, raising the matrix width from 546 to 550 after missing indicators.
+- Origin cache lookup now keys on feature width so older matrices cannot be silently reused with the new ranker schema.
+RepoMemory sections consulted: core.architecture, core.where_to_edit, core.invariants, core.testing, core.gotchas
+
+2026-07-31 forward feature widening
+- Rejected a recurrence-only LambdaMART because its holdout changes were unstable: -0.006753, +0.003778, and -0.018426 MAP at 2017/2018/2019.
+- Measured agency affinity, geography overlap, sponsor trailing activity, and study-profile compatibility without validation labels; agency affinity was rejected.
+- Promoted stronger similar-condition weighting plus sponsor 365-day activity and study-profile cosine. The combined fixed formula improved every forward origin from 0.134048/0.124185/0.114380 to 0.134578/0.124674/0.114914.
+RepoMemory sections consulted: core.architecture, core.where_to_edit, core.invariants, core.testing, core.gotchas
+
+2026-07-30 first full evaluation and internal-selection repair
+- First full run completed in 1,570.3 seconds with official validation MAP 0.010463575288979742.
+- The run showed standalone LambdaMART forward MAP of 0.020678, 0.016701, and 0.010566 versus 0.123507 for the selected banked baseline, but the final path incorrectly forced the losing ranker.
+- Added forward-only baseline-preserving rank blends at weights 0, 0.05, 0.1, 0.25, and 0.5, stable mean selection with a simpler-weight tie break, and a zero-weight banked-baseline final chain.
+- Added direct loading of completed lane-namespaced origin matrices so corrected evaluations reuse the 5.07M-row causal feature build.
+- The repaired debug selection chose ranker weight 0.0 because its MAP fell monotonically as ranker weight increased.
+RepoMemory sections consulted: core.architecture, core.where_to_edit, core.invariants, core.testing, core.gotchas
+
+2026-07-30 implementation
+- Replaced the trivial baseline with a staged cutoff-causal retrieve-then-rank pipeline.
+- Added relation snapshots, banked multi-decay EdgeBank ranking, co-condition/co-sponsor/intervention retrieval, global and agency-class popularity, 64-factor CPU ALS, and 4,000-candidate unions.
+- Added frozen MedCPT condition, study, dated-outcome, and time-censored sponsor-portfolio embeddings in the lane-namespaced shared cache.
+- Added all-table pair/entity/study/design/eligibility/facility/result/intervention/text features, per-aggregate missing indicators, 300-source hard-negative sampling, and LightGBM LambdaMART.
+- Added latest-three-origin forward selection, slice diagnostics, fixed median tree refit, validation freezing, separate Model A/Model B fitting, and strict output assertions.
+- Debug attempt 1 was interrupted after vectorized output revealed slow Python group callbacks in result/facility aggregation; vectorized flags and sort-based modes fixed the slowdown.
+- Debug attempt 2 completed in 100.4 seconds and wrote full-shape contract-valid arrays.
+RepoMemory sections consulted: core.architecture, core.where_to_edit, core.invariants, core.testing, core.gotchas
