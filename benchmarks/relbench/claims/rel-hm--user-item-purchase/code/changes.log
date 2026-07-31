@@ -1,0 +1,3 @@
+RepoMemory sections consulted: core.architecture, core.entrypoints, core.where_to_edit, core.invariants, core.testing, core.gotchas, core.dependencies
+Measurement: profiled immutable evaluator behavior, split/origin counts, target cardinality, catalog use, channels, transaction windows, validation history depth/recency, and aggregate repeat/product familiarity.
+Evaluation integrity: kapso_evaluation remains unmodified because it is system-maintained and read-and-execute only; the required profile is recorded at repository root.
