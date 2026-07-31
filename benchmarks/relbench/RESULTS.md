@@ -115,6 +115,7 @@ Complete campaign state per run — session transcripts, lens/ideation history, 
 | rel-trial/study-adverse | `gs://leeroo-kapso-relbench-artifacts/runs/rel-trial--study-adverse/20260730T070548_lane-b.tgz` |
 | rel-avito/ad-ctr | `gs://leeroo-kapso-relbench-artifacts/runs/rel-avito--ad-ctr/20260730T223905_lane-b3.tgz` |
 | rel-trial/study-outcome | `gs://leeroo-kapso-relbench-artifacts/runs/rel-trial--study-outcome/20260731T031455_lane-a2.tgz` |
+| rel-trial/condition-sponsor-run | `gs://leeroo-kapso-relbench-artifacts/runs/rel-trial--condition-sponsor-run/20260731T040617_lane-b2.tgz` |
 | rel-avito/user-clicks | `gs://leeroo-kapso-relbench-artifacts/runs/rel-avito--user-clicks/20260731T040738_lane-a1.tgz` |
 | rel-trial/site-success | `gs://leeroo-kapso-relbench-artifacts/runs/rel-trial--site-success/20260731T043724_lane-b3.tgz` |
 | rel-trial/site-sponsor-run | `gs://leeroo-kapso-relbench-artifacts/runs/rel-trial--site-sponsor-run/20260731T042130_lane-a3.tgz` |
