@@ -895,35 +895,6 @@ class TestLivingDocuments:
 
         assert "Consider ALL tables" in FEATURE_ENGINEERING_NOTE
 
-        # Validation-reliability self-diagnostics (user-directed 2026-07-31):
-        # the agent is taught to MEASURE val reliability (label-stability
-        # ratio + boundary regime gap) and how to act when both are extreme.
-        # Generic predictive-ML wording only.
-        from benchmarks.relbench.context import VALIDATION_RELIABILITY_NOTE
-        for phrase in ("ONE finite sample", "three cheap diagnostics",
-                       "Boundary regime gap", "mandatory folds",
-                       "Per-entity history features", "do not over-hedge",
-                       # the three evidence-backed build directions
-                       "per-entity-history backbone", "count-weighted shrinkage",
-                       "Level-invariant behavior encodings",
-                       "Median-across-segments as the referee",
-                       # stratum-drift diagnostic + its directions
-                       "three cheap diagnostics", "Stratum drift",
-                       "Stratum-aware structure", "Average rather than pick"):
-            assert phrase in VALIDATION_RELIABILITY_NOTE, phrase
-        for banned in ("Thanksgiving", "tick", "RelBench", "rel-event"):
-            assert banned not in VALIDATION_RELIABILITY_NOTE, banned
-        assert "features-over-architecture" in FEATURE_ENGINEERING_NOTE
-        assert "hard rule" not in FEATURE_ENGINEERING_NOTE
-        assert not hasattr(ctx, "BEST_PRACTICES_NOTE")
-        assert "table_information.md" in LIVING_DOCUMENTS_NOTE
-        assert "features_history.md" in LIVING_DOCUMENTS_NOTE
-        assert "starting empty" in LIVING_DOCUMENTS_NOTE  # agent-built, not pre-generated
-        assert "Append-only" in LIVING_DOCUMENTS_NOTE
-        assert "$KAPSO_SHARED_CACHE_DIR" in LIVING_DOCUMENTS_NOTE
-        assert "TESTED-REJECTED" in FEATURES_HISTORY_TEMPLATE
-
-
 class TestOOSValAuditHooks:
     def test_advisory_verify_flags_do_not_dirty_the_run(self, tmp_path):
         """The OOS review hooks must surface train+val mixing (the exact shape

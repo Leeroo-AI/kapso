@@ -299,8 +299,6 @@ Experimentation notes for this search:
 - The evaluation output's run/budget notes tell you how much of the campaign budget
   remains; cached val/test predictions from earlier experiments persist in
   $KAPSO_SHARED_CACHE_DIR. How to spend the remaining budget is your call.
-- Beat-the-number focus: the current published state of the art for this task is shown
-  below (if known). Treat it as the bar; report progress against it in your logs.
 - Every iteration, before anything else: read features_history.md and apply the
   FEATURE ENGINEERING rules above — new features first, all tables covered.
 """
@@ -424,100 +422,6 @@ def build_table_information(dataset_name: str) -> str:
     ])
 
 
-VALIDATION_RELIABILITY_NOTE = """The validation split is ONE finite sample from a process that may be moving;
-before trusting it as your selection signal, measure how reliable it is.
-During your first measurement pass, run three cheap diagnostics (training
-data, validation split, and input-side context only — never test labels):
-
-1. Label stability along the split axis: segment the training range (e.g.
-   weekly), compute the target mean per segment, and compare the variance of
-   those means against the sampling variance expected from segment sizes. A
-   ratio in the TENS — not units — means the label process wanders far beyond
-   noise, and any single validation segment is one draw from a moving
-   process. Note any level break inside the training range.
-2. Boundary regime gap: on input-side activity (row volumes of the
-   time-stamped tables), compare the window feeding test predictions against
-   the window that fed validation, in units of the normal segment-to-segment
-   change across training. Several times a normal change means validation
-   and test are not draws from the same regime.
-3. Stratum drift: define 2-4 strata from input-observable properties (entity
-   novelty — seen before versus never; activity level; feature
-   completeness). For each training segment and for the validation split,
-   measure each stratum's SHARE OF ROWS and its TARGET RATE. Then compare the
-   stratum shares at the prediction target — observable, because stratum
-   membership comes from inputs, not labels. Warning signs: a stratum's
-   prevalence ratio to the others moves by a large multiple across segments,
-   or the target's stratum mix falls outside the range the segments and
-   validation cover. Either means the aggregate validation metric weights a
-   different problem than the one you are scored on.
-
-If (1) and (2) are both extreme, or (3) shows a stratum whose share or
-prevalence ratio moves substantially between the segments, validation, and
-the prediction target, there is a high chance the model that maximizes the
-validation score is NOT the best model on test — a design tuned to the
-validation segment's regime can rank first on validation and last on test.
-Record the measurements in your living documents so later iterations
-inherit the verdict, and adjust how you work:
-- Prefer designs whose internal resampling scores are stable across ALL
-  segments — including any anomalous ones — over designs that peak on the
-  segment adjacent to validation. If the training range contains a
-  detectable regime change, make the segments around it mandatory folds:
-  they are your only rehearsal of what test may do.
-- Be suspicious of validation gains driven by aggregate context-level
-  features (anything measuring the overall level of recent activity or the
-  global state of the system): their meaning shifts across regime
-  boundaries. Per-entity history features are far more regime-stable.
-- When designs are close on validation, ship the more regularized, more
-  resampling-stable one — never the one that fits the validation segment
-  hardest.
-
-Build directions that are close to surely right under this signature — start
-with them:
-1. A per-entity-history backbone: causal per-entity target statistics with
-   count-weighted shrinkage (entity -> group -> global) feeding a
-   regularized GBDT. Its inputs barely move across regime boundaries; on
-   tasks with this signature it is consistently the design family that
-   transfers, and it sets the baseline every fancier design must beat on
-   segment stability, not just on validation.
-2. Level-invariant behavior encodings: express recent activity as
-   within-segment shares, percentiles, and fast-to-slow ratios — never raw
-   counts or volumes. A regime shift moves levels first; relative forms
-   survive it. Pair every fast (recent-window) signal with a slower fallback
-   blended by observation count, so the model degrades gracefully when the
-   fast signal goes quiet in a new regime.
-3. Median-across-segments as the referee: admit features, tune
-   hyperparameters, and pick between designs by the MEDIAN of segment-fold
-   scores with the anomalous segments included — the validation score only
-   confirms the winner, it never chooses it.
-4. Stratum-aware structure: model the strata explicitly — a stratum prior
-   combined with a within-stratum model — rather than hoping a single model
-   infers the split. Re-estimate stratum priors from context observable at
-   prediction time; never inherit them as constants fitted on one segment,
-   because the mix is visible in the inputs even when labels are not. Report
-   per-stratum scores alongside every aggregate in your internal evaluation,
-   so a design that wins on aggregate by sacrificing a stratum is visible as
-   such.
-5. Average rather than pick when the referee is unreliable: if these
-   diagnostics fire, rank-average your top candidates by the internal referee
-   instead of crowning one. When the referee cannot discriminate, averaging
-   reduces variance while picking gambles on it.
-4. Stratum-aware structure: model the strata explicitly — a stratum prior
-   combined with a within-stratum model — rather than hoping a single model
-   infers the split. Re-estimate stratum priors from context observable at
-   prediction time; never inherit them as constants fitted on one segment,
-   because the mix is visible in the inputs even when labels are not. Report
-   per-stratum scores alongside every aggregate in your internal evaluation,
-   so a design that wins on aggregate by sacrificing a stratum is visible as
-   such.
-5. Average rather than pick when the referee is unreliable: if these
-   diagnostics fire, rank-average your top candidates by the internal referee
-   instead of crowning one. When the referee cannot discriminate, averaging
-   reduces variance while picking gambles on it.
-
-If neither diagnostic is extreme, validation is representative for ranking —
-work normally and do not over-hedge."""
-
-
 def build_problem_context(
     task,
     dataset,
@@ -536,8 +440,8 @@ def build_problem_context(
     sections = [
         "# RelBench task",
         "You are competing on RelBench (the relational deep learning benchmark, "
-        "relbench.stanford.edu). Goal: the best possible TEST metric, achieved by "
-        "maximizing the validation metric without any form of test leakage. "
+        "relbench.stanford.edu). Goal: the best possible TEST metric. "
+        "Model selection uses the VALIDATION metric — a finite-sample proxy for it, not the objective itself. No form of test leakage is permitted. "
         f"Primary metric: **{spec.primary_metric}** "
         f"({'higher' if spec.maximize else 'lower'} is better). "
         f"All official metrics computed: {', '.join(spec.metrics)}.",
@@ -547,8 +451,6 @@ def build_problem_context(
         "\n## Database schema (your sanitized copy)\n" + describe_database(db, dataset),
         "\n## Prediction contract\n" + _prediction_contract(spec, len(val_df), n_test),
         ("\n## ROLLING EVALUATION — read carefully\n" + ROLLING_CONTRACT_NOTE) if rolling else "",
-        "\n## Validation reliability (measure it before trusting it)\n"
-        + VALIDATION_RELIABILITY_NOTE,
         "\n## Data access rules\n" + _data_access_rules(spec),
         "\n## Feature engineering (high-value direction — suggestion)\n"
         + FEATURE_ENGINEERING_NOTE,
