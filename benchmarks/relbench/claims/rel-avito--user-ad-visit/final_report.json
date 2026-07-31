@@ -1,0 +1,28 @@
+{
+  "dataset": "rel-avito",
+  "task": "user-ad-visit",
+  "family": "recommendation",
+  "primary_metric": "link_prediction_map",
+  "selected_by": "best validation link_prediction_map",
+  "run": "run_0022",
+  "val_metrics": {
+    "link_prediction_precision": 0.0558835629385014,
+    "link_prediction_recall": 0.06099840701936867,
+    "link_prediction_map": 0.06043561553572097
+  },
+  "test_metrics": {
+    "link_prediction_precision": 0.03681253286833292,
+    "link_prediction_recall": 0.046543974785672765,
+    "link_prediction_map": 0.04201010214341293
+  },
+  "audit": {
+    "clean": true,
+    "findings": [],
+    "note": "static scan; manually review flagged lines before publishing results. 'verify:' findings are advisory OOS-contract review hooks (legal patterns that warrant tracing), not violations."
+  },
+  "code_path": "/home/ubuntu/kapso/tmp/relbench/rel-avito--user-ad-visit/runs/run_0022/code",
+  "predictions": {
+    "val": "/home/ubuntu/kapso/tmp/relbench/rel-avito--user-ad-visit/runs/run_0022/val_predictions.npy",
+    "test": "/home/ubuntu/kapso/tmp/relbench/rel-avito--user-ad-visit/runs/run_0022/test_predictions.npy"
+  }
+}
