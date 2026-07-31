@@ -411,17 +411,41 @@ def main():
                       else run_defaults["node_expansion"])
 
     total_run_seconds = hours * 3600
-    deadline_ts = time.time() + total_run_seconds
+    # The clock starts at URL-in, not here: the preflight stamps run_meta.json
+    # before it downloads, so its ~8 min is billed to the run rather than being
+    # free time ahead of it (a real competition's window opens once, and the
+    # download and statement authoring happen inside it). Direct runner
+    # invocations with no preflight stamp start their clock now.
+    meta_path = os.path.join(root, "run_meta.json")
+    if os.path.isfile(meta_path):
+        with open(meta_path) as f:
+            started_utc = json.load(f)["run_started_utc"]
+        origin_ts = datetime.fromisoformat(started_utc).timestamp()
+    else:
+        origin_ts = time.time()
+        with open(meta_path, "w") as f:
+            json.dump({"run_started_utc":
+                       datetime.now(timezone.utc).isoformat()}, f, indent=2)
+
+    deadline_ts = origin_ts + total_run_seconds
+    spent_minutes = (time.time() - origin_ts) / 60
     knobs = mode_cfg["session_budget"]
     guard_minutes = (args.guard_minutes if args.guard_minutes is not None
                      else knobs["guard_minutes"])
-    budget_minutes = max(5, int(hours * 60) - guard_minutes)
+    budget_minutes = int(hours * 60 - spent_minutes - guard_minutes)
+    if budget_minutes < knobs["min_campaign_minutes"]:
+        sys.exit(
+            f"only {budget_minutes} min of the {hours}h budget remain after "
+            f"{spent_minutes:.1f} min of preflight — below the "
+            f"{knobs['min_campaign_minutes']} min floor; nothing scoreable "
+            "could finish"
+        )
     # Sized to ONE submission round trip (push -> kernel run -> submit ->
     # score), not to a fraction of the run: a campaign that ends before
     # shipping scores nothing. The handler hands most of it back once a public
     # score is banked (deliverable_ready_reserve_seconds).
     reserve_minutes = knobs["finalization_reserve_minutes"]
-    session_timeouts = shape_session_timeouts(mode_cfg, total_run_seconds)
+    session_timeouts = shape_session_timeouts(mode_cfg, budget_minutes * 60)
 
     if not (os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("CLAUDE_CODE_OAUTH_TOKEN")):
         print("WARNING: neither ANTHROPIC_API_KEY nor CLAUDE_CODE_OAUTH_TOKEN is set")
@@ -430,15 +454,13 @@ def main():
     if not shutil.which("kaggle"):
         print("WARNING: kaggle CLI not on PATH — submissions will fail")
 
-    with open(os.path.join(root, "run_meta.json"), "w") as f:
-        json.dump({"run_started_utc":
-                   datetime.now(timezone.utc).isoformat()}, f)
-
     config_path = build_runtime_config(args.mode, task_dir, session_timeouts,
                                        shared_cache_dir=args.shared_cache_dir,
                                        node_expansion=node_expansion)
 
     print(f"root={root} competition={competition} K={node_expansion} hours={hours}")
+    print(f"clock started {spent_minutes:.1f} min ago (preflight); "
+          f"deadline {datetime.fromtimestamp(deadline_ts, timezone.utc):%H:%M:%S} UTC")
     print(f"budget={budget_minutes} min (guard={guard_minutes} min, "
           f"finalization reserve={reserve_minutes:.0f} min), "
           f"iterations<={args.iterations}")

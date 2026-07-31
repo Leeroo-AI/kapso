@@ -88,6 +88,9 @@ modes:
       finalization_reserve_minutes: 20
       insured_reserve_minutes: 5
       guard_minutes: 5
+      # Refuse to start a campaign with less than this left after preflight —
+      # below one submission round trip nothing scoreable can finish.
+      min_campaign_minutes: 25
 
 
     # Admission floor: don't start an iteration that can't finish.

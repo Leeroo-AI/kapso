@@ -25,6 +25,7 @@ import shutil
 import subprocess
 import sys
 import zipfile
+from datetime import datetime, timezone
 
 import yaml
 from dotenv import load_dotenv
@@ -98,6 +99,15 @@ def run_preflight(url: str, root: str, mode: str = "KAGGLE") -> str:
     dataset_dir = os.path.join(task_dir, "dataset")
     statement_path = os.path.join(dataset_dir, "statement.md")
     os.makedirs(task_dir, exist_ok=True)
+
+    # The clock starts HERE, at URL-in. A real competition's 2 hours begin when
+    # the competition opens, so the download and the statement-authoring session
+    # are inside the budget, not free time before it; the runner reads this
+    # stamp as its origin instead of starting a fresh clock of its own.
+    meta_path = os.path.join(root, "run_meta.json")
+    with open(meta_path, "w") as f:
+        json.dump({"run_started_utc": datetime.now(timezone.utc).isoformat()},
+                  f, indent=2)
 
     download_competition(slug, dataset_dir)
     with open(os.path.join(task_dir, "kaggle.json"), "w") as f:
