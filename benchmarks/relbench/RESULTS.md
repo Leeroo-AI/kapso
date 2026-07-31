@@ -3,7 +3,7 @@
 **Auto-generated — do not edit by hand.** Regenerate with:
 `PYTHONPATH=src:. python -m benchmarks.relbench.scorecard --reference`
 
-Status: **18/66 tasks run**, 10 beating the best published number. Category-level gates: run the scorecard (same module, no flags).
+Status: **23/66 tasks run**, 13 beating the best published number. Category-level gates: run the scorecard (same module, no flags).
 
 ## Benchmark version & leaderboard submission
 
@@ -35,7 +35,7 @@ Values in the best-known number's units (AUROC/acc/MAP in %, NMAE, R², raw MAE)
 | 1 | rel-event/user-attendance | reg | v1★ | 0.307 (KumoRFM-2) | 0.315 | 0.311 | 0.345 | 0.307 | 0.315 | below best-known | 4xA100 | 6h | ✅ done |
 | 5 | rel-f1/driver-position ⚠ | reg | v1★ | 0.374 (PluRel-ft) | 0.572 | 0.389 | 0.391 | 0.406 | 0.344 | ✅ beats best-known | 4xA100 | 6h | ✅ done |
 | 9 | rel-event/user-repeat | clf | v1★ | 83.6 (GelGT) | 78.2 | 80.6 | 76.1 | 81.7 | 81.2 | below best-known | 4xA100 | 6h | ✅ done |
-| 10 | rel-event/user-ignore | clf | v1★ | 91.2 (PluRel-ft) | 87.2 | 89.4 | 89.2 | 90.8 | — | — | 4xA100 | 6h | ▶ running |
+| 10 | rel-event/user-ignore | clf | v1★ | 91.2 (PluRel-ft) | 87.2 | 89.4 | 89.2 | 90.8 | — | — | 4xA100 | 6h | · pending |
 | 11 | rel-f1/driver-dnf ⚠ | clf | v1★ | 84.6 (KumoRFM-2) | 78.3 | 82.6 | 82.4 | 84.6 | 80.6 | below best-known | 4xA100 | 6h | ✅ done |
 | 21 | rel-trial/study-adverse | reg | v1★ | 0.11 (RelAgent) | 0.11 | 0.13 | 0.172 | 0.128 | 0.0872 | ✅ beats best-known | 4xA100 | 6h | ✅ done |
 | 22 | rel-avito/ad-ctr | reg | v1★ | 0.345 (RelAgent) | 0.345 | 0.355 | 0.366 | 0.355 | 0.334 | ✅ beats best-known | 4xA100 | 6h | ✅ done |
@@ -52,11 +52,11 @@ Values in the best-known number's units (AUROC/acc/MAP in %, NMAE, R², raw MAE)
 | 50 | rel-stack/user-badge | clf | v1★ | 94.3 (PluRel-ft) | 88.4 | 89.9 | 80 | 87.2 | 89.4 | below best-known | 4xA100 | 6h | ✅ done |
 | 51 | rel-stack/post-votes | reg | v1★ | 0.121 (Rel-LLM) | 0.125 | 0.127 | 0.127 | 0.125 | 0.122 | below best-known | 4xA100 | 6h | ✅ done |
 | 52 | rel-stack/user-post-comment | rec | v1★ | 14 (RelGNN) | — | 13.3 | 11.8 | — | — | — | 4xA100 | 6h | · pending |
-| 53 | rel-stack/post-post-related | rec | v1★ | 12.5 (ID-GNN-4L) | — | 12.2 | 11.8 | — | — | — | 4xA100 | 6h | ▶ running |
-| 54 | rel-amazon/user-churn | clf | v1★ | 71.9 (Rel-LLM) | 70.8 | 70.5 | 67.3 | 69.1 | — | — | 4xA100 | 6h | ▶ running |
-| 55 | rel-amazon/item-churn | clf | v1★ | 83.4 (Rel-LLM / RT-ft) | 82.8 | 82.8 | 79.9 | 82.2 | — | — | 4xA100 | 6h | ▶ running |
-| 56 | rel-amazon/user-ltv | reg | v1★ | 0.242 (KumoRFM-2 in-context) | 0.243 | 0.247 | 0.281 | 0.242 | — | — | 4xA100 | 6h | ▶ running |
-| 57 | rel-amazon/item-ltv | reg | v1★ | 0.0696 (Data Scientist + LightGB) | 0.0707 | 0.0824 | 0.0935 | 0.0795 | — | — | 4xA100 | 6h | ▶ running |
+| 53 | rel-stack/post-post-related | rec | v1★ | 12.5 (ID-GNN-4L) | — | 12.2 | 11.8 | — | 26.1 | ✅ beats best-known | 4xA100 | 6h | ✅ done |
+| 54 | rel-amazon/user-churn | clf | v1★ | 71.9 (Rel-LLM) | 70.8 | 70.5 | 67.3 | 69.1 | 71.4 | below best-known | 4xA100 | 6h | ✅ done |
+| 55 | rel-amazon/item-churn | clf | v1★ | 83.4 (Rel-LLM / RT-ft) | 82.8 | 82.8 | 79.9 | 82.2 | 83.1 | below best-known | 4xA100 | 6h | ✅ done |
+| 56 | rel-amazon/user-ltv | reg | v1★ | 0.242 (KumoRFM-2 in-context) | 0.243 | 0.247 | 0.281 | 0.242 | 0.238 | ✅ beats best-known | 4xA100 | 6h | ✅ done |
+| 57 | rel-amazon/item-ltv | reg | v1★ | 0.0696 (Data Scientist + LightGB) | 0.0707 | 0.0824 | 0.0935 | 0.0795 | 0.0655 | ✅ beats best-known | 4xA100 | 6h | ✅ done |
 | 58 | rel-amazon/user-item-purchase | rec | v1★ | 2.93 (ContextGNN / KumoRFM-ft) | — | 2.93 | 1.72 | — | — | — | 4xA100 | 6h | · pending |
 | 59 | rel-amazon/user-item-rate | rec | v1★ | 2.25 (ContextGNN / KumoRFM-ft) | — | 2.25 | 1.14 | — | — | — | 4xA100 | 6h | · pending |
 | 60 | rel-amazon/user-item-review | rec | v1★ | 1.63 (ContextGNN / KumoRFM-ft) | — | 1.63 | 0.22 | — | — | — | 4xA100 | 6h | · pending |
