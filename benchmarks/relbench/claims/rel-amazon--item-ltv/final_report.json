@@ -1,0 +1,57 @@
+{
+  "dataset": "rel-amazon",
+  "task": "item-ltv",
+  "family": "entity_regression",
+  "primary_metric": "mae",
+  "selected_by": "best recomputed validation mae among registered-final runs",
+  "run": "run_0019",
+  "val_metrics": {
+    "r2": 0.662324093653669,
+    "mae": 34.92480595495156,
+    "rmse": 262.66615692877747
+  },
+  "test_metrics": {
+    "r2": 0.31360189894934465,
+    "mae": 38.705460472037764,
+    "rmse": 550.6255698223649
+  },
+  "audit": {
+    "clean": false,
+    "findings": [
+      {
+        "file": "feature_pipeline.py",
+        "line": 124,
+        "pattern": "RELBENCH_CACHE_DIR",
+        "concern": "tampers with the data cache location",
+        "snippet": "root = Path(os.environ[\"RELBENCH_CACHE_DIR\"]) / os.environ[\"RELBENCH_DATASET\"]"
+      },
+      {
+        "file": "feature_pipeline.py",
+        "line": 773,
+        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
+        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
+        "snippet": "combined = pd.concat([train, val, test], ignore_index=True, sort=False)"
+      },
+      {
+        "file": "model_pipeline.py",
+        "line": 363,
+        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
+        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
+        "snippet": "model_b_indices = np.concatenate([train_indices, val_addition])"
+      },
+      {
+        "file": "model_pipeline.py",
+        "line": 365,
+        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
+        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
+        "snippet": "model_b_indices = np.concatenate([train_indices_all, val_positive_indices])"
+      }
+    ],
+    "note": "static scan; manually review flagged lines before publishing results. 'verify:' findings are advisory OOS-contract review hooks (legal patterns that warrant tracing), not violations."
+  },
+  "code_path": "/home/ubuntu/kapso/tmp/relbench/rel-amazon--item-ltv/runs/run_0019/code",
+  "predictions": {
+    "val": "/home/ubuntu/kapso/tmp/relbench/rel-amazon--item-ltv/runs/run_0019/val_predictions.npy",
+    "test": "/home/ubuntu/kapso/tmp/relbench/rel-amazon--item-ltv/runs/run_0019/test_predictions.npy"
+  }
+}
