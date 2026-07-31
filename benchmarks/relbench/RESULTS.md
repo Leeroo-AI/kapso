@@ -3,7 +3,7 @@
 **Auto-generated — do not edit by hand.** Regenerate with:
 `PYTHONPATH=src:. python -m benchmarks.relbench.scorecard --reference`
 
-Status: **15/66 tasks run**, 9 beating the best published number. Category-level gates: run the scorecard (same module, no flags).
+Status: **18/66 tasks run**, 10 beating the best published number. Category-level gates: run the scorecard (same module, no flags).
 
 ## Benchmark version & leaderboard submission
 
@@ -45,11 +45,11 @@ Values in the best-known number's units (AUROC/acc/MAP in %, NMAE, R², raw MAE)
 | 26 | rel-avito/user-clicks | clf | v1★ | 69.4 (RGP) | 68.4 | 66.8 | 64.1 | 69.4 | 70.2 | ✅ beats best-known | 4xA100 | 6h | ✅ done |
 | 27 | rel-trial/site-success | reg | v1★ | 0.552 (RT-ft) | 0.811 | 0.632 | 0.876 | 0.91 | 0.778 | below best-known | 4xA100 | 6h | ✅ done |
 | 28 | rel-trial/site-sponsor-run | rec | v1★ | 28 (ContextGNN / KumoRFM-ft) | — | 28 | 20.8 | — | 33.3 | ✅ beats best-known | 4xA100 | 6h | ✅ done |
-| 46 | rel-hm/user-churn | clf | v1★ | 71.2 (KumoRFM-ft) | 71.1 | 71.2 | 67.7 | 69.3 | — | — | 4xA100 | 6h | ▶ running |
+| 46 | rel-hm/user-churn | clf | v1★ | 71.2 (KumoRFM-ft) | 71.1 | 71.2 | 67.7 | 69.3 | 71.6 | ✅ beats best-known | 4xA100 | 6h | ✅ done |
 | 47 | rel-hm/item-sales | reg | v1★ | 0.0686 (KumoRFM-ft/-2) | 0.0707 | 0.0686 | 0.0807 | 0.0686 | 0.0634 | ✅ beats best-known | 4xA100 | 6h | ✅ done |
 | 48 | rel-hm/user-item-purchase | rec | v1★ | 3.14 (KumoRFM-ft) | — | 3.14 | 2.73 | — | 3.26 | ✅ beats best-known | 4xA100 | 6h | ✅ done |
-| 49 | rel-stack/user-engagement | clf | v1★ | 95.6 (PluRel-ft) | 90.4 | 90.7 | 87.1 | 89.4 | — | — | 4xA100 | 6h | ▶ running |
-| 50 | rel-stack/user-badge | clf | v1★ | 94.3 (PluRel-ft) | 88.4 | 89.9 | 80 | 87.2 | — | — | 4xA100 | 6h | ▶ running |
+| 49 | rel-stack/user-engagement | clf | v1★ | 95.6 (PluRel-ft) | 90.4 | 90.7 | 87.1 | 89.4 | 91 | below best-known | 4xA100 | 6h | ✅ done |
+| 50 | rel-stack/user-badge | clf | v1★ | 94.3 (PluRel-ft) | 88.4 | 89.9 | 80 | 87.2 | 89.4 | below best-known | 4xA100 | 6h | ✅ done |
 | 51 | rel-stack/post-votes | reg | v1★ | 0.121 (Rel-LLM) | 0.125 | 0.127 | 0.127 | 0.125 | — | — | 4xA100 | 6h | ▶ running |
 | 52 | rel-stack/user-post-comment | rec | v1★ | 14 (RelGNN) | — | 13.3 | 11.8 | — | — | — | 4xA100 | 6h | ▶ running |
 | 53 | rel-stack/post-post-related | rec | v1★ | 12.5 (ID-GNN-4L) | — | 12.2 | 11.8 | — | — | — | 4xA100 | 6h | ▶ running |
@@ -122,6 +122,7 @@ Complete campaign state per run — session transcripts, lens/ideation history, 
 | rel-trial/site-sponsor-run | `gs://leeroo-kapso-relbench-artifacts/runs/rel-trial--site-sponsor-run/20260731T042130_lane-a3.tgz` |
 | rel-hm/item-sales | `gs://leeroo-kapso-relbench-artifacts/runs/rel-hm--item-sales/20260731T084234_lane-a1.tgz` |
 | rel-hm/user-item-purchase | `gs://leeroo-kapso-relbench-artifacts/runs/rel-hm--user-item-purchase/20260731T095502_lane-a3.tgz` |
+| rel-stack/user-badge | `gs://leeroo-kapso-relbench-artifacts/runs/rel-stack--user-badge/20260731T103444_lane-b2.tgz` |
 
 ## Winning artifacts (durable, committed — for organizer handoff)
 
@@ -136,5 +137,6 @@ Each claimed cell's evidence is copied from the box-local run archive into `benc
 | rel-avito/user-ad-visit | run_0022 | `benchmarks/relbench/claims/rel-avito--user-ad-visit/` | `5cd4aacd5655615b` | `6aed28f5feb1342b` |
 | rel-avito/user-clicks | run_0008 | `benchmarks/relbench/claims/rel-avito--user-clicks/` | `6ee021943c3943cd` | `6c4afedde7a44d83` |
 | rel-trial/site-sponsor-run | run_0013 | `benchmarks/relbench/claims/rel-trial--site-sponsor-run/` | `1b90414a1548572d` | `5710ab122ac38d71` |
+| rel-hm/user-churn | run_0012 | `benchmarks/relbench/claims/rel-hm--user-churn/` | `bc8c10db0f23ed1f` | `246a6da23fe32be9` |
 | rel-hm/item-sales | run_0009 | `benchmarks/relbench/claims/rel-hm--item-sales/` | `bf48cb6843c872ee` | `6b9793248fd71d7b` |
 | rel-hm/user-item-purchase | run_0002 | `benchmarks/relbench/claims/rel-hm--user-item-purchase/` | `ce965643837b1a12` | `572056d90a59dafa` |

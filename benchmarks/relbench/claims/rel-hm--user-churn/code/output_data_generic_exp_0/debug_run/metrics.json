@@ -1,0 +1,211 @@
+{
+  "debug": true,
+  "feature_content_key": "causal-hazard-lane0-v6-bea53f4a4ebb69492199",
+  "core_probe": {
+    "cutoff": "2020-08-31T00:00:00",
+    "auc": 0.6939772874668051,
+    "best_iteration": 61,
+    "train_rows": 6127,
+    "holdout_rows": 3380,
+    "feature_count": 229,
+    "reported_0_7119_reproduced": false,
+    "elapsed_seconds": 0.29111242294311523
+  },
+  "selection": {
+    "folds": [
+      {
+        "cutoff": "2020-08-24T00:00:00",
+        "train_rows": 3044,
+        "holdout_rows": 3083,
+        "core_l63_m1000_hnone": {
+          "auc": 0.684102241405038,
+          "iteration": 88
+        },
+        "l127_m1000_hnone": {
+          "auc": 0.6843908282865823,
+          "iteration": 90
+        },
+        "l127_m1000_h26": {
+          "auc": 0.6843908282865823,
+          "iteration": 90
+        },
+        "l127_m1000_h13": {
+          "auc": 0.6843908282865823,
+          "iteration": 90
+        },
+        "l63_m300_hnone": {
+          "auc": 0.6928555742315846,
+          "iteration": 73
+        },
+        "l63_m1000_hnone": {
+          "auc": 0.6843908282865823,
+          "iteration": 90
+        },
+        "l127_m300_hnone": {
+          "auc": 0.6928555742315846,
+          "iteration": 73
+        }
+      },
+      {
+        "cutoff": "2020-08-31T00:00:00",
+        "train_rows": 6127,
+        "holdout_rows": 3380,
+        "core_l63_m1000_hnone": {
+          "auc": 0.6939772874668051,
+          "iteration": 61
+        },
+        "l127_m1000_hnone": {
+          "auc": 0.6936717912658807,
+          "iteration": 76
+        },
+        "l127_m1000_h26": {
+          "auc": 0.6939949231879012,
+          "iteration": 74
+        },
+        "l127_m1000_h13": {
+          "auc": 0.694012274461883,
+          "iteration": 76
+        },
+        "l63_m300_hnone": {
+          "auc": 0.6930315008112433,
+          "iteration": 12
+        },
+        "l63_m1000_hnone": {
+          "auc": 0.6936717912658807,
+          "iteration": 76
+        },
+        "l127_m300_hnone": {
+          "auc": 0.6930315008112433,
+          "iteration": 12
+        }
+      }
+    ],
+    "selected_key": "l63_m300_hnone",
+    "use_wide": true,
+    "leaves": 63,
+    "min_leaf": 300,
+    "half_life": null,
+    "rounds": 100,
+    "fold_cutoffs": [
+      "2020-08-24T00:00:00",
+      "2020-08-31T00:00:00"
+    ]
+  },
+  "gate": {
+    "models": [
+      "lgb",
+      "cat"
+    ],
+    "weights": [
+      0.6,
+      0.4
+    ],
+    "cat_rounds": 100,
+    "xgb_rounds": 100,
+    "cat_scores": [
+      0.694489961399745,
+      0.6883782304658789
+    ],
+    "xgb_scores": [
+      0.6894111842197878,
+      0.6938106014577345
+    ],
+    "base_auc": 0.6929487683010349,
+    "cat_gain": 0.0021914100900997102,
+    "xgb_gain": 0.00037901894110381473,
+    "xgb_improving_folds": 1,
+    "final_auc": 0.6950814376535306,
+    "final_fold_scores": [
+      0.6958403368442392,
+      0.6944295583787881
+    ],
+    "platt_coef": 2.5969451561690167,
+    "platt_intercept": 0.3363149459827846
+  },
+  "oof_slices": {
+    "history_depth": {
+      "4-7": {
+        "count": 1923,
+        "auc": 0.5734104151825671
+      },
+      "8+": {
+        "count": 2772,
+        "auc": 0.6554582374789549
+      },
+      "2-3": {
+        "count": 1088,
+        "auc": 0.5464759959141983
+      },
+      "1": {
+        "count": 680,
+        "auc": 0.6234920041148415
+      }
+    },
+    "basket_size": {
+      "4-7": {
+        "count": 1629,
+        "auc": 0.7049761892757782
+      },
+      "8+": {
+        "count": 613,
+        "auc": 0.7322384466757468
+      },
+      "1": {
+        "count": 1767,
+        "auc": 0.6846107383493077
+      },
+      "2-3": {
+        "count": 2454,
+        "auc": 0.6858453656886484
+      }
+    },
+    "recency": {
+      "3-5": {
+        "count": 2825,
+        "auc": 0.7076768588454494
+      },
+      "0": {
+        "count": 992,
+        "auc": 0.6631380019351718
+      },
+      "6+": {
+        "count": 814,
+        "auc": 0.6932916136574632
+      },
+      "1-2": {
+        "count": 1832,
+        "auc": 0.6827882300377511
+      }
+    },
+    "age": {
+      "25-39": {
+        "count": 2388,
+        "auc": 0.6847342579813109
+      },
+      "40-59": {
+        "count": 1904,
+        "auc": 0.7065402223675604
+      },
+      "<=24": {
+        "count": 1810,
+        "auc": 0.6811566661915847
+      },
+      "60+": {
+        "count": 329,
+        "auc": 0.7415747867692949
+      },
+      "missing": {
+        "count": 32,
+        "auc": 0.4551282051282052
+      }
+    }
+  },
+  "model_a_training_splits": [
+    "train"
+  ],
+  "model_b_training_splits": [
+    "train",
+    "val"
+  ],
+  "elapsed_seconds": 35.46417593955994
+}

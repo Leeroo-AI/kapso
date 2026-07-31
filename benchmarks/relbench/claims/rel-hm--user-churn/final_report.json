@@ -1,0 +1,45 @@
+{
+  "dataset": "rel-hm",
+  "task": "user-churn",
+  "family": "entity_binary_classification",
+  "primary_metric": "roc_auc",
+  "selected_by": "best validation roc_auc",
+  "run": "run_0012",
+  "val_metrics": {
+    "average_precision": 0.9061356681255849,
+    "accuracy": 0.8128036992528346,
+    "f1": 0.8967365849792118,
+    "roc_auc": 0.7195708528032028
+  },
+  "test_metrics": {
+    "average_precision": 0.9134342536832104,
+    "accuracy": 0.8261347636607442,
+    "f1": 0.9047905774540328,
+    "roc_auc": 0.7162340063583654
+  },
+  "audit": {
+    "clean": false,
+    "findings": [
+      {
+        "file": "feature_pipeline.py",
+        "line": 71,
+        "pattern": "RELBENCH_CACHE_DIR",
+        "concern": "tampers with the data cache location",
+        "snippet": "self.cache_root = Path(os.environ[\"RELBENCH_CACHE_DIR\"])"
+      },
+      {
+        "file": "model_pipeline.py",
+        "line": 745,
+        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
+        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
+        "snippet": "train_b = pd.concat([train, val], ignore_index=True).sort_values([\"timestamp\", \"_row_id\"]).reset_index(drop=True)"
+      }
+    ],
+    "note": "static scan; manually review flagged lines before publishing results. 'verify:' findings are advisory OOS-contract review hooks (legal patterns that warrant tracing), not violations."
+  },
+  "code_path": "/home/ubuntu/kapso/tmp/relbench/rel-hm--user-churn/runs/run_0012/code",
+  "predictions": {
+    "val": "/home/ubuntu/kapso/tmp/relbench/rel-hm--user-churn/runs/run_0012/val_predictions.npy",
+    "test": "/home/ubuntu/kapso/tmp/relbench/rel-hm--user-churn/runs/run_0012/test_predictions.npy"
+  }
+}
