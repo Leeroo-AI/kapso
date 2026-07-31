@@ -459,6 +459,25 @@ inherit the verdict, and adjust how you work:
   resampling-stable one — never the one that fits the validation segment
   hardest.
 
+Build directions that are close to surely right under this signature — start
+with them:
+1. A per-entity-history backbone: causal per-entity target statistics with
+   count-weighted shrinkage (entity -> group -> global) feeding a
+   regularized GBDT. Its inputs barely move across regime boundaries; on
+   tasks with this signature it is consistently the design family that
+   transfers, and it sets the baseline every fancier design must beat on
+   segment stability, not just on validation.
+2. Level-invariant behavior encodings: express recent activity as
+   within-segment shares, percentiles, and fast-to-slow ratios — never raw
+   counts or volumes. A regime shift moves levels first; relative forms
+   survive it. Pair every fast (recent-window) signal with a slower fallback
+   blended by observation count, so the model degrades gracefully when the
+   fast signal goes quiet in a new regime.
+3. Median-across-segments as the referee: admit features, tune
+   hyperparameters, and pick between designs by the MEDIAN of segment-fold
+   scores with the anomalous segments included — the validation score only
+   confirms the winner, it never chooses it.
+
 If neither diagnostic is extreme, validation is representative for ranking —
 work normally and do not over-hedge."""
 

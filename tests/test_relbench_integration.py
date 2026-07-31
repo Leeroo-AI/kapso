@@ -902,7 +902,11 @@ class TestLivingDocuments:
         from benchmarks.relbench.context import VALIDATION_RELIABILITY_NOTE
         for phrase in ("ONE finite sample", "two cheap diagnostics",
                        "Boundary regime gap", "mandatory folds",
-                       "Per-entity history features", "do not over-hedge"):
+                       "Per-entity history features", "do not over-hedge",
+                       # the three evidence-backed build directions
+                       "per-entity-history backbone", "count-weighted shrinkage",
+                       "Level-invariant behavior encodings",
+                       "Median-across-segments as the referee"):
             assert phrase in VALIDATION_RELIABILITY_NOTE, phrase
         for banned in ("Thanksgiving", "tick", "RelBench", "rel-event"):
             assert banned not in VALIDATION_RELIABILITY_NOTE, banned
