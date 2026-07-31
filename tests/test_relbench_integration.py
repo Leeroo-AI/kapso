@@ -900,7 +900,7 @@ class TestLivingDocuments:
         # ratio + boundary regime gap) and how to act when both are extreme.
         # Generic predictive-ML wording only.
         from benchmarks.relbench.context import VALIDATION_RELIABILITY_NOTE
-        for phrase in ("ONE finite sample", "two cheap diagnostics",
+        for phrase in ("ONE finite sample", "three cheap diagnostics",
                        "Boundary regime gap", "mandatory folds",
                        "Per-entity history features", "do not over-hedge",
                        # the three evidence-backed build directions
