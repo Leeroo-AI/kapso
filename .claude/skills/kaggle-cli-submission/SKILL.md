@@ -3,7 +3,7 @@ name: kaggle-cli-submission
 description: >
   Run a full end-to-end Kaggle competition workflow with the Kaggle CLI (kaggle):
   read competition pages/rules, download data, develop a portable .py script kernel,
-  push with competition_sources (twice), poll kernels status, verify submission.csv
+  push with competition_sources, poll kernels status, verify submission.csv
   output, submit a kernel version to a code competition, and poll publicScore.
   Use when submitting to Kaggle, automating kaggle kernels push/submit, working on
   code competitions, or when the user mentions Kaggle CLI submission flow.
@@ -39,7 +39,7 @@ read rules/description   ->  kaggle competitions pages <C> --page-name <p> --con
 list data files          ->  kaggle competitions files <C>
 download data            ->  kaggle competitions download <C> -p data/    (then unzip)
 [develop + test locally using downloaded data]
-push .py script + data   ->  kaggle kernels push -p kernel/     (PUSH TWICE)
+push .py script + data   ->  kaggle kernels push -p kernel/     (ONCE; see 4.2)
 wait for run             ->  kaggle kernels status <owner>/<slug>   (poll until COMPLETE)
 inspect output/logs      ->  kaggle kernels output <owner>/<slug> -p out/
 submit the script        ->  kaggle competitions submit <C> -k <owner>/<slug> -v <ver> -f submission.csv -m "msg"
@@ -210,19 +210,26 @@ Field notes (the ones that matter):
   `"NvidiaTeslaP100"`; for TPU `"Tpu1VmV38"`. (You can also pass `--accelerator` on
   push.)
 
-### 4.2 Push — and push TWICE
+### 4.2 Push ONCE — re-push only if the data was not mounted
 
 ```bash
 kaggle kernels push -p kernel/
-kaggle kernels push -p kernel/        # push again
 ```
 
-**Why twice:** when a competition source is newly attached to a kernel, the *first*
-run frequently starts before the data is mounted, so it fails with
-`FileNotFoundError` on the data. Pushing the identical folder a second time triggers
-a fresh run that has the data mounted. Always push twice on first creation. (On later
-updates to an existing, already-attached kernel, a single push is usually enough — but
-a second push is a cheap safety net.)
+**A second push is not free, so do not make it a habit.** Kaggle allows only
+**2 concurrent GPU sessions per account**. A reflexive double-push makes one
+experiment occupy both slots, cutting the number of solutions you can have in
+flight from two to one — on top of the extra GPU quota it burns.
+
+**When a second push IS warranted:** the *first* run after a competition source
+is newly attached to a *new* kernel sometimes starts before Kaggle finishes
+mounting the data, and dies with `FileNotFoundError`. That failure is
+unmistakable and cheap — it crashes at file-lookup time in seconds, long before
+training. So: push once, check the run, and re-push only if you actually see
+that failure. Once the data mounts cleanly you usually never need it again.
+
+Each push is an independent run; a kernel version does **not** have to execute
+twice to be eligible.
 
 Each push prints the new version number:
 `Kernel version N successfully pushed.` **Record `N` — you need it to submit.**
@@ -393,7 +400,7 @@ mkdir -p data && kaggle competitions download "$C" -p data/ && (cd data && unzip
 #     "is_private": "true", "enable_internet": "false",
 #     "competition_sources": ["'"$C"'"]
 
-# 4) Push (twice) so the data mounts; note the version number it prints
+# 4) Push once; note the version number it prints (re-push only on a mount failure)
 kaggle kernels push -p kernel/
 kaggle kernels push -p kernel/
 
