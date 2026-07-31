@@ -470,4 +470,13 @@ def build_problem_context(
         "Method choice is entirely yours. Do not modify files under "
         "`kapso_evaluation/`."
     )
+    sections.append(
+        "\nRun retraction: every full evaluation is archived and competes in "
+        "final selection. If you later conclude an archived evaluation of yours "
+        "was invalid — e.g. you found and fixed leakage after running it — void "
+        "it explicitly: `python kapso_evaluation/grader.py --void run_XXXX "
+        '--reason "<what was wrong>"`. Voided runs are excluded from final '
+        "selection; an unvoided invalid run can be selected over your corrected "
+        "work purely on its inflated validation score."
+    )
     return "\n".join(s for s in sections if s)

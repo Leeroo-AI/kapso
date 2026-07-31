@@ -70,6 +70,19 @@ class ProblemHandler(ABC):
         """
         return {}
 
+    def finalize_run_selection(self, manifest: Dict[str, Any], valid: bool) -> None:
+        """Stamp run-selection eligibility once a node's score of record is known.
+
+        Called by the search strategy exactly when it resolves a session's
+        registered manifest (the node's canonical measurement). `manifest` is
+        that parsed manifest line; `valid` is the node's judged validity
+        (feedback verdict minus integrity flags). Handlers whose archives
+        distinguish registered finals from intermediate evaluations override
+        this to label the archive; the default is a no-op for handlers with
+        no run archive.
+        """
+        return None
+
     def deliverable_ready_reserve_seconds(self) -> Optional[float]:
         """Reserve still needed once a CONFIRMED deliverable exists on disk.
 

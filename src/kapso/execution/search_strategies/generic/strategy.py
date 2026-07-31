@@ -2088,8 +2088,8 @@ Problem: {problem}"""
             },
         )
 
-    def _manifest_score_of_record(self, node: SearchNode) -> Optional[float]:
-        """The granted-class score from the session's last manifest line.
+    def _manifest_of_record(self, node: SearchNode) -> Optional[Dict[str, Any]]:
+        """The granted-class manifest from the session's last manifest line.
 
         Registered mode only: the wrapper contractually prints one
         machine-readable KAPSO_EVAL_MANIFEST line per run, so an LLM never
@@ -2131,6 +2131,13 @@ Problem: {problem}"""
             )
             return None
         if "score" not in manifest:
+            return None
+        return manifest
+
+    def _manifest_score_of_record(self, node: SearchNode) -> Optional[float]:
+        """The granted-class score from the session's last manifest line."""
+        manifest = self._manifest_of_record(node)
+        if manifest is None:
             return None
         return float(manifest["score"])
 
@@ -2723,7 +2730,12 @@ Problem: {problem}"""
             # In registered mode the manifest line is the score of record;
             # the judge's extraction is a cross-check, and the judge keeps
             # its validity power (an invalid evaluation stays scoreless).
-            manifest_score = self._manifest_score_of_record(node)
+            manifest_of_record = self._manifest_of_record(node)
+            manifest_score = (
+                float(manifest_of_record["score"])
+                if manifest_of_record is not None
+                else None
+            )
             if manifest_score is not None and node.evaluation_valid:
                 if (
                     node.score is not None
@@ -2736,6 +2748,18 @@ Problem: {problem}"""
                         "of record"
                     )
                 node.score = manifest_score
+            if manifest_of_record is not None:
+                # Label the archive: the of-record run becomes this
+                # session's registered final (or is marked invalid on a
+                # judge veto / integrity flag); its intermediate siblings
+                # are superseded. Handlers without run archives no-op.
+                self.problem_handler.finalize_run_selection(
+                    manifest_of_record,
+                    bool(
+                        node.evaluation_valid
+                        and not node.evaluation_integrity_error
+                    ),
+                )
             node.should_stop = (
                 feedback_result.stop and feedback_result.evaluation_valid
             )

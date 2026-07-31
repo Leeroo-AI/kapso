@@ -204,22 +204,95 @@ class RelBenchHandler(ProblemHandler):
     def stop_condition(self) -> bool:
         return self._target_reached
 
+    def finalize_run_selection(self, manifest: Dict, valid: bool) -> None:
+        """Label the archive when a session's score of record resolves.
+
+        The of-record run (named in the manifest the grader printed) becomes
+        this session's registered "final" — or "invalid" on a judge veto or
+        integrity flag; every still-pending sibling from the same session is
+        "superseded". A run the candidate already self-voided keeps that
+        stamp: a session's retraction of its own work outranks promotion.
+        final_evaluate selects ONLY among "final" runs.
+        """
+        if manifest["fidelity"] != "full":
+            return
+        run_name, session = manifest["run"], manifest["session"]
+        if not run_name:
+            raise ValueError(
+                "full-fidelity manifest of record carries no run name — "
+                "grader/archive generation mismatch"
+            )
+        sel_path = self.runs_dir / run_name / "private" / "selection.json"
+        record = json.loads(sel_path.read_text())
+        if record["status"] == "self-voided":
+            print(
+                f"[RelBenchHandler] run selection: {run_name} stays "
+                "self-voided (candidate retraction outranks promotion)"
+            )
+        else:
+            record.update(
+                {"status": "final" if valid else "invalid", "by": "strategy"}
+            )
+            sel_path.write_text(json.dumps(record, indent=2))
+        superseded = 0
+        for other in sorted(self.runs_dir.glob("run_*")):
+            other_sel = other / "private" / "selection.json"
+            if other.name == run_name or not other_sel.exists():
+                continue
+            other_record = json.loads(other_sel.read_text())
+            if (
+                other_record["session"] == session
+                and other_record["status"] == "pending"
+            ):
+                other_record.update({"status": "superseded", "by": "strategy"})
+                other_sel.write_text(json.dumps(other_record, indent=2))
+                superseded += 1
+        print(
+            f"[RelBenchHandler] run selection: {run_name} -> "
+            f"{record['status']}; superseded {superseded} sibling run(s) "
+            f"of session {session}"
+        )
+
+    def _recomputed_val_metrics(self, run_dir: Path) -> Dict:
+        """Official val metrics recomputed from the archived predictions
+        against pristine labels — the archived metrics.json is never trusted
+        for selection (it lives in a same-user-writable directory)."""
+        val_pred = np.load(run_dir / "val_predictions.npy", allow_pickle=False)
+        val_table = self.task.get_table("val")
+        return {
+            k: float(v) for k, v in self.task.evaluate(val_pred, val_table).items()
+        }
+
     def final_evaluate(self, file_path: str = "", **kwargs) -> Dict:
-        """Best-by-validation archived run -> leaderboard-ready report."""
+        """Best-by-validation among registered-final runs -> report.
+
+        Pool = runs labeled "final" by finalize_run_selection: each
+        session's registered result, minus judge-invalidated and
+        candidate-voided runs. Intermediate evaluations never compete —
+        the user-ignore incident shipped a self-disqualified leaky
+        intermediate precisely because the old pool was every archived run.
+        Val is recomputed from predictions, never read from metrics.json.
+        """
         best = None
         for run_dir in sorted(self.runs_dir.glob("run_*")):
-            mfile = run_dir / "private" / "metrics.json"
-            if not mfile.exists():
+            sel_file = run_dir / "private" / "selection.json"
+            if not sel_file.exists():
+                raise FileNotFoundError(
+                    f"{run_dir.name} has no selection label — archive was "
+                    "written by a pre-label grader generation"
+                )
+            if json.loads(sel_file.read_text())["status"] != "final":
                 continue
-            metrics = json.loads(mfile.read_text())
-            val_primary = metrics.get("val", {}).get(self.spec.primary_metric)
+            metrics = json.loads((run_dir / "private" / "metrics.json").read_text())
+            metrics["val"] = self._recomputed_val_metrics(run_dir)
+            val_primary = metrics["val"].get(self.spec.primary_metric)
             if val_primary is None:
                 continue
             if best is None or self._is_better(val_primary, best[0]):
                 best = (val_primary, run_dir, metrics)
 
         if best is None:
-            return {"error": "no successful runs archived"}
+            return {"error": "no registered-final runs archived"}
 
         val_primary, run_dir, metrics = best
         if not metrics.get("test"):
@@ -240,7 +313,10 @@ class RelBenchHandler(ProblemHandler):
             "task": self.task_name,
             "family": self.spec.family,
             "primary_metric": self.spec.primary_metric,
-            "selected_by": f"best validation {self.spec.primary_metric}",
+            "selected_by": (
+                f"best recomputed validation {self.spec.primary_metric} "
+                "among registered-final runs"
+            ),
             "run": run_dir.name,
             "val_metrics": metrics.get("val", {}),
             "test_metrics": metrics.get("test", {}),

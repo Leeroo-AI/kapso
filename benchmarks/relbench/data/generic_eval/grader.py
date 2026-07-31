@@ -57,6 +57,23 @@ def _repo_root() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
+def _session_id() -> str:
+    """Identity of the session invoking this grader.
+
+    Sessions run in per-session git worktrees laid out as
+    .../sessions/<session_name>/; outside that layout (baseline runs,
+    calibration) the repo-root directory name is the identity. Recorded in
+    every manifest and archive label so run provenance is exact, not
+    forensic.
+    """
+    parts = _repo_root().parts
+    if "sessions" in parts:
+        idx = parts.index("sessions")
+        if idx + 1 < len(parts):
+            return parts[idx + 1]
+    return _repo_root().name
+
+
 def run_candidate(fidelity: str, run_data_dir: Path) -> None:
     root = _repo_root()
     main_py = root / "main.py"
@@ -234,6 +251,16 @@ def archive_full_run(run_data_dir: Path, val_metrics: dict) -> str:
     (private / "metrics.json").write_text(
         json.dumps({"val": val_metrics, "test": {}}, indent=2)
     )
+    # Selection eligibility label. Every archive starts "pending"; the search
+    # stamps exactly one run per session "final" (its registered result) and
+    # the rest "superseded"; candidates may stamp "self-voided" via --void.
+    # final_evaluate selects ONLY among "final" runs.
+    (private / "selection.json").write_text(
+        json.dumps(
+            {"status": "pending", "session": _session_id(), "by": "grader"},
+            indent=2,
+        )
+    )
     # Snapshot the candidate's code for the final audit and claims package
     # (same filters as the tree-path archiver: no git internals, no
     # evaluation suite, no oversized files).
@@ -250,12 +277,49 @@ def archive_full_run(run_data_dir: Path, val_metrics: dict) -> str:
     return run_dir.name
 
 
+def void_run(run_name: str, reason: str) -> None:
+    """Candidate-initiated disqualification of one of THIS session's archived
+    runs (e.g. a pre-fix evaluation later found leaky). Voided runs are
+    excluded from final selection. Cross-session voids are refused: a session
+    may only retract its own work."""
+    if not reason.strip():
+        print("[grader] --void requires a non-empty --reason")
+        sys.exit(8)
+    sel_path = (
+        Path(_env("RELBENCH_WORK_DIR")) / "runs" / run_name / "private" / "selection.json"
+    )
+    if not sel_path.exists():
+        print(f"[grader] --void: no archived run {run_name!r} with a selection label")
+        sys.exit(8)
+    record = json.loads(sel_path.read_text())
+    session = _session_id()
+    if record["session"] != session:
+        print(
+            f"[grader] --void refused: {run_name} belongs to session "
+            f"{record['session']!r}, not {session!r}"
+        )
+        sys.exit(8)
+    record.update({"status": "self-voided", "by": "candidate", "reason": reason.strip()})
+    sel_path.write_text(json.dumps(record, indent=2))
+    print(f"KAPSO_EVAL_VOID {json.dumps({'run': run_name, 'session': session, 'reason': reason.strip()})}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--fidelity", required=True, choices=["fast", "full"])
+    parser.add_argument("--fidelity", choices=["fast", "full"])
     parser.add_argument("--fraction", type=float, default=1.0)
     parser.add_argument("--seed", type=int, default=1337)
+    parser.add_argument("--void", metavar="RUN",
+                        help="disqualify one of this session's archived runs")
+    parser.add_argument("--reason", default="",
+                        help="required with --void: why the run is invalid")
     args = parser.parse_args()
+
+    if args.void:
+        void_run(args.void, args.reason)
+        return
+    if not args.fidelity:
+        parser.error("--fidelity is required unless --void is given")
 
     primary = _env("RELBENCH_PRIMARY_METRIC")
     run_data_dir = Path(tempfile.mkdtemp(prefix="relbench_eval_"))
@@ -281,6 +345,8 @@ def main() -> None:
             "items": n_val,
             "total_items": n_val,
             "score": val_metrics[primary],
+            "run": archived,
+            "session": _session_id(),
         }
         manifest_line = f"{MANIFEST_MARKER} {json.dumps(manifest)}"
         if archived:

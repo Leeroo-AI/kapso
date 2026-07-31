@@ -543,42 +543,182 @@ class TestProvidedGrader:
         assert not (run_dir / "code" / "kapso_evaluation").exists()
 
 
+def _bare_driver_position_handler(tmp_path):
+    from relbench.tasks import get_task
+
+    from benchmarks.relbench.handler import RelBenchHandler
+
+    os.environ["RELBENCH_CACHE_DIR"] = str(RELBENCH_CACHE)
+    task = get_task("rel-f1", "driver-position", download=False)
+    handler = RelBenchHandler.__new__(RelBenchHandler)
+    handler.task = task
+    handler.spec = TaskSpec(
+        dataset_name="rel-f1", task_name="driver-position",
+        family="entity_regression", primary_metric="mae", maximize=False,
+    )
+    handler.dataset_name, handler.task_name = "rel-f1", "driver-position"
+    handler.runs_dir = tmp_path / "runs"
+    handler.work_dir = tmp_path
+    return handler, task
+
+
+def _archive_run(runs_dir, name, val_pred, test_pred, status, session="exp_A",
+                 forged_val=None):
+    run_dir = runs_dir / name
+    (run_dir / "private").mkdir(parents=True)
+    np.save(run_dir / "val_predictions.npy", val_pred)
+    np.save(run_dir / "test_predictions.npy", test_pred)
+    (run_dir / "private/selection.json").write_text(
+        json.dumps({"status": status, "session": session, "by": "test"})
+    )
+    (run_dir / "private/metrics.json").write_text(
+        json.dumps({"val": forged_val or {"mae": 999.0}, "test": {}})
+    )
+    return run_dir
+
+
 @pytest.mark.skipif(
     not (RELBENCH_CACHE / "rel-f1" / "db").exists(),
     reason="requires a populated rel-f1 relbench cache",
 )
-class TestFinalEvaluateTestFill:
-    def test_val_only_archive_gets_test_scored_once(self, tmp_path):
-        from relbench.tasks import get_task
+class TestRunSelectionLabels:
+    """Selection-eligibility labels (user-directed 2026-07-31, after the
+    user-ignore incident: final_evaluate shipped a self-disqualified leaky
+    intermediate). Pool = registered finals only; val recomputed from
+    predictions, never trusted from metrics.json."""
 
-        from benchmarks.relbench.handler import RelBenchHandler
-
-        os.environ["RELBENCH_CACHE_DIR"] = str(RELBENCH_CACHE)
-        task = get_task("rel-f1", "driver-position", download=False)
+    def test_final_evaluate_ignores_pending_and_voided_runs(self, tmp_path):
+        handler, task = _bare_driver_position_handler(tmp_path)
+        n_val = len(task.get_table("val"))
         n_test = len(task.get_table("test"))
+        val_y = task.get_table("val", mask_input_cols=False).df[
+            task.target_col].to_numpy(dtype=float)
 
-        handler = RelBenchHandler.__new__(RelBenchHandler)
-        handler.task = task
-        handler.spec = TaskSpec(
-            dataset_name="rel-f1", task_name="driver-position",
-            family="entity_regression", primary_metric="mae", maximize=False,
-        )
-        handler.dataset_name, handler.task_name = "rel-f1", "driver-position"
-        handler.runs_dir = tmp_path / "runs"
-        handler.work_dir = tmp_path
-
-        run_dir = handler.runs_dir / "run_0001"
-        (run_dir / "private").mkdir(parents=True)
-        np.save(run_dir / "test_predictions.npy", np.full(n_test, 13.0))
-        np.save(run_dir / "val_predictions.npy", np.full(3, 13.0))
-        (run_dir / "private/metrics.json").write_text(
-            json.dumps({"val": {"mae": 3.0, "r2": 0.1, "rmse": 4.0}, "test": {}})
-        )
+        # Pending intermediate with a FORGED perfect metrics.json val and
+        # genuinely best predictions — must not be selectable.
+        _archive_run(handler.runs_dir, "run_0001", val_y.copy(),
+                     np.full(n_test, 11.0), "pending",
+                     forged_val={"mae": 0.0001})
+        # Registered final: mediocre but real.
+        _archive_run(handler.runs_dir, "run_0002", np.full(n_val, 11.0),
+                     np.full(n_test, 11.0), "final")
+        # Self-voided run with perfect predictions — excluded.
+        _archive_run(handler.runs_dir, "run_0003", val_y.copy(),
+                     np.full(n_test, 11.0), "self-voided")
 
         report = handler.final_evaluate()
+        assert report["run"] == "run_0002"
+        # Val in the report is recomputed from predictions, not the JSON.
+        expected = float(np.abs(val_y - 11.0).mean())
+        assert abs(report["val_metrics"]["mae"] - expected) < 1e-9
         assert report["test_metrics"]["mae"] > 0
-        on_disk = json.loads((run_dir / "private/metrics.json").read_text())
-        assert on_disk["test"] == report["test_metrics"]
+
+    def test_zero_finals_is_the_documented_error(self, tmp_path):
+        handler, task = _bare_driver_position_handler(tmp_path)
+        n_val = len(task.get_table("val"))
+        n_test = len(task.get_table("test"))
+        _archive_run(handler.runs_dir, "run_0001", np.full(n_val, 11.0),
+                     np.full(n_test, 11.0), "pending")
+        assert "error" in handler.final_evaluate()
+
+    def test_missing_label_raises(self, tmp_path):
+        handler, task = _bare_driver_position_handler(tmp_path)
+        run_dir = handler.runs_dir / "run_0001"
+        (run_dir / "private").mkdir(parents=True)
+        (run_dir / "private/metrics.json").write_text(
+            json.dumps({"val": {"mae": 1.0}, "test": {}}))
+        with pytest.raises(FileNotFoundError):
+            handler.final_evaluate()
+
+    def test_finalize_stamps_final_and_supersedes_session_siblings(self, tmp_path):
+        handler, task = _bare_driver_position_handler(tmp_path)
+        n_val = len(task.get_table("val"))
+        n_test = len(task.get_table("test"))
+        for name, session in (("run_0001", "exp_A"), ("run_0002", "exp_A"),
+                              ("run_0003", "exp_B")):
+            _archive_run(handler.runs_dir, name, np.full(n_val, 11.0),
+                         np.full(n_test, 11.0), "pending", session=session)
+        manifest = {"fidelity": "full", "run": "run_0002", "session": "exp_A"}
+        handler.finalize_run_selection(manifest, valid=True)
+        status = lambda n: json.loads(
+            (handler.runs_dir / n / "private/selection.json").read_text())["status"]
+        assert status("run_0002") == "final"
+        assert status("run_0001") == "superseded"
+        assert status("run_0003") == "pending"  # other session untouched
+
+    def test_finalize_respects_self_voided_and_judge_veto(self, tmp_path):
+        handler, task = _bare_driver_position_handler(tmp_path)
+        n_val = len(task.get_table("val"))
+        n_test = len(task.get_table("test"))
+        _archive_run(handler.runs_dir, "run_0001", np.full(n_val, 11.0),
+                     np.full(n_test, 11.0), "self-voided")
+        handler.finalize_run_selection(
+            {"fidelity": "full", "run": "run_0001", "session": "exp_A"}, True)
+        rec = json.loads(
+            (handler.runs_dir / "run_0001/private/selection.json").read_text())
+        assert rec["status"] == "self-voided"  # retraction outranks promotion
+
+        _archive_run(handler.runs_dir, "run_0002", np.full(n_val, 11.0),
+                     np.full(n_test, 11.0), "pending")
+        handler.finalize_run_selection(
+            {"fidelity": "full", "run": "run_0002", "session": "exp_A"}, False)
+        rec2 = json.loads(
+            (handler.runs_dir / "run_0002/private/selection.json").read_text())
+        assert rec2["status"] == "invalid"
+
+    def test_fast_manifest_is_a_noop(self, tmp_path):
+        handler, _ = _bare_driver_position_handler(tmp_path)
+        handler.finalize_run_selection(
+            {"fidelity": "fast", "run": "", "session": "exp_A"}, True)
+
+
+class TestGraderSelectionLabel:
+    def test_void_run_stamps_and_rejects_cross_session(self, tmp_path, monkeypatch):
+        import importlib.util
+        import sys as _sys
+        spec = importlib.util.spec_from_file_location(
+            "relbench_grader",
+            Path("benchmarks/relbench/data/generic_eval/grader.py"),
+        )
+        grader = importlib.util.module_from_spec(spec)
+        # Never drop a __pycache__ into the eval suite dir: the grader
+        # snapshot/copy tests iterate that directory's entries.
+        monkeypatch.setattr(_sys, "dont_write_bytecode", True)
+        spec.loader.exec_module(grader)
+
+        monkeypatch.setenv("RELBENCH_WORK_DIR", str(tmp_path))
+        own_session = grader._session_id()
+        sel = tmp_path / "runs" / "run_0001" / "private"
+        sel.mkdir(parents=True)
+        (sel / "selection.json").write_text(json.dumps(
+            {"status": "pending", "session": own_session, "by": "grader"}))
+        grader.void_run("run_0001", "seed-day leakage")
+        rec = json.loads((sel / "selection.json").read_text())
+        assert rec["status"] == "self-voided"
+        assert rec["reason"] == "seed-day leakage"
+
+        (sel / "selection.json").write_text(json.dumps(
+            {"status": "pending", "session": "someone-else", "by": "grader"}))
+        with pytest.raises(SystemExit):
+            grader.void_run("run_0001", "not mine")
+        with pytest.raises(SystemExit):
+            grader.void_run("run_0001", "   ")
+
+    def test_strategy_hook_is_wired(self):
+        import inspect
+
+        from kapso.execution.search_strategies.generic import strategy as strat
+        src = inspect.getsource(strat.GenericSearch)
+        assert "_manifest_of_record" in src
+        assert "finalize_run_selection" in src
+
+        from kapso.execution.evaluation_maintainer.maintainer import parse_manifest_line
+        line = ('KAPSO_EVAL_MANIFEST {"fidelity": "full", "fraction": 1.0, '
+                '"seed": 1, "items": 5, "total_items": 5, "score": 0.5, '
+                '"run": "run_0007", "session": "generic_exp_3"}')
+        parsed = parse_manifest_line(line)
+        assert parsed["run"] == "run_0007"
+        assert parsed["session"] == "generic_exp_3"
 
 
 class TestDataAccessRules:
