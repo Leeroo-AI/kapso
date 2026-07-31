@@ -105,14 +105,13 @@ modes:
       harvest_kernel_list_size: 50
       harvest_score_wait_seconds: 300
 
-    # URL->run-root preflight: one codex exec that downloads the competition
+    # URL->run-root preflight: one session that downloads the competition
     # (authenticated kaggle CLI) and authors dataset/statement.md per
-    # benchmarks/kaggle/preflight_spec.md. Model/effort mirror the codex
-    # coding roles (OpenAI's reasoning ceiling is xhigh, no "max" tier).
+    # benchmarks/kaggle/preflight_spec.md. cli is codex or claude_code; a
+    # claude_code preflight additionally needs an auth_mode key.
     preflight:
-      cli: "claude_code"
-      model: "claude-sonnet-5"
-      auth_mode: "oauth"
+      cli: "codex"
+      model: "gpt-5.6-sol"
       effort: "high"
       timeout: 1800
       web_search: true
