@@ -122,6 +122,7 @@ Complete campaign state per run — session transcripts, lens/ideation history, 
 | rel-trial/site-sponsor-run | `gs://leeroo-kapso-relbench-artifacts/runs/rel-trial--site-sponsor-run/20260731T042130_lane-a3.tgz` |
 | rel-hm/item-sales | `gs://leeroo-kapso-relbench-artifacts/runs/rel-hm--item-sales/20260731T084234_lane-a1.tgz` |
 | rel-hm/user-item-purchase | `gs://leeroo-kapso-relbench-artifacts/runs/rel-hm--user-item-purchase/20260731T095502_lane-a3.tgz` |
+| rel-stack/user-engagement | `gs://leeroo-kapso-relbench-artifacts/runs/rel-stack--user-engagement/20260731T104428_lane-b3.tgz` |
 | rel-stack/user-badge | `gs://leeroo-kapso-relbench-artifacts/runs/rel-stack--user-badge/20260731T103444_lane-b2.tgz` |
 
 ## Winning artifacts (durable, committed — for organizer handoff)
