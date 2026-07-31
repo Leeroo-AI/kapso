@@ -62,41 +62,41 @@ Values in the best-known number's units (AUROC/acc/MAP in %, NMAE, R², raw MAE)
 | 60 | rel-amazon/user-item-review | rec | v1★ | 1.63 (ContextGNN / KumoRFM-ft) | — | 1.63 | 0.22 | — | — | — | 4xA100 | 6h | · pending |
 | 61 | rel-avito/user-visits | clf | v1★ | 78.3 (KumoRFM-ft) | 67.8 | 78.3 | 64.8 | 67.4 | — | — | 4xA100 | 6h | · pending |
 | 62 | rel-f1/driver-top3 ⚠ | clf | v1★ | 99.6 (KumoRFM-ft) | 85.2 | 99.6 | 91.1 | 92.2 | — | — | 4xA100 | 6h | · pending |
-| 2 | rel-f1/driver-circuit-compete | rec | v2★ | 76.2 (ID-GNN-4L) | — | — | — | — | — | — | 4xA100 | 6h | · pending |
-| 3 | rel-f1/results-position | AC-reg | v2 | 0.528 (RelGT-AC) | — | — | — | — | — | — | 4xA100 | 6h | · pending |
-| 4 | rel-f1/qualifying-position | AC-reg | v2 | 0.239 (RelGT-AC) | — | — | — | — | — | — | 4xA100 | 6h | · pending |
-| 6 | rel-event/event_interest-interested | AC-bin | v2 | 49.6 (LightGBM) | — | — | — | — | — | — | 4xA100 | 6h | · pending |
-| 7 | rel-event/event_interest-not_interested | AC-bin | v2 | 60.4 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 6h | · pending |
-| 8 | rel-event/users-birthyear | AC-reg | v2 | -0.03 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 6h | · pending |
-| 12 | rel-salt/sales-group | AC-mul | v2 | 15.8 (GraphSAGE) | — | — | — | — | — | — | CPU-ok | 6h | · pending |
-| 13 | rel-salt/sales-payterms | AC-mul | v2 | 37.5 (GraphSAGE) | — | — | — | — | — | — | CPU-ok | 6h | · pending |
-| 14 | rel-salt/sales-shipcond | AC-mul | v2 | 56.9 (GraphSAGE) | — | — | — | — | — | — | CPU-ok | 6h | · pending |
-| 15 | rel-salt/sales-incoterms | AC-mul | v2 | 62.2 (GraphSAGE) | — | — | — | — | — | — | CPU-ok | 6h | · pending |
-| 16 | rel-salt/item-incoterms | AC-mul | v2 | 69.4 (GraphSAGE) | — | — | — | — | — | — | CPU-ok | 6h | · pending |
-| 17 | rel-trial/studies-enrollment | AC-reg | v2 | 0.436 (RelGT-AC) | — | — | — | — | — | — | 4xA100 | 6h | · pending |
-| 18 | rel-trial/studies-has_dmc | AC-bin | v2 | 78.5 (RelGT-AC) | — | — | — | — | — | — | 4xA100 | 6h | · pending |
-| 19 | rel-avito/searchinfo-isuserloggedon | AC-bin | v2 | 73 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 6h | · pending |
-| 20 | rel-avito/searchstream-click | AC-bin | v2 | 55.9 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 6h | · pending |
-| 29 | rel-ratebeer/user-count | reg | v2 | 0.625 (GraphSAGE) | 6.021 (MAE) | — | — | — | — | — | 4xA100 | 6h | · pending |
-| 30 | rel-arxiv/author-publication | reg | v2 | 0.249 (GraphSAGE) | 0.462 (MAE) | — | — | — | — | — | 4xA100 | 6h | · pending |
-| 31 | rel-ratebeer/beer-churn | clf | v2 | 78.7 (GraphSAGE) | 84.7 | — | — | — | — | — | 4xA100 | 6h | · pending |
-| 32 | rel-ratebeer/brewer-dormant | clf | v2 | 80.5 (GraphSAGE) | 83.3 | — | — | — | — | — | 4xA100 | 6h | · pending |
-| 33 | rel-arxiv/paper-citation | clf | v2 | 82.5 (GraphSAGE) | 82.6 | — | — | — | — | — | 4xA100 | 6h | · pending |
-| 34 | rel-ratebeer/user-churn | clf | v2 | 94.3 (GraphSAGE) | 98.6 | — | — | — | — | — | 4xA100 | 6h | · pending |
-| 35 | rel-ratebeer/beer_ratings-total_score | AC-reg | v2 | 0.394 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 6h | · pending |
-| 36 | rel-ratebeer/user-beer-liked | rec | v2 | 1.46 (ID-GNN) | — | — | — | — | — | — | 4xA100 | 6h | · pending |
-| 37 | rel-ratebeer/user-place-liked | rec | v2 | 1.85 (ID-GNN) | — | — | — | — | — | — | 4xA100 | 6h | · pending |
-| 38 | rel-ratebeer/user-beer-favorite | rec | v2 | 1.89 (ID-GNN) | — | — | — | — | — | — | 4xA100 | 6h | · pending |
-| 39 | rel-arxiv/author-category | mc | v2 | 50.7 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 6h | · pending |
-| 40 | rel-arxiv/paper-paper-cocitation | rec | v2 | 35.4 (ID-GNN) | — | — | — | — | — | — | 4xA100 | 6h | · pending |
-| 41 | rel-trial/eligibilities-adult | AC-bin | v2 | 93.7 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 6h | · pending |
-| 42 | rel-trial/eligibilities-child | AC-bin | v2 | 87.2 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 6h | · pending |
-| 43 | rel-stack/badges-class | AC-mul | v2 | 82.8 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 6h | · pending |
-| 44 | rel-hm/transactions-price | AC-reg | v2 | 0.736 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 6h | · pending |
-| 45 | rel-amazon/review-rating | AC-reg | v2 | -0.356 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 6h | · pending |
-| 63 | rel-salt/item-plant | AC-mul | v2 | 99.5 (GraphSAGE) | — | — | — | — | — | — | CPU-ok | 6h | · pending |
-| 64 | rel-salt/item-shippoint | AC-mul | v2 | 98.4 (GraphSAGE) | — | — | — | — | — | — | CPU-ok | 6h | · pending |
-| 65 | rel-salt/sales-office | AC-mul | v2 | 99.9 (either baseline) | — | — | — | — | — | — | CPU-ok | 6h | · pending |
+| 2 | rel-f1/driver-circuit-compete | rec | v2★ | 76.2 (ID-GNN-4L) | — | — | — | — | — | — | 4xA100 | 4h | · pending |
+| 3 | rel-f1/results-position | AC-reg | v2 | 0.528 (RelGT-AC) | — | — | — | — | — | — | 4xA100 | 4h | · pending |
+| 4 | rel-f1/qualifying-position | AC-reg | v2 | 0.239 (RelGT-AC) | — | — | — | — | — | — | 4xA100 | 4h | · pending |
+| 6 | rel-event/event_interest-interested | AC-bin | v2 | 49.6 (LightGBM) | — | — | — | — | — | — | 4xA100 | 4h | · pending |
+| 7 | rel-event/event_interest-not_interested | AC-bin | v2 | 60.4 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 4h | · pending |
+| 8 | rel-event/users-birthyear | AC-reg | v2 | -0.03 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 4h | · pending |
+| 12 | rel-salt/sales-group | AC-mul | v2 | 15.8 (GraphSAGE) | — | — | — | — | — | — | CPU-ok | 4h | · pending |
+| 13 | rel-salt/sales-payterms | AC-mul | v2 | 37.5 (GraphSAGE) | — | — | — | — | — | — | CPU-ok | 4h | · pending |
+| 14 | rel-salt/sales-shipcond | AC-mul | v2 | 56.9 (GraphSAGE) | — | — | — | — | — | — | CPU-ok | 4h | · pending |
+| 15 | rel-salt/sales-incoterms | AC-mul | v2 | 62.2 (GraphSAGE) | — | — | — | — | — | — | CPU-ok | 4h | · pending |
+| 16 | rel-salt/item-incoterms | AC-mul | v2 | 69.4 (GraphSAGE) | — | — | — | — | — | — | CPU-ok | 4h | · pending |
+| 17 | rel-trial/studies-enrollment | AC-reg | v2 | 0.436 (RelGT-AC) | — | — | — | — | — | — | 4xA100 | 4h | · pending |
+| 18 | rel-trial/studies-has_dmc | AC-bin | v2 | 78.5 (RelGT-AC) | — | — | — | — | — | — | 4xA100 | 4h | · pending |
+| 19 | rel-avito/searchinfo-isuserloggedon | AC-bin | v2 | 73 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 4h | · pending |
+| 20 | rel-avito/searchstream-click | AC-bin | v2 | 55.9 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 4h | · pending |
+| 29 | rel-ratebeer/user-count | reg | v2 | 0.625 (GraphSAGE) | 6.021 (MAE) | — | — | — | — | — | 4xA100 | 4h | · pending |
+| 30 | rel-arxiv/author-publication | reg | v2 | 0.249 (GraphSAGE) | 0.462 (MAE) | — | — | — | — | — | 4xA100 | 4h | · pending |
+| 31 | rel-ratebeer/beer-churn | clf | v2 | 78.7 (GraphSAGE) | 84.7 | — | — | — | — | — | 4xA100 | 4h | · pending |
+| 32 | rel-ratebeer/brewer-dormant | clf | v2 | 80.5 (GraphSAGE) | 83.3 | — | — | — | — | — | 4xA100 | 4h | · pending |
+| 33 | rel-arxiv/paper-citation | clf | v2 | 82.5 (GraphSAGE) | 82.6 | — | — | — | — | — | 4xA100 | 4h | · pending |
+| 34 | rel-ratebeer/user-churn | clf | v2 | 94.3 (GraphSAGE) | 98.6 | — | — | — | — | — | 4xA100 | 4h | · pending |
+| 35 | rel-ratebeer/beer_ratings-total_score | AC-reg | v2 | 0.394 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 4h | · pending |
+| 36 | rel-ratebeer/user-beer-liked | rec | v2 | 1.46 (ID-GNN) | — | — | — | — | — | — | 4xA100 | 4h | · pending |
+| 37 | rel-ratebeer/user-place-liked | rec | v2 | 1.85 (ID-GNN) | — | — | — | — | — | — | 4xA100 | 4h | · pending |
+| 38 | rel-ratebeer/user-beer-favorite | rec | v2 | 1.89 (ID-GNN) | — | — | — | — | — | — | 4xA100 | 4h | · pending |
+| 39 | rel-arxiv/author-category | mc | v2 | 50.7 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 4h | · pending |
+| 40 | rel-arxiv/paper-paper-cocitation | rec | v2 | 35.4 (ID-GNN) | — | — | — | — | — | — | 4xA100 | 4h | · pending |
+| 41 | rel-trial/eligibilities-adult | AC-bin | v2 | 93.7 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 4h | · pending |
+| 42 | rel-trial/eligibilities-child | AC-bin | v2 | 87.2 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 4h | · pending |
+| 43 | rel-stack/badges-class | AC-mul | v2 | 82.8 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 4h | · pending |
+| 44 | rel-hm/transactions-price | AC-reg | v2 | 0.736 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 4h | · pending |
+| 45 | rel-amazon/review-rating | AC-reg | v2 | -0.356 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 4h | · pending |
+| 63 | rel-salt/item-plant | AC-mul | v2 | 99.5 (GraphSAGE) | — | — | — | — | — | — | CPU-ok | 4h | · pending |
+| 64 | rel-salt/item-shippoint | AC-mul | v2 | 98.4 (GraphSAGE) | — | — | — | — | — | — | CPU-ok | 4h | · pending |
+| 65 | rel-salt/sales-office | AC-mul | v2 | 99.9 (either baseline) | — | — | — | — | — | — | CPU-ok | 4h | · pending |
 | — | rel-mimic/patient-iculengthofstay | clf | v2 | 55 (GraphSAGE) | — | — | — | — | — | — | blocked | — | ⛔ credentialed data |
 
 Notes: baseline columns show per-task values in the same units where the method published one (— where it did not evaluate). KumoRFM-ft is the fine-tuned regime (Kumo tech report Tables 2-4); KumoRFM-v1/v2 (ic) are the zero-shot in-context regimes (v1: tech report; v2: arXiv:2604.12596, cross-checked against RelAgent's KumoRFM-v2 rows — no published v1 recommendation numbers exist for v2). Current 'done' rows from harness-validation runs are baseline-quality placeholders until the campaign proper replaces them.
