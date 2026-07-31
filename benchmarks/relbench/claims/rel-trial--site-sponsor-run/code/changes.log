@@ -1,0 +1,3 @@
+RepoMemory sections consulted: core.architecture, core.entrypoints, core.where_to_edit, core.invariants, core.testing, core.gotchas, core.dependencies
+2026-07-30: Read the living table and feature documents, profiled immutable evaluation mechanics and split metadata, and completed the 100,000-event Torch/PyG GPU smoke test.
+2026-07-30: Persisted the measurement profile at eval_profile.md because kapso_evaluation is explicitly protected and read-and-execute only.
