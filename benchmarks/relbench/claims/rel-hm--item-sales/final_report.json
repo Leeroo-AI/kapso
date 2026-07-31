@@ -1,0 +1,43 @@
+{
+  "dataset": "rel-hm",
+  "task": "item-sales",
+  "family": "entity_regression",
+  "primary_metric": "mae",
+  "selected_by": "best validation mae",
+  "run": "run_0009",
+  "val_metrics": {
+    "r2": 0.6475558074086558,
+    "mae": 0.04036095073631264,
+    "rmse": 0.39318216757569247
+  },
+  "test_metrics": {
+    "r2": 0.7251484659429774,
+    "mae": 0.031418029120141425,
+    "rmse": 0.3054919779267144
+  },
+  "audit": {
+    "clean": false,
+    "findings": [
+      {
+        "file": "daily_features.py",
+        "line": 35,
+        "pattern": "RELBENCH_CACHE_DIR",
+        "concern": "tampers with the data cache location",
+        "snippet": "Path(os.environ[\"RELBENCH_CACHE_DIR\"])"
+      },
+      {
+        "file": "item_sales_pipeline.py",
+        "line": 120,
+        "pattern": "RELBENCH_CACHE_DIR",
+        "concern": "tampers with the data cache location",
+        "snippet": "database = Path(os.environ[\"RELBENCH_CACHE_DIR\"]) / os.environ[\"RELBENCH_DATASET\"] / \"db\""
+      }
+    ],
+    "note": "static scan; manually review flagged lines before publishing results. 'verify:' findings are advisory OOS-contract review hooks (legal patterns that warrant tracing), not violations."
+  },
+  "code_path": "/home/ubuntu/kapso/tmp/relbench/rel-hm--item-sales/runs/run_0009/code",
+  "predictions": {
+    "val": "/home/ubuntu/kapso/tmp/relbench/rel-hm--item-sales/runs/run_0009/val_predictions.npy",
+    "test": "/home/ubuntu/kapso/tmp/relbench/rel-hm--item-sales/runs/run_0009/test_predictions.npy"
+  }
+}
