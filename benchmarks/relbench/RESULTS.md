@@ -125,6 +125,7 @@ Complete campaign state per run — session transcripts, lens/ideation history, 
 | rel-stack/user-engagement | `gs://leeroo-kapso-relbench-artifacts/runs/rel-stack--user-engagement/20260731T104428_lane-b3.tgz` |
 | rel-stack/user-badge | `gs://leeroo-kapso-relbench-artifacts/runs/rel-stack--user-badge/20260731T103444_lane-b2.tgz` |
 | rel-stack/post-votes | `gs://leeroo-kapso-relbench-artifacts/runs/rel-stack--post-votes/20260731T112323_lane-b1.tgz` |
+| rel-amazon/user-ltv | `gs://leeroo-kapso-relbench-artifacts/runs/rel-amazon--user-ltv/20260731T211904_lane-a2.tgz` |
 | rel-amazon/item-ltv | `gs://leeroo-kapso-relbench-artifacts/runs/rel-amazon--item-ltv/20260731T211333_lane-a1.tgz` |
 
 ## Winning artifacts (durable, committed — for organizer handoff)
@@ -143,4 +144,5 @@ Each claimed cell's evidence is copied from the box-local run archive into `benc
 | rel-hm/user-churn | run_0012 | `benchmarks/relbench/claims/rel-hm--user-churn/` | `bc8c10db0f23ed1f` | `246a6da23fe32be9` |
 | rel-hm/item-sales | run_0009 | `benchmarks/relbench/claims/rel-hm--item-sales/` | `bf48cb6843c872ee` | `6b9793248fd71d7b` |
 | rel-hm/user-item-purchase | run_0002 | `benchmarks/relbench/claims/rel-hm--user-item-purchase/` | `ce965643837b1a12` | `572056d90a59dafa` |
+| rel-amazon/user-ltv | run_0006 | `benchmarks/relbench/claims/rel-amazon--user-ltv/` | `cc0faa6dc3cf5388` | `6d913d02825d7545` |
 | rel-amazon/item-ltv | run_0019 | `benchmarks/relbench/claims/rel-amazon--item-ltv/` | `9674278f60a64d6c` | `386a6a3e13a71095` |
