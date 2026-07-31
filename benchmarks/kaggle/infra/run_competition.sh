@@ -31,10 +31,27 @@ grep -q '^CLAUDE_CODE_OAUTH_TOKEN=' "$HOME/kapso/.env" 2>/dev/null || {
 stamp() { awk '{ "date -u +%H:%M:%S" | getline t; close("date -u +%H:%M:%S");
                  print t " " $0; fflush() }'; }
 
+# The console stream is the SUPERSET of the run, and it is persisted HERE so the
+# trace is a property of the run rather than of whatever wrapper invoked it — a
+# run whose stdout nobody captured used to lose every console-only session for
+# good. It is also the raw material for IOAI execution-trace verification.
+#
+# The drain trap is load-bearing: `exec > >(...)` alone loses whatever is still
+# in flight when the script exits (measured: 624 of 2501 lines, final line gone),
+# which would silently truncate the very trace this exists to keep. Closing the
+# fds and waiting for the writer drains it, on the failure path too.
+export PYTHONUNBUFFERED=1          # file reflects real time, not flush boundaries
+RUN_LOG="${RUN_LOG:-$ROOT/run.log}"
+mkdir -p "$(dirname "$RUN_LOG")"
+exec > >(stamp | tee -a "$RUN_LOG"); LOG_WRITER_PID=$!
+exec 2>&1
+trap 'exec 1>&- 2>&-; wait $LOG_WRITER_PID 2>/dev/null || true' EXIT
+echo "=== run log: $RUN_LOG ==="
+
 echo "=== preflight: $URL  ->  $ROOT ==="
-python3 -m benchmarks.kaggle.preflight --url "$URL" --root "$ROOT" 2>&1 | stamp
+python3 -m benchmarks.kaggle.preflight --url "$URL" --root "$ROOT"
 
 echo "=== runner: campaign on $ROOT (k/hours from run_defaults unless overridden) ==="
-python3 -m benchmarks.kaggle.runner --root "$ROOT" "$@" 2>&1 | stamp
+python3 -m benchmarks.kaggle.runner --root "$ROOT" "$@"
 
-echo "=== done. results: $ROOT/results.json ==="
+echo "=== done. results: $ROOT/results.json  |  trace: $RUN_LOG ==="

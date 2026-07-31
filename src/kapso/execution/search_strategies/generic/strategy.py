@@ -1080,6 +1080,10 @@ class GenericSearch(SearchStrategy):
                 "streaming": True,
                 "planning_mode": False,
                 "effort": planner.get("effort", self.session_effort),
+                "stream_artifact_path": codex_ideation.ideation_stream_path(
+                    self._ideation_artifacts_dir(), "lens_planner",
+                    planner["model"],
+                ),
             },
         )
         agent = ClaudeCodeCodingAgent(config)
@@ -1143,11 +1147,12 @@ class GenericSearch(SearchStrategy):
             )
             label = f"{member['cli']}:{member['model']}"
             print(f"[GenericSearch] Ensemble ideation member starting: {label}")
+            # Every member persists its transcript here, not just codex: the
+            # claude-driven members used to stream to the console only, so
+            # their reasoning survived just in whatever wrapper happened to
+            # capture stdout.
+            artifacts_dir = self._ideation_artifacts_dir()
             if member["cli"] == "codex":
-                artifacts_dir = os.path.join(
-                    self.workspace_dir, ".kapso", "ideation",
-                    f"iter{self.iteration_count}",
-                )
 
                 def run_codex_once(attempt_deadline: float) -> tuple:
                     return codex_ideation.run_codex_ideation(
@@ -1227,6 +1232,9 @@ class GenericSearch(SearchStrategy):
                 "streaming": True,
                 "planning_mode": False,
                 "effort": member.get("effort", self.session_effort),
+                "stream_artifact_path": codex_ideation.ideation_stream_path(
+                    artifacts_dir, member["cli"], member["model"]
+                ),
             }
             if is_oss:
                 # Endpoint wiring replaces first-party auth entirely.
@@ -1392,13 +1400,16 @@ class GenericSearch(SearchStrategy):
 
             # web off: parity with the claude selector's Read-only toolset —
             # selection judges the pooled candidates, it does not research.
+            # Artifacts go to the WORKSPACE, not ideation_dir: the latter is a
+            # materialized ref that is released after the phase, which silently
+            # discarded every selector transcript.
             output, timed_out, _duration, _meta = run_codex_ideation(
                 prompt=prompt,
                 model=selector["model"],
                 cwd=ideation_dir,
                 timeout_seconds=selector_deadline,
                 effort=selector.get("effort"),
-                artifacts_dir=os.path.join(ideation_dir, ".kapso", "selector"),
+                artifacts_dir=self._ideation_artifacts_dir(),
                 web_search=False,
             )
             result = CodingResult(
@@ -1422,6 +1433,10 @@ class GenericSearch(SearchStrategy):
                     "streaming": True,
                     "planning_mode": False,
                     "effort": selector.get("effort", self.session_effort),
+                    "stream_artifact_path": codex_ideation.ideation_stream_path(
+                        self._ideation_artifacts_dir(), "selector",
+                        selector["model"],
+                    ),
                 },
             )
             agent = ClaudeCodeCodingAgent(config)
@@ -2217,6 +2232,15 @@ Problem: {problem}"""
             )
             return line
         return None
+
+    def _ideation_artifacts_dir(self) -> str:
+        """Where this iteration's ideation transcripts live (lens planner,
+        every ensemble member, selector). Under the workspace, so they survive
+        the materialized ref the phase runs in."""
+        return os.path.join(
+            self.workspace_dir, ".kapso", "ideation",
+            f"iter{self.iteration_count}",
+        )
 
     def _session_stream_path(self, branch_name: str) -> str:
         """Per-session stream artifact location (survives session kills)."""
