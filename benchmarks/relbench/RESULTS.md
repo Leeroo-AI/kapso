@@ -54,7 +54,7 @@ Values in the best-known number's units (AUROC/acc/MAP in %, NMAE, R², raw MAE)
 | 52 | rel-stack/user-post-comment | rec | v1★ | 14 (RelGNN) | — | 13.3 | 11.8 | — | — | — | 4xA100 | 6h | ▶ running |
 | 53 | rel-stack/post-post-related | rec | v1★ | 12.5 (ID-GNN-4L) | — | 12.2 | 11.8 | — | — | — | 4xA100 | 6h | ▶ running |
 | 54 | rel-amazon/user-churn | clf | v1★ | 71.9 (Rel-LLM) | 70.8 | 70.5 | 67.3 | 69.1 | — | — | 4xA100 | 6h | ▶ running |
-| 55 | rel-amazon/item-churn | clf | v1★ | 83.4 (Rel-LLM / RT-ft) | 82.8 | 82.8 | 79.9 | 82.2 | — | — | 4xA100 | 6h | · pending |
+| 55 | rel-amazon/item-churn | clf | v1★ | 83.4 (Rel-LLM / RT-ft) | 82.8 | 82.8 | 79.9 | 82.2 | — | — | 4xA100 | 6h | ▶ running |
 | 56 | rel-amazon/user-ltv | reg | v1★ | 0.242 (KumoRFM-2 in-context) | 0.243 | 0.247 | 0.281 | 0.242 | — | — | 4xA100 | 6h | · pending |
 | 57 | rel-amazon/item-ltv | reg | v1★ | 0.0696 (Data Scientist + LightGB) | 0.0707 | 0.0824 | 0.0935 | 0.0795 | — | — | 4xA100 | 6h | · pending |
 | 58 | rel-amazon/user-item-purchase | rec | v1★ | 2.93 (ContextGNN / KumoRFM-ft) | — | 2.93 | 1.72 | — | — | — | 4xA100 | 8h | · pending |
