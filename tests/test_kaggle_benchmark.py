@@ -33,6 +33,9 @@ KAGGLE = {"competition": "ioai-2026-ai-models-track-practice-task-1"}
 
 
 def make_handler(tmp_path, **overrides):
+    task_dir = tmp_path / "task"
+    task_dir.mkdir(exist_ok=True)
+    (task_dir / "RULES.md").write_text("rules body")
     kwargs = dict(
         task_dir=str(tmp_path / "task"),
         statement="statement body",
@@ -67,6 +70,21 @@ def test_handler_context_is_statement_plus_minimal_contract(tmp_path):
 def test_handler_rejects_missing_kaggle_slug(tmp_path):
     with pytest.raises(ValueError, match="kaggle"):
         make_handler(tmp_path, kaggle={})
+
+
+def test_handler_requires_the_staged_rules_and_points_the_agent_at_them(tmp_path):
+    # A run without the organizers' rules could ship a kernel that breaks one
+    # (two GPUs, an external checkpoint) and be voided — so fail at construction.
+    context = make_handler(tmp_path).get_problem_context()
+    assert os.path.join(str(tmp_path / "task"), "RULES.md") in context
+    assert "cuda:0" in context
+    os.remove(tmp_path / "task" / "RULES.md")
+    with pytest.raises(FileNotFoundError, match="RULES.md"):
+        KaggleNotebookHandler(
+            task_dir=str(tmp_path / "task"), statement="s",
+            deadline_ts=time.time() + 60, session_caps=SESSION_CAPS,
+            kaggle=KAGGLE, insured_reserve_seconds=300.0,
+        )
 
 
 def test_parse_submissions_json_tolerates_pagination_noise():

@@ -34,6 +34,7 @@ from kapso.execution.orchestrator import OrchestratorAgent
 from benchmarks.kaggle.handler import KaggleNotebookHandler
 
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.yaml")
+RULES_PATH = os.path.join(os.path.dirname(__file__), "RULES.md")
 
 # Source patterns that indicate the kernel pulls external pretrained
 # resources or data. Matches are reported, not silently fatal — a human
@@ -399,6 +400,10 @@ def main():
         return
 
     statement = open(statement_path, encoding="utf-8").read()
+
+    # Stage the organizers' binding rules beside the task so every session can
+    # read them; copied fresh each launch so an edited RULES.md always wins.
+    shutil.copy2(RULES_PATH, os.path.join(task_dir, "RULES.md"))
 
     run_defaults = mode_cfg["run_defaults"]
     hours = args.hours if args.hours is not None else run_defaults["hours"]

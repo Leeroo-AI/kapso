@@ -47,6 +47,15 @@ class KaggleNotebookHandler(ProblemHandler):
         self.dataset_dir = os.path.join(self.task_dir, "dataset")
         self.artifacts_dir = os.path.join(self.task_dir, "artifacts")
         self.submission_dir = os.path.join(self.task_dir, "submission")
+        # The organizers' binding rules; the runner stages them into the task
+        # dir. A run without them would let the agent build a kernel that
+        # breaks a rule (two GPUs, an external checkpoint) and be voided.
+        self.rules_path = os.path.join(self.task_dir, "RULES.md")
+        if not os.path.isfile(self.rules_path):
+            raise FileNotFoundError(
+                f"{self.rules_path} missing — the runner stages "
+                "benchmarks/kaggle/RULES.md there at launch"
+            )
         os.makedirs(self.artifacts_dir, exist_ok=True)
         os.makedirs(self.submission_dir, exist_ok=True)
 
@@ -71,6 +80,13 @@ loop: design ONE experiment per iteration, implement it, evaluate it.
 - Time remaining: {self._remaining_str()}
 - Competition: `{competition}` — the kaggle CLI is installed and
   authenticated; develop and validate locally before spending a submission.
+
+READ {self.rules_path} BEFORE WRITING ANY KERNEL, and obey it. It carries the
+organizers' binding rules — single GPU (`cuda:0`), T4-or-CPU only, no internet,
+no outside models or data, `.py` only — plus the fixed package list your kernel
+must run against. A kernel that breaks one of those rules can be voided no
+matter how well it scores, so treat the rules as a hard constraint on the design
+space rather than something to check at the end.
 
 What counts is the best PUBLIC leaderboard score among your submissions — a
 stable baseline that scores low earns nothing. Go for the approach with the
