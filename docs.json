@@ -72,6 +72,7 @@
           {
             "group": "Cross-Run Operations",
             "pages": [
+              "docs/cross-run/system-overview",
               "docs/cross-run/operations",
               "docs/cross-run/github-setup",
               "docs/cross-run/security-and-revocation",
