@@ -3,6 +3,15 @@
 Set by the IOAI AI Models Track organizers. They apply to every kernel you
 submit, on every task. Breaking one can void the submission.
 
+**This file overrides the task statement and the competition pages wherever they
+disagree.** Those pages carry stale text the organizers have since corrected.
+
+## Submissions
+
+**You get 50 submissions per task — never 5.** Competition pages may still quote
+a five-per-day cap; it is obsolete and does not apply. Use the budget: shipping
+several genuinely different attempts beats polishing one.
+
 ## The kernel
 
 1. **Use ONE GPU.** `machine_shape: NvidiaTeslaT4` provisions **two** T4s; the

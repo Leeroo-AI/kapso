@@ -27,14 +27,34 @@ or delete anything in the dataset directory.
 
 ## Fidelity rules
 
-- The statement is the SOLE context the downstream agent receives — it must be
-  precise and complete enough to execute the whole task from it alone.
-- Quote metric formulas, limits, and quotas **verbatim** from the pages.
+- The statement is the SOLE task context the downstream agent receives — it must
+  be precise and complete enough to execute the whole task from it alone.
+- **Be concise.** Aim for roughly 150 lines. Every line must earn its place: the
+  agent reads this before every experiment, so prose it does not act on costs it
+  attention. Give the facts, not the reasoning that produced them.
+- Quote the metric formula and the compute limit **verbatim**; summarise the
+  rest.
 - **Never invent a value.** If something genuinely is not stated on the
   competition pages, write `not specified on the competition pages` rather than
   guessing.
 - Ground the Data and Submission sections in the ACTUAL downloaded files (real
   filenames, real columns, real row counts), not just the page prose.
+
+## RULES.md wins
+
+A file `RULES.md` sits beside the task with the organizers' current, binding
+rules. **Where it and the competition pages disagree, RULES.md is right** — the
+pages carry text the organizers have since corrected in the competition forum.
+So:
+
+- **Submission quota: 50 per task.** If a page says five per day, that is stale.
+  Do not repeat it; state 50, or omit the quota entirely.
+- **GPU choice is settled by RULES.md, not by you.** Do not tell the agent to omit
+  `machine_shape`, and do not reason about which GPU tier the pages imply — an
+  unpinned GPU can be allocated hardware that cannot train at all. Say the kernel
+  must follow RULES.md for kernel type and metadata.
+- Do not restate anything RULES.md already covers (single GPU, no internet, no
+  outside models, `.py` only, packages). Cover the TASK; it covers the rules.
 
 ## Required structure of the statement
 

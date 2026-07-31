@@ -35,6 +35,7 @@ from kapso.execution.coding_agents.factory import CodingAgentFactory
 
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.yaml")
 SPEC_PATH = os.path.join(os.path.dirname(__file__), "preflight_spec.md")
+RULES_PATH = os.path.join(os.path.dirname(__file__), "RULES.md")
 SLUG_RE = re.compile(r"kaggle\.com/(?:c|competitions)/([A-Za-z0-9][A-Za-z0-9_-]*)")
 
 
@@ -74,7 +75,8 @@ def download_competition(slug: str, dataset_dir: str) -> None:
             os.remove(zip_path)
 
 
-def build_prompt(url: str, slug: str, dataset_dir: str, statement_path: str) -> str:
+def build_prompt(url: str, slug: str, dataset_dir: str, statement_path: str,
+                 rules_path: str) -> str:
     """Dynamic per-competition header + the fixed statement-authoring spec."""
     spec = open(SPEC_PATH, encoding="utf-8").read()
     header = (
@@ -83,6 +85,7 @@ def build_prompt(url: str, slug: str, dataset_dir: str, statement_path: str) -> 
         f"Competition slug: `{slug}`\n"
         f"Dataset directory (data already downloaded here via the "
         f"authenticated kaggle CLI): {dataset_dir}\n"
+        f"Binding rules, which override the competition pages: {rules_path}\n"
         f"Write the statement to: {statement_path}\n\n"
     )
     return header + spec
@@ -99,29 +102,46 @@ def run_preflight(url: str, root: str, mode: str = "KAGGLE") -> str:
     download_competition(slug, dataset_dir)
     with open(os.path.join(task_dir, "kaggle.json"), "w") as f:
         json.dump({"competition": slug}, f, indent=2)
+    # Staged here as well as by the runner: the authoring agent is told these
+    # rules override the competition pages, so it has to be able to read them.
+    rules_path = os.path.join(task_dir, "RULES.md")
+    shutil.copy2(RULES_PATH, rules_path)
 
     with open(CONFIG_PATH) as f:
         preflight_cfg = yaml.safe_load(f)["modes"][mode]["preflight"]
 
+    cli = preflight_cfg["cli"]
+    if cli not in ("codex", "claude_code"):
+        raise ValueError(f"preflight.cli must be codex or claude_code, got {cli!r}")
+    agent_specific = {
+        "effort": preflight_cfg["effort"],
+        "timeout": preflight_cfg["timeout"],
+        "streaming": True,
+    }
+    if cli == "codex":
+        agent_specific["web_search"] = preflight_cfg["web_search"]
+    else:
+        # The claude CLI takes an explicit toolset: the preflight must read the
+        # downloaded files, run the kaggle CLI, browse the competition pages,
+        # and write exactly one file.
+        agent_specific["auth_mode"] = preflight_cfg["auth_mode"]
+        agent_specific["allowed_tools"] = [
+            "Read", "Write", "Edit", "Bash", "Glob", "Grep",
+        ] + (["WebSearch", "WebFetch"] if preflight_cfg["web_search"] else [])
     config = CodingAgentFactory.build_config(
-        agent_type="codex",
+        agent_type=cli,
         model=preflight_cfg["model"],
-        agent_specific={
-            "effort": preflight_cfg["effort"],
-            "timeout": preflight_cfg["timeout"],
-            "web_search": preflight_cfg["web_search"],
-            "streaming": True,
-        },
+        agent_specific=agent_specific,
     )
     agent = CodingAgentFactory.create(config)
     agent.initialize(task_dir)
     result = agent.generate_code(
-        build_prompt(url, slug, dataset_dir, statement_path),
+        build_prompt(url, slug, dataset_dir, statement_path, rules_path),
         timeout_seconds=preflight_cfg["timeout"],
     )
 
     if not result.success:
-        sys.exit(f"preflight codex run failed: {result.error}")
+        sys.exit(f"preflight {cli} run failed: {result.error}")
     if not (os.path.isfile(statement_path) and os.path.getsize(statement_path) > 0):
         sys.exit(f"{statement_path} missing or empty after preflight")
     data_entries = [n for n in os.listdir(dataset_dir) if n != "statement.md"]
