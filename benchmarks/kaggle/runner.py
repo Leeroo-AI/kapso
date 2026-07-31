@@ -432,7 +432,16 @@ def main():
     knobs = mode_cfg["session_budget"]
     guard_minutes = (args.guard_minutes if args.guard_minutes is not None
                      else knobs["guard_minutes"])
-    budget_minutes = int(hours * 60 - spent_minutes - guard_minutes)
+    # The campaign returns early enough for the harvest's submissions to be
+    # SCORED before the deadline, not merely sent: a submission counts only if
+    # it finished scoring in time, so a sweep that fires at the buzzer produces
+    # entries that never reach the leaderboard. The harvest only submits
+    # already-COMPLETE kernels, so this window covers the submit calls plus
+    # Kaggle's scoring latency — not another kernel run.
+    harvest_window = knobs["harvest_window_minutes"]
+    budget_minutes = int(
+        hours * 60 - spent_minutes - guard_minutes - harvest_window
+    )
     if budget_minutes < knobs["min_campaign_minutes"]:
         sys.exit(
             f"only {budget_minutes} min of the {hours}h budget remain after "
@@ -462,6 +471,7 @@ def main():
     print(f"clock started {spent_minutes:.1f} min ago (preflight); "
           f"deadline {datetime.fromtimestamp(deadline_ts, timezone.utc):%H:%M:%S} UTC")
     print(f"budget={budget_minutes} min (guard={guard_minutes} min, "
+          f"harvest window={harvest_window} min, "
           f"finalization reserve={reserve_minutes:.0f} min), "
           f"iterations<={args.iterations}")
     print(f"session caps: ideation={session_timeouts['ideation_timeout']}s "
