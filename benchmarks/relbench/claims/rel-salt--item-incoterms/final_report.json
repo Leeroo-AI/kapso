@@ -1,0 +1,30 @@
+{
+  "dataset": "rel-salt",
+  "task": "item-incoterms",
+  "family": "autocomplete_multiclass_classification",
+  "primary_metric": "accuracy",
+  "selected_by": "best recomputed validation accuracy among registered-final runs",
+  "run": "run_0010",
+  "val_metrics": {
+    "accuracy": 0.874960444518546,
+    "macro_f1": 0.7433495962749498,
+    "micro_f1": 0.874960444518546,
+    "mrr": 0.9275675415992737
+  },
+  "test_metrics": {
+    "accuracy": 0.7756103615624264,
+    "macro_f1": 0.5847954856840942,
+    "micro_f1": 0.7756103615624264,
+    "mrr": 0.8593339920043945
+  },
+  "audit": {
+    "clean": true,
+    "findings": [],
+    "note": "static scan; manually review flagged lines before publishing results. 'verify:' findings are advisory OOS-contract review hooks (legal patterns that warrant tracing), not violations."
+  },
+  "code_path": "/home/ubuntu/kapso/tmp/relbench/rel-salt--item-incoterms/runs/run_0010/code",
+  "predictions": {
+    "val": "/home/ubuntu/kapso/tmp/relbench/rel-salt--item-incoterms/runs/run_0010/val_predictions.npy",
+    "test": "/home/ubuntu/kapso/tmp/relbench/rel-salt--item-incoterms/runs/run_0010/test_predictions.npy"
+  }
+}

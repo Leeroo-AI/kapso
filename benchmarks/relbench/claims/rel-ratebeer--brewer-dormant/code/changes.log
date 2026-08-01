@@ -1,0 +1,4 @@
+RepoMemory sections consulted: core.architecture, core.entrypoints, core.where_to_edit, core.invariants, core.testing, core.gotchas, core.dependencies
+Initialized measurement profile and time allocation plan; no evaluator files were modified because the supplied evaluator is immutable.
+Implemented exact label regeneration, dense official and synthetic episode pools, temporally censored renewal/portfolio/demand/geography/cohort features, forward-only stage selection, and separate Model A/Model B fitting.
+Debug contract run passed at 0.816859 validation ROC-AUC; revised the feature-matrix throughput target from 8,000 to 900 rows/second after measuring 1,040 rows/second with exact gap quantiles.

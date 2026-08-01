@@ -1,0 +1,29 @@
+{
+  "version": "lane3_temporal_document_lgb_v1",
+  "debug": true,
+  "rounds": 50,
+  "design": {
+    "half_life": 365,
+    "fresh_months": 9,
+    "weights": [
+      0.5,
+      0.5,
+      0.5,
+      0.5
+    ],
+    "prior": false
+  },
+  "elapsed_seconds": 136.94263124465942,
+  "validation_staleness_items": {
+    "<30": 42699,
+    "30-90": 94736,
+    "90-180": 109642,
+    ">180/new": 46814
+  },
+  "test_staleness_items": {
+    "<30": 43122,
+    "30-90": 103397,
+    "90-180": 165719,
+    ">180/new": 90597
+  }
+}
