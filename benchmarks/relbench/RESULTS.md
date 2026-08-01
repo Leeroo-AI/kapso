@@ -3,7 +3,7 @@
 **Auto-generated — do not edit by hand.** Regenerate with:
 `PYTHONPATH=src:. python -m benchmarks.relbench.scorecard --reference`
 
-Status: **48/66 tasks run**, 31 beating the best published number. Category-level gates: run the scorecard (same module, no flags).
+Status: **49/66 tasks run**, 31 beating the best published number. Category-level gates: run the scorecard (same module, no flags).
 
 ## Benchmark version & leaderboard submission
 
@@ -79,7 +79,7 @@ Values in the best-known number's units (AUROC/acc/MAP in %, NMAE, R², raw MAE)
 | 20 | rel-avito/searchstream-click | AC-bin | v2 | 55.9 (GraphSAGE) | — | — | — | — | 86 | ✅ beats best-known | 4xA100 | 4h | ✅ done |
 | 29 | rel-ratebeer/user-count | reg | v2 | 0.625 (GraphSAGE) | 6.021 (MAE) | — | — | — | 0.793 | ✅ beats best-known | 4xA100 | 4h | ✅ done |
 | 30 | rel-arxiv/author-publication | reg | v2 | 0.249 (GraphSAGE) | 0.462 (MAE) | — | — | — | 0.525 | ✅ beats best-known | 4xA100 | 4h | ✅ done |
-| 31 | rel-ratebeer/beer-churn | clf | v2 | 84.7 (RelAgent) | 84.7 | — | — | — | — | — | 4xA100 | 4h | ▶ running |
+| 31 | rel-ratebeer/beer-churn | clf | v2 | 84.7 (RelAgent) | 84.7 | — | — | — | 82.3 | below best-known | 4xA100 | 4h | ✅ done |
 | 32 | rel-ratebeer/brewer-dormant | clf | v2 | 83.3 (RelAgent) | 83.3 | — | — | — | 81.7 | below best-known | 4xA100 | 4h | ✅ done |
 | 33 | rel-arxiv/paper-citation | clf | v2 | 82.6 (RelAgent) | 82.6 | — | — | — | — | — | 4xA100 | 4h | ▶ running |
 | 34 | rel-ratebeer/user-churn | clf | v2 | 98.6 (RelAgent) | 98.6 | — | — | — | — | — | 4xA100 | 4h | ▶ running |
@@ -153,6 +153,7 @@ Complete campaign state per run — session transcripts, lens/ideation history, 
 | rel-avito/searchstream-click | `gs://leeroo-kapso-relbench-artifacts/runs/rel-avito--searchstream-click/20260801T141721_lane-a2.tgz` |
 | rel-ratebeer/user-count | `gs://leeroo-kapso-relbench-artifacts/runs/rel-ratebeer--user-count/20260801T163616_lane-b2.tgz` |
 | rel-arxiv/author-publication | `gs://leeroo-kapso-relbench-artifacts/runs/rel-arxiv--author-publication/20260801T154918_lane-b1.tgz` |
+| rel-ratebeer/beer-churn | `gs://leeroo-kapso-relbench-artifacts/runs/rel-ratebeer--beer-churn/20260801T214326_lane-b2.tgz` |
 | rel-ratebeer/brewer-dormant | `gs://leeroo-kapso-relbench-artifacts/runs/rel-ratebeer--brewer-dormant/20260801T211054_lane-a3.tgz` |
 
 ## Winning artifacts (durable, committed — for organizer handoff)
