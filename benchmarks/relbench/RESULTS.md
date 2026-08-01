@@ -3,7 +3,7 @@
 **Auto-generated — do not edit by hand.** Regenerate with:
 `PYTHONPATH=src:. python -m benchmarks.relbench.scorecard --reference`
 
-Status: **28/66 tasks run**, 15 beating the best published number. Category-level gates: run the scorecard (same module, no flags).
+Status: **29/66 tasks run**, 15 beating the best published number. Category-level gates: run the scorecard (same module, no flags).
 
 ## Benchmark version & leaderboard submission
 
@@ -57,7 +57,7 @@ Values in the best-known number's units (AUROC/acc/MAP in %, NMAE, R², raw MAE)
 | 55 | rel-amazon/item-churn | clf | v1★ | 83.4 (Rel-LLM / RT-ft) | 82.8 | 82.8 | 79.9 | 82.2 | 83.1 | below best-known | 4xA100 | 6h | ✅ done |
 | 56 | rel-amazon/user-ltv | reg | v1★ | 0.242 (KumoRFM-2 in-context) | 0.243 | 0.247 | 0.281 | 0.242 | 0.238 | ✅ beats best-known | 4xA100 | 6h | ✅ done |
 | 57 | rel-amazon/item-ltv | reg | v1★ | 0.0696 (Data Scientist + LightGB) | 0.0707 | 0.0824 | 0.0935 | 0.0795 | 0.0655 | ✅ beats best-known | 4xA100 | 6h | ✅ done |
-| 58 | rel-amazon/user-item-purchase | rec | v1★ | 2.93 (ContextGNN / KumoRFM-ft) | — | 2.93 | 1.72 | — | — | — | 4xA100 | 6h | ▶ running |
+| 58 | rel-amazon/user-item-purchase | rec | v1★ | 2.93 (ContextGNN / KumoRFM-ft) | — | 2.93 | 1.72 | — | 2.54 | below best-known | 4xA100 | 6h | ✅ done |
 | 59 | rel-amazon/user-item-rate | rec | v1★ | 2.25 (ContextGNN / KumoRFM-ft) | — | 2.25 | 1.14 | — | 2.31 | ✅ beats best-known | 4xA100 | 6h | ✅ done |
 | 60 | rel-amazon/user-item-review | rec | v1★ | 1.63 (ContextGNN / KumoRFM-ft) | — | 1.63 | 0.22 | — | 2.95 | ✅ beats best-known | 4xA100 | 6h | ✅ done |
 | 61 | rel-avito/user-visits | clf | v1★ | 78.3 (KumoRFM-ft) | 67.8 | 78.3 | 64.8 | 67.4 | 67.9 | below best-known | 4xA100 | 6h | ✅ done |
@@ -131,6 +131,7 @@ Complete campaign state per run — session transcripts, lens/ideation history, 
 | rel-amazon/item-churn | `gs://leeroo-kapso-relbench-artifacts/runs/rel-amazon--item-churn/20260731T211833_lane-b3.tgz` |
 | rel-amazon/user-ltv | `gs://leeroo-kapso-relbench-artifacts/runs/rel-amazon--user-ltv/20260731T211904_lane-a2.tgz` |
 | rel-amazon/item-ltv | `gs://leeroo-kapso-relbench-artifacts/runs/rel-amazon--item-ltv/20260731T211333_lane-a1.tgz` |
+| rel-amazon/user-item-purchase | `gs://leeroo-kapso-relbench-artifacts/runs/rel-amazon--user-item-purchase/20260801T050453_lane-a2.tgz` |
 | rel-amazon/user-item-rate | `gs://leeroo-kapso-relbench-artifacts/runs/rel-amazon--user-item-rate/20260801T051354_lane-a3.tgz` |
 | rel-amazon/user-item-review | `gs://leeroo-kapso-relbench-artifacts/runs/rel-amazon--user-item-review/20260801T042832_lane-b2.tgz` |
 | rel-avito/user-visits | `gs://leeroo-kapso-relbench-artifacts/runs/rel-avito--user-visits/20260801T045911_lane-b3.tgz` |
