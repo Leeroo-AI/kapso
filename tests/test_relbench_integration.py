@@ -712,6 +712,45 @@ class TestRunSelectionLabels:
             {"fidelity": "fast", "run": "", "session": "exp_A"}, True)
 
 
+class TestBooleanTargetCoercion:
+    """Some relbench task tables store a boolean target as text ('t'/'f') —
+    rel-trial studies-has_dmc, eligibilities-adult, eligibilities-child.
+    relbench's own metrics then raise `pos_label=1 is not a valid label`, which
+    killed the calibration run and failed the whole task live. Every consumer
+    must see 0/1."""
+
+    def test_text_boolean_target_becomes_int(self):
+        import pandas as pd
+        from types import SimpleNamespace
+
+        from benchmarks.relbench.handler import coerce_boolean_target
+
+        table = SimpleNamespace(df=pd.DataFrame({"target": ["t", "f", "T", "F"]}))
+        coerce_boolean_target(table, "target")
+        assert table.df["target"].tolist() == [1, 0, 1, 0]
+        assert str(table.df["target"].dtype) == "int64"
+
+    def test_numeric_target_untouched(self):
+        import pandas as pd
+        from types import SimpleNamespace
+
+        from benchmarks.relbench.handler import coerce_boolean_target
+
+        table = SimpleNamespace(df=pd.DataFrame({"target": [0.0, 1.0]}))
+        coerce_boolean_target(table, "target")
+        assert table.df["target"].tolist() == [0.0, 1.0]
+
+    def test_unexpected_strings_raise(self):
+        import pandas as pd
+        from types import SimpleNamespace
+
+        from benchmarks.relbench.handler import coerce_boolean_target
+
+        table = SimpleNamespace(df=pd.DataFrame({"target": ["t", "maybe"]}))
+        with pytest.raises(ValueError, match="non-boolean strings"):
+            coerce_boolean_target(table, "target")
+
+
 class TestGraderSelectionLabel:
     def test_void_run_stamps_and_rejects_cross_session(self, tmp_path, monkeypatch):
         import importlib.util

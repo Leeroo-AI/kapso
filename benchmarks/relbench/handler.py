@@ -50,6 +50,33 @@ MAX_OUTPUT_LINES = 400
 MAX_STREAM_LINES = 25000
 
 
+BOOLEAN_TARGET_MAP = {"t": 1, "f": 0, "true": 1, "false": 0}
+
+
+def coerce_boolean_target(table, target_col: str):
+    """Map a text boolean target ('t'/'f') to 0/1 in place.
+
+    Some relbench task tables store a boolean target as text (rel-trial's
+    studies-has_dmc, eligibilities-adult, eligibilities-child). relbench's own
+    metrics then raise `pos_label=1 is not a valid label`, so every consumer —
+    the candidate, the in-loop grader, and our final scoring — must see the
+    numeric form. Unknown strings raise rather than being coerced to NaN.
+    """
+    if target_col not in table.df.columns:
+        return table
+    column = table.df[target_col]
+    if column.dtype != object:
+        return table
+    lowered = column.astype(str).str.lower()
+    unknown = set(lowered.unique()) - set(BOOLEAN_TARGET_MAP)
+    if unknown:
+        raise ValueError(
+            f"target column {target_col!r} holds non-boolean strings {sorted(unknown)}"
+        )
+    table.df[target_col] = lowered.map(BOOLEAN_TARGET_MAP).astype("int64")
+    return table
+
+
 class PredictionContractError(Exception):
     """Candidate produced predictions that violate the contract."""
 
@@ -95,9 +122,12 @@ class RelBenchHandler(ProblemHandler):
         self.rolling = getattr(self.task, "num_eval_timestamps", 1) > 1
         self.rolling_root = self.work_dir / "rolling_caches"
 
-        self._train_table = self.task.get_table("train", mask_input_cols=False)
-        self._val_table = self.task.get_table("val", mask_input_cols=False)
-        self._test_table = self.task.get_table("test", mask_input_cols=False)
+        self._train_table = coerce_boolean_target(
+            self.task.get_table("train", mask_input_cols=False), self.spec.target_col)
+        self._val_table = coerce_boolean_target(
+            self.task.get_table("val", mask_input_cols=False), self.spec.target_col)
+        self._test_table = coerce_boolean_target(
+            self.task.get_table("test", mask_input_cols=False), self.spec.target_col)
         self.n_val = len(self._val_table)
         self.n_test = len(self._test_table)
 
@@ -287,12 +317,23 @@ class RelBenchHandler(ProblemHandler):
                 f"(+{len(runs) - 1} superseded)"
             )
 
+    def _scoring_test_table(self):
+        """Labeled test table with any text boolean target coerced to 0/1.
+        Loaded on demand so scoring works on a handler built without full
+        __init__ (the claims/replay paths do that)."""
+        table = getattr(self, "_test_table", None)
+        if table is None:
+            table = coerce_boolean_target(
+                self.task.get_table("test", mask_input_cols=False), self.spec.target_col
+            )
+        return table
+
     def _recomputed_val_metrics(self, run_dir: Path) -> Dict:
         """Official val metrics recomputed from the archived predictions
         against pristine labels — the archived metrics.json is never trusted
         for selection (it lives in a same-user-writable directory)."""
         val_pred = np.load(run_dir / "val_predictions.npy", allow_pickle=False)
-        val_table = self.task.get_table("val")
+        val_table = coerce_boolean_target(self.task.get_table("val"), self.spec.target_col)
         return {
             k: float(v) for k, v in self.task.evaluate(val_pred, val_table).items()
         }
@@ -337,7 +378,7 @@ class RelBenchHandler(ProblemHandler):
             # archived predictions.
             test_pred = np.load(run_dir / "test_predictions.npy", allow_pickle=False)
             metrics["test"] = {
-                k: float(v) for k, v in self.task.evaluate(test_pred).items()
+                k: float(v) for k, v in self.task.evaluate(test_pred, self._scoring_test_table()).items()
             }
             (run_dir / "private" / "metrics.json").write_text(
                 json.dumps(metrics, indent=2)
@@ -440,7 +481,7 @@ class RelBenchHandler(ProblemHandler):
             return self._error_result(f"Official validation scoring failed: {e}", run_index)
         test_metrics: Dict[str, float] = {}
         try:
-            test_metrics = {k: float(v) for k, v in self.task.evaluate(test_pred).items()}
+            test_metrics = {k: float(v) for k, v in self.task.evaluate(test_pred, self._scoring_test_table()).items()}
         except Exception as e:
             print(f"[RelBenchHandler] PRIVATE test scoring failed (not shown to agent): {e}")
 

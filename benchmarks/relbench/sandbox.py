@@ -115,7 +115,9 @@ def build_sanitized_cache(
 
     from relbench.base import AutoCompleteTask, Table
     from relbench.datasets import get_dataset
-    from relbench.tasks import get_task, task_registry
+    from relbench.tasks import get_task
+
+    from benchmarks.relbench.handler import coerce_boolean_target
 
     source = Path(source_cache_dir or _default_source_cache())
     dest = Path(dest_cache_dir)
@@ -199,7 +201,13 @@ def build_sanitized_cache(
                 f"Pristine task table missing: {src_pq}. "
                 "Download the task first (handler does this automatically)."
             )
-        shutil.copy2(src_pq, dest_task_dir / f"{split}.parquet")
+        # A text boolean target ('t'/'f') must reach the candidate as 0/1:
+        # relbench's own metrics reject string labels, so the in-loop grader
+        # would fail on every run (observed live on rel-trial/studies-has_dmc).
+        table = coerce_boolean_target(
+            task.get_table(split, mask_input_cols=False), task.target_col
+        )
+        table.save(str(dest_task_dir / f"{split}.parquet"))
 
     test_table = task.get_table("test", mask_input_cols=False)
     if hasattr(task, "src_entity_col"):  # RecommendationTask
