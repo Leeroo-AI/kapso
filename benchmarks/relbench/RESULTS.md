@@ -75,8 +75,8 @@ Values in the best-known number's units (AUROC/acc/MAP in %, NMAE, R², raw MAE)
 | 16 | rel-salt/item-incoterms | AC-mul | v2 | 69.4 (GraphSAGE) | — | — | — | — | — | — | CPU-ok | 4h | · pending |
 | 17 | rel-trial/studies-enrollment | AC-reg | v2 | 0.436 (RelGT-AC) | — | — | — | — | — | — | 4xA100 | 4h | ▶ running |
 | 18 | rel-trial/studies-has_dmc | AC-bin | v2 | 78.5 (RelGT-AC) | — | — | — | — | — | — | 4xA100 | 4h | ▶ running |
-| 19 | rel-avito/searchinfo-isuserloggedon | AC-bin | v2 | 73 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 4h | · pending |
-| 20 | rel-avito/searchstream-click | AC-bin | v2 | 55.9 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 4h | · pending |
+| 19 | rel-avito/searchinfo-isuserloggedon | AC-bin | v2 | 73 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 4h | ▶ running |
+| 20 | rel-avito/searchstream-click | AC-bin | v2 | 55.9 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 4h | ▶ running |
 | 29 | rel-ratebeer/user-count | reg | v2 | 0.625 (GraphSAGE) | 6.021 (MAE) | — | — | — | — | — | 4xA100 | 4h | · pending |
 | 30 | rel-arxiv/author-publication | reg | v2 | 0.249 (GraphSAGE) | 0.462 (MAE) | — | — | — | — | — | 4xA100 | 4h | · pending |
 | 31 | rel-ratebeer/beer-churn | clf | v2 | 78.7 (GraphSAGE) | 84.7 | — | — | — | — | — | 4xA100 | 4h | · pending |
