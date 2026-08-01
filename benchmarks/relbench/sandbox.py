@@ -115,7 +115,7 @@ def build_sanitized_cache(
 
     from relbench.base import AutoCompleteTask, Table
     from relbench.datasets import get_dataset
-    from relbench.tasks import get_task
+    from relbench.tasks import get_task, task_registry
 
     from benchmarks.relbench.handler import coerce_boolean_target
 
