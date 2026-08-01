@@ -146,6 +146,7 @@ Complete campaign state per run — session transcripts, lens/ideation history, 
 | rel-salt/sales-payterms | `gs://leeroo-kapso-relbench-artifacts/runs/rel-salt--sales-payterms/20260801T180804_lane-b3.tgz` |
 | rel-salt/sales-shipcond | `gs://leeroo-kapso-relbench-artifacts/runs/rel-salt--sales-shipcond/20260801T183418_lane-a1.tgz` |
 | rel-salt/sales-incoterms | `gs://leeroo-kapso-relbench-artifacts/runs/rel-salt--sales-incoterms/20260801T183053_lane-a2.tgz` |
+| rel-salt/item-incoterms | `gs://leeroo-kapso-relbench-artifacts/runs/rel-salt--item-incoterms/20260801T210445_lane-b1.tgz` |
 | rel-trial/studies-enrollment | `gs://leeroo-kapso-relbench-artifacts/runs/rel-trial--studies-enrollment/20260801T132017_lane-a3.tgz` |
 | rel-trial/studies-has_dmc | `gs://leeroo-kapso-relbench-artifacts/runs/rel-trial--studies-has_dmc/20260801T140047_lane-b3.tgz` |
 | rel-avito/searchinfo-isuserloggedon | `gs://leeroo-kapso-relbench-artifacts/runs/rel-avito--searchinfo-isuserloggedon/20260801T140711_lane-a1.tgz` |
