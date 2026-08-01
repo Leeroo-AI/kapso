@@ -84,9 +84,9 @@ Values in the best-known number's units (AUROC/acc/MAP in %, NMAE, R², raw MAE)
 | 33 | rel-arxiv/paper-citation | clf | v2 | 82.6 (RelAgent) | 82.6 | — | — | — | 83.2 | ✅ beats best-known | 4xA100 | 4h | ✅ done |
 | 34 | rel-ratebeer/user-churn | clf | v2 | 98.6 (RelAgent) | 98.6 | — | — | — | 93.3 | below best-known | 4xA100 | 4h | ✅ done |
 | 35 | rel-ratebeer/beer_ratings-total_score | AC-reg | v2 | 0.394 (GraphSAGE) | — | — | — | — | 0.405 | ✅ beats best-known | 4xA100 | 4h | ✅ done |
-| 36 | rel-ratebeer/user-beer-liked | rec | v2 | 1.46 (ID-GNN) | — | — | — | — | — | — | 4xA100 | 4h | · pending |
-| 37 | rel-ratebeer/user-place-liked | rec | v2 | 1.85 (ID-GNN) | — | — | — | — | — | — | 4xA100 | 4h | · pending |
-| 38 | rel-ratebeer/user-beer-favorite | rec | v2 | 1.89 (ID-GNN) | — | — | — | — | — | — | 4xA100 | 4h | · pending |
+| 36 | rel-ratebeer/user-beer-liked | rec | v2 | 1.46 (ID-GNN) | — | — | — | — | — | — | 4xA100 | 4h | ▶ running |
+| 37 | rel-ratebeer/user-place-liked | rec | v2 | 1.85 (ID-GNN) | — | — | — | — | — | — | 4xA100 | 4h | ▶ running |
+| 38 | rel-ratebeer/user-beer-favorite | rec | v2 | 1.89 (ID-GNN) | — | — | — | — | — | — | 4xA100 | 4h | ▶ running |
 | 39 | rel-arxiv/author-category | mc | v2 | 50.7 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 4h | · pending |
 | 40 | rel-arxiv/paper-paper-cocitation | rec | v2 | 35.4 (ID-GNN) | — | — | — | — | — | — | 4xA100 | 4h | · pending |
 | 41 | rel-trial/eligibilities-adult | AC-bin | v2 | 93.7 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 4h | · pending |
