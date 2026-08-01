@@ -1,0 +1,4 @@
+RepoMemory sections consulted: core.architecture, core.where_to_edit, core.invariants, core.testing, core.gotchas, core.dependencies
+2026-08-01: Profiled immutable evaluation mechanics, split timing, schemas, cardinalities, and runtime dependencies. Preserved kapso_evaluation unchanged as required by its integrity contract.
+2026-08-01: Implemented allowed relational hashing, causal raw/60-day/365-day true histories, separate raw/30-day/90-day pseudo histories, daily/weekly one-pass batching, internal monthly GO/NO-GO gating, and XGBoost Models A/B.
+2026-08-01: Full v2 run_0002 selected 205 rounds, rejected all pseudo candidates, and scored validation accuracy 0.8253452477660439. Train-only widening rejected two broad variants; targeted drift priors gained 0.151 internal points but were reverted under the precommitted 1-2 SE tie rule because their across-month standard error was 0.090 points and one month regressed.
