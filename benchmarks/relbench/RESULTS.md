@@ -3,7 +3,7 @@
 **Auto-generated — do not edit by hand.** Regenerate with:
 `PYTHONPATH=src:. python -m benchmarks.relbench.scorecard --reference`
 
-Status: **34/66 tasks run**, 20 beating the best published number. Category-level gates: run the scorecard (same module, no flags).
+Status: **35/66 tasks run**, 21 beating the best published number. Category-level gates: run the scorecard (same module, no flags).
 
 ## Benchmark version & leaderboard submission
 
@@ -67,7 +67,7 @@ Values in the best-known number's units (AUROC/acc/MAP in %, NMAE, R², raw MAE)
 | 4 | rel-f1/qualifying-position | AC-reg | v2 | 0.239 (RelGT-AC) | — | — | — | — | 0.607 | ✅ beats best-known | 4xA100 | 4h | ✅ done |
 | 6 | rel-event/event_interest-interested | AC-bin | v2 | 49.6 (LightGBM) | — | — | — | — | 74.6 | ✅ beats best-known | 4xA100 | 4h | ✅ done |
 | 7 | rel-event/event_interest-not_interested | AC-bin | v2 | 60.4 (GraphSAGE) | — | — | — | — | 97.8 | ✅ beats best-known | 4xA100 | 4h | ✅ done |
-| 8 | rel-event/users-birthyear | AC-reg | v2 | -0.03 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 4h | ▶ running |
+| 8 | rel-event/users-birthyear | AC-reg | v2 | -0.03 (GraphSAGE) | — | — | — | — | 0.219 | ✅ beats best-known | 4xA100 | 4h | ✅ done |
 | 12 | rel-salt/sales-group | AC-mul | v2 | 15.8 (GraphSAGE) | — | — | — | — | — | — | CPU-ok | 4h | · pending |
 | 13 | rel-salt/sales-payterms | AC-mul | v2 | 37.5 (GraphSAGE) | — | — | — | — | — | — | CPU-ok | 4h | · pending |
 | 14 | rel-salt/sales-shipcond | AC-mul | v2 | 56.9 (GraphSAGE) | — | — | — | — | — | — | CPU-ok | 4h | · pending |
@@ -140,6 +140,7 @@ Complete campaign state per run — session transcripts, lens/ideation history, 
 | rel-f1/qualifying-position | `gs://leeroo-kapso-relbench-artifacts/runs/rel-f1--qualifying-position/20260801T092104_lane-a3.tgz` |
 | rel-event/event_interest-interested | `gs://leeroo-kapso-relbench-artifacts/runs/rel-event--event_interest-interested/20260801T091837_lane-b2.tgz` |
 | rel-event/event_interest-not_interested | `gs://leeroo-kapso-relbench-artifacts/runs/rel-event--event_interest-not_interested/20260801T094124_lane-b3.tgz` |
+| rel-event/users-birthyear | `gs://leeroo-kapso-relbench-artifacts/runs/rel-event--users-birthyear/20260801T124120_lane-b2.tgz` |
 
 ## Winning artifacts (durable, committed — for organizer handoff)
 
@@ -166,3 +167,4 @@ Each claimed cell's evidence is copied from the box-local run archive into `benc
 | rel-f1/qualifying-position | run_0006 | `benchmarks/relbench/claims/rel-f1--qualifying-position/` | `d373f70391d1eac7` | `09a6f18f2d038a61` |
 | rel-event/event_interest-interested | run_0002 | `benchmarks/relbench/claims/rel-event--event_interest-interested/` | `4ee5393609e60f14` | `52d10e76901aa469` |
 | rel-event/event_interest-not_interested | run_0006 | `benchmarks/relbench/claims/rel-event--event_interest-not_interested/` | `13da1ef3ecc8106f` | `a32f14d245c1267b` |
+| rel-event/users-birthyear | run_0018 | `benchmarks/relbench/claims/rel-event--users-birthyear/` | `e7ab8f93a82a9d69` | `12cc6449dd64c9c2` |
