@@ -1,0 +1,18 @@
+RepoMemory sections consulted: core.architecture, core.entrypoints, core.where_to_edit, core.invariants, core.testing, core.gotchas, core.dependencies
+Measurement: profiled immutable full-item scoring, task windows, exact-key semantics, join integrity, and static-spine throughput.
+Measurement: confirmed 100% target HistCTR coverage, ObjectType 3 only, positions 1/7 only, slate-size distribution, and train-only HistCTR forward AUC baseline.
+Protected evaluation files were inspected but not modified.
+Fast evaluator: ROC-AUC 0.7867396969517454; debug two-chain static pipeline passed full-shape scoring.
+Full evaluator run_0004: ROC-AUC 0.8643376405714301; train-only forward AUC mean 0.8611309446106089.
+Rejected widening: recent label-window expansion reduced all three train-only folds to 0.840974, 0.856992, and 0.862658.
+Rejected widening: recent query-presence rates gained only 0.000398 mean forward AUC at about 1.1 paired standard errors and increased fold variability.
+Rejected optional CatBoost: fold AUCs 0.816995/0.829455/0.837120; best fixed blend changed mean AUC by -0.000032 and failed the one-SE gate.
+Rejected contextual histories: mean forward AUC changed -0.000014 with 39 added ObjectType-3/HistCTR-state features.
+Measurement: non-null validation/test query strings are 89.85%/87.51% train-seen; proposed query-identity histories and label backoffs.
+Rejected query identity: folds 0.854568/0.863626/0.865092 changed mean forward AUC by -0.000036.
+Rejected position experts: combined fold AUC mean fell from 0.861131 to 0.857444.
+Rejected warm/cold HistCTR fallback: best gated blend reduced mean fold AUC by 0.000329 with paired SE 0.000079.
+Rejected combined ad 3/6-day state: mean gain 0.000462 was only 0.72 paired standard errors due a fold-2 loss.
+Rejected ad 6-day state: fold AUC mean fell 0.000551 with higher variance.
+Rejected ad 3-day state: fold AUC mean fell 0.000431.
+Kept three-seed LightGBM ensemble: all folds improved to 0.856523/0.864702/0.867664; mean gain 0.001832 exceeded paired SE 0.000264.
