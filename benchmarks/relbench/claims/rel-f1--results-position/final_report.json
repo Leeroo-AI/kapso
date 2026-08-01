@@ -1,0 +1,36 @@
+{
+  "dataset": "rel-f1",
+  "task": "results-position",
+  "family": "autocomplete_regression",
+  "primary_metric": "r2",
+  "selected_by": "best recomputed validation r2 among registered-final runs",
+  "run": "run_0012",
+  "val_metrics": {
+    "r2": 0.9232429951726353,
+    "mae": 0.8478723115359139,
+    "rmse": 1.3462605879719243
+  },
+  "test_metrics": {
+    "r2": 0.9267099479888451,
+    "mae": 0.9345440085707047,
+    "rmse": 1.4501228849921697
+  },
+  "audit": {
+    "clean": true,
+    "findings": [
+      {
+        "file": "main.py",
+        "line": 219,
+        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
+        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
+        "snippet": "labeled_indices = np.concatenate([train_indices, val_indices])"
+      }
+    ],
+    "note": "static scan; manually review flagged lines before publishing results. 'verify:' findings are advisory OOS-contract review hooks (legal patterns that warrant tracing), not violations."
+  },
+  "code_path": "/home/ubuntu/kapso/tmp/relbench/rel-f1--results-position/runs/run_0012/code",
+  "predictions": {
+    "val": "/home/ubuntu/kapso/tmp/relbench/rel-f1--results-position/runs/run_0012/val_predictions.npy",
+    "test": "/home/ubuntu/kapso/tmp/relbench/rel-f1--results-position/runs/run_0012/test_predictions.npy"
+  }
+}

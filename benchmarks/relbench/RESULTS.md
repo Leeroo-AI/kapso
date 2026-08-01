@@ -3,7 +3,7 @@
 **Auto-generated — do not edit by hand.** Regenerate with:
 `PYTHONPATH=src:. python -m benchmarks.relbench.scorecard --reference`
 
-Status: **33/66 tasks run**, 19 beating the best published number. Category-level gates: run the scorecard (same module, no flags).
+Status: **34/66 tasks run**, 20 beating the best published number. Category-level gates: run the scorecard (same module, no flags).
 
 ## Benchmark version & leaderboard submission
 
@@ -63,7 +63,7 @@ Values in the best-known number's units (AUROC/acc/MAP in %, NMAE, R², raw MAE)
 | 61 | rel-avito/user-visits | clf | v1★ | 78.3 (KumoRFM-ft) | 67.8 | 78.3 | 64.8 | 67.4 | 67.9 | below best-known | 4xA100 | 6h | ✅ done |
 | 62 | rel-f1/driver-top3 ⚠ | clf | v1★ | 99.6 (KumoRFM-ft) | 85.2 | 99.6 | 91.1 | 92.2 | — | — | 4xA100 | 6h | ▶ running |
 | 2 | rel-f1/driver-circuit-compete | rec | v2★ | 76.2 (ID-GNN-4L) | — | — | — | — | 87.9 | ✅ beats best-known | 4xA100 | 4h | ✅ done |
-| 3 | rel-f1/results-position | AC-reg | v2 | 0.528 (RelGT-AC) | — | — | — | — | — | — | 4xA100 | 4h | ▶ running |
+| 3 | rel-f1/results-position | AC-reg | v2 | 0.528 (RelGT-AC) | — | — | — | — | 0.927 | ✅ beats best-known | 4xA100 | 4h | ✅ done |
 | 4 | rel-f1/qualifying-position | AC-reg | v2 | 0.239 (RelGT-AC) | — | — | — | — | 0.607 | ✅ beats best-known | 4xA100 | 4h | ✅ done |
 | 6 | rel-event/event_interest-interested | AC-bin | v2 | 49.6 (LightGBM) | — | — | — | — | 74.6 | ✅ beats best-known | 4xA100 | 4h | ✅ done |
 | 7 | rel-event/event_interest-not_interested | AC-bin | v2 | 60.4 (GraphSAGE) | — | — | — | — | 97.8 | ✅ beats best-known | 4xA100 | 4h | ✅ done |
@@ -136,6 +136,7 @@ Complete campaign state per run — session transcripts, lens/ideation history, 
 | rel-amazon/user-item-review | `gs://leeroo-kapso-relbench-artifacts/runs/rel-amazon--user-item-review/20260801T042832_lane-b2.tgz` |
 | rel-avito/user-visits | `gs://leeroo-kapso-relbench-artifacts/runs/rel-avito--user-visits/20260801T045911_lane-b3.tgz` |
 | rel-f1/driver-circuit-compete | `gs://leeroo-kapso-relbench-artifacts/runs/rel-f1--driver-circuit-compete/20260801T102223_lane-a1.tgz` |
+| rel-f1/results-position | `gs://leeroo-kapso-relbench-artifacts/runs/rel-f1--results-position/20260801T102230_lane-a2.tgz` |
 | rel-f1/qualifying-position | `gs://leeroo-kapso-relbench-artifacts/runs/rel-f1--qualifying-position/20260801T092104_lane-a3.tgz` |
 | rel-event/event_interest-interested | `gs://leeroo-kapso-relbench-artifacts/runs/rel-event--event_interest-interested/20260801T091837_lane-b2.tgz` |
 | rel-event/event_interest-not_interested | `gs://leeroo-kapso-relbench-artifacts/runs/rel-event--event_interest-not_interested/20260801T094124_lane-b3.tgz` |
@@ -161,6 +162,7 @@ Each claimed cell's evidence is copied from the box-local run archive into `benc
 | rel-amazon/user-item-rate | run_0016 | `benchmarks/relbench/claims/rel-amazon--user-item-rate/` | `80abd22346425cb7` | `1ff1ca3335b6cd93` |
 | rel-amazon/user-item-review | run_0012 | `benchmarks/relbench/claims/rel-amazon--user-item-review/` | `efc5f5219be860e7` | `95ad1203ef48f024` |
 | rel-f1/driver-circuit-compete | run_0005 | `benchmarks/relbench/claims/rel-f1--driver-circuit-compete/` | `2e9e06d0d25f2e39` | `f204dc92faa0ecb6` |
+| rel-f1/results-position | run_0012 | `benchmarks/relbench/claims/rel-f1--results-position/` | `f17a80cf508857f8` | `35fd384abb624cc0` |
 | rel-f1/qualifying-position | run_0006 | `benchmarks/relbench/claims/rel-f1--qualifying-position/` | `d373f70391d1eac7` | `09a6f18f2d038a61` |
 | rel-event/event_interest-interested | run_0002 | `benchmarks/relbench/claims/rel-event--event_interest-interested/` | `4ee5393609e60f14` | `52d10e76901aa469` |
 | rel-event/event_interest-not_interested | run_0006 | `benchmarks/relbench/claims/rel-event--event_interest-not_interested/` | `13da1ef3ecc8106f` | `a32f14d245c1267b` |
