@@ -1,0 +1,7 @@
+RepoMemory sections consulted: core.architecture, core.where_to_edit, core.invariants, core.testing, core.gotchas, core.dependencies
+2026-08-01: Profiled immutable scoring, task-table formats, two-snapshot primary-key behavior, split time ranges, burst-size strata, and pick-count structure.
+2026-08-01: Kept kapso_evaluation read-only as required; persisted the requested measurement profile at measurement_profile.md because modifying any evaluation-suite path is explicitly prohibited.
+2026-08-01: Replaced the baseline with a two-model conditional-choice pipeline in main.py and rel_event_model.py. Model A uses train labels only for validation; Model B rebuilds all histories and stages from train plus validation for test.
+2026-08-01: Added exact source-time censoring, all-table static features, strict-prefix label/friend histories, burst aggregation, regularized binary LightGBM, LambdaRank, a `[128,64]` conditional-softmax MLP, temperature/regularization selection, and a fold-gated row GBDT guard.
+2026-08-01: Added shared cache artifact lane1_conditional_choice_v7.pkl, registered with content key lane1_conditional_choice_v7. No external datasets or pretrained data were used.
+2026-08-01: Verified full-shape prediction files with kapso_datasets/check_predictions.py and recorded five-fold global/burst/ranking/size-stratum diagnostics.
