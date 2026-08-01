@@ -750,6 +750,24 @@ class TestBooleanTargetCoercion:
         with pytest.raises(ValueError, match="non-boolean strings"):
             coerce_boolean_target(table, "target")
 
+    def test_flat_cache_skips_coercion_for_recommendation_tasks(self):
+        """A RecommendationTask has no scalar `target_col` — link prediction
+        carries src/dst entity columns instead. Reaching for `task.target_col`
+        while writing the flat cache raised AttributeError and failed every
+        recommendation task at sandbox-build time (observed live on
+        rel-ratebeer/user-place-liked). Coercion must be gated on the same
+        `src_entity_col` check the rest of the builder dispatches on."""
+        import inspect
+
+        from benchmarks.relbench import sandbox
+
+        src = inspect.getsource(sandbox.build_sanitized_cache)
+        coerce_at = src.index("coerce_boolean_target(table")
+        guard_at = src.index('if not hasattr(task, "src_entity_col")')
+        assert guard_at < coerce_at, (
+            "coerce_boolean_target must sit behind the RecommendationTask guard"
+        )
+
 
 class TestGraderSelectionLabel:
     def test_void_run_stamps_and_rejects_cross_session(self, tmp_path, monkeypatch):

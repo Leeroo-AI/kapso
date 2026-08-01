@@ -201,12 +201,13 @@ def build_sanitized_cache(
                 f"Pristine task table missing: {src_pq}. "
                 "Download the task first (handler does this automatically)."
             )
-        # A text boolean target ('t'/'f') must reach the candidate as 0/1:
-        # relbench's own metrics reject string labels, so the in-loop grader
-        # would fail on every run (observed live on rel-trial/studies-has_dmc).
-        table = coerce_boolean_target(
-            task.get_table(split, mask_input_cols=False), task.target_col
-        )
+        table = task.get_table(split, mask_input_cols=False)
+        if not hasattr(task, "src_entity_col"):  # EntityTask / AutoCompleteTask
+            # A text boolean target ('t'/'f') must reach the candidate as 0/1:
+            # relbench's own metrics reject string labels, so the in-loop grader
+            # would fail on every run (observed live on rel-trial/studies-has_dmc).
+            # RecommendationTask has no scalar target_col — nothing to coerce.
+            table = coerce_boolean_target(table, task.target_col)
         table.save(str(dest_task_dir / f"{split}.parquet"))
 
     test_table = task.get_table("test", mask_input_cols=False)
