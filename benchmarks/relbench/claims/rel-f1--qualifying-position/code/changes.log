@@ -1,0 +1,9 @@
+RepoMemory sections consulted: core.architecture, core.entrypoints, core.where_to_edit, core.invariants, core.testing, core.gotchas, core.dependencies
+2026-08-01: Profiled immutable evaluation mechanics and input distributions; recorded the plan and coverage axes.
+2026-08-01: Replaced the trivial baseline with delayed-grid online constructor, constructor-season, driver-field, and teammate ratings; soft expected-rank decoding; and race-sum projection.
+2026-08-01: Added cached strict-as-of features from results, standings, constructor results/standings, qualifying rosters, entities, inferred historical schedules, races, and circuits.
+2026-08-01: Added four expanding train-race folds for neutral/lower debut prior, temperature, feature-group, 400/800-tree, and residual-blend selection using CatBoost seeds 17/37/73.
+2026-08-01: Preserved Chain A validation predictions before fitting Chain B on train plus validation; verified both prediction arrays with kapso_datasets/check_predictions.py.
+2026-08-01: Fast registered evaluation passed with r2=0.5164488562311311, mae=3.2570573844717083, rmse=4.209890797268837.
+2026-08-01: Difficulty: the first prediction checker invocation used its default kapso_output path and reported a missing file; rerunning with KAPSO_RUN_DATA_DIR=./output_data_generic_exp_0 passed.
+2026-08-01: Difficulty: an initial RepoMemory JSON extraction assumed sections was a list and raised TypeError; reading the keyed section dictionary fixed it.

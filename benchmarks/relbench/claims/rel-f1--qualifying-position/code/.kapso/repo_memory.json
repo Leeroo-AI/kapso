@@ -1,0 +1,1224 @@
+{
+  "schema_version": 2,
+  "generated_at": "2026-08-01T06:33:21.254219+00:00",
+  "baseline": {
+    "initial_repo": "/tmp/relbench_baseline_1fb4oeb8"
+  },
+  "repo_map": {
+    "repo_root": ".",
+    "file_count": 9,
+    "files": [
+      ".gitignore",
+      "kapso_datasets/CONTRACT.md",
+      "kapso_datasets/README.md",
+      "kapso_datasets/__init__.py",
+      "kapso_datasets/check_predictions.py",
+      "kapso_datasets/common.py",
+      "kapso_evaluation/README.md",
+      "kapso_evaluation/grader.py",
+      "main.py"
+    ],
+    "languages_by_extension": {
+      ".py": 5,
+      ".md": 3
+    },
+    "key_files": [],
+    "entrypoints": [
+      "main.py"
+    ]
+  },
+  "repo_model": {
+    "summary": "This repository is a RelBench generic-search candidate baseline: it loads a task from the sanitized cache and emits shape-aware trivial predictions for recommendation, classification, or regression tasks. The provided evaluation suite runs main.py in isolation, validates and scores validation predictions, and archives full-fidelity runs.",
+    "entrypoints": [
+      {
+        "path": "main.py",
+        "how_to_run": "python main.py --debug for the fast/cheap pipeline check; python main.py for the full run"
+      },
+      {
+        "path": "kapso_evaluation/grader.py",
+        "how_to_run": "python kapso_evaluation/grader.py --fidelity fast|full [--fraction F] [--seed S]"
+      }
+    ],
+    "where_to_edit": [
+      {
+        "path": "main.py",
+        "role": "Primary candidate implementation and required repository-root entrypoint; replace the trivial prediction logic here"
+      },
+      {
+        "path": "kapso_datasets/common.py",
+        "role": "Optional task-loading, output-saving, temporal-safety, and MAP@K helpers"
+      },
+      {
+        "path": "kapso_datasets/check_predictions.py",
+        "role": "Local prediction-contract validator; use for validation rather than modifying"
+      },
+      {
+        "path": "kapso_evaluation/grader.py",
+        "role": "Provided immutable evaluation pipeline; do not edit"
+      }
+    ],
+    "claims": [
+      {
+        "kind": "architecture",
+        "statement": "main.py derives the dataset and task from environment variables, loads the RelBench task with downloads disabled, computes validation/test row counts, and detects rolling mode from an empty or missing cached validation table.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 20,
+            "description": "Reads RELBENCH_DATASET and RELBENCH_TASK"
+          },
+          {
+            "path": "main.py",
+            "line": 22,
+            "description": "Loads the task with download=False"
+          },
+          {
+            "path": "main.py",
+            "line": 23,
+            "description": "Documents empty validation tables in rolling snapshots"
+          },
+          {
+            "path": "main.py",
+            "line": 27,
+            "description": "Sets validation row count to zero when val.parquet is absent"
+          }
+        ]
+      },
+      {
+        "kind": "algorithm",
+        "statement": "The baseline selects predictions by task family: recommendation rows repeat the ranking 0..K-1, binary classification uses 0.5, multiclass classification uses a uniform class distribution, and all other task types use the training target median.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 31,
+            "description": "Branches on RecommendationTask"
+          },
+          {
+            "path": "main.py",
+            "line": 33,
+            "description": "Builds the trivial recommendation ranking"
+          },
+          {
+            "path": "main.py",
+            "line": 36,
+            "description": "Handles binary classification"
+          },
+          {
+            "path": "main.py",
+            "line": 39,
+            "description": "Handles multiclass classification"
+          },
+          {
+            "path": "main.py",
+            "line": 44,
+            "description": "Uses the training target median for the fallback branch"
+          }
+        ]
+      },
+      {
+        "kind": "architecture",
+        "statement": "Prediction artifacts are written to KAPSO_RUN_DATA_DIR; ordinary runs write both validation and test arrays, while rolling invocations omit the per-tick validation file and always write the current tick's test predictions.",
+        "confidence": 0.98,
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 49,
+            "description": "Reads the run output directory"
+          },
+          {
+            "path": "main.py",
+            "line": 50,
+            "description": "Writes validation predictions only outside rolling mode"
+          },
+          {
+            "path": "main.py",
+            "line": 52,
+            "description": "Always writes test predictions"
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 139,
+            "description": "Defines rolling one-invocation-per-tick execution"
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 191,
+            "description": "Assembles rolling predictions into final split vectors"
+          }
+        ]
+      },
+      {
+        "kind": "architecture",
+        "statement": "kapso_datasets/common.py provides the reusable task context and contract helpers: it loads dataset, task, database, train, validation, and test tables, saves both prediction arrays, checks temporal safety, and evaluates MAP@K.",
+        "confidence": 0.97,
+        "evidence": [
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 44,
+            "description": "Defines TaskContext"
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 60,
+            "description": "Defines sanitized-cache task loading"
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 86,
+            "description": "Defines the prediction-saving helper"
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 97,
+            "description": "Defines temporal-safety validation"
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 106,
+            "description": "Defines MAP@K evaluation"
+          }
+        ]
+      },
+      {
+        "kind": "architecture",
+        "statement": "The immutable grader launches main.py as an isolated child process, validates prediction artifacts, computes official RelBench validation metrics, archives full runs, and emits a machine-readable manifest.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 77,
+            "description": "Defines isolated candidate execution"
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 204,
+            "description": "Loads the task for scoring"
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 232,
+            "description": "Computes official validation metrics"
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 239,
+            "description": "Defines full-run archiving"
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 351,
+            "description": "Prints the KAPSO_EVAL_MANIFEST line"
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "For ordinary runs, both val_predictions.npy and test_predictions.npy must exist after every invocation, with rows positionally aligned to the task validation and test tables; validation predictions must be out-of-sample with respect to validation labels.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 15,
+            "description": "Requires both prediction files after every run"
+          },
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 16,
+            "description": "Requires positional row alignment"
+          },
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 17,
+            "description": "Requires validation predictions to be out-of-sample"
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "Prediction formats are task-specific: binary and regression use one-dimensional finite float arrays, multiclass uses an N-by-C float array, and recommendation uses an integer N-by-K ranking of destination IDs.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 20,
+            "description": "Specifies binary and regression float formats"
+          },
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 21,
+            "description": "Specifies multiclass and recommendation formats"
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 37,
+            "description": "Validates recommendation shape and integer dtype"
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 54,
+            "description": "Validates non-recommendation shapes"
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 58,
+            "description": "Validates binary probability bounds"
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "Dataset and task access must use the sanitized cache with download=False; test labels are physically absent and must not be probed.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 25,
+            "description": "Requires RelBench API access with download=False"
+          },
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 26,
+            "description": "States that test labels are absent"
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 71,
+            "description": "Loads the dataset with download=False"
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 72,
+            "description": "Loads the task with download=False"
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "The search score is the official validation primary metric; test metrics are private, and the grader records the selected primary metric in the manifest without transforming its direction.",
+        "confidence": 0.98,
+        "evidence": [
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 23,
+            "description": "Defines the official validation primary metric as the search score"
+          },
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 24,
+            "description": "States that test metrics are private"
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 232,
+            "description": "Computes validation metrics"
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 347,
+            "description": "Places the primary validation metric in the manifest score"
+          },
+          {
+            "path": "kapso_evaluation/README.md",
+            "line": 41,
+            "description": "Defines the manifest score as the score of record"
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "The starter TaskContext treats train and validation tables as label-bearing, while the test table contains seed IDs and timestamps only.",
+        "confidence": 0.96,
+        "evidence": [
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 51,
+            "description": "Documents train as labels included"
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 52,
+            "description": "Documents validation as labels included"
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 53,
+            "description": "Documents test as seed IDs and timestamps only"
+          }
+        ]
+      },
+      {
+        "kind": "other",
+        "statement": "The harness expects a fast debug invocation followed by a full invocation, and both modes must finish with valid prediction artifacts.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 3,
+            "description": "States that the harness runs the program twice"
+          },
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 5,
+            "description": "Defines the debug command"
+          },
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 6,
+            "description": "Defines the full command"
+          },
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 15,
+            "description": "Requires prediction files after every run"
+          }
+        ]
+      },
+      {
+        "kind": "other",
+        "statement": "After writing predictions, run kapso_datasets/check_predictions.py; success is indicated by per-split OK messages followed by 'all checks passed'.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 27,
+            "description": "Recommends the self-check command"
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 62,
+            "description": "Prints OK for each validated split"
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 69,
+            "description": "Prints the successful completion message"
+          }
+        ]
+      },
+      {
+        "kind": "other",
+        "statement": "The official fast grader runs main.py --debug against the complete validation split and reports official metrics plus a KAPSO_EVAL_MANIFEST score.",
+        "confidence": 0.98,
+        "evidence": [
+          {
+            "path": "kapso_evaluation/README.md",
+            "line": 22,
+            "description": "Maps fast fidelity to main.py --debug"
+          },
+          {
+            "path": "kapso_evaluation/README.md",
+            "line": 28,
+            "description": "States that the scored item set never shrinks"
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 338,
+            "description": "Prints official validation metrics"
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 351,
+            "description": "Emits the machine-readable manifest"
+          }
+        ]
+      },
+      {
+        "kind": "other",
+        "statement": "Rolling snapshots intentionally have an empty or absent validation table: main.py detects this as rolling mode, skips val_predictions.npy for that tick, and the grader only requires the tick's test predictions before assembling final vectors.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 23,
+            "description": "Documents the rolling empty-validation behavior"
+          },
+          {
+            "path": "main.py",
+            "line": 28,
+            "description": "Sets rolling based on zero validation rows"
+          },
+          {
+            "path": "main.py",
+            "line": 50,
+            "description": "Skips the validation file in rolling mode"
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 174,
+            "description": "Checks for per-tick test predictions"
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 191,
+            "description": "Assembles the final rolling output"
+          }
+        ]
+      },
+      {
+        "kind": "other",
+        "statement": "The baseline does not implement separate debug and full prediction logic; --debug is only reflected in the final diagnostic print.",
+        "confidence": 0.95,
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 31,
+            "description": "Prediction branches contain no debug-mode branch"
+          },
+          {
+            "path": "main.py",
+            "line": 53,
+            "description": "Produces one diagnostic output message"
+          },
+          {
+            "path": "main.py",
+            "line": 56,
+            "description": "Uses --debug only in the diagnostic field"
+          }
+        ]
+      },
+      {
+        "kind": "other",
+        "statement": "Any task that is not recommendation, binary classification, or multiclass classification falls through to the regression-style training-target median prediction.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 36,
+            "description": "Ends the binary classification branch"
+          },
+          {
+            "path": "main.py",
+            "line": 39,
+            "description": "Ends the multiclass classification branch"
+          },
+          {
+            "path": "main.py",
+            "line": 43,
+            "description": "Introduces the catch-all branch"
+          },
+          {
+            "path": "main.py",
+            "line": 45,
+            "description": "Computes the training target median"
+          }
+        ]
+      },
+      {
+        "kind": "other",
+        "statement": "When using the helper loader for autocomplete tasks, the default upto_test_timestamp=True excludes post-test-cutoff entity rows; callers needing those rows as blank-target inputs must explicitly pass False.",
+        "confidence": 0.98,
+        "evidence": [
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 60,
+            "description": "Defines the default upto_test_timestamp=True"
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 63,
+            "description": "Documents the autocomplete exception"
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 64,
+            "description": "Requires False to access post-test-cutoff input rows"
+          }
+        ]
+      },
+      {
+        "kind": "deployment",
+        "statement": "The candidate depends on NumPy and the RelBench Python APIs, including relbench.base and relbench.tasks; the evaluation suite states that no setup beyond Python with relbench and numpy installed is required.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 13,
+            "description": "Imports NumPy"
+          },
+          {
+            "path": "main.py",
+            "line": 15,
+            "description": "Imports RelBench task classes and types"
+          },
+          {
+            "path": "kapso_evaluation/README.md",
+            "line": 33,
+            "description": "States that configuration arrives through environment variables"
+          },
+          {
+            "path": "kapso_evaluation/README.md",
+            "line": 36,
+            "description": "Lists relbench and numpy as the required installed packages"
+          }
+        ]
+      },
+      {
+        "kind": "deployment",
+        "statement": "The harness supplies dataset/task identity, primary metric, cache and archive locations, and debug/full timeouts through environment variables; candidate output is directed through KAPSO_RUN_DATA_DIR.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 21,
+            "description": "Lists dataset and task environment variables"
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 24,
+            "description": "Lists timeout and cache environment variables"
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 25,
+            "description": "Lists the sanitized cache variable"
+          },
+          {
+            "path": "main.py",
+            "line": 49,
+            "description": "Reads KAPSO_RUN_DATA_DIR for prediction output"
+          }
+        ]
+      }
+    ]
+  },
+  "book": {
+    "summary": "This repository is a RelBench generic-search candidate baseline: it loads a task from the sanitized cache and emits shape-aware trivial predictions for recommendation, classification, or regression tasks. The provided evaluation suite runs main.py in isolation, validates and scores validation predictions, and archives full-fidelity runs.",
+    "toc": [
+      {
+        "id": "core.architecture",
+        "title": "Architecture",
+        "one_liner": "Environment-driven RelBench candidate with task-specific prediction branches and an isolated official evaluator"
+      },
+      {
+        "id": "core.entrypoints",
+        "title": "Entrypoints",
+        "one_liner": "Run the candidate directly for debug or full evaluation"
+      },
+      {
+        "id": "core.where_to_edit",
+        "title": "Where to edit",
+        "one_liner": "Replace the baseline in main.py and reuse the starter helpers as needed"
+      },
+      {
+        "id": "core.invariants",
+        "title": "Invariants",
+        "one_liner": "Prediction files, task data access, and official scoring must follow the RelBench harness contract"
+      },
+      {
+        "id": "core.testing",
+        "title": "Testing",
+        "one_liner": "Use the debug run, prediction checker, and official fast grader for validation"
+      },
+      {
+        "id": "core.gotchas",
+        "title": "Gotchas",
+        "one_liner": "Rolling snapshots, debug mode, and fallback behavior can differ from an ordinary full run"
+      },
+      {
+        "id": "core.dependencies",
+        "title": "Dependencies",
+        "one_liner": "Requires Python with RelBench and NumPy plus harness-provided environment configuration"
+      }
+    ],
+    "sections": {
+      "core.architecture": {
+        "title": "Architecture",
+        "one_liner": "Environment-driven RelBench candidate with task-specific prediction branches and an isolated official evaluator",
+        "claims": [
+          {
+            "kind": "architecture",
+            "statement": "main.py derives the dataset and task from environment variables, loads the RelBench task with downloads disabled, computes validation/test row counts, and detects rolling mode from an empty or missing cached validation table.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "main.py",
+                "line": 20,
+                "description": "Reads RELBENCH_DATASET and RELBENCH_TASK"
+              },
+              {
+                "path": "main.py",
+                "line": 22,
+                "description": "Loads the task with download=False"
+              },
+              {
+                "path": "main.py",
+                "line": 23,
+                "description": "Documents empty validation tables in rolling snapshots"
+              },
+              {
+                "path": "main.py",
+                "line": 27,
+                "description": "Sets validation row count to zero when val.parquet is absent"
+              }
+            ]
+          },
+          {
+            "kind": "algorithm",
+            "statement": "The baseline selects predictions by task family: recommendation rows repeat the ranking 0..K-1, binary classification uses 0.5, multiclass classification uses a uniform class distribution, and all other task types use the training target median.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "main.py",
+                "line": 31,
+                "description": "Branches on RecommendationTask"
+              },
+              {
+                "path": "main.py",
+                "line": 33,
+                "description": "Builds the trivial recommendation ranking"
+              },
+              {
+                "path": "main.py",
+                "line": 36,
+                "description": "Handles binary classification"
+              },
+              {
+                "path": "main.py",
+                "line": 39,
+                "description": "Handles multiclass classification"
+              },
+              {
+                "path": "main.py",
+                "line": 44,
+                "description": "Uses the training target median for the fallback branch"
+              }
+            ]
+          },
+          {
+            "kind": "architecture",
+            "statement": "Prediction artifacts are written to KAPSO_RUN_DATA_DIR; ordinary runs write both validation and test arrays, while rolling invocations omit the per-tick validation file and always write the current tick's test predictions.",
+            "confidence": 0.98,
+            "evidence": [
+              {
+                "path": "main.py",
+                "line": 49,
+                "description": "Reads the run output directory"
+              },
+              {
+                "path": "main.py",
+                "line": 50,
+                "description": "Writes validation predictions only outside rolling mode"
+              },
+              {
+                "path": "main.py",
+                "line": 52,
+                "description": "Always writes test predictions"
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 139,
+                "description": "Defines rolling one-invocation-per-tick execution"
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 191,
+                "description": "Assembles rolling predictions into final split vectors"
+              }
+            ]
+          },
+          {
+            "kind": "architecture",
+            "statement": "kapso_datasets/common.py provides the reusable task context and contract helpers: it loads dataset, task, database, train, validation, and test tables, saves both prediction arrays, checks temporal safety, and evaluates MAP@K.",
+            "confidence": 0.97,
+            "evidence": [
+              {
+                "path": "kapso_datasets/common.py",
+                "line": 44,
+                "description": "Defines TaskContext"
+              },
+              {
+                "path": "kapso_datasets/common.py",
+                "line": 60,
+                "description": "Defines sanitized-cache task loading"
+              },
+              {
+                "path": "kapso_datasets/common.py",
+                "line": 86,
+                "description": "Defines the prediction-saving helper"
+              },
+              {
+                "path": "kapso_datasets/common.py",
+                "line": 97,
+                "description": "Defines temporal-safety validation"
+              },
+              {
+                "path": "kapso_datasets/common.py",
+                "line": 106,
+                "description": "Defines MAP@K evaluation"
+              }
+            ]
+          },
+          {
+            "kind": "architecture",
+            "statement": "The immutable grader launches main.py as an isolated child process, validates prediction artifacts, computes official RelBench validation metrics, archives full runs, and emits a machine-readable manifest.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 77,
+                "description": "Defines isolated candidate execution"
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 204,
+                "description": "Loads the task for scoring"
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 232,
+                "description": "Computes official validation metrics"
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 239,
+                "description": "Defines full-run archiving"
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 351,
+                "description": "Prints the KAPSO_EVAL_MANIFEST line"
+              }
+            ]
+          }
+        ]
+      },
+      "core.entrypoints": {
+        "title": "Entrypoints",
+        "one_liner": "Run the candidate directly for debug or full evaluation",
+        "content": [
+          {
+            "path": "main.py",
+            "how_to_run": "python main.py --debug for the fast/cheap pipeline check; python main.py for the full run"
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "how_to_run": "python kapso_evaluation/grader.py --fidelity fast|full [--fraction F] [--seed S]"
+          }
+        ]
+      },
+      "core.where_to_edit": {
+        "title": "Where to edit",
+        "one_liner": "Replace the baseline in main.py and reuse the starter helpers as needed",
+        "content": [
+          {
+            "path": "main.py",
+            "role": "Primary candidate implementation and required repository-root entrypoint; replace the trivial prediction logic here"
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "role": "Optional task-loading, output-saving, temporal-safety, and MAP@K helpers"
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "role": "Local prediction-contract validator; use for validation rather than modifying"
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "role": "Provided immutable evaluation pipeline; do not edit"
+          }
+        ]
+      },
+      "core.invariants": {
+        "title": "Invariants",
+        "one_liner": "Prediction files, task data access, and official scoring must follow the RelBench harness contract",
+        "claims": [
+          {
+            "kind": "contract",
+            "statement": "For ordinary runs, both val_predictions.npy and test_predictions.npy must exist after every invocation, with rows positionally aligned to the task validation and test tables; validation predictions must be out-of-sample with respect to validation labels.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 15,
+                "description": "Requires both prediction files after every run"
+              },
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 16,
+                "description": "Requires positional row alignment"
+              },
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 17,
+                "description": "Requires validation predictions to be out-of-sample"
+              }
+            ]
+          },
+          {
+            "kind": "contract",
+            "statement": "Prediction formats are task-specific: binary and regression use one-dimensional finite float arrays, multiclass uses an N-by-C float array, and recommendation uses an integer N-by-K ranking of destination IDs.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 20,
+                "description": "Specifies binary and regression float formats"
+              },
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 21,
+                "description": "Specifies multiclass and recommendation formats"
+              },
+              {
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 37,
+                "description": "Validates recommendation shape and integer dtype"
+              },
+              {
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 54,
+                "description": "Validates non-recommendation shapes"
+              },
+              {
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 58,
+                "description": "Validates binary probability bounds"
+              }
+            ]
+          },
+          {
+            "kind": "contract",
+            "statement": "Dataset and task access must use the sanitized cache with download=False; test labels are physically absent and must not be probed.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 25,
+                "description": "Requires RelBench API access with download=False"
+              },
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 26,
+                "description": "States that test labels are absent"
+              },
+              {
+                "path": "kapso_datasets/common.py",
+                "line": 71,
+                "description": "Loads the dataset with download=False"
+              },
+              {
+                "path": "kapso_datasets/common.py",
+                "line": 72,
+                "description": "Loads the task with download=False"
+              }
+            ]
+          },
+          {
+            "kind": "contract",
+            "statement": "The search score is the official validation primary metric; test metrics are private, and the grader records the selected primary metric in the manifest without transforming its direction.",
+            "confidence": 0.98,
+            "evidence": [
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 23,
+                "description": "Defines the official validation primary metric as the search score"
+              },
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 24,
+                "description": "States that test metrics are private"
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 232,
+                "description": "Computes validation metrics"
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 347,
+                "description": "Places the primary validation metric in the manifest score"
+              },
+              {
+                "path": "kapso_evaluation/README.md",
+                "line": 41,
+                "description": "Defines the manifest score as the score of record"
+              }
+            ]
+          },
+          {
+            "kind": "contract",
+            "statement": "The starter TaskContext treats train and validation tables as label-bearing, while the test table contains seed IDs and timestamps only.",
+            "confidence": 0.96,
+            "evidence": [
+              {
+                "path": "kapso_datasets/common.py",
+                "line": 51,
+                "description": "Documents train as labels included"
+              },
+              {
+                "path": "kapso_datasets/common.py",
+                "line": 52,
+                "description": "Documents validation as labels included"
+              },
+              {
+                "path": "kapso_datasets/common.py",
+                "line": 53,
+                "description": "Documents test as seed IDs and timestamps only"
+              }
+            ]
+          }
+        ]
+      },
+      "core.testing": {
+        "title": "Testing",
+        "one_liner": "Use the debug run, prediction checker, and official fast grader for validation",
+        "claims": [
+          {
+            "kind": "other",
+            "statement": "The harness expects a fast debug invocation followed by a full invocation, and both modes must finish with valid prediction artifacts.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 3,
+                "description": "States that the harness runs the program twice"
+              },
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 5,
+                "description": "Defines the debug command"
+              },
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 6,
+                "description": "Defines the full command"
+              },
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 15,
+                "description": "Requires prediction files after every run"
+              }
+            ]
+          },
+          {
+            "kind": "other",
+            "statement": "After writing predictions, run kapso_datasets/check_predictions.py; success is indicated by per-split OK messages followed by 'all checks passed'.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 27,
+                "description": "Recommends the self-check command"
+              },
+              {
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 62,
+                "description": "Prints OK for each validated split"
+              },
+              {
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 69,
+                "description": "Prints the successful completion message"
+              }
+            ]
+          },
+          {
+            "kind": "other",
+            "statement": "The official fast grader runs main.py --debug against the complete validation split and reports official metrics plus a KAPSO_EVAL_MANIFEST score.",
+            "confidence": 0.98,
+            "evidence": [
+              {
+                "path": "kapso_evaluation/README.md",
+                "line": 22,
+                "description": "Maps fast fidelity to main.py --debug"
+              },
+              {
+                "path": "kapso_evaluation/README.md",
+                "line": 28,
+                "description": "States that the scored item set never shrinks"
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 338,
+                "description": "Prints official validation metrics"
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 351,
+                "description": "Emits the machine-readable manifest"
+              }
+            ]
+          }
+        ]
+      },
+      "core.gotchas": {
+        "title": "Gotchas",
+        "one_liner": "Rolling snapshots, debug mode, and fallback behavior can differ from an ordinary full run",
+        "claims": [
+          {
+            "kind": "other",
+            "statement": "Rolling snapshots intentionally have an empty or absent validation table: main.py detects this as rolling mode, skips val_predictions.npy for that tick, and the grader only requires the tick's test predictions before assembling final vectors.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "main.py",
+                "line": 23,
+                "description": "Documents the rolling empty-validation behavior"
+              },
+              {
+                "path": "main.py",
+                "line": 28,
+                "description": "Sets rolling based on zero validation rows"
+              },
+              {
+                "path": "main.py",
+                "line": 50,
+                "description": "Skips the validation file in rolling mode"
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 174,
+                "description": "Checks for per-tick test predictions"
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 191,
+                "description": "Assembles the final rolling output"
+              }
+            ]
+          },
+          {
+            "kind": "other",
+            "statement": "The baseline does not implement separate debug and full prediction logic; --debug is only reflected in the final diagnostic print.",
+            "confidence": 0.95,
+            "evidence": [
+              {
+                "path": "main.py",
+                "line": 31,
+                "description": "Prediction branches contain no debug-mode branch"
+              },
+              {
+                "path": "main.py",
+                "line": 53,
+                "description": "Produces one diagnostic output message"
+              },
+              {
+                "path": "main.py",
+                "line": 56,
+                "description": "Uses --debug only in the diagnostic field"
+              }
+            ]
+          },
+          {
+            "kind": "other",
+            "statement": "Any task that is not recommendation, binary classification, or multiclass classification falls through to the regression-style training-target median prediction.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "main.py",
+                "line": 36,
+                "description": "Ends the binary classification branch"
+              },
+              {
+                "path": "main.py",
+                "line": 39,
+                "description": "Ends the multiclass classification branch"
+              },
+              {
+                "path": "main.py",
+                "line": 43,
+                "description": "Introduces the catch-all branch"
+              },
+              {
+                "path": "main.py",
+                "line": 45,
+                "description": "Computes the training target median"
+              }
+            ]
+          },
+          {
+            "kind": "other",
+            "statement": "When using the helper loader for autocomplete tasks, the default upto_test_timestamp=True excludes post-test-cutoff entity rows; callers needing those rows as blank-target inputs must explicitly pass False.",
+            "confidence": 0.98,
+            "evidence": [
+              {
+                "path": "kapso_datasets/common.py",
+                "line": 60,
+                "description": "Defines the default upto_test_timestamp=True"
+              },
+              {
+                "path": "kapso_datasets/common.py",
+                "line": 63,
+                "description": "Documents the autocomplete exception"
+              },
+              {
+                "path": "kapso_datasets/common.py",
+                "line": 64,
+                "description": "Requires False to access post-test-cutoff input rows"
+              }
+            ]
+          }
+        ]
+      },
+      "core.dependencies": {
+        "title": "Dependencies",
+        "one_liner": "Requires Python with RelBench and NumPy plus harness-provided environment configuration",
+        "claims": [
+          {
+            "kind": "deployment",
+            "statement": "The candidate depends on NumPy and the RelBench Python APIs, including relbench.base and relbench.tasks; the evaluation suite states that no setup beyond Python with relbench and numpy installed is required.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "main.py",
+                "line": 13,
+                "description": "Imports NumPy"
+              },
+              {
+                "path": "main.py",
+                "line": 15,
+                "description": "Imports RelBench task classes and types"
+              },
+              {
+                "path": "kapso_evaluation/README.md",
+                "line": 33,
+                "description": "States that configuration arrives through environment variables"
+              },
+              {
+                "path": "kapso_evaluation/README.md",
+                "line": 36,
+                "description": "Lists relbench and numpy as the required installed packages"
+              }
+            ]
+          },
+          {
+            "kind": "deployment",
+            "statement": "The harness supplies dataset/task identity, primary metric, cache and archive locations, and debug/full timeouts through environment variables; candidate output is directed through KAPSO_RUN_DATA_DIR.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 21,
+                "description": "Lists dataset and task environment variables"
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 24,
+                "description": "Lists timeout and cache environment variables"
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 25,
+                "description": "Lists the sanitized cache variable"
+              },
+              {
+                "path": "main.py",
+                "line": 49,
+                "description": "Reads KAPSO_RUN_DATA_DIR for prediction output"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "experiments": [],
+  "quality": {
+    "evidence_ok": true,
+    "missing_evidence": [],
+    "section_count": 7,
+    "claim_count": 19
+  }
+}
