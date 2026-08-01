@@ -3,7 +3,7 @@
 **Auto-generated — do not edit by hand.** Regenerate with:
 `PYTHONPATH=src:. python -m benchmarks.relbench.scorecard --reference`
 
-Status: **36/66 tasks run**, 21 beating the best published number. Category-level gates: run the scorecard (same module, no flags).
+Status: **37/66 tasks run**, 21 beating the best published number. Category-level gates: run the scorecard (same module, no flags).
 
 ## Benchmark version & leaderboard submission
 
@@ -73,7 +73,7 @@ Values in the best-known number's units (AUROC/acc/MAP in %, NMAE, R², raw MAE)
 | 14 | rel-salt/sales-shipcond | AC-mul | v2 | 56.9 (GraphSAGE) | — | — | — | — | — | — | CPU-ok | 4h | · pending |
 | 15 | rel-salt/sales-incoterms | AC-mul | v2 | 62.2 (GraphSAGE) | — | — | — | — | — | — | CPU-ok | 4h | · pending |
 | 16 | rel-salt/item-incoterms | AC-mul | v2 | 69.4 (GraphSAGE) | — | — | — | — | — | — | CPU-ok | 4h | · pending |
-| 17 | rel-trial/studies-enrollment | AC-reg | v2 | 0.436 (RelGT-AC) | — | — | — | — | — | — | 4xA100 | 4h | ▶ running |
+| 17 | rel-trial/studies-enrollment | AC-reg | v2 | 0.436 (RelGT-AC) | — | — | — | — | 0.00111 | below best-known | 4xA100 | 4h | ✅ done |
 | 18 | rel-trial/studies-has_dmc | AC-bin | v2 | 78.5 (RelGT-AC) | — | — | — | — | — | — | 4xA100 | 4h | ▶ running |
 | 19 | rel-avito/searchinfo-isuserloggedon | AC-bin | v2 | 73 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 4h | ▶ running |
 | 20 | rel-avito/searchstream-click | AC-bin | v2 | 55.9 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 4h | ▶ running |
@@ -142,6 +142,7 @@ Complete campaign state per run — session transcripts, lens/ideation history, 
 | rel-event/event_interest-interested | `gs://leeroo-kapso-relbench-artifacts/runs/rel-event--event_interest-interested/20260801T091837_lane-b2.tgz` |
 | rel-event/event_interest-not_interested | `gs://leeroo-kapso-relbench-artifacts/runs/rel-event--event_interest-not_interested/20260801T094124_lane-b3.tgz` |
 | rel-event/users-birthyear | `gs://leeroo-kapso-relbench-artifacts/runs/rel-event--users-birthyear/20260801T124120_lane-b2.tgz` |
+| rel-trial/studies-enrollment | `gs://leeroo-kapso-relbench-artifacts/runs/rel-trial--studies-enrollment/20260801T132017_lane-a3.tgz` |
 
 ## Winning artifacts (durable, committed — for organizer handoff)
 
