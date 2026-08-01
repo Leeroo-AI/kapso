@@ -126,6 +126,7 @@ Complete campaign state per run — session transcripts, lens/ideation history, 
 | rel-stack/user-engagement | `gs://leeroo-kapso-relbench-artifacts/runs/rel-stack--user-engagement/20260731T104428_lane-b3.tgz` |
 | rel-stack/user-badge | `gs://leeroo-kapso-relbench-artifacts/runs/rel-stack--user-badge/20260731T103444_lane-b2.tgz` |
 | rel-stack/post-votes | `gs://leeroo-kapso-relbench-artifacts/runs/rel-stack--post-votes/20260731T112323_lane-b1.tgz` |
+| rel-stack/user-post-comment | `gs://leeroo-kapso-relbench-artifacts/runs/rel-stack--user-post-comment/20260801T045936_lane-a1.tgz` |
 | rel-amazon/user-churn | `gs://leeroo-kapso-relbench-artifacts/runs/rel-amazon--user-churn/20260731T210811_lane-b2.tgz` |
 | rel-amazon/item-churn | `gs://leeroo-kapso-relbench-artifacts/runs/rel-amazon--item-churn/20260731T211833_lane-b3.tgz` |
 | rel-amazon/user-ltv | `gs://leeroo-kapso-relbench-artifacts/runs/rel-amazon--user-ltv/20260731T211904_lane-a2.tgz` |
