@@ -3,7 +3,7 @@
 **Auto-generated — do not edit by hand.** Regenerate with:
 `PYTHONPATH=src:. python -m benchmarks.relbench.scorecard --reference`
 
-Status: **24/66 tasks run**, 13 beating the best published number. Category-level gates: run the scorecard (same module, no flags).
+Status: **26/66 tasks run**, 14 beating the best published number. Category-level gates: run the scorecard (same module, no flags).
 
 ## Benchmark version & leaderboard submission
 
@@ -59,8 +59,8 @@ Values in the best-known number's units (AUROC/acc/MAP in %, NMAE, R², raw MAE)
 | 57 | rel-amazon/item-ltv | reg | v1★ | 0.0696 (Data Scientist + LightGB) | 0.0707 | 0.0824 | 0.0935 | 0.0795 | 0.0655 | ✅ beats best-known | 4xA100 | 6h | ✅ done |
 | 58 | rel-amazon/user-item-purchase | rec | v1★ | 2.93 (ContextGNN / KumoRFM-ft) | — | 2.93 | 1.72 | — | — | — | 4xA100 | 6h | ▶ running |
 | 59 | rel-amazon/user-item-rate | rec | v1★ | 2.25 (ContextGNN / KumoRFM-ft) | — | 2.25 | 1.14 | — | — | — | 4xA100 | 6h | ▶ running |
-| 60 | rel-amazon/user-item-review | rec | v1★ | 1.63 (ContextGNN / KumoRFM-ft) | — | 1.63 | 0.22 | — | — | — | 4xA100 | 6h | ▶ running |
-| 61 | rel-avito/user-visits | clf | v1★ | 78.3 (KumoRFM-ft) | 67.8 | 78.3 | 64.8 | 67.4 | — | — | 4xA100 | 6h | ▶ running |
+| 60 | rel-amazon/user-item-review | rec | v1★ | 1.63 (ContextGNN / KumoRFM-ft) | — | 1.63 | 0.22 | — | 2.95 | ✅ beats best-known | 4xA100 | 6h | ✅ done |
+| 61 | rel-avito/user-visits | clf | v1★ | 78.3 (KumoRFM-ft) | 67.8 | 78.3 | 64.8 | 67.4 | 67.9 | below best-known | 4xA100 | 6h | ✅ done |
 | 62 | rel-f1/driver-top3 ⚠ | clf | v1★ | 99.6 (KumoRFM-ft) | 85.2 | 99.6 | 91.1 | 92.2 | — | — | 4xA100 | 6h | · pending |
 | 2 | rel-f1/driver-circuit-compete | rec | v2★ | 76.2 (ID-GNN-4L) | — | — | — | — | — | — | 4xA100 | 4h | · pending |
 | 3 | rel-f1/results-position | AC-reg | v2 | 0.528 (RelGT-AC) | — | — | — | — | — | — | 4xA100 | 4h | · pending |
@@ -130,6 +130,7 @@ Complete campaign state per run — session transcripts, lens/ideation history, 
 | rel-amazon/item-churn | `gs://leeroo-kapso-relbench-artifacts/runs/rel-amazon--item-churn/20260731T211833_lane-b3.tgz` |
 | rel-amazon/user-ltv | `gs://leeroo-kapso-relbench-artifacts/runs/rel-amazon--user-ltv/20260731T211904_lane-a2.tgz` |
 | rel-amazon/item-ltv | `gs://leeroo-kapso-relbench-artifacts/runs/rel-amazon--item-ltv/20260731T211333_lane-a1.tgz` |
+| rel-avito/user-visits | `gs://leeroo-kapso-relbench-artifacts/runs/rel-avito--user-visits/20260801T045911_lane-b3.tgz` |
 
 ## Winning artifacts (durable, committed — for organizer handoff)
 
@@ -149,3 +150,4 @@ Each claimed cell's evidence is copied from the box-local run archive into `benc
 | rel-hm/user-item-purchase | run_0002 | `benchmarks/relbench/claims/rel-hm--user-item-purchase/` | `ce965643837b1a12` | `572056d90a59dafa` |
 | rel-amazon/user-ltv | run_0006 | `benchmarks/relbench/claims/rel-amazon--user-ltv/` | `cc0faa6dc3cf5388` | `6d913d02825d7545` |
 | rel-amazon/item-ltv | run_0019 | `benchmarks/relbench/claims/rel-amazon--item-ltv/` | `9674278f60a64d6c` | `386a6a3e13a71095` |
+| rel-amazon/user-item-review | run_0012 | `benchmarks/relbench/claims/rel-amazon--user-item-review/` | `efc5f5219be860e7` | `95ad1203ef48f024` |
