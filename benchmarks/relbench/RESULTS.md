@@ -3,7 +3,7 @@
 **Auto-generated — do not edit by hand.** Regenerate with:
 `PYTHONPATH=src:. python -m benchmarks.relbench.scorecard --reference`
 
-Status: **37/66 tasks run**, 21 beating the best published number. Category-level gates: run the scorecard (same module, no flags).
+Status: **38/66 tasks run**, 22 beating the best published number. Category-level gates: run the scorecard (same module, no flags).
 
 ## Benchmark version & leaderboard submission
 
@@ -74,7 +74,7 @@ Values in the best-known number's units (AUROC/acc/MAP in %, NMAE, R², raw MAE)
 | 15 | rel-salt/sales-incoterms | AC-mul | v2 | 62.2 (GraphSAGE) | — | — | — | — | — | — | CPU-ok | 4h | · pending |
 | 16 | rel-salt/item-incoterms | AC-mul | v2 | 69.4 (GraphSAGE) | — | — | — | — | — | — | CPU-ok | 4h | · pending |
 | 17 | rel-trial/studies-enrollment | AC-reg | v2 | 0.436 (RelGT-AC) | — | — | — | — | 0.00111 | below best-known | 4xA100 | 4h | ✅ done |
-| 18 | rel-trial/studies-has_dmc | AC-bin | v2 | 78.5 (RelGT-AC) | — | — | — | — | — | — | 4xA100 | 4h | ▶ running |
+| 18 | rel-trial/studies-has_dmc | AC-bin | v2 | 78.5 (RelGT-AC) | — | — | — | — | 80.8 | ✅ beats best-known | 4xA100 | 4h | ✅ done |
 | 19 | rel-avito/searchinfo-isuserloggedon | AC-bin | v2 | 73 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 4h | ▶ running |
 | 20 | rel-avito/searchstream-click | AC-bin | v2 | 55.9 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 4h | ▶ running |
 | 29 | rel-ratebeer/user-count | reg | v2 | 0.625 (GraphSAGE) | 6.021 (MAE) | — | — | — | — | — | 4xA100 | 4h | ▶ running |
@@ -143,6 +143,7 @@ Complete campaign state per run — session transcripts, lens/ideation history, 
 | rel-event/event_interest-not_interested | `gs://leeroo-kapso-relbench-artifacts/runs/rel-event--event_interest-not_interested/20260801T094124_lane-b3.tgz` |
 | rel-event/users-birthyear | `gs://leeroo-kapso-relbench-artifacts/runs/rel-event--users-birthyear/20260801T124120_lane-b2.tgz` |
 | rel-trial/studies-enrollment | `gs://leeroo-kapso-relbench-artifacts/runs/rel-trial--studies-enrollment/20260801T132017_lane-a3.tgz` |
+| rel-trial/studies-has_dmc | `gs://leeroo-kapso-relbench-artifacts/runs/rel-trial--studies-has_dmc/20260801T140047_lane-b3.tgz` |
 
 ## Winning artifacts (durable, committed — for organizer handoff)
 
@@ -170,3 +171,4 @@ Each claimed cell's evidence is copied from the box-local run archive into `benc
 | rel-event/event_interest-interested | run_0002 | `benchmarks/relbench/claims/rel-event--event_interest-interested/` | `4ee5393609e60f14` | `52d10e76901aa469` |
 | rel-event/event_interest-not_interested | run_0006 | `benchmarks/relbench/claims/rel-event--event_interest-not_interested/` | `13da1ef3ecc8106f` | `a32f14d245c1267b` |
 | rel-event/users-birthyear | run_0018 | `benchmarks/relbench/claims/rel-event--users-birthyear/` | `e7ab8f93a82a9d69` | `12cc6449dd64c9c2` |
+| rel-trial/studies-has_dmc | run_0010 | `benchmarks/relbench/claims/rel-trial--studies-has_dmc/` | `53c665cfec1e18e7` | `75011bb909977a9e` |
