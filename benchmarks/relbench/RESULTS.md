@@ -77,7 +77,7 @@ Values in the best-known number's units (AUROC/acc/MAP in %, NMAE, R², raw MAE)
 | 18 | rel-trial/studies-has_dmc | AC-bin | v2 | 78.5 (RelGT-AC) | — | — | — | — | — | — | 4xA100 | 4h | ▶ running |
 | 19 | rel-avito/searchinfo-isuserloggedon | AC-bin | v2 | 73 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 4h | ▶ running |
 | 20 | rel-avito/searchstream-click | AC-bin | v2 | 55.9 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 4h | ▶ running |
-| 29 | rel-ratebeer/user-count | reg | v2 | 0.625 (GraphSAGE) | 6.021 (MAE) | — | — | — | — | — | 4xA100 | 4h | · pending |
+| 29 | rel-ratebeer/user-count | reg | v2 | 0.625 (GraphSAGE) | 6.021 (MAE) | — | — | — | — | — | 4xA100 | 4h | ▶ running |
 | 30 | rel-arxiv/author-publication | reg | v2 | 0.249 (GraphSAGE) | 0.462 (MAE) | — | — | — | — | — | 4xA100 | 4h | · pending |
 | 31 | rel-ratebeer/beer-churn | clf | v2 | 78.7 (GraphSAGE) | 84.7 | — | — | — | — | — | 4xA100 | 4h | · pending |
 | 32 | rel-ratebeer/brewer-dormant | clf | v2 | 80.5 (GraphSAGE) | 83.3 | — | — | — | — | — | 4xA100 | 4h | · pending |
