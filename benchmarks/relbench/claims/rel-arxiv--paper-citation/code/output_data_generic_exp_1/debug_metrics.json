@@ -1,0 +1,8 @@
+{
+  "mode": "debug",
+  "examples": 5000,
+  "optimizer_steps": 100,
+  "feature_count": 80,
+  "anchor_fallback_val_rows": 150845,
+  "anchor_fallback_test_rows": 188696
+}
