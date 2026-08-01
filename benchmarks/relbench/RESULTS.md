@@ -3,7 +3,7 @@
 **Auto-generated — do not edit by hand.** Regenerate with:
 `PYTHONPATH=src:. python -m benchmarks.relbench.scorecard --reference`
 
-Status: **26/66 tasks run**, 14 beating the best published number. Category-level gates: run the scorecard (same module, no flags).
+Status: **27/66 tasks run**, 14 beating the best published number. Category-level gates: run the scorecard (same module, no flags).
 
 ## Benchmark version & leaderboard submission
 
@@ -51,7 +51,7 @@ Values in the best-known number's units (AUROC/acc/MAP in %, NMAE, R², raw MAE)
 | 49 | rel-stack/user-engagement | clf | v1★ | 95.6 (PluRel-ft) | 90.4 | 90.7 | 87.1 | 89.4 | 91 | below best-known | 4xA100 | 6h | ✅ done |
 | 50 | rel-stack/user-badge | clf | v1★ | 94.3 (PluRel-ft) | 88.4 | 89.9 | 80 | 87.2 | 89.4 | below best-known | 4xA100 | 6h | ✅ done |
 | 51 | rel-stack/post-votes | reg | v1★ | 0.121 (Rel-LLM) | 0.125 | 0.127 | 0.127 | 0.125 | 0.122 | below best-known | 4xA100 | 6h | ✅ done |
-| 52 | rel-stack/user-post-comment | rec | v1★ | 14 (RelGNN) | — | 13.3 | 11.8 | — | — | — | 4xA100 | 6h | ▶ running |
+| 52 | rel-stack/user-post-comment | rec | v1★ | 14 (RelGNN) | — | 13.3 | 11.8 | — | 13.1 | below best-known | 4xA100 | 6h | ✅ done |
 | 53 | rel-stack/post-post-related | rec | v1★ | 12.5 (ID-GNN-4L) | — | 12.2 | 11.8 | — | 26.1 | ✅ beats best-known | 4xA100 | 6h | ✅ done |
 | 54 | rel-amazon/user-churn | clf | v1★ | 71.9 (Rel-LLM) | 70.8 | 70.5 | 67.3 | 69.1 | 71.4 | below best-known | 4xA100 | 6h | ✅ done |
 | 55 | rel-amazon/item-churn | clf | v1★ | 83.4 (Rel-LLM / RT-ft) | 82.8 | 82.8 | 79.9 | 82.2 | 83.1 | below best-known | 4xA100 | 6h | ✅ done |
@@ -130,6 +130,7 @@ Complete campaign state per run — session transcripts, lens/ideation history, 
 | rel-amazon/item-churn | `gs://leeroo-kapso-relbench-artifacts/runs/rel-amazon--item-churn/20260731T211833_lane-b3.tgz` |
 | rel-amazon/user-ltv | `gs://leeroo-kapso-relbench-artifacts/runs/rel-amazon--user-ltv/20260731T211904_lane-a2.tgz` |
 | rel-amazon/item-ltv | `gs://leeroo-kapso-relbench-artifacts/runs/rel-amazon--item-ltv/20260731T211333_lane-a1.tgz` |
+| rel-amazon/user-item-review | `gs://leeroo-kapso-relbench-artifacts/runs/rel-amazon--user-item-review/20260801T042832_lane-b2.tgz` |
 | rel-avito/user-visits | `gs://leeroo-kapso-relbench-artifacts/runs/rel-avito--user-visits/20260801T045911_lane-b3.tgz` |
 
 ## Winning artifacts (durable, committed — for organizer handoff)
