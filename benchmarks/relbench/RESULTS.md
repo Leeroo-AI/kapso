@@ -83,7 +83,7 @@ Values in the best-known number's units (AUROC/acc/MAP in %, NMAE, R², raw MAE)
 | 32 | rel-ratebeer/brewer-dormant | clf | v2 | 80.5 (GraphSAGE) | 83.3 | — | — | — | — | — | 4xA100 | 4h | ▶ running |
 | 33 | rel-arxiv/paper-citation | clf | v2 | 82.5 (GraphSAGE) | 82.6 | — | — | — | — | — | 4xA100 | 4h | ▶ running |
 | 34 | rel-ratebeer/user-churn | clf | v2 | 94.3 (GraphSAGE) | 98.6 | — | — | — | — | — | 4xA100 | 4h | ▶ running |
-| 35 | rel-ratebeer/beer_ratings-total_score | AC-reg | v2 | 0.394 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 4h | · pending |
+| 35 | rel-ratebeer/beer_ratings-total_score | AC-reg | v2 | 0.394 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 4h | ▶ running |
 | 36 | rel-ratebeer/user-beer-liked | rec | v2 | 1.46 (ID-GNN) | — | — | — | — | — | — | 4xA100 | 4h | · pending |
 | 37 | rel-ratebeer/user-place-liked | rec | v2 | 1.85 (ID-GNN) | — | — | — | — | — | — | 4xA100 | 4h | · pending |
 | 38 | rel-ratebeer/user-beer-favorite | rec | v2 | 1.89 (ID-GNN) | — | — | — | — | — | — | 4xA100 | 4h | · pending |
