@@ -1,0 +1,50 @@
+{
+  "dataset": "rel-ratebeer",
+  "task": "user-count",
+  "family": "entity_regression",
+  "primary_metric": "r2",
+  "selected_by": "best recomputed validation r2 among registered-final runs",
+  "run": "run_0015",
+  "val_metrics": {
+    "r2": 0.711745003978467,
+    "mae": 5.913222933435618,
+    "rmse": 31.427399319855372
+  },
+  "test_metrics": {
+    "r2": 0.7933067136705427,
+    "mae": 6.695445743853382,
+    "rmse": 25.776308769746336
+  },
+  "audit": {
+    "clean": false,
+    "findings": [
+      {
+        "file": "feature_pipeline.py",
+        "line": 162,
+        "pattern": "RELBENCH_CACHE_DIR",
+        "concern": "tampers with the data cache location",
+        "snippet": "return Path(os.environ[\"RELBENCH_CACHE_DIR\"]) / \"rel-ratebeer\""
+      },
+      {
+        "file": "main.py",
+        "line": 50,
+        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
+        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
+        "snippet": "official_keys = pd.concat([train[[\"timestamp\", \"user_id\"]], validation[[\"timestamp\", \"user_id\"]]], ignore_index=True).drop_duplicates()"
+      },
+      {
+        "file": "main.py",
+        "line": 62,
+        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
+        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
+        "snippet": "labeled = pd.concat([train, dense, validation], ignore_index=True)"
+      }
+    ],
+    "note": "static scan; manually review flagged lines before publishing results. 'verify:' findings are advisory OOS-contract review hooks (legal patterns that warrant tracing), not violations."
+  },
+  "code_path": "/home/ubuntu/kapso/tmp/relbench/rel-ratebeer--user-count/runs/run_0015/code",
+  "predictions": {
+    "val": "/home/ubuntu/kapso/tmp/relbench/rel-ratebeer--user-count/runs/run_0015/val_predictions.npy",
+    "test": "/home/ubuntu/kapso/tmp/relbench/rel-ratebeer--user-count/runs/run_0015/test_predictions.npy"
+  }
+}
