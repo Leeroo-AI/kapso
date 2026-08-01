@@ -1,0 +1,38 @@
+{
+  "dataset": "rel-salt",
+  "task": "sales-payterms",
+  "family": "autocomplete_multiclass_classification",
+  "primary_metric": "accuracy",
+  "selected_by": "best recomputed validation accuracy among registered-final runs",
+  "run": "run_0012",
+  "val_metrics": {
+    "accuracy": 0.938143608685919,
+    "macro_f1": 0.8147091743886171,
+    "micro_f1": 0.938143608685919,
+    "mrr": 0.9585018754005432
+  },
+  "test_metrics": {
+    "accuracy": 0.9239792414810145,
+    "macro_f1": 0.8160427244897859,
+    "micro_f1": 0.9239792414810145,
+    "mrr": 0.9501932859420776
+  },
+  "audit": {
+    "clean": true,
+    "findings": [
+      {
+        "file": "main.py",
+        "line": 143,
+        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
+        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
+        "snippet": "combined = pd.concat([train, val], ignore_index=True)"
+      }
+    ],
+    "note": "static scan; manually review flagged lines before publishing results. 'verify:' findings are advisory OOS-contract review hooks (legal patterns that warrant tracing), not violations."
+  },
+  "code_path": "/home/ubuntu/kapso/tmp/relbench/rel-salt--sales-payterms/runs/run_0012/code",
+  "predictions": {
+    "val": "/home/ubuntu/kapso/tmp/relbench/rel-salt--sales-payterms/runs/run_0012/val_predictions.npy",
+    "test": "/home/ubuntu/kapso/tmp/relbench/rel-salt--sales-payterms/runs/run_0012/test_predictions.npy"
+  }
+}
