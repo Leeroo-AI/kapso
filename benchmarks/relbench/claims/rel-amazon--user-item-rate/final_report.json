@@ -1,0 +1,36 @@
+{
+  "dataset": "rel-amazon",
+  "task": "user-item-rate",
+  "family": "recommendation",
+  "primary_metric": "link_prediction_map",
+  "selected_by": "best recomputed validation link_prediction_map among registered-final runs",
+  "run": "run_0016",
+  "val_metrics": {
+    "link_prediction_precision": 0.010093859400866097,
+    "link_prediction_recall": 0.05994967189758619,
+    "link_prediction_map": 0.026771871198458586
+  },
+  "test_metrics": {
+    "link_prediction_precision": 0.009124804773605734,
+    "link_prediction_recall": 0.05275696905578639,
+    "link_prediction_map": 0.023107505650886515
+  },
+  "audit": {
+    "clean": false,
+    "findings": [
+      {
+        "file": "solution.py",
+        "line": 79,
+        "pattern": "RELBENCH_CACHE_DIR",
+        "concern": "tampers with the data cache location",
+        "snippet": "root = Path(os.environ[\"RELBENCH_CACHE_DIR\"]) / os.environ[\"RELBENCH_DATASET\"]"
+      }
+    ],
+    "note": "static scan; manually review flagged lines before publishing results. 'verify:' findings are advisory OOS-contract review hooks (legal patterns that warrant tracing), not violations."
+  },
+  "code_path": "/home/ubuntu/kapso/tmp/relbench/rel-amazon--user-item-rate/runs/run_0016/code",
+  "predictions": {
+    "val": "/home/ubuntu/kapso/tmp/relbench/rel-amazon--user-item-rate/runs/run_0016/val_predictions.npy",
+    "test": "/home/ubuntu/kapso/tmp/relbench/rel-amazon--user-item-rate/runs/run_0016/test_predictions.npy"
+  }
+}
