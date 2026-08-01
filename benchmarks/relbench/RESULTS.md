@@ -67,7 +67,7 @@ Values in the best-known number's units (AUROC/acc/MAP in %, NMAE, R², raw MAE)
 | 4 | rel-f1/qualifying-position | AC-reg | v2 | 0.239 (RelGT-AC) | — | — | — | — | — | — | 4xA100 | 4h | ▶ running |
 | 6 | rel-event/event_interest-interested | AC-bin | v2 | 49.6 (LightGBM) | — | — | — | — | 74.6 | ✅ beats best-known | 4xA100 | 4h | ✅ done |
 | 7 | rel-event/event_interest-not_interested | AC-bin | v2 | 60.4 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 4h | ▶ running |
-| 8 | rel-event/users-birthyear | AC-reg | v2 | -0.03 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 4h | · pending |
+| 8 | rel-event/users-birthyear | AC-reg | v2 | -0.03 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 4h | ▶ running |
 | 12 | rel-salt/sales-group | AC-mul | v2 | 15.8 (GraphSAGE) | — | — | — | — | — | — | CPU-ok | 4h | · pending |
 | 13 | rel-salt/sales-payterms | AC-mul | v2 | 37.5 (GraphSAGE) | — | — | — | — | — | — | CPU-ok | 4h | · pending |
 | 14 | rel-salt/sales-shipcond | AC-mul | v2 | 56.9 (GraphSAGE) | — | — | — | — | — | — | CPU-ok | 4h | · pending |
