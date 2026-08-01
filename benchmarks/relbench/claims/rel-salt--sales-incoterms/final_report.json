@@ -1,0 +1,45 @@
+{
+  "dataset": "rel-salt",
+  "task": "sales-incoterms",
+  "family": "autocomplete_multiclass_classification",
+  "primary_metric": "accuracy",
+  "selected_by": "best recomputed validation accuracy among registered-final runs",
+  "run": "run_0009",
+  "val_metrics": {
+    "accuracy": 0.8996082272282077,
+    "macro_f1": 0.7662855039734245,
+    "micro_f1": 0.8996082272282077,
+    "mrr": 0.9422774910926819
+  },
+  "test_metrics": {
+    "accuracy": 0.8333539499578296,
+    "macro_f1": 0.6274045405254626,
+    "micro_f1": 0.8333539499578296,
+    "mrr": 0.9006965160369873
+  },
+  "audit": {
+    "clean": false,
+    "findings": [
+      {
+        "file": "causal_model.py",
+        "line": 867,
+        "pattern": "RELBENCH_CACHE_DIR",
+        "concern": "tampers with the data cache location",
+        "snippet": "root = Path(os.environ[\"RELBENCH_CACHE_DIR\"]) / os.environ[\"RELBENCH_DATASET\"]"
+      },
+      {
+        "file": "causal_model.py",
+        "line": 919,
+        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
+        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
+        "snippet": "combined = pd.concat([train, validation_labeled], ignore_index=True)"
+      }
+    ],
+    "note": "static scan; manually review flagged lines before publishing results. 'verify:' findings are advisory OOS-contract review hooks (legal patterns that warrant tracing), not violations."
+  },
+  "code_path": "/home/ubuntu/kapso/tmp/relbench/rel-salt--sales-incoterms/runs/run_0009/code",
+  "predictions": {
+    "val": "/home/ubuntu/kapso/tmp/relbench/rel-salt--sales-incoterms/runs/run_0009/val_predictions.npy",
+    "test": "/home/ubuntu/kapso/tmp/relbench/rel-salt--sales-incoterms/runs/run_0009/test_predictions.npy"
+  }
+}

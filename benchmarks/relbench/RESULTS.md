@@ -3,7 +3,7 @@
 **Auto-generated — do not edit by hand.** Regenerate with:
 `PYTHONPATH=src:. python -m benchmarks.relbench.scorecard --reference`
 
-Status: **45/66 tasks run**, 29 beating the best published number. Category-level gates: run the scorecard (same module, no flags).
+Status: **46/66 tasks run**, 30 beating the best published number. Category-level gates: run the scorecard (same module, no flags).
 
 ## Benchmark version & leaderboard submission
 
@@ -71,7 +71,7 @@ Values in the best-known number's units (AUROC/acc/MAP in %, NMAE, R², raw MAE)
 | 12 | rel-salt/sales-group | AC-mul | v2 | 15.8 (GraphSAGE) | — | — | — | — | 91.5 | ✅ beats best-known | 4xA100 | 4h | ✅ done |
 | 13 | rel-salt/sales-payterms | AC-mul | v2 | 37.5 (GraphSAGE) | — | — | — | — | 92.4 | ✅ beats best-known | 4xA100 | 4h | ✅ done |
 | 14 | rel-salt/sales-shipcond | AC-mul | v2 | 56.9 (GraphSAGE) | — | — | — | — | 80.1 | ✅ beats best-known | 4xA100 | 4h | ✅ done |
-| 15 | rel-salt/sales-incoterms | AC-mul | v2 | 62.2 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 4h | ▶ running |
+| 15 | rel-salt/sales-incoterms | AC-mul | v2 | 62.2 (GraphSAGE) | — | — | — | — | 83.3 | ✅ beats best-known | 4xA100 | 4h | ✅ done |
 | 16 | rel-salt/item-incoterms | AC-mul | v2 | 69.4 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 4h | ▶ running |
 | 17 | rel-trial/studies-enrollment | AC-reg | v2 | 0.436 (RelGT-AC) | — | — | — | — | 0.00111 | below best-known | 4xA100 | 4h | ✅ done |
 | 18 | rel-trial/studies-has_dmc | AC-bin | v2 | 78.5 (RelGT-AC) | — | — | — | — | 80.8 | ✅ beats best-known | 4xA100 | 4h | ✅ done |
@@ -145,6 +145,7 @@ Complete campaign state per run — session transcripts, lens/ideation history, 
 | rel-salt/sales-group | `gs://leeroo-kapso-relbench-artifacts/runs/rel-salt--sales-group/20260801T172646_lane-a3.tgz` |
 | rel-salt/sales-payterms | `gs://leeroo-kapso-relbench-artifacts/runs/rel-salt--sales-payterms/20260801T180804_lane-b3.tgz` |
 | rel-salt/sales-shipcond | `gs://leeroo-kapso-relbench-artifacts/runs/rel-salt--sales-shipcond/20260801T183418_lane-a1.tgz` |
+| rel-salt/sales-incoterms | `gs://leeroo-kapso-relbench-artifacts/runs/rel-salt--sales-incoterms/20260801T183053_lane-a2.tgz` |
 | rel-trial/studies-enrollment | `gs://leeroo-kapso-relbench-artifacts/runs/rel-trial--studies-enrollment/20260801T132017_lane-a3.tgz` |
 | rel-trial/studies-has_dmc | `gs://leeroo-kapso-relbench-artifacts/runs/rel-trial--studies-has_dmc/20260801T140047_lane-b3.tgz` |
 | rel-avito/searchinfo-isuserloggedon | `gs://leeroo-kapso-relbench-artifacts/runs/rel-avito--searchinfo-isuserloggedon/20260801T140711_lane-a1.tgz` |
@@ -181,6 +182,7 @@ Each claimed cell's evidence is copied from the box-local run archive into `benc
 | rel-salt/sales-group | run_0009 | `benchmarks/relbench/claims/rel-salt--sales-group/` | `857248f92b72a78c` | `77795fe3c2962038` |
 | rel-salt/sales-payterms | run_0012 | `benchmarks/relbench/claims/rel-salt--sales-payterms/` | `5dcba3df2a50760d` | `b52108d55d3a3f71` |
 | rel-salt/sales-shipcond | run_0006 | `benchmarks/relbench/claims/rel-salt--sales-shipcond/` | `0eb3c6607bbe18f8` | `6e9f21815fb5f479` |
+| rel-salt/sales-incoterms | run_0009 | `benchmarks/relbench/claims/rel-salt--sales-incoterms/` | `a98dbaf53d850a34` | `533a447d7864fe5a` |
 | rel-trial/studies-has_dmc | run_0010 | `benchmarks/relbench/claims/rel-trial--studies-has_dmc/` | `53c665cfec1e18e7` | `75011bb909977a9e` |
 | rel-avito/searchinfo-isuserloggedon | run_0010 | `benchmarks/relbench/claims/rel-avito--searchinfo-isuserloggedon/` | `5af4047b60a59fe3` | `210d218b121db855` |
 | rel-avito/searchstream-click | run_0013 | `benchmarks/relbench/claims/rel-avito--searchstream-click/` | `a77a5caf4590c149` | `c0bf9469894c3735` |

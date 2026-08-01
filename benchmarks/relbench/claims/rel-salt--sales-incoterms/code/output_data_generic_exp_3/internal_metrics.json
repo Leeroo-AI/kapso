@@ -1,0 +1,143 @@
+{
+  "debug": false,
+  "elapsed_seconds": 4384.523190975189,
+  "feature_rows_per_second": 3604.4557262434687,
+  "rules": {
+    "origins": [
+      "2019-08-01",
+      "2019-11-01"
+    ],
+    "rounds": 800,
+    "tail_blend": 0.75,
+    "blend_month_mean": 0.9009243250873097,
+    "blend_worst_month": 0.8763476640489818,
+    "blend_origin_scores": [
+      0.9099713740897973,
+      0.8918772760848218
+    ],
+    "em_strength": 0.0,
+    "em_origin_scores": [
+      0.9099713740897973,
+      0.8918772760848218
+    ],
+    "gate_segments": [],
+    "gate_alpha": 0.75,
+    "gate_origin_scores": [
+      0.9099713740897973,
+      0.8918772760848218
+    ],
+    "segment_diagnostics": {
+      "0": {
+        "support": 260,
+        "winning_months": 0,
+        "mean_delta": -0.0755952380952381
+      },
+      "1": {
+        "support": 1109,
+        "winning_months": 1,
+        "mean_delta": -0.06799987449063508
+      },
+      "2": {
+        "support": 2903,
+        "winning_months": 0,
+        "mean_delta": -0.021623556130852928
+      },
+      "3": {
+        "support": 290,
+        "winning_months": 0,
+        "mean_delta": -0.014595035767439646
+      },
+      "4": {
+        "support": 1291,
+        "winning_months": 0,
+        "mean_delta": -0.02309250826536267
+      },
+      "5": {
+        "support": 2871,
+        "winning_months": 0,
+        "mean_delta": -0.023664740945860296
+      },
+      "6": {
+        "support": 449,
+        "winning_months": 0,
+        "mean_delta": -0.047525264581841364
+      },
+      "7": {
+        "support": 2037,
+        "winning_months": 0,
+        "mean_delta": -0.021048622151914886
+      },
+      "8": {
+        "support": 2689,
+        "winning_months": 0,
+        "mean_delta": -0.012427314387826516
+      },
+      "9": {
+        "support": 1288,
+        "winning_months": 0,
+        "mean_delta": -0.051048232194048415
+      },
+      "10": {
+        "support": 5115,
+        "winning_months": 0,
+        "mean_delta": -0.02833364449501513
+      },
+      "11": {
+        "support": 3468,
+        "winning_months": 1,
+        "mean_delta": -0.011043589907196597
+      },
+      "12": {
+        "support": 13058,
+        "winning_months": 0,
+        "mean_delta": -0.04955250452140336
+      },
+      "13": {
+        "support": 28928,
+        "winning_months": 0,
+        "mean_delta": -0.04408591200056883
+      },
+      "14": {
+        "support": 5806,
+        "winning_months": 0,
+        "mean_delta": -0.018815992135455095
+      }
+    }
+  },
+  "validation_strata_counts": {
+    "0": 287,
+    "1": 854,
+    "2": 10157,
+    "3": 257,
+    "4": 731,
+    "5": 2436,
+    "6": 308,
+    "7": 1038,
+    "8": 2885,
+    "9": 767,
+    "10": 2667,
+    "11": 4957,
+    "12": 7505,
+    "13": 16993,
+    "14": 19628
+  },
+  "test_strata_counts": {
+    "0": 180,
+    "1": 810,
+    "2": 14614,
+    "3": 185,
+    "4": 755,
+    "5": 3635,
+    "6": 248,
+    "7": 951,
+    "8": 3931,
+    "9": 623,
+    "10": 2254,
+    "11": 6770,
+    "12": 7806,
+    "13": 17074,
+    "14": 29089
+  },
+  "validation_fit": "train_labels_only_model_a",
+  "test_fit": "train_plus_validation_model_b"
+}
