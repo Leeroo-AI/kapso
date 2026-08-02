@@ -36,6 +36,15 @@ from benchmarks.kaggle.handler import KaggleNotebookHandler
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.yaml")
 RULES_PATH = os.path.join(os.path.dirname(__file__), "RULES.md")
 SLOTS_PATH = os.path.join(os.path.dirname(__file__), "kernel_slots.py")
+# The repo's kaggle-cli-submission skill doubles as the lanes' submission
+# playbook. Claude CLIs only discover it natively when cwd is this repo, and
+# codex has no skill loader at all — while lanes run in isolated session
+# clones on whichever CLI the config picks. So it is staged into the task dir
+# and every coding-agent CLI gets the same absolute path from the handler
+# context (the RULES.md pattern).
+SKILL_PATH = os.path.abspath(os.path.join(
+    os.path.dirname(__file__), "..", "..",
+    ".claude", "skills", "kaggle-cli-submission", "SKILL.md"))
 
 # Source patterns that indicate the kernel pulls external pretrained
 # resources or data. Matches are reported, not silently fatal — a human
@@ -415,6 +424,12 @@ def main():
     # Stage the organizers' binding rules beside the task so every session can
     # read them; copied fresh each launch so an edited RULES.md always wins.
     shutil.copy2(RULES_PATH, os.path.join(task_dir, "RULES.md"))
+
+    # Stage the CLI playbook: the statement names the modality and the file
+    # but never the commands, so this is where any lane learns the
+    # push/poll/submit/score flow (run 5's lanes had neither and burned their
+    # first submission rediscovering -k/-v from --help).
+    shutil.copy2(SKILL_PATH, os.path.join(task_dir, "KAGGLE_CLI.md"))
 
     # Stage the slot ticket office + its limits. Lanes run in isolated session
     # clones, so this has to be reachable by path rather than by import; a stale

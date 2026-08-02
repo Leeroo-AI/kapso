@@ -58,6 +58,16 @@ class KaggleNotebookHandler(ProblemHandler):
                 f"{self.rules_path} missing — the runner stages "
                 "benchmarks/kaggle/RULES.md there at launch"
             )
+        # The kaggle CLI playbook, staged by the runner from the repo's
+        # kaggle-cli-submission skill. The statement deliberately authors no
+        # CLI mechanics and codex/claude session clones cannot load the skill
+        # natively, so this path is how every coding-agent CLI receives it.
+        self.skill_path = os.path.join(self.task_dir, "KAGGLE_CLI.md")
+        if not os.path.isfile(self.skill_path):
+            raise FileNotFoundError(
+                f"{self.skill_path} missing — the runner stages the "
+                "kaggle-cli-submission skill there at launch"
+            )
         os.makedirs(self.artifacts_dir, exist_ok=True)
         os.makedirs(self.submission_dir, exist_ok=True)
 
@@ -91,8 +101,8 @@ What counts is the best PUBLIC leaderboard score among your submissions — a
 stable baseline that scores low earns nothing. Go for the approach with the
 highest expected final score you can execute in the time remaining. The
 statement's Submission section is authoritative on the modality and the exact
-file required; work out the CLI commands yourself. Keep your best submission
-under {self.submission_dir}/.
+file required; {self.skill_path} is the CLI playbook — push, poll,
+submit, read the score. Keep your best submission under {self.submission_dir}/.
 
 The job is END-TO-END: develop → submit → public score, all before the
 deadline. Budget the round trip from the start — an unsubmitted or unscored

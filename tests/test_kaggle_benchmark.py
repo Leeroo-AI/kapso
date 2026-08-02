@@ -38,6 +38,7 @@ def make_handler(tmp_path, **overrides):
     task_dir = tmp_path / "task"
     task_dir.mkdir(exist_ok=True)
     (task_dir / "RULES.md").write_text("rules body")
+    (task_dir / "KAGGLE_CLI.md").write_text("playbook body")
     kwargs = dict(
         task_dir=str(tmp_path / "task"),
         statement="statement body",
@@ -65,6 +66,7 @@ def test_handler_context_is_statement_plus_minimal_contract(tmp_path):
     # actually banked, which is what releases the finalization reserve.
     assert "kaggle competitions submissions" in context
     assert "kernels pull" in context
+    assert "KAGGLE_CLI.md" in context
     assert "best_score.log" in context and "public scores only" in context
     assert "<score>" in context
     # The protocol/economics sermons must stay gone.
@@ -98,6 +100,13 @@ def test_handler_requires_the_staged_rules_and_points_the_agent_at_them(tmp_path
     for kernel_mechanic in ("cuda", "kernels push", "machine_shape",
                             "enable_gpu", "kernel-metadata"):
         assert kernel_mechanic not in body
+    os.remove(tmp_path / "task" / "KAGGLE_CLI.md")
+    with pytest.raises(FileNotFoundError, match="KAGGLE_CLI.md"):
+        KaggleNotebookHandler(
+            task_dir=str(tmp_path / "task"), statement="s",
+            deadline_ts=time.time() + 60, session_caps=SESSION_CAPS,
+            kaggle=KAGGLE, insured_reserve_seconds=300.0,
+        )
     os.remove(tmp_path / "task" / "RULES.md")
     with pytest.raises(FileNotFoundError, match="RULES.md"):
         KaggleNotebookHandler(
@@ -126,6 +135,17 @@ def test_preflight_spec_authors_no_submit_mechanics():
     assert "modality" in spec
     assert "competitions submit" not in spec
     assert "kernels push" not in spec
+
+
+def test_runner_stages_the_real_cli_playbook():
+    # The statement authors no CLI mechanics and the handler hard-requires
+    # KAGGLE_CLI.md, so the runner's staging source must exist and must be the
+    # actual playbook — a moved/renamed skill would otherwise strand every
+    # lane with no submit mechanics at all.
+    from benchmarks.kaggle.runner import SKILL_PATH
+    assert os.path.isfile(SKILL_PATH)
+    skill = open(SKILL_PATH, encoding="utf-8").read()
+    assert "kernels push" in skill and "competitions submit" in skill
 
 
 def test_parse_submissions_json_tolerates_pagination_noise():

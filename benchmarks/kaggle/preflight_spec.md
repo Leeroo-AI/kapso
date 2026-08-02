@@ -81,9 +81,9 @@ Write these sections, in order (an H1 title, then H2 sections):
    file exactly — name, columns, header, row order, and id space — grounded in
    the sample submission file in the dataset. Author **NO** `kaggle` CLI
    mechanics: no command lines for pushing, polling, or submitting anything.
-   The solver works those out from the CLI itself, and a command template
-   written here reaches every lane at once — a stale upload-style submit line
-   in one statement cost six lanes their first submission on a 400.
+   The solver carries its own CLI playbook, and a command template written
+   here reaches every lane at once — a stale upload-style submit line in one
+   statement cost six lanes their first submission on a 400.
 
 ## Output contract
 
