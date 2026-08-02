@@ -159,6 +159,7 @@ Complete campaign state per run — session transcripts, lens/ideation history, 
 | rel-ratebeer/user-churn | `gs://leeroo-kapso-relbench-artifacts/runs/rel-ratebeer--user-churn/20260801T224425_lane-a1.tgz` |
 | rel-ratebeer/beer_ratings-total_score | `gs://leeroo-kapso-relbench-artifacts/runs/rel-ratebeer--beer_ratings-total_score/20260801T224930_lane-a2.tgz` |
 | rel-ratebeer/user-beer-liked | `gs://leeroo-kapso-relbench-artifacts/runs/rel-ratebeer--user-beer-liked/20260802T031228_lane-b1.tgz` |
+| rel-ratebeer/user-place-liked | `gs://leeroo-kapso-relbench-artifacts/runs/rel-ratebeer--user-place-liked/20260802T030719_lane-b2.tgz` |
 | rel-ratebeer/user-beer-favorite | `gs://leeroo-kapso-relbench-artifacts/runs/rel-ratebeer--user-beer-favorite/20260802T022831_lane-b3.tgz` |
 
 ## Winning artifacts (durable, committed — for organizer handoff)
