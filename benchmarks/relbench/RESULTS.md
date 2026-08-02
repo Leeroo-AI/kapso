@@ -162,6 +162,7 @@ Complete campaign state per run — session transcripts, lens/ideation history, 
 | rel-ratebeer/user-place-liked | `gs://leeroo-kapso-relbench-artifacts/runs/rel-ratebeer--user-place-liked/20260802T030719_lane-b2.tgz` |
 | rel-ratebeer/user-beer-favorite | `gs://leeroo-kapso-relbench-artifacts/runs/rel-ratebeer--user-beer-favorite/20260802T022831_lane-b3.tgz` |
 | rel-arxiv/author-category | `gs://leeroo-kapso-relbench-artifacts/runs/rel-arxiv--author-category/20260802T135232_lane-b1.tgz` |
+| rel-arxiv/paper-paper-cocitation | `gs://leeroo-kapso-relbench-artifacts/runs/rel-arxiv--paper-paper-cocitation/20260802T135822_lane-b2.tgz` |
 | rel-trial/eligibilities-adult | `gs://leeroo-kapso-relbench-artifacts/runs/rel-trial--eligibilities-adult/20260802T135231_lane-b3.tgz` |
 | rel-trial/eligibilities-child | `gs://leeroo-kapso-relbench-artifacts/runs/rel-trial--eligibilities-child/20260802T135746_lane-a1.tgz` |
 
