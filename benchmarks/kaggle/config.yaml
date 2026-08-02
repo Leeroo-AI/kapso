@@ -79,11 +79,9 @@ modes:
     # alone). The finalization reserve is sized to ONE submission round trip —
     # push -> Kaggle runs the kernel -> submit -> score — because a run that
     # ends before shipping scores nothing at all: run 2 finished holding a
-    # COMPLETE kernel worth 0.83626 that was never submitted. Once a public
-    # score is banked the handler releases all but insured_reserve_minutes.
+    # COMPLETE kernel worth 0.83626 that was never submitted.
     session_budget:
       finalization_reserve_minutes: 20
-      insured_reserve_minutes: 5
       guard_minutes: 5
       # Held back AFTER the campaign so the end-of-run harvest can submit every
       # COMPLETE-but-unsubmitted kernel and have those entries finish scoring

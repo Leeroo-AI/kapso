@@ -49,8 +49,9 @@ statement's Submission section says which modality applies.
 ## Sharing one Kaggle account
 
 Every parallel lane submits through the same account, so the 50-submission
-budget is shared — coordinate through the score board rather than re-spending it
-on an attempt a sibling already made.
+budget is shared — and so is the record of how it was spent. `kaggle
+competitions submissions <slug>` shows every attempt with its public score and
+message; read it before spending one on something a sibling already tried.
 
 On a code competition the session limits are shared too: Kaggle runs at most
 **2 GPU** and **5 CPU** notebook sessions at once per account. Past the cap a

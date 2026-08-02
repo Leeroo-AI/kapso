@@ -59,7 +59,7 @@ write-up. That made the fraction/min/max triple meaningless here:
 
 | Benchmark | `session_budget` keys |
 |---|---|
-| **kaggle** | `finalization_reserve_minutes`, `insured_reserve_minutes`, `guard_minutes` |
+| **kaggle** | `finalization_reserve_minutes`, `guard_minutes` |
 | ioai, ioai_tasks, posttrain | `ideation_fraction`, `ideation_min_seconds`, `implementation_fraction`, `implementation_min_seconds`, `finalization_reserve_fraction`, `finalization_reserve_min_minutes`, `finalization_reserve_max_minutes`, `guard_minutes` |
 
 **Do not mechanically unify these.** The kaggle shape encodes "hold enough clock
@@ -82,8 +82,11 @@ Reverting any of these silently regresses behaviour:
   treats an explicit value as an override, so restoring the old `"claude_code"`
   default would silently replace the codex-primary `coding_agent` block with a
   bare default-model claude agent.
-- **`KaggleNotebookHandler.__init__` requires `insured_reserve_seconds`**
-  (`af5a1160`). Any other construction site or fake must pass it.
+- **Lanes share nothing on disk** — the handler points them at
+  `kaggle competitions submissions` / `kernels pull` instead. Kaggle already
+  holds every attempt's score, message and code, and it is the one view all
+  lanes see identically; a shared file could not be (each lane works in its own
+  git clone, so a sibling's path does not resolve).
 - **`benchmarks/kaggle/data/` was deleted** (`2786cd40`) — `prepare_task1.py`,
   `prepare_task2.py` and the hand-written statements are superseded by the
   preflight. A merge that resurrects them reintroduces per-task Python that the

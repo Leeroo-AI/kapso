@@ -4,8 +4,9 @@ Hands the coding agent the task statement plus the invariant kapso contract:
 paths, the best-public-score objective, and score reporting. Every
 per-competition submission mechanic (kernel push vs. file upload, format,
 compute limits, quota) lives in the statement itself, authored by the preflight
-(benchmarks/kaggle/preflight_spec.md). best_score.log records PUBLIC leaderboard
-scores only.
+(benchmarks/kaggle/preflight_spec.md). Lanes share what they learned through
+Kaggle itself — the account holds every submission's score, message and code —
+so there is no shared file for them to keep in sync.
 """
 
 import os
@@ -25,7 +26,6 @@ class KaggleNotebookHandler(ProblemHandler):
         deadline_ts: float,
         session_caps: dict,
         kaggle: dict,
-        insured_reserve_seconds: float,
     ):
         super().__init__(additional_context="")
         if not isinstance(session_caps, dict) or not {
@@ -43,7 +43,6 @@ class KaggleNotebookHandler(ProblemHandler):
         self.deadline_ts = deadline_ts
         self.session_caps = session_caps
         self.kaggle = kaggle
-        self.insured_reserve_seconds = float(insured_reserve_seconds)
         self.dataset_dir = os.path.join(self.task_dir, "dataset")
         self.artifacts_dir = os.path.join(self.task_dir, "artifacts")
         self.submission_dir = os.path.join(self.task_dir, "submission")
@@ -97,35 +96,18 @@ deadline. Budget the submit-and-score round trip into
 your plan from the start — an unsubmitted or unscored model counts for nothing,
 and the last submission must leave enough margin for its run and scoring.
 
-After a submission scores, append `<public_score> <iso-time> <submission-dir>
-<one-line idea>` to {self.task_dir}/best_score.log — the shared board
-(public scores only). Read it before your next attempt; each dir holds the
-script.py that scored. Report each
-experiment's local validation score in <score></score> tags AND write
-kapso_evaluation/result.json: {{"score": <float>, "notes": "..."}} — name the
-validation split in `notes`, since scores measured different ways do not
+Every lane submits through one account, so Kaggle holds the whole team's
+history — read it before committing to an idea, and don't redo what a sibling
+already scored. `kaggle competitions submissions {competition}` gives each
+attempt's public score and message; where kernels were pushed, `kaggle kernels
+list -m` then `kaggle kernels pull <ref> -m -p <dir>` gets the code behind one.
+Always submit with a `-m` message naming your idea: it is what the others read.
+
+Report each experiment's local validation score in <score></score> tags AND
+write kapso_evaluation/result.json: {{"score": <float>, "notes": "..."}} — name
+the validation split in `notes`, since scores measured different ways do not
 compare. Never fabricate a score; a failed run is reported as such.
 """
-
-    def deliverable_ready_reserve_seconds(self):
-        """Insured once a public score is banked in best_score.log.
-
-        The full finalization reserve exists to cover one submission round trip
-        (push -> kernel run -> submit -> score). Once a score is actually on the
-        leaderboard that insurance is already paid, so the endgame only needs
-        the residual and late iterations stay available. A missing log is the
-        documented "nothing banked yet" case; a malformed line raises.
-        """
-        score_log = os.path.join(self.task_dir, "best_score.log")
-        if not os.path.isfile(score_log):
-            return None
-        with open(score_log, encoding="utf-8") as f:
-            lines = [line for line in f.read().splitlines() if line.strip()]
-        for line in lines:
-            score = float(line.split()[0])
-            if score > 0:
-                return self.insured_reserve_seconds
-        return None
 
     def stop_condition(self) -> bool:
         return False

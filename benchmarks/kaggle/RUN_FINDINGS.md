@@ -147,9 +147,11 @@ no longer be lost — discovery is the union of the lanes' `kernel-metadata.json
 and `kernels list -m` filtered to the run window, because run 3's lane 3 pushed a
 kernel and recorded nothing locally (union finds 7, local finds 5). (B) the
 finalization reserve is now a single `finalization_reserve_minutes: 20` sized to
-one round trip instead of 11.5 min from a 10% fraction, and the handler
-implements the core `deliverable_ready_reserve_seconds()` hook to release all but
-`insured_reserve_minutes` once a public score is banked.
+one round trip instead of 11.5 min from a 10% fraction. (The handler also
+implemented the core `deliverable_ready_reserve_seconds()` hook, releasing all
+but `insured_reserve_minutes` once a score was banked; that came out with the
+`best_score.log` board it read — the reserve is now the full round trip for the
+whole run.)
 **Still open:** nothing yet *compels* an early ship (option C). A run can still
 burn most of its budget before submitting — it just can no longer end with
 nothing. Also, the harvest cannot rescue a kernel still RUNNING at teardown.
