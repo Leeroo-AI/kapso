@@ -14,6 +14,7 @@ import time
 import pytest
 import yaml
 
+from benchmarks.kaggle import kernel_slots
 from benchmarks.kaggle.handler import KaggleNotebookHandler
 from benchmarks.kaggle.preflight import slug_from_url
 from benchmarks.kaggle.runner import (
@@ -170,6 +171,37 @@ def test_submission_matches_template_gates_on_ids_not_just_size(tmp_path):
     short = tmp_path / "short.csv"
     short.write_text("path,target\naudio/a.wav,17\n")
     assert not submission_matches_template(str(short), str(template))
+
+
+def test_kernel_slots_never_overcommits_and_reclaims_dead_lanes(tmp_path):
+    # The whole point: Kaggle's 2 concurrent GPU sessions are per ACCOUNT, so
+    # parallel lanes must queue rather than race. Over-issuing a ticket would
+    # send a lane into a push that Kaggle rejects.
+    task = tmp_path / "task"
+    task.mkdir()
+    (task / ".kernel_slots_config.json").write_text(
+        json.dumps({"gpu": 2, "cpu": 5, "ttl_seconds": 1500}))
+    tickets = [kernel_slots.try_acquire(str(task), "gpu", f"lane{i}")
+               for i in range(5)]
+    assert sum(t is not None for t in tickets) == 2, "issued more than the limit"
+    # The CPU pool is independent — a full GPU pool must not block it.
+    assert kernel_slots.try_acquire(str(task), "cpu", "lane9") is not None
+
+    held = [t for t in tickets if t][0]
+    assert kernel_slots.release(str(task), held) is True
+    assert kernel_slots.try_acquire(str(task), "gpu", "lane6") is not None
+
+    # A lane that dies mid-kernel must not park a slot forever.
+    ledger = json.loads((task / ".kernel_slots.json").read_text())
+    for entry in ledger["gpu"]:
+        entry["acquired"] = time.time() - 9999
+    (task / ".kernel_slots.json").write_text(json.dumps(ledger))
+    assert kernel_slots.status(str(task))["gpu"]["in_use"] == 0
+
+
+def test_kernel_slots_fails_loud_without_its_config(tmp_path):
+    with pytest.raises(FileNotFoundError, match="kernel_slots_config"):
+        kernel_slots.try_acquire(str(tmp_path), "gpu", "lane0")
 
 
 def test_slug_from_url_parses_competition_forms():

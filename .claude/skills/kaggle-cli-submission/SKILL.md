@@ -216,6 +216,43 @@ Field notes (the ones that matter):
 kaggle kernels push -p kernel/
 ```
 
+#### Running in parallel? Claim a slot first
+
+Kaggle's concurrency limits are **per account**, not per agent: at most **2 GPU**
+and **5 CPU** notebook sessions running at once. If several of you share an
+account, you are all drawing on the same two GPU slots, and pushing without
+coordinating means you race — everyone retries blind and the winner is whoever
+happens to poll when a slot frees.
+
+**If `kernel_slots.py` is staged in your task directory, use it.** It is a
+shared ticket office; holding a ticket means Kaggle is actually running your
+kernel:
+
+```bash
+TASK=/path/to/task                       # the directory holding kernel_slots.py
+TICKET=$(python3 $TASK/kernel_slots.py acquire gpu --task-dir $TASK --lane <your-lane>)
+
+kaggle kernels push -p kernel/           # ... your normal flow ...
+# poll until the run is COMPLETE, fetch output, submit
+
+python3 $TASK/kernel_slots.py release "$TICKET" --task-dir $TASK
+```
+
+- `acquire` **blocks** until a slot is free. A wait is normal and is not an
+  error — it prints the queue state to stderr and the ticket to stdout.
+- **Release as soon as your kernel finishes.** Holding a ticket through your own
+  analysis starves the other lanes. A ticket is auto-reclaimed after the TTL, so
+  a crash cannot park a slot forever, but do not rely on that.
+- `python3 $TASK/kernel_slots.py status --task-dir $TASK` shows who holds what.
+
+**The CPU pool is separate and usually idle.** If your kernel does not truly
+need a GPU (cached embeddings, a linear probe, calibration), push it with
+`"enable_gpu": false` and `acquire cpu` — five slots instead of two.
+
+If you still see `Maximum batch GPU session count of 2 reached`, that is
+**backpressure, not failure**: keep the recipe, wait, and retry. Never respond by
+weakening the solution.
+
 **A second push is not free, so do not make it a habit.** Kaggle allows only
 **2 concurrent GPU sessions per account**. A reflexive double-push makes one
 experiment occupy both slots, cutting the number of solutions you can have in

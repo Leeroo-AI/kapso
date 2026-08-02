@@ -96,6 +96,14 @@ modes:
       # Refuse to start a campaign with less than this left after preflight —
       # below one submission round trip nothing scoreable can finish.
       min_campaign_minutes: 25
+      # Kaggle's per-ACCOUNT concurrent notebook limits, which every lane
+      # shares. kernel_slots.py hands out tickets against these so lanes queue
+      # instead of racing for a freed slot. ttl reclaims a ticket from a lane
+      # that died mid-kernel; keep it above the longest kernel run.
+      kernel_slots:
+        gpu: 2
+        cpu: 5
+        ttl_seconds: 1500
 
 
     # Admission floor: don't start an iteration that can't finish.

@@ -35,6 +35,7 @@ from benchmarks.kaggle.handler import KaggleNotebookHandler
 
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.yaml")
 RULES_PATH = os.path.join(os.path.dirname(__file__), "RULES.md")
+SLOTS_PATH = os.path.join(os.path.dirname(__file__), "kernel_slots.py")
 
 # Source patterns that indicate the kernel pulls external pretrained
 # resources or data. Matches are reported, not silently fatal — a human
@@ -404,6 +405,16 @@ def main():
     # Stage the organizers' binding rules beside the task so every session can
     # read them; copied fresh each launch so an edited RULES.md always wins.
     shutil.copy2(RULES_PATH, os.path.join(task_dir, "RULES.md"))
+
+    # Stage the slot ticket office + its limits. Lanes run in isolated session
+    # clones, so this has to be reachable by path rather than by import; a stale
+    # ledger from a previous launch would hold phantom tickets, so it goes too.
+    shutil.copy2(SLOTS_PATH, os.path.join(task_dir, "kernel_slots.py"))
+    with open(os.path.join(task_dir, ".kernel_slots_config.json"), "w") as f:
+        json.dump(mode_cfg["session_budget"]["kernel_slots"], f, indent=2)
+    stale_ledger = os.path.join(task_dir, ".kernel_slots.json")
+    if os.path.isfile(stale_ledger):
+        os.remove(stale_ledger)
 
     run_defaults = mode_cfg["run_defaults"]
     hours = args.hours if args.hours is not None else run_defaults["hours"]
