@@ -87,9 +87,9 @@ Values in the best-known number's units (AUROC/acc/MAP in %, NMAE, R², raw MAE)
 | 36 | rel-ratebeer/user-beer-liked | rec | v2 | 1.46 (ID-GNN) | — | — | — | — | 2.81 | ✅ beats best-known | 4xA100 | 4h | ✅ done |
 | 37 | rel-ratebeer/user-place-liked | rec | v2 | 1.85 (ID-GNN) | — | — | — | — | 6.1 | ✅ beats best-known | 4xA100 | 4h | ✅ done |
 | 38 | rel-ratebeer/user-beer-favorite | rec | v2 | 1.89 (ID-GNN) | — | — | — | — | 5.36 | ✅ beats best-known | 4xA100 | 4h | ✅ done |
-| 39 | rel-arxiv/author-category | mc | v2 | 50.7 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 4h | · pending |
-| 40 | rel-arxiv/paper-paper-cocitation | rec | v2 | 35.4 (ID-GNN) | — | — | — | — | — | — | 4xA100 | 4h | · pending |
-| 41 | rel-trial/eligibilities-adult | AC-bin | v2 | 93.7 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 4h | · pending |
+| 39 | rel-arxiv/author-category | mc | v2 | 50.7 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 4h | ▶ running |
+| 40 | rel-arxiv/paper-paper-cocitation | rec | v2 | 35.4 (ID-GNN) | — | — | — | — | — | — | 4xA100 | 4h | ▶ running |
+| 41 | rel-trial/eligibilities-adult | AC-bin | v2 | 93.7 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 4h | ▶ running |
 | 42 | rel-trial/eligibilities-child | AC-bin | v2 | 87.2 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 4h | · pending |
 | 43 | rel-stack/badges-class | AC-mul | v2 | 82.8 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 4h | · pending |
 | 44 | rel-hm/transactions-price | AC-reg | v2 | 0.736 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 4h | · pending |
