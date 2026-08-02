@@ -97,8 +97,9 @@ deadline. Budget the submit-and-score round trip into
 your plan from the start — an unsubmitted or unscored model counts for nothing,
 and the last submission must leave enough margin for its run and scoring.
 
-Only 2 GPU kernels run at once per account and the CPU pool is separate, so a
-CPU kernel is a cheap way to debug — but score on the competition's hardware.
+Only 2 GPU kernels run at once per account — queue via kernel_slots.py in your
+task dir. The CPU pool is separate: a cheap way to debug, but score on the
+competition's hardware.
 
 After a submission scores, append `<public_score> <iso-time> <submission-dir>
 <one-line idea>` to {self.task_dir}/best_score.log — the shared board

@@ -1,26 +1,35 @@
 #!/usr/bin/env python3
-"""Cross-lane ticket office for Kaggle's concurrent-session limits.
+"""Ticket office for Kaggle's concurrent-session limits. USE THIS BEFORE PUSHING.
 
-Kaggle allows only a fixed number of notebook sessions running at once PER
-ACCOUNT (2 GPU, 5 CPU), and every parallel lane shares one account. Without
-coordination the lanes race: each pushes, gets `Maximum batch GPU session count
-of 2 reached`, and retries blind, so the winner is whoever happens to poll when
-a slot frees rather than whoever waited longest (measured: 36 cap errors in one
-run, retries 14 deep).
+Kaggle runs at most 2 GPU and 5 CPU notebook sessions at once PER ACCOUNT, and
+every parallel lane shares one account. Claim a ticket before `kernels push` and
+release it once your kernel finishes:
 
-This is a flock'd ledger of slot tickets over the shared task directory. A lane
-holds a ticket from `kernels push` until its kernel finishes, so the ledger
-mirrors what Kaggle is actually running. A crashed lane cannot park a slot
-forever: tickets older than the TTL are reclaimed.
+    TASK=<the directory holding this file>
+    TICKET=$(python3 $TASK/kernel_slots.py acquire gpu --task-dir $TASK --lane <you>)
+    kaggle kernels push -p kernel/      # ... poll until COMPLETE, then submit ...
+    python3 $TASK/kernel_slots.py release "$TICKET" --task-dir $TASK
 
-Deliberately stdlib-only and standalone — lanes run in isolated session clones
-with no guarantee the kapso package is importable, so this is staged into the
-task directory and invoked by path.
+    python3 $TASK/kernel_slots.py status --task-dir $TASK   # who holds what
 
-Usage (see benchmarks/kaggle/RULES.md for the lane protocol):
-    python3 kernel_slots.py acquire gpu --lane lane3          # blocks
-    python3 kernel_slots.py release <ticket>
-    python3 kernel_slots.py status
+`acquire` BLOCKS until a slot frees — a wait is backpressure, not failure, and
+is never a reason to weaken your recipe. It prints the queue state to stderr and
+the ticket to stdout, so `$(...)` captures the ticket cleanly. Release promptly:
+holding a ticket through your own analysis starves the other lanes.
+
+If your kernel does not truly need a GPU, `acquire cpu` and push with
+`enable_gpu: false` — five slots instead of two.
+
+Why it exists: without coordination lanes race, each pushing blind into
+`Maximum batch GPU session count of 2 reached` and retrying, so the winner is
+whoever polls when a slot frees rather than whoever waited longest (63 cap
+errors in one run; 3 in the run that used this). The ledger is flock'd over the
+shared task dir and mirrors what Kaggle is actually running; a lane that dies
+mid-kernel cannot park a slot, since tickets are reclaimed after the TTL.
+
+Stdlib-only and standalone by design: lanes run in isolated session clones where
+the kapso package may not be importable, so this is staged into the task
+directory and invoked by path.
 """
 
 import argparse
