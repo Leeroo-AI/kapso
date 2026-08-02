@@ -71,8 +71,8 @@ class KaggleNotebookHandler(ProblemHandler):
 
 # Kapso operational context
 
-You are the implementation agent of kapso, an autonomous experimentation
-loop: design ONE experiment per iteration, implement it, evaluate it.
+You are the implementation agent of kapso: design ONE experiment per
+iteration, implement it, evaluate it.
 
 - Task directory (yours to modify): {self.task_dir}
 - Dataset (READ-ONLY, never modify): {self.dataset_dir}
@@ -100,9 +100,10 @@ and the last submission must leave enough margin for its run and scoring.
 Only 2 GPU kernels run at once per account and the CPU pool is separate, so a
 CPU kernel is a cheap way to debug — but score on the competition's hardware.
 
-After a submission scores, append `<public_score> <iso-time> <kernel-ref>
+After a submission scores, append `<public_score> <iso-time> <submission-dir>
 <one-line idea>` to {self.task_dir}/best_score.log — the shared board
-(public scores only); read it before designing your next attempt. Report each
+(public scores only). Read it before your next attempt; each dir holds the
+script.py that scored. Report each
 experiment's local validation score in <score></score> tags AND write
 kapso_evaluation/result.json: {{"score": <float>, "notes": "..."}} — name the
 validation split in `notes`, since scores measured different ways do not
