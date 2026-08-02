@@ -1,0 +1,59 @@
+{
+  "dataset": "rel-trial",
+  "task": "eligibilities-child",
+  "family": "autocomplete_binary_classification",
+  "primary_metric": "roc_auc",
+  "selected_by": "best recomputed validation roc_auc among registered-final runs",
+  "run": "run_0018",
+  "val_metrics": {
+    "average_precision": 0.8090948418700952,
+    "accuracy": 0.9140981340704907,
+    "f1": 0.7055200189528548,
+    "roc_auc": 0.9147814068835539
+  },
+  "test_metrics": {
+    "average_precision": 0.839200478588654,
+    "accuracy": 0.9256508749466495,
+    "f1": 0.7445747800586511,
+    "roc_auc": 0.9317113586941475
+  },
+  "audit": {
+    "clean": false,
+    "findings": [
+      {
+        "file": "main.py",
+        "line": 389,
+        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
+        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
+        "snippet": "train_val_ids = np.concatenate([train_ids, val_ids])"
+      },
+      {
+        "file": "main.py",
+        "line": 390,
+        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
+        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
+        "snippet": "train_val_labels = np.concatenate([train_labels, val_labels])"
+      },
+      {
+        "file": "main.py",
+        "line": 412,
+        "pattern": "\\.fit\\([^\\n]{0,60}val_(y|label|labels|target|targets)",
+        "concern": "verify: possible fit on validation labels",
+        "snippet": "model_b_calibration.fit(model_a_blend_logits.reshape(-1, 1), val_labels)"
+      },
+      {
+        "file": "trial_features.py",
+        "line": 114,
+        "pattern": "RELBENCH_CACHE_DIR",
+        "concern": "tampers with the data cache location",
+        "snippet": "return Path(os.environ[\"RELBENCH_CACHE_DIR\"]) / os.environ[\"RELBENCH_DATASET\"] / \"db\""
+      }
+    ],
+    "note": "static scan; manually review flagged lines before publishing results. 'verify:' findings are advisory OOS-contract review hooks (legal patterns that warrant tracing), not violations."
+  },
+  "code_path": "/home/ubuntu/kapso/tmp/relbench/rel-trial--eligibilities-child/runs/run_0018/code",
+  "predictions": {
+    "val": "/home/ubuntu/kapso/tmp/relbench/rel-trial--eligibilities-child/runs/run_0018/val_predictions.npy",
+    "test": "/home/ubuntu/kapso/tmp/relbench/rel-trial--eligibilities-child/runs/run_0018/test_predictions.npy"
+  }
+}

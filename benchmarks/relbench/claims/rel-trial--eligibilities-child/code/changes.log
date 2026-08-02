@@ -1,0 +1,5 @@
+RepoMemory sections consulted: core.architecture, core.entrypoints, core.where_to_edit, core.invariants, core.testing, core.gotchas, core.dependencies
+2026-08-02: Profiled immutable scoring mechanics and metadata-only input distributions; added PLAN.md and eval_profile.md without modifying the protected evaluation suite.
+2026-08-02: Built and validated 273,160 aligned deterministic feature rows in 94.6 seconds. Temporal censoring reduced outcome/analysis/withdrawal/event coverage to 221/101/103/151 studies, recorded as a measured coverage correction.
+2026-08-02: Built pinned-revision uint16 token caches for all 273,160 rows in 149.0 seconds. A 20-batch rank-8 LoRA benchmark completed at 4.258 batches/s with 1,238,530 trainable parameters and no OOM, exceeding the 2.7 batches/s critical-path target.
+2026-08-02: Immutable fast-fidelity debug gate completed in 213.3 seconds with valid aligned shapes and diagnostic validation ROC-AUC 0.8651905; no validation labels entered the debug training chain.

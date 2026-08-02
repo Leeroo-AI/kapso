@@ -3,7 +3,7 @@
 **Auto-generated — do not edit by hand.** Regenerate with:
 `PYTHONPATH=src:. python -m benchmarks.relbench.scorecard --reference`
 
-Status: **57/66 tasks run**, 38 beating the best published number. Category-level gates: run the scorecard (same module, no flags).
+Status: **59/66 tasks run**, 39 beating the best published number. Category-level gates: run the scorecard (same module, no flags).
 
 ## Benchmark version & leaderboard submission
 
@@ -88,9 +88,9 @@ Values in the best-known number's units (AUROC/acc/MAP in %, NMAE, R², raw MAE)
 | 37 | rel-ratebeer/user-place-liked | rec | v2 | 1.85 (ID-GNN) | — | — | — | — | 6.1 | ✅ beats best-known | 4xA100 | 4h | ✅ done |
 | 38 | rel-ratebeer/user-beer-favorite | rec | v2 | 1.89 (ID-GNN) | — | — | — | — | 5.36 | ✅ beats best-known | 4xA100 | 4h | ✅ done |
 | 39 | rel-arxiv/author-category | mc | v2 | 50.7 (GraphSAGE) | — | — | — | — | 52.5 | ✅ beats best-known | 4xA100 | 4h | ✅ done |
-| 40 | rel-arxiv/paper-paper-cocitation | rec | v2 | 35.4 (ID-GNN) | — | — | — | — | — | — | 4xA100 | 4h | ▶ running |
+| 40 | rel-arxiv/paper-paper-cocitation | rec | v2 | 35.4 (ID-GNN) | — | — | — | — | 32 | below best-known | 4xA100 | 4h | ✅ done |
 | 41 | rel-trial/eligibilities-adult | AC-bin | v2 | 93.7 (GraphSAGE) | — | — | — | — | 98.5 | ✅ beats best-known | 4xA100 | 4h | ✅ done |
-| 42 | rel-trial/eligibilities-child | AC-bin | v2 | 87.2 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 4h | ▶ running |
+| 42 | rel-trial/eligibilities-child | AC-bin | v2 | 87.2 (GraphSAGE) | — | — | — | — | 93.2 | ✅ beats best-known | 4xA100 | 4h | ✅ done |
 | 43 | rel-stack/badges-class | AC-mul | v2 | 82.8 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 4h | ▶ running |
 | 44 | rel-hm/transactions-price | AC-reg | v2 | 0.736 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 4h | ▶ running |
 | 45 | rel-amazon/review-rating | AC-reg | v2 | -0.356 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 4h | · pending |
@@ -163,6 +163,7 @@ Complete campaign state per run — session transcripts, lens/ideation history, 
 | rel-ratebeer/user-beer-favorite | `gs://leeroo-kapso-relbench-artifacts/runs/rel-ratebeer--user-beer-favorite/20260802T022831_lane-b3.tgz` |
 | rel-arxiv/author-category | `gs://leeroo-kapso-relbench-artifacts/runs/rel-arxiv--author-category/20260802T135232_lane-b1.tgz` |
 | rel-trial/eligibilities-adult | `gs://leeroo-kapso-relbench-artifacts/runs/rel-trial--eligibilities-adult/20260802T135231_lane-b3.tgz` |
+| rel-trial/eligibilities-child | `gs://leeroo-kapso-relbench-artifacts/runs/rel-trial--eligibilities-child/20260802T135746_lane-a1.tgz` |
 
 ## Winning artifacts (durable, committed — for organizer handoff)
 
@@ -207,3 +208,4 @@ Each claimed cell's evidence is copied from the box-local run archive into `benc
 | rel-ratebeer/user-beer-favorite | run_0009 | `benchmarks/relbench/claims/rel-ratebeer--user-beer-favorite/` | `29ff0138d126fa7b` | `87b55c1deefbf983` |
 | rel-arxiv/author-category | run_0018 | `benchmarks/relbench/claims/rel-arxiv--author-category/` | `f7d2f98bb81a3ef4` | `7e5e66e56ffb5cfa` |
 | rel-trial/eligibilities-adult | run_0003 | `benchmarks/relbench/claims/rel-trial--eligibilities-adult/` | `44e6fa4cc090d51a` | `4270185d887d6ade` |
+| rel-trial/eligibilities-child | run_0018 | `benchmarks/relbench/claims/rel-trial--eligibilities-child/` | `d3357655076100b2` | `30268d91d20ddd5d` |
