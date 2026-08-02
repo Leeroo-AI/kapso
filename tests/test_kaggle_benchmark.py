@@ -16,7 +16,7 @@ import yaml
 
 from benchmarks.kaggle import kernel_slots
 from benchmarks.kaggle.handler import KaggleNotebookHandler
-from benchmarks.kaggle.preflight import slug_from_url
+from benchmarks.kaggle.preflight import SPEC_PATH, slug_from_url
 from benchmarks.kaggle.runner import (
     RULES_PATH,
     audit_kernel,
@@ -115,6 +115,17 @@ def test_staged_rules_carry_the_binding_kernel_constraints():
     assert "cuda:0" in rules
     assert "NvidiaTeslaT4" in rules and "P100" in rules
     assert "50 submissions per task" in rules
+
+
+def test_preflight_spec_authors_no_submit_mechanics():
+    # S2 (run 5): the spec used to template the file-upload submit command,
+    # the preflight copied it into a kernel task's statement, and six lanes
+    # burned their first submission on a 400. The statement carries modality
+    # and file shape only; CLI mechanics never come from preflight authorship.
+    spec = open(SPEC_PATH, encoding="utf-8").read()
+    assert "modality" in spec
+    assert "competitions submit" not in spec
+    assert "kernels push" not in spec
 
 
 def test_parse_submissions_json_tolerates_pagination_noise():

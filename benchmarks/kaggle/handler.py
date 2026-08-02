@@ -90,9 +90,9 @@ the design space, not an end-of-run checklist.
 What counts is the best PUBLIC leaderboard score among your submissions — a
 stable baseline that scores low earns nothing. Go for the approach with the
 highest expected final score you can execute in the time remaining. The
-statement's Submission section is authoritative — it names how this task is
-submitted and the exact commands; keep your best submission under
-{self.submission_dir}/.
+statement's Submission section is authoritative on the modality and the exact
+file required; work out the CLI commands yourself. Keep your best submission
+under {self.submission_dir}/.
 
 The job is END-TO-END: develop → submit → public score, all before the
 deadline. Budget the round trip from the start — an unsubmitted or unscored

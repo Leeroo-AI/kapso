@@ -74,28 +74,16 @@ Write these sections, in order (an H1 title, then H2 sections):
    its role and concrete shape: CSV columns, row counts, label ranges, audio /
    image counts, checkpoint files. State explicitly what is NOT available
    locally (e.g. a hidden test set that is scored only on Kaggle).
-6. **Submission** — the load-bearing section. State the competition
-   **modality** first: is this a *code / kernel* competition (you submit a
-   kernel that runs on Kaggle) or a *file-upload* competition (you upload a
-   prediction file)? Then give the exact mechanics to produce AND submit a
-   scored entry:
-   - the required submission file: exact name, columns, header, row order, and
-     id space — grounded in the sample submission file in the dataset;
-   - the exact `kaggle` CLI command(s) to submit. For a **code / kernel**
-     competition: how the kernel is packaged (a `script.py` + a
-     `kernel-metadata.json`), pushed (`kaggle kernels push`), how its run is
-     polled, and how the resulting `submission.csv` is submitted
-     (`kaggle competitions submit -c <slug> -f submission.csv -m "<message>"`);
-     that the kernel is self-contained and runs with **Internet OFF** on the
-     competition's GPU tier — i.e. it must **train inside the kernel** from the
-     competition data (+ the provided checkpoint, if any) within the stated
-     time limit, then write `submission.csv` itself. For a **file-upload**
-     competition: the single `kaggle competitions submit` command over the
-     locally produced file.
-   - the **daily submission quota**;
-   - which exact artifact the solver should preserve as its best attempt (the
-     kernel `script.py` + `kernel-metadata.json`, or the submission file plus
-     the code that produced it).
+6. **Submission** — state the competition **modality** first: is this a
+   *code / kernel* competition (the scored file must be produced by a kernel
+   running on Kaggle) or a *file-upload* competition (a locally produced
+   prediction file is scored directly)? Then specify the required submission
+   file exactly — name, columns, header, row order, and id space — grounded in
+   the sample submission file in the dataset. Author **NO** `kaggle` CLI
+   mechanics: no command lines for pushing, polling, or submitting anything.
+   The solver works those out from the CLI itself, and a command template
+   written here reaches every lane at once — a stale upload-style submit line
+   in one statement cost six lanes their first submission on a 400.
 
 ## Output contract
 
