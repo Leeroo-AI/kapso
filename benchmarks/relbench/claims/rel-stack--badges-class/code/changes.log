@@ -1,0 +1,2 @@
+RepoMemory sections consulted: core.architecture, core.entrypoints, core.where_to_edit, core.invariants, core.testing, core.gotchas, core.dependencies
+Started implementation of trigger-aware causal user-state GBDT with deployment-shaped validation and test feature state.

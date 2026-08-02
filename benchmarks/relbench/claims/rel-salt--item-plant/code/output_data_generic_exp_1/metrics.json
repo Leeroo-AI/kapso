@@ -1,0 +1,134 @@
+{
+  "debug": true,
+  "gate_c": 0.1,
+  "gate_records": {
+    "debug": [
+      0.1
+    ]
+  },
+  "regularization": 10.0,
+  "regularization_records": {
+    "baseline": [
+      0.9882
+    ],
+    "candidates": {
+      "10.0": [
+        0.9882
+      ]
+    }
+  },
+  "corrections_enabled": true,
+  "exception_config": [
+    "document_ensemble",
+    5,
+    1.0
+  ],
+  "exception_records": {
+    "item_org_product:2:0.8": [
+      0.9886
+    ],
+    "item_ensemble:2:1": [
+      0.98876
+    ],
+    "document_ensemble:5:1": [
+      0.9892
+    ]
+  },
+  "feature_names": [
+    "organization",
+    "document_organization_product",
+    "document_organization_ship_product",
+    "document_organization_sold_product",
+    "document_product",
+    "document_ship_product",
+    "document_sold_product",
+    "document_organization_category",
+    "document_category",
+    "item_organization_channel",
+    "item_organization_product",
+    "item_organization_category",
+    "item_organization_ship_product",
+    "item_organization_sold_product",
+    "item_product",
+    "item_parties",
+    "item_party_product",
+    "item_countries",
+    "item_regions",
+    "item_country_product",
+    "item_region_product",
+    "item_document_type",
+    "item_billing_company",
+    "item_currency",
+    "item_category",
+    "item_position",
+    "item_sibling_disagreement",
+    "item_organization_document_type",
+    "item_organization_billing_company",
+    "item_organization_currency"
+  ],
+  "weights_a": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.11412230297653864,
+    0.0363728545672236,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.30879018794033625,
+    0.0,
+    0.0,
+    0.0,
+    0.10740540001909099,
+    0.12106499505335468,
+    0.0,
+    0.0
+  ],
+  "weights_b": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.1640620928341437,
+    0.046284018327651694,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.24919114245847368,
+    0.0,
+    0.0,
+    0.0,
+    0.16727585506189332,
+    0.2079889325640961,
+    0.0,
+    0.0
+  ],
+  "elapsed_seconds": 130.2109978199005
+}

@@ -1,0 +1,66 @@
+{
+  "dataset": "rel-stack",
+  "task": "badges-class",
+  "family": "autocomplete_multiclass_classification",
+  "primary_metric": "accuracy",
+  "selected_by": "best recomputed validation accuracy among registered-final runs",
+  "run": "run_0001",
+  "val_metrics": {
+    "accuracy": 0.8611055941741146,
+    "macro_f1": 0.6688077650613548,
+    "micro_f1": 0.8611055941741146,
+    "mrr": 0.9281805141785282
+  },
+  "test_metrics": {
+    "accuracy": 0.8923372850749784,
+    "macro_f1": 0.697624287605767,
+    "micro_f1": 0.8923372850749784,
+    "mrr": 0.9433055926303944
+  },
+  "audit": {
+    "clean": true,
+    "findings": [
+      {
+        "file": "main.py",
+        "line": 132,
+        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
+        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
+        "snippet": "combined_seeds = pd.concat([train_seeds, validation_seeds, test_seeds], ignore_index=True)"
+      },
+      {
+        "file": "main.py",
+        "line": 228,
+        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
+        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
+        "snippet": "model_b_features = np.vstack([train_features[-allowed_train:], validation_features])"
+      },
+      {
+        "file": "main.py",
+        "line": 229,
+        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
+        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
+        "snippet": "model_b_labels = np.concatenate([train_labels[-allowed_train:], validation_labels])"
+      },
+      {
+        "file": "main.py",
+        "line": 231,
+        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
+        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
+        "snippet": "model_b_features = np.vstack([train_features, validation_features])"
+      },
+      {
+        "file": "main.py",
+        "line": 232,
+        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
+        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
+        "snippet": "model_b_labels = np.concatenate([train_labels, validation_labels])"
+      }
+    ],
+    "note": "static scan; manually review flagged lines before publishing results. 'verify:' findings are advisory OOS-contract review hooks (legal patterns that warrant tracing), not violations."
+  },
+  "code_path": "/home/ubuntu/kapso/tmp/relbench/rel-stack--badges-class/runs/run_0001/code",
+  "predictions": {
+    "val": "/home/ubuntu/kapso/tmp/relbench/rel-stack--badges-class/runs/run_0001/val_predictions.npy",
+    "test": "/home/ubuntu/kapso/tmp/relbench/rel-stack--badges-class/runs/run_0001/test_predictions.npy"
+  }
+}
