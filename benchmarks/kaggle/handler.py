@@ -100,6 +100,8 @@ score, all before the deadline. Budget the submit-and-score round trip into
 your plan from the start — an unsubmitted or unscored model counts for nothing,
 and the last submission must leave enough margin for its run and scoring.
 
+Only 2 GPU kernels run at once per account; the CPU pool is separate.
+
 After a submission scores, append `<public_score> <iso-time> <label>` to
 {self.task_dir}/best_score.log (public scores only). Report each experiment's
 local validation score in <score></score> tags AND write
