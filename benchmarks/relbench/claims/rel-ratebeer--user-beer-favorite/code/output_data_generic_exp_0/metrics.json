@@ -1,0 +1,74 @@
+{
+  "feature_count": 90,
+  "availability_legal_rows": 0,
+  "model_a": {
+    "matrix": {
+      "episodes": 500,
+      "groups_with_reachable_positive": 288,
+      "label_total": 1825,
+      "reachable_labels": 1081,
+      "candidate_recall": 0.5923287671232876,
+      "history_strata": {
+        "no_favorites": {
+          "labels": 1606,
+          "reachable": 979,
+          "recall": 0.6095890410958904
+        },
+        "one_to_five_favorites": {
+          "labels": 193,
+          "reachable": 87,
+          "recall": 0.45077720207253885
+        },
+        "over_five_favorites": {
+          "labels": 26,
+          "reachable": 15,
+          "recall": 0.5769230769230769
+        }
+      },
+      "rows_per_second": 7973.745834829974
+    },
+    "selection": {
+      "selected_rounds": 50,
+      "model_weight": 0.5,
+      "folds": []
+    },
+    "rounds": 50,
+    "model_weight": 0.5
+  },
+  "model_b": {
+    "matrix": {
+      "episodes": 500,
+      "groups_with_reachable_positive": 295,
+      "label_total": 2307,
+      "reachable_labels": 909,
+      "candidate_recall": 0.3940182054616385,
+      "history_strata": {
+        "no_favorites": {
+          "labels": 426,
+          "reachable": 261,
+          "recall": 0.6126760563380281
+        },
+        "one_to_five_favorites": {
+          "labels": 225,
+          "reachable": 105,
+          "recall": 0.4666666666666667
+        },
+        "over_five_favorites": {
+          "labels": 1656,
+          "reachable": 543,
+          "recall": 0.3278985507246377
+        }
+      },
+      "rows_per_second": 5399.496329332737
+    },
+    "selection": {
+      "selected_rounds": 50,
+      "model_weight": 0.5,
+      "folds": []
+    },
+    "rounds": 50,
+    "model_weight": 0.5
+  },
+  "elapsed_seconds": 19.248659372329712,
+  "mode": "debug"
+}

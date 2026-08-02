@@ -3,7 +3,7 @@
 **Auto-generated — do not edit by hand.** Regenerate with:
 `PYTHONPATH=src:. python -m benchmarks.relbench.scorecard --reference`
 
-Status: **52/66 tasks run**, 33 beating the best published number. Category-level gates: run the scorecard (same module, no flags).
+Status: **53/66 tasks run**, 34 beating the best published number. Category-level gates: run the scorecard (same module, no flags).
 
 ## Benchmark version & leaderboard submission
 
@@ -86,7 +86,7 @@ Values in the best-known number's units (AUROC/acc/MAP in %, NMAE, R², raw MAE)
 | 35 | rel-ratebeer/beer_ratings-total_score | AC-reg | v2 | 0.394 (GraphSAGE) | — | — | — | — | 0.405 | ✅ beats best-known | 4xA100 | 4h | ✅ done |
 | 36 | rel-ratebeer/user-beer-liked | rec | v2 | 1.46 (ID-GNN) | — | — | — | — | — | — | 4xA100 | 4h | ▶ running |
 | 37 | rel-ratebeer/user-place-liked | rec | v2 | 1.85 (ID-GNN) | — | — | — | — | — | — | 4xA100 | 4h | ▶ running |
-| 38 | rel-ratebeer/user-beer-favorite | rec | v2 | 1.89 (ID-GNN) | — | — | — | — | — | — | 4xA100 | 4h | ▶ running |
+| 38 | rel-ratebeer/user-beer-favorite | rec | v2 | 1.89 (ID-GNN) | — | — | — | — | 5.36 | ✅ beats best-known | 4xA100 | 4h | ✅ done |
 | 39 | rel-arxiv/author-category | mc | v2 | 50.7 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 4h | · pending |
 | 40 | rel-arxiv/paper-paper-cocitation | rec | v2 | 35.4 (ID-GNN) | — | — | — | — | — | — | 4xA100 | 4h | · pending |
 | 41 | rel-trial/eligibilities-adult | AC-bin | v2 | 93.7 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 4h | · pending |
@@ -158,6 +158,7 @@ Complete campaign state per run — session transcripts, lens/ideation history, 
 | rel-arxiv/paper-citation | `gs://leeroo-kapso-relbench-artifacts/runs/rel-arxiv--paper-citation/20260801T220346_lane-b3.tgz` |
 | rel-ratebeer/user-churn | `gs://leeroo-kapso-relbench-artifacts/runs/rel-ratebeer--user-churn/20260801T224425_lane-a1.tgz` |
 | rel-ratebeer/beer_ratings-total_score | `gs://leeroo-kapso-relbench-artifacts/runs/rel-ratebeer--beer_ratings-total_score/20260801T224930_lane-a2.tgz` |
+| rel-ratebeer/user-beer-favorite | `gs://leeroo-kapso-relbench-artifacts/runs/rel-ratebeer--user-beer-favorite/20260802T022831_lane-b3.tgz` |
 
 ## Winning artifacts (durable, committed — for organizer handoff)
 
@@ -197,3 +198,4 @@ Each claimed cell's evidence is copied from the box-local run archive into `benc
 | rel-arxiv/author-publication | run_0009 | `benchmarks/relbench/claims/rel-arxiv--author-publication/` | `562abd2067d9daa5` | `7846edc948cb0a67` |
 | rel-arxiv/paper-citation | run_0020 | `benchmarks/relbench/claims/rel-arxiv--paper-citation/` | `e6b36be384af1be3` | `abf3fd762768dd5b` |
 | rel-ratebeer/beer_ratings-total_score | run_0008 | `benchmarks/relbench/claims/rel-ratebeer--beer_ratings-total_score/` | `eabe486a28417a75` | `d20c9a28d2190783` |
+| rel-ratebeer/user-beer-favorite | run_0009 | `benchmarks/relbench/claims/rel-ratebeer--user-beer-favorite/` | `29ff0138d126fa7b` | `87b55c1deefbf983` |

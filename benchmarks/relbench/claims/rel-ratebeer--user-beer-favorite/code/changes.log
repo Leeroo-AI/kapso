@@ -1,0 +1,6 @@
+RepoMemory sections consulted: core.architecture, core.entrypoints, core.where_to_edit, core.invariants, core.testing, core.gotchas, core.dependencies
+2026-08-01: Profiled immutable evaluation mechanics and input metadata; created PLAN.md and eval_profile.md outside the protected kapso_evaluation directory.
+2026-08-01: Deterministic floor passed both prediction contracts in 3.0 seconds. Exact weekly replay counts measured at 8,443/68,626; debug LambdaRank exercised both chains with 90 censored features and quarterly BM25 snapshots.
+2026-08-01: First full run archived as run_0004 at MAP 0.0302881847. Diagnosed sampled-negative fold evaluation as inconsistent with full-candidate inference; added complete-candidate purged-fold round/blend selection to correct the selection target without using official validation labels.
+2026-08-01: Corrected run_0005 reached MAP 0.0557588373. Internal full-candidate folds showed that adding latest direct rating score and reciprocal own-rating rank to the floor improved mean/worst MAP consistently: Model A 0.08069/0.07823 to 0.09272/0.09030; Model B 0.03959/0.03430 to 0.04864/0.04395.
+2026-08-01: Reinforced floor run_0006 reached MAP 0.0601394970. Widened quarterly BM25 documents/neighbors from 10/20 to the specified 30/30 after pilots measured only 2.6–3.1 seconds per snapshot.
