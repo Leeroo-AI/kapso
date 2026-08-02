@@ -54,15 +54,21 @@ competitions submissions <slug>` shows every attempt with its public score and
 message; read it before spending one on something a sibling already tried.
 
 On a code competition the session limits are shared too: Kaggle runs at most
-**2 GPU** and **5 CPU** notebook sessions at once per account. Past the cap a
-push fails with `Maximum batch GPU session count of 2 reached` — that is
-backpressure, not failure: keep the recipe, wait, retry. Never weaken a solution
-over it. Queue instead of racing: `kernel_slots.py` in your task dir hands out
-tickets against those limits — `acquire` before you push, `release` once your
-kernel finishes. Run it with no arguments for the protocol. If your kernel does
-not truly need a GPU, take a CPU ticket and push with `enable_gpu: false`: five
-slots instead of two, and a cheap way to debug — though the scored run belongs
-on the competition's hardware.
+**2 GPU** and **5 CPU** sessions at once per account, and BOTH kinds of work
+consume one — a `kernels push` runs your kernel, and a `competitions submit`
+**re-runs it to score it**, holding a session for about the kernel's runtime.
+Past the cap a push fails with `Maximum batch GPU session count of 2 reached` —
+that is backpressure, not failure: keep the recipe, wait, retry. Never weaken a
+solution over it.
+
+Queue instead of racing: `kernel_slots.py` in your task dir runs one priority
+queue per pool (gpu, cpu). Take a `push` ticket before you push and release it
+when the kernel goes terminal; take a `score` ticket before you submit and
+release it when the submission leaves pending. Run it with no arguments for the
+full protocol and the priority tiers. If your kernel does not truly need a GPU,
+queue on the CPU pool and push with `enable_gpu: false`: five slots instead of
+two, and a cheap way to debug — though the scored run belongs on the
+competition's hardware.
 
 ## Packages
 

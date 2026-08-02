@@ -20,9 +20,12 @@ from benchmarks.kaggle.preflight import SPEC_PATH, slug_from_url
 from benchmarks.kaggle.runner import (
     RULES_PATH,
     audit_kernel,
+    banked_kernel_refs,
     best_public_score,
+    classify_submit_output,
     discover_run_kernels,
     parse_submissions_json,
+    rank_harvest_candidates,
     submission_matches_template,
 )
 
@@ -233,35 +236,140 @@ def test_submission_matches_template_gates_on_ids_not_just_size(tmp_path):
     assert not submission_matches_template(str(short), str(template))
 
 
-def test_kernel_slots_never_overcommits_and_reclaims_dead_lanes(tmp_path):
-    # The whole point: Kaggle's 2 concurrent GPU sessions are per ACCOUNT, so
-    # parallel lanes must queue rather than race. Over-issuing a ticket would
-    # send a lane into a push that Kaggle rejects.
+def make_slots_task(tmp_path, gpu=2, cpu=5, ttl=600):
     task = tmp_path / "task"
-    task.mkdir()
-    (task / ".kernel_slots_config.json").write_text(
-        json.dumps({"gpu": 2, "cpu": 5, "ttl_seconds": 1500}))
-    tickets = [kernel_slots.try_acquire(str(task), "gpu", f"lane{i}")
-               for i in range(5)]
-    assert sum(t is not None for t in tickets) == 2, "issued more than the limit"
-    # The CPU pool is independent — a full GPU pool must not block it.
-    assert kernel_slots.try_acquire(str(task), "cpu", "lane9") is not None
+    task.mkdir(exist_ok=True)
+    (task / ".kernel_slots_config.json").write_text(json.dumps(
+        {"gpu": gpu, "cpu": cpu, "ttl_seconds": ttl,
+         "reap_interval_seconds": 60, "verify_timeout_seconds": 30}))
+    return str(task)
 
-    held = [t for t in tickets if t][0]
-    assert kernel_slots.release(str(task), held) is True
-    assert kernel_slots.try_acquire(str(task), "gpu", "lane6") is not None
 
-    # A lane that dies mid-kernel must not park a slot forever.
-    ledger = json.loads((task / ".kernel_slots.json").read_text())
-    for entry in ledger["gpu"]:
+def grab(task, pool="gpu", kind="push", lane="lane", priority=None,
+         waiter_id=None, now=None):
+    """One poll_once step — the atomic unit acquire_blocking loops on."""
+    return kernel_slots.poll_once(
+        task, pool, kind, "owner/kernel-a", lane,
+        priority or kernel_slots.DEFAULT_PRIORITY[kind],
+        waiter_id or f"w-{lane}", now if now is not None else time.time())
+
+
+def test_kernel_slots_pushes_and_scores_share_one_pool(tmp_path):
+    # The account limit counts SESSIONS: a scoring re-run occupies a slot
+    # exactly like a push (run 5's harvest filled the pool with its own two
+    # submissions and misread 72 rejections as dead kernels).
+    task = make_slots_task(tmp_path)
+    assert grab(task, kind="push", lane="a")["ticket"]
+    assert grab(task, kind="score", lane="b")["ticket"]
+    assert grab(task, kind="push", lane="c")["ticket"] is None
+    # One queue PER POOL: a full GPU pool must not block the CPU pool.
+    assert grab(task, pool="cpu", lane="d")["ticket"]
+
+
+def test_kernel_slots_priority_queue_orders_grants(tmp_path):
+    # ship > first-score > run > reroll, FIFO within a tier — a freed slot
+    # goes to the highest tier, not to whoever happens to poll first.
+    task = make_slots_task(tmp_path, gpu=1)
+    held = grab(task, lane="holder")["ticket"]
+    t0 = time.time()
+    assert grab(task, lane="早", priority="run", waiter_id="w-run",
+                now=t0)["ticket"] is None
+    assert grab(task, kind="score", lane="ship", priority="ship",
+                waiter_id="w-ship", now=t0 + 1)["ticket"] is None
+    kernel_slots.release(task, held)
+    # The earlier-arrived run waiter polls first but must NOT jump the queue.
+    assert grab(task, lane="早", priority="run", waiter_id="w-run",
+                now=t0 + 2)["ticket"] is None
+    assert grab(task, kind="score", lane="ship", priority="ship",
+                waiter_id="w-ship", now=t0 + 3)["ticket"]
+    # With the slot retaken, the run waiter keeps queueing.
+    assert grab(task, lane="早", priority="run", waiter_id="w-run",
+                now=t0 + 4)["ticket"] is None
+
+
+def test_kernel_slots_grants_top_k_and_prunes_dead_waiters(tmp_path):
+    task = make_slots_task(tmp_path)
+    t0 = time.time()
+    held = [grab(task, lane=f"h{i}", waiter_id=f"w-h{i}")["ticket"]
+            for i in range(2)]
+    # Three lanes queue on the full pool; the first then dies mid-wait (its
+    # heartbeat goes stale) and must not hold a place in line.
+    assert grab(task, lane="dead", waiter_id="w-dead", now=t0 - 120)["ticket"] is None
+    assert grab(task, lane="b", waiter_id="w-b", now=t0)["ticket"] is None
+    assert grab(task, lane="c", waiter_id="w-c", now=t0 + 1)["ticket"] is None
+    for ticket in held:
+        kernel_slots.release(task, ticket)
+    # Two slots free -> BOTH fresh waiters grant (rank < free), regardless of
+    # poll order — a slow-polling head cannot strand the second slot — and
+    # the dead waiter's stale entry blocks neither.
+    assert grab(task, lane="c", waiter_id="w-c", now=t0 + 2)["ticket"]
+    assert grab(task, lane="b", waiter_id="w-b", now=t0 + 3)["ticket"]
+
+
+def test_kernel_slots_reap_releases_only_kaggle_confirmed_dead(tmp_path):
+    # TTL alone must NOT reclaim: a dead lane's kernel keeps RUNNING on
+    # Kaggle, and blind reclaim over-granted the pool (run 5's ticket-holding
+    # lanes still hit the session cap). Truth comes from Kaggle.
+    task = make_slots_task(tmp_path)
+    running = grab(task, kind="push", lane="zombie")["ticket"]
+    scoring = grab(task, kind="score", lane="scored")["ticket"]
+    ledger_path = os.path.join(task, ".kernel_slots.json")
+    ledger = json.loads(open(ledger_path).read())
+    for entry in ledger["tickets"]["gpu"]:
         entry["acquired"] = time.time() - 9999
-    (task / ".kernel_slots.json").write_text(json.dumps(ledger))
-    assert kernel_slots.status(str(task))["gpu"]["in_use"] == 0
+    open(ledger_path, "w").write(json.dumps(ledger))
+
+    released = kernel_slots.maybe_reap(
+        task, time.time(),
+        kernel_status_fn=lambda ref, timeout: "running",
+        pending_fn=lambda task_dir, timeout: 0)
+    assert released == [scoring]          # nothing pending -> score slot free
+    assert running not in released        # kernel still running -> keep it
+
+    # Rate limit: an immediate second reap must not hammer Kaggle.
+    assert kernel_slots.maybe_reap(
+        task, time.time(),
+        kernel_status_fn=lambda ref, timeout: "complete",
+        pending_fn=lambda task_dir, timeout: 0) == []
+    # Past the interval, the terminal kernel's ticket is released too.
+    assert kernel_slots.maybe_reap(
+        task, time.time() + 61,
+        kernel_status_fn=lambda ref, timeout: "complete",
+        pending_fn=lambda task_dir, timeout: 0) == [running]
+    assert kernel_slots.status(task)["gpu"]["in_use"] == 0
 
 
 def test_kernel_slots_fails_loud_without_its_config(tmp_path):
     with pytest.raises(FileNotFoundError, match="kernel_slots_config"):
-        kernel_slots.try_acquire(str(tmp_path), "gpu", "lane0")
+        grab(str(tmp_path))
+
+
+def test_classify_submit_output_reads_text_not_exit_codes():
+    # Verified live 2026-08-02: the kaggle CLI exits 0 even on a rejected
+    # submission, so the output text is the only signal.
+    assert classify_submit_output("", "403 Client Error: Forbidden for url: "
+                                  ".../CreateCodeSubmission") == "rejected-403"
+    assert classify_submit_output("400 Client Error: Bad Request", "") == "rejected-400"
+    assert classify_submit_output("", "") == "accepted"
+    assert classify_submit_output("Successfully submitted", "") == "accepted"
+
+
+def test_harvest_ranks_never_scored_kernels_first(tmp_path):
+    # Run 5 submitted two already-scored kernels (alphabetical order) while
+    # two unscored ones bounced off the full pool and were lost.
+    task = tmp_path / "task"
+    task.mkdir()
+    (task / "best_score.log").write_text(
+        "0.85952 2026-08-02T15:22:42Z owner/scored-a lane0 storyboard\n"
+        "0.84514 2026-08-02T15:27:33Z - file-upload entry, no kernel\n"
+        "bad-line-without-ref\n"
+    )
+    banked = banked_kernel_refs(str(task))
+    assert banked == {"owner/scored-a"}
+    refs = ["owner/scored-a", "owner/unscored-b", "owner/unscored-c"]
+    assert rank_harvest_candidates(refs, banked) == [
+        "owner/unscored-b", "owner/unscored-c", "owner/scored-a"]
+    assert banked_kernel_refs(str(tmp_path / "nowhere")) == set()
 
 
 def test_slug_from_url_parses_competition_forms():

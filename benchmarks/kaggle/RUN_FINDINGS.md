@@ -5,6 +5,40 @@ what broke, the evidence, the fix (or the open proposal). Newest run first.
 
 ---
 
+## Run 5 — 2026-08-02 14:18 UTC, 8×L4, k=8, 2h — best 0.86547 (from harvest)
+
+### I-13 (FIXED) — one session pool, three consumers, one modeled
+Kaggle's 2-concurrent-GPU limit counts SESSIONS, and three things consume them:
+kernel pushes, kernels of dead lanes still running, and **scoring re-runs — a
+code submission re-executes the kernel** (proof: lane 0's v2 scored 0.85952
+when the lane submitted it and 0.86547 when the harvest re-submitted the same
+immutable version; scoring latency ≈ kernel runtime). `kernel_slots.py` v1
+modeled only pushes, so lane 5 hit `Maximum batch GPU session count of 2
+reached` three times *while holding a valid ticket*, and the harvest filled
+both slots with its own first two submissions, then misread 72 rejections
+(nonexistent-version probes and capacity blocks look identical: `403 ...
+CreateCodeSubmission`, exit code 0) as "no version took" — 6 of 8 kernels
+never scored, 2 of them never scored ANYWHERE (lanes 4, 5). Run 4: identical
+signature (9 found, exactly 2 submitted 6 s apart, rest failed).
+**Fix:** kernel_slots v2 — one priority queue per pool (gpu, cpu); tickets are
+`push` or `score` kind; tiers ship > first-score > run > reroll; stale tickets
+released only after Kaggle confirms the session ended (blind TTL reclaim is
+what made the ledger porous). The harvest became a scoring scheduler: ranks
+never-scored kernels first (best_score.log now carries the kernel ref), takes
+a `score` ticket per submission, fills both slots, submits the next candidate
+when one scores, keeps every attempt's output in the report.
+
+### I-14 (OPEN) — reserve window consumed by post-processing
+5 of 8 lanes were killed at the reserve wall (15:42:57); extraction + 8×60 s
+feedback then ran 15:42:57→15:57:33, eating 14.6 of the 20 reserved minutes.
+The insured-reserve release fired at the top of iteration 2 — one second
+before the run stopped — because a 2 h k=8 run is a single iteration and the
+hook is only consulted at iteration boundaries. Feedback for a round nothing
+will consume is pure loss; options: skip feedback when no further iteration
+can start, or re-check the insured reserve per lane completion.
+
+---
+
 ## Run 3 — 2026-07-29 15:29 UTC, spot 8×L4, k=8, 2h, fable-5, 5 candidates/member
 
 **OUTCOME: the URL→score loop closed end-to-end.** 4 kernels pushed, 4

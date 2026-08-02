@@ -31,6 +31,7 @@ load_dotenv()
 import yaml
 
 from kapso.execution.orchestrator import OrchestratorAgent
+from benchmarks.kaggle import kernel_slots
 from benchmarks.kaggle.handler import KaggleNotebookHandler
 
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.yaml")
@@ -228,16 +229,37 @@ def submission_matches_template(candidate_path: str, template_path: str) -> bool
     return all(c[0] == t[0] for c, t in zip(candidate[1:], template[1:]))
 
 
+def classify_submit_output(stdout: str, stderr: str) -> str:
+    """One label per submit attempt; the CLI exits 0 even on rejection.
+
+    Verified live 2026-08-02: a rejected code submission prints `403 Client
+    Error ... CreateCodeSubmission` and exits 0, so the exit code carries no
+    signal — the output text is the only discriminator. "accepted" means no
+    rejection signature; anything else is the signature found.
+    """
+    blob = stdout + stderr
+    if "403" in blob:
+        return "rejected-403"          # version invalid OR no session capacity
+    if "400" in blob:
+        return "rejected-400"          # wrong endpoint/modality for this comp
+    if "Error" in blob or "error:" in blob:
+        return "rejected-error"
+    return "accepted"
+
+
 def submit_kernel_output(kaggle_bin: str, competition: str, ref: str,
                          message: str, max_version: int,
-                         timeout_seconds: int) -> "int | None":
-    """Submit the NEWEST submittable version of a kernel; None if none took.
+                         timeout_seconds: int) -> tuple:
+    """Submit the NEWEST submittable version; (version|None, attempt log).
 
     `-v` is mandatory for code competitions and the CLI exposes the version
     nowhere (neither `kernels list --format json` nor `kernels status` carries
     it), so the version is discovered by probing. The probe runs DOWNWARD:
     upward would stop at the oldest submittable version instead of the newest.
+    Every attempt's output is kept — run 5 lost six kernels to rejections
+    whose stderr was discarded, leaving only "no version took" behind.
     """
+    attempts = []
     for version in range(max_version, 0, -1):
         proc = subprocess.run(
             [kaggle_bin, "competitions", "submit", "-c", competition,
@@ -245,10 +267,44 @@ def submit_kernel_output(kaggle_bin: str, competition: str, ref: str,
              "-m", message],
             capture_output=True, text=True, timeout=timeout_seconds,
         )
-        blob = proc.stdout + proc.stderr
-        if proc.returncode == 0 and "403" not in blob and "Error" not in blob:
-            return version
-    return None
+        verdict = classify_submit_output(proc.stdout, proc.stderr)
+        attempts.append({"version": version, "verdict": verdict,
+                         "output": (proc.stdout + proc.stderr).strip()})
+        if verdict == "accepted":
+            return version, attempts
+    return None, attempts
+
+
+def banked_kernel_refs(task_dir: str) -> set:
+    """Kernel refs with a public score in best_score.log.
+
+    The board line is `<public_score> <iso-time> <kernel-ref> <idea>`; the ref
+    field is what makes never-scored kernels computable. A line whose third
+    field is not a ref (a lane that skipped it) simply attributes nothing —
+    that only affects harvest ORDER, never correctness. Missing log = nothing
+    banked; a malformed score field raises upstream where it is read.
+    """
+    score_log = os.path.join(task_dir, "best_score.log")
+    if not os.path.isfile(score_log):
+        return set()
+    refs = set()
+    with open(score_log, encoding="utf-8") as f:
+        for line in f:
+            fields = line.split()
+            if len(fields) >= 3 and kernel_slots.KERNEL_REF_PATTERN.match(fields[2]):
+                refs.add(fields[2])
+    return refs
+
+
+def rank_harvest_candidates(refs: list, banked: set) -> list:
+    """Never-scored kernels first — alphabet cost run 5 two lanes' scores.
+
+    A kernel with no banked score is one submission away from turning finished
+    work into leaderboard value; a banked one only offers a stochastic re-roll
+    (scoring re-runs the kernel). Stable within each group.
+    """
+    return ([r for r in refs if r not in banked]
+            + [r for r in refs if r in banked])
 
 
 def harvest_unsubmitted_kernels(root: str, competition: str,
@@ -290,6 +346,14 @@ def harvest_unsubmitted_kernels(root: str, competition: str,
     workdir = os.path.join(root, ".harvest")
     seen_digests = {}
 
+    # Never-scored kernels first: run 5 spent both scoring slots re-rolling
+    # already-scored kernels (alphabetical order) while two unscored ones —
+    # finished work one submission away from value — were bounced.
+    refs = rank_harvest_candidates(refs, banked_kernel_refs(task_dir))
+
+    # Gate every candidate down to something submittable before spending a
+    # scoring slot on it.
+    ready = []
     for ref in refs:
         status = kernel_status(kaggle_bin, ref, timeout_seconds)
         if status != "COMPLETE":
@@ -315,15 +379,99 @@ def harvest_unsubmitted_kernels(root: str, competition: str,
                 {"kernel": ref, "reason": f"identical to {seen_digests[digest]}"})
             continue
         seen_digests[digest] = ref
-        version = submit_kernel_output(
-            kaggle_bin, competition, ref,
-            f"harvest: {ref.split('/')[-1]} (pushed by the run, not submitted)",
-            final_eval_cfg["harvest_max_kernel_version"], timeout_seconds,
+        ready.append(ref)
+
+    # Scoring scheduler. A code submission RE-RUNS the kernel, occupying one
+    # of the account's 2 GPU sessions for about the kernel's runtime — run 5's
+    # harvest submitted two, filled the pool, and misread the next 72
+    # rejections as "no version took". So: take a score ticket per submission
+    # (ship priority — this is the reserved endgame window), fill both slots,
+    # and submit the next candidate only when one scores.
+    deadline = time.time() + final_eval_cfg["harvest_budget_seconds"]
+    poll_seconds = final_eval_cfg["harvest_poll_seconds"]
+    retry_seconds = final_eval_cfg["harvest_retry_seconds"]
+    pending = []          # [{kernel, version, ticket, submitted_at}]
+    retried = set()
+
+    def poll_scored():
+        """Release tickets of harvest submissions that finished scoring."""
+        proc = subprocess.run(
+            [kaggle_bin, "competitions", "submissions", competition,
+             "--format", "json", "-q"],
+            capture_output=True, text=True, timeout=timeout_seconds,
         )
-        if version is None:
-            report["skipped"].append({"kernel": ref, "reason": "no version took"})
-            continue
-        report["submitted"].append({"kernel": ref, "version": version})
+        rows = parse_submissions_json(proc.stdout)
+        still = []
+        for entry in pending:
+            # Window by date: a previous run's harvest used the same message
+            # for the same slug, and its scored row must not satisfy this one.
+            since = datetime.fromtimestamp(
+                entry["submitted_at"] - 60, timezone.utc
+            ).strftime("%Y-%m-%d %H:%M:%S")
+            row = next(
+                (r for r in rows
+                 if entry["kernel"].split("/")[-1] in str(r.get("description", ""))
+                 and str(r.get("date", ""))[:19] >= since
+                 and "pending" not in str(r.get("status", "")).lower()), None)
+            if row is None:
+                still.append(entry)
+                continue
+            kernel_slots.release(task_dir, entry.pop("ticket"))
+            entry["publicScore"] = str(row.get("publicScore", ""))
+            report["submitted"].append(entry)
+        pending[:] = still
+
+    while (ready or pending) and time.time() < deadline:
+        while ready and time.time() < deadline:
+            ref = ready[0]
+            wait = min(300.0, max(0.0, deadline - time.time()))
+            ticket = kernel_slots.acquire_blocking(
+                task_dir, "gpu", "score", ref, lane="harvest",
+                priority="ship", wait_seconds=wait)
+            if ticket is None:
+                # No scoring slot inside the budget — record the remainder
+                # rather than losing the whole leaderboard readout.
+                for leftover in ready:
+                    report["skipped"].append(
+                        {"kernel": leftover,
+                         "reason": "no scoring slot within harvest budget"})
+                ready.clear()
+                break
+            version, attempts = submit_kernel_output(
+                kaggle_bin, competition, ref,
+                f"harvest: {ref.split('/')[-1]} (pushed by the run, not submitted)",
+                final_eval_cfg["harvest_max_kernel_version"], timeout_seconds,
+            )
+            if version is None:
+                kernel_slots.release(task_dir, ticket)
+                if ref not in retried and time.time() + retry_seconds < deadline:
+                    # A rejection of every version is indistinguishable from a
+                    # transient capacity block; one paced retry before giving up.
+                    retried.add(ref)
+                    ready.append(ready.pop(0))
+                    print(f"[harvest] {ref}: all versions rejected — "
+                          f"retrying once after {retry_seconds}s")
+                    time.sleep(retry_seconds)
+                else:
+                    ready.pop(0)
+                    report["skipped"].append(
+                        {"kernel": ref, "reason": "no version took",
+                         "attempts": attempts})
+                continue
+            ready.pop(0)
+            pending.append({"kernel": ref, "version": version,
+                            "ticket": ticket, "submitted_at": time.time()})
+        if pending:
+            time.sleep(min(poll_seconds, max(0.0, deadline - time.time())))
+            poll_scored()
+
+    poll_scored()
+    for entry in pending:
+        # Budget ran out mid-scoring: the submission is in flight and counts;
+        # the slot frees itself when scoring ends (the reap verifies).
+        kernel_slots.release(task_dir, entry.pop("ticket"))
+        entry["publicScore"] = ""
+        report["submitted"].append(entry)
 
     print(f"[harvest] kernels={report['kernels_found']} "
           f"submitted={len(report['submitted'])} skipped={len(report['skipped'])}")
@@ -349,12 +497,10 @@ def run_final_eval(root: str, competition: str, final_eval_cfg: dict) -> dict:
     # harvested entries must be in flight before the leaderboard is polled.
     harvest = None
     if final_eval_cfg["harvest_unsubmitted"]:
+        # The harvest waits for its own scores inside its budget, so the
+        # leaderboard is read immediately after it returns.
         harvest = harvest_unsubmitted_kernels(
             root, competition, run_started, final_eval_cfg)
-        if harvest["submitted"]:
-            wait = final_eval_cfg["harvest_score_wait_seconds"]
-            print(f"[harvest] waiting {wait}s for harvested submissions to score")
-            time.sleep(wait)
 
     proc = subprocess.run(
         [kaggle_bin, "competitions", "submissions", competition,

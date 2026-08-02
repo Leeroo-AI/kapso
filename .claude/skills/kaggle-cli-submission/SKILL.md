@@ -237,26 +237,35 @@ happens to poll when a slot frees.
 shared ticket office; holding a ticket means Kaggle is actually running your
 kernel:
 
+Sessions are consumed by BOTH pushes and submissions: `kernels push` runs your
+kernel, and `competitions submit -k -v` **re-runs it to score it**, holding a
+session for about the kernel's runtime. Ticket both:
+
 ```bash
 TASK=/path/to/task                       # the directory holding kernel_slots.py
-TICKET=$(python3 $TASK/kernel_slots.py acquire gpu --task-dir $TASK --lane <your-lane>)
+T=$(python3 $TASK/kernel_slots.py acquire gpu push --ref <owner>/<slug> --lane <you>)
+kaggle kernels push -p kernel/           # poll until the run is terminal
+python3 $TASK/kernel_slots.py release "$T"
 
-kaggle kernels push -p kernel/           # ... your normal flow ...
-# poll until the run is COMPLETE, fetch output, submit
-
-python3 $TASK/kernel_slots.py release "$TICKET" --task-dir $TASK
+T=$(python3 $TASK/kernel_slots.py acquire gpu score --ref <owner>/<slug> --lane <you>)
+kaggle competitions submit -c <C> -k <owner>/<slug> -v <VER> -f submission.csv -m "<idea>"
+# poll `kaggle competitions submissions` until it leaves pending
+python3 $TASK/kernel_slots.py release "$T"
 ```
 
-- `acquire` **blocks** until a slot is free. A wait is normal and is not an
-  error — it prints the queue state to stderr and the ticket to stdout.
-- **Release as soon as your kernel finishes.** Holding a ticket through your own
-  analysis starves the other lanes. A ticket is auto-reclaimed after the TTL, so
-  a crash cannot park a slot forever, but do not rely on that.
-- `python3 $TASK/kernel_slots.py status --task-dir $TASK` shows who holds what.
+- One **priority queue per pool** (gpu, cpu); tiers `ship` > `first-score` >
+  `run` > `reroll` — score a never-scored version as `first-score`, mark
+  re-submissions `reroll`. Run the script with no arguments for the protocol.
+- `acquire` **blocks** until granted. A wait is normal and is not an error —
+  it prints the queue state to stderr and the ticket to stdout.
+- **Release as soon as the session ends** (kernel terminal / submission
+  scored). Stale tickets are reclaimed only after Kaggle confirms the session
+  is over, so a crash cannot park a slot forever — but do not rely on that.
+- `python3 $TASK/kernel_slots.py status --task-dir $TASK` shows both pools.
 
 **The CPU pool is separate and usually idle.** If your kernel does not truly
 need a GPU (cached embeddings, a linear probe, calibration), push it with
-`"enable_gpu": false` and `acquire cpu` — five slots instead of two.
+`"enable_gpu": false` and queue on the CPU pool — five slots instead of two.
 
 If you still see `Maximum batch GPU session count of 2 reached`, that is
 **backpressure, not failure**: keep the recipe, wait, and retry. Never respond by
@@ -348,7 +357,14 @@ kaggle competitions submit <C> \
 - Do **not** use `--sandbox` (that's for competition hosts/admins only).
 
 A successful submit prints a confirmation (or nothing). Errors are printed to
-stderr — capture and inspect them.
+stderr — capture and inspect them; **the CLI exits 0 even on a rejected
+submission**, so the text is the only signal (a rejected code submission prints
+`403 Client Error ... CreateCodeSubmission`).
+
+> **Submitting re-runs the kernel.** A code submission re-executes that kernel
+> version to score it — it occupies a GPU session for about the kernel's
+> runtime, and resubmitting the same version is a fresh training run that can
+> land a slightly different score (a deliberate late-game re-roll tactic).
 
 > **Regular (non-code) competition:** upload a local file instead:
 > `kaggle competitions submit <C> -f path/to/local_submission.csv -m "msg"`.

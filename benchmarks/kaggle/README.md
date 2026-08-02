@@ -25,7 +25,8 @@ The run root is the contract between the two stages:
 At launch the runner also stages `RULES.md` (organizers' binding rules),
 `KAGGLE_CLI.md` (the repo's kaggle-cli-submission skill — the submit playbook
 every coding-agent CLI reads by path, since session clones can't load skills
-natively) and `kernel_slots.py` (the session-slot ticket office) into `task/`.
+natively) and `kernel_slots.py` (per-pool priority queues over Kaggle's session
+limits — pushes and scoring re-runs both consume sessions) into `task/`.
 
 `config.yaml` is fixed per campaign, so the preflight's `statement.md` is the
 entire per-competition surface. Box provisioning and setup live in `infra/`;

@@ -107,9 +107,9 @@ submit, read the score. Keep your best submission under {self.submission_dir}/.
 The job is END-TO-END: develop → submit → public score, all before the
 deadline. Budget the round trip from the start — an unsubmitted or unscored
 model counts for nothing, and the last submission needs margin for its run and
-scoring. When one scores, append `<public_score> <iso-time> <one-line idea>` to
-{self.task_dir}/best_score.log — the run's record of what is actually banked
-(public scores only, never a local validation number).
+scoring. When one scores, append `<public_score> <iso-time> <kernel-ref>
+<one-line idea>` (ref `-` on a file upload) to {self.task_dir}/best_score.log —
+the banked-score record (public scores only).
 
 Every lane submits through one account, so Kaggle holds the whole team's
 history — read it before committing to an idea, and don't redo what a sibling
