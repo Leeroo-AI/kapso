@@ -81,12 +81,11 @@ loop: design ONE experiment per iteration, implement it, evaluate it.
 - Competition: `{competition}` — the kaggle CLI is installed and
   authenticated; develop and validate locally before spending a submission.
 
-READ {self.rules_path} BEFORE WRITING ANY KERNEL, and obey it. It carries the
-organizers' binding rules — single GPU (`cuda:0`), T4-or-CPU only, no internet,
-no outside models or data, `.py` only — plus the fixed package list your kernel
-must run against. A kernel that breaks one of those rules can be voided no
-matter how well it scores, so treat the rules as a hard constraint on the design
-space rather than something to check at the end.
+READ {self.rules_path} BEFORE WRITING ANY KERNEL, and obey it — the organizers'
+binding rules (single GPU `cuda:0`, no internet, no outside models or data) and
+the fixed package list your kernel runs against. Breaking one voids the
+submission however well it scores, so treat them as constraints on the design
+space, not an end-of-run checklist.
 
 What counts is the best PUBLIC leaderboard score among your submissions — a
 stable baseline that scores low earns nothing. Go for the approach with the
@@ -100,7 +99,8 @@ score, all before the deadline. Budget the submit-and-score round trip into
 your plan from the start — an unsubmitted or unscored model counts for nothing,
 and the last submission must leave enough margin for its run and scoring.
 
-Only 2 GPU kernels run at once per account; the CPU pool is separate.
+Only 2 GPU kernels run at once per account and the CPU pool is separate, so a
+CPU kernel is a cheap way to debug — but score on the competition's hardware.
 
 After a submission scores, append `<public_score> <iso-time> <label>` to
 {self.task_dir}/best_score.log (public scores only). Report each experiment's
