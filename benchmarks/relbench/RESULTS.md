@@ -3,7 +3,7 @@
 **Auto-generated — do not edit by hand.** Regenerate with:
 `PYTHONPATH=src:. python -m benchmarks.relbench.scorecard --reference`
 
-Status: **62/66 tasks run**, 42 beating the best published number. Category-level gates: run the scorecard (same module, no flags).
+Status: **63/66 tasks run**, 43 beating the best published number. Category-level gates: run the scorecard (same module, no flags).
 
 ## Benchmark version & leaderboard submission
 
@@ -93,7 +93,7 @@ Values in the best-known number's units (AUROC/acc/MAP in %, NMAE, R², raw MAE)
 | 42 | rel-trial/eligibilities-child | AC-bin | v2 | 87.2 (GraphSAGE) | — | — | — | — | 93.2 | ✅ beats best-known | 4xA100 | 4h | ✅ done |
 | 43 | rel-stack/badges-class | AC-mul | v2 | 82.8 (GraphSAGE) | — | — | — | — | 89.2 | ✅ beats best-known | 4xA100 | 4h | ✅ done |
 | 44 | rel-hm/transactions-price | AC-reg | v2 | 0.736 (GraphSAGE) | — | — | — | — | 0.96 | ✅ beats best-known | 4xA100 | 4h | ✅ done |
-| 45 | rel-amazon/review-rating | AC-reg | v2 | -0.356 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 4h | ▶ running |
+| 45 | rel-amazon/review-rating | AC-reg | v2 | -0.356 (GraphSAGE) | — | — | — | — | 0.163 | ✅ beats best-known | 4xA100 | 4h | ✅ done |
 | 63 | rel-salt/item-plant | AC-mul | v2 | 99.5 (GraphSAGE) | — | — | — | — | 99.8 | ✅ beats best-known | 4xA100 | 4h | ✅ done |
 | 64 | rel-salt/item-shippoint | AC-mul | v2 | 98.4 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 4h | ▶ running |
 | 65 | rel-salt/sales-office | AC-mul | v2 | 99.9 (either baseline) | — | — | — | — | — | — | 4xA100 | 4h | ▶ running |
@@ -167,6 +167,7 @@ Complete campaign state per run — session transcripts, lens/ideation history, 
 | rel-trial/eligibilities-child | `gs://leeroo-kapso-relbench-artifacts/runs/rel-trial--eligibilities-child/20260802T135746_lane-a1.tgz` |
 | rel-stack/badges-class | `gs://leeroo-kapso-relbench-artifacts/runs/rel-stack--badges-class/20260802T175235_lane-b1.tgz` |
 | rel-hm/transactions-price | `gs://leeroo-kapso-relbench-artifacts/runs/rel-hm--transactions-price/20260802T174852_lane-b3.tgz` |
+| rel-amazon/review-rating | `gs://leeroo-kapso-relbench-artifacts/runs/rel-amazon--review-rating/20260802T180339_lane-b2.tgz` |
 | rel-salt/item-plant | `gs://leeroo-kapso-relbench-artifacts/runs/rel-salt--item-plant/20260802T175545_lane-a1.tgz` |
 
 ## Winning artifacts (durable, committed — for organizer handoff)
@@ -215,4 +216,5 @@ Each claimed cell's evidence is copied from the box-local run archive into `benc
 | rel-trial/eligibilities-child | run_0018 | `benchmarks/relbench/claims/rel-trial--eligibilities-child/` | `d3357655076100b2` | `30268d91d20ddd5d` |
 | rel-stack/badges-class | run_0001 | `benchmarks/relbench/claims/rel-stack--badges-class/` | `c8a207267de01dc8` | `b44483fdab1ada6d` |
 | rel-hm/transactions-price | run_0023 | `benchmarks/relbench/claims/rel-hm--transactions-price/` | `74cbf387c72b4588` | `ae38e4e46d32766a` |
+| rel-amazon/review-rating | run_0022 | `benchmarks/relbench/claims/rel-amazon--review-rating/` | `b9cef3c784a10c4e` | `3e6b109d7798387b` |
 | rel-salt/item-plant | run_0010 | `benchmarks/relbench/claims/rel-salt--item-plant/` | `0c58add2dd2d64d1` | `d35f2d20774818b9` |
