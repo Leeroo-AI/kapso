@@ -1,0 +1,30 @@
+{
+  "dataset": "rel-salt",
+  "task": "sales-office",
+  "family": "autocomplete_multiclass_classification",
+  "primary_metric": "accuracy",
+  "selected_by": "best recomputed validation accuracy among registered-final runs",
+  "run": "run_0002",
+  "val_metrics": {
+    "accuracy": 0.9998460978817472,
+    "macro_f1": 0.7645882749317898,
+    "micro_f1": 0.9998460978817472,
+    "mrr": 0.9999099905793248
+  },
+  "test_metrics": {
+    "accuracy": 0.999707674664388,
+    "macro_f1": 0.5332578368181314,
+    "micro_f1": 0.999707674664388,
+    "mrr": 0.9998420943486267
+  },
+  "audit": {
+    "clean": true,
+    "findings": [],
+    "note": "static scan; manually review flagged lines before publishing results. 'verify:' findings are advisory OOS-contract review hooks (legal patterns that warrant tracing), not violations."
+  },
+  "code_path": "/home/ubuntu/kapso/tmp/relbench/rel-salt--sales-office/runs/run_0002/code",
+  "predictions": {
+    "val": "/home/ubuntu/kapso/tmp/relbench/rel-salt--sales-office/runs/run_0002/val_predictions.npy",
+    "test": "/home/ubuntu/kapso/tmp/relbench/rel-salt--sales-office/runs/run_0002/test_predictions.npy"
+  }
+}
