@@ -58,7 +58,7 @@ modes:
             model: "claude-fable-5"
             effort: "xhigh"
           - cli: "oss_claude_code"
-            model: "accounts/fireworks/models/kimi-k3"
+            model: "accounts/fireworks/routers/kimi-k3-fast"
             effort: "max"
             base_url: "https://api.fireworks.ai/inference"
             auth_token_env: "FIREWORKS_API_KEY"
