@@ -165,6 +165,7 @@ Complete campaign state per run — session transcripts, lens/ideation history, 
 | rel-arxiv/paper-paper-cocitation | `gs://leeroo-kapso-relbench-artifacts/runs/rel-arxiv--paper-paper-cocitation/20260802T135822_lane-b2.tgz` |
 | rel-trial/eligibilities-adult | `gs://leeroo-kapso-relbench-artifacts/runs/rel-trial--eligibilities-adult/20260802T135231_lane-b3.tgz` |
 | rel-trial/eligibilities-child | `gs://leeroo-kapso-relbench-artifacts/runs/rel-trial--eligibilities-child/20260802T135746_lane-a1.tgz` |
+| rel-stack/badges-class | `gs://leeroo-kapso-relbench-artifacts/runs/rel-stack--badges-class/20260802T175235_lane-b1.tgz` |
 | rel-hm/transactions-price | `gs://leeroo-kapso-relbench-artifacts/runs/rel-hm--transactions-price/20260802T174852_lane-b3.tgz` |
 | rel-salt/item-plant | `gs://leeroo-kapso-relbench-artifacts/runs/rel-salt--item-plant/20260802T175545_lane-a1.tgz` |
 
