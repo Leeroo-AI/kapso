@@ -1,0 +1,26 @@
+{
+  "dataset": "rel-arxiv",
+  "task": "author-category",
+  "family": "entity_multiclass_classification",
+  "primary_metric": "accuracy",
+  "selected_by": "best recomputed validation accuracy among registered-final runs",
+  "run": "run_0018",
+  "val_metrics": {
+    "accuracy": 0.5474048442906574,
+    "multiclass_f1": 0.5474048442906574
+  },
+  "test_metrics": {
+    "accuracy": 0.5245996721724877,
+    "multiclass_f1": 0.5245996721724877
+  },
+  "audit": {
+    "clean": true,
+    "findings": [],
+    "note": "static scan; manually review flagged lines before publishing results. 'verify:' findings are advisory OOS-contract review hooks (legal patterns that warrant tracing), not violations."
+  },
+  "code_path": "/home/ubuntu/kapso/tmp/relbench/rel-arxiv--author-category/runs/run_0018/code",
+  "predictions": {
+    "val": "/home/ubuntu/kapso/tmp/relbench/rel-arxiv--author-category/runs/run_0018/val_predictions.npy",
+    "test": "/home/ubuntu/kapso/tmp/relbench/rel-arxiv--author-category/runs/run_0018/test_predictions.npy"
+  }
+}

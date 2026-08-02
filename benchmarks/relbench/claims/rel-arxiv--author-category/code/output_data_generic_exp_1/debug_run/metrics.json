@@ -1,0 +1,16 @@
+{
+  "debug": true,
+  "model_a_seeds": 394239,
+  "model_b_seeds": 549789,
+  "auxiliary_a_seeds": 183470,
+  "auxiliary_b_seeds": 116535,
+  "candidate_recall": 1.0,
+  "candidate_rows_a": 90000,
+  "feature_count": 71,
+  "feature_build_seconds": 2.0235483646392822,
+  "model_a_train_seconds": 0.3808314800262451,
+  "model_b_train_seconds": 0.389232873916626,
+  "total_seconds": 15.014879703521729,
+  "validation_cold": 0.28140458797898243,
+  "test_cold": 0.2874795107804817
+}
