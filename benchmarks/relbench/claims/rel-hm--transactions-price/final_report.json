@@ -1,0 +1,43 @@
+{
+  "dataset": "rel-hm",
+  "task": "transactions-price",
+  "family": "autocomplete_regression",
+  "primary_metric": "r2",
+  "selected_by": "best recomputed validation r2 among registered-final runs",
+  "run": "run_0023",
+  "val_metrics": {
+    "r2": 0.9563702565993915,
+    "mae": 0.0019301222910957055,
+    "rmse": 0.004765864465674596
+  },
+  "test_metrics": {
+    "r2": 0.9602487932354337,
+    "mae": 0.0015783753065705037,
+    "rmse": 0.004495057185309843
+  },
+  "audit": {
+    "clean": false,
+    "findings": [
+      {
+        "file": "price_panel.py",
+        "line": 161,
+        "pattern": "RELBENCH_CACHE_DIR",
+        "concern": "tampers with the data cache location",
+        "snippet": "self.cache_root = Path(os.environ[\"RELBENCH_CACHE_DIR\"]) / os.environ[\"RELBENCH_DATASET\"]"
+      },
+      {
+        "file": "price_panel.py",
+        "line": 659,
+        "pattern": "RELBENCH_CACHE_DIR",
+        "concern": "tampers with the data cache location",
+        "snippet": "self.cache_root = Path(os.environ[\"RELBENCH_CACHE_DIR\"]) / os.environ[\"RELBENCH_DATASET\"]"
+      }
+    ],
+    "note": "static scan; manually review flagged lines before publishing results. 'verify:' findings are advisory OOS-contract review hooks (legal patterns that warrant tracing), not violations."
+  },
+  "code_path": "/home/ubuntu/kapso/tmp/relbench/rel-hm--transactions-price/runs/run_0023/code",
+  "predictions": {
+    "val": "/home/ubuntu/kapso/tmp/relbench/rel-hm--transactions-price/runs/run_0023/val_predictions.npy",
+    "test": "/home/ubuntu/kapso/tmp/relbench/rel-hm--transactions-price/runs/run_0023/test_predictions.npy"
+  }
+}

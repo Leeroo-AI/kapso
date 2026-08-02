@@ -1,0 +1,61 @@
+{
+  "folds": [
+    {
+      "fold": 0,
+      "train": 9315,
+      "valid": 2589,
+      "cascade_mse": 0.00011058861092037666,
+      "raw_mse": 4.719206814873227e-05,
+      "raw_cascade_mse": 4.720433120939302e-05,
+      "residual_mse": 4.6266159975674106e-05,
+      "wide_residual_mse": 4.6266159975674106e-05,
+      "launch_cascade_mse": 9.635380657641955e-05,
+      "launch_cascade_residual_mse": 4.838610691766461e-05,
+      "dual_residual_mse": 4.444329561621475e-05,
+      "blend_weight": 1.0,
+      "blend_mse": 4.719206814873227e-05
+    },
+    {
+      "fold": 1,
+      "train": 11846,
+      "valid": 2819,
+      "cascade_mse": 0.00023202279165931514,
+      "raw_mse": 8.026159528217376e-05,
+      "raw_cascade_mse": 8.026159528217376e-05,
+      "residual_mse": 7.652937727302147e-05,
+      "wide_residual_mse": 7.652937727302147e-05,
+      "launch_cascade_mse": 0.0001259440525719844,
+      "launch_cascade_residual_mse": 6.212175995620881e-05,
+      "dual_residual_mse": 6.343107745241424e-05,
+      "blend_weight": 1.0,
+      "blend_mse": 8.026159528217376e-05
+    },
+    {
+      "fold": 2,
+      "train": 14542,
+      "valid": 3870,
+      "cascade_mse": 0.00043653386183619894,
+      "raw_mse": 0.0002765733406293752,
+      "raw_cascade_mse": 0.00027658493296652204,
+      "residual_mse": 0.00020423971763927943,
+      "wide_residual_mse": 0.00020423971763927943,
+      "launch_cascade_mse": 0.0003245620153740618,
+      "launch_cascade_residual_mse": 0.00020093967746448717,
+      "dual_residual_mse": 0.00019663924439810925,
+      "blend_weight": 0.8805749594707492,
+      "blend_mse": 0.00027357601864048806
+    }
+  ],
+  "mean": {
+    "cascade_mse": 0.0002597150881386302,
+    "raw_mse": 0.00013467566802009376,
+    "raw_cascade_mse": 0.00013468361981936293,
+    "residual_mse": 0.00010901175162932501,
+    "wide_residual_mse": 0.00010901175162932501,
+    "launch_cascade_mse": 0.00018228662484082192,
+    "launch_cascade_residual_mse": 0.00010381584811278686,
+    "dual_residual_mse": 0.00010150453915557942,
+    "blend_mse": 0.00013367656069046468,
+    "blend_weight": 0.9601916531569165
+  }
+}

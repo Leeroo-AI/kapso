@@ -1,0 +1,65 @@
+{
+  "folds": [
+    {
+      "fold": 0,
+      "train": 9315,
+      "valid": 2589,
+      "cascade_mse": 0.00011058861092037666,
+      "raw_mse": 4.719272035502166e-05,
+      "raw_cascade_mse": 4.719272035502166e-05,
+      "residual_mse": 4.62661599756741e-05,
+      "wide_residual_mse": 4.62661599756741e-05,
+      "launch_cascade_mse": 9.635380657641955e-05,
+      "launch_cascade_residual_mse": 4.8386106917664596e-05,
+      "dual_residual_mse": 4.444329561621474e-05,
+      "dual_cascade_single_mse": 4.3846324490890246e-05,
+      "blend_weight": 1.0,
+      "blend_mse": 4.719272035502166e-05
+    },
+    {
+      "fold": 1,
+      "train": 11846,
+      "valid": 2819,
+      "cascade_mse": 0.00023202279165931514,
+      "raw_mse": 8.026159528217374e-05,
+      "raw_cascade_mse": 8.026120691452433e-05,
+      "residual_mse": 7.652937727302146e-05,
+      "wide_residual_mse": 7.652937727302146e-05,
+      "launch_cascade_mse": 0.0001259440525719844,
+      "launch_cascade_residual_mse": 6.212175995620881e-05,
+      "dual_residual_mse": 6.343107745241424e-05,
+      "dual_cascade_single_mse": 6.529428397606528e-05,
+      "blend_weight": 1.0,
+      "blend_mse": 8.026159528217376e-05
+    },
+    {
+      "fold": 2,
+      "train": 14542,
+      "valid": 3870,
+      "cascade_mse": 0.00043653386183619894,
+      "raw_mse": 0.0002765899415733346,
+      "raw_cascade_mse": 0.0002765899415733346,
+      "residual_mse": 0.00020423846388788384,
+      "wide_residual_mse": 0.00020423846388788384,
+      "launch_cascade_mse": 0.0003245620153740618,
+      "launch_cascade_residual_mse": 0.00020093967746448717,
+      "dual_residual_mse": 0.00019663846585891035,
+      "dual_cascade_single_mse": 0.00020626160596573384,
+      "blend_weight": 0.8805159096573973,
+      "blend_mse": 0.00027358950062224085
+    }
+  ],
+  "mean": {
+    "cascade_mse": 0.0002597150881386302,
+    "raw_mse": 0.00013468141907017667,
+    "raw_cascade_mse": 0.0001346812896142935,
+    "residual_mse": 0.00010901133371219312,
+    "wide_residual_mse": 0.00010901133371219312,
+    "launch_cascade_mse": 0.00018228662484082192,
+    "launch_cascade_residual_mse": 0.00010381584811278686,
+    "dual_residual_mse": 0.00010150427964251312,
+    "dual_cascade_single_mse": 0.00010513407147756313,
+    "blend_mse": 0.00013368127208647875,
+    "blend_weight": 0.9601719698857991
+  }
+}
