@@ -78,8 +78,7 @@ loop: design ONE experiment per iteration, implement it, evaluate it.
 - Dataset (READ-ONLY, never modify): {self.dataset_dir}
 - Big files, checkpoints, logs: {self.artifacts_dir}
 - Time remaining: {self._remaining_str()}
-- Competition: `{competition}` — the kaggle CLI is installed and
-  authenticated; develop and validate locally before spending a submission.
+- Competition: `{competition}` — the kaggle CLI is installed and authenticated.
 
 READ {self.rules_path} BEFORE WRITING ANY KERNEL, and obey it — the organizers'
 binding rules (single GPU `cuda:0`, no internet, no outside models or data) and
@@ -90,9 +89,8 @@ space, not an end-of-run checklist.
 What counts is the best PUBLIC leaderboard score among your submissions — a
 stable baseline that scores low earns nothing. Go for the approach with the
 highest expected final score you can execute in the time remaining. The
-statement's Submission section is authoritative for how to build and submit a
-scored entry; keep the exact artifact of your best submitted attempt under
-{self.submission_dir}/.
+statement's Submission section is authoritative; keep the exact artifact of your
+best submitted attempt under {self.submission_dir}/.
 
 The job is END-TO-END within this run's time budget: develop → submit → public
 score, all before the deadline. Budget the submit-and-score round trip into
@@ -105,8 +103,9 @@ CPU kernel is a cheap way to debug — but score on the competition's hardware.
 After a submission scores, append `<public_score> <iso-time> <label>` to
 {self.task_dir}/best_score.log (public scores only). Report each experiment's
 local validation score in <score></score> tags AND write
-kapso_evaluation/result.json: {{"score": <float>, "notes": "..."}}. Never
-fabricate a score; a failed run is reported as such.
+kapso_evaluation/result.json: {{"score": <float>, "notes": "..."}} — name the
+validation split in `notes`, since scores measured different ways do not
+compare. Never fabricate a score; a failed run is reported as such.
 """
 
     def deliverable_ready_reserve_seconds(self):
