@@ -28,9 +28,6 @@ modes:
         # Implementation runs on the codex CLI (gpt-5.6-sol), matching the
         # relbench RELBENCH_GENERIC codex-primary lineup. OpenAI's reasoning
         # ceiling is xhigh (no "max" tier), so the codex roles pin xhigh.
-        # REQUIRES the codex coding-agent adapter (codex_agent.py + agents.yaml
-        # `codex` entry + implementation_cli strategy support) — that lives on
-        # feat/relbench-benchmark and is NOT in this worktree's code yet.
         implementation_model: "gpt-5.6-sol"
         implementation_cli: "codex"
         auth_mode: "oauth"
@@ -42,8 +39,8 @@ modes:
         # deadline against what remains), not a per-phase slice.
         ideation_timeout: 14400
         implementation_timeout: 14400
-        # Candidates each ensemble member is asked for. With 2 members this
-        # pools up to 10, so the selector can still emit 8 ranked solutions for
+        # Candidates each ensemble member is asked for. With 3 members this
+        # pools up to 15, so the selector can still emit 8 ranked solutions for
         # K=8 when one member under-delivers or times out (the 2-per-member
         # default collapsed a k=8 run to a single lane on 2026-07-29).
         ideation_candidates_per_member: 5
