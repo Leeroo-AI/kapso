@@ -48,7 +48,7 @@ class KaggleNotebookHandler(ProblemHandler):
         self.artifacts_dir = os.path.join(self.task_dir, "artifacts")
         self.submission_dir = os.path.join(self.task_dir, "submission")
         # The organizers' binding rules; the runner stages them into the task
-        # dir. A run without them would let the agent build a kernel that
+        # dir. A run without them would let the agent build a solution that
         # breaks a rule (two GPUs, an external checkpoint) and be voided.
         self.rules_path = os.path.join(self.task_dir, "RULES.md")
         if not os.path.isfile(self.rules_path):
@@ -80,26 +80,22 @@ iteration, implement it, evaluate it.
 - Time remaining: {self._remaining_str()}
 - Competition: `{competition}` — the kaggle CLI is installed and authenticated.
 
-READ {self.rules_path} BEFORE WRITING ANY KERNEL, and obey it — the organizers'
-binding rules (single GPU `cuda:0`, no internet, no outside models or data) and
-the fixed package list your kernel runs against. Breaking one voids the
-submission however well it scores, so treat them as constraints on the design
-space, not an end-of-run checklist.
+READ {self.rules_path} BEFORE YOU BUILD ANYTHING, and obey it — the organizers'
+binding rules and the fixed package list your code runs against. Breaking one
+voids the submission however well it scores, so treat them as constraints on
+the design space, not an end-of-run checklist.
 
 What counts is the best PUBLIC leaderboard score among your submissions — a
 stable baseline that scores low earns nothing. Go for the approach with the
 highest expected final score you can execute in the time remaining. The
-statement's Submission section is authoritative; keep your best kernel under
+statement's Submission section is authoritative — it names how this task is
+submitted and the exact commands; keep your best submission under
 {self.submission_dir}/.
 
 The job is END-TO-END: develop → submit → public score, all before the
 deadline. Budget the submit-and-score round trip into
 your plan from the start — an unsubmitted or unscored model counts for nothing,
 and the last submission must leave enough margin for its run and scoring.
-
-Only 2 GPU kernels run at once per account — queue via kernel_slots.py in your
-task dir. The CPU pool is separate: a cheap way to debug, but score on the
-competition's hardware.
 
 After a submission scores, append `<public_score> <iso-time> <submission-dir>
 <one-line idea>` to {self.task_dir}/best_score.log — the shared board

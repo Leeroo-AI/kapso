@@ -114,6 +114,9 @@ modes:
     final_eval:
       timeout_seconds: 900
       harvest_unsubmitted: true
+      # The competition's own sample file in dataset/, used to check a
+      # harvested kernel's output has the right ids before submitting it.
+      submission_template: "submission.csv"
       harvest_max_kernel_version: 12
       harvest_kernel_list_size: 50
       harvest_score_wait_seconds: 300

@@ -2,9 +2,11 @@
 name: kaggle-cli-submission
 description: >
   Run a full end-to-end Kaggle competition workflow with the Kaggle CLI (kaggle):
-  read competition pages/rules, download data, develop a portable .py script kernel,
-  push with competition_sources, poll kernels status, verify submission.csv
-  output, submit a kernel version to a code competition, and poll publicScore.
+  read competition pages/rules, download data, tell a code competition from a
+  file-upload one, and submit either way — upload a prediction file directly, or
+  develop a portable .py script kernel, push with competition_sources, poll
+  kernels status, verify submission.csv output, submit a kernel version — then
+  poll publicScore.
   Use when submitting to Kaggle, automating kaggle kernels push/submit, working on
   code competitions, or when the user mentions Kaggle CLI submission flow.
 compatibility: Requires the kaggle CLI installed and authenticated via KAGGLE_API_TOKEN or ~/.kaggle/access_token; network access to kaggle.com
@@ -33,6 +35,13 @@ recover from each failure.
 ---
 
 ## 0. The whole flow in one glance
+
+**First settle the modality (§2.1).** Not every competition is a code
+competition. If the task is scored from a prediction file you upload, the whole
+flow is four steps — read the pages, download the data, develop locally, then
+`kaggle competitions submit <C> -f submission.csv -m "msg"` and poll the score
+(§7). Skip §4–§6; there is no kernel, no push, no `-k/-v`. The rest of this
+guide is the **code-competition** path:
 
 ```
 read rules/description   ->  kaggle competitions pages <C> --page-name <p> --content

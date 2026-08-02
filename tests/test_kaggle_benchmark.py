@@ -18,6 +18,7 @@ from benchmarks.kaggle import kernel_slots
 from benchmarks.kaggle.handler import KaggleNotebookHandler
 from benchmarks.kaggle.preflight import slug_from_url
 from benchmarks.kaggle.runner import (
+    RULES_PATH,
     audit_kernel,
     best_public_score,
     discover_run_kernels,
@@ -74,11 +75,15 @@ def test_handler_rejects_missing_kaggle_slug(tmp_path):
 
 
 def test_handler_requires_the_staged_rules_and_points_the_agent_at_them(tmp_path):
-    # A run without the organizers' rules could ship a kernel that breaks one
+    # A run without the organizers' rules could ship a solution that breaks one
     # (two GPUs, an external checkpoint) and be voided — so fail at construction.
     context = make_handler(tmp_path).get_problem_context()
     assert os.path.join(str(tmp_path / "task"), "RULES.md") in context
-    assert "cuda:0" in context
+    # The rules themselves stay in RULES.md: the handler is the modality-agnostic
+    # contract, and not every task submits a kernel — some only upload a
+    # prediction file. Restating kernel mechanics here misleads those.
+    body = context.split("# Kapso operational context", 1)[1].lower()
+    assert "kernel" not in body and "cuda" not in body
     os.remove(tmp_path / "task" / "RULES.md")
     with pytest.raises(FileNotFoundError, match="RULES.md"):
         KaggleNotebookHandler(
@@ -86,6 +91,16 @@ def test_handler_requires_the_staged_rules_and_points_the_agent_at_them(tmp_path
             deadline_ts=time.time() + 60, session_caps=SESSION_CAPS,
             kaggle=KAGGLE, insured_reserve_seconds=300.0,
         )
+
+
+def test_staged_rules_carry_the_binding_kernel_constraints():
+    # The handler deliberately states no kernel mechanics, so RULES.md is the
+    # only place the agent learns them: a trim that drops the one-GPU pin or the
+    # never-P100 pin would silently void submissions that still score.
+    rules = open(RULES_PATH, encoding="utf-8").read()
+    assert "cuda:0" in rules
+    assert "NvidiaTeslaT4" in rules and "P100" in rules
+    assert "50 submissions per task" in rules
 
 
 def test_parse_submissions_json_tolerates_pagination_noise():

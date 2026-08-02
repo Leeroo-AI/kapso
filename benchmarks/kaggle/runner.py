@@ -257,17 +257,27 @@ def harvest_unsubmitted_kernels(root: str, competition: str,
     """
     timeout_seconds = final_eval_cfg["timeout_seconds"]
     task_dir = os.path.join(root, "task")
-    template = os.path.join(task_dir, "dataset", "submission.csv")
     kaggle_bin = shutil.which("kaggle")
     if not kaggle_bin:
         raise FileNotFoundError("kaggle CLI not on PATH — cannot harvest")
-    if not os.path.isfile(template):
-        raise FileNotFoundError(f"{template} missing — cannot validate outputs")
 
     refs = sorted(set(discover_run_kernels(task_dir)) | set(kernels_run_since(
         kaggle_bin, run_started_utc,
         final_eval_cfg["harvest_kernel_list_size"], timeout_seconds)))
     report = {"kernels_found": len(refs), "submitted": [], "skipped": []}
+    if not refs:
+        # Not every task is a code competition; one scored from an uploaded
+        # file pushes no kernels, and there is nothing here to ship. Returning
+        # empty keeps the leaderboard readout alive for those tasks.
+        print("[harvest] no kernels from this run — nothing to harvest")
+        return report
+
+    # Only needed to validate kernel output, so it is checked once we know
+    # there is output to validate.
+    template = os.path.join(task_dir, "dataset",
+                            final_eval_cfg["submission_template"])
+    if not os.path.isfile(template):
+        raise FileNotFoundError(f"{template} missing — cannot validate outputs")
     workdir = os.path.join(root, ".harvest")
     seen_digests = {}
 
