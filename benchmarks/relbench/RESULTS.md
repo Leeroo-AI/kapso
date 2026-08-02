@@ -96,7 +96,7 @@ Values in the best-known number's units (AUROC/acc/MAP in %, NMAE, R², raw MAE)
 | 45 | rel-amazon/review-rating | AC-reg | v2 | -0.356 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 4h | ▶ running |
 | 63 | rel-salt/item-plant | AC-mul | v2 | 99.5 (GraphSAGE) | — | — | — | — | 99.8 | ✅ beats best-known | 4xA100 | 4h | ✅ done |
 | 64 | rel-salt/item-shippoint | AC-mul | v2 | 98.4 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 4h | ▶ running |
-| 65 | rel-salt/sales-office | AC-mul | v2 | 99.9 (either baseline) | — | — | — | — | — | — | 4xA100 | 4h | · pending |
+| 65 | rel-salt/sales-office | AC-mul | v2 | 99.9 (either baseline) | — | — | — | — | — | — | 4xA100 | 4h | ▶ running |
 | — | rel-mimic/patient-iculengthofstay | clf | v2 | 55 (GraphSAGE) | — | — | — | — | — | — | blocked | — | ⛔ credentialed data |
 
 Notes: baseline columns show per-task values in the same units where the method published one (— where it did not evaluate). KumoRFM-ft is the fine-tuned regime (Kumo tech report Tables 2-4); KumoRFM-v1/v2 (ic) are the zero-shot in-context regimes (v1: tech report; v2: arXiv:2604.12596, cross-checked against RelAgent's KumoRFM-v2 rows — no published v1 recommendation numbers exist for v2). Current 'done' rows from harness-validation runs are baseline-quality placeholders until the campaign proper replaces them.
