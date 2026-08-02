@@ -472,7 +472,8 @@ def main():
         )
     # Sized to ONE submission round trip (push -> kernel run -> submit ->
     # score), not to a fraction of the run: a campaign that ends before
-    # shipping scores nothing.
+    # shipping scores nothing. The handler hands most of it back once a public
+    # score is banked (deliverable_ready_reserve_seconds).
     reserve_minutes = knobs["finalization_reserve_minutes"]
     session_timeouts = shape_session_timeouts(mode_cfg, budget_minutes * 60)
 
@@ -503,6 +504,7 @@ def main():
         deadline_ts=deadline_ts,
         session_caps=session_timeouts,
         kaggle={"competition": competition},
+        insured_reserve_seconds=knobs["insured_reserve_minutes"] * 60,
     )
 
     orchestrator = OrchestratorAgent(

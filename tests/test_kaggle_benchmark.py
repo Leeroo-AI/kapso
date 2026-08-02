@@ -44,6 +44,7 @@ def make_handler(tmp_path, **overrides):
         deadline_ts=time.time() + 7200,
         session_caps=SESSION_CAPS,
         kaggle=KAGGLE,
+        insured_reserve_seconds=300.0,
     )
     kwargs.update(overrides)
     return KaggleNotebookHandler(**kwargs)
@@ -60,10 +61,11 @@ def test_handler_context_is_statement_plus_minimal_contract(tmp_path):
     assert "at least one" not in context
     # End-to-end clock: submission round trips are inside the budget.
     assert "END-TO-END" in context and "round trip" in context
-    # Prior attempts are read off Kaggle, not off a file the lanes maintain.
+    # Ideas and code come off Kaggle; best_score.log carries only what is
+    # actually banked, which is what releases the finalization reserve.
     assert "kaggle competitions submissions" in context
     assert "kernels pull" in context
-    assert "best_score" not in context
+    assert "best_score.log" in context and "public scores only" in context
     assert "<score>" in context
     # The protocol/economics sermons must stay gone.
     for banned in ("SUBMISSION BUDGET", "INSURANCE", "flock",
@@ -71,9 +73,11 @@ def test_handler_context_is_statement_plus_minimal_contract(tmp_path):
         assert banned not in context
     # Budget the contract we author, not the environment it renders in: the
     # statement is unbounded and the task dir is 37 chars in production but
-    # ~140 under pytest, which used to make this guard measure tmp_path.
+    # ~140 under pytest, which used to make this guard measure tmp_path. The
+    # ceiling moves only when a channel is deliberately added (the banked-score
+    # log alongside the Kaggle history commands) — never to fit new prose.
     contract = context.split("# Kapso operational context", 1)[1]
-    assert len(contract.replace(handler.task_dir, "/task")) < 2200
+    assert len(contract.replace(handler.task_dir, "/task")) < 2350
 
 
 def test_handler_rejects_missing_kaggle_slug(tmp_path):
@@ -99,7 +103,7 @@ def test_handler_requires_the_staged_rules_and_points_the_agent_at_them(tmp_path
         KaggleNotebookHandler(
             task_dir=str(tmp_path / "task"), statement="s",
             deadline_ts=time.time() + 60, session_caps=SESSION_CAPS,
-            kaggle=KAGGLE,
+            kaggle=KAGGLE, insured_reserve_seconds=300.0,
         )
 
 
@@ -153,12 +157,18 @@ def test_audit_kernel_flags_external_pulls(tmp_path):
     assert len(findings) == 1 and "MIT/ast-finetuned" in findings[0]
 
 
-def test_handler_keeps_the_full_round_trip_reserve(tmp_path):
-    # The reserve covers one submission round trip and is never shrunk: the
-    # signal that would license shrinking it (a banked public score) lived in
-    # the shared board, and the board is gone — Kaggle is the only authority
-    # on what scored, and the budget path does not query it.
-    assert make_handler(tmp_path).deliverable_ready_reserve_seconds() is None
+def test_reserve_is_insured_only_once_a_public_score_is_banked(tmp_path):
+    # The full reserve covers one submission round trip; it is released only
+    # when a score is actually on the leaderboard, never merely attempted.
+    handler = make_handler(tmp_path)
+    assert handler.deliverable_ready_reserve_seconds() is None
+    log = os.path.join(handler.task_dir, "best_score.log")
+    with open(log, "w") as f:
+        f.write("0.0 2026-07-29T16:00:00Z placeholder\n")
+    assert handler.deliverable_ready_reserve_seconds() is None
+    with open(log, "a") as f:
+        f.write("0.83626 2026-07-29T16:20:00Z lane0\n")
+    assert handler.deliverable_ready_reserve_seconds() == 300.0
 
 
 def test_discover_run_kernels_finds_namespaced_lane_dirs(tmp_path):
