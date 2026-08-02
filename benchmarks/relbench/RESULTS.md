@@ -93,8 +93,8 @@ Values in the best-known number's units (AUROC/acc/MAP in %, NMAE, R², raw MAE)
 | 42 | rel-trial/eligibilities-child | AC-bin | v2 | 87.2 (GraphSAGE) | — | — | — | — | 93.2 | ✅ beats best-known | 4xA100 | 4h | ✅ done |
 | 43 | rel-stack/badges-class | AC-mul | v2 | 82.8 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 4h | ▶ running |
 | 44 | rel-hm/transactions-price | AC-reg | v2 | 0.736 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 4h | ▶ running |
-| 45 | rel-amazon/review-rating | AC-reg | v2 | -0.356 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 4h | · pending |
-| 63 | rel-salt/item-plant | AC-mul | v2 | 99.5 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 4h | · pending |
+| 45 | rel-amazon/review-rating | AC-reg | v2 | -0.356 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 4h | ▶ running |
+| 63 | rel-salt/item-plant | AC-mul | v2 | 99.5 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 4h | ▶ running |
 | 64 | rel-salt/item-shippoint | AC-mul | v2 | 98.4 (GraphSAGE) | — | — | — | — | — | — | 4xA100 | 4h | · pending |
 | 65 | rel-salt/sales-office | AC-mul | v2 | 99.9 (either baseline) | — | — | — | — | — | — | 4xA100 | 4h | · pending |
 | — | rel-mimic/patient-iculengthofstay | clf | v2 | 55 (GraphSAGE) | — | — | — | — | — | — | blocked | — | ⛔ credentialed data |
