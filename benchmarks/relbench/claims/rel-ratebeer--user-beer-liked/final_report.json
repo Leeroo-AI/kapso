@@ -1,0 +1,52 @@
+{
+  "dataset": "rel-ratebeer",
+  "task": "user-beer-liked",
+  "family": "recommendation",
+  "primary_metric": "link_prediction_map",
+  "selected_by": "best recomputed validation link_prediction_map among registered-final runs",
+  "run": "run_0020",
+  "val_metrics": {
+    "link_prediction_precision": 0.02209118113008273,
+    "link_prediction_recall": 0.04648278144161927,
+    "link_prediction_map": 0.021947348263955,
+    "link_prediction_mrr": 0.07231484508372381
+  },
+  "test_metrics": {
+    "link_prediction_precision": 0.028422565576715773,
+    "link_prediction_recall": 0.06308121085119911,
+    "link_prediction_map": 0.02808802161686596,
+    "link_prediction_mrr": 0.08893651364007095
+  },
+  "audit": {
+    "clean": false,
+    "findings": [
+      {
+        "file": "ratebeer_recommender.py",
+        "line": 1116,
+        "pattern": "mask_input_cols\\s*=\\s*False",
+        "concern": "unmasks task tables (test labels)",
+        "snippet": "train = table_frame(task.get_table(\"train\", mask_input_cols=False))"
+      },
+      {
+        "file": "ratebeer_recommender.py",
+        "line": 1117,
+        "pattern": "mask_input_cols\\s*=\\s*False",
+        "concern": "unmasks task tables (test labels)",
+        "snippet": "val = table_frame(task.get_table(\"val\", mask_input_cols=False))"
+      },
+      {
+        "file": "ratebeer_recommender.py",
+        "line": 162,
+        "pattern": "RELBENCH_CACHE_DIR",
+        "concern": "tampers with the data cache location",
+        "snippet": "root = Path(os.environ[\"RELBENCH_CACHE_DIR\"]) / os.environ[\"RELBENCH_DATASET\"]"
+      }
+    ],
+    "note": "static scan; manually review flagged lines before publishing results. 'verify:' findings are advisory OOS-contract review hooks (legal patterns that warrant tracing), not violations."
+  },
+  "code_path": "/home/ubuntu/kapso/tmp/relbench/rel-ratebeer--user-beer-liked/runs/run_0020/code",
+  "predictions": {
+    "val": "/home/ubuntu/kapso/tmp/relbench/rel-ratebeer--user-beer-liked/runs/run_0020/val_predictions.npy",
+    "test": "/home/ubuntu/kapso/tmp/relbench/rel-ratebeer--user-beer-liked/runs/run_0020/test_predictions.npy"
+  }
+}

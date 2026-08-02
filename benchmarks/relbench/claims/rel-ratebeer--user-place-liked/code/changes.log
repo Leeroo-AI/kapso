@@ -1,0 +1,16 @@
+RepoMemory sections consulted: core.architecture, core.invariants, core.testing, core.gotchas
+Initialized measurement profile and critical-path execution plan.
+Implemented censored heterogeneous user/place/brewer/style/geography/H3 graphs, annual and exact snapshots, GPU batched PPR, CPU implicit ALS fallback, source-union candidates, temporal filters, compact LambdaMART features, forward folds, and distinct model-A/model-B fitting.
+Added check-before-compute caches for CSR graphs, ALS factors, PPR candidate arrays, and scored predictions under the lane-2 shared-cache namespace.
+Debug evaluation passed the full artifact contract in 54.3 seconds; official debug MAP was 0.0027551797684338816.
+Recovered build issue: implicit ALS raised ModelFitError("NaN encountered in factors") because one null beer score produced a null aggregate; fixed with coalesced score buckets and non-null timestamp filters.
+Iteration-2 candidate widening reserves balanced capacity for all-history geographic/new-place/co-visit safeguards and merges direct/projected ALS before the 600-item cap. Forward-fold validation was corrected to score the naturally generated pool instead of the positive-augmented ranker training pool.
+Iteration-3 fills deduplicated pools to the 600-item contract from deeper PPR/ALS ranks and widens the ranker with any-history state/city/H3/country/type counts, last-location distance, and activity/quality trend ratios.
+Iteration-4 aligns LambdaMART fitting with inference support by training only on naturally retrieved candidates; unretrieved positives are no longer injected with impossible all-zero source flags.
+Iteration-5 adds a fold-selected LambdaMART/PPR/ALS rank regularizer with an explicit guard requiring non-decreasing mean warm and cold forward-fold MAP.
+Iteration-6 rejects the annual-staleness assumption after measured within-year event recall drops of roughly 28-31% to 15%; required annual snapshots remain, with censored July snapshots added through 2017 and legal 2019 model-B snapshots.
+Iteration-7 extends the internally successful staleness correction to quarterly snapshots and aggregates forward validation blocks by year to keep warm/cold selection strata well supported.
+Iteration-8 uses exact censored training and model-B episode origins after quarterly snapshots improved forward MAP again; the specified annual and exact inference snapshots remain in the graph bank.
+Iteration-9 applies a deterministic recency allocation to the same sampled-query budget after exact-snapshot forward folds measured temporal regime drift; recent origins receive more samples and early origins fewer.
+Iteration-10 shifts post-union cap capacity toward full PPR and direct place ALS after an internal 2016-2018 allocation sweep improved event recall from 30.07% to 32.23%; taste, brewer projection, and safeguards retain explicit quotas.
+Temporal audit voided runs 0001, 0002, 0003, 0004, 0006, 0008, 0011, 0013, 0014, and 0016: mutable aggregate/amenity columns from the static places table could reflect post-origin updates. The corrected ranker removes them, uses only censored interaction quality, adds censored last-location matches, and treats invariant type/country IDs categorically.
