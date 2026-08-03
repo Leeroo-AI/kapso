@@ -517,7 +517,7 @@ class GenericSearch(SearchStrategy):
             self.ideation_selector,
         )
         # Include experiment_history, repo_memory, and leeroopedia gates by default for ideation
-        self.ideation_gates = self.params.get("ideation_gates", ["research", "experiment_history", "repo_memory", "leeroopedia"])
+        self.ideation_gates = self.params.get("ideation_gates", ["experiment_history", "repo_memory", "leeroopedia"])
         
         # Config params for implementation
         self.implementation_model = self.params.get(
@@ -920,9 +920,13 @@ class GenericSearch(SearchStrategy):
                 gate_failure_policy=self.gate_failure_policy,
             )
 
-            # 3. Build restricted tool set (read-only for ideation).
+            # 3. Build restricted tool set (read-only for ideation). Claude
+            # CLIs research with their NATIVE web tools — the research_* MCP
+            # proxies are gone from ideation — so WebSearch/WebFetch join the
+            # whitelist whenever ideation web access is on.
             ideation_allowed_tools = [
                 "Read",
+                *(["WebSearch", "WebFetch"] if self.ideation_web_search else []),
                 *[t for t in mcp_tools if t.startswith("mcp__")],
             ]
 

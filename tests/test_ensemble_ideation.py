@@ -524,6 +524,33 @@ def test_codex_artifacts_persist_when_dir_given(tmp_path, monkeypatch):
     assert open(meta["last_path"]).read() == "<solution>persisted</solution>"
 
 
+def test_member_sessions_get_native_web_tools_when_web_is_on(tmp_path, monkeypatch):
+    # The research_* MCP proxies left ideation; claude_code and oss_claude_code
+    # members research with the CLIs' own WebSearch/WebFetch instead — present
+    # in the whitelist exactly when ideation web access is on.
+    strategy, events = make_ensemble_strategy(
+        tmp_path, monkeypatch,
+        ensemble=[dict(CLAUDE_MEMBER)], selector=dict(SELECTOR),
+        claude_output=f"<solution>{_plan('web on')}</solution>",
+        codex_output="", selector_output="",
+    )
+    strategy._generate_solution("problem", "main")
+    member_tools = events["configs"][0].agent_specific["allowed_tools"]
+    assert "WebSearch" in member_tools and "WebFetch" in member_tools
+
+    strategy2, events2 = make_ensemble_strategy(
+        tmp_path, monkeypatch,
+        ensemble=[dict(CLAUDE_MEMBER)], selector=dict(SELECTOR),
+        claude_output=f"<solution>{_plan('web off')}</solution>",
+        codex_output="", selector_output="",
+    )
+    strategy2.ideation_web_search = False
+    strategy2._web_disallowed_tools = ["WebSearch", "WebFetch"]
+    strategy2._generate_solution("problem", "main")
+    member_tools2 = events2["configs"][0].agent_specific["allowed_tools"]
+    assert "WebSearch" not in member_tools2 and "WebFetch" not in member_tools2
+
+
 def test_env_strip_reaches_member_and_selector_session_configs(tmp_path, monkeypatch):
     strategy, events = make_ensemble_strategy(
         tmp_path, monkeypatch,

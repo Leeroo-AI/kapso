@@ -54,14 +54,11 @@ The repository has a semantic memory that captures architecture, gotchas, and ke
   - Use for: concrete code patterns, implementation details
   - Example: "QLoRA implementation", "mixed precision training code"
 
-- **research_idea**: Research ideas from the web (use when curated knowledge is insufficient)
-  - Use for: cutting-edge techniques, recent papers, novel approaches
-
-- **research_implementation**: Research implementations from the web
-  - Use for: finding open-source implementations, library usage examples
-
-- **research_study**: Deep research on a topic
-  - Use for: comprehensive understanding of a complex topic
+### Web Search (native tools)
+- **WebSearch** / **WebFetch**: research the web directly — recent papers,
+  winning solutions to similar problems, reference implementations, library
+  usage. Kaggle and GitHub are good starting points; search wherever you
+  judge best.
 
 ## IMPORTANT: Read-Only Mode
 You are in IDEATION mode. Do NOT modify any files. Only read and research.
