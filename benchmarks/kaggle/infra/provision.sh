@@ -13,7 +13,7 @@ ZONE="${ZONE:-us-central1-b}"                 # L4 zone (us-central1-a hit stock
 NAME="${NAME:-kaggle-8xl4}"
 MACHINE="${MACHINE:-g2-standard-96}"          # 8xL4
 DISK_GB="${DISK_GB:-300}"
-IMAGE_FAMILY="${IMAGE_FAMILY:-}"              # set once a golden image is baked
+IMAGE_FAMILY="${IMAGE_FAMILY:-kaggle-golden}" # baked 2026-08-03 (kaggle-golden-20260803); IMAGE_FAMILY= to boot the base DLVM
 BASE_IMAGE_FAMILY="${BASE_IMAGE_FAMILY:-pytorch-2-9-cu129-ubuntu-2204-nvidia-580}"
 BASE_IMAGE_PROJECT="${BASE_IMAGE_PROJECT:-deeplearning-platform-release}"
 
