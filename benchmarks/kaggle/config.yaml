@@ -13,13 +13,13 @@ default_mode: KAGGLE
 
 modes:
   KAGGLE:
-    # Launch defaults for task 1 and task 2 (CLI --hours / --node-expansion
-    # override these). k=8 fans out 8 implementation lanes per round; the runner
-    # pins one GPU per lane (CUDA_VISIBLE_DEVICES 0..7), so k=8 assumes an
-    # 8-GPU box — the hardware/lane strategy is tuned at launch, not here.
+    # Launch defaults (CLI --hours / --node-expansion override these). k=4
+    # fans out 4 implementation lanes per round; the runner pins one GPU per
+    # lane (CUDA_VISIBLE_DEVICES 0..3), so k=4 assumes a 4-GPU box — the
+    # hardware/lane strategy is tuned at launch, not here.
     run_defaults:
       hours: 2.0
-      node_expansion: 8
+      node_expansion: 4
 
     search_strategy:
       type: "generic"
@@ -40,10 +40,9 @@ modes:
         ideation_timeout: 14400
         implementation_timeout: 14400
         # Candidates each ensemble member is asked for. With 3 members this
-        # pools up to 15, so the selector can still emit 8 ranked solutions for
-        # K=8 when one member under-delivers or times out (the 2-per-member
-        # default collapsed a k=8 run to a single lane on 2026-07-29).
-        ideation_candidates_per_member: 5
+        # pools up to 6, so the selector can still emit 4 ranked solutions for
+        # K=4 when one member under-delivers or times out.
+        ideation_candidates_per_member: 2
         ideation_gates: ["experiment_history", "repo_memory"]
         implementation_gates: ["repo_memory"]
         # Three different model families generate ideas in parallel. The third
