@@ -158,6 +158,21 @@ def test_runner_stages_the_real_cli_playbook():
     assert "kernels push" in skill and "competitions submit" in skill
 
 
+def test_harvest_template_is_found_wherever_the_dataset_nests_it(tmp_path):
+    # timed-deps competitions nest the sample under dataset/archive/; the old
+    # fixed dataset/submission.csv raise killed two runs' whole leaderboard
+    # readouts. The search must find it, and a truly absent template must
+    # skip candidates rather than raise.
+    import glob, os
+    nested = tmp_path / "task" / "dataset" / "archive"
+    nested.mkdir(parents=True)
+    (nested / "submission.csv").write_text("path,target\n")
+    matches = sorted(glob.glob(
+        os.path.join(str(tmp_path / "task"), "dataset", "**", "submission.csv"),
+        recursive=True))
+    assert matches and matches[0].endswith(os.path.join("archive", "submission.csv"))
+
+
 def test_parse_submissions_json_tolerates_pagination_noise():
     raw = (
         "Next Page Token = CfDJ8ABC\n"

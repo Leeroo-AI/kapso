@@ -13,6 +13,7 @@ Usage:
 
 import argparse
 import csv
+import glob
 import hashlib
 import json
 import os
@@ -337,12 +338,23 @@ def harvest_unsubmitted_kernels(root: str, competition: str,
         print("[harvest] no kernels from this run — nothing to harvest")
         return report
 
-    # Only needed to validate kernel output, so it is checked once we know
-    # there is output to validate.
-    template = os.path.join(task_dir, "dataset",
-                            final_eval_cfg["submission_template"])
-    if not os.path.isfile(template):
-        raise FileNotFoundError(f"{template} missing — cannot validate outputs")
+    # The sample file's directory varies per competition (timed-deps nests it
+    # under dataset/archive/ — that fixed-path raise killed two runs' entire
+    # leaderboard readouts). Search for it; without a template the candidates
+    # are skipped loudly below, but the readout always survives.
+    template_name = final_eval_cfg["submission_template"]
+    template_matches = sorted(
+        glob.glob(os.path.join(task_dir, "dataset", "**", template_name),
+                  recursive=True))
+    template = template_matches[0] if template_matches else None
+    if template is None:
+        print(f"[harvest] no {template_name} under dataset/ — "
+              f"{len(refs)} kernels skipped unvalidated")
+        report["skipped"] = [
+            {"kernel": ref, "reason": f"no {template_name} template found"}
+            for ref in refs
+        ]
+        return report
     workdir = os.path.join(root, ".harvest")
     seen_digests = {}
 
