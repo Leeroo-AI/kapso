@@ -12,6 +12,11 @@ disagree.** Those pages carry stale text the organizers have since corrected.
 a five-per-day cap; it is obsolete and does not apply. Use the budget: shipping
 several genuinely different attempts beats polishing one.
 
+**Every submission's code opens with a short docstring describing its
+algorithm** — the approach in a few lines, at the top of the script. A pulled
+kernel whose idea is readable at a glance is how sibling lanes and later runs
+learn from your submission.
+
 ## No outside models or data
 
 You may use only:

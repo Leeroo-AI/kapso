@@ -147,6 +147,7 @@ def test_staged_rules_carry_the_binding_kernel_constraints():
     assert "cuda:0" in rules
     assert "NvidiaTeslaT4" in rules and "P100" in rules
     assert "50 submissions per task" in rules
+    assert "docstring describing its\nalgorithm" in rules.replace("**", "")
 
 
 def test_preflight_spec_authors_no_submit_mechanics():
