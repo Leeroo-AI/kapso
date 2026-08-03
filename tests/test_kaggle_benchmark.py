@@ -76,13 +76,20 @@ def test_handler_context_is_statement_plus_minimal_contract(tmp_path):
     for banned in ("SUBMISSION BUDGET", "INSURANCE", "flock",
                    "Reward & time economics", "push TWICE"):
         assert banned not in context
+    # The lane loop is part of the contract: three submit-and-learn rounds,
+    # ROI defined as beating the board (a stable baseline is worth zero),
+    # and web search named as available for the between-round study.
+    assert "THREE submit-and-learn rounds" in context
+    assert "ceiling, not a target" in context
+    assert "web" in context and "search" in context
+    assert "worth ZERO" in context
     # Budget the contract we author, not the environment it renders in: the
     # statement is unbounded and the task dir is 37 chars in production but
     # ~140 under pytest, which used to make this guard measure tmp_path. The
-    # ceiling moves only when a channel is deliberately added (the banked-score
-    # log alongside the Kaggle history commands) — never to fit new prose.
+    # ceiling moves only when a channel is deliberately added (the three-round
+    # lane loop + ROI definition being the latest) — never to fit new prose.
     contract = context.split("# Kapso operational context", 1)[1]
-    assert len(contract.replace(handler.task_dir, "/task")) < 2350
+    assert len(contract.replace(handler.task_dir, "/task")) < 3100
 
 
 def test_handler_never_honors_agent_stop(tmp_path):

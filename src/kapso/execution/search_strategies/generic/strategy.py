@@ -1639,8 +1639,11 @@ Problem: {problem}"""
         
         # 3. Build full tool set for implementation (includes Write, Edit)
         # Bash is kept for running evaluation scripts, not for repo_memory access
+        # WebSearch/WebFetch: the handler promises lanes web research for
+        # their between-round study; codex implementation carries --search
+        # natively, the claude path gets the same via its whitelist.
         implementation_allowed_tools = [
-            "Read", "Write", "Edit", "Bash",
+            "Read", "Write", "Edit", "Bash", "WebSearch", "WebFetch",
             *[t for t in mcp_tools if t.startswith("mcp__")],
         ]
         

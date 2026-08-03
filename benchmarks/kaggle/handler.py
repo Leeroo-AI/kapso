@@ -1,7 +1,8 @@
 """Kaggle competition problem handler (IOAI AI Models Track practice).
 
 Hands the coding agent the task statement plus the invariant kapso contract:
-paths, the best-public-score objective, and score reporting. Every
+paths, the best-public-score objective, the up-to-three submit-and-learn
+rounds each lane runs inside its session, and score reporting. Every
 per-competition submission mechanic (kernel push vs. file upload, format,
 compute limits, quota) lives in the statement itself, authored by the preflight
 (benchmarks/kaggle/preflight_spec.md). Lanes learn from each other through
@@ -87,8 +88,16 @@ class KaggleNotebookHandler(ProblemHandler):
 
 # Kapso operational context
 
-You are the implementation agent of kapso: design ONE experiment per
-iteration, implement it, evaluate it.
+You are one implementation lane of kapso. Your session is a LOOP of up to
+THREE submit-and-learn rounds:
+1. Implement an idea, validate locally, submit once it clears the ROI bar
+   (the <solution> you received is round 1).
+2. WAIT for the public score and bank it. Then study the evidence: your
+   local-vs-public gap, every sibling submission, and — you have web
+   search — how similar problems were pushed further.
+3. Propose the best successor that evidence supports, and go again.
+Start another round only if the time remaining fits a full submit-and-score
+trip. Three submissions is a ceiling, not a target.
 
 - Task directory (yours to modify): {self.task_dir}
 - Dataset (READ-ONLY, never modify): {self.dataset_dir}
@@ -101,9 +110,12 @@ binding rules and the fixed package list your code runs against. Breaking one
 voids the submission however well it scores, so treat them as constraints on
 the design space, not an end-of-run checklist.
 
-What counts is the best PUBLIC leaderboard score among your submissions — a
-stable baseline that scores low earns nothing. Go for the approach with the
-highest expected final score you can execute in the time remaining. The
+What counts is the best PUBLIC leaderboard score among your submissions, so
+a submission's ROI is its chance of BEATING the board's best times the size
+of the beat. Banking a stable baseline or re-proving a sibling's result is
+worth ZERO — every round, submit the candidate with the
+highest expected final score you can execute in the time remaining, even
+when a tamer option is likelier to merely succeed. The
 statement's Submission section is authoritative on the modality and the exact
 file required; {self.skill_path} is the CLI playbook — push, poll,
 submit, read the score. Keep your best submission under {self.submission_dir}/.
