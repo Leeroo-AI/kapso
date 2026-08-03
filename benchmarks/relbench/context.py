@@ -330,6 +330,38 @@ FEATURE_ENGINEERING_NOTE = (
     "iteration budget."
 )
 
+MODELLING_PRACTICE_NOTE = (
+    "Two practices that measured positive when ablated on tasks of this "
+    "benchmark. Both are stated as things to MEASURE, not to assume — keep "
+    "them only if your own numbers agree.\n"
+    "1. NORMALISE FEATURES WITHIN THE COMPETING SET. This applies whenever "
+    "several prediction rows share a natural grouping key — the same seed "
+    "timestamp, session, parent entity, auction, or batch — so that the rows "
+    "are effectively scored against one another. Alongside each informative "
+    "raw feature, add its within-group rank, percentile and z-score, plus the "
+    "gap to the group's leading value. An absolute value cannot distinguish "
+    "'strong in a weak group' from 'strong overall', while the label often "
+    "encodes exactly that relative standing. Adding this group improved the "
+    "held-out metric across every model family tried (linear, shallow trees, "
+    "boosted ensembles), which is the kind of consistency that makes a "
+    "technique worth a default rather than a one-off.\n"
+    "2. MATCH MODEL CAPACITY TO THE NUMBER OF LABELLED ROWS, AND MAKE ADDED "
+    "COMPLEXITY EARN ITS PLACE. When labelled training rows number in the low "
+    "thousands or fewer, always score a strongly-regularised or plainly linear "
+    "model against the richer ensemble instead of assuming more capacity wins. "
+    "On a small-sample task here, a linear model on a compact feature set beat "
+    "every boosted ensemble AND a much larger hand-engineered blend on the "
+    "held-out split — the extra capacity was fitting sample noise. Wide feature "
+    "matrices and stacked models are worth building, but each added layer "
+    "should be kept only where it measurably beats the simpler version.\n"
+    "A companion habit for both: REPORT THE METRIC BY SLICE, not only in "
+    "aggregate. Split the evaluation rows by the conditions you suspect matter "
+    "(sparse vs rich history, recently-changed context, rare vs common "
+    "classes) and read the metric per slice. A change that looks flat overall "
+    "can be moving one slice by a large margin and another the opposite way, "
+    "and the aggregate alone will never show you which."
+)
+
 ROLLING_CONTRACT_NOTE = (
     "This task's eval timestamps roll YEARS past the database freeze, so it is "
     "evaluated tick-by-tick under per-row seed-time censoring (the same regime "
@@ -454,6 +486,8 @@ def build_problem_context(
         "\n## Data access rules\n" + _data_access_rules(spec),
         "\n## Feature engineering (high-value direction — suggestion)\n"
         + FEATURE_ENGINEERING_NOTE,
+        "\n## Modelling practices (measured — suggestion)\n"
+        + MODELLING_PRACTICE_NOTE,
         "\n## Resources\n" + _resources(spec, has_gpu, num_cpus, mem_gb, gpu_name),
         "\n## Living documents (shared artifact workspace)\n"
         + LIVING_DOCUMENTS_NOTE,
