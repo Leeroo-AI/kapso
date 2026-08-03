@@ -79,8 +79,8 @@ def test_handler_context_is_statement_plus_minimal_contract(tmp_path):
     # The lane loop is part of the contract: three submit-and-learn rounds,
     # ROI defined as beating the board (a stable baseline is worth zero),
     # and web search named as available for the between-round study.
-    assert "SIX submit-and-learn rounds" in context
-    assert "quota ceiling" in context
+    assert "TEN submit-and-learn rounds" in context
+    assert "per-lane ceiling" in context
     assert "web" in context and "search" in context
     assert "worth ZERO" in context
     assert "PREDICT" in context and "calibration gap" in context

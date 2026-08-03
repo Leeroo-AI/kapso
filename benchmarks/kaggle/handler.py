@@ -89,7 +89,7 @@ class KaggleNotebookHandler(ProblemHandler):
 # Kapso operational context
 
 You are one implementation lane of kapso. Your session is a LOOP of up to
-SIX submit-and-learn rounds:
+TEN submit-and-learn rounds:
 1. Implement an idea, validate locally, and — after writing down the
    public score you PREDICT — submit once it clears the ROI bar. The
    <solution> you received is round 1's starting point, not a cage: diverge
@@ -111,9 +111,9 @@ hard to beat. Banking a score starts the next round; a failed build starts
 the next round (fix it or switch angles — you have the GPU and the hours);
 "my ideas can't beat the board" means find the idea that CAN, using the gap
 evidence, the siblings' code, and the web. Write your final report only when
-that time gate closes. Six submissions is your quota ceiling — and the
-competition budget is shared by every lane, so near the cap check
-`kaggle competitions submissions` before spending. Working until the gate
+that time gate closes. Ten submissions is your per-lane ceiling, but
+the competition budget is SHARED by every lane and binds first — past your
+fifth spend, check `kaggle competitions submissions` before each one. Working until the gate
 closes is the contract. Exiting with an idle clock — worst of all with zero
 submissions — is the one unacceptable outcome.
 
