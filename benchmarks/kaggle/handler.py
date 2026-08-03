@@ -99,8 +99,15 @@ THREE submit-and-learn rounds:
    submission, and — you have web search — how similar problems were pushed
    further.
 3. Propose the best successor that evidence supports, and go again.
-Start another round only if the time remaining fits a full submit-and-score
-trip. Three submissions is a ceiling, not a target.
+Your session ends ONLY when the remaining time cannot fit a full
+submit-and-score trip — never because a round succeeded, failed, or looks
+hard to beat. Banking a score starts the next round; a failed build starts
+the next round (fix it or switch angles — you have the GPU and the hours);
+"my ideas can't beat the board" means find the idea that CAN, using the gap
+evidence, the siblings' code, and the web. Write your final report only when
+that time gate closes. Three submissions is the quota ceiling; working until
+the gate closes is the contract. Exiting with an idle clock — worst of all
+with zero submissions — is the one unacceptable outcome.
 
 - Task directory (yours to modify): {self.task_dir}
 - Dataset (READ-ONLY, never modify): {self.dataset_dir}

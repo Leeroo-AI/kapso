@@ -80,17 +80,22 @@ def test_handler_context_is_statement_plus_minimal_contract(tmp_path):
     # ROI defined as beating the board (a stable baseline is worth zero),
     # and web search named as available for the between-round study.
     assert "THREE submit-and-learn rounds" in context
-    assert "ceiling, not a target" in context
+    assert "quota ceiling" in context
     assert "web" in context and "search" in context
     assert "worth ZERO" in context
     assert "PREDICT" in context and "calibration gap" in context
+    # The 2026-08-03 k=8 run: six lanes exited voluntarily with ~70 min left —
+    # the ROI bar and "ceiling, not a target" read as permission to stop. The
+    # contract now ties session end to the time gate alone.
+    assert "ends ONLY when the remaining time" in context
+    assert "one unacceptable outcome" in context
     # Budget the contract we author, not the environment it renders in: the
     # statement is unbounded and the task dir is 37 chars in production but
     # ~140 under pytest, which used to make this guard measure tmp_path. The
     # ceiling moves only when a channel is deliberately added (the three-round
     # lane loop + ROI definition being the latest) — never to fit new prose.
     contract = context.split("# Kapso operational context", 1)[1]
-    assert len(contract.replace(handler.task_dir, "/task")) < 3300
+    assert len(contract.replace(handler.task_dir, "/task")) < 3800
 
 
 def test_handler_never_honors_agent_stop(tmp_path):
