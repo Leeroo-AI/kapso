@@ -528,7 +528,6 @@ class MleBenchHandler(ProblemHandler):
             models=["gpt-4o-search-preview", "gpt-4o-search-preview", "gpt-4o-search-preview"],
             messages=messages,
             search_context_size="high",
-            reasoning_efforts=["medium", "medium", "high"],
         )
 
         cleaned_output = "".join([self._remove_links(r) for r in responses])
