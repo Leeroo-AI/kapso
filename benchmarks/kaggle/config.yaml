@@ -56,7 +56,7 @@ modes:
         ideation_lens_planner:
           cli: "claude_code"
           model: "claude-fable-5"
-          effort: "max"
+          effort: "high"
           timeout: 600
         ideation_selector:
           cli: "codex"
