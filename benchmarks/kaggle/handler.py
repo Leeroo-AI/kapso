@@ -76,10 +76,6 @@ class KaggleNotebookHandler(ProblemHandler):
         return f"{remaining // 3600}h {(remaining % 3600) // 60:02d}m"
 
     def get_problem_context(self, budget_progress: float = 0, **kwargs) -> str:
-        # TEST-ONLY (radar-ioai-2025 rehearsal): the "When you search the web"
-        # paragraph below keeps lanes off this PAST competition's published
-        # solutions. REMOVE it (and restore the context-size guard in
-        # tests/test_kaggle_benchmark.py) before the actual IOAI 2026 tasks.
         competition = self.kaggle["competition"]
         return f"""{self.statement}
 
@@ -100,9 +96,6 @@ READ {self.rules_path} BEFORE YOU BUILD ANYTHING, and obey it — the organizers
 binding rules and the fixed package list your code runs against. Breaking one
 voids the submission however well it scores, so treat them as constraints on
 the design space, not an end-of-run checklist.
-
-When you search the web, do NOT look up this exact competition or its
-solutions and writeups — draw inspiration from similar problems instead.
 
 What counts is the best PUBLIC leaderboard score among your submissions — a
 stable baseline that scores low earns nothing. Go for the approach with the

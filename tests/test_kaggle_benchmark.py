@@ -82,9 +82,7 @@ def test_handler_context_is_statement_plus_minimal_contract(tmp_path):
     # ceiling moves only when a channel is deliberately added (the banked-score
     # log alongside the Kaggle history commands) — never to fit new prose.
     contract = context.split("# Kapso operational context", 1)[1]
-    # 2350 + the TEST-ONLY web-search paragraph (see handler.get_problem_context);
-    # restore to 2350 when that paragraph is removed for the real competition.
-    assert len(contract.replace(handler.task_dir, "/task")) < 2500
+    assert len(contract.replace(handler.task_dir, "/task")) < 2350
 
 
 def test_handler_rejects_missing_kaggle_slug(tmp_path):
