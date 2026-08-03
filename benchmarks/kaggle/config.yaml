@@ -66,15 +66,16 @@ modes:
           BASH_DEFAULT_TIMEOUT_MS: "900000"
           BASH_MAX_TIMEOUT_MS: "7200000"
 
-    # No per-phase fractions (session ceilings are bounded by the run budget
-    # alone). The finalization reserve is sized to ONE submission round trip —
-    # push -> Kaggle runs the kernel -> submit -> score — because a run that
-    # ends before shipping scores nothing at all: run 2 finished holding a
-    # COMPLETE kernel worth 0.83626 that was never submitted. Once a public
-    # score is banked in best_score.log the handler releases all but
-    # insured_reserve_minutes.
+    # No per-phase fractions, and NO finalization reserve: every run to date
+    # banked a public score long before any wall, while the reserve killed
+    # lanes mid-round (5 of 8 in run 5) and starved the feedback sessions to
+    # the 60s floor three runs straight. Lanes own their own endgame margin —
+    # the handler's loop contract makes the last submission leave room for its
+    # scoring — and the post-campaign harvest remains the safety net for
+    # pushed-but-unsubmitted kernels. insured_reserve is inert at reserve 0;
+    # it stays because the handler still takes the argument.
     session_budget:
-      finalization_reserve_minutes: 20
+      finalization_reserve_minutes: 0
       insured_reserve_minutes: 5
       guard_minutes: 5
       # Held back AFTER the campaign so the end-of-run harvest can submit every
