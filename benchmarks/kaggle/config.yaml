@@ -13,13 +13,13 @@ default_mode: KAGGLE
 
 modes:
   KAGGLE:
-    # Launch defaults (CLI --hours / --node-expansion override these). k=4
-    # fans out 4 implementation lanes per round; the runner pins one GPU per
-    # lane (CUDA_VISIBLE_DEVICES 0..3), so k=4 assumes a 4-GPU box — the
+    # Launch defaults (CLI --hours / --node-expansion override these). k=8
+    # fans out 8 implementation lanes per round; the runner pins one GPU per
+    # lane (CUDA_VISIBLE_DEVICES 0..7), so k=8 assumes an 8-GPU box — the
     # hardware/lane strategy is tuned at launch, not here.
     run_defaults:
       hours: 2.0
-      node_expansion: 4
+      node_expansion: 8
 
     search_strategy:
       type: "generic"
@@ -39,16 +39,13 @@ modes:
         # deadline against what remains), not a per-phase slice.
         ideation_timeout: 14400
         implementation_timeout: 14400
-        # Candidates each ensemble member is asked for. With 3 members this
-        # pools up to 6, so the selector can still emit 4 ranked solutions for
-        # K=4 when one member under-delivers or times out.
-        ideation_candidates_per_member: 2
+        # Candidates each ensemble member is asked for (2 members x 5 = 10).
+        ideation_candidates_per_member: 5
         ideation_gates: ["experiment_history", "repo_memory"]
         implementation_gates: ["repo_memory"]
-        # Three different model families generate ideas in parallel. The third
-        # runs the Claude Code CLI against an Anthropic-compatible OSS endpoint
-        # (auth_token_env is the VAR NAME — the secret stays out of config and
-        # must reach the box's kapso/.env, see infra/bootstrap.sh).
+        # Two model families generate ideas in parallel; 2 members x 5
+        # candidates pools 10, so the selector can still emit 8 ranked
+        # solutions for K=8 when one member under-delivers.
         ideation_ensemble:
           - cli: "codex"
             model: "gpt-5.6-sol"
@@ -56,11 +53,6 @@ modes:
           - cli: "claude_code"
             model: "claude-fable-5"
             effort: "xhigh"
-          - cli: "oss_claude_code"
-            model: "accounts/fireworks/routers/kimi-k3-fast"
-            effort: "max"
-            base_url: "https://api.fireworks.ai/inference"
-            auth_token_env: "FIREWORKS_API_KEY"
         ideation_lens_planner:
           cli: "claude_code"
           model: "claude-fable-5"

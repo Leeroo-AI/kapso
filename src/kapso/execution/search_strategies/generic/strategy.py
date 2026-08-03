@@ -935,43 +935,12 @@ class GenericSearch(SearchStrategy):
             )
 
             if self.ideation_ensemble:
-                # OSS endpoints reject Anthropic's server-side WebSearch, so
-                # oss_claude_code members research through the function-type
-                # research gate instead (research_idea/... route to the
-                # config's web-search utility model). Gated on the same
-                # ideation web switch, so leakage-safe runs stay sealed.
-                oss_mcp_servers, oss_mcp_tools = (
-                    get_mcp_config(
-                        gates=[*self.ideation_gates, "research"],
-                        experiment_history_path=os.path.abspath(
-                            self.experiment_history_path
-                        ),
-                        experiment_embedding_model=(
-                            self.llm.resolve_model(None, default_role="embedding")
-                            if self.llm is not None
-                            else None
-                        ),
-                        repo_root=ideation_dir,
-                        include_base_tools=False,
-                        gate_failure_policy=self.gate_failure_policy,
-                    )
-                    if self.ideation_web_search
-                    else (mcp_servers, [t for t in ideation_allowed_tools
-                                        if t.startswith("mcp__")])
-                )
-                oss_allowed_tools = [
-                    "Read",
-                    *(["WebFetch"] if self.ideation_web_search else []),
-                    *[t for t in oss_mcp_tools if t.startswith("mcp__")],
-                ]
                 return self._generate_solution_ensemble(
                     problem=problem,
                     repo_memory_brief=repo_memory_brief,
                     ideation_dir=ideation_dir,
                     mcp_servers=mcp_servers,
                     ideation_allowed_tools=ideation_allowed_tools,
-                    oss_mcp_servers=oss_mcp_servers,
-                    oss_allowed_tools=oss_allowed_tools,
                 )
 
             # 4. Configure Claude Code for ideation (read-only mode).
@@ -1146,8 +1115,6 @@ class GenericSearch(SearchStrategy):
         ideation_dir: str,
         mcp_servers: Dict[str, Any],
         ideation_allowed_tools: List[str],
-        oss_mcp_servers: Dict[str, Any],
-        oss_allowed_tools: List[str],
     ) -> Tuple[str, List[str], Dict[str, float]]:
         """Fan out ideation across CLI members, then select one solution.
 
@@ -1258,20 +1225,19 @@ class GenericSearch(SearchStrategy):
             from kapso.execution.coding_agents.adapters.oss_claude_code_agent import OssClaudeCodeCodingAgent
 
             is_oss = member["cli"] == "oss_claude_code"
-            # WebSearch is an Anthropic SERVER-side tool: an OSS endpoint
-            # rejects any request whose tools array carries it (Fireworks:
-            # 400 "Input should be 'function'"), poisoning every call in the
-            # session — verified live on kimi-k3-fast, 2026-08-03. OSS
-            # members get client-side WebFetch plus the research gate's
-            # function-type web proxies instead.
+            # WebSearch is an Anthropic SERVER-side tool an OSS endpoint
+            # cannot serve (Fireworks 400s the request envelope — verified
+            # live on kimi-k3-fast, 2026-08-03), so any oss member keeps
+            # client-side WebFetch only.
             member_allowed_tools = (
-                oss_allowed_tools if is_oss else ideation_allowed_tools
+                [t for t in ideation_allowed_tools if t != "WebSearch"]
+                if is_oss else ideation_allowed_tools
             )
             agent_specific = {
                 "env_strip": self.env_strip,
                 "env_defaults": self.env_defaults,
                 "aws_region": self.aws_region,
-                "mcp_servers": oss_mcp_servers if is_oss else mcp_servers,
+                "mcp_servers": mcp_servers,
                 "allowed_tools": member_allowed_tools,
                 "disallowed_tools": self._web_disallowed_tools,
                 "timeout": member_deadline,

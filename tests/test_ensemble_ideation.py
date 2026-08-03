@@ -544,7 +544,7 @@ def test_member_sessions_get_native_web_tools_when_web_is_on(tmp_path, monkeypat
     strategy._generate_solution("problem", "main")
     member_tools = events["configs"][0].agent_specific["allowed_tools"]
     assert "WebSearch" in member_tools and "WebFetch" in member_tools
-    # The research proxies belong to OSS members only.
+    # Ideation members never mount the research proxies.
     assert "mcp__gated-knowledge__research_idea" not in member_tools
 
     strategy2, events2 = make_ensemble_strategy(
@@ -562,8 +562,9 @@ def test_member_sessions_get_native_web_tools_when_web_is_on(tmp_path, monkeypat
 
 def test_oss_members_get_webfetch_but_never_websearch(tmp_path, monkeypatch):
     # WebSearch is server-executed; an OSS endpoint 400s any request whose
-    # tools array carries it (verified live on Fireworks kimi-k3-fast), which
-    # poisons the whole session. OSS members keep client-side WebFetch only.
+    # tools array carries it (verified live on Fireworks kimi-k3-fast).
+    # OSS members keep client-side WebFetch only — and since the ensemble
+    # dropped its OSS member, nobody mounts the research proxies either.
     oss = {"cli": "oss_claude_code", "model": "m", "effort": "max",
            "base_url": "http://x", "auth_token_env": "K"}
     strategy, events = make_ensemble_strategy(
@@ -576,8 +577,7 @@ def test_oss_members_get_webfetch_but_never_websearch(tmp_path, monkeypatch):
     member_tools = events["configs"][0].agent_specific["allowed_tools"]
     assert "WebFetch" in member_tools
     assert "WebSearch" not in member_tools
-    # ...and the research gate's function-type proxies take WebSearch's place.
-    assert "mcp__gated-knowledge__research_idea" in member_tools
+    assert "mcp__gated-knowledge__research_idea" not in member_tools
 
 
 def test_env_strip_reaches_member_and_selector_session_configs(tmp_path, monkeypatch):
