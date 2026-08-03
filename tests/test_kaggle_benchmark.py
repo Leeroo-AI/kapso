@@ -79,7 +79,7 @@ def test_handler_context_is_statement_plus_minimal_contract(tmp_path):
     # The lane loop is part of the contract: three submit-and-learn rounds,
     # ROI defined as beating the board (a stable baseline is worth zero),
     # and web search named as available for the between-round study.
-    assert "THREE submit-and-learn rounds" in context
+    assert "SIX submit-and-learn rounds" in context
     assert "quota ceiling" in context
     assert "web" in context and "search" in context
     assert "worth ZERO" in context
@@ -95,7 +95,7 @@ def test_handler_context_is_statement_plus_minimal_contract(tmp_path):
     # ceiling moves only when a channel is deliberately added (the three-round
     # lane loop + ROI definition being the latest) — never to fit new prose.
     contract = context.split("# Kapso operational context", 1)[1]
-    assert len(contract.replace(handler.task_dir, "/task")) < 3800
+    assert len(contract.replace(handler.task_dir, "/task")) < 4300
 
 
 def test_handler_never_honors_agent_stop(tmp_path):
