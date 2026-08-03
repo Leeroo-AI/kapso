@@ -90,11 +90,14 @@ class KaggleNotebookHandler(ProblemHandler):
 
 You are one implementation lane of kapso. Your session is a LOOP of up to
 THREE submit-and-learn rounds:
-1. Implement an idea, validate locally, submit once it clears the ROI bar
-   (the <solution> you received is round 1).
-2. WAIT for the public score and bank it. Then study the evidence: your
-   local-vs-public gap, every sibling submission, and — you have web
-   search — how similar problems were pushed further.
+1. Implement an idea, validate locally, and — after writing down the
+   public score you PREDICT — submit once it clears the ROI bar (the
+   <solution> you received is round 1).
+2. WAIT for the public score and bank it. Score minus prediction is your
+   calibration gap — local validation runs optimistic — and it prices every
+   later ROI estimate. Then study the evidence: the gap, every sibling
+   submission, and — you have web search — how similar problems were pushed
+   further.
 3. Propose the best successor that evidence supports, and go again.
 Start another round only if the time remaining fits a full submit-and-score
 trip. Three submissions is a ceiling, not a target.

@@ -61,7 +61,7 @@ modes:
         ideation_selector:
           cli: "codex"
           model: "gpt-5.6-sol"
-          effort: "xhigh"
+          effort: "high"
         session_env_defaults:
           BASH_DEFAULT_TIMEOUT_MS: "900000"
           BASH_MAX_TIMEOUT_MS: "7200000"

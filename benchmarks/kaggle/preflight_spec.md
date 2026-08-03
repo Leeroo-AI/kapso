@@ -84,6 +84,10 @@ Write these sections, in order (an H1 title, then H2 sections):
    The solver carries its own CLI playbook, and a command template written
    here reaches every lane at once — a stale upload-style submit line in one
    statement cost six lanes their first submission on a 400.
+   For a code competition, DO list every attachment the provided starter or
+   baseline declares (its metadata's dataset_sources / kernel_sources — e.g.
+   an environment-wheel dataset): a kernel missing one dies seconds into its
+   run, and each lane rediscovering the attachment wastes a round trip.
 
 ## Output contract
 
