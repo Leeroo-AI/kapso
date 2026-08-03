@@ -77,12 +77,12 @@ modes:
     session_budget:
       finalization_reserve_minutes: 0
       insured_reserve_minutes: 5
-      guard_minutes: 5
-      # Held back AFTER the campaign so the end-of-run harvest can submit every
-      # COMPLETE-but-unsubmitted kernel and have those entries finish scoring
-      # before the deadline (a submission that scores late does not count).
-      # Covers submit calls + Kaggle scoring latency only, not a kernel run.
-      harvest_window_minutes: 10
+      # Zero carve-outs anywhere: the campaign runs to the deadline itself.
+      # Lanes own every endgame margin (the loop contract makes the last
+      # submission leave room for its own scoring); the post-campaign harvest
+      # still runs but anything it submits scores past the deadline.
+      guard_minutes: 0
+      harvest_window_minutes: 0
       # Refuse to start a campaign with less than this left after preflight —
       # below one submission round trip nothing scoreable can finish.
       min_campaign_minutes: 25
