@@ -59,6 +59,10 @@ The repository has a semantic memory that captures architecture, gotchas, and ke
   winning solutions to similar problems, reference implementations, library
   usage. Kaggle and GitHub are good starting points; search wherever you
   judge best.
+- If WebSearch is not in your tool list (some endpoints cannot serve it),
+  your search tools are **research_idea** / **research_implementation** /
+  **research_study** — a web-enabled research model does the searching and
+  reports back; WebFetch still works for any URL you already have.
 
 ## IMPORTANT: Read-Only Mode
 You are in IDEATION mode. Do NOT modify any files. Only read and research.

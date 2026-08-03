@@ -163,7 +163,12 @@ def make_ensemble_strategy(tmp_path, monkeypatch, *, ensemble, selector,
     monkeypatch.setattr(oss_module, "OssClaudeCodeCodingAgent", FakeAgent)
     monkeypatch.setattr(codex_module, "run_codex_ideation", fake_codex)
     monkeypatch.setattr(
-        gated_mcp_module, "get_mcp_config", lambda **kw: ({}, [])
+        gated_mcp_module, "get_mcp_config",
+        lambda **kw: (
+            ({"gated": {}}, ["mcp__gated-knowledge__research_idea"])
+            if "research" in kw.get("gates", [])
+            else ({}, [])
+        ),
     )
     monkeypatch.setattr(
         RepoMemoryManager, "load_from_git_branch",
@@ -539,6 +544,8 @@ def test_member_sessions_get_native_web_tools_when_web_is_on(tmp_path, monkeypat
     strategy._generate_solution("problem", "main")
     member_tools = events["configs"][0].agent_specific["allowed_tools"]
     assert "WebSearch" in member_tools and "WebFetch" in member_tools
+    # The research proxies belong to OSS members only.
+    assert "mcp__gated-knowledge__research_idea" not in member_tools
 
     strategy2, events2 = make_ensemble_strategy(
         tmp_path, monkeypatch,
@@ -569,6 +576,8 @@ def test_oss_members_get_webfetch_but_never_websearch(tmp_path, monkeypatch):
     member_tools = events["configs"][0].agent_specific["allowed_tools"]
     assert "WebFetch" in member_tools
     assert "WebSearch" not in member_tools
+    # ...and the research gate's function-type proxies take WebSearch's place.
+    assert "mcp__gated-knowledge__research_idea" in member_tools
 
 
 def test_env_strip_reaches_member_and_selector_session_configs(tmp_path, monkeypatch):
