@@ -70,7 +70,7 @@ echo "  branch $(git branch --show-current) @ $(git rev-parse --short HEAD)"
 
 echo "### 5/6 kapso deps (--user; torch inherited, NOT reinstalled)"
 python3 -m pip install --user -q \
-  litellm==1.75.0 openai PyYAML python-dotenv GitPython scipy mcp \
+  litellm==1.75.0 openai PyYAML python-dotenv GitPython scipy "mcp>=1.9,<2" \
   transformers soundfile librosa
 
 echo "### 6/6 verify kapso imports via PYTHONPATH (no editable install on this image)"
