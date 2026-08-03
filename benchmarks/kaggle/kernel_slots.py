@@ -30,7 +30,14 @@ Priority tiers (--priority), highest first:
     first-score  scoring a version that has never scored — one step from value
     run          a normal kernel push (the default for push)
     reroll       resubmitting an already-scored version; debug pushes
-Defaults: push -> run, score -> first-score. FIFO within a tier.
+Defaults: push -> run, score -> first-score. Within a tier, ordering is
+EVIDENCE-AWARE: lanes with no banked public score come first (their first
+score is maximum information), then lanes by their BEST banked public score
+(the office reads best_score.log and attributes scores through the kernel
+refs each lane acquired for), then arrival. Waiting also AGES a ticket
+request upward: every aging_seconds in the queue promotes it one tier step
+(never into ship), so a weak-scored lane cannot starve behind a stream of
+stronger arrivals.
 
 `acquire` BLOCKS until granted — a wait is backpressure, not failure, and never
 a reason to weaken your recipe. It prints the queue state to stderr and the
@@ -94,7 +101,7 @@ def load_limits(task_dir: str) -> dict:
     with open(config_path) as handle:
         limits = json.load(handle)
     for key in ("gpu", "cpu", "ttl_seconds", "reap_interval_seconds",
-                "verify_timeout_seconds"):
+                "verify_timeout_seconds", "aging_seconds"):
         if key not in limits:
             raise ValueError(f"{config_path} has no {key!r}")
     return limits
@@ -104,6 +111,7 @@ def empty_ledger() -> dict:
     return {
         "queue": {pool: [] for pool in POOLS},
         "tickets": {pool: [] for pool in POOLS},
+        "lane_refs": {},
         "last_reap": 0.0,
     }
 
@@ -120,6 +128,7 @@ def read_ledger(ledger_path: str) -> dict:
                 f"{ledger_path} is not a v2 ledger (missing {key!r}) — "
                 "the runner deletes stale ledgers at launch"
             )
+    ledger.setdefault("lane_refs", {})
     return ledger
 
 
@@ -146,6 +155,55 @@ def _prune_waiters(ledger: dict, now: float) -> None:
         ]
 
 
+def sanitize_lane(lane: str) -> str:
+    """Agents pass lane ids through shells; quote artifacts must not split
+    a lane's identity (live run 2026-08-03: `generic_exp_7'`)."""
+    return lane.strip().strip("'\"")
+
+
+def lane_best_public(task_dir: str, ledger: dict, lane: str) -> "float | None":
+    """The lane's best banked public score, attributed through its refs.
+
+    Evidence comes from best_score.log (public scores only); attribution is
+    the accumulated map of refs this lane acquired tickets for. Only lines
+    whose ref field is a kernel ref are considered; a ref-bearing line with
+    a malformed score raises (same contract as the reserve reader).
+    """
+    refs = set(ledger.get("lane_refs", {}).get(sanitize_lane(lane), []))
+    if not refs:
+        return None
+    score_log = os.path.join(task_dir, "best_score.log")
+    if not os.path.isfile(score_log):
+        return None
+    best = None
+    with open(score_log, encoding="utf-8") as handle:
+        for line in handle:
+            fields = line.split()
+            if len(fields) >= 3 and KERNEL_REF_PATTERN.match(fields[2])                     and fields[2] in refs:
+                score = float(fields[0])
+                if best is None or score > best:
+                    best = score
+    return best
+
+
+def queue_sort_key(task_dir: str, ledger: dict, limits: dict, now: float):
+    """Tier (aged upward, never into ship) -> unscored first -> best public
+    score DESC -> arrival."""
+    aging = limits["aging_seconds"]
+
+    def key(waiter):
+        tier = PRIORITY_TIERS[waiter["priority"]]
+        waited_steps = int((now - waiter["enqueued"]) // aging) if aging > 0 else 0
+        effective_tier = max(min(tier, 1), tier - waited_steps)
+        evidence = lane_best_public(task_dir, ledger, waiter["lane"])
+        return (effective_tier,
+                0 if evidence is None else 1,
+                -(evidence if evidence is not None else 0.0),
+                waiter["enqueued"])
+
+    return key
+
+
 def poll_once(task_dir: str, pool: str, kind: str, ref: str, lane: str,
               priority: str, waiter_id: str, now: float) -> "dict":
     """One atomic heartbeat-and-maybe-grant step; the whole decision is locked.
@@ -160,15 +218,20 @@ def poll_once(task_dir: str, pool: str, kind: str, ref: str, lane: str,
     def attempt():
         ledger = read_ledger(ledger_path)
         _prune_waiters(ledger, now)
+        clean_lane = sanitize_lane(lane)
+        held_refs = ledger["lane_refs"].setdefault(clean_lane, [])
+        if ref not in held_refs:
+            held_refs.append(ref)
         queue = ledger["queue"][pool]
         mine = next((w for w in queue if w["id"] == waiter_id), None)
         if mine is None:
-            mine = {"id": waiter_id, "lane": lane, "kind": kind, "ref": ref,
-                    "priority": priority, "enqueued": now, "last_seen": now}
+            mine = {"id": waiter_id, "lane": clean_lane, "kind": kind,
+                    "ref": ref, "priority": priority, "enqueued": now,
+                    "last_seen": now}
             queue.append(mine)
         else:
             mine["last_seen"] = now
-        queue.sort(key=lambda w: (PRIORITY_TIERS[w["priority"]], w["enqueued"]))
+        queue.sort(key=queue_sort_key(task_dir, ledger, limits, now))
         free = limits[pool] - len(ledger["tickets"][pool])
         rank = next(i for i, w in enumerate(queue) if w["id"] == waiter_id)
         ticket = None
@@ -404,10 +467,11 @@ def status(task_dir: str) -> dict:
             ],
             "queue": [
                 {"lane": w["lane"], "priority": w["priority"],
+                 "best_public": lane_best_public(task_dir, ledger, w["lane"]),
                  "waited_seconds": int(now - w["enqueued"])}
                 for w in sorted(
                     ledger["queue"][pool],
-                    key=lambda w: (PRIORITY_TIERS[w["priority"]], w["enqueued"]),
+                    key=queue_sort_key(task_dir, ledger, limits, now),
                 )
             ],
         }

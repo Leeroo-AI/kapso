@@ -100,6 +100,10 @@ modes:
         ttl_seconds: 600
         reap_interval_seconds: 60
         verify_timeout_seconds: 120
+        # Queue ordering ages a waiting request one tier step per this many
+        # seconds (never into ship), so evidence-based ordering cannot starve
+        # a weak-scored lane behind a stream of stronger arrivals.
+        aging_seconds: 900
 
 
     # Admission floor: don't start an iteration that can't finish.

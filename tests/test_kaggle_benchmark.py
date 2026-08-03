@@ -267,13 +267,98 @@ def test_submission_matches_template_gates_on_ids_not_just_size(tmp_path):
     assert not submission_matches_template(str(short), str(template))
 
 
-def make_slots_task(tmp_path, gpu=2, cpu=5, ttl=600):
+def make_slots_task(tmp_path, gpu=2, cpu=5, ttl=600, aging=900):
     task = tmp_path / "task"
     task.mkdir(exist_ok=True)
     (task / ".kernel_slots_config.json").write_text(json.dumps(
         {"gpu": gpu, "cpu": cpu, "ttl_seconds": ttl,
-         "reap_interval_seconds": 60, "verify_timeout_seconds": 30}))
+         "reap_interval_seconds": 60, "verify_timeout_seconds": 30,
+         "aging_seconds": aging}))
     return str(task)
+
+
+def bank(task, score, ref):
+    with open(os.path.join(task, "best_score.log"), "a") as f:
+        f.write(f"{score} 2026-08-03T21:00:00Z {ref} idea\n")
+
+
+def grab_as(task, lane, ref, priority="run", waiter_id=None, now=None, kind="push"):
+    return kernel_slots.poll_once(
+        task, "gpu", kind, ref, lane, priority,
+        waiter_id or f"w-{lane}-{ref[-6:]}", now if now is not None else time.time())
+
+
+def test_queue_orders_by_banked_evidence_within_a_tier(tmp_path):
+    # Grounded in the 2026-08-03 k=8 run: unscored lanes first (their first
+    # score is maximum information), then best banked public score, then
+    # arrival — and round 1 (nobody scored) stays byte-identical to FIFO.
+    task = make_slots_task(tmp_path, gpu=1)
+    held = grab_as(task, "holder", "o/holder-k")["ticket"]
+    t0 = time.time()
+    assert grab_as(task, "lane2", "o/upper6-lora", now=t0)["ticket"] is None
+    assert grab_as(task, "lane6", "o/imprinted-head", now=t0 + 1)["ticket"] is None
+    assert grab_as(task, "lane1", "o/fresh-idea", now=t0 + 2)["ticket"] is None
+    bank(task, 0.82669, "o/upper6-lora")
+    bank(task, 0.86597, "o/imprinted-head")
+    kernel_slots.release(task, held)
+    # Arrival said lane2 first; evidence says unscored lane1, then 0.866,
+    # then 0.827 — and the ranking covers sleeping-but-fresh waiters, so
+    # polling order cannot jump it.
+    assert grab_as(task, "lane2", "o/upper6-lora", now=t0 + 3)["ticket"] is None
+    assert grab_as(task, "lane6", "o/imprinted-head", now=t0 + 4)["ticket"] is None
+    assert grab_as(task, "lane1", "o/fresh-idea", now=t0 + 5)["ticket"]
+
+
+def test_queue_aging_promotes_weak_lanes_but_never_into_ship(tmp_path):
+    # Evidence ordering must not starve: each aging period lifts a waiting
+    # request one tier step, so an aged weak lane overtakes fresh stronger
+    # arrivals of the same tier — while ship (the endgame) stays untouchable.
+    task = make_slots_task(tmp_path, gpu=1, aging=100)
+    held = grab_as(task, "holder", "o/holder-k")["ticket"]
+    t0 = time.time()
+    assert grab_as(task, "weak", "o/weak-k", now=t0)["ticket"] is None
+    bank(task, 0.700, "o/weak-k")
+    bank(task, 0.900, "o/strong-k")
+    # Real waiters heartbeat every 5s; a lane that stops polling >30s is
+    # pruned and re-enqueued fresh (its age rightly resets). Aging therefore
+    # accrues only for continuously-waiting lanes — model the keep-alive:
+    for dt in range(25, 150, 25):
+        assert grab_as(task, "weak", "o/weak-k", now=t0 + dt)["ticket"] is None
+    assert grab_as(task, "strong", "o/strong-k", now=t0 + 150)["ticket"] is None
+    kernel_slots.release(task, held)
+    # weak has waited 1.5 aging periods -> effective tier 1; fresh strong
+    # stays tier 2 despite better evidence — the aged waiter wins the slot.
+    assert grab_as(task, "strong", "o/strong-k", now=t0 + 151)["ticket"] is None
+    ticket = grab_as(task, "weak", "o/weak-k", now=t0 + 152)["ticket"]
+    assert ticket
+    # Ship dominance survives any amount of aging: an eternally-aged reroll
+    # still queues behind a fresh ship request once the slot frees.
+    kernel_slots.release(task, ticket)
+    assert grab_as(task, "old-reroll", "o/weak-k", priority="reroll",
+                   waiter_id="w-old", now=t0 + 200)["ticket"]  # takes free slot
+    assert grab_as(task, "aged-run", "o/weak-k", now=t0 + 300)["ticket"] is None
+    assert grab_as(task, "harvest", "o/strong-k", priority="ship", kind="score",
+                   now=t0 + 301)["ticket"] is None
+    kernel_slots.release(task, [
+        t["ticket"] for t in kernel_slots.read_ledger(
+            os.path.join(task, ".kernel_slots.json"))["tickets"]["gpu"]][0])
+    # both wait; ship wins the freed slot over the (aged) run waiter
+    assert grab_as(task, "aged-run", "o/weak-k", now=t0 + 302)["ticket"] is None
+    assert grab_as(task, "harvest", "o/strong-k", priority="ship", kind="score",
+                   now=t0 + 303)["ticket"]
+
+
+def test_lane_identity_survives_shell_quote_artifacts(tmp_path):
+    # Live run 2026-08-03: lanes passed --lane with a trailing quote
+    # (generic_exp_7'). Sanitization keeps one identity so evidence still
+    # attributes.
+    task = make_slots_task(tmp_path, gpu=1)
+    held = grab_as(task, "lane7'", "o/lda-lane7")["ticket"]
+    bank(task, 0.83369, "o/lda-lane7")
+    kernel_slots.release(task, held)
+    ledger = kernel_slots.read_ledger(os.path.join(task, ".kernel_slots.json"))
+    assert kernel_slots.lane_best_public(task, ledger, "lane7'") == 0.83369
+    assert kernel_slots.lane_best_public(task, ledger, "lane7") == 0.83369
 
 
 def grab(task, pool="gpu", kind="push", lane="lane", priority=None,
