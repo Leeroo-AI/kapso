@@ -1225,12 +1225,21 @@ class GenericSearch(SearchStrategy):
             from kapso.execution.coding_agents.adapters.oss_claude_code_agent import OssClaudeCodeCodingAgent
 
             is_oss = member["cli"] == "oss_claude_code"
+            # WebSearch is an Anthropic SERVER-side tool: an OSS endpoint
+            # rejects any request whose tools array carries it (Fireworks:
+            # 400 "Input should be 'function'"), poisoning every call in the
+            # session. OSS members research through client-side WebFetch only
+            # (verified live on kimi-k3-fast, 2026-08-03).
+            member_allowed_tools = (
+                [t for t in ideation_allowed_tools if t != "WebSearch"]
+                if is_oss else ideation_allowed_tools
+            )
             agent_specific = {
                 "env_strip": self.env_strip,
                 "env_defaults": self.env_defaults,
                 "aws_region": self.aws_region,
                 "mcp_servers": mcp_servers,
-                "allowed_tools": ideation_allowed_tools,
+                "allowed_tools": member_allowed_tools,
                 "disallowed_tools": self._web_disallowed_tools,
                 "timeout": member_deadline,
                 "streaming": True,

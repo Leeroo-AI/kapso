@@ -13,6 +13,7 @@ from types import SimpleNamespace
 import pytest
 
 import kapso.execution.coding_agents.adapters.claude_code_agent as claude_module
+import kapso.execution.coding_agents.adapters.oss_claude_code_agent as oss_module
 import kapso.execution.search_strategies.generic.codex_ideation as codex_module
 import kapso.gated_mcp as gated_mcp_module
 from kapso.execution.memories.repo_memory import RepoMemoryManager
@@ -159,6 +160,7 @@ def make_ensemble_strategy(tmp_path, monkeypatch, *, ensemble, selector,
         return codex_output, codex_timed_out, 1.0, meta
 
     monkeypatch.setattr(claude_module, "ClaudeCodeCodingAgent", FakeAgent)
+    monkeypatch.setattr(oss_module, "OssClaudeCodeCodingAgent", FakeAgent)
     monkeypatch.setattr(codex_module, "run_codex_ideation", fake_codex)
     monkeypatch.setattr(
         gated_mcp_module, "get_mcp_config", lambda **kw: ({}, [])
@@ -549,6 +551,24 @@ def test_member_sessions_get_native_web_tools_when_web_is_on(tmp_path, monkeypat
     strategy2._generate_solution("problem", "main")
     member_tools2 = events2["configs"][0].agent_specific["allowed_tools"]
     assert "WebSearch" not in member_tools2 and "WebFetch" not in member_tools2
+
+
+def test_oss_members_get_webfetch_but_never_websearch(tmp_path, monkeypatch):
+    # WebSearch is server-executed; an OSS endpoint 400s any request whose
+    # tools array carries it (verified live on Fireworks kimi-k3-fast), which
+    # poisons the whole session. OSS members keep client-side WebFetch only.
+    oss = {"cli": "oss_claude_code", "model": "m", "effort": "max",
+           "base_url": "http://x", "auth_token_env": "K"}
+    strategy, events = make_ensemble_strategy(
+        tmp_path, monkeypatch,
+        ensemble=[oss], selector=dict(SELECTOR),
+        claude_output=f"<solution>{_plan('oss web')}</solution>",
+        codex_output="", selector_output="",
+    )
+    strategy._generate_solution("problem", "main")
+    member_tools = events["configs"][0].agent_specific["allowed_tools"]
+    assert "WebFetch" in member_tools
+    assert "WebSearch" not in member_tools
 
 
 def test_env_strip_reaches_member_and_selector_session_configs(tmp_path, monkeypatch):
