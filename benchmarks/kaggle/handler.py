@@ -19,6 +19,10 @@ class KaggleNotebookHandler(ProblemHandler):
     """Handler for Kaggle competitions; submission mechanics live in the statement."""
 
     maximize_scoring = True
+    # A competition has no "goal achieved": every remaining minute can buy
+    # leaderboard position, so agent stop votes are advisory and the campaign
+    # runs to its time budget.
+    honor_agent_stop = False
 
     def __init__(
         self,

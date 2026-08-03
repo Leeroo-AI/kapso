@@ -675,7 +675,17 @@ def main():
         coding_agent=args.coding_agent,
         is_kg_active=False,
         workspace_dir=os.path.join(task_dir, "kapso_campaign"),
-        goal=statement,
+        # The statement plus the one fact the feedback judge needs: this goal
+        # has no "fully achieved" — the radar rehearsal's judges voted stop at
+        # 0.982/1.0 and ended the campaign 25 min early. The handler's
+        # honor_agent_stop=False is the hard guarantee; this line keeps the
+        # judges' own feedback from telling lanes "no further iteration is
+        # required".
+        goal=(statement
+              + "\n\nThis is an open-ended competition: the goal is never"
+              " 'fully achieved'. However high the score, keep improving the"
+              " best public score until the time budget expires — judge each"
+              " iteration on score progress, never on completion."),
         resume=args.resume,
     )
 

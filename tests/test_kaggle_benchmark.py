@@ -85,6 +85,13 @@ def test_handler_context_is_statement_plus_minimal_contract(tmp_path):
     assert len(contract.replace(handler.task_dir, "/task")) < 2350
 
 
+def test_handler_never_honors_agent_stop(tmp_path):
+    # A competition has no "goal achieved" — the radar rehearsal's judges
+    # voted stop at 0.982/1.0 and ended the campaign 25 min early with an
+    # upload unspent. The campaign clock is the only stop.
+    assert make_handler(tmp_path).honor_agent_stop is False
+
+
 def test_handler_rejects_missing_kaggle_slug(tmp_path):
     with pytest.raises(ValueError, match="kaggle"):
         make_handler(tmp_path, kaggle={})

@@ -1388,16 +1388,26 @@ class OrchestratorAgent:
                         if time_budget_exhausted
                         else "cost_budget"
                     )
+                # A stop vote only ends the campaign when the handler's task
+                # semantics allow it: open-ended maximization has no "goal
+                # achieved", so there the vote is advisory and the budget is
+                # the only clock.
+                stopping = (
+                    node.should_stop
+                    and self.problem_handler.honor_agent_stop
+                )
                 self._save_run_checkpoint(
-                    status="completed" if node.should_stop else "running",
+                    status="completed" if stopping else "running",
                     last_stop=stop_detail if budget_exhausted else None,
                 )
 
-                # Check if search strategy says stop
-                if node.should_stop:
+                if stopping:
                     print("[Orchestrator] Stopping: goal achieved")
                     stopped_reason = "goal_achieved"
                     break
+                if node.should_stop:
+                    print("[Orchestrator] Agent voted stop — advisory only; "
+                          "this handler runs to the time budget")
 
                 if reserve_run_pending:
                     # The escrowed measurement is kapso-owned: whatever the
