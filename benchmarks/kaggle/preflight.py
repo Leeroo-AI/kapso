@@ -1,30 +1,29 @@
 #!/usr/bin/env python3
-"""URL -> run-root preflight for Kaggle competitions.
+"""Task-brief -> run-root preflight for Kaggle competitions.
 
-Turns a competition URL into the run root the runner consumes:
-    <root>/task/dataset/    competition data + statement.md
-    <root>/task/kaggle.json {"competition": <slug>}
+Turns the organizer's starter prompt (or a competition URL, for tasks that
+publish none) into the run root the runner consumes:
+    <root>/task/starter_prompt.txt   the launch input, verbatim
+    <root>/task/dataset/             competition data + statement.md
+    <root>/task/kaggle.json          {"competition": <slug>}
 
-The mechanical scaffolding lives here (slug parse, authenticated
-`kaggle competitions download`, kaggle.json). The one agentic step is a single
-`codex exec` that inspects the downloaded files plus the competition's own
-pages and authors dataset/statement.md per preflight_spec.md — the sole
-per-competition variable, since config.yaml carries everything else.
+The brief is OPAQUE to this code: no slug parsing here. One `codex exec`
+session receives it verbatim, identifies the competition it names, downloads
+the data with the authenticated kaggle CLI, writes kaggle.json, and authors
+dataset/statement.md per preflight_spec.md. This code only stages input and
+validates the artifacts afterwards — fail loud on anything missing.
 
 Usage:
     python -m benchmarks.kaggle.preflight \
-        --url https://www.kaggle.com/competitions/<slug>/overview \
+        --task 'Solve the Kaggle competition <slug>. ...' \
         --root ~/kaggle_run
 """
 
 import argparse
 import json
 import os
-import re
 import shutil
-import subprocess
 import sys
-import zipfile
 from datetime import datetime, timezone
 
 import yaml
@@ -37,81 +36,73 @@ from kapso.execution.coding_agents.factory import CodingAgentFactory
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.yaml")
 SPEC_PATH = os.path.join(os.path.dirname(__file__), "preflight_spec.md")
 RULES_PATH = os.path.join(os.path.dirname(__file__), "RULES.md")
-SLUG_RE = re.compile(r"kaggle\.com/(?:c|competitions)/([A-Za-z0-9][A-Za-z0-9_-]*)")
 
 
-def slug_from_url(url: str) -> str:
-    """Extract the competition slug from a Kaggle competition URL."""
-    match = SLUG_RE.search(url)
-    if not match:
-        raise ValueError(
-            f"could not extract a competition slug from {url!r} — expected a "
-            "https://www.kaggle.com/competitions/<slug>/... URL"
-        )
-    return match.group(1)
+def build_prompt(task_brief: str, task_dir: str, dataset_dir: str,
+                 statement_path: str, rules_path: str) -> str:
+    """Dynamic per-competition header + the fixed statement-authoring spec.
 
-
-def download_competition(slug: str, dataset_dir: str) -> None:
-    """Download + unzip the competition data via the authenticated kaggle CLI."""
-    kaggle_bin = shutil.which("kaggle")
-    if not kaggle_bin:
-        raise FileNotFoundError("kaggle CLI not on PATH — cannot download data")
-    os.makedirs(dataset_dir, exist_ok=True)
-    proc = subprocess.run(
-        [kaggle_bin, "competitions", "download", "-c", slug, "-p", dataset_dir],
-        capture_output=True, text=True,
-    )
-    if proc.returncode != 0:
-        raise RuntimeError(
-            f"`kaggle competitions download -c {slug}` failed (exit "
-            f"{proc.returncode}). A rules-acceptance error means the "
-            "competition rules must be accepted once on kaggle.com first.\n"
-            f"{proc.stdout}\n{proc.stderr}"
-        )
-    for name in os.listdir(dataset_dir):
-        if name.endswith(".zip"):
-            zip_path = os.path.join(dataset_dir, name)
-            with zipfile.ZipFile(zip_path) as archive:
-                archive.extractall(dataset_dir)
-            os.remove(zip_path)
-
-
-def build_prompt(url: str, slug: str, dataset_dir: str, statement_path: str,
-                 rules_path: str) -> str:
-    """Dynamic per-competition header + the fixed statement-authoring spec."""
+    The brief goes in VERBATIM and IN FULL — it is organizer instruction text
+    and may carry directives beyond naming the competition.
+    """
     spec = open(SPEC_PATH, encoding="utf-8").read()
     header = (
         "# Preflight assignment\n\n"
-        f"Competition URL: {url}\n"
-        f"Competition slug: `{slug}`\n"
-        f"Dataset directory (data already downloaded here via the "
-        f"authenticated kaggle CLI): {dataset_dir}\n"
+        "Your launch input — usually the organizer's starter prompt, possibly "
+        "a plain competition URL — verbatim between the markers:\n"
+        "<<<TASK BRIEF\n"
+        f"{task_brief}\n"
+        "TASK BRIEF>>>\n\n"
+        "A copy of it sits at task/starter_prompt.txt.\n\n"
+        f"Task directory: {task_dir}\n"
+        f"Dataset directory (you download the data into it): {dataset_dir}\n"
         f"Binding rules, which override the competition pages: {rules_path}\n"
         f"Write the statement to: {statement_path}\n\n"
     )
     return header + spec
 
 
-def run_preflight(url: str, root: str, mode: str = "KAGGLE") -> str:
-    slug = slug_from_url(url)
+def validate_root(task_dir: str) -> str:
+    """Fail-loud artifact checks after the authoring session; returns the slug."""
+    dataset_dir = os.path.join(task_dir, "dataset")
+    statement_path = os.path.join(dataset_dir, "statement.md")
+    kaggle_json = os.path.join(task_dir, "kaggle.json")
+    if not (os.path.isfile(statement_path) and os.path.getsize(statement_path) > 0):
+        sys.exit(f"{statement_path} missing or empty after preflight")
+    if not os.path.isdir(dataset_dir):
+        sys.exit(f"{dataset_dir} missing after preflight")
+    data_entries = [n for n in os.listdir(dataset_dir) if n != "statement.md"]
+    if not data_entries:
+        sys.exit(f"{dataset_dir} holds no competition data beyond statement.md")
+    if not os.path.isfile(kaggle_json):
+        sys.exit(f"{kaggle_json} missing after preflight")
+    with open(kaggle_json) as f:
+        slug = json.load(f).get("competition", "")
+    if not slug:
+        sys.exit(f"{kaggle_json} carries no competition slug")
+    return slug
+
+
+def run_preflight(task_brief: str, root: str, mode: str = "KAGGLE") -> str:
     root = os.path.abspath(root)
     task_dir = os.path.join(root, "task")
     dataset_dir = os.path.join(task_dir, "dataset")
     statement_path = os.path.join(dataset_dir, "statement.md")
-    os.makedirs(task_dir, exist_ok=True)
+    os.makedirs(dataset_dir, exist_ok=True)
 
-    # The clock starts HERE, at URL-in. A real competition's 2 hours begin when
-    # the competition opens, so the download and the statement-authoring session
-    # are inside the budget, not free time before it; the runner reads this
-    # stamp as its origin instead of starting a fresh clock of its own.
+    # The clock starts HERE, at brief-in. A real competition's window opens
+    # when the organizers hand over the starter prompt, so the download and
+    # the statement-authoring session are inside the budget, not free time
+    # before it; the runner reads this stamp as its origin instead of
+    # starting a fresh clock of its own.
     meta_path = os.path.join(root, "run_meta.json")
     with open(meta_path, "w") as f:
         json.dump({"run_started_utc": datetime.now(timezone.utc).isoformat()},
                   f, indent=2)
 
-    download_competition(slug, dataset_dir)
-    with open(os.path.join(task_dir, "kaggle.json"), "w") as f:
-        json.dump({"competition": slug}, f, indent=2)
+    with open(os.path.join(task_dir, "starter_prompt.txt"), "w",
+              encoding="utf-8") as f:
+        f.write(task_brief)
     # Staged here as well as by the runner: the authoring agent is told these
     # rules override the competition pages, so it has to be able to read them.
     rules_path = os.path.join(task_dir, "RULES.md")
@@ -132,8 +123,8 @@ def run_preflight(url: str, root: str, mode: str = "KAGGLE") -> str:
         agent_specific["web_search"] = preflight_cfg["web_search"]
     else:
         # The claude CLI takes an explicit toolset: the preflight must read the
-        # downloaded files, run the kaggle CLI, browse the competition pages,
-        # and write exactly one file.
+        # brief and downloaded files, run the kaggle CLI, browse the
+        # competition pages, and write the statement + kaggle.json.
         agent_specific["auth_mode"] = preflight_cfg["auth_mode"]
         agent_specific["allowed_tools"] = [
             "Read", "Write", "Edit", "Bash", "Glob", "Grep",
@@ -146,35 +137,35 @@ def run_preflight(url: str, root: str, mode: str = "KAGGLE") -> str:
     agent = CodingAgentFactory.create(config)
     agent.initialize(task_dir)
     result = agent.generate_code(
-        build_prompt(url, slug, dataset_dir, statement_path, rules_path),
+        build_prompt(task_brief, task_dir, dataset_dir, statement_path,
+                     rules_path),
         timeout_seconds=preflight_cfg["timeout"],
     )
 
     if not result.success:
         sys.exit(f"preflight {cli} run failed: {result.error}")
-    if not (os.path.isfile(statement_path) and os.path.getsize(statement_path) > 0):
-        sys.exit(f"{statement_path} missing or empty after preflight")
-    data_entries = [n for n in os.listdir(dataset_dir) if n != "statement.md"]
-    if not data_entries:
-        sys.exit(f"{dataset_dir} holds no competition data beyond statement.md")
+    slug = validate_root(task_dir)
 
+    data_entries = [n for n in os.listdir(dataset_dir) if n != "statement.md"]
     print(f"\nrun root ready: {root}")
     print(f"  competition: {slug}")
     print(f"  statement:   {statement_path} "
           f"({os.path.getsize(statement_path)} bytes)")
-    print(f"  data:        {sorted(data_entries)}")
+    print(f"  data:        {sorted(data_entries)[:8]}"
+          f"{' ...' if len(data_entries) > 8 else ''}")
     return root
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--url", required=True,
-                        help="Kaggle competition URL")
+    parser.add_argument("--task", required=True,
+                        help="Task brief: the organizer's starter prompt "
+                             "verbatim, or a competition URL")
     parser.add_argument("--root", required=True,
                         help="Run root to create (consumed by runner.py --root)")
     parser.add_argument("--mode", default="KAGGLE")
     args = parser.parse_args()
-    run_preflight(args.url, args.root, args.mode)
+    run_preflight(args.task, args.root, args.mode)
 
 
 if __name__ == "__main__":

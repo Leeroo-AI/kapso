@@ -16,7 +16,7 @@ import yaml
 
 from benchmarks.kaggle import kernel_slots
 from benchmarks.kaggle.handler import KaggleNotebookHandler
-from benchmarks.kaggle.preflight import SPEC_PATH, slug_from_url
+from benchmarks.kaggle.preflight import SPEC_PATH, build_prompt, validate_root
 from benchmarks.kaggle.runner import (
     RULES_PATH,
     audit_kernel,
@@ -507,18 +507,48 @@ def test_harvest_ranks_never_scored_kernels_first(tmp_path):
     assert banked_kernel_refs(str(tmp_path / "nowhere")) == set()
 
 
-def test_slug_from_url_parses_competition_forms():
-    cases = {
-        "https://www.kaggle.com/competitions/some-comp/overview": "some-comp",
-        "https://www.kaggle.com/competitions/some-comp": "some-comp",
-        "https://www.kaggle.com/c/another_comp/data": "another_comp",
-        "kaggle.com/competitions/ioai-2026-ai-models-track-practice-task-1/rules":
-            "ioai-2026-ai-models-track-practice-task-1",
-    }
-    for url, slug in cases.items():
-        assert slug_from_url(url) == slug
-    with pytest.raises(ValueError, match="slug"):
-        slug_from_url("https://example.com/not-a-competition")
+def test_preflight_prompt_carries_brief_verbatim_and_full():
+    # The brief is organizer instruction text — it goes into the authoring
+    # session whole (Rule 6), with the spec appended after it.
+    brief = ("Solve the Kaggle competition some-comp.\n"
+             "Follow your system instructions to guide you on how to solve this.\n"
+             'Do not violate the competition rules, especially those in "X".')
+    prompt = build_prompt(brief, "/t", "/t/dataset", "/t/dataset/statement.md",
+                          "/t/RULES.md")
+    assert brief in prompt
+    assert "TASK BRIEF" in prompt
+    assert prompt.index(brief) < prompt.index("preflight agent")
+
+
+def test_preflight_validate_root_is_fail_loud(tmp_path):
+    task = tmp_path / "task"
+    ds = task / "dataset"
+    ds.mkdir(parents=True)
+    # empty root: statement missing
+    with pytest.raises(SystemExit, match="statement.md missing"):
+        validate_root(str(task))
+    (ds / "statement.md").write_text("# Task")
+    # statement alone: no data
+    with pytest.raises(SystemExit, match="no competition data"):
+        validate_root(str(task))
+    (ds / "train.csv").write_text("id,y\n1,0\n")
+    # data but no kaggle.json
+    with pytest.raises(SystemExit, match="kaggle.json missing"):
+        validate_root(str(task))
+    (task / "kaggle.json").write_text(json.dumps({"competition": ""}))
+    with pytest.raises(SystemExit, match="no competition slug"):
+        validate_root(str(task))
+    (task / "kaggle.json").write_text(json.dumps({"competition": "some-comp"}))
+    assert validate_root(str(task)) == "some-comp"
+
+
+def test_preflight_spec_owns_scaffolding_and_brief_authority():
+    spec = open(SPEC_PATH, encoding="utf-8").read()
+    assert "Scaffolding you do first" in spec
+    assert "competitions download" in spec
+    assert '{"competition": "<slug>"}' in spec
+    assert "the brief is the authoritative copy" in spec
+    assert "Starter Prompt" in spec
 
 
 def test_kaggle_mode_config_minimal_knobs():
