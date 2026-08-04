@@ -26,6 +26,7 @@ from benchmarks.kaggle.runner import (
     discover_run_kernels,
     parse_submissions_json,
     rank_harvest_candidates,
+    kernels_run_since,
     submission_matches_template,
 )
 
@@ -476,6 +477,16 @@ def test_classify_submit_output_reads_text_not_exit_codes():
     assert classify_submit_output("400 Client Error: Bad Request", "") == "rejected-400"
     assert classify_submit_output("", "") == "accepted"
     assert classify_submit_output("Successfully submitted", "") == "accepted"
+
+
+def test_kernels_run_since_treats_not_found_as_empty(tmp_path):
+    # A fresh account with zero kernels: the CLI exits 0 with literal
+    # "Not found" instead of JSON. That is the empty state, not corruption —
+    # a zero-push run's harvest must see [] rather than crash on json.loads.
+    fake = tmp_path / "kaggle"
+    fake.write_text("#!/bin/sh\necho 'Not found'\n")
+    fake.chmod(0o755)
+    assert kernels_run_since(str(fake), "2026-08-04T00:00:00", 50, 30) == []
 
 
 def test_harvest_ranks_never_scored_kernels_first(tmp_path):

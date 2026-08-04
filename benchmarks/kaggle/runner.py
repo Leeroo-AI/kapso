@@ -202,6 +202,11 @@ def kernels_run_since(kaggle_bin: str, since_utc_iso: str, page_size: int,
     if proc.returncode != 0:
         raise RuntimeError(
             f"kaggle kernels list exited {proc.returncode}: {proc.stderr[-500:]}")
+    if proc.stdout.strip() == "Not found":
+        # The CLI's empty-state for an account with no kernels (exit 0,
+        # non-JSON) — a real possibility on a fresh account after a
+        # zero-push run, not a corrupt payload.
+        return []
     since_key = since_utc_iso.replace("T", " ")[:19]
     return sorted(
         entry["ref"] for entry in json.loads(proc.stdout)
