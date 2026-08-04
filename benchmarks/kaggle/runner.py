@@ -371,7 +371,7 @@ def harvest_unsubmitted_kernels(root: str, competition: str,
     refs = rank_harvest_candidates(refs, banked_kernel_refs(task_dir))
 
     # Gate every candidate down to something submittable before spending a
-    # scoring slot on it.
+    # submission on it.
     ready = []
     for ref in refs:
         status = kernel_status(kaggle_bin, ref, timeout_seconds)
@@ -400,20 +400,20 @@ def harvest_unsubmitted_kernels(root: str, competition: str,
         seen_digests[digest] = ref
         ready.append(ref)
 
-    # Scoring scheduler. A code submission RE-RUNS the kernel, occupying one
-    # of the account's 2 GPU sessions for about the kernel's runtime — run 5's
-    # harvest submitted two, filled the pool, and misread the next 72
-    # rejections as "no version took". So: take a score ticket per submission
-    # (ship priority — this is the reserved endgame window), fill both slots,
-    # and submit the next candidate only when one scores.
+    # Submit everything ready IMMEDIATELY. A code submission's scoring re-run
+    # executes on Kaggle's backend scoring infrastructure, not in the
+    # account's interactive session pool (contest 1, 2026-08-04: five
+    # submissions scoring concurrently, zero rejections) — so submits are
+    # never serialized behind slots. All candidates go out back-to-back with
+    # in-window timestamps; the rest of the budget just polls for scores.
     deadline = time.time() + final_eval_cfg["harvest_budget_seconds"]
     poll_seconds = final_eval_cfg["harvest_poll_seconds"]
     retry_seconds = final_eval_cfg["harvest_retry_seconds"]
-    pending = []          # [{kernel, version, ticket, submitted_at}]
+    pending = []          # [{kernel, version, submitted_at}]
     retried = set()
 
     def poll_scored():
-        """Release tickets of harvest submissions that finished scoring."""
+        """Record harvest submissions that finished scoring."""
         proc = subprocess.run(
             [kaggle_bin, "competitions", "submissions", competition,
              "--format", "json", "-q"],
@@ -435,60 +435,44 @@ def harvest_unsubmitted_kernels(root: str, competition: str,
             if row is None:
                 still.append(entry)
                 continue
-            kernel_slots.release(task_dir, entry.pop("ticket"))
             entry["publicScore"] = str(row.get("publicScore", ""))
             report["submitted"].append(entry)
         pending[:] = still
 
-    while (ready or pending) and time.time() < deadline:
-        while ready and time.time() < deadline:
-            ref = ready[0]
-            wait = min(300.0, max(0.0, deadline - time.time()))
-            ticket = kernel_slots.acquire_blocking(
-                task_dir, "gpu", "score", ref, lane="harvest",
-                priority="ship", wait_seconds=wait)
-            if ticket is None:
-                # No scoring slot inside the budget — record the remainder
-                # rather than losing the whole leaderboard readout.
-                for leftover in ready:
-                    report["skipped"].append(
-                        {"kernel": leftover,
-                         "reason": "no scoring slot within harvest budget"})
-                ready.clear()
-                break
-            version, attempts = submit_kernel_output(
-                kaggle_bin, competition, ref,
-                f"harvest: {ref.split('/')[-1]} (pushed by the run, not submitted)",
-                final_eval_cfg["harvest_max_kernel_version"], timeout_seconds,
-            )
-            if version is None:
-                kernel_slots.release(task_dir, ticket)
-                if ref not in retried and time.time() + retry_seconds < deadline:
-                    # A rejection of every version is indistinguishable from a
-                    # transient capacity block; one paced retry before giving up.
-                    retried.add(ref)
-                    ready.append(ready.pop(0))
-                    print(f"[harvest] {ref}: all versions rejected — "
-                          f"retrying once after {retry_seconds}s")
-                    time.sleep(retry_seconds)
-                else:
-                    ready.pop(0)
-                    report["skipped"].append(
-                        {"kernel": ref, "reason": "no version took",
-                         "attempts": attempts})
-                continue
-            ready.pop(0)
-            pending.append({"kernel": ref, "version": version,
-                            "ticket": ticket, "submitted_at": time.time()})
-        if pending:
-            time.sleep(min(poll_seconds, max(0.0, deadline - time.time())))
-            poll_scored()
+    while ready and time.time() < deadline:
+        ref = ready.pop(0)
+        version, attempts = submit_kernel_output(
+            kaggle_bin, competition, ref,
+            f"harvest: {ref.split('/')[-1]} (pushed by the run, not submitted)",
+            final_eval_cfg["harvest_max_kernel_version"], timeout_seconds,
+        )
+        if version is None:
+            if ref not in retried and time.time() + retry_seconds < deadline:
+                # A rejection of every version can be a transient blip;
+                # one paced retry before giving up.
+                retried.add(ref)
+                ready.append(ref)
+                print(f"[harvest] {ref}: all versions rejected — "
+                      f"retrying once after {retry_seconds}s")
+                time.sleep(retry_seconds)
+            else:
+                report["skipped"].append(
+                    {"kernel": ref, "reason": "no version took",
+                     "attempts": attempts})
+            continue
+        pending.append({"kernel": ref, "version": version,
+                        "submitted_at": time.time()})
+    for leftover in ready:
+        report["skipped"].append(
+            {"kernel": leftover, "reason": "harvest budget exhausted"})
+
+    while pending and time.time() < deadline:
+        time.sleep(min(poll_seconds, max(0.0, deadline - time.time())))
+        poll_scored()
 
     poll_scored()
     for entry in pending:
-        # Budget ran out mid-scoring: the submission is in flight and counts;
-        # the slot frees itself when scoring ends (the reap verifies).
-        kernel_slots.release(task_dir, entry.pop("ticket"))
+        # Budget ran out mid-scoring: the submission is in flight and counts.
         entry["publicScore"] = ""
         report["submitted"].append(entry)
 
@@ -684,9 +668,16 @@ def main():
                                        shared_cache_dir=args.shared_cache_dir,
                                        node_expansion=node_expansion)
 
+    # Lanes plan against the CAMPAIGN's end, not the full window: the guard
+    # and harvest carve-outs come after their deadline, and a lane aiming its
+    # last submission at the outer deadline would be cut mid-flight.
+    campaign_deadline_ts = deadline_ts - (guard_minutes + harvest_window) * 60
+
     print(f"root={root} competition={competition} K={node_expansion} hours={hours}")
-    print(f"clock started {spent_minutes:.1f} min ago (preflight); "
-          f"deadline {datetime.fromtimestamp(deadline_ts, timezone.utc):%H:%M:%S} UTC")
+    print(f"clock started {spent_minutes:.1f} min ago (preflight); campaign "
+          f"deadline {datetime.fromtimestamp(campaign_deadline_ts, timezone.utc):%H:%M:%S}"
+          f" UTC, window ends "
+          f"{datetime.fromtimestamp(deadline_ts, timezone.utc):%H:%M:%S} UTC")
     print(f"budget={budget_minutes} min (guard={guard_minutes} min, "
           f"harvest window={harvest_window} min, "
           f"finalization reserve={reserve_minutes:.0f} min), "
@@ -697,7 +688,7 @@ def main():
     handler = KaggleNotebookHandler(
         task_dir=task_dir,
         statement=statement,
-        deadline_ts=deadline_ts,
+        deadline_ts=campaign_deadline_ts,
         session_caps=session_timeouts,
         kaggle={"competition": competition},
         insured_reserve_seconds=knobs["insured_reserve_minutes"] * 60,

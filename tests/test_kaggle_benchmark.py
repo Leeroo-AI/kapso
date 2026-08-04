@@ -186,6 +186,10 @@ def test_runner_stages_the_real_cli_playbook():
     # The statement carries a time cap only as a value; the playbook must own
     # the mechanics that enforce it, or lanes can't apply the cap to pushes.
     assert "--timeout <seconds>" in skill
+    # Contest 1 (2026-08-04): submissions score on Kaggle's backend and are
+    # never slot-gated; a playbook regression here re-serializes the endgame.
+    assert "Submissions need NO ticket" in skill.replace("**", "")
+    assert "submit it promptly" in skill.replace("**", "")
 
 
 def test_harvest_template_is_found_wherever_the_dataset_nests_it(tmp_path):
@@ -358,14 +362,14 @@ def test_queue_aging_promotes_weak_lanes_but_never_into_ship(tmp_path):
     assert grab_as(task, "old-reroll", "o/weak-k", priority="reroll",
                    waiter_id="w-old", now=t0 + 200)["ticket"]  # takes free slot
     assert grab_as(task, "aged-run", "o/weak-k", now=t0 + 300)["ticket"] is None
-    assert grab_as(task, "harvest", "o/strong-k", priority="ship", kind="score",
+    assert grab_as(task, "harvest", "o/strong-k", priority="ship",
                    now=t0 + 301)["ticket"] is None
     kernel_slots.release(task, [
         t["ticket"] for t in kernel_slots.read_ledger(
             os.path.join(task, ".kernel_slots.json"))["tickets"]["gpu"]][0])
     # both wait; ship wins the freed slot over the (aged) run waiter
     assert grab_as(task, "aged-run", "o/weak-k", now=t0 + 302)["ticket"] is None
-    assert grab_as(task, "harvest", "o/strong-k", priority="ship", kind="score",
+    assert grab_as(task, "harvest", "o/strong-k", priority="ship",
                    now=t0 + 303)["ticket"]
 
 
@@ -391,33 +395,36 @@ def grab(task, pool="gpu", kind="push", lane="lane", priority=None,
         waiter_id or f"w-{lane}", now if now is not None else time.time())
 
 
-def test_kernel_slots_pushes_and_scores_share_one_pool(tmp_path):
-    # The account limit counts SESSIONS: a scoring re-run occupies a slot
-    # exactly like a push (run 5's harvest filled the pool with its own two
-    # submissions and misread 72 rejections as dead kernels).
+def test_kernel_slots_gates_pushes_only(tmp_path):
+    # The account limit counts INTERACTIVE sessions, which pushes consume.
+    # Submissions score on Kaggle's backend (contest 1: five concurrent,
+    # zero rejections) so "score" is no longer a ticket kind at all.
     task = make_slots_task(tmp_path)
+    assert kernel_slots.KINDS == ("push",)
     assert grab(task, kind="push", lane="a")["ticket"]
-    assert grab(task, kind="score", lane="b")["ticket"]
+    assert grab(task, kind="push", lane="b")["ticket"]
     assert grab(task, kind="push", lane="c")["ticket"] is None
     # One queue PER POOL: a full GPU pool must not block the CPU pool.
     assert grab(task, pool="cpu", lane="d")["ticket"]
+    with pytest.raises(ValueError, match="kind"):
+        kernel_slots.acquire_blocking(task, "gpu", "score", "o/k", "lane")
 
 
 def test_kernel_slots_priority_queue_orders_grants(tmp_path):
-    # ship > first-score > run > reroll, FIFO within a tier — a freed slot
-    # goes to the highest tier, not to whoever happens to poll first.
+    # ship > run > reroll, FIFO within a tier — a freed slot goes to the
+    # highest tier, not to whoever happens to poll first.
     task = make_slots_task(tmp_path, gpu=1)
     held = grab(task, lane="holder")["ticket"]
     t0 = time.time()
     assert grab(task, lane="早", priority="run", waiter_id="w-run",
                 now=t0)["ticket"] is None
-    assert grab(task, kind="score", lane="ship", priority="ship",
+    assert grab(task, lane="ship", priority="ship",
                 waiter_id="w-ship", now=t0 + 1)["ticket"] is None
     kernel_slots.release(task, held)
     # The earlier-arrived run waiter polls first but must NOT jump the queue.
     assert grab(task, lane="早", priority="run", waiter_id="w-run",
                 now=t0 + 2)["ticket"] is None
-    assert grab(task, kind="score", lane="ship", priority="ship",
+    assert grab(task, lane="ship", priority="ship",
                 waiter_id="w-ship", now=t0 + 3)["ticket"]
     # With the slot retaken, the run waiter keeps queueing.
     assert grab(task, lane="早", priority="run", waiter_id="w-run",
@@ -449,30 +456,29 @@ def test_kernel_slots_reap_releases_only_kaggle_confirmed_dead(tmp_path):
     # lanes still hit the session cap). Truth comes from Kaggle.
     task = make_slots_task(tmp_path)
     running = grab(task, kind="push", lane="zombie")["ticket"]
-    scoring = grab(task, kind="score", lane="scored")["ticket"]
+    kernel_slots.poll_once(task, "gpu", "push", "owner/kernel-b", "done",
+                           "run", "w-done", time.time())
     ledger_path = os.path.join(task, ".kernel_slots.json")
     ledger = json.loads(open(ledger_path).read())
     for entry in ledger["tickets"]["gpu"]:
         entry["acquired"] = time.time() - 9999
     open(ledger_path, "w").write(json.dumps(ledger))
 
+    statuses = {"owner/kernel-a": "running", "owner/kernel-b": "complete"}
     released = kernel_slots.maybe_reap(
         task, time.time(),
-        kernel_status_fn=lambda ref, timeout: "running",
-        pending_fn=lambda task_dir, timeout: 0)
-    assert released == [scoring]          # nothing pending -> score slot free
+        kernel_status_fn=lambda ref, timeout: statuses[ref])
     assert running not in released        # kernel still running -> keep it
+    assert len(released) == 1             # terminal kernel's ticket freed
 
     # Rate limit: an immediate second reap must not hammer Kaggle.
     assert kernel_slots.maybe_reap(
         task, time.time(),
-        kernel_status_fn=lambda ref, timeout: "complete",
-        pending_fn=lambda task_dir, timeout: 0) == []
+        kernel_status_fn=lambda ref, timeout: "complete") == []
     # Past the interval, the terminal kernel's ticket is released too.
     assert kernel_slots.maybe_reap(
         task, time.time() + 61,
-        kernel_status_fn=lambda ref, timeout: "complete",
-        pending_fn=lambda task_dir, timeout: 0) == [running]
+        kernel_status_fn=lambda ref, timeout: "complete") == [running]
     assert kernel_slots.status(task)["gpu"]["in_use"] == 0
 
 
@@ -603,3 +609,8 @@ def test_kaggle_mode_config_minimal_knobs():
     assert "kaggle" not in mode  # slug comes from the run root, not config
     assert "contest_economics" not in mode
     assert mode["budget"] == {"min_iteration_seconds": 900}
+    # In-window harvest reserve (user-set 2026-08-04 after contest 1 left 4
+    # completed kernels unsubmitted at window close): the campaign ends this
+    # many minutes early so harvest submissions carry in-window timestamps.
+    assert mode["session_budget"]["harvest_window_minutes"] == 15
+    assert mode["final_eval"]["harvest_budget_seconds"] == 840

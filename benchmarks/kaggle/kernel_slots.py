@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 """Ticket office + priority queues for Kaggle's per-account session limits.
 
-Kaggle runs at most 2 GPU and 5 CPU sessions at once PER ACCOUNT, every lane
-shares one account, and BOTH kinds of work consume a session:
+Kaggle runs at most 2 GPU and 5 CPU interactive sessions at once PER ACCOUNT,
+every lane shares one account, and PUSHES are what consume them:
 
   push   `kaggle kernels push` runs your kernel
          (hold the ticket from push until the kernel goes terminal)
-  score  `kaggle competitions submit -k ... -v ...` RE-RUNS the kernel to
-         score it (hold from submit until the submission leaves pending —
-         scoring occupies a session for about the kernel's runtime)
 
-Claim a ticket before either call. There is ONE QUEUE PER POOL (gpu, cpu),
+`competitions submit -k -v` needs NO ticket: a code submission's scoring
+re-run executes on Kaggle's backend scoring infrastructure, not in your
+interactive session pool (contest 1, 2026-08-04: five submissions scoring
+concurrently, zero rejections). Never queue or delay a submit behind pushes.
+
+Claim a ticket before each push. There is ONE QUEUE PER POOL (gpu, cpu),
 ordered by priority tier then arrival:
 
     TASK=<the directory holding this file>
@@ -18,19 +20,13 @@ ordered by priority tier then arrival:
     kaggle kernels push -p kernel/      # ... poll status until terminal ...
     python3 $TASK/kernel_slots.py release "$T"
 
-    T=$(python3 $TASK/kernel_slots.py acquire gpu score --ref <owner>/<slug> --lane <you>)
-    kaggle competitions submit -c <comp> -k <owner>/<slug> -v <N> -f submission.csv -m "<idea>"
-    # ... poll `kaggle competitions submissions` until it leaves pending ...
-    python3 $TASK/kernel_slots.py release "$T"
-
     python3 $TASK/kernel_slots.py status     # queues + holders, both pools
 
 Priority tiers (--priority), highest first:
     ship         deadline-critical shipping (endgame, harvest)
-    first-score  scoring a version that has never scored — one step from value
-    run          a normal kernel push (the default for push)
-    reroll       resubmitting an already-scored version; debug pushes
-Defaults: push -> run, score -> first-score. Within a tier, ordering is
+    run          a normal kernel push (the default)
+    reroll       debug / re-run pushes
+Within a tier, ordering is
 EVIDENCE-AWARE: lanes with no banked public score come first (their first
 score is maximum information), then lanes by their BEST banked public score
 (the office reads best_score.log and attributes scores through the kernel
@@ -68,16 +64,15 @@ import time
 CONFIG_NAME = ".kernel_slots_config.json"
 LEDGER_NAME = ".kernel_slots.json"
 LOCK_NAME = ".kernel_slots.lock"
-KAGGLE_META_NAME = "kaggle.json"
 POLL_SECONDS = 5.0
 # A waiter that stopped heartbeating (its lane died mid-wait) must not hold a
 # place in line; derived from the poll cadence, not a user knob.
 WAITER_STALE_SECONDS = 6 * POLL_SECONDS
 
 POOLS = ("gpu", "cpu")
-KINDS = ("push", "score")
-PRIORITY_TIERS = {"ship": 0, "first-score": 1, "run": 2, "reroll": 3}
-DEFAULT_PRIORITY = {"push": "run", "score": "first-score"}
+KINDS = ("push",)
+PRIORITY_TIERS = {"ship": 0, "run": 1, "reroll": 2}
+DEFAULT_PRIORITY = {"push": "run"}
 KERNEL_REF_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 TERMINAL_KERNEL_STATUSES = {"complete", "error", "cancelacknowledged", "cancelrequested"}
 
@@ -194,7 +189,9 @@ def queue_sort_key(task_dir: str, ledger: dict, limits: dict, now: float):
     def key(waiter):
         tier = PRIORITY_TIERS[waiter["priority"]]
         waited_steps = int((now - waiter["enqueued"]) // aging) if aging > 0 else 0
-        effective_tier = max(min(tier, 1), tier - waited_steps)
+        # Aged waiters land in a band at 0.5 — ahead of every fresh non-ship
+        # tier, still strictly behind ship (0).
+        effective_tier = max(min(tier, 0.5), tier - waited_steps)
         evidence = lane_best_public(task_dir, ledger, waiter["lane"])
         return (effective_tier,
                 0 if evidence is None else 1,
@@ -290,43 +287,13 @@ def kaggle_kernel_status(ref: str, timeout_seconds: float) -> str:
     return match.group(1).lower()
 
 
-def kaggle_pending_submissions(task_dir: str, timeout_seconds: float) -> int:
-    """How many of the account's submissions are still scoring."""
-    kaggle_meta = os.path.join(task_dir, KAGGLE_META_NAME)
-    if not os.path.isfile(kaggle_meta):
-        raise FileNotFoundError(
-            f"{kaggle_meta} missing — score tickets cannot be verified "
-            "without the competition slug"
-        )
-    with open(kaggle_meta) as handle:
-        competition = json.load(handle)["competition"]
-    proc = subprocess.run(
-        ["kaggle", "competitions", "submissions", competition,
-         "--format", "json", "-q"],
-        capture_output=True, text=True, timeout=timeout_seconds,
-    )
-    if proc.returncode != 0:
-        raise RuntimeError(
-            f"kaggle competitions submissions exited {proc.returncode}: "
-            f"{proc.stderr[-300:]}"
-        )
-    start = proc.stdout.find("[")
-    if start < 0:
-        raise ValueError(
-            f"no JSON payload in submissions output: {proc.stdout[:200]!r}")
-    rows = json.loads(proc.stdout[start:])
-    return sum(1 for row in rows if "pending" in str(row.get("status", "")).lower())
-
-
 def maybe_reap(task_dir: str, now: float,
-               kernel_status_fn=kaggle_kernel_status,
-               pending_fn=kaggle_pending_submissions) -> list:
+               kernel_status_fn=kaggle_kernel_status) -> list:
     """Verify-and-release stale tickets; returns the released ticket ids.
 
     Rate-limited through the ledger's last_reap stamp so eight waiting lanes
-    do not each hammer Kaggle every poll. push tickets are released when their
-    kernel is terminal; score tickets when the account has nothing pending
-    (scoring runs cannot be attributed per-ticket from the API).
+    do not each hammer Kaggle every poll. A push ticket is released when its
+    kernel is terminal.
     """
     limits = load_limits(task_dir)
     _, ledger_path, lock_path = _paths(task_dir)
@@ -349,16 +316,9 @@ def maybe_reap(task_dir: str, now: float,
 
     verify_timeout = limits["verify_timeout_seconds"]
     releasable = []
-    pending = None
     for ticket in stale:
-        if ticket["kind"] == "push":
-            if kernel_status_fn(ticket["ref"], verify_timeout) in TERMINAL_KERNEL_STATUSES:
-                releasable.append(ticket["ticket"])
-        else:
-            if pending is None:
-                pending = pending_fn(task_dir, verify_timeout)
-            if pending == 0:
-                releasable.append(ticket["ticket"])
+        if kernel_status_fn(ticket["ref"], verify_timeout) in TERMINAL_KERNEL_STATUSES:
+            releasable.append(ticket["ticket"])
     if not releasable:
         return []
 
@@ -378,8 +338,7 @@ def maybe_reap(task_dir: str, now: float,
 def acquire_blocking(task_dir: str, pool: str, kind: str, ref: str, lane: str,
                      priority: "str | None" = None,
                      wait_seconds: float = 1800.0,
-                     kernel_status_fn=kaggle_kernel_status,
-                     pending_fn=kaggle_pending_submissions) -> "str | None":
+                     kernel_status_fn=kaggle_kernel_status) -> "str | None":
     """Queue for a slot; the ticket, or None when wait_seconds expires.
 
     Expiry returns None instead of raising so callers with their own budget
@@ -422,8 +381,7 @@ def acquire_blocking(task_dir: str, pool: str, kind: str, ref: str, lane: str,
                   f"queueing as {priority}; backpressure, not failure",
                   file=sys.stderr)
             announced = True
-        maybe_reap(task_dir, time.time(),
-                   kernel_status_fn=kernel_status_fn, pending_fn=pending_fn)
+        maybe_reap(task_dir, time.time(), kernel_status_fn=kernel_status_fn)
         time.sleep(POLL_SECONDS)
 
 
@@ -487,15 +445,14 @@ def main():
     parser.add_argument("target", nargs="?", default="",
                         help="pool (gpu|cpu) for acquire; ticket for release")
     parser.add_argument("kind", nargs="?", default="",
-                        help="push|score, for acquire")
+                        help="push, for acquire (submissions need no ticket)")
     parser.add_argument("--ref", default="",
                         help="kernel ref <owner>/<slug> this session is for")
     parser.add_argument("--task-dir", default=os.path.dirname(os.path.abspath(__file__)),
                         help="directory holding the ledger (default: this script's dir)")
     parser.add_argument("--lane", default="unknown", help="lane id, for status output")
     parser.add_argument("--priority", default=None, choices=sorted(PRIORITY_TIERS),
-                        help="ship|first-score|run|reroll "
-                             "(default: push->run, score->first-score)")
+                        help="ship|run|reroll (default: run)")
     parser.add_argument("--wait-seconds", type=float, default=1800.0,
                         help="how long to queue for a slot")
     args = parser.parse_args()

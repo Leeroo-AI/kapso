@@ -238,34 +238,32 @@ account, you are all drawing on the same two GPU slots, and pushing without
 coordinating means you race — everyone retries blind and the winner is whoever
 happens to poll when a slot frees.
 
-**If `kernel_slots.py` is staged in your task directory, use it.** It is a
-shared ticket office; holding a ticket means Kaggle is actually running your
-kernel:
-
-Sessions are consumed by BOTH pushes and submissions: `kernels push` runs your
-kernel, and `competitions submit -k -v` **re-runs it to score it**, holding a
-session for about the kernel's runtime. Ticket both:
+**If `kernel_slots.py` is staged in your task directory, use it for pushes.**
+It is a shared ticket office; holding a ticket means Kaggle is actually
+running your kernel:
 
 ```bash
 TASK=/path/to/task                       # the directory holding kernel_slots.py
 T=$(python3 $TASK/kernel_slots.py acquire gpu push --ref <owner>/<slug> --lane <you>)
 kaggle kernels push -p kernel/           # poll until the run is terminal
 python3 $TASK/kernel_slots.py release "$T"
-
-T=$(python3 $TASK/kernel_slots.py acquire gpu score --ref <owner>/<slug> --lane <you>)
-kaggle competitions submit -c <C> -k <owner>/<slug> -v <VER> -f submission.csv -m "<idea>"
-# poll `kaggle competitions submissions` until it leaves pending
-python3 $TASK/kernel_slots.py release "$T"
 ```
 
-- One **priority queue per pool** (gpu, cpu); tiers `ship` > `first-score` >
-  `run` > `reroll` — score a never-scored version as `first-score`, mark
-  re-submissions `reroll`. Run the script with no arguments for the protocol.
+**Submissions need NO ticket.** `competitions submit -k -v` scores on
+Kaggle's backend scoring infrastructure, not in your interactive session
+pool — it does not consume a slot and is never queued behind pushes. When a
+version's run completes with valid output, **submit it promptly** (each
+version at most once where the task caps that); a submission never blocks a
+sibling's push, and delaying it only delays your feedback.
+
+- One **priority queue per pool** (gpu, cpu); tiers `ship` > `run` >
+  `reroll` — mark debug re-pushes `reroll`. Run the script with no arguments
+  for the protocol.
 - `acquire` **blocks** until granted. A wait is normal and is not an error —
   it prints the queue state to stderr and the ticket to stdout.
-- **Release as soon as the session ends** (kernel terminal / submission
-  scored). Stale tickets are reclaimed only after Kaggle confirms the session
-  is over, so a crash cannot park a slot forever — but do not rely on that.
+- **Release as soon as the kernel goes terminal.** Stale tickets are
+  reclaimed only after Kaggle confirms the run is over, so a crash cannot
+  park a slot forever — but do not rely on that.
 - `python3 $TASK/kernel_slots.py status --task-dir $TASK` shows both pools.
 
 **The CPU pool is separate and usually idle.** If your kernel does not truly
@@ -366,10 +364,12 @@ stderr — capture and inspect them; **the CLI exits 0 even on a rejected
 submission**, so the text is the only signal (a rejected code submission prints
 `403 Client Error ... CreateCodeSubmission`).
 
-> **Submitting re-runs the kernel.** A code submission re-executes that kernel
-> version to score it — it occupies a GPU session for about the kernel's
-> runtime, and resubmitting the same version is a fresh training run that can
-> land a slightly different score (a deliberate late-game re-roll tactic).
+> **Submitting re-runs the kernel — on Kaggle's backend.** A code submission
+> re-executes that kernel version to score it on Kaggle's scoring
+> infrastructure: it does NOT occupy one of your interactive GPU sessions,
+> and many submissions can score concurrently. Resubmitting the same version
+> is a fresh training run that can land a slightly different score (a
+> deliberate late-game re-roll tactic, where the task's rules allow it).
 
 > **Regular (non-code) competition:** upload a local file instead:
 > `kaggle competitions submit <C> -f path/to/local_submission.csv -m "msg"`.
