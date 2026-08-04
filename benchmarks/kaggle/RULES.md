@@ -4,16 +4,25 @@ Set by the IOAI AI Models Track organizers. They apply to every task, whatever
 its submission modality. Breaking one can void the submission.
 
 **This file overrides the task statement and the competition pages wherever they
-disagree.** Those pages carry stale text the organizers have since corrected.
+disagree** — those pages carry stale text the organizers have since corrected —
+**except for values the task itself publishes**: the statement's own submission
+limit and its submission-report requirements, when stated, are the authority
+over this file's defaults.
 
 ## Submissions
 
-**You get 50 submissions per task — never 5.** Competition pages may still quote
-a five-per-day cap; it is obsolete and does not apply. Use the budget: shipping
-several genuinely different attempts beats polishing one.
+**Submission quota: the task statement's number is the authority; the default
+is 50 per task.** Each task can set its own limit on its competition pages, and
+the statement carries it when one is published. If the statement states no
+limit, plan on 50. Use the budget: shipping several genuinely different
+attempts beats polishing one.
 
-**Every submission's code opens with a short docstring describing its
-algorithm** — the approach in a few lines, at the top of the script. A pulled
+**Every submission's code opens with a self-contained report docstring** — a
+reader who sees ONLY that docstring should roughly understand the algorithm
+end-to-end: the approach, the model/features, the training recipe, and how
+inference produces the submission. The competition's own description may
+specify what this report must contain — if the task statement carries such
+instructions, THEY are the authority; otherwise this default applies. A pulled
 kernel whose idea is readable at a glance is how sibling lanes and later runs
 learn from your submission.
 
@@ -53,7 +62,7 @@ statement's Submission section says which modality applies.
 
 ## Sharing one Kaggle account
 
-Every parallel lane submits through the same account, so the 50-submission
+Every parallel lane submits through the same account, so the task's submission
 budget is shared — and so is the record of how it was spent. `kaggle
 competitions submissions <slug>` shows every attempt with its public score and
 message; read it before spending one on something a sibling already tried.

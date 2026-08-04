@@ -146,8 +146,10 @@ def test_staged_rules_carry_the_binding_kernel_constraints():
     rules = open(RULES_PATH, encoding="utf-8").read()
     assert "cuda:0" in rules
     assert "NvidiaTeslaT4" in rules and "P100" in rules
-    assert "50 submissions per task" in rules
-    assert "docstring describing its\nalgorithm" in rules.replace("**", "")
+    assert "the task statement's number is the authority" in rules
+    assert "is 50 per task" in rules
+    assert "self-contained report docstring" in rules.replace("**", "")
+    assert "THEY are the authority" in rules
 
 
 def test_preflight_spec_authors_no_submit_mechanics():

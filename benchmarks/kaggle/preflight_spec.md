@@ -16,7 +16,11 @@ metadata, e.g. `kaggle competitions files <slug>` and
 For the prose the files do not carry — the **evaluation metric**, the **binding
 rules**, the **compute limits**, the **submission quota** — read the
 competition's OWN definition pages (the Overview, Data, Evaluation, and Rules
-tabs of the competition URL above).
+tabs of the competition URL above). The Overview may contain a **"Starter
+Prompt" subsection: read it and carry everything it says into the statement**
+— it is organizer instruction text (it can set the submission-report format,
+task-specific limits, required approaches), and a statement missing any of it
+is incomplete.
 
 **Hard boundary (do not cross):** the statement describes the TASK only. Do NOT
 search for, open, or incorporate ANY solution, public notebook, writeup, blog
@@ -45,10 +49,15 @@ or delete anything in the dataset directory.
 A file `RULES.md` sits beside the task with the organizers' current, binding
 rules. **Where it and the competition pages disagree, RULES.md is right** — the
 pages carry text the organizers have since corrected in the competition forum.
-So:
+The one place the pages outrank it is task-specific values the task itself
+publishes (its own submission limit, its own report requirements): those go
+into the statement as binding. So:
 
-- **Submission quota: 50 per task.** If a page says five per day, that is stale.
-  Do not repeat it; state 50, or omit the quota entirely.
+- **Submission quota: the task's own stated limit is the authority.** Check the
+  competition's pages (Overview — including any Starter Prompt — and Rules) for
+  a task-specific submission limit; if one is stated, the statement quotes that
+  number as the binding quota. Only when the pages genuinely state none does the
+  default apply: state 50 per task (never invent a number).
 - **GPU choice is settled by RULES.md, not by you.** Do not tell the agent to omit
   `machine_shape`, and do not reason about which GPU tier the pages imply — an
   unpinned GPU can be allocated hardware that cannot train at all. Say the kernel
@@ -65,6 +74,10 @@ Write these sections, in order (an H1 title, then H2 sections):
 2. **Problem** — what is being predicted and the setting; describe any provided
    starting point (a pretrained checkpoint/model, its architecture and what it
    was trained on) if the competition provides one.
+   If the Overview has a **Starter Prompt** subsection, follow Problem with an
+   H2 section titled `Starter prompt` quoting it **verbatim** — and still fold
+   anything binding in it (report format, limits, required approach) into the
+   sections below.
 3. **Task rules** — the binding constraints: whether external data/models are
    allowed, any must-reuse-the-provided-checkpoint rule, single-model /
    single-forward-pass requirements, and the compute/time limit.
