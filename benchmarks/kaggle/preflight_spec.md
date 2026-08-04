@@ -32,7 +32,8 @@ You may also run the kaggle CLI for metadata, e.g.
 `kaggle competitions files <slug>` and `kaggle competitions list -s <slug>`.
 
 For the prose the files do not carry — the **evaluation metric**, the **binding
-rules**, the **compute limits**, the **submission quota** — read the
+rules**, the **compute limits**, the **submission quota**, the **kernel
+run-time cap** — read the
 competition's OWN definition pages (the Overview, Data, Evaluation, and Rules
 tabs of the competition you identified). The competition may publish **"Starter
 Prompt" and "Continuation Prompt"** pages (or Overview subsections): read them
@@ -80,6 +81,13 @@ into the statement as binding. So:
   a task-specific submission limit; if one is stated, the statement quotes that
   number as the binding quota. Only when the pages genuinely state none does the
   default apply: state 50 per task (never invent a number).
+- **Kernel run-time cap: the task's own stated limit is the authority.** Check
+  the same pages for a per-kernel-run time cap (e.g. "cap every kernel run at
+  N seconds", a mandatory push timeout value). If one is stated, quote it in
+  Task rules as a binding constraint on every kernel run — including the
+  scoring re-run a submission triggers — as a VALUE, never as a CLI command
+  (the no-CLI-mechanics boundary holds; the solver's playbook applies it to
+  its own commands). If none is stated, write that none is stated.
 - **GPU choice is settled by RULES.md, not by you.** Do not tell the agent to omit
   `machine_shape`, and do not reason about which GPU tier the pages imply — an
   unpinned GPU can be allocated hardware that cannot train at all. Say the kernel

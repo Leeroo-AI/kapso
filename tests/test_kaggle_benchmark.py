@@ -183,6 +183,9 @@ def test_runner_stages_the_real_cli_playbook():
     assert os.path.isfile(SKILL_PATH)
     skill = open(SKILL_PATH, encoding="utf-8").read()
     assert "kernels push" in skill and "competitions submit" in skill
+    # The statement carries a time cap only as a value; the playbook must own
+    # the mechanics that enforce it, or lanes can't apply the cap to pushes.
+    assert "--timeout <seconds>" in skill
 
 
 def test_harvest_template_is_found_wherever_the_dataset_nests_it(tmp_path):
@@ -588,6 +591,10 @@ def test_preflight_spec_owns_scaffolding_and_brief_authority():
     assert '{"competition": "<slug>"}' in spec
     assert "the brief is the authoritative copy" in spec
     assert "Starter Prompt" in spec
+    # A task-published per-kernel time cap (contest 1: 600s) must be hunted for
+    # and carried as a value; a spec trim dropping this loses the constraint.
+    assert "Kernel run-time cap: the task's own stated limit is the authority" \
+        in spec.replace("**", "")
 
 
 def test_kaggle_mode_config_minimal_knobs():

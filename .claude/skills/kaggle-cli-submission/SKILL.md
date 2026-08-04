@@ -225,6 +225,11 @@ Field notes (the ones that matter):
 kaggle kernels push -p kernel/
 ```
 
+If the task statement states a per-kernel-run time cap, enforce it on every
+push with `--timeout <seconds>` (e.g. `kaggle kernels push -p kernel/
+--timeout 600`): the run is stopped at the cap instead of overrunning the
+task's limit. The statement's cap is binding; if it states none, omit the flag.
+
 #### Running in parallel? Claim a slot first
 
 Kaggle's concurrency limits are **per account**, not per agent: at most **2 GPU**
