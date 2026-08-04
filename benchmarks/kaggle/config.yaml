@@ -21,6 +21,11 @@ modes:
       hours: 2.0
       node_expansion: 8
 
+    # Curated best-solutions book (repo-root-relative; gitignored, shipped to
+    # boxes by the launch protocol). Staged into <task>/knowledge_bank/ at
+    # runner startup; every module is told it is the FIRST search priority.
+    knowledge_bank_dir: benchmarks/kaggle/knowledge_bank
+
     search_strategy:
       type: "generic"
       params:

@@ -39,3 +39,12 @@ dependency install landing on the competition clock.
   probe utilization before a long run.
 - Secrets are **injected per boot, never baked** into the image (rotation +
   leakage).
+
+## Knowledge bank shipping
+
+`config.yaml knowledge_bank_dir` points at the curated best-solutions book
+(`benchmarks/kaggle/knowledge_bank/`), which is GITIGNORED — a box clone does
+not carry it. The launch protocol must scp the directory from the dev machine
+into the box's repo checkout before `run_competition.sh`; the runner stages it
+into `<task>/knowledge_bank/` and FAILS the launch if the configured dir is
+missing. Every module is instructed it is the first search priority.

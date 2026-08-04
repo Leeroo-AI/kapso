@@ -36,6 +36,8 @@ from benchmarks.kaggle import kernel_slots
 from benchmarks.kaggle.handler import KaggleNotebookHandler
 
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.yaml")
+REPO_ROOT = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", ".."))
 RULES_PATH = os.path.join(os.path.dirname(__file__), "RULES.md")
 SLOTS_PATH = os.path.join(os.path.dirname(__file__), "kernel_slots.py")
 # The repo's kaggle-cli-submission skill doubles as the lanes' submission
@@ -593,6 +595,22 @@ def main():
     # push/poll/submit/score flow (run 5's lanes had neither and burned their
     # first submission rediscovering -k/-v from --help).
     shutil.copy2(SKILL_PATH, os.path.join(task_dir, "KAGGLE_CLI.md"))
+
+    # Stage the curated knowledge bank (config knowledge_bank_dir,
+    # repo-root-relative): the shared-learning book every module searches
+    # FIRST. Configured-but-missing is a launch defect, not an option — a box
+    # that did not receive the bank must die here, not run blind.
+    bank_rel = mode_cfg.get("knowledge_bank_dir")
+    if bank_rel:
+        bank_src = os.path.join(REPO_ROOT, bank_rel)
+        if not os.path.isdir(bank_src):
+            raise FileNotFoundError(
+                f"knowledge_bank_dir={bank_rel!r} resolved to {bank_src} which "
+                "does not exist — ship the bank to this machine or unset the key")
+        bank_dst = os.path.join(task_dir, "knowledge_bank")
+        if os.path.isdir(bank_dst):
+            shutil.rmtree(bank_dst)
+        shutil.copytree(bank_src, bank_dst)
 
     # Stage the slot ticket office + its limits. Lanes run in isolated session
     # clones, so this has to be reachable by path rather than by import; a stale

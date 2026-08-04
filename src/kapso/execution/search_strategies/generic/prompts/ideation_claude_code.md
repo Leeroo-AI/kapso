@@ -55,6 +55,9 @@ The repository has a semantic memory that captures architecture, gotchas, and ke
   - Example: "QLoRA implementation", "mixed precision training code"
 
 ### Web Search (native tools)
+- FIRST search priority: if the problem context names a knowledge bank, route
+  through its `book_index.md` and read the matched problems' `idea.md` +
+  `solution/` before going to the web.
 - **WebSearch** / **WebFetch**: research the web directly — recent papers,
   winning solutions to similar problems, reference implementations, library
   usage. Kaggle and GitHub are good starting points; search wherever you

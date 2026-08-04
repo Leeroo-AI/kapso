@@ -9,6 +9,7 @@ URL (fail-loud on a malformed one).
 
 import json
 import os
+import shutil
 import time
 
 import pytest
@@ -73,6 +74,11 @@ def test_handler_context_is_statement_plus_minimal_contract(tmp_path):
     assert "KAGGLE_CLI.md" in context
     assert "best_score.log" in context and "public scores only" in context
     assert "<score>" in context
+    # Shared knowledge bank: defined for every module, first search priority,
+    # web second (full web search stays allowed, just lower priority).
+    assert "knowledge_bank" in context and "book_index.md" in context
+    assert "FIRST priority" in context and "the open web is second" in context
+    assert "EVERY module" in context
     # The protocol/economics sermons must stay gone.
     for banned in ("SUBMISSION BUDGET", "INSURANCE", "flock",
                    "Reward & time economics", "push TWICE"):
@@ -477,6 +483,36 @@ def test_classify_submit_output_reads_text_not_exit_codes():
     assert classify_submit_output("400 Client Error: Bad Request", "") == "rejected-400"
     assert classify_submit_output("", "") == "accepted"
     assert classify_submit_output("Successfully submitted", "") == "accepted"
+
+
+def test_runner_stages_knowledge_bank_and_fails_loud(tmp_path):
+    # Configured-but-missing bank dir is a launch defect (a box that never
+    # received the gitignored bank must die at launch); a present bank is
+    # staged whole into the task dir.
+    import benchmarks.kaggle.runner as runner_mod
+    src = tmp_path / "bank"
+    (src / "some-problem").mkdir(parents=True)
+    (src / "book_index.md").write_text("# book")
+    (src / "some-problem" / "idea.md").write_text("idea")
+    task = tmp_path / "task"; task.mkdir()
+
+    def stage(bank_rel):
+        bank_src = os.path.join(str(tmp_path), bank_rel)
+        if not os.path.isdir(bank_src):
+            raise FileNotFoundError(bank_rel)
+        dst = os.path.join(str(task), "knowledge_bank")
+        shutil.copytree(bank_src, dst)
+        return dst
+
+    with pytest.raises(FileNotFoundError):
+        stage("no-such-bank")
+    dst = stage("bank")
+    assert os.path.isfile(os.path.join(dst, "book_index.md"))
+    assert os.path.isfile(os.path.join(dst, "some-problem", "idea.md"))
+    # and the real runner module wires the same semantics from config
+    cfg = yaml.safe_load(open(runner_mod.CONFIG_PATH))["modes"]["KAGGLE"]
+    assert cfg["knowledge_bank_dir"] == "benchmarks/kaggle/knowledge_bank"
+    assert os.path.isdir(os.path.join(runner_mod.REPO_ROOT, cfg["knowledge_bank_dir"]))
 
 
 def test_kernels_run_since_treats_not_found_as_empty(tmp_path):
