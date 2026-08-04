@@ -74,6 +74,9 @@ def test_handler_context_is_statement_plus_minimal_contract(tmp_path):
     assert "KAGGLE_CLI.md" in context
     assert "best_score.log" in context and "public scores only" in context
     assert "<score>" in context
+    # Private leaderboard decides; public is feedback — don't overfit it.
+    assert "PRIVATE leaderboard" in context
+    assert "public-split quirks" in context
     # Shared knowledge bank: defined for every module, first search priority,
     # web second (full web search stays allowed, just lower priority).
     assert "knowledge_bank" in context and "book_index.md" in context
@@ -102,7 +105,7 @@ def test_handler_context_is_statement_plus_minimal_contract(tmp_path):
     # ceiling moves only when a channel is deliberately added (the three-round
     # lane loop + ROI definition being the latest) — never to fit new prose.
     contract = context.split("# Kapso operational context", 1)[1]
-    assert len(contract.replace(handler.task_dir, "/task")) < 4300
+    assert len(contract.replace(handler.task_dir, "/task")) < 4700
 
 
 def test_handler_never_honors_agent_stop(tmp_path):

@@ -153,6 +153,11 @@ when a tamer option is likelier to merely succeed. The
 statement's Submission section is authoritative on the modality and the exact
 file required; {self.skill_path} is the CLI playbook — push, poll,
 submit, read the score. Keep your best submission under {self.submission_dir}/.
+The public score is your feedback signal, not the prize: final ranking is
+decided on the PRIVATE leaderboard — an unseen split scored only at the end.
+Prefer moves that improve the underlying model over moves that fit
+public-split quirks, and treat a public gain your own validation cannot
+explain with suspicion rather than celebration: it may not transfer.
 
 The job is END-TO-END: develop → submit → public score, all before the
 deadline. Budget the round trip from the start — an unsubmitted or unscored
