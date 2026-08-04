@@ -69,9 +69,17 @@ test "$(git branch --show-current)" = "$KAPSO_BRANCH" \
 echo "  branch $(git branch --show-current) @ $(git rev-parse --short HEAD)"
 
 echo "### 5/6 kapso deps (--user; torch inherited, NOT reinstalled)"
+# torchaudio must match the inherited torch exactly (the image ships
+# torchaudio 2.11 against torch 2.9.1 — the ABI mismatch makes
+# `import transformers` crash with "undefined symbol: torch_library_impl"
+# via transformers.loss.loss_rnnt).
+TORCH_V=$(python3 -c "import torch; print(torch.__version__.split('+')[0])")
+TA_IDX=$(python3 -c "import torch; c=torch.version.cuda; print('https://download.pytorch.org/whl/cu'+c.replace('.','') if c else 'https://download.pytorch.org/whl/cpu')")
+python3 -m pip install --user -q "torchaudio==${TORCH_V}" --index-url "$TA_IDX"
 python3 -m pip install --user -q \
   litellm==1.75.0 openai PyYAML python-dotenv GitPython scipy "mcp>=1.9,<2" \
   transformers soundfile librosa
+python3 -c "import transformers; print('  transformers import OK (torchaudio ABI matched)')"
 
 echo "### 6/6 verify kapso imports via PYTHONPATH (no editable install on this image)"
 PYTHONPATH="$HOME/kapso/src:$HOME/kapso" python3 - <<'PY'
