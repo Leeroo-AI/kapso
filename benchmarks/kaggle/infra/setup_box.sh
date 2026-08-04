@@ -49,7 +49,7 @@ PY
 
 echo "### 3/6 kaggle CLI via uv on py3.11 (py3.10 would pull the broken pre-KGAT 1.7)"
 command -v uv >/dev/null 2>&1 || curl -LsSf https://astral.sh/uv/install.sh | sh
-uv tool install kaggle --python 3.11 --force
+uv tool install kaggle==2.2.3 --python 3.11 --force  # pinned: match the dev box; 2.2.4 relocates the entry point
 echo "  kaggle: $(kaggle --version)"
 
 echo "### 4/6 clone kapso @$KAPSO_BRANCH — PAT used for the clone, then dropped from the remote"
