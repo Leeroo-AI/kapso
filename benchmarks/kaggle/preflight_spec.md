@@ -16,11 +16,15 @@ metadata, e.g. `kaggle competitions files <slug>` and
 For the prose the files do not carry — the **evaluation metric**, the **binding
 rules**, the **compute limits**, the **submission quota** — read the
 competition's OWN definition pages (the Overview, Data, Evaluation, and Rules
-tabs of the competition URL above). The Overview may contain a **"Starter
-Prompt" subsection: read it and carry everything it says into the statement**
-— it is organizer instruction text (it can set the submission-report format,
-task-specific limits, required approaches), and a statement missing any of it
-is incomplete.
+tabs of the competition URL above). The competition may publish **"Starter
+Prompt" and "Continuation Prompt"** pages (or Overview subsections): read them
+and carry everything they say into the statement — they are organizer
+instruction text (they can set the submission-report format, task-specific
+limits, required approaches), and a statement missing any of it is incomplete.
+When a prompt names another competition page as binding (e.g. "do not violate
+the rules in 'Kaggle CLI Submission'"), read THAT page too and fold its
+CONSTRAINTS into the statement's rules — constraints only, not its command
+mechanics (the no-CLI-mechanics boundary below still holds).
 
 **Hard boundary (do not cross):** the statement describes the TASK only. Do NOT
 search for, open, or incorporate ANY solution, public notebook, writeup, blog
@@ -74,10 +78,11 @@ Write these sections, in order (an H1 title, then H2 sections):
 2. **Problem** — what is being predicted and the setting; describe any provided
    starting point (a pretrained checkpoint/model, its architecture and what it
    was trained on) if the competition provides one.
-   If the Overview has a **Starter Prompt** subsection, follow Problem with an
-   H2 section titled `Starter prompt` quoting it **verbatim** — and still fold
-   anything binding in it (report format, limits, required approach) into the
-   sections below.
+   If the competition publishes **Starter Prompt** / **Continuation Prompt**
+   pages or subsections, follow Problem with an H2 section titled
+   `Starter prompt` quoting them **verbatim** (both, labeled) — and still fold
+   anything binding in them (report format, limits, required approach) into
+   the sections below.
 3. **Task rules** — the binding constraints: whether external data/models are
    allowed, any must-reuse-the-provided-checkpoint rule, single-model /
    single-forward-pass requirements, and the compute/time limit.
