@@ -57,7 +57,7 @@ modes:
             effort: "xhigh"
           - cli: "claude_code"
             model: "claude-fable-5"
-            effort: "high"
+            effort: "xhigh"
         ideation_lens_planner:
           cli: "claude_code"
           model: "claude-fable-5"
