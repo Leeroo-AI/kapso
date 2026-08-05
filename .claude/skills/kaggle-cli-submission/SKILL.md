@@ -315,6 +315,7 @@ for i in $(seq 1 40); do
   case "$s" in
     *COMPLETE*) break ;;
     *ERROR*)    echo "RUN FAILED"; break ;;
+    *CANCEL*)   echo "RUN STOPPED (usually the --timeout cap)"; break ;;
   esac
   sleep 20
 done
@@ -332,6 +333,16 @@ ls out/                       # expect submission.csv (+ a .log)
 - If status was `ERROR`, open the `.log` in `out/` — it contains the full stderr
   traceback. The most common failure is the data-not-mounted `FileNotFoundError`
   (fix: push again per §4.2). Fix the code or re-push, then repeat §5.
+- **Timeout-stopped runs end as `CANCEL_ACKNOWLEDGED`, not `ERROR`, and their
+  log simply truncates — no traceback.** So instrument EVERY kernel to answer
+  "did my solution fit the time limit, and by how much" from its log alone:
+  print stage-elapsed progress lines as you go (e.g.
+  `stage=train seed=2 elapsed=112s`) and a final
+  `TOTAL_ELAPSED=<seconds>s (cap <N>s)` line before writing the submission.
+  A COMPLETE log then reports your runtime margin against the task's cap; a
+  truncated log tells you exactly which stage blew the budget and by how
+  much — a measurement, not a mystery. A cancelled version still spends one
+  where the task counts versions: diagnose from the log before re-pushing.
 
 **What `submission.csv` actually is:** it is the file your notebook **writes on
 Kaggle** during the run (`/kaggle/working/submission.csv`). It is NOT uploaded from

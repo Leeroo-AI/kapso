@@ -191,6 +191,11 @@ def test_runner_stages_the_real_cli_playbook():
     # never slot-gated; a playbook regression here re-serializes the endgame.
     assert "Submissions need NO ticket" in skill.replace("**", "")
     assert "submit it promptly" in skill.replace("**", "")
+    # Every task carries a kernel time cap: a timeout-stopped run surfaces as
+    # CANCEL (not ERROR) with a truncated log, so kernels must self-report
+    # runtime — dropping either fact blinds lanes to cap overruns.
+    assert "CANCEL_ACKNOWLEDGED" in skill.replace("**", "")
+    assert "TOTAL_ELAPSED" in skill
 
 
 def test_harvest_template_is_found_wherever_the_dataset_nests_it(tmp_path):
