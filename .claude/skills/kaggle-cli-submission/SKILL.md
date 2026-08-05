@@ -215,9 +215,10 @@ Field notes (the ones that matter):
   and the data is mounted locally anyway.
 - **`is_private`**: keep `"true"`. Making a notebook public requires phone
   verification and is unnecessary for submitting.
-- **`machine_shape`**: leave `""` for CPU. For a GPU, use e.g. `"NvidiaTeslaT4"` or
-  `"NvidiaTeslaP100"`; for TPU `"Tpu1VmV38"`. (You can also pass `--accelerator` on
-  push.)
+- **`machine_shape`**: leave `""` for CPU. For a GPU, pin `"NvidiaTeslaT4"` —
+  **never `"NvidiaTeslaP100"`**: P100 provisions but cannot train (known Kaggle
+  bug), and leaving the shape unpinned can allocate one. For TPU `"Tpu1VmV38"`.
+  (You can also pass `--accelerator` on push.)
 
 ### 4.2 Push ONCE — re-push only if the data was not mounted
 

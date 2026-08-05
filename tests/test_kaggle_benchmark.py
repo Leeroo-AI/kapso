@@ -196,6 +196,9 @@ def test_runner_stages_the_real_cli_playbook():
     # runtime — dropping either fact blinds lanes to cap overruns.
     assert "CANCEL_ACKNOWLEDGED" in skill.replace("**", "")
     assert "TOTAL_ELAPSED" in skill
+    # The playbook must agree with RULES.md's never-P100 pin, not offer P100
+    # as a neutral example (P100 provisions but cannot train).
+    assert "P100 provisions but cannot train" in skill
 
 
 def test_harvest_template_is_found_wherever_the_dataset_nests_it(tmp_path):
