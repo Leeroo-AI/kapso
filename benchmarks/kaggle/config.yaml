@@ -82,17 +82,14 @@ modes:
     session_budget:
       finalization_reserve_minutes: 0
       insured_reserve_minutes: 5
-      # The harvest gets an IN-WINDOW reserve: the campaign hands over this
-      # many minutes before the window ends, and the harvest submits every
-      # completed-but-unsubmitted version with in-window timestamps. Contest 1
-      # (2026-08-04) proved the need: at window close, 4 completed kernels
-      # were still unsubmitted and only a manual sweep at T-8min shipped
-      # them. Submissions score concurrently on Kaggle's backend, so the
-      # window covers submit calls + scoring latency, never a kernel run.
-      # Lanes still own their in-campaign endgame (the loop contract makes
-      # their last submission leave room for its own scoring).
+      # Zero harvest carve-out (user-set 2026-08-05): the campaign runs to
+      # the window end, and lanes own shipping every completed version
+      # in-window themselves — slot-free submits plus the cross-lane
+      # SKIP/STEAL/COMPLEMENT/ENSEMBLE protocol make prompt submission the
+      # lanes' job, not a sweeper's. (Contest 2 ran a 15-min in-window
+      # reserve; retired with this change.)
       guard_minutes: 0
-      harvest_window_minutes: 15
+      harvest_window_minutes: 0
       # Refuse to start a campaign with less than this left after preflight —
       # below one submission round trip nothing scoreable can finish.
       min_campaign_minutes: 25
@@ -133,11 +130,10 @@ modes:
       submission_template: "submission.csv"
       harvest_max_kernel_version: 12
       harvest_kernel_list_size: 50
-      # The harvest submits every ready candidate back-to-back (scoring runs
-      # concurrently on Kaggle's backend — no slots involved), then polls for
-      # scores until this budget is spent. Sized just under the 15-minute
-      # harvest_window_minutes so the leaderboard read still fits inside it.
-      harvest_budget_seconds: 840
+      # 0 (user-set 2026-08-05): the post-campaign harvest is a no-op —
+      # candidates are enumerated and reported as skipped, nothing is
+      # submitted after the window closes.
+      harvest_budget_seconds: 0
       harvest_poll_seconds: 30
       # One re-probe of a kernel whose every version was rejected — a
       # transient rejection (foreign session, blip) is not a dead kernel.

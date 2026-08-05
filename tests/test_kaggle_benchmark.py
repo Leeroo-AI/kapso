@@ -615,8 +615,8 @@ def test_kaggle_mode_config_minimal_knobs():
     assert "kaggle" not in mode  # slug comes from the run root, not config
     assert "contest_economics" not in mode
     assert mode["budget"] == {"min_iteration_seconds": 900}
-    # In-window harvest reserve (user-set 2026-08-04 after contest 1 left 4
-    # completed kernels unsubmitted at window close): the campaign ends this
-    # many minutes early so harvest submissions carry in-window timestamps.
-    assert mode["session_budget"]["harvest_window_minutes"] == 15
-    assert mode["final_eval"]["harvest_budget_seconds"] == 840
+    # Zero harvest carve-out (user-set 2026-08-05): lanes own in-window
+    # shipping; the campaign runs to the wall and the post-window harvest
+    # is a no-op.
+    assert mode["session_budget"]["harvest_window_minutes"] == 0
+    assert mode["final_eval"]["harvest_budget_seconds"] == 0
