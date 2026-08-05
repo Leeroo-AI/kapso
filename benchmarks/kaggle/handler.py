@@ -167,11 +167,27 @@ scoring. When one scores, append `<public_score> <iso-time> <kernel-ref>
 the banked-score record (public scores only).
 
 Every lane submits through one account, so Kaggle holds the whole team's
-history — read it before committing to an idea, and don't redo what a sibling
-already scored. `kaggle competitions submissions {competition}` gives each
-attempt's public score and message; where kernels were pushed, `kaggle kernels
-list -m` then `kaggle kernels pull <ref> -m -p <dir>` gets the code behind one.
-Always submit with a `-m` message naming your idea: it is what the others read.
+history. Before proposing EACH new experiment, read the board —
+`kaggle competitions submissions {competition}` (scores + idea messages) —
+and learn from it, in this order:
+
+1. SKIP: a sibling already scored your idea? Don't rerun it — change what
+   matters or move on.
+2. STEAL: pull the code behind results stronger than yours
+   (`kaggle kernels list -m`, then `kaggle kernels pull <ref> -m -p <dir>`)
+   and integrate the components that beat you — a proven feature, schedule,
+   or head is free progress.
+3. COMPLEMENT: when your plan lands within noise of a sibling's, switch to
+   the variant most DIFFERENT from the board's leaders (other model family,
+   other feature view, other objective) — the team needs diverse strong
+   models, not a third copy of the leader.
+4. ENSEMBLE: once the board holds two or more diverse strong models and
+   single-model gains go sub-point, blending their probabilities (yours,
+   or rebuilt from siblings' pulled code) is usually the cheapest points
+   available — build the blend kernel rather than another solo tweak.
+
+Then propose the experiment, and submit it with a `-m` message naming the
+idea: the board is the team's memory and your message is your entry in it.
 
 Report each experiment's local validation score in <score></score> tags AND
 write kapso_evaluation/result.json: {{"score": <float>, "notes": "..."}} — name

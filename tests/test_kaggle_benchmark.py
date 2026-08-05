@@ -102,10 +102,11 @@ def test_handler_context_is_statement_plus_minimal_contract(tmp_path):
     # Budget the contract we author, not the environment it renders in: the
     # statement is unbounded and the task dir is 37 chars in production but
     # ~140 under pytest, which used to make this guard measure tmp_path. The
-    # ceiling moves only when a channel is deliberately added (the three-round
-    # lane loop + ROI definition being the latest) — never to fit new prose.
+    # ceiling moves only when a channel is deliberately added (the cross-lane
+    # SKIP/STEAL/COMPLEMENT/ENSEMBLE learn protocol being the latest, approved
+    # 2026-08-05) — never to fit new prose.
     contract = context.split("# Kapso operational context", 1)[1]
-    assert len(contract.replace(handler.task_dir, "/task")) < 4700
+    assert len(contract.replace(handler.task_dir, "/task")) < 5500
 
 
 def test_handler_never_honors_agent_stop(tmp_path):
