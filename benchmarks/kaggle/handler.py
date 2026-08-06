@@ -186,6 +186,19 @@ and learn from it, in this order:
    or rebuilt from siblings' pulled code) is usually the cheapest points
    available — build the blend kernel rather than another solo tweak.
 
+THE BUDGET IS TEAM-SHARED. The task's stated spend limit (scored submissions
+or notebook versions — whichever the statement caps) covers ALL lanes
+together, and the board's row count is the live spend counter: count it
+before EVERY spend. Once more than 60% of the budget is gone, a spend is
+permitted ONLY if it improves on the CURRENT BEST SUBMITTED score on the
+board — beating your own line is not enough. Judge that through calibration,
+not raw local numbers: map your local score to a public estimate using the
+local-vs-public gaps already banked on the board, and spend only when the
+estimate clears the standing best. To keep that calibration computable for
+everyone, every -m message must include your local score (local=<x>) next to
+the idea. A spend that re-measures a variant or lands below the leader is
+budget a sibling no longer has.
+
 Then propose the experiment, and submit it with a `-m` message naming the
 idea: the board is the team's memory and your message is your entry in it.
 
