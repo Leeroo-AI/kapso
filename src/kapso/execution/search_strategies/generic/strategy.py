@@ -11,6 +11,7 @@
 # - Full RepoMemory access via MCP tools
 
 import glob
+import copy
 import json
 import logging
 import os
@@ -540,6 +541,14 @@ class GenericSearch(SearchStrategy):
         )
         # Which CLI runs implementation sessions. Both mount the gate MCP
         # servers; codex reports no cost telemetry (ledger undercounts).
+        # A crashed implementation session (provider safety classifier, CLI
+        # abort) leaves the lane's remaining time unused. When set, a crash
+        # retries ONCE on this model — contest 5 (2026-08-06) lost both lanes
+        # to codex's "flagged for possible cybersecurity risk" kill on an
+        # adversarial-robustness task.
+        self.implementation_fallback_model = self.params.get(
+            "implementation_fallback_model"
+        )
         self.implementation_cli = str(
             self.params.get("implementation_cli", "claude_code")
         )
@@ -1824,6 +1833,51 @@ Problem: {problem}"""
             if not result.success:
                 logger.warning(f"[GenericSearch] Implementation failed: {result.error}")
                 agent_output = f"Implementation failed: {result.error}\n\n{agent_output}"
+                # A crash is not the deadline: the lane still owns its time.
+                # Retry once on the fallback model (different model family or
+                # version answers a provider-side content kill; the deadline
+                # clamp keeps the retry inside the campaign budget).
+                deadline_kill = bool((result.metadata or {}).get(
+                    "deadline_exceeded"
+                ))
+                if self.implementation_fallback_model and not deadline_kill:
+                    logger.warning(
+                        "[GenericSearch] Retrying the implementation on "
+                        f"fallback model {self.implementation_fallback_model}"
+                    )
+                    fallback_config = copy.deepcopy(config)
+                    fallback_config.model = self.implementation_fallback_model
+                    fallback_config.debug_model = (
+                        self.implementation_fallback_model
+                    )
+                    fallback_config.agent_specific["timeout"] = (
+                        self._clamped_timeout(self.implementation_timeout)
+                    )
+                    agent.cleanup()
+                    if self.implementation_cli == "codex":
+                        from kapso.execution.coding_agents.factory import (
+                            CodingAgentFactory,
+                        )
+                        agent = CodingAgentFactory.create(fallback_config)
+                    else:
+                        agent = ClaudeCodeCodingAgent(fallback_config)
+                    agent.initialize(session.session_folder)
+                    self._last_session_started_ts = time.time()
+                    fallback_result = agent.generate_code(
+                        prompt
+                        + "\n\nNOTE: a previous session on this lane ended "
+                        f"prematurely ({result.error}). Its partial work is in "
+                        "the branch; continue from there and finish the "
+                        "implementation and evaluation."
+                    )
+                    phase_cost += agent.get_cumulative_cost()
+                    if fallback_result.output:
+                        agent_output = fallback_result.output
+                        result = fallback_result
+                        self._pending_session_end_facts = (
+                            "implementation session crashed and was retried on "
+                            f"fallback model {self.implementation_fallback_model}"
+                        )
         finally:
             agent.cleanup()
         telemetry = {

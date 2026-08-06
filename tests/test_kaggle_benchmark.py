@@ -630,3 +630,8 @@ def test_kaggle_mode_config_minimal_knobs():
     # is a no-op.
     assert mode["session_budget"]["harvest_window_minutes"] == 0
     assert mode["final_eval"]["harvest_budget_seconds"] == 0
+    # Contest 5 (2026-08-06): the provider's safety classifier killed both
+    # lanes' codex sessions on an adversarial task; a crash now retries once
+    # on a second model instead of forfeiting the lane's remaining time.
+    params = mode["search_strategy"]["params"]
+    assert params["implementation_fallback_model"] == "gpt-5.5"

@@ -34,6 +34,12 @@ modes:
         # relbench RELBENCH_GENERIC codex-primary lineup. OpenAI's reasoning
         # ceiling is xhigh (no "max" tier), so the codex roles pin xhigh.
         implementation_model: "gpt-5.6-sol"
+        # A crashed lane session retries ONCE on this model. Contest 5
+        # (2026-08-06, adversarial-robustness task): the provider's safety
+        # classifier killed BOTH lanes' codex sessions mid-work ("flagged for
+        # possible cybersecurity risk"), and their remaining lane time was
+        # lost. A different model version answers a content-policy kill.
+        implementation_fallback_model: "gpt-5.5"
         implementation_cli: "codex"
         auth_mode: "oauth"
         gate_failure_policy: "skip"
