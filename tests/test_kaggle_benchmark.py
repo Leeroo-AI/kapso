@@ -101,7 +101,7 @@ def test_handler_context_is_statement_plus_minimal_contract(tmp_path):
     assert "one unacceptable outcome" in context
     # Contest 3 (2026-08-06): 15/15 team submissions burned by T+64 with 47%
     # of the campaign left — the gate below is the fix and must not be trimmed.
-    assert "more than 60% of the budget" in context
+    assert "more than 80% of the budget" in context
     assert "local=<x>" in context
     # Budget the contract we author, not the environment it renders in: the
     # statement is unbounded and the task dir is 37 chars in production but

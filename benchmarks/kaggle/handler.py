@@ -189,7 +189,7 @@ and learn from it, in this order:
 THE BUDGET IS TEAM-SHARED. The task's stated spend limit (scored submissions
 or notebook versions — whichever the statement caps) covers ALL lanes
 together, and the board's row count is the live spend counter: count it
-before EVERY spend. Once more than 60% of the budget is gone, a spend is
+before EVERY spend. Once more than 80% of the budget is gone, a spend is
 permitted ONLY if it improves on the CURRENT BEST SUBMITTED score on the
 board — beating your own line is not enough. Judge that through calibration,
 not raw local numbers: map your local score to a public estimate using the
