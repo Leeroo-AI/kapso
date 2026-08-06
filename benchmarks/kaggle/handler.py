@@ -189,15 +189,17 @@ and learn from it, in this order:
 THE BUDGET IS TEAM-SHARED. The task's stated spend limit (scored submissions
 or notebook versions — whichever the statement caps) covers ALL lanes
 together, and the board's row count is the live spend counter: count it
-before EVERY spend. Once more than 80% of the budget is gone, a spend is
-permitted ONLY if it improves on the CURRENT BEST SUBMITTED score on the
-board — beating your own line is not enough. Judge that through calibration,
-not raw local numbers: map your local score to a public estimate using the
-local-vs-public gaps already banked on the board, and spend only when the
-estimate clears the standing best. To keep that calibration computable for
-everyone, every -m message must include your local score (local=<x>) next to
-the idea. A spend that re-measures a variant or lands below the leader is
-budget a sibling no longer has.
+before EVERY spend. Once more than 85% of the budget is gone, PRIORITIZE
+spends your calibration says can beat the CURRENT BEST SUBMITTED score —
+map your local score to a public estimate using the local-vs-public gaps
+already banked on the board. This is a priority, NOT a stop sign: budget
+left unspent at the deadline is thrown away, so keep submitting your best
+available candidates to the end — near the deadline a plausible improvement
+is always worth scoring, and a diverse strong candidate teaches the team
+even when it might not take the lead. What to avoid is pure waste:
+re-measuring a variant the board has already answered. To keep calibration
+computable for everyone, every -m message must include your local score
+(local=<x>) next to the idea.
 
 Then propose the experiment, and submit it with a `-m` message naming the
 idea: the board is the team's memory and your message is your entry in it.
