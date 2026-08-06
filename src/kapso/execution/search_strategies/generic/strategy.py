@@ -189,34 +189,48 @@ def render_lane_brief(
     )
 
 
+# A selected solution is a full implementation spec (2,000-4,400 chars across
+# runs). Contest 5 (2026-08-06) accepted 3-char bodies ("and") as solutions
+# 1-2, so the empty-pool fallback never fired and the round ran 2 lanes
+# instead of 8 — six lanes of search lost in silence. Anything under this
+# floor is a malformed emission, not a plan.
+MIN_SELECTED_SOLUTION_CHARS = 200
+
+
 def parse_selected_solutions(output: str, expansion_count: int) -> List[str]:
     """Extract the selector's ranked solutions.
 
     K=1 keeps today's single <solution> contract. K>1 reads <solution_N>
-    tags in rank order, skipping empty/missing slots (a short list degrades
-    the round to fewer lanes — loud, never fatal); if no numbered tag
-    parsed, a single legacy <solution> tag still yields one lane.
+    tags in rank order. A slot that is missing, empty, or shorter than
+    MIN_SELECTED_SOLUTION_CHARS is rejected loudly — the caller retries the
+    selector and tops up from the candidate pool rather than shrinking K.
     """
     text = output or ""
     if expansion_count <= 1:
         match = re.search(r"<solution>(.*?)</solution>", text, re.DOTALL)
-        return [match.group(1).strip()] if match and match.group(1).strip() else []
+        body = match.group(1).strip() if match else ""
+        return [body] if len(body) >= MIN_SELECTED_SOLUTION_CHARS else []
     solutions = []
     for i in range(1, expansion_count + 1):
         match = re.search(
             rf"<solution_{i}>(.*?)</solution_{i}>", text, re.DOTALL
         )
-        if match and match.group(1).strip():
-            solutions.append(match.group(1).strip())
-        else:
+        body = match.group(1).strip() if match else ""
+        if len(body) >= MIN_SELECTED_SOLUTION_CHARS:
+            solutions.append(body)
+        elif body:
             logger.warning(
-                f"[GenericSearch] Selector omitted <solution_{i}> — "
-                "round degrades to fewer lanes"
+                f"[GenericSearch] Selector <solution_{i}> is {len(body)} "
+                f"chars (< {MIN_SELECTED_SOLUTION_CHARS}) — rejected as "
+                "malformed"
             )
+        else:
+            logger.warning(f"[GenericSearch] Selector omitted <solution_{i}>")
     if not solutions:
         match = re.search(r"<solution>(.*?)</solution>", text, re.DOTALL)
-        if match and match.group(1).strip():
-            solutions.append(match.group(1).strip())
+        body = match.group(1).strip() if match else ""
+        if len(body) >= MIN_SELECTED_SOLUTION_CHARS:
+            solutions.append(body)
     return solutions
 
 _LENS_PLANNER_KEYS = frozenset({"cli", "model", "effort", "timeout"})
@@ -1404,33 +1418,38 @@ class GenericSearch(SearchStrategy):
                 {"expansion_count": str(expansion)},
             )
         selector = self.ideation_selector
-        if selector["cli"] == "codex":
-            from kapso.execution.search_strategies.generic.codex_ideation import (
-                run_codex_ideation,
-            )
-            from kapso.execution.coding_agents.base import CodingResult
 
-            # web off: parity with the claude selector's Read-only toolset —
-            # selection judges the pooled candidates, it does not research.
-            # Artifacts go to the WORKSPACE, not ideation_dir: the latter is a
-            # materialized ref that is released after the phase, which silently
-            # discarded every selector transcript.
-            output, timed_out, _duration, _meta = run_codex_ideation(
-                prompt=prompt,
-                model=selector["model"],
-                cwd=ideation_dir,
-                timeout_seconds=selector_deadline,
-                effort=selector.get("effort"),
-                artifacts_dir=self._ideation_artifacts_dir(),
-                web_search=False,
-            )
-            result = CodingResult(
-                success=not timed_out and bool(output.strip()),
-                output=output,
-                error="selector session timed out" if timed_out else None,
-            )
-            cost = 0.0
-        else:
+        def run_selector_session(session_prompt: str):
+            """One selector invocation -> (CodingResult, cost_usd).
+
+            A closure so the malformed-emission retry re-runs the identical
+            session with an added corrective instruction.
+            """
+            if selector["cli"] == "codex":
+                from kapso.execution.search_strategies.generic.codex_ideation import (
+                    run_codex_ideation,
+                )
+                from kapso.execution.coding_agents.base import CodingResult
+
+                # web off: parity with the claude selector's Read-only toolset —
+                # selection judges the pooled candidates, it does not research.
+                # Artifacts go to the WORKSPACE, not ideation_dir: the latter is
+                # a materialized ref released after the phase, which silently
+                # discarded every selector transcript.
+                output, timed_out, _duration, _meta = run_codex_ideation(
+                    prompt=session_prompt,
+                    model=selector["model"],
+                    cwd=ideation_dir,
+                    timeout_seconds=selector_deadline,
+                    effort=selector.get("effort"),
+                    artifacts_dir=self._ideation_artifacts_dir(),
+                    web_search=False,
+                )
+                return CodingResult(
+                    success=not timed_out and bool(output.strip()),
+                    output=output,
+                    error="selector session timed out" if timed_out else None,
+                ), 0.0
             config = CodingAgentConfig(
                 agent_type="claude_code",
                 model=selector["model"],
@@ -1453,9 +1472,12 @@ class GenericSearch(SearchStrategy):
             )
             agent = ClaudeCodeCodingAgent(config)
             agent.initialize(ideation_dir)
-            result = agent.generate_code(prompt)
-            cost = agent.get_cumulative_cost()
+            session_result = agent.generate_code(session_prompt)
+            session_cost = agent.get_cumulative_cost()
             agent.cleanup()
+            return session_result, session_cost
+
+        result, cost = run_selector_session(prompt)
 
         reasoning = re.search(
             r"<selection_reasoning>(.*?)</selection_reasoning>",
@@ -1472,23 +1494,44 @@ class GenericSearch(SearchStrategy):
             if result.success
             else []
         )
-        if solutions:
-            return {"solutions": solutions, "cost_usd": cost}
-
-        # Fail-soft: the pooled work must not die with the selector. Fill
-        # rank order from the pool (claude candidates first), up to K.
-        logger.warning(
-            "[GenericSearch] Selector failed "
-            f"({result.error or 'no solution tags'}); falling back to the "
-            "pooled candidates"
-        )
-        ordered = [c for c in pool if c["cli"] == "claude_code"] + [
-            c for c in pool if c["cli"] != "claude_code"
-        ]
-        return {
-            "solutions": [c["text"] for c in ordered[:expansion]],
-            "cost_usd": cost,
-        }
+        if len(solutions) < expansion:
+            # One retry before topping up: a malformed emission is usually a
+            # one-off, and a re-ranked full set beats raw pool order.
+            logger.warning(
+                f"[GenericSearch] Selector returned {len(solutions)}/"
+                f"{expansion} usable solutions — retrying once"
+            )
+            retry_result, retry_cost = run_selector_session(
+                prompt
+                + f"\n\nYour previous response did not emit {expansion} "
+                f"complete <solution_N> blocks. Emit ALL {expansion}, each a "
+                "full implementation spec of its own — never a placeholder, "
+                "a fragment, or a few words."
+            )
+            cost += retry_cost
+            retry_solutions = (
+                parse_selected_solutions(retry_result.output, expansion)
+                if retry_result.success
+                else []
+            )
+            if len(retry_solutions) > len(solutions):
+                solutions = retry_solutions
+        if len(solutions) < expansion:
+            # Never shrink the round: the pooled candidates are full specs, so
+            # top up rank order (claude first) with texts not already selected.
+            logger.warning(
+                f"[GenericSearch] Selector still short ({len(solutions)}/"
+                f"{expansion}) — topping up from the pooled candidates"
+            )
+            ordered = [c for c in pool if c["cli"] == "claude_code"] + [
+                c for c in pool if c["cli"] != "claude_code"
+            ]
+            for candidate in ordered:
+                if len(solutions) >= expansion:
+                    break
+                if candidate["text"] not in solutions:
+                    solutions.append(candidate["text"])
+        return {"solutions": solutions, "cost_usd": cost}
 
     def _build_ideation_prompt(
         self,
