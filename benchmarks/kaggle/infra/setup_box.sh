@@ -81,6 +81,39 @@ python3 -m pip install --user -q \
   transformers soundfile librosa
 python3 -c "import transformers; print('  transformers import OK (torchaudio ABI matched)')"
 
+# Kaggle-kernel parity set (2026-08-06): the official environment
+# (IOAI-official/IOAI-AI-Models-Track kaggle-requirements.txt) ships these,
+# and a box without them is a poorer prototyping environment than the kernels
+# the lanes push to — contest 2 could only test LightGBM on Kaggle, contest 3
+# lost a gensim probe, contest 4 lost a lightgbm prototype. Exact official
+# pins where PyPI has them; per-package fallback to latest because some pins
+# exist only on Kaggle's internal index (xgboost==3.3.0 is not on PyPI).
+# Additive only: the torch/CUDA family is deliberately absent — the image's
+# torch stays (their torch==2.13.0 pin would break the L4 driver pairing).
+for SPEC in \
+  lightgbm==4.7.0 xgboost==3.3.0 catboost==1.2.10 gensim==4.4.0 \
+  nltk==3.10.0 pandas==3.0.5 pyarrow==25.0.0 polars==1.43.0 \
+  matplotlib==3.11.1 seaborn==0.13.2 plotly==6.9.0 \
+  scikit-image==0.26.0 opencv-python-headless==5.0.0.93 h5py==3.16.0 \
+  psutil==7.2.2 umap-learn==0.5.12 smart_open==8.0.1 \
+  datasets==5.0.0 evaluate==0.4.6 accelerate==1.14.0 peft==0.19.1 \
+  trl==1.9.0 sentence-transformers==5.6.1 xxhash==3.8.1; do
+  python3 -m pip install --user -q "$SPEC" 2>/dev/null \
+    || python3 -m pip install --user -q "${SPEC%%==*}"
+done
+python3 - <<'PY'
+import importlib
+mods = ("lightgbm", "xgboost", "catboost", "gensim", "nltk", "pandas",
+        "pyarrow", "polars", "matplotlib", "seaborn", "plotly", "skimage",
+        "cv2", "h5py", "psutil", "umap", "datasets", "evaluate",
+        "accelerate", "peft", "trl", "sentence_transformers")
+for m in mods:
+    importlib.import_module(m)
+import torch
+assert torch.cuda.is_available()
+print(f"  parity set OK ({len(mods)} imports); torch untouched:", torch.__version__)
+PY
+
 echo "### 6/6 verify kapso imports via PYTHONPATH (no editable install on this image)"
 PYTHONPATH="$HOME/kapso/src:$HOME/kapso" python3 - <<'PY'
 import kapso, benchmarks.kaggle.preflight, benchmarks.kaggle.runner  # noqa: F401
