@@ -113,6 +113,11 @@ if [ ! -f agents/kapso/solve.sh ]; then
     mkdir -p agents/kapso
     cp /opt/kapso-src/benchmarks/posttrain/ptb_adapter/agents/kapso/solve.sh agents/kapso/solve.sh
 fi
+# The v1.1 judges default to a gpt_5_5.sif container, but its upstream def has
+# an unsatisfiable vllm==0.11.0/xformers pin (build fails). The judges need
+# only codex + node + python — all present in kapso.sif (the agent container,
+# which installs @openai/codex) — so repoint JUDGE_CONTAINER there instead.
+sed -i 's/JUDGE_CONTAINER="gpt_5_5.sif"/JUDGE_CONTAINER="kapso.sif"/' src/judges/judge_lib.sh
 # v1.1 judges pin their own models via src/judges/<judge>/judge.conf
 # (gpt-5.4 for contamination/api/lookup; gpt-5.6-terra + codex 0.144.5 for
 # general) — there is no gpt-5.1-codex to re-pin on this branch. They run via
@@ -152,14 +157,6 @@ if [ -f /mnt/hfcache/containers/kapso.sif ]; then
 else
     gsutil cp "gs://$BUCKET/assets/kapso.sif" "gs://$BUCKET/assets/vllm_debug.sif" containers/
     export POST_TRAIN_BENCH_CONTAINERS_DIR=containers
-fi
-# v1.1 judge container (gpt_5_5.sif). A post-v1.1 asset rebuild bakes it into
-# the cache + GCS; until then (or on an older cache mount) pull it from GCS.
-# Non-fatal: without it the four judges warn+skip and the run still scores but
-# writes no verdicts.
-if [ ! -f "$POST_TRAIN_BENCH_CONTAINERS_DIR/gpt_5_5.sif" ]; then
-    gsutil cp "gs://$BUCKET/assets/gpt_5_5.sif" "$POST_TRAIN_BENCH_CONTAINERS_DIR/" 2>/dev/null \
-        || echo "WARN: gpt_5_5.sif unavailable — v1.1 judges will warn+skip (rebuild assets to provide it)"
 fi
 
 export POST_TRAIN_BENCH_CONTAINER_NAME=kapso

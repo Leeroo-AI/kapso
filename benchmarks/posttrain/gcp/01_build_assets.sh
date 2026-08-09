@@ -1,8 +1,9 @@
 #!/bin/bash
 # One-time asset build (no GPU needed): a cheap CPU VM builds the apptainer
-# containers (kapso.sif, vllm_debug.sif, gpt_5_5.sif — the v1.1 judge
-# container), uploads them to GCS, and fills a persistent disk with the
-# HuggingFace cache, which is then snapshotted.
+# containers (kapso.sif, vllm_debug.sif), uploads them to GCS, and fills a
+# persistent disk with the HuggingFace cache, which is then snapshotted.
+# (The v1.1 judges reuse kapso.sif — see run_startup.sh — so no separate
+# judge container is built.)
 # Per-run VMs later clone that snapshot instead of re-downloading anything.
 #
 # Duration: ~1h for containers + minutes (core) to hours (full) for the cache.
@@ -50,7 +51,7 @@ for MACHINE_ARGS in \
         --project "$PROJECT" --zone "$ZONE" \
         $MACHINE_ARGS \
         --image-family ubuntu-2204-lts --image-project ubuntu-os-cloud \
-        --boot-disk-size 300GB --boot-disk-type pd-ssd \
+        --boot-disk-size 200GB --boot-disk-type pd-ssd \
         --disk "name=${CACHE_DISK},device-name=hfcache,mode=rw,auto-delete=no" \
         --service-account "$SA_EMAIL" --scopes cloud-platform \
         --metadata-from-file startup-script=builder_startup.sh \
@@ -94,4 +95,4 @@ gcloud compute disks snapshot "$CACHE_DISK" --project "$PROJECT" --zone "$ZONE" 
 # The snapshot is the canonical asset; the source disk costs ~$50/mo idle.
 gcloud compute disks delete "$CACHE_DISK" --zone "$ZONE" --project "$PROJECT" --quiet
 
-echo "Assets ready: gs://$BUCKET/assets/{kapso.sif,vllm_debug.sif,gpt_5_5.sif}, snapshot $CACHE_SNAPSHOT"
+echo "Assets ready: gs://$BUCKET/assets/{kapso.sif,vllm_debug.sif}, snapshot $CACHE_SNAPSHOT"
