@@ -113,6 +113,19 @@ if [ ! -f agents/kapso/solve.sh ]; then
     mkdir -p agents/kapso
     cp /opt/kapso-src/benchmarks/posttrain/ptb_adapter/agents/kapso/solve.sh agents/kapso/solve.sh
 fi
+# v1.1 API-key allowlist: run_task.sh launches the agent sandbox with
+# `-c --cleanenv`, so it inherits NOTHING from the host and injects ONLY the
+# keys in agents/kapso/api_keys.json (unioned with the task's required_api_keys)
+# via --env. The pure-CLI agents (codex/claude) declare `[]` — they authenticate
+# solely through bind-mounted auth.json/oauth_token. kapso differs: its ensemble
+# also runs litellm utility/reasoning/embedding roles that need the operator's
+# OpenAI key, delivered through the sanctioned CODEX_API_KEY channel (run_task.sh
+# sets CODEX_API_KEY=$OPENAI_API_KEY then blanks OPENAI_API_KEY on non-judge
+# tasks; solve.sh bridges it back to OPENAI_API_KEY for litellm and strips it
+# from the agent sessions). Allowing `[]` here would starve kapso's litellm with
+# an empty key; CODEX_API_KEY must pass through.
+mkdir -p agents/kapso
+printf '{"allowed_api_keys": ["CODEX_API_KEY"]}\n' > agents/kapso/api_keys.json
 # The v1.1 judges default to a gpt_5_5.sif container, but its upstream def has
 # an unsatisfiable vllm==0.11.0/xformers pin (build fails). The judges need
 # only codex + node + python — all present in kapso.sif (the agent container,
