@@ -199,6 +199,25 @@ if [ -n "$PREFLIGHT" ]; then
     exit 1
 fi
 
+# --- v1.1 self-decontamination test set ---
+# The v1.1 harness hard-requires src/eval/tasks/<task>/test_data.json: the
+# canonical test set that both the agent's own contamination_check.py and the
+# data-contamination judge screen training data against. It is NOT committed to
+# git — src/judges/test_data_download/download_test_data.py fetches and
+# normalizes it from the benchmark's upstream source. Run it inside kapso.sif
+# (which carries huggingface_hub/datasets) for just this run's task, binding the
+# host /opt/ptb so the JSON lands in the tree run_task.sh reads. MY_HF_TOKEN is
+# consumed only by the gated GPQA downloader; harmless for other tasks.
+export MY_HF_TOKEN="$HF_TOKEN"
+apptainer exec --bind /opt/ptb:/opt/ptb "$POST_TRAIN_BENCH_CONTAINERS_DIR/kapso.sif" \
+    python /opt/ptb/src/judges/test_data_download/download_test_data.py --tasks "$EVAL"
+if [ ! -f "src/eval/tasks/$EVAL/test_data.json" ]; then
+    echo "PREFLIGHT FAILED: test_data.json ($EVAL) not produced by download_test_data.py"
+    RUN_EXIT=testdata
+    exit 1
+fi
+echo "test_data.json ready for $EVAL: $(wc -c < "src/eval/tasks/$EVAL/test_data.json") bytes"
+
 # --- crash-safe periodic results upload ---
 # Measured on spot: preemption grace is 29s and may be 0s mid-boot, and the
 # job dir sits on ephemeral local SSD — only what's already synced survives.
