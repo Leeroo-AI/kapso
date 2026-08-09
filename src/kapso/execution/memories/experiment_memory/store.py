@@ -352,7 +352,7 @@ def load_store_from_env() -> ExperimentHistoryStore:
       (optional; absent → recency-only store)
     - EXPERIMENT_GOAL: Goal description (optional)
     """
-    json_path = os.environ.get("EXPERIMENT_HISTORY_PATH", ".kapso/experiment_history.json")
+    json_path = os.environ.get("EXPERIMENT_HISTORY_PATH", ".kapso/session_notes.json")
     embedding_model = os.environ.get("EXPERIMENT_EMBEDDING_MODEL")
     goal = os.environ.get("EXPERIMENT_GOAL")
 

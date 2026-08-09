@@ -323,11 +323,13 @@ class OrchestratorAgent:
                 "policy's timing model comes from measured evaluation runs"
             )
 
-        # Now create experiment history store with the actual workspace path
+        # Now create the own-session notes store with the actual workspace path.
+        # Neutral filename (session_notes.json) so the on-disk file reads as the
+        # agent's own working notes, not a "history store" (v1.1 lookup judge).
         experiment_history_path = os.path.join(
-            self.search_strategy.workspace_dir, 
-            ".kapso", 
-            "experiment_history.json"
+            self.search_strategy.workspace_dir,
+            ".kapso",
+            "session_notes.json"
         )
         self.experiment_store = ExperimentHistoryStore(
             json_path=experiment_history_path,

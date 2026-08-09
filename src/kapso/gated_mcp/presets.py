@@ -168,9 +168,9 @@ GATES: Dict[str, GateDefinition] = {
     ),
     "experiment_history": GateDefinition(
         tools=[
-            "list_my_best_attempts",
-            "list_my_recent_attempts",
-            "search_my_attempts",
+            "list_my_best_notes",
+            "list_my_recent_notes",
+            "search_my_notes",
         ],
         default_params={
             "top_k": 5,

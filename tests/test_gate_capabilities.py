@@ -140,7 +140,7 @@ def test_explicit_paths_satisfy_internal_gate_requirements(tmp_path):
     assert server["env"]["REPO_MEMORY_ROOT"] == str(tmp_path)
     assert server["env"]["MCP_GATE_FAILURE_POLICY"] == "error"
     assert "mcp__kapso-tools__wiki_idea_search" in tools
-    assert "mcp__kapso-tools__list_my_best_attempts" in tools
+    assert "mcp__kapso-tools__list_my_best_notes" in tools
 
 
 def test_warn_config_keeps_available_gates_and_removes_missing_tools(tmp_path):

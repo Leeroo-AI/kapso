@@ -324,7 +324,7 @@ def test_every_finalized_candidate_is_evaluated_and_persisted(
     assert result.best_experiment is nodes[1]
 
     history = json.loads(
-        (workspace / ".kapso" / "experiment_history.json").read_text()
+        (workspace / ".kapso" / "session_notes.json").read_text()
     )
     assert [record["node_id"] for record in history] == [0, 1]
     assert history[0]["metrics"] == {"holdout_accuracy": 0.9}
@@ -365,7 +365,7 @@ def test_resume_evaluates_only_new_candidates_with_cumulative_iteration(
     assert calls == [(1, 0), (1, 1), (2, 2), (2, 3)]
     assert result.cumulative_iterations == 2
     history = json.loads(
-        (workspace / ".kapso" / "experiment_history.json").read_text()
+        (workspace / ".kapso" / "session_notes.json").read_text()
     )
     assert [record["node_id"] for record in history] == [0, 1, 2, 3]
 
@@ -417,7 +417,7 @@ def test_record_policy_persists_evaluator_failures(
         for node in orchestrator.search_strategy.node_history
     )
     history = json.loads(
-        (workspace / ".kapso" / "experiment_history.json").read_text()
+        (workspace / ".kapso" / "session_notes.json").read_text()
     )
     assert len(history) == 2
     assert history[0]["metrics"] == {}
@@ -447,7 +447,7 @@ def test_raise_policy_stops_before_history_and_checkpoint_write(
     ):
         orchestrator.solve(experiment_max_iter=1)
 
-    assert not (workspace / ".kapso" / "experiment_history.json").exists()
+    assert not (workspace / ".kapso" / "session_notes.json").exists()
     # The bootstrap checkpoint legitimately exists (pre-loop durable work);
     # what must never persist is the poisoned candidate itself.
     checkpoint = RunCheckpointStore(str(workspace)).load()
