@@ -238,4 +238,4 @@ services/wiki-service-backend/
 examples/ml_model_development/e2e/runs/
 
 # fetched run artifacts (large, regenerable from GCS)
-benchmarks/posttrain/gcp/results_fetched/
+benchmarks/posttrain/_archive/results_fetched/
