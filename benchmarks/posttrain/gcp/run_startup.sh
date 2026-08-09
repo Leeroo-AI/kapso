@@ -118,6 +118,12 @@ fi
 # only codex + node + python — all present in kapso.sif (the agent container,
 # which installs @openai/codex) — so repoint JUDGE_CONTAINER there instead.
 sed -i 's/JUDGE_CONTAINER="gpt_5_5.sif"/JUDGE_CONTAINER="kapso.sif"/' src/judges/judge_lib.sh
+# v1.1 harness: run_task.sh sources src/commit_utils/set_env_vars.sh, which
+# hard-requires /opt/ptb/.env to exist (the old harness didn't). It exports
+# .env vars but NEVER overrides an already-set env var, and run_startup.sh
+# already exports the real keys/paths/config — so a comment-only .env
+# satisfies the check without clobbering any of our exports.
+printf '# kapso run: harness env is provided by run_startup.sh exports.\n' > /opt/ptb/.env
 # v1.1 judges pin their own models via src/judges/<judge>/judge.conf
 # (gpt-5.4 for contamination/api/lookup; gpt-5.6-terra + codex 0.144.5 for
 # general) — there is no gpt-5.1-codex to re-pin on this branch. They run via
