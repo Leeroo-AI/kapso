@@ -56,7 +56,10 @@ modes:
         # need external backends we don't ship in the container. The coding
         # agent still has Claude Code's built-in WebSearch/WebFetch, which is
         # allowed (internet access is unrestricted in the benchmark).
-        ideation_gates: ["experiment_history", "repo_memory"]
+        # repo_memory disabled: its get_repo_memory_section outputs (kapso/eval
+        # harness internals) trip the v1.1 lookup judge as a "benchmark-internal
+        # resource"; the agent reads the codebase directly with Read instead.
+        ideation_gates: ["experiment_history"]
         # Bash-tool clock policy for every Claude session (set-if-absent in
         # the child env — solve.sh's exports keep precedence in-container;
         # this is the config home so local/debug runs match: without it the
@@ -64,7 +67,9 @@ modes:
         session_env_defaults:
           BASH_DEFAULT_TIMEOUT_MS: "900000"
           BASH_MAX_TIMEOUT_MS: "36000000"
-        implementation_gates: ["repo_memory"]
+        # repo_memory disabled (see ideation_gates note); implementation uses
+        # only base tools + Read of the codebase.
+        implementation_gates: []
         # Ensemble ideation: parallel CLI members + selector-critic. The codex
         # member authenticates via the codex-auth-json secret (ChatGPT login
         # file, shipped by run_startup.sh through the harness's auth.json
