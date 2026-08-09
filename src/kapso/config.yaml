@@ -15,7 +15,7 @@
 #
 # Experiment History:
 #   - Stored in .kapso/experiment_history.json
-#   - Accessed via MCP tools (get_top_experiments, get_recent_experiments, search_similar_experiments)
+#   - Accessed via MCP tools (list_my_best_attempts, list_my_recent_attempts, search_my_attempts)
 #   - Optionally indexed in Weaviate for semantic search (set WEAVIATE_URL env var)
 
 # Default mode to use

@@ -28,14 +28,14 @@ logger = logging.getLogger(__name__)
 class GateDefinition:
     """Definition of a gate with its tools and default config.
     
-    For internal gates (bundled into gated-knowledge server), server_name and
+    For internal gates (bundled into kapso-tools server), server_name and
     command are None. For external gates (e.g., leeroopedia-mcp), set server_name
     to the MCP server name and command to the CLI entry point.
     """
     
     tools: List[str]
     default_params: Dict[str, Any] = field(default_factory=dict)
-    # External server fields (None = bundled in gated-knowledge)
+    # External server fields (None = bundled in kapso-tools)
     server_name: Optional[str] = None
     command: Optional[str] = None
     required_env: List[str] = field(default_factory=list)
@@ -168,9 +168,9 @@ GATES: Dict[str, GateDefinition] = {
     ),
     "experiment_history": GateDefinition(
         tools=[
-            "get_top_experiments",
-            "get_recent_experiments",
-            "search_similar_experiments",
+            "list_my_best_attempts",
+            "list_my_recent_attempts",
+            "search_my_attempts",
         ],
         default_params={
             "top_k": 5,
@@ -188,7 +188,7 @@ GATES: Dict[str, GateDefinition] = {
         default_params={},
     ),
     # External MCP server: leeroopedia-mcp (api.leeroopedia.com)
-    # Runs as a separate process, not bundled in gated-knowledge
+    # Runs as a separate process, not bundled in kapso-tools
     "leeroopedia": GateDefinition(
         tools=[
             "search_knowledge",
@@ -315,15 +315,15 @@ def get_allowed_tools_for_gates(
     
     Args:
         gates: List of gate names (e.g., ["idea", "research"])
-        mcp_server_name: Name of the MCP server (e.g., "gated-knowledge")
+        mcp_server_name: Name of the MCP server (e.g., "kapso-tools")
         include_base_tools: Include base tools like Read, Write, Bash (default True)
-        
+
     Returns:
         List of tool names for allowed_tools config
-        
+
     Example:
-        >>> get_allowed_tools_for_gates(["idea", "research"], "gated-knowledge")
-        ["Read", "Write", "Bash", "mcp__gated-knowledge__wiki_idea_search", ...]
+        >>> get_allowed_tools_for_gates(["idea", "research"], "kapso-tools")
+        ["Read", "Write", "Bash", "mcp__kapso-tools__wiki_idea_search", ...]
     """
     gate_names = _normalize_gate_names(gates)
     tools: List[str] = []
@@ -347,7 +347,7 @@ def get_allowed_tools_for_gates(
 
 def get_mcp_config(
     gates: Sequence[str],
-    server_name: str = "gated-knowledge",
+    server_name: str = "kapso-tools",
     project_root: Optional[Path] = None,
     kg_index_path: Optional[str] = None,
     experiment_history_path: Optional[str] = None,
@@ -362,7 +362,7 @@ def get_mcp_config(
     
     Args:
         gates: List of gate names (e.g., ["idea", "research", "experiment_history"])
-        server_name: MCP server name (default: "gated-knowledge")
+        server_name: MCP server name (default: "kapso-tools")
         project_root: Project root path (defaults to the Kapso checkout root)
         kg_index_path: Path to .index file. Required if "kg", "idea", or "code" 
                        gates are enabled. Falls back to KG_INDEX_PATH env var.
@@ -420,7 +420,7 @@ def get_mcp_config(
     if not python_path.is_dir():
         python_path = project_root
     
-    # Split gates into internal (bundled in gated-knowledge) and external (separate servers)
+    # Split gates into internal (bundled in kapso-tools) and external (separate servers)
     internal_gates = [
         gate_name
         for gate_name in enabled_gates
@@ -448,7 +448,7 @@ def get_mcp_config(
     if "repo_memory" in internal_gates and effective_env.get("REPO_MEMORY_ROOT"):
         mcp_env["REPO_MEMORY_ROOT"] = effective_env["REPO_MEMORY_ROOT"]
     
-    # Build MCP servers config (gated-knowledge for internal gates)
+    # Build MCP servers config (kapso-tools for internal gates)
     mcp_servers: Dict[str, Any] = {}
     if internal_gates:
         mcp_servers[server_name] = {

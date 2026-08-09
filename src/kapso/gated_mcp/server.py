@@ -144,7 +144,7 @@ def create_gated_mcp_server() -> "Server":
     logger.info(f"Registered {len(all_tools)} tools from {len(active_gates)} gates")
     
     # Create MCP server
-    mcp = Server("gated-knowledge")
+    mcp = Server("kapso-tools")
     
     @mcp.list_tools()
     async def list_tools() -> List[Tool]:

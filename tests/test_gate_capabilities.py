@@ -130,7 +130,7 @@ def test_explicit_paths_satisfy_internal_gate_requirements(tmp_path):
         include_base_tools=False,
     )
 
-    server = servers["gated-knowledge"]
+    server = servers["kapso-tools"]
     assert server["command"] == sys.executable
     assert server["env"]["MCP_ENABLED_GATES"] == (
         "idea,experiment_history,repo_memory"
@@ -139,8 +139,8 @@ def test_explicit_paths_satisfy_internal_gate_requirements(tmp_path):
     assert server["env"]["EXPERIMENT_HISTORY_PATH"] == str(history_path)
     assert server["env"]["REPO_MEMORY_ROOT"] == str(tmp_path)
     assert server["env"]["MCP_GATE_FAILURE_POLICY"] == "error"
-    assert "mcp__gated-knowledge__wiki_idea_search" in tools
-    assert "mcp__gated-knowledge__get_top_experiments" in tools
+    assert "mcp__kapso-tools__wiki_idea_search" in tools
+    assert "mcp__kapso-tools__list_my_best_attempts" in tools
 
 
 def test_warn_config_keeps_available_gates_and_removes_missing_tools(tmp_path):
@@ -152,11 +152,11 @@ def test_warn_config_keeps_available_gates_and_removes_missing_tools(tmp_path):
         include_base_tools=False,
     )
 
-    assert servers["gated-knowledge"]["env"]["MCP_ENABLED_GATES"] == (
+    assert servers["kapso-tools"]["env"]["MCP_ENABLED_GATES"] == (
         "repo_memory"
     )
     assert all("research_" not in tool for tool in tools)
-    assert "mcp__gated-knowledge__get_repo_memory_summary" in tools
+    assert "mcp__kapso-tools__get_repo_memory_summary" in tools
 
 
 def test_only_available_external_gate_does_not_spawn_empty_internal_server(
@@ -225,7 +225,7 @@ def test_embedding_model_is_forwarded_to_experiment_history_gate(tmp_path):
         gate_failure_policy="error",
         include_base_tools=False,
     )
-    env = servers["gated-knowledge"]["env"]
+    env = servers["kapso-tools"]["env"]
     assert env["EXPERIMENT_EMBEDDING_MODEL"] == "text-embedding-3-small"
 
     servers_without, _ = get_mcp_config(
@@ -238,5 +238,5 @@ def test_embedding_model_is_forwarded_to_experiment_history_gate(tmp_path):
     )
     assert (
         "EXPERIMENT_EMBEDDING_MODEL"
-        not in servers_without["gated-knowledge"]["env"]
+        not in servers_without["kapso-tools"]["env"]
     )

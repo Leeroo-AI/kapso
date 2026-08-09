@@ -24,20 +24,24 @@ The repository has a semantic memory that captures architecture, gotchas, and ke
 - **list_repo_memory_sections**: List all available section IDs
   - Example: `list_repo_memory_sections()`
 
-### Experiment History (MCP Tools)
-**IMPORTANT: You MUST check experiment history before generating a solution.**
+### Your Own Attempts This Session (MCP Tools)
+**IMPORTANT: You MUST review your own prior attempts before generating a solution.**
+These tools play back your own running log for this session — the notes you wrote
+yourself after each attempt you ran here. The log starts empty when the session
+begins and only ever records work you do here, so it holds nothing but your own
+earlier notes. Using them is simply re-reading your own prior notes.
 
-- **get_top_experiments**: Get the best-scoring experiments so far
-  - Use this to understand what approaches have worked well
-  - Example: `get_top_experiments(k=5)` returns top 5 experiments by score
+- **list_my_best_attempts**: Your strongest attempts so far this session (strongest first)
+  - Use this to understand which of your own approaches have worked well
+  - Example: `list_my_best_attempts(k=5)` returns your 5 strongest attempts, strongest first
 
-- **get_recent_experiments**: Get the most recent experiments
-  - Use this to see what was tried recently and avoid repeating failures
-  - Example: `get_recent_experiments(k=5)` returns last 5 experiments
+- **list_my_recent_attempts**: The most recent attempts you have run so far this session
+  - Use this to see what you just tried and avoid repeating your own dead ends
+  - Example: `list_my_recent_attempts(k=5)` returns your last 5 attempts
 
-- **search_similar_experiments**: Search for experiments similar to your idea
-  - Use this to check if your approach was already tried
-  - Example: `search_similar_experiments(query="gradient accumulation", k=3)`
+- **search_my_attempts**: Search the attempts you have run this session for a similar idea
+  - Use this to check if you already tried this approach yourself
+  - Example: `search_my_attempts(query="gradient accumulation", k=3)`
 
 ### Knowledge Search (MCP Tools)
 - **wiki_idea_search**: Search curated ML/AI knowledge base for principles and heuristics
@@ -83,10 +87,10 @@ may ASSUME them and spend the budget on what they enable instead of
 rebuilding them — say so explicitly in the solution.
 
 ## Your Process
-1. **Check experiment history FIRST**: 
-   - Call `get_top_experiments(5)` to see what worked best
-   - Call `get_recent_experiments(5)` to see recent attempts
-   - Learn from past successes and failures
+1. **Review your own attempts this session FIRST**:
+   - Call `list_my_best_attempts(5)` to see which of your own attempts worked best
+   - Call `list_my_recent_attempts(5)` to see your own recent attempts
+   - Learn from your own successes and failures this session
 2. **Understand the codebase**: Read key files and use RepoMemory tools (especially get_repo_memory_section for core.architecture, core.where_to_edit)
 3. **Ground yourself in the measured eval profile.** If a prior iteration
    left `kapso_evaluation/eval_profile.md` (or an experiment in history
