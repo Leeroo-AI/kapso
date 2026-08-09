@@ -19,7 +19,15 @@ evaluation suite lives in `kapso_evaluation/`. Your job in this transaction:
    line starting with `{{manifest_marker}} ` followed by a single-line JSON
    object with keys: fidelity, fraction, seed, items (evaluated count),
    total_items (full-suite count), score. Exit non-zero on failure.
-5. **Isolate candidate code from scoring.** Candidate code under evolution
+5. **Support `--rescore RUN_DIR`**: given a previously archived run
+   directory, recompute the manifest line from the run's STORED artifacts
+   through the same scoring path as a run — executing no candidate code —
+   and print it. Final selection ranks archived runs exclusively through
+   this mode and treats any disagreement with the archive-time score as
+   tampering, so run and rescore must share one scoring implementation.
+   If the provided suite's own CLI already implements `--rescore`,
+   forwarding arguments to it verbatim satisfies this.
+6. **Isolate candidate code from scoring.** Candidate code under evolution
    (e.g. the repository's model/training modules) must run in a child
    subprocess that only produces artifacts (predictions, outputs); the
    entrypoint's own process performs all validation and scoring and

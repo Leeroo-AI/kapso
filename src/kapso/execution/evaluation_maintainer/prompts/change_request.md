@@ -18,10 +18,13 @@ touching anything.
   `{{entrypoint_name}}` wrapper and other new files) — never the provided
   files. This is mechanically enforced after you finish.
 - Any accepted change must preserve the entrypoint contract
-  (`--fidelity/--fraction/--seed` CLI arguments, the `{{manifest_marker}}`
-  JSON line), must not weaken what the evaluation measures, and must keep
-  candidate code isolated in a child subprocess — never imported into the
-  scoring process.
+  (`--fidelity/--fraction/--seed` and `--rescore RUN_DIR` CLI modes, the
+  `{{manifest_marker}}` JSON line), must not weaken what the evaluation
+  measures, and must keep candidate code isolated in a child subprocess —
+  never imported into the scoring process. Run and rescore must share one
+  scoring path, and a changed protocol may only require stored artifacts
+  that its own run mode makes candidates produce — the archived runs will
+  be re-ranked exclusively through `--rescore` at final selection.
 
 ## Your output
 If you reject: change nothing.

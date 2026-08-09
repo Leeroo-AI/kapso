@@ -435,6 +435,23 @@ class TestSelectFinal:
             archive.select_final(tmp_path, higher_is_better=True)
 
 
+def test_maintainer_prompts_carry_the_rescore_contract():
+    """Every entrypoint the maintainer builds or evolves must support
+    --rescore with a shared scoring path — final selection ranks archives
+    exclusively through it, so a wrapper that dropped the mode would make
+    every final unmeasurable at the last mile."""
+    prompts_dir = (
+        Path(__file__).parents[1]
+        / "src/kapso/execution/evaluation_maintainer/prompts"
+    )
+    for name in ("setup_provided.md", "setup_build.md", "change_request.md"):
+        text = (prompts_dir / name).read_text()
+        assert "--rescore" in text, f"{name} lost the rescore contract"
+        assert "scoring path" in text, (
+            f"{name} lost the shared-scoring-path requirement"
+        )
+
+
 def test_vendored_copies_are_byte_identical():
     """Benchmark suites vendor the sandbox contract; a drifted copy would
     stamp archives with a fingerprint no framework code can reproduce."""

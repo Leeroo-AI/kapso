@@ -15,7 +15,10 @@ Requirements:
    scoring logic.
 3. **The manifest line**: as the last stdout line, print exactly one line
    starting with `{{manifest_marker}} ` followed by single-line JSON with
-   keys: fidelity, fraction, seed, items, total_items, score. Exit non-zero
+   keys: fidelity, fraction, seed, items, total_items, score. The entrypoint
+   must also support `--rescore RUN_DIR`: recompute the manifest line from a
+   previously archived run's STORED artifacts through the same scoring path
+   — executing no candidate code — and print it. Exit non-zero
    on failure.
 4. **Isolate candidate code from scoring.** Candidate code under evolution
    (e.g. the repository's model/training modules) must run in a child
