@@ -135,6 +135,11 @@ class TestSandboxFingerprintMirrorsFramework:
         )
 
     def test_runtime_junk_does_not_change_the_stamp(self, tmp_path):
+        """Both halves ignore runtime junk, so an EXECUTED tree — maintainer
+        calibration imports the suite before registration — still hashes to
+        the identity archives are stamped with. When the framework side
+        included junk, the registered head could never equal any stamp
+        (observed live)."""
         source = make_evaluation_source(tmp_path)
         clean = sandbox.fingerprint_tree(source)
         pycache = source / "__pycache__"
@@ -142,11 +147,8 @@ class TestSandboxFingerprintMirrorsFramework:
         (pycache / "grader.cpython-312.pyc").write_bytes(b"\x00compiled")
         (source / "stray.pyc").write_bytes(b"\x00stray")
         assert sandbox.fingerprint_tree(source) == clean
-        # the framework manifest DOES see the junk — the exclusion is the
-        # sandbox mirror's deliberate divergence, and it is what keeps an
-        # executed tree hashing to its registered identity
         assert (
-            manifest_fingerprint(build_evaluation_manifest(source)) != clean
+            manifest_fingerprint(build_evaluation_manifest(source)) == clean
         )
 
     def test_empty_tree_raises(self, tmp_path):

@@ -58,8 +58,18 @@ class EvaluationIntegrityReport:
     error: str = ""
 
 
+# Runtime junk is not evaluator identity: importing the suite (maintainer
+# calibration does, before registration) drops __pycache__ into the tree, and
+# hashing it made the registered evaluator_id a polluted-tree fingerprint that
+# could never equal the clean-tree stamp archives carry (observed live:
+# registry head != every archive stamp). Must stay in lockstep with
+# evaluation_archive_sandbox's exclusion — pinned by the mirror test.
+RUNTIME_JUNK_DIRS = {"__pycache__"}
+RUNTIME_JUNK_SUFFIXES = {".pyc"}
+
+
 def build_evaluation_manifest(directory: str | Path) -> Dict[str, str]:
-    """Hash every regular file in a provided evaluation directory."""
+    """Hash every regular non-junk file in a provided evaluation directory."""
     root = Path(directory).expanduser()
     if not root.exists():
         raise FileNotFoundError(
@@ -76,16 +86,21 @@ def build_evaluation_manifest(directory: str | Path) -> Dict[str, str]:
 
     manifest: Dict[str, str] = {}
     for path in sorted(root.rglob("*")):
-        relative = path.relative_to(root).as_posix()
+        relative = path.relative_to(root)
+        if (
+            RUNTIME_JUNK_DIRS.intersection(relative.parts)
+            or relative.suffix.lower() in RUNTIME_JUNK_SUFFIXES
+        ):
+            continue
         if path.is_symlink():
             raise EvaluationIntegrityError(
                 "Provided evaluation trees cannot contain symlinks: "
-                f"{relative}"
+                f"{relative.as_posix()}"
             )
         if not path.is_file():
             continue
         digest = hashlib.sha256(path.read_bytes()).hexdigest()
-        manifest[relative] = digest
+        manifest[relative.as_posix()] = digest
 
     if not manifest:
         raise EvaluationIntegrityError(
