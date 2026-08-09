@@ -21,7 +21,8 @@ export PTB_REPO_URL="${PTB_REPO_URL:-https://github.com/aisa-group/PostTrainBenc
 # cache), and the rescore VM (evaluate.py) all check out THIS commit, so they
 # can never drift from one another. Bump deliberately to take an upstream
 # update; do not track the branch tip (it can change or be deleted on merge).
-export PTB_PIN_COMMIT="${PTB_PIN_COMMIT:-9066b7c}"
+# MUST be the full 40-char SHA — `git fetch origin <sha>` rejects short SHAs.
+export PTB_PIN_COMMIT="${PTB_PIN_COMMIT:-9066b7c83757903949bd87f199be754c4f9ecb84}"
 export KAPSO_REPO_URL="${KAPSO_REPO_URL:-https://github.com/leeroo-ai/kapso.git}"
 
 export CACHE_DISK="${CACHE_DISK:-ptb-hf-cache}"
