@@ -93,7 +93,11 @@ echo "secrets loaded: anthropic=$([ -n "$ANTHROPIC_API_KEY" ] && echo yes || ech
 set -x
 
 # --- PostTrainBench checkout + kapso adapter + containers ---
-git clone --depth 1 "$PTB_REPO" /opt/ptb
+# v1.1 evaluator: the four-judge harness (data_contamination / api_usage /
+# ptb_lookup / general) lives on the new_judge_v2 branch (PR #50, not yet
+# merged to main). Pin to the branch tip for now; freeze to a fixed commit
+# (currently 9066b7c) once we want it stable against branch moves / a merge.
+git clone --depth 1 --branch new_judge_v2 "$PTB_REPO" /opt/ptb
 cd /opt/ptb
 # Adapter comes from the same tarball the container was built from — never a
 # git branch (a clone of the default branch once shipped a checkout with no
@@ -105,12 +109,11 @@ if [ ! -f agents/kapso/solve.sh ]; then
     mkdir -p agents/kapso
     cp /opt/kapso-src/benchmarks/posttrain/ptb_adapter/agents/kapso/solve.sh agents/kapso/solve.sh
 fi
-# Upstream pins the contamination judge to gpt-5.1-codex, DEPRECATED by
-# OpenAI ~2026-07-2x: the judge dies through 5 retries and no verdict files
-# are written (runs 23/24 shipped scores with NO contamination verdicts).
-# Re-pin to a model proven working in this container+ChatGPT auth. Remove
-# once upstream bumps the pin.
-sed -i 's/gpt-5\.1-codex/gpt-5.6-sol/' src/run_task.sh
+# v1.1 judges pin their own models via src/judges/<judge>/judge.conf
+# (gpt-5.4 for contamination/api/lookup; gpt-5.6-terra + codex 0.144.5 for
+# general) — there is no gpt-5.1-codex to re-pin on this branch. They run via
+# codex INSIDE the gpt_5_5.sif judge container and read ChatGPT-subscription
+# auth from agents/codex_non_api/auth.json (written below).
 # Claude Max subscription: run_task.sh copies this file into the job home and
 # solve.sh exports it as CLAUDE_CODE_OAUTH_TOKEN. Codex ChatGPT login: the
 # harness copies agents/<agent>/auth.json to the job's ~/.codex/auth.json —
@@ -128,7 +131,14 @@ if [ -n "$CLAUDE_OAUTH" ] && [ -n "$CLAUDE_RECOVERY" ]; then
 fi
 echo "oauth recovery tokens present: $([ -n "$CLAUDE_RECOVERY" ] && echo yes || echo no)"
 CODEX_AUTH="$(gcloud secrets versions access latest --secret=codex-auth-json 2>/dev/null || true)"
-[ -n "$CODEX_AUTH" ] && printf '%s' "$CODEX_AUTH" > agents/kapso/auth.json
+# Two consumers of the same ChatGPT-subscription codex auth:
+#   agents/kapso/auth.json         -> the agent ensemble's codex member (run phase)
+#   agents/codex_non_api/auth.json -> the v1.1 judges (judge_lib.sh JUDGE_CODEX_AUTH_SRC)
+if [ -n "$CODEX_AUTH" ]; then
+    printf '%s' "$CODEX_AUTH" > agents/kapso/auth.json
+    mkdir -p agents/codex_non_api
+    printf '%s' "$CODEX_AUTH" > agents/codex_non_api/auth.json
+fi
 echo "codex auth present: $([ -n "$CODEX_AUTH" ] && echo yes || echo no)"
 set -x
 # Containers: prefer the copies baked onto the cache-disk snapshot (zero

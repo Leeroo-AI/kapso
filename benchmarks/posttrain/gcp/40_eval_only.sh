@@ -68,7 +68,10 @@ HF_TOKEN="$(gcloud secrets versions access latest --secret=hf-token 2>/dev/null 
 echo "hf token present: $([ -n "$HF_TOKEN" ] && echo yes || echo no)"
 set -x
 
-git clone --depth 1 "$PTB_REPO" /opt/ptb
+# Match the run harness: v1.1 evaluator lives on new_judge_v2 (see
+# run_startup.sh). evaluate.py is the score of record; keep it on the same
+# branch as the run so a rescore uses identical eval code.
+git clone --depth 1 --branch new_judge_v2 "$PTB_REPO" /opt/ptb
 cd /opt/ptb
 
 # KNOWN LIMITATION (2026-07-26): vLLM 0.11 in vllm_debug.sif hits a CUDA-graph
