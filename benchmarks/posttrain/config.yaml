@@ -36,11 +36,16 @@ modes:
     search_strategy:
       type: "generic"
       params:
-        # Overridden at runtime by `expert-posttrain --coding-model` (which
-        # receives PostTrainBench's $AGENT_CONFIG, e.g. claude-opus-4-8).
+        # idea_generation_model (the ideation-base Claude session) is overridden
+        # at runtime by `expert-posttrain --coding-model` ($AGENT_CONFIG, e.g.
+        # claude-opus-4-8). The IMPLEMENTATION agent runs on codex (gpt-5.6-sol
+        # via the ChatGPT login, OPENAI_API_KEY stripped): its model is pinned
+        # here and is NOT overridden by --coding-model (runner.py guards it — a
+        # Claude label would be invalid for codex).
         idea_generation_model: "claude-opus-4-8"
-        implementation_model: "claude-opus-4-8"
-        auth_mode: "oauth"  # pinned: no Anthropic API key in this deployment — Claude Max OAuth only
+        implementation_cli: "codex"
+        implementation_model: "gpt-5.6-sol"
+        auth_mode: "oauth"  # pinned: Claude Max OAuth for ideation/feedback (no Anthropic API key here)
         # A single H100 and a hard deadline: never abort the campaign because a
         # knowledge gate backend (weaviate/neo4j/leeroopedia) is unreachable.
         gate_failure_policy: "skip"

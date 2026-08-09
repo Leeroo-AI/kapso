@@ -524,6 +524,17 @@ class GenericSearch(SearchStrategy):
             "us.anthropic.claude-opus-4-5-20251101-v1:0"
         )
         self.implementation_timeout = self.params.get("implementation_timeout", 600)
+        # Which CLI drives the implementation session: "claude_code" (default,
+        # Claude Max OAuth) or "codex" (OpenAI Codex CLI via ChatGPT login,
+        # OPENAI_API_KEY stripped). Only these two are wired below.
+        self.implementation_cli = str(
+            self.params.get("implementation_cli", "claude_code")
+        )
+        if self.implementation_cli not in ("claude_code", "codex"):
+            raise ValueError(
+                "implementation_cli must be claude_code or codex, got "
+                f"{self.implementation_cli!r}"
+            )
         self.gate_failure_policy = self.params.get("gate_failure_policy", "warn")
         self.implementation_gates = self.params.get("implementation_gates", ["research", "repo_memory", "leeroopedia"])
         self.parent_policy = parent_policy
@@ -1582,33 +1593,63 @@ Problem: {problem}"""
             and lane_index < len(self.expansion_lane_env)
             else None
         )
-        config = CodingAgentConfig(
-            agent_type="claude_code",
-            model=self.implementation_model,
-            debug_model=self.implementation_model,
-            agent_specific={
-                **self._claude_auth_settings,
-                **({"env_overrides": lane_env} if lane_env else {}),
-                "env_strip": self.env_strip,
-                "env_defaults": self.env_defaults,
-                "aws_region": self.aws_region,
-                "mcp_servers": mcp_servers,
-                "allowed_tools": implementation_allowed_tools,
-                "timeout": self._clamped_timeout(self.implementation_timeout),
-                # Under node expansion only lane 0 streams to the console;
-                # other lanes stay buffered (their raw streams still land in
-                # per-branch stream_artifact_path files).
-                "streaming": lane_index == 0,
-                "effort": self.session_effort,
-                # Per-session process record: raw stream-json events land
-                # here as they arrive, so a killed session still leaves its
-                # forensics behind (feeds the difficulties fallback).
-                "stream_artifact_path": self._session_stream_path(branch_name),
-                # Declared-completion contract: lets the adapter reap a CLI
-                # that delivered its full final report but lingers alive.
-                "completion_markers": IMPLEMENTATION_COMPLETION_MARKERS,
-            }
-        )
+        if self.implementation_cli == "codex":
+            # Codex CLI: authenticates via ~/.codex/auth.json (ChatGPT login);
+            # the adapter strips OPENAI_API_KEY from the child env. No claude
+            # auth settings, no allowed_tools (codex governs tools via its
+            # sandbox + the mcp_servers overrides), and no completion_markers
+            # (codex reaps via --output-last-message, killing the PID only so a
+            # launched training/eval survives for teardown).
+            config = CodingAgentConfig(
+                agent_type="codex",
+                model=self.implementation_model,
+                debug_model=self.implementation_model,
+                agent_specific={
+                    **({"env_overrides": lane_env} if lane_env else {}),
+                    "env_strip": self.env_strip,
+                    "env_defaults": self.env_defaults,
+                    "mcp_servers": mcp_servers,
+                    "timeout": self._clamped_timeout(self.implementation_timeout),
+                    "streaming": lane_index == 0,
+                    # Codex's reasoning ceiling is xhigh; "max" is Claude-only
+                    # and invalid for codex, so never forward session_effort here.
+                    "effort": "xhigh",
+                    "stream_artifact_path": self._session_stream_path(branch_name),
+                    # Reap the whole process group on deadline (like the Claude
+                    # path) so a timed-out session also kills the training it
+                    # launched — sequential single-GPU iterations must not
+                    # collide with a stranded job.
+                    "kill_process_group": True,
+                },
+            )
+        else:
+            config = CodingAgentConfig(
+                agent_type="claude_code",
+                model=self.implementation_model,
+                debug_model=self.implementation_model,
+                agent_specific={
+                    **self._claude_auth_settings,
+                    **({"env_overrides": lane_env} if lane_env else {}),
+                    "env_strip": self.env_strip,
+                    "env_defaults": self.env_defaults,
+                    "aws_region": self.aws_region,
+                    "mcp_servers": mcp_servers,
+                    "allowed_tools": implementation_allowed_tools,
+                    "timeout": self._clamped_timeout(self.implementation_timeout),
+                    # Under node expansion only lane 0 streams to the console;
+                    # other lanes stay buffered (their raw streams still land in
+                    # per-branch stream_artifact_path files).
+                    "streaming": lane_index == 0,
+                    "effort": self.session_effort,
+                    # Per-session process record: raw stream-json events land
+                    # here as they arrive, so a killed session still leaves its
+                    # forensics behind (feeds the difficulties fallback).
+                    "stream_artifact_path": self._session_stream_path(branch_name),
+                    # Declared-completion contract: lets the adapter reap a CLI
+                    # that delivered its full final report but lingers alive.
+                    "completion_markers": IMPLEMENTATION_COMPLETION_MARKERS,
+                }
+            )
         
         # 5. Build implementation prompt
         repo_memory_detail_access_instructions = (
@@ -1630,9 +1671,13 @@ Problem: {problem}"""
             ),
         )
         
-        # 6. Run Claude Code for implementation
-        print(f"[GenericSearch] Running Claude Code implementation...")
-        agent = ClaudeCodeCodingAgent(config)
+        # 6. Run the implementation session
+        print(f"[GenericSearch] Running {self.implementation_cli} implementation...")
+        if self.implementation_cli == "codex":
+            from kapso.execution.coding_agents.factory import CodingAgentFactory
+            agent = CodingAgentFactory.create(config)
+        else:
+            agent = ClaudeCodeCodingAgent(config)
         agent.initialize(session.session_folder)
 
         phase_started = time.monotonic()

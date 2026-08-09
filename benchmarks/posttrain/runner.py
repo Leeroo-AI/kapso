@@ -184,9 +184,14 @@ def build_runtime_config(
     if coding_model:
         # Ensemble members/selector are pinned by the config on purpose:
         # --coding-model (the harness $AGENT_CONFIG) labels and drives the
-        # implementation/feedback agents, not the ideation ensemble.
+        # ideation-base and feedback agents, not the ideation ensemble.
         params["idea_generation_model"] = coding_model
-        params["implementation_model"] = coding_model
+        # The implementation model is overridden only when implementation runs
+        # on Claude. With implementation_cli=codex the model is pinned in the
+        # config to a codex-native model (e.g. gpt-5.6-sol); a Claude
+        # $AGENT_CONFIG label must not clobber it (invalid for codex).
+        if params.get("implementation_cli", "claude_code") != "codex":
+            params["implementation_model"] = coding_model
         for section in ("coding_agent", "feedback_generator"):
             mode_cfg[section]["model"] = coding_model
             mode_cfg[section]["debug_model"] = coding_model
