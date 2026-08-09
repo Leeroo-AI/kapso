@@ -6,11 +6,19 @@ the sanitized cache (test labels are physically absent from it), archives
 full-fidelity runs for final selection, and prints the machine-readable
 manifest line the search parses as the score of record.
 
-Self-contained by design: imports only stdlib + numpy + relbench, never
-candidate modules — candidate code runs in the child process only.
+Self-contained by design: imports only stdlib + numpy + relbench + the
+vendored archive contract (kapso_eval_archive.py, byte-identical to the
+framework master), never candidate modules — candidate code runs in the child
+process only.
 
 CLI (the registered entrypoint delegates here verbatim):
     python kapso_evaluation/grader.py --fidelity fast|full [--fraction F] [--seed S]
+    python kapso_evaluation/grader.py --rescore RUN_DIR
+    python kapso_evaluation/grader.py --void RUN --reason "..."
+
+`--rescore` recomputes an archived run's score of record from its STORED
+predictions — no candidate code executes — and prints the manifest line.
+Final selection ranks head-stamped finals exclusively through this mode.
 
 Fidelity semantics for THIS suite (see README.md): the evaluation cost lives
 in the candidate's training build, not in scoring items. `fast` runs
@@ -40,6 +48,14 @@ import time
 from pathlib import Path
 
 import numpy as np
+
+# Sibling import of the vendored archive contract: this file runs as a script
+# (sys.path[0] is the suite dir) but is also loaded by tests via importlib
+# from an arbitrary cwd — anchor the suite dir explicitly either way.
+_SUITE_DIR = str(Path(__file__).resolve().parent)
+if _SUITE_DIR not in sys.path:
+    sys.path.insert(0, _SUITE_DIR)
+import kapso_eval_archive as archive_contract
 
 MANIFEST_MARKER = "KAPSO_EVAL_MANIFEST"
 
@@ -236,30 +252,32 @@ def load_and_score(run_data_dir: Path):
     return val_metrics, val_pred, test_pred, n_val
 
 
-def archive_full_run(run_data_dir: Path, val_metrics: dict) -> str:
+def archive_full_run(run_data_dir: Path, val_metrics: dict, evaluator_id: str) -> str:
     """Persist a full-fidelity run for final selection. Fast runs are never
-    archived: their debug-mode predictions are pipeline checks, not results."""
-    runs_root = Path(_env("RELBENCH_WORK_DIR")) / "runs"
-    runs_root.mkdir(parents=True, exist_ok=True)
-    existing = sorted(runs_root.glob("run_*"))
-    next_index = int(existing[-1].name.split("_")[1]) + 1 if existing else 1
-    run_dir = runs_root / f"run_{next_index:04d}"
-    private = run_dir / "private"
-    private.mkdir(parents=True)
+    archived: their debug-mode predictions are pipeline checks, not results.
+
+    Every archive is stamped with the evaluator that produced it and the
+    evaluator tree is snapshotted once per version — final selection pools
+    head-stamped finals only and rescored them through the snapshot, so runs
+    measured under a superseded evaluator never compete with head runs.
+    """
+    work_dir = Path(_env("RELBENCH_WORK_DIR"))
+    run_dir = archive_contract.allocate_run_dir(work_dir / "runs")
     for name in ("val_predictions.npy", "test_predictions.npy"):
         shutil.copy2(run_data_dir / name, run_dir / name)
-    (private / "metrics.json").write_text(
+    (run_dir / "private" / "metrics.json").write_text(
         json.dumps({"val": val_metrics, "test": {}}, indent=2)
     )
     # Selection eligibility label. Every archive starts "pending"; the search
     # stamps exactly one run per session "final" (its registered result) and
     # the rest "superseded"; candidates may stamp "self-voided" via --void.
-    # final_evaluate selects ONLY among "final" runs.
-    (private / "selection.json").write_text(
-        json.dumps(
-            {"status": "pending", "session": _session_id(), "by": "grader"},
-            indent=2,
-        )
+    # final_evaluate selects ONLY among "final" runs stamped with the head
+    # evaluator.
+    archive_contract.write_selection_label(
+        run_dir, session=_session_id(), evaluator_id=evaluator_id
+    )
+    archive_contract.snapshot_evaluator_tree(
+        work_dir, Path(__file__).resolve().parent, evaluator_id
     )
     # Snapshot the candidate's code for the final audit and claims package
     # (same filters as the tree-path archiver: no git internals, no
@@ -281,27 +299,50 @@ def void_run(run_name: str, reason: str) -> None:
     """Candidate-initiated disqualification of one of THIS session's archived
     runs (e.g. a pre-fix evaluation later found leaky). Voided runs are
     excluded from final selection. Cross-session voids are refused: a session
-    may only retract its own work."""
-    if not reason.strip():
-        print("[grader] --void requires a non-empty --reason")
-        sys.exit(8)
-    sel_path = (
-        Path(_env("RELBENCH_WORK_DIR")) / "runs" / run_name / "private" / "selection.json"
-    )
-    if not sel_path.exists():
-        print(f"[grader] --void: no archived run {run_name!r} with a selection label")
-        sys.exit(8)
-    record = json.loads(sel_path.read_text())
+    may only retract its own work. Refusals raise loudly (vendored contract),
+    which fails the CLI with the reason in the traceback."""
     session = _session_id()
-    if record["session"] != session:
-        print(
-            f"[grader] --void refused: {run_name} belongs to session "
-            f"{record['session']!r}, not {session!r}"
-        )
-        sys.exit(8)
-    record.update({"status": "self-voided", "by": "candidate", "reason": reason.strip()})
-    sel_path.write_text(json.dumps(record, indent=2))
-    print(f"KAPSO_EVAL_VOID {json.dumps({'run': run_name, 'session': session, 'reason': reason.strip()})}")
+    record = archive_contract.void_run(
+        Path(_env("RELBENCH_WORK_DIR")) / "runs",
+        run_name,
+        session=session,
+        reason=reason,
+    )
+    print(f"KAPSO_EVAL_VOID {json.dumps({'run': run_name, 'session': session, 'reason': record['reason']})}")
+
+
+def rescore_archived_run(run_path: str) -> None:
+    """Recompute an archived run's score of record from its stored artifacts.
+
+    Executes no candidate code: the archive already holds the prediction
+    vectors, and this evaluator version scores them exactly as its run mode
+    would. Final selection invokes this for every head-stamped final and
+    cross-checks the result against the archive-time manifest, so an edited
+    stored score becomes a loud failure instead of a winning forgery.
+    """
+    run_dir = Path(run_path)
+    if not run_dir.is_dir():
+        print(f"[grader] --rescore: no archived run directory at {run_dir}")
+        sys.exit(9)
+    primary = _env("RELBENCH_PRIMARY_METRIC")
+    val_metrics, _val_pred, _test_pred, n_val = load_and_score(run_dir)
+    label = json.loads((run_dir / "private" / "selection.json").read_text())
+    manifest = {
+        "fidelity": "full",
+        "fraction": 1.0,
+        "seed": 1337,
+        "items": n_val,
+        "total_items": n_val,
+        "score": val_metrics[primary],
+        "run": run_dir.name,
+        "session": label["session"],
+        "mode": "rescore",
+        "evaluator_id": archive_contract.fingerprint_tree(
+            Path(__file__).resolve().parent
+        ),
+        "metrics": val_metrics,
+    }
+    print(f"{MANIFEST_MARKER} {json.dumps(manifest)}")
 
 
 def main() -> None:
@@ -313,13 +354,19 @@ def main() -> None:
                         help="disqualify one of this session's archived runs")
     parser.add_argument("--reason", default="",
                         help="required with --void: why the run is invalid")
+    parser.add_argument("--rescore", metavar="RUN_DIR",
+                        help="recompute an archived run's score of record "
+                             "from its stored predictions (no candidate code)")
     args = parser.parse_args()
 
     if args.void:
         void_run(args.void, args.reason)
         return
+    if args.rescore:
+        rescore_archived_run(args.rescore)
+        return
     if not args.fidelity:
-        parser.error("--fidelity is required unless --void is given")
+        parser.error("--fidelity is required unless --void/--rescore is given")
 
     primary = _env("RELBENCH_PRIMARY_METRIC")
     run_data_dir = Path(tempfile.mkdtemp(prefix="relbench_eval_"))
@@ -331,9 +378,12 @@ def main() -> None:
             run_candidate(args.fidelity, run_data_dir)
         val_metrics, _val_pred, _test_pred, n_val = load_and_score(run_data_dir)
 
+        evaluator_id = archive_contract.fingerprint_tree(
+            Path(__file__).resolve().parent
+        )
         archived = ""
         if args.fidelity == "full":
-            archived = archive_full_run(run_data_dir, val_metrics)
+            archived = archive_full_run(run_data_dir, val_metrics, evaluator_id)
 
         print(f"[grader] OFFICIAL VALIDATION METRICS: {json.dumps(val_metrics)}")
         if archived:
@@ -347,6 +397,7 @@ def main() -> None:
             "score": val_metrics[primary],
             "run": archived,
             "session": _session_id(),
+            "evaluator_id": evaluator_id,
         }
         manifest_line = f"{MANIFEST_MARKER} {json.dumps(manifest)}"
         if archived:

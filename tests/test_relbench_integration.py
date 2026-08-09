@@ -541,6 +541,51 @@ class TestProvidedGrader:
         assert (run_dir / "test_predictions.npy").exists()
         assert (run_dir / "code" / "main.py").exists()
         assert not (run_dir / "code" / "kapso_evaluation").exists()
+        # Governance contract: the archive is stamped with the evaluator that
+        # produced it, and that evaluator's tree is snapshotted under the id.
+        label = json.loads((run_dir / "private/selection.json").read_text())
+        assert label["evaluator_id"] == manifest["evaluator_id"]
+        snapshot = work / "evaluators" / manifest["evaluator_id"]
+        assert (snapshot / "grader.py").exists()
+        assert (snapshot / "kapso_eval_archive.py").exists()
+
+    def test_rescore_reproduces_the_archived_score(self, tmp_path):
+        """run <-> --rescore agreement on the real grader and real data: the
+        recomputation from stored predictions must equal the archive-time
+        score bit-for-bit, because final selection treats any disagreement
+        as tampering and refuses to ship."""
+        import subprocess
+        import sys as _sys
+
+        root, work, run = self._repo(tmp_path)
+        proc = run("full")
+        assert proc.returncode == 0, proc.stdout[-2000:]
+        archived = json.loads(
+            proc.stdout.strip().splitlines()[-1].split(" ", 1)[1]
+        )
+        env = os.environ.copy()
+        env.update(
+            {
+                "RELBENCH_CACHE_DIR": str(RELBENCH_CACHE),
+                "RELBENCH_DATASET": "rel-f1",
+                "RELBENCH_TASK": "driver-position",
+                "RELBENCH_PRIMARY_METRIC": "mae",
+            }
+        )
+        rescore = subprocess.run(
+            [_sys.executable, "kapso_evaluation/grader.py",
+             "--rescore", str(work / "runs" / "run_0001")],
+            cwd=root, env=env, capture_output=True, text=True, timeout=300,
+        )
+        assert rescore.returncode == 0, rescore.stdout[-2000:]
+        payload = json.loads(
+            rescore.stdout.strip().splitlines()[-1].split(" ", 1)[1]
+        )
+        assert payload["mode"] == "rescore"
+        assert payload["run"] == "run_0001"
+        assert payload["score"] == archived["score"]
+        assert payload["evaluator_id"] == archived["evaluator_id"]
+        assert payload["metrics"]["mae"] == archived["score"]
 
 
 def _bare_driver_position_handler(tmp_path):
@@ -796,9 +841,12 @@ class TestGraderSelectionLabel:
 
         (sel / "selection.json").write_text(json.dumps(
             {"status": "pending", "session": "someone-else", "by": "grader"}))
-        with pytest.raises(SystemExit):
+        # Refusals come from the vendored archive contract and raise loudly
+        # (no exit-code translation layer): cross-session retraction and an
+        # empty reason both fail the CLI with the cause in the traceback.
+        with pytest.raises(PermissionError, match="belongs to session"):
             grader.void_run("run_0001", "not mine")
-        with pytest.raises(SystemExit):
+        with pytest.raises(ValueError, match="non-empty"):
             grader.void_run("run_0001", "   ")
 
     def test_strategy_hook_is_wired(self):

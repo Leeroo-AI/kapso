@@ -433,3 +433,17 @@ class TestSelectFinal:
         make_run(runs, "run_0001", session="s1", score=0.6, evaluator_id="v9")
         with pytest.raises(FileNotFoundError, match="no evaluator snapshot"):
             archive.select_final(tmp_path, higher_is_better=True)
+
+
+def test_vendored_copies_are_byte_identical():
+    """Benchmark suites vendor the sandbox contract; a drifted copy would
+    stamp archives with a fingerprint no framework code can reproduce."""
+    repo_root = Path(__file__).parents[1]
+    master = repo_root / "src/kapso/execution/evaluation_archive_sandbox.py"
+    vendored = [
+        repo_root / "benchmarks/relbench/data/generic_eval/kapso_eval_archive.py",
+    ]
+    for copy in vendored:
+        assert copy.read_bytes() == master.read_bytes(), (
+            f"{copy} has drifted from the framework master — recopy it"
+        )
