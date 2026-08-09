@@ -61,7 +61,7 @@ Values in the best-known number's units (AUROC/acc/MAP in %, NMAE, R², raw MAE)
 | 59 | rel-amazon/user-item-rate | rec | v1★ | 2.25 (ContextGNN / KumoRFM-ft) | — | 2.25 | 1.14 | — | 2.31 | ✅ beats best-known | 4xA100 | 6h | ✅ done |
 | 60 | rel-amazon/user-item-review | rec | v1★ | 1.63 (ContextGNN / KumoRFM-ft) | — | 1.63 | 0.22 | — | 2.95 | ✅ beats best-known | 4xA100 | 6h | ✅ done |
 | 61 | rel-avito/user-visits | clf | v1★ | 78.3 (KumoRFM-ft) | 67.8 | 78.3 | 64.8 | 67.4 | 67.8 | below best-known | 4xA100 | 6h | ✅ done |
-| 62 | rel-f1/driver-top3 ⚠ | clf | v1★ | 99.6 (KumoRFM-ft) | 85.2 | 99.6 | 91.1 | 92.2 | 79.7 | below best-known | 4xA100 | 6h | ✅ done |
+| 62 | rel-f1/driver-top3 ⚠ | clf | v1★ | 99.6 (KumoRFM-ft) | 85.2 | 99.6 | 91.1 | 92.2 | 93.4 | below best-known | 4xA100 | 6h | ✅ done |
 | 2 | rel-f1/driver-circuit-compete | rec | v2★ | 76.2 (ID-GNN-4L) | — | — | — | — | 87.9 | ✅ beats best-known | 4xA100 | 4h | ✅ done |
 | 3 | rel-f1/results-position | AC-reg | v2 | 0.528 (RelGT-AC) | — | — | — | — | 0.927 | ✅ beats best-known | 4xA100 | 4h | ✅ done |
 | 4 | rel-f1/qualifying-position | AC-reg | v2 | 0.239 (RelGT-AC) | — | — | — | — | 0.607 | ✅ beats best-known | 4xA100 | 4h | ✅ done |
@@ -135,7 +135,7 @@ Complete campaign state per run — session transcripts, lens/ideation history, 
 | rel-amazon/user-item-rate | `gs://leeroo-kapso-relbench-artifacts/runs/rel-amazon--user-item-rate/20260801T051354_lane-a3.tgz` |
 | rel-amazon/user-item-review | `gs://leeroo-kapso-relbench-artifacts/runs/rel-amazon--user-item-review/20260801T042832_lane-b2.tgz` |
 | rel-avito/user-visits | `gs://leeroo-kapso-relbench-artifacts/runs/rel-avito--user-visits/20260809T191905_lane-c5.tgz` |
-| rel-f1/driver-top3 | `gs://leeroo-kapso-relbench-artifacts/runs/rel-f1--driver-top3/20260803T194206_lane-a3.tgz` |
+| rel-f1/driver-top3 | `gs://leeroo-kapso-relbench-artifacts/runs/rel-f1--driver-top3/20260809T201737_lane-c3.tgz` |
 | rel-f1/driver-circuit-compete | `gs://leeroo-kapso-relbench-artifacts/runs/rel-f1--driver-circuit-compete/20260801T102223_lane-a1.tgz` |
 | rel-f1/results-position | `gs://leeroo-kapso-relbench-artifacts/runs/rel-f1--results-position/20260801T102230_lane-a2.tgz` |
 | rel-f1/qualifying-position | `gs://leeroo-kapso-relbench-artifacts/runs/rel-f1--qualifying-position/20260801T092104_lane-a3.tgz` |
