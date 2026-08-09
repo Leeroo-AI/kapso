@@ -101,7 +101,7 @@ set -x
 git init -q /opt/ptb
 git -C /opt/ptb remote add origin "$PTB_REPO"
 git -C /opt/ptb fetch --depth 1 origin "$PTB_PIN"
-git -C /opt/ptb checkout -q --detach FETCH_HEAD
+git -C /opt/ptb checkout -q "$PTB_PIN"
 cd /opt/ptb
 # Adapter comes from the same tarball the container was built from — never a
 # git branch (a clone of the default branch once shipped a checkout with no

@@ -75,7 +75,7 @@ set -x
 git init -q /opt/ptb
 git -C /opt/ptb remote add origin "$PTB_REPO"
 git -C /opt/ptb fetch --depth 1 origin "$PTB_PIN"
-git -C /opt/ptb checkout -q --detach FETCH_HEAD
+git -C /opt/ptb checkout -q "$PTB_PIN"
 cd /opt/ptb
 
 # KNOWN LIMITATION (2026-07-26): vLLM 0.11 in vllm_debug.sif hits a CUDA-graph

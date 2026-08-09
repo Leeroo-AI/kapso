@@ -43,7 +43,7 @@ mkdir -p "$HF_HOME"
 git init -q /opt/ptb
 git -C /opt/ptb remote add origin "$PTB_REPO"
 git -C /opt/ptb fetch --depth 1 origin "$PTB_PIN"
-git -C /opt/ptb checkout -q --detach FETCH_HEAD
+git -C /opt/ptb checkout -q "$PTB_PIN"
 # kapso source: prefer the exact local tree uploaded by 01_build_assets.sh
 # (kapso_src_gcs metadata) over a git clone, so unpushed branches build too.
 KAPSO_SRC_GCS=$(meta kapso_src_gcs || true)
