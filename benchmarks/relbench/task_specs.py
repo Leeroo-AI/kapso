@@ -10,6 +10,39 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
+# Target coercion -----------------------------------------------------------
+
+BOOLEAN_TARGET_MAP = {"t": 1, "f": 0, "true": 1, "false": 0}
+
+
+def coerce_boolean_target(table, target_col: str):
+    """Map a text boolean target ('t'/'f') to 0/1 in place.
+
+    Some relbench task tables store a boolean target as text (rel-trial's
+    studies-has_dmc, eligibilities-adult, eligibilities-child). relbench's own
+    metrics then raise `pos_label=1 is not a valid label`, so every consumer —
+    the candidate, the in-loop grader, and our final scoring — must see the
+    numeric form. Unknown strings raise rather than being coerced to NaN.
+
+    Lives here, at the bottom of the benchmark's import graph, because the
+    sandbox builder runs it in a bare subprocess that must not drag in the
+    handler (and through it the framework).
+    """
+    if target_col not in table.df.columns:
+        return table
+    column = table.df[target_col]
+    if column.dtype != object:
+        return table
+    lowered = column.astype(str).str.lower()
+    unknown = set(lowered.unique()) - set(BOOLEAN_TARGET_MAP)
+    if unknown:
+        raise ValueError(
+            f"target column {target_col!r} holds non-boolean strings {sorted(unknown)}"
+        )
+    table.df[target_col] = lowered.map(BOOLEAN_TARGET_MAP).astype("int64")
+    return table
+
+
 # Task families -------------------------------------------------------------
 
 ENTITY_BINARY = "entity_binary_classification"

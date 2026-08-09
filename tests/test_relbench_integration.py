@@ -607,18 +607,60 @@ def _bare_driver_position_handler(tmp_path):
     return handler, task
 
 
+GENERIC_EVAL_DIR = Path(__file__).parents[1] / "benchmarks/relbench/data/generic_eval"
+
+# The maintainer-built entrypoint is a thin forwarder onto the provided
+# grader — this is the wrapper shape the registered contract expects, and
+# using it here proves forwarding covers --rescore.
+FORWARDING_WRAPPER = (
+    "import subprocess\n"
+    "import sys\n"
+    "from pathlib import Path\n"
+    "raise SystemExit(subprocess.call(\n"
+    "    [sys.executable, str(Path(__file__).resolve().parent / 'grader.py'),\n"
+    "     *sys.argv[1:]]))\n"
+)
+
+
+def _governed_head(work_dir):
+    """Snapshot a real evaluator tree (provided suite + wrapper) and return
+    its fingerprint — the head every archived run must be stamped with."""
+    from kapso.execution import evaluation_archive_sandbox as sandbox
+
+    source = work_dir / "eval_source"
+    source.mkdir()
+    for f in sorted(GENERIC_EVAL_DIR.glob("*")):
+        if f.is_file():
+            (source / f.name).write_bytes(f.read_bytes())
+    (source / "kapso_eval.py").write_text(FORWARDING_WRAPPER)
+    head = sandbox.fingerprint_tree(source)
+    sandbox.snapshot_evaluator_tree(work_dir, source, head)
+    return head
+
+
 def _archive_run(runs_dir, name, val_pred, test_pred, status, session="exp_A",
-                 forged_val=None):
+                 forged_val=None, head="", score=None):
+    """One archived run as the governed grader would record it: predictions,
+    label with evaluator stamp, metrics.json, and the archive-time manifest
+    line the rescore tripwire cross-checks."""
     run_dir = runs_dir / name
     (run_dir / "private").mkdir(parents=True)
     np.save(run_dir / "val_predictions.npy", val_pred)
     np.save(run_dir / "test_predictions.npy", test_pred)
     (run_dir / "private/selection.json").write_text(
-        json.dumps({"status": status, "session": session, "by": "test"})
+        json.dumps({"status": status, "session": session, "by": "test",
+                    "evaluator_id": head})
     )
     (run_dir / "private/metrics.json").write_text(
         json.dumps({"val": forged_val or {"mae": 999.0}, "test": {}})
     )
+    if score is not None:
+        line = {"fidelity": "full", "fraction": 1.0, "seed": 1337,
+                "items": int(len(val_pred)), "total_items": int(len(val_pred)),
+                "score": score, "run": name, "session": session}
+        (run_dir / "manifest.txt").write_text(
+            "KAPSO_EVAL_MANIFEST " + json.dumps(line) + "\n"
+        )
     return run_dir
 
 
@@ -629,52 +671,62 @@ def _archive_run(runs_dir, name, val_pred, test_pred, status, session="exp_A",
 class TestRunSelectionLabels:
     """Selection-eligibility labels (user-directed 2026-07-31, after the
     user-ignore incident: final_evaluate shipped a self-disqualified leaky
-    intermediate). Pool = registered finals only; val recomputed from
-    predictions, never trusted from metrics.json."""
+    intermediate). Pool = registered finals stamped with the HEAD evaluator;
+    ranking values are recomputed from stored predictions by the head
+    evaluator's own --rescore, never read from metrics.json."""
 
     def test_final_evaluate_ignores_pending_and_voided_runs(self, tmp_path):
         handler, task = _bare_driver_position_handler(tmp_path)
+        head = _governed_head(handler.work_dir)
         n_val = len(task.get_table("val"))
         n_test = len(task.get_table("test"))
         val_y = task.get_table("val", mask_input_cols=False).df[
             task.target_col].to_numpy(dtype=float)
+        expected = float(np.abs(val_y - 11.0).mean())
 
         # Superseded intermediate with a FORGED perfect metrics.json val and
         # genuinely best predictions — must not be selectable.
         _archive_run(handler.runs_dir, "run_0001", val_y.copy(),
                      np.full(n_test, 11.0), "superseded",
-                     forged_val={"mae": 0.0001})
+                     forged_val={"mae": 0.0001}, head=head, score=0.0)
         # Registered final: mediocre but real.
         _archive_run(handler.runs_dir, "run_0002", np.full(n_val, 11.0),
-                     np.full(n_test, 11.0), "final")
+                     np.full(n_test, 11.0), "final", head=head, score=expected)
         # Self-voided run with perfect predictions — excluded.
         _archive_run(handler.runs_dir, "run_0003", val_y.copy(),
-                     np.full(n_test, 11.0), "self-voided")
+                     np.full(n_test, 11.0), "self-voided", head=head, score=0.0)
 
         report = handler.final_evaluate()
         assert report["run"] == "run_0002"
-        # Val in the report is recomputed from predictions, not the JSON.
-        expected = float(np.abs(val_y - 11.0).mean())
+        # Val in the report is the head evaluator's recomputation from the
+        # stored predictions, not the (forged-able) metrics.json.
         assert abs(report["val_metrics"]["mae"] - expected) < 1e-9
         assert report["test_metrics"]["mae"] > 0
+        assert report["head_evaluator_id"] == head
+        assert set(report["scored"]) == {"run_0002"}
 
     def test_session_finals_are_inferred_when_the_hook_never_fired(self, tmp_path):
         """The manifest of record is printed by the maintainer-owned wrapper and
         may carry no run/session identity, so the hook can silently never fire
         (observed live: every run left 'pending' -> final_evaluate errored and a
         completed task recorded as failed). selection.json always records the
-        session, so the handler derives each session's last run as its final."""
+        session, so the archive derives each session's last run as its final."""
         handler, task = _bare_driver_position_handler(tmp_path)
+        head = _governed_head(handler.work_dir)
         n_val = len(task.get_table("val")); n_test = len(task.get_table("test"))
         val_y = task.get_table("val", mask_input_cols=False).df[
             task.target_col].to_numpy(dtype=float)
+        mae_of = lambda c: float(np.abs(val_y - c).mean())
         # session A: two runs, the later one is the final; session B: one run
         _archive_run(handler.runs_dir, "run_0001", np.full(n_val, 20.0),
-                     np.full(n_test, 20.0), "pending", session="exp_A")
+                     np.full(n_test, 20.0), "pending", session="exp_A",
+                     head=head, score=mae_of(20.0))
         _archive_run(handler.runs_dir, "run_0002", np.full(n_val, 11.0),
-                     np.full(n_test, 11.0), "pending", session="exp_A")
+                     np.full(n_test, 11.0), "pending", session="exp_A",
+                     head=head, score=mae_of(11.0))
         _archive_run(handler.runs_dir, "run_0003", np.full(n_val, 30.0),
-                     np.full(n_test, 30.0), "pending", session="exp_B")
+                     np.full(n_test, 30.0), "pending", session="exp_B",
+                     head=head, score=mae_of(30.0))
         report = handler.final_evaluate()
         status = lambda n: json.loads(
             (handler.runs_dir / n / "private/selection.json").read_text())["status"]
@@ -683,16 +735,50 @@ class TestRunSelectionLabels:
         assert status("run_0003") == "final"
         # of the two finals, argmax(val) on a minimize metric picks run_0002
         assert report["run"] == "run_0002"
-        expected = float(np.abs(val_y - 11.0).mean())
-        assert abs(report["val_metrics"]["mae"] - expected) < 1e-9
+        assert abs(report["val_metrics"]["mae"] - mae_of(11.0)) < 1e-9
+
+    def test_final_under_a_superseded_evaluator_is_excluded(self, tmp_path):
+        """The archive-level mirror of the in-loop None-projection rule: a
+        final measured under a superseded evaluator never re-ranks against
+        head runs, even with the best raw score on the board."""
+        handler, task = _bare_driver_position_handler(tmp_path)
+        head = _governed_head(handler.work_dir)
+        n_val = len(task.get_table("val")); n_test = len(task.get_table("test"))
+        val_y = task.get_table("val", mask_input_cols=False).df[
+            task.target_col].to_numpy(dtype=float)
+        mae_of = lambda c: float(np.abs(val_y - c).mean())
+        _archive_run(handler.runs_dir, "run_0001", val_y.copy(),
+                     np.full(n_test, 11.0), "final", session="exp_A",
+                     head="superseded-evaluator", score=0.0)
+        _archive_run(handler.runs_dir, "run_0002", np.full(n_val, 11.0),
+                     np.full(n_test, 11.0), "final", session="exp_B",
+                     head=head, score=mae_of(11.0))
+        report = handler.final_evaluate()
+        assert report["run"] == "run_0002"
+        assert "run_0001" in report["excluded"]
+        assert "never re-ranked across rulers" in report["excluded"]["run_0001"]
+
+    def test_edited_archive_score_fails_loud(self, tmp_path):
+        """A forged manifest score disagrees with its own recomputation —
+        final selection refuses to ship rather than resolving silently."""
+        handler, task = _bare_driver_position_handler(tmp_path)
+        head = _governed_head(handler.work_dir)
+        n_val = len(task.get_table("val")); n_test = len(task.get_table("test"))
+        _archive_run(handler.runs_dir, "run_0001", np.full(n_val, 11.0),
+                     np.full(n_test, 11.0), "final", head=head, score=0.0001)
+        with pytest.raises(ValueError, match="does not match its recomputation"):
+            handler.final_evaluate()
 
     def test_inference_never_overrides_a_decided_label(self, tmp_path):
         handler, task = _bare_driver_position_handler(tmp_path)
+        head = _governed_head(handler.work_dir)
         n_val = len(task.get_table("val")); n_test = len(task.get_table("test"))
         _archive_run(handler.runs_dir, "run_0001", np.full(n_val, 11.0),
-                     np.full(n_test, 11.0), "self-voided", session="exp_A")
+                     np.full(n_test, 11.0), "self-voided", session="exp_A",
+                     head=head)
         _archive_run(handler.runs_dir, "run_0002", np.full(n_val, 11.0),
-                     np.full(n_test, 11.0), "invalid", session="exp_A")
+                     np.full(n_test, 11.0), "invalid", session="exp_A",
+                     head=head)
         assert "error" in handler.final_evaluate()   # nothing eligible
         status = lambda n: json.loads(
             (handler.runs_dir / n / "private/selection.json").read_text())["status"]
@@ -700,10 +786,11 @@ class TestRunSelectionLabels:
 
     def test_zero_finals_is_the_documented_error(self, tmp_path):
         handler, task = _bare_driver_position_handler(tmp_path)
+        head = _governed_head(handler.work_dir)
         n_val = len(task.get_table("val"))
         n_test = len(task.get_table("test"))
         _archive_run(handler.runs_dir, "run_0001", np.full(n_val, 11.0),
-                     np.full(n_test, 11.0), "self-voided")
+                     np.full(n_test, 11.0), "self-voided", head=head)
         assert "error" in handler.final_evaluate()
 
     def test_missing_label_raises(self, tmp_path):
@@ -768,7 +855,7 @@ class TestBooleanTargetCoercion:
         import pandas as pd
         from types import SimpleNamespace
 
-        from benchmarks.relbench.handler import coerce_boolean_target
+        from benchmarks.relbench.task_specs import coerce_boolean_target
 
         table = SimpleNamespace(df=pd.DataFrame({"target": ["t", "f", "T", "F"]}))
         coerce_boolean_target(table, "target")
@@ -779,7 +866,7 @@ class TestBooleanTargetCoercion:
         import pandas as pd
         from types import SimpleNamespace
 
-        from benchmarks.relbench.handler import coerce_boolean_target
+        from benchmarks.relbench.task_specs import coerce_boolean_target
 
         table = SimpleNamespace(df=pd.DataFrame({"target": [0.0, 1.0]}))
         coerce_boolean_target(table, "target")
@@ -789,7 +876,7 @@ class TestBooleanTargetCoercion:
         import pandas as pd
         from types import SimpleNamespace
 
-        from benchmarks.relbench.handler import coerce_boolean_target
+        from benchmarks.relbench.task_specs import coerce_boolean_target
 
         table = SimpleNamespace(df=pd.DataFrame({"target": ["t", "maybe"]}))
         with pytest.raises(ValueError, match="non-boolean strings"):

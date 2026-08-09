@@ -117,7 +117,7 @@ def build_sanitized_cache(
     from relbench.datasets import get_dataset
     from relbench.tasks import get_task, task_registry
 
-    from benchmarks.relbench.handler import coerce_boolean_target
+    from benchmarks.relbench.task_specs import coerce_boolean_target
 
     source = Path(source_cache_dir or _default_source_cache())
     dest = Path(dest_cache_dir)

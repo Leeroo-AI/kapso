@@ -35,46 +35,27 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 
 from kapso.environment.handlers.base import ProblemHandler, ProblemRunResult
+from kapso.execution.evaluation_archive import (
+    finalize_session_run,
+    select_final,
+)
 
 from benchmarks.relbench.context import (
     FEATURES_HISTORY_TEMPLATE,
     build_problem_context,
     build_table_information,
 )
-from benchmarks.relbench.task_specs import TaskSpec, resolve_spec
+from benchmarks.relbench.task_specs import (
+    TaskSpec,
+    coerce_boolean_target,
+    resolve_spec,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CUDA_DEVICE = os.getenv("CUDA_DEVICE", "0")
 
 MAX_OUTPUT_LINES = 400
 MAX_STREAM_LINES = 25000
-
-
-BOOLEAN_TARGET_MAP = {"t": 1, "f": 0, "true": 1, "false": 0}
-
-
-def coerce_boolean_target(table, target_col: str):
-    """Map a text boolean target ('t'/'f') to 0/1 in place.
-
-    Some relbench task tables store a boolean target as text (rel-trial's
-    studies-has_dmc, eligibilities-adult, eligibilities-child). relbench's own
-    metrics then raise `pos_label=1 is not a valid label`, so every consumer —
-    the candidate, the in-loop grader, and our final scoring — must see the
-    numeric form. Unknown strings raise rather than being coerced to NaN.
-    """
-    if target_col not in table.df.columns:
-        return table
-    column = table.df[target_col]
-    if column.dtype != object:
-        return table
-    lowered = column.astype(str).str.lower()
-    unknown = set(lowered.unique()) - set(BOOLEAN_TARGET_MAP)
-    if unknown:
-        raise ValueError(
-            f"target column {target_col!r} holds non-boolean strings {sorted(unknown)}"
-        )
-    table.df[target_col] = lowered.map(BOOLEAN_TARGET_MAP).astype("int64")
-    return table
 
 
 class PredictionContractError(Exception):
@@ -237,85 +218,12 @@ class RelBenchHandler(ProblemHandler):
     def finalize_run_selection(self, manifest: Dict, valid: bool) -> None:
         """Label the archive when a session's score of record resolves.
 
-        The of-record run (named in the manifest the grader printed) becomes
-        this session's registered "final" — or "invalid" on a judge veto or
-        integrity flag; every still-pending sibling from the same session is
-        "superseded". A run the candidate already self-voided keeps that
-        stamp: a session's retraction of its own work outranks promotion.
-        final_evaluate selects ONLY among "final" runs.
+        Relocated to the framework archive contract; semantics unchanged
+        (final/invalid for the of-record run, superseded siblings,
+        self-voided outranks promotion). final_evaluate selects ONLY among
+        "final" runs stamped with the head evaluator.
         """
-        if manifest["fidelity"] != "full":
-            return
-        run_name, session = manifest["run"], manifest["session"]
-        if not run_name:
-            raise ValueError(
-                "full-fidelity manifest of record carries no run name — "
-                "grader/archive generation mismatch"
-            )
-        sel_path = self.runs_dir / run_name / "private" / "selection.json"
-        record = json.loads(sel_path.read_text())
-        if record["status"] == "self-voided":
-            print(
-                f"[RelBenchHandler] run selection: {run_name} stays "
-                "self-voided (candidate retraction outranks promotion)"
-            )
-        else:
-            record.update(
-                {"status": "final" if valid else "invalid", "by": "strategy"}
-            )
-            sel_path.write_text(json.dumps(record, indent=2))
-        superseded = 0
-        for other in sorted(self.runs_dir.glob("run_*")):
-            other_sel = other / "private" / "selection.json"
-            if other.name == run_name or not other_sel.exists():
-                continue
-            other_record = json.loads(other_sel.read_text())
-            if (
-                other_record["session"] == session
-                and other_record["status"] == "pending"
-            ):
-                other_record.update({"status": "superseded", "by": "strategy"})
-                other_sel.write_text(json.dumps(other_record, indent=2))
-                superseded += 1
-        print(
-            f"[RelBenchHandler] run selection: {run_name} -> "
-            f"{record['status']}; superseded {superseded} sibling run(s) "
-            f"of session {session}"
-        )
-
-    def _infer_session_finals(self) -> None:
-        """Resolve each session's registered final from the archive itself.
-
-        finalize_run_selection() stamps labels when the search hands us a
-        manifest of record, but the manifest is printed by the evaluation
-        wrapper the maintainer owns and does not always carry run/session
-        identity. selection.json always does (our grader writes it at archive
-        time), and a session's LAST archived run is its registered result, so
-        derive the labels here rather than depending on the wrapper's format.
-        Never overrides a decided label: self-voided and invalid runs, and
-        finals already stamped by the hook, are left untouched.
-        """
-        by_session: Dict[str, List[Path]] = {}
-        for run_dir in sorted(self.runs_dir.glob("run_*")):
-            sel_file = run_dir / "private" / "selection.json"
-            if not sel_file.exists():
-                continue
-            record = json.loads(sel_file.read_text())
-            if record["status"] != "pending":
-                continue
-            by_session.setdefault(record["session"], []).append(run_dir)
-        for session, runs in by_session.items():
-            final = max(runs, key=lambda r: r.name)
-            for run_dir in runs:
-                sel_file = run_dir / "private" / "selection.json"
-                record = json.loads(sel_file.read_text())
-                record["status"] = "final" if run_dir is final else "superseded"
-                record["by"] = "session-final inference"
-                sel_file.write_text(json.dumps(record, indent=2))
-            print(
-                f"[RelBenchHandler] session {session}: final={final.name} "
-                f"(+{len(runs) - 1} superseded)"
-            )
+        finalize_session_run(self.runs_dir, manifest, valid)
 
     def _scoring_test_table(self):
         """Labeled test table with any text boolean target coerced to 0/1.
@@ -328,49 +236,51 @@ class RelBenchHandler(ProblemHandler):
             )
         return table
 
-    def _recomputed_val_metrics(self, run_dir: Path) -> Dict:
-        """Official val metrics recomputed from the archived predictions
-        against pristine labels — the archived metrics.json is never trusted
-        for selection (it lives in a same-user-writable directory)."""
-        val_pred = np.load(run_dir / "val_predictions.npy", allow_pickle=False)
-        val_table = coerce_boolean_target(self.task.get_table("val"), self.spec.target_col)
-        return {
-            k: float(v) for k, v in self.task.evaluate(val_pred, val_table).items()
-        }
-
     def final_evaluate(self, file_path: str = "", **kwargs) -> Dict:
-        """Best-by-validation among registered-final runs -> report.
+        """Max rescored validation among head-stamped final runs -> report.
 
-        Pool = runs labeled "final" by finalize_run_selection: each
-        session's registered result, minus judge-invalidated and
-        candidate-voided runs. Intermediate evaluations never compete —
-        the user-ignore incident shipped a self-disqualified leaky
-        intermediate precisely because the old pool was every archived run.
-        Val is recomputed from predictions, never read from metrics.json.
+        Thin wrapper over the framework selector (EVALUATION_GOVERNANCE.md):
+        the pool is each session's registered "final" (voided/invalid runs
+        never compete — the user-ignore incident shipped a self-disqualified
+        leaky intermediate precisely because the old pool was every archived
+        run), restricted to runs stamped with the HEAD evaluator, and every
+        ranking value is recomputed from stored predictions by the head
+        evaluator's own --rescore mode. If the evaluation changed mid-run,
+        the head is the transitioned evaluator and pre-transition finals are
+        excluded rather than re-ranked — the last mile follows the in-loop
+        ruler with no separate sync. The handler keeps only the benchmark
+        tail: test metrics once for the winner, the code audit, the report.
         """
-        self._infer_session_finals()
-        best = None
-        for run_dir in sorted(self.runs_dir.glob("run_*")):
-            sel_file = run_dir / "private" / "selection.json"
-            if not sel_file.exists():
-                raise FileNotFoundError(
-                    f"{run_dir.name} has no selection label — archive was "
-                    "written by a pre-label grader generation"
-                )
-            if json.loads(sel_file.read_text())["status"] != "final":
-                continue
-            metrics = json.loads((run_dir / "private" / "metrics.json").read_text())
-            metrics["val"] = self._recomputed_val_metrics(run_dir)
-            val_primary = metrics["val"].get(self.spec.primary_metric)
-            if val_primary is None:
-                continue
-            if best is None or self._is_better(val_primary, best[0]):
-                best = (val_primary, run_dir, metrics)
+        provided_dir = Path(__file__).resolve().parent / "data" / "generic_eval"
+        provided_files = {
+            f.name: hashlib.sha256(f.read_bytes()).hexdigest()
+            for f in sorted(provided_dir.glob("*"))
+            if f.is_file()
+        }
+        rescore_env = os.environ.copy()
+        rescore_env.update(
+            {
+                "RELBENCH_DATASET": self.dataset_name,
+                "RELBENCH_TASK": self.task_name,
+                "RELBENCH_PRIMARY_METRIC": self.spec.primary_metric,
+            }
+        )
+        selection = select_final(
+            self.work_dir,
+            higher_is_better=self.spec.maximize,
+            provided_files=provided_files,
+            env=rescore_env,
+        )
+        if selection.winner_run is None:
+            return {
+                "error": "no registered-final runs under the head evaluator",
+                "head_evaluator_id": selection.head_evaluator_id,
+                "excluded": dict(selection.excluded),
+            }
 
-        if best is None:
-            return {"error": "no registered-final runs archived"}
-
-        val_primary, run_dir, metrics = best
+        run_dir = self.runs_dir / selection.winner_run
+        metrics = json.loads((run_dir / "private" / "metrics.json").read_text())
+        metrics["val"] = dict(selection.winner_metrics)
         if not metrics.get("test"):
             # Generic-search archives carry val only (the in-loop grader runs
             # against the sanitized cache and cannot score test). Compute the
@@ -390,10 +300,14 @@ class RelBenchHandler(ProblemHandler):
             "family": self.spec.family,
             "primary_metric": self.spec.primary_metric,
             "selected_by": (
-                f"best recomputed validation {self.spec.primary_metric} "
-                "among registered-final runs"
+                f"max rescored validation {self.spec.primary_metric} among "
+                "head-stamped final runs (evaluator "
+                f"{selection.head_evaluator_id[:12]})"
             ),
             "run": run_dir.name,
+            "head_evaluator_id": selection.head_evaluator_id,
+            "scored": dict(selection.scored),
+            "excluded": dict(selection.excluded),
             "val_metrics": metrics.get("val", {}),
             "test_metrics": metrics.get("test", {}),
             "audit": audit,
