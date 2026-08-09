@@ -27,6 +27,7 @@ meta() { curl -sf -H "Metadata-Flavor: Google" \
 
 BUCKET=$(meta ptb_bucket)
 PTB_REPO=$(meta ptb_repo)
+PTB_PIN=$(meta ptb_pin)
 RUN_ID=$(meta ptb_run_id)
 EVAL=$(meta ptb_eval)
 OUT="gs://$BUCKET/results/$RUN_ID/rescore"
@@ -68,10 +69,13 @@ HF_TOKEN="$(gcloud secrets versions access latest --secret=hf-token 2>/dev/null 
 echo "hf token present: $([ -n "$HF_TOKEN" ] && echo yes || echo no)"
 set -x
 
-# Match the run harness: v1.1 evaluator lives on new_judge_v2 (see
-# run_startup.sh). evaluate.py is the score of record; keep it on the same
-# branch as the run so a rescore uses identical eval code.
-git clone --depth 1 --branch new_judge_v2 "$PTB_REPO" /opt/ptb
+# Match the run harness exactly: check out the SAME pinned commit ($PTB_PIN,
+# from env.sh PTB_PIN_COMMIT) the run evaluated on, so a rescore uses identical
+# evaluate.py. See run_startup.sh.
+git init -q /opt/ptb
+git -C /opt/ptb remote add origin "$PTB_REPO"
+git -C /opt/ptb fetch --depth 1 origin "$PTB_PIN"
+git -C /opt/ptb checkout -q --detach FETCH_HEAD
 cd /opt/ptb
 
 # KNOWN LIMITATION (2026-07-26): vLLM 0.11 in vllm_debug.sif hits a CUDA-graph
@@ -152,7 +156,7 @@ gcloud compute instances create "$VM" \
     --disk "name=${DISK},device-name=hfcache,mode=rw,auto-delete=yes" \
     --service-account "$SA_EMAIL" --scopes cloud-platform \
     --metadata-from-file startup-script="$STARTUP" \
-    --metadata "ptb_bucket=${BUCKET},ptb_repo=${PTB_REPO_URL},ptb_run_id=${RUN_ID},ptb_eval=${EVAL}" \
+    --metadata "ptb_bucket=${BUCKET},ptb_repo=${PTB_REPO_URL},ptb_pin=${PTB_PIN_COMMIT},ptb_run_id=${RUN_ID},ptb_eval=${EVAL}" \
     --async
 rm -f "$STARTUP"
 

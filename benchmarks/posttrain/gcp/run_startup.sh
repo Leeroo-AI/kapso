@@ -16,6 +16,7 @@ HOURS=$(meta ptb_hours)
 AGENT_CONFIG=$(meta ptb_agent_config)
 BUCKET=$(meta ptb_bucket)
 PTB_REPO=$(meta ptb_repo)
+PTB_PIN=$(meta ptb_pin)
 KAPSO_REPO=$(meta kapso_repo)
 RUN_ID=$(meta ptb_run_id)
 
@@ -93,11 +94,14 @@ echo "secrets loaded: anthropic=$([ -n "$ANTHROPIC_API_KEY" ] && echo yes || ech
 set -x
 
 # --- PostTrainBench checkout + kapso adapter + containers ---
-# v1.1 evaluator: the four-judge harness (data_contamination / api_usage /
-# ptb_lookup / general) lives on the new_judge_v2 branch (PR #50, not yet
-# merged to main). Pin to the branch tip for now; freeze to a fixed commit
-# (currently 9066b7c) once we want it stable against branch moves / a merge.
-git clone --depth 1 --branch new_judge_v2 "$PTB_REPO" /opt/ptb
+# v1.1 evaluator (four judges: data_contamination / api_usage / ptb_lookup /
+# general) pinned to a fixed commit ($PTB_PIN, from env.sh PTB_PIN_COMMIT) so
+# the evaluator can't drift or vanish when the new_judge_v2 branch moves or
+# merges. Fetch-by-SHA works on GitHub even after the source branch is deleted.
+git init -q /opt/ptb
+git -C /opt/ptb remote add origin "$PTB_REPO"
+git -C /opt/ptb fetch --depth 1 origin "$PTB_PIN"
+git -C /opt/ptb checkout -q --detach FETCH_HEAD
 cd /opt/ptb
 # Adapter comes from the same tarball the container was built from — never a
 # git branch (a clone of the default branch once shipped a checkout with no

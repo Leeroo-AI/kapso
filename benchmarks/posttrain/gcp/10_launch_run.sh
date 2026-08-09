@@ -73,7 +73,7 @@ gcloud compute instances create "$VM" \
     --disk "name=ptb-cache-${RUN_ID},device-name=hfcache,mode=rw,auto-delete=yes" \
     --service-account "$SA_EMAIL" --scopes cloud-platform \
     --metadata-from-file startup-script=run_startup.sh \
-    --metadata "ptb_eval=${EVAL},ptb_model=${MODEL},ptb_hours=${HOURS},ptb_agent_config=${AGENT_CONFIG},ptb_bucket=${BUCKET},ptb_repo=${PTB_REPO_URL},kapso_repo=${KAPSO_REPO_URL},ptb_run_id=${RUN_ID}"
+    --metadata "ptb_eval=${EVAL},ptb_model=${MODEL},ptb_hours=${HOURS},ptb_agent_config=${AGENT_CONFIG},ptb_bucket=${BUCKET},ptb_repo=${PTB_REPO_URL},ptb_pin=${PTB_PIN_COMMIT},kapso_repo=${KAPSO_REPO_URL},ptb_run_id=${RUN_ID}"
 
 cat <<EOF
 

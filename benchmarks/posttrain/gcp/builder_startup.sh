@@ -11,6 +11,7 @@ meta() { curl -sf -H "Metadata-Flavor: Google" \
 
 BUCKET=$(meta ptb_bucket)
 PTB_REPO=$(meta ptb_repo)
+PTB_PIN=$(meta ptb_pin)
 KAPSO_REPO=$(meta kapso_repo)
 CACHE_SCOPE=$(meta cache_scope)
 
@@ -36,9 +37,13 @@ export HF_HOME=/mnt/hfcache/huggingface
 mkdir -p "$HF_HOME"
 
 # --- repos ---
-# v1.1: build off new_judge_v2 so containers/gpt_5_5.def (the judge container
-# def) and the four-judge tooling are present. Keep in sync with run_startup.sh.
-git clone --depth 1 --branch new_judge_v2 "$PTB_REPO" /opt/ptb
+# v1.1: build off the SAME pinned commit the run VM evaluates on ($PTB_PIN),
+# so the containers/cache we bake can never drift from the evaluator. This
+# commit provides containers/gpt_5_5.def + the four-judge tooling.
+git init -q /opt/ptb
+git -C /opt/ptb remote add origin "$PTB_REPO"
+git -C /opt/ptb fetch --depth 1 origin "$PTB_PIN"
+git -C /opt/ptb checkout -q --detach FETCH_HEAD
 # kapso source: prefer the exact local tree uploaded by 01_build_assets.sh
 # (kapso_src_gcs metadata) over a git clone, so unpushed branches build too.
 KAPSO_SRC_GCS=$(meta kapso_src_gcs || true)
