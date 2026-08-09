@@ -243,6 +243,31 @@ def test_evaluation_instructions_swap_with_registration():
     assert "`&`, `nohup`, or a background task" in registered
 
 
+def test_change_request_guidance_teaches_the_mismeasurement_diagnostics():
+    """The channel existed but agents only knew to file on crashes; a
+    statistically defective validation (single irregular slice ranking
+    candidates in the wrong order — observed live) went unreported because
+    nothing taught the WHEN. The instructions must carry both diagnostics,
+    the numbers-not-suspicion bar, and stay free of benchmark vocabulary."""
+    strategy = GenericSearch.__new__(GenericSearch)
+    strategy.registered_evaluation_command = (
+        "python kapso_evaluation/kapso_eval.py --fidelity full "
+        "--fraction 1.0 --seed 1337"
+    )
+    text = strategy._evaluation_instructions()
+    assert "MISMEASURING" in text
+    assert "standard error" in text          # resolution diagnostic
+    assert "rank correlation" in text
+    assert "Representativeness" in text      # single-slice diagnostic
+    assert "WRONG ORDER" in text
+    assert "numbers,\n   not suspicion" in text or "numbers, not suspicion" in text
+    assert "re-measured first" in text
+    lowered = text.lower()
+    for banned in ("relbench", "rel-", "driver", "avito", "thanksgiving",
+                   "kumo", "f1", "user-ignore"):
+        assert banned not in lowered, f"benchmark vocabulary leaked: {banned}"
+
+
 def test_registered_evaluation_syncs_into_sessions(tmp_path):
     workspace = tmp_path / "workspace"
     (workspace / "kapso_evaluation").mkdir(parents=True)
