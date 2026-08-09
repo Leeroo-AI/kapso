@@ -149,6 +149,14 @@ else
     gsutil cp "gs://$BUCKET/assets/kapso.sif" "gs://$BUCKET/assets/vllm_debug.sif" containers/
     export POST_TRAIN_BENCH_CONTAINERS_DIR=containers
 fi
+# v1.1 judge container (gpt_5_5.sif). A post-v1.1 asset rebuild bakes it into
+# the cache + GCS; until then (or on an older cache mount) pull it from GCS.
+# Non-fatal: without it the four judges warn+skip and the run still scores but
+# writes no verdicts.
+if [ ! -f "$POST_TRAIN_BENCH_CONTAINERS_DIR/gpt_5_5.sif" ]; then
+    gsutil cp "gs://$BUCKET/assets/gpt_5_5.sif" "$POST_TRAIN_BENCH_CONTAINERS_DIR/" 2>/dev/null \
+        || echo "WARN: gpt_5_5.sif unavailable — v1.1 judges will warn+skip (rebuild assets to provide it)"
+fi
 
 export POST_TRAIN_BENCH_CONTAINER_NAME=kapso
 # MUST be absolute: the final evaluation resolves --model-path from a

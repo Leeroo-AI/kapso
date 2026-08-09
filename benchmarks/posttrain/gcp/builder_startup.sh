@@ -36,7 +36,9 @@ export HF_HOME=/mnt/hfcache/huggingface
 mkdir -p "$HF_HOME"
 
 # --- repos ---
-git clone --depth 1 "$PTB_REPO" /opt/ptb
+# v1.1: build off new_judge_v2 so containers/gpt_5_5.def (the judge container
+# def) and the four-judge tooling are present. Keep in sync with run_startup.sh.
+git clone --depth 1 --branch new_judge_v2 "$PTB_REPO" /opt/ptb
 # kapso source: prefer the exact local tree uploaded by 01_build_assets.sh
 # (kapso_src_gcs metadata) over a git clone, so unpushed branches build too.
 KAPSO_SRC_GCS=$(meta kapso_src_gcs || true)
@@ -65,9 +67,13 @@ rsync -a --delete --exclude .git --exclude archive --exclude tests \
     /opt/kapso-src/ containers/kapso-src/
 bash containers/build_container.sh kapso
 bash containers/build_container.sh vllm_debug
+# v1.1 judge container: the four judges run codex (node + @openai/codex) plus
+# the contamination/model-identity python checks inside this image. Built
+# straight from upstream containers/gpt_5_5.def (no kapso adapter override).
+bash containers/build_container.sh gpt_5_5
 
-# Fail loudly: no BUILD_DONE (and no snapshot) unless both images exist.
-if [ ! -f containers/kapso.sif ] || [ ! -f containers/vllm_debug.sif ]; then
+# Fail loudly: no BUILD_DONE (and no snapshot) unless all three images exist.
+if [ ! -f containers/kapso.sif ] || [ ! -f containers/vllm_debug.sif ] || [ ! -f containers/gpt_5_5.sif ]; then
     echo "container build failed" | gsutil cp - "gs://$BUCKET/assets/BUILD_FAILED"
     exit 1
 fi
@@ -91,10 +97,20 @@ if ! apptainer exec containers/kapso.sif diff -q \
     exit 1
 fi
 
-gsutil cp containers/kapso.sif containers/vllm_debug.sif "gs://$BUCKET/assets/"
+# v1.1 judge container smoke test: the 3 gpt-5.4 judges use its pinned codex,
+# the general judge npm-installs its own codex (needs node). Fail loud if
+# either is missing, else runs would silently ship without judge verdicts.
+if ! apptainer exec containers/gpt_5_5.sif codex --version >/dev/null 2>&1 || \
+   ! apptainer exec containers/gpt_5_5.sif node --version >/dev/null 2>&1; then
+    echo "gpt_5_5.sif missing codex/node — v1.1 judges cannot run" \
+        | gsutil cp - "gs://$BUCKET/assets/BUILD_FAILED"
+    exit 1
+fi
+
+gsutil cp containers/kapso.sif containers/vllm_debug.sif containers/gpt_5_5.sif "gs://$BUCKET/assets/"
 # Also bake the containers onto the cache disk so run VMs skip the GCS pull.
 mkdir -p /mnt/hfcache/containers
-cp containers/kapso.sif containers/vllm_debug.sif /mnt/hfcache/containers/
+cp containers/kapso.sif containers/vllm_debug.sif containers/gpt_5_5.sif /mnt/hfcache/containers/
 
 # --- HF cache ---
 # Gated models (gemma) need a token whose account accepted the license.
