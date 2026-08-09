@@ -1,8 +1,23 @@
 # Evaluation governance — versioned selection from archive to final report
 
-Design doc, 2026-08-05. Status: **awaiting approval for the framework-side items**
-(standing rule: `src/kapso/**` changes need explicit sign-off; benchmark-side items
-are autonomous). No legacy paths are kept anywhere (Rule 7).
+Design doc, 2026-08-05. Status: **implemented** (all items user-approved
+2026-08-05; commits cfc84e30, 080be449, 3476158a, b0ddbf56, 14d564df). No
+legacy paths are kept anywhere (Rule 7).
+
+Two deltas from the design as written, both taken during implementation:
+
+1. **Vendoring by copy, not maintainer placement.** The sandbox helper ships
+   checked-in at `benchmarks/relbench/data/generic_eval/kapso_eval_archive.py`
+   (byte-identical to the framework master, pinned by test) rather than being
+   copied into the tree by maintainer setup — provided trees are then
+   self-contained and the helper lands inside the provided-immutability
+   baseline automatically, with zero maintainer changes.
+2. **Run↔rescore agreement is enforced at the last mile, not at calibration.**
+   Calibration runs at fast fidelity and fast runs are never archived, so
+   there is nothing to rescore at that point. Enforcement is the
+   `select_final` tripwire (every pooled run's archive-time score must equal
+   its recomputation bit-for-bit) plus a real-grader, real-data agreement
+   test; the prompts carry the shared-scoring-path requirement.
 
 ## 1. Why
 
@@ -214,13 +229,14 @@ whose rescore disagrees; instruction text carries no benchmark vocabulary
 
 | # | Change | Where | Status |
 |---|--------|-------|--------|
-| 1 | `evaluation_archive` module + vendored sandbox helper | framework | **needs approval** |
-| 2 | `--rescore` in entrypoint contract + calibration check (prompt edits) | framework | **needs approval** |
-| 3 | Change-request diagnostics in `_evaluation_instructions()` | framework | **needs approval** |
-| 4 | Session-final inference relocation (delete from handler) | framework+benchmark | **needs approval** (framework half) |
-| 5 | Grader: import helper, add `--rescore`, delete bespoke archival | benchmark | autonomous |
-| 6 | Handler: thin `final_evaluate`, delete legacy scorer | benchmark | autonomous |
-| 7 | Rolling-contract re-truncation warning | benchmark | already shipped (`14acf3a6`) |
+| 1 | `evaluation_archive` module + vendored sandbox helper | framework | shipped `cfc84e30` |
+| 2 | `--rescore` in entrypoint contract (prompt edits, all three) | framework | shipped `b0ddbf56` |
+| 3 | Change-request diagnostics in `_evaluation_instructions()` | framework | shipped `14d564df` |
+| 4 | Session-final inference relocation (delete from handler) | framework+benchmark | shipped `cfc84e30`+`3476158a` |
+| 5 | Grader: vendored helper, stamp+snapshot, `--rescore` | benchmark | shipped `080be449` |
+| 6 | Handler: thin `final_evaluate`, delete legacy scorer | benchmark | shipped `3476158a` |
+| 7 | Rolling-contract re-truncation warning | benchmark | shipped `14acf3a6` |
 
-Items 5–6 depend on 1–2 (the helper and contract must exist first), so the
-implementation order is 1 → 2 → 5 → 6 → 3 → 4, with tests landing beside each.
+Also landed alongside item 6: `coerce_boolean_target` moved handler →
+task_specs, so the sandbox builder's bare subprocess no longer imports the
+handler (and, through it, the framework).
