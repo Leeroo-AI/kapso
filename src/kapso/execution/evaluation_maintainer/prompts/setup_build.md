@@ -27,6 +27,12 @@ Requirements:
    imports only files you author here. Never import candidate modules
    into the scoring process: code loaded there can monkey-patch the
    evaluation at runtime, and that sabotage is invisible to file hashing.
+5. **Design for future protocol changes.** Keep ONE stable candidate
+   entrypoint fed from a standard input layout, and make the run mode
+   store each run's raw outputs (not just the score), so a later accepted
+   change to the protocol can re-rank archived runs through `--rescore`
+   alone, or re-invoke the unchanged entrypoint on newly prepared inputs
+   — without orphaning prior candidates.
 
 ## Goal the evaluation serves
 {{goal}}

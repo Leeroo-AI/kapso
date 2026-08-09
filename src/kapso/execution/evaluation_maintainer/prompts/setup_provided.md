@@ -34,6 +34,12 @@ evaluation suite lives in `kapso_evaluation/`. Your job in this transaction:
    imports only provided/maintainer files. Never import candidate modules
    into the scoring process: code loaded there can monkey-patch the
    evaluation at runtime, and that sabotage is invisible to file hashing.
+7. **Design for future protocol changes.** Keep the candidate-facing
+   contract stable — one entrypoint, standard input layout — and make the
+   run mode store each run's raw outputs (not just the score), so a later
+   accepted change to the protocol can re-rank archived runs through
+   `--rescore` alone, or re-invoke the unchanged entrypoint on newly
+   prepared inputs — without orphaning prior candidates.
 
 ## Goal the evaluation serves
 {{goal}}

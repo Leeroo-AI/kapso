@@ -2407,10 +2407,34 @@ Problem: {problem}"""
    ranking</evaluation_change_request>
    Then still report your results from the run you attempted. Requests are
    triaged adversarially against your evidence and the budget is small (a
-   few per campaign): file once, early, with your best case. A confirmed
-   defect is fixed, your work is re-measured first under the corrected
-   evaluation, and every score is re-ranked under it — prior champions
-   losing rank afterwards is the system working, not a regression.
+   few per campaign): file once, with your best case.
+   TIMING — file at the FIRST confirmation, never the last iteration. Run
+   both diagnostics during your first iteration, before optimizing against
+   the score, and the moment they confirm a defect put the request in that
+   same final response. Do not wait to build a stronger case: a later
+   transition voids every measurement made under the old evaluation
+   (scores never cross evaluator versions), so each candidate measured
+   before you file adds to what the change throws away — filed in the
+   first iteration it voids almost nothing; filed at the end it voids the
+   campaign's rankings with no budget left to re-measure them.
+   REMEDY SHAPE — propose the least-breaking remedy that fixes the defect,
+   and say which kind yours is: (1) rescore stored outputs — a better
+   metric, weighting, or aggregation over predictions every run already
+   archives, so all prior candidates re-rank for free; (2) same-contract
+   re-measurement — new windows, slices, or seeds prepared by the
+   evaluator in the standard input layout and fed through the UNCHANGED
+   candidate entrypoint, so prior candidates stay measurable at compute
+   cost; (3) contract-breaking — candidates must produce outputs they
+   never produced, orphaning all prior work; propose it only when nothing
+   less fixes the defect.
+   A confirmed defect is fixed, your work is re-measured first under the
+   corrected evaluation, and every score is re-ranked under it — prior
+   champions losing rank afterwards is the system working, not a
+   regression. If a transition already happened, earlier designs whose
+   scores now show as unmeasured were measured under the superseded
+   evaluation: porting the strongest of them to the current evaluation
+   contract and archiving the port is often the highest-value experiment
+   available.
 5. **Retry on transient crashes** of your own code (max 3 attempts)."""
 
     def _ensure_technical_difficulties(self, node) -> None:

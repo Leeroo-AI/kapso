@@ -42,6 +42,22 @@ touching anything.
   to ship), it must store whatever extra per-run artifacts rescoring needs
   inside the run directory, and exactly ONE manifest line may reach stdout
   — suppress the provided suite's own line when you print a different one.
+- Implement the LOWEST migration tier that fixes the defect, so candidates
+  archived under the prior version stay measurable across the change:
+  - Tier 1, rescore-only: the fix is computable from outputs runs already
+    store (better metric, weighting, aggregation) — implement it purely in
+    scoring, and `--rescore` re-ranks every archived run with zero
+    candidate re-execution.
+  - Tier 2, same-contract re-invocation: the fix needs outputs on NEW
+    inputs (extra windows, slices, seeds) — your wrapper prepares each new
+    input in the task's standard layout and invokes the candidate's
+    UNCHANGED entrypoint once per unit, aggregating evaluator-side. A
+    candidate that ran under the prior version must still execute under
+    yours: the transition bridge can only carry forward candidates that
+    still run.
+  - Tier 3, contract-breaking: the fix demands outputs candidates never
+    produced — every prior run becomes unmeasurable. Take this road only
+    when no lower tier fixes the defect, and say so in your reason.
 
 ## Your output
 If you reject: change nothing.

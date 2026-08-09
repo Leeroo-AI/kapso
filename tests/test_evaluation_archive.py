@@ -463,6 +463,37 @@ def test_maintainer_prompts_carry_the_rescore_contract():
     # post-transition final trips the tamper wire at select_final.
     assert "manifest.txt" in triage
     assert "ONE manifest line" in triage
+    # Migration tiers: the first live transition (rel-event/user-ignore,
+    # 2026-08-09) rebuilt the wrapper candidate-aware and 5 of 6 frontier
+    # designs crashed under it — the bridge could carry one node. The
+    # maintainer must implement the lowest tier so prior archives stay
+    # measurable across a version change.
+    assert "LOWEST migration tier" in triage
+    assert "UNCHANGED entrypoint" in triage
+    assert "Tier 3, contract-breaking" in triage
+    for name in ("setup_provided.md", "setup_build.md"):
+        text = (prompts_dir / name).read_text()
+        assert "Design for future protocol changes" in text, (
+            f"{name} lost the migration-friendly design requirement"
+        )
+        assert "raw outputs (not just the score)" in text
+
+
+def test_evaluation_instructions_demand_early_filing_and_low_tiers():
+    """The requester-side half of the migration contract. The live c2 test
+    showed the agent diagnosing the defect in iteration 1 but filing at
+    5h16m of a 6h cap: the transition then voided 12 archives with no
+    budget left to exploit the corrected metric. The instructions must
+    force the filing to the first confirmation, demand the least-breaking
+    remedy, and point post-transition sessions at porting voided designs."""
+    source = (
+        Path(__file__).parents[1]
+        / "src/kapso/execution/search_strategies/generic/strategy.py"
+    ).read_text()
+    assert "TIMING — file at the FIRST confirmation" in source
+    assert "REMEDY SHAPE — propose the least-breaking remedy" in source
+    assert "scores never cross evaluator versions" in source
+    assert "porting the strongest of them to the current evaluation" in source
 
 
 def test_vendored_copies_are_byte_identical():

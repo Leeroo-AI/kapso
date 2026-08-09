@@ -240,3 +240,37 @@ whose rescore disagrees; instruction text carries no benchmark vocabulary
 Also landed alongside item 6: `coerce_boolean_target` moved handler →
 task_specs, so the sandbox builder's bare subprocess no longer imports the
 handler (and, through it, the framework).
+
+## 8. Migration tiers (added after the first live transition)
+
+The first live transition (rel-event/user-ignore, 2026-08-09) accepted a
+correct five-window remedy, but the maintainer rebuilt the wrapper
+candidate-aware: candidates were asked to produce the extra windows
+themselves. Five of the six frontier designs crashed under the new
+contract (`exit 5`), the bridge could anchor only one node, and the
+12-candidate v1 pool collapsed to a 1-candidate v2 pool at 5h16m of a 6h
+cap. Two prompt-side rules now close this, stated generically in terms of
+the candidate contract (entrypoint, standard input layout, stored raw
+outputs):
+
+- **Maintainer** (`change_request.md`, mirrored in both setup prompts):
+  implement the LOWEST migration tier that fixes the defect —
+  (1) rescore-only: recompute from outputs runs already store; archived
+  runs re-rank via `--rescore` with zero re-execution.
+  (2) same-contract re-invocation: prepare each new window/slice/seed in
+  the standard layout and invoke the UNCHANGED candidate entrypoint per
+  unit, aggregating evaluator-side; prior candidates stay measurable.
+  (3) contract-breaking: only when nothing less fixes the defect, declared
+  in the verdict reason.
+- **Requester** (`_evaluation_instructions()` point 4): run the two
+  diagnostics in the first iteration and file at the FIRST confirmation
+  (a late transition voids every old-evaluator measurement); propose the
+  least-breaking remedy and name its tier; after a transition, porting the
+  strongest voided designs to the current contract is called out as the
+  highest-value experiment.
+
+No behavior code changed: archives already store raw outputs, `--rescore`
+already re-scores them, and the bridge already re-invokes candidates. The
+tiers are enforced where the wrapper is authored — in the maintainer's
+instructions — and pinned by `test_maintainer_prompts_carry_the_rescore_contract`
+and `test_evaluation_instructions_demand_early_filing_and_low_tiers`.
