@@ -209,7 +209,14 @@ fi
 # host /opt/ptb so the JSON lands in the tree run_task.sh reads. MY_HF_TOKEN is
 # consumed only by the gated GPQA downloader; harmless for other tasks.
 export MY_HF_TOKEN="$HF_TOKEN"
-apptainer exec --bind /opt/ptb:/opt/ptb "$POST_TRAIN_BENCH_CONTAINERS_DIR/kapso.sif" \
+# The run's HF_HOME points at the read-only snapshot cache (/mnt/hfcache), so
+# hf_hub_download/datasets cannot write their intermediate cache there. Override
+# HF_HOME to a writable boot-disk dir for the download exec only (the output
+# JSON itself lands in the bound /opt/ptb tree regardless).
+apptainer exec --bind /opt/ptb:/opt/ptb \
+    --env HF_HOME=/opt/ptb/.hf_dl_cache \
+    --env HF_HUB_CACHE=/opt/ptb/.hf_dl_cache/hub \
+    "$POST_TRAIN_BENCH_CONTAINERS_DIR/kapso.sif" \
     python /opt/ptb/src/judges/test_data_download/download_test_data.py --tasks "$EVAL"
 if [ ! -f "src/eval/tasks/$EVAL/test_data.json" ]; then
     echo "PREFLIGHT FAILED: test_data.json ($EVAL) not produced by download_test_data.py"
