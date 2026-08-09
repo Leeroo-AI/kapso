@@ -27,7 +27,10 @@ tar -czf - -C "$KAPSO_ROOT" \
     | gsutil cp - "gs://$BUCKET/assets/kapso-src.tgz"
 
 # Stale markers from a previous attempt would end the poll loop instantly.
-gsutil -q rm "gs://$BUCKET/assets/BUILD_DONE" "gs://$BUCKET/assets/BUILD_FAILED" 2>/dev/null || true
+# Remove each separately: a combined `gsutil rm a b` aborts on the first
+# missing object, leaving the other (e.g. a stale BUILD_FAILED) in place.
+gsutil -q rm "gs://$BUCKET/assets/BUILD_DONE" 2>/dev/null || true
+gsutil -q rm "gs://$BUCKET/assets/BUILD_FAILED" 2>/dev/null || true
 
 gcloud compute disks describe "$CACHE_DISK" --zone "$ZONE" --project "$PROJECT" >/dev/null 2>&1 || \
     gcloud compute disks create "$CACHE_DISK" --project "$PROJECT" --zone "$ZONE" \
