@@ -73,72 +73,72 @@ Runs are judged by the v1.1 four-judge agent-as-judge system (data
 contamination, API usage, PTB lookup, general). See `README.md` / the
 harness for the pinned PTB version and judge invocation.
 
-## Campaign table — per-cell (base / top-3 proven / human / ours)
+## Campaign table — per-cell (base / top-3 v1.1 proven / human / ours)
 
-Per-cell top-3 proven agents are pulled per benchmark as its campaign
-starts (kept lean here to avoid stale numbers). Fill `Ours` + `Status` as
-runs complete.
+Per-cell base, top-3 proven agents (v1.1), and human pulled 2026-08-09 from
+`scores.js` at the per-model level. Top-3 = the three highest-scoring agents
+on that exact model×benchmark, sorted here highest-first. Fill `Ours` +
+`Status` as runs complete.
 
-### AIME 2025 (weight .2265) — base 1.65 avg, best agent fable-5 13.33, human 29.17
-| Model | Base | Human | Ours | Status |
-|---|---:|---:|---:|---|
-| Qwen3-1.7B | — | — | — | pending |
-| Qwen3-4B | 3.33 | 53.33 | — | pending |
-| SmolLM3-3B | 3.33 | — | — | pending |
-| gemma-3-4b | — | — | — | pending [G] |
+### AIME 2025 (weight .2265)
+| Model | Base | #1 (v1.1) | #2 (v1.1) | #3 (v1.1) | Human | Ours | Status |
+|---|---:|---|---|---|---:|---:|---|
+| Qwen3-1.7B | 0.0 | opus-4.8-max 3.33 | gpt-5.5-xhigh 3.33 | (others ~0) | 26.67 | — | pending |
+| Qwen3-4B | 3.33 | opus-4.8-max 23.33 | opus-4.8 23.33 | glm-5.2 16.67 | 53.33 | — | pending |
+| SmolLM3-3B | 3.33 | opus-4.8-max 16.67 | gpt-5.6-sol 15.0 | gemini-3.1-pro 12.22 | 26.67 | — | pending |
+| gemma-3-4b | 0.0 | kimi-k3 1.11 | gemini-3.1-pro 1.11 | (others ~0) | 10.0 | — | pending [G] |
 
-### Arena Hard Writing (weight .0904) — base 1.27, best fable-5 61.46, human 70.23
-| Model | Base | Human | Ours | Status |
-|---|---:|---:|---:|---|
-| Qwen3-1.7B | — | — | — | pending [J] |
-| Qwen3-4B | 3.42 | 86.84 | — | pending [J] |
-| SmolLM3-3B | 0.42 | — | — | pending [J] |
-| gemma-3-4b | — | 94.8 | — | pending [J][G] |
+### Arena Hard Writing (weight .0904)
+| Model | Base | #1 (v1.1) | #2 (v1.1) | #3 (v1.1) | Human | Ours | Status |
+|---|---:|---|---|---|---:|---:|---|
+| Qwen3-1.7B | 0.91 | fable-5 65.04 | opus-4.8 56.4 | opus-5 27.41 | 50.0 | — | pending [J] |
+| Qwen3-4B | 3.42 | fable-5 85.7 | opus-4.8 57.33 | glm-5.2 54.25 | 86.84 | — | pending [J] |
+| SmolLM3-3B | 0.42 | opus-5 69.72 | opus-4.8 46.27 | fable-5 43.8 | 49.2 | — | pending [J] |
+| gemma-3-4b | 0.29 | opus-5 74.11 | glm-5.2 26.65 | gpt-5.5-xhigh 24.45 | 94.8 | — | pending [J][G] |
 
-### BFCL (weight .0746) — base 1.5, best gpt-5.6-sol 94.38, human 85.0
-| Model | Base | Human | Ours | Status |
-|---|---:|---:|---:|---|
-| Qwen3-1.7B | 0.0 | 94.0 | — | pending |
-| Qwen3-4B | 0.0 | 95.0 | — | pending |
-| SmolLM3-3B | 0.0 | 84.0 | — | pending |
-| gemma-3-4b | 6.0 | 67.0 | — | pending [G] |
+### BFCL (weight .0746)
+| Model | Base | #1 (v1.1) | #2 (v1.1) | #3 (v1.1) | Human | Ours | Status |
+|---|---:|---|---|---|---:|---:|---|
+| Qwen3-1.7B | 0.0 | gpt-5.6-sol 94.5 | glm-5.2 94.0 | opus-4.8-max 91.0 | 94.0 | — | pending |
+| Qwen3-4B | 0.0 | fable-5 97.5 | gpt-5.6-sol 94.5 | opus-4.7 62.0 | 95.0 | — | pending |
+| SmolLM3-3B | 0.0 | fable-5 97.0 | gpt-5.6-sol 93.5 | opus-4.8 92.5 | 84.0 | — | pending |
+| gemma-3-4b | 6.0 | opus-4.8 92.5 | opus-4.7 92.0 | gpt-5.5-xhigh 86.5 | 67.0 | — | pending [G] |
 
-### GPQA Main (weight .2246) — base 8.49, best opus-5 31.36, human 36.47
-| Model | Base | Human | Ours | Status |
-|---|---:|---:|---:|---|
-| Qwen3-1.7B | 14.06 | 35.5 | — | pending |
-| Qwen3-4B | 13.39 | 44.64 | — | pending |
-| SmolLM3-3B | 4.91 | 33.3 | — | pending |
-| gemma-3-4b | 1.6 | 31.5 | — | pending [G] |
+### GPQA Main (weight .2246)
+| Model | Base | #1 (v1.1) | #2 (v1.1) | #3 (v1.1) | Human | Ours | Status |
+|---|---:|---|---|---|---:|---:|---|
+| Qwen3-1.7B | 14.06 | gpt-5.4-high 29.39 | glm-5.2 29.32 | gpt-5.5-xhigh 28.01 | 35.49 | — | pending |
+| Qwen3-4B | 13.39 | opus-5 37.39 | gpt-5.5-xhigh 34.04 | gpt-5.6-sol 34.04 | 44.64 | — | pending |
+| SmolLM3-3B | 4.91 | gpt-5.6-sol 30.47 | glm-5.2 29.76 | gpt-5.4-high 29.02 | 33.26 | — | pending |
+| gemma-3-4b | 1.56 | gpt-5.4-high 29.54 | opus-4.8 28.68 | opus-4.8-max 28.35 | 31.47 | — | pending [G] |
 
-### GSM8K (weight .0936) — base 20.56, best fable-5 83.53, human 87.0
-| Model | Base | Human | Ours | Status |
-|---|---:|---:|---:|---|
-| Qwen3-1.7B | 12.7 | 88.5 | — | pending |
-| Qwen3-4B | 41.85 | 93.78 | — | pending |
-| SmolLM3-3B | 21.08 | 82.2 | — | pending |
-| gemma-3-4b | 6.1 | 83.5 | — | pending [G] |
+### GSM8K (weight .0936)
+| Model | Base | #1 (v1.1) | #2 (v1.1) | #3 (v1.1) | Human | Ours | Status |
+|---|---:|---|---|---|---:|---:|---|
+| Qwen3-1.7B | 12.66 | fable-5 84.8 | opus-5 83.43 | glm-5.2 79.61 | 88.48 | — | pending |
+| Qwen3-4B | 41.85 | opus-5 90.79 | opus-4.8-max 89.88 | fable-5 89.42 | 93.78 | — | pending |
+| SmolLM3-3B | 21.08 | fable-5 84.87 | opus-4.8 76.69 | gpt-5.6-sol 74.98 | 82.18 | — | pending |
+| gemma-3-4b | 6.14 | fable-5 75.02 | opus-4.8-max 69.67 | opus-5 63.99 | 83.55 | — | pending [G] |
 
-### HealthBench (weight .1841) — base 9.49, best fable-5 39.62, human 43.33
-| Model | Base | Human | Ours | Status |
-|---|---:|---:|---:|---|
-| Qwen3-1.7B | 7.5 | 44.9 | — | pending [J] |
-| Qwen3-4B | 13.38 | 52.72 | — | pending [J] |
-| SmolLM3-3B | 0.0 | 29.6 | — | pending [J] |
-| gemma-3-4b | 17.04 | 46.1 | — | pending [J][G] |
+### HealthBench (weight .1841)
+| Model | Base | #1 (v1.1) | #2 (v1.1) | #3 (v1.1) | Human | Ours | Status |
+|---|---:|---|---|---|---:|---:|---|
+| Qwen3-1.7B | 7.54 | fable-5 35.57 | opus-4.8-max 25.27 | glm-5.2 25.22 | 44.92 | — | pending [J] |
+| Qwen3-4B | 13.38 | opus-5 40.95 | opus-4.8-max 34.06 | opus-4.8 33.82 | 52.72 | — | pending [J] |
+| SmolLM3-3B | 0.0 | fable-5 43.29 | opus-4.8 37.28 | opus-4.8-max 32.63 | 29.58 | — | pending [J] |
+| gemma-3-4b | 17.04 | fable-5 46.6 | opus-5 45.33 | opus-4.8-max 34.77 | 46.06 | — | pending [J][G] |
 
-### HumanEval (weight .1061) — base 12.81, best gpt-5.6-sol 63.95, human 71.49
-| Model | Base | Human | Ours | Status |
-|---|---:|---:|---:|---|
-| Qwen3-1.7B | 7.9 | 68.9 | — | pending |
-| Qwen3-4B | 36.59 | 77.44 | — | pending |
-| SmolLM3-3B | 6.1 | 70.1 | — | pending |
-| gemma-3-4b | 0.6 | 69.5 | — | pending [G] |
+### HumanEval (weight .1061)
+| Model | Base | #1 (v1.1) | #2 (v1.1) | #3 (v1.1) | Human | Ours | Status |
+|---|---:|---|---|---|---:|---:|---|
+| Qwen3-1.7B | 7.93 | opus-5 69.51 | gpt-5.6-sol 66.77 | fable-5 65.24 | 68.9 | — | pending |
+| Qwen3-4B | 36.59 | opus-5 82.62 | gpt-5.6-sol 82.62 | fable-5 81.1 | 77.44 | — | pending |
+| SmolLM3-3B | 6.1 | opus-4.8 55.18 | fable-5 35.98 | opus-4.7 35.57 | 70.12 | — | pending |
+| gemma-3-4b | 0.61 | opus-5 53.05 | opus-4.8-max 52.13 | fable-5 51.22 | 69.51 | — | pending [G] |
 
 [J] = judge-scored, needs `openai-api-key`; [G] = gated model, needs HF
-`hf-token` with the Gemma license accepted. Per-cell base/human values
-marked "—" not yet re-pulled at the per-model level (only the 4-model means
-above are confirmed); pull them when the benchmark's campaign starts.
+`hf-token` with the Gemma license accepted. Top-3 are per-cell v1.1 proven
+agents (2026-08-09 pull); AIME 1.7B/gemma have only ~2 agents above ~0.
 
 ## Our runs
 
