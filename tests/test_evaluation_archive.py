@@ -450,6 +450,17 @@ def test_maintainer_prompts_carry_the_rescore_contract():
         assert "scoring path" in text, (
             f"{name} lost the shared-scoring-path requirement"
         )
+    triage = (prompts_dir / "change_request.md").read_text()
+    # The referee must be able to ACCEPT the request the instructions teach
+    # agents to file: a statistically evidenced mismeasurement is a defect
+    # class, not lobbying. Without this the whole channel dead-ends.
+    assert "Measurement validity" in triage
+    assert "standard errors" in triage
+    assert "representativeness" in triage.lower()
+    # A score-redefining wrapper owns the archived manifest line, or every
+    # post-transition final trips the tamper wire at select_final.
+    assert "manifest.txt" in triage
+    assert "ONE manifest line" in triage
 
 
 def test_vendored_copies_are_byte_identical():

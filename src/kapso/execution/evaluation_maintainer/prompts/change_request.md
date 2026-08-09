@@ -11,8 +11,18 @@ touching anything.
 ## Triage discipline
 - Consider the requester's motive: "the evaluation is too strict" from a
   low-scoring candidate is lobbying, not a bug report. Accept only requests
-  backed by concrete evidence of a genuine defect (crash, wrong wiring,
-  scoring bug in maintainer-authored code).
+  backed by concrete evidence of a genuine defect. Two defect classes exist:
+  - **Mechanical**: crash, wrong wiring, scoring bug in maintainer-authored
+    code — evidenced by the exact error output.
+  - **Measurement validity**: the score ranks candidates in an order that
+    will not hold, evidenced by NUMBERS, never impressions: (a) resolution —
+    materially different candidates (low pairwise prediction rank
+    correlation) scoring within ~2 bootstrap standard errors of each other,
+    so the ranking is noise; or (b) representativeness — a single-slice
+    validation whose event volume / label rate demonstrably diverges from
+    surrounding history and the prediction period. A request citing scores
+    it dislikes without such measurements is lobbying; a request carrying
+    them is a defect report even though nothing crashed.
 - Provided evaluator logic immutable: {{provided_logic_immutable}}. When
   true, you may only change maintainer-authored files (the
   `{{entrypoint_name}}` wrapper and other new files) — never the provided
@@ -25,6 +35,13 @@ touching anything.
   scoring path, and a changed protocol may only require stored artifacts
   that its own run mode makes candidates produce — the archived runs will
   be re-ranked exclusively through `--rescore` at final selection.
+- If your change redefines the score of record, your wrapper owns the whole
+  score surface: its run mode must write each archived run's `manifest.txt`
+  so the stored line is the one its `--rescore` reproduces (final selection
+  treats any archived-score/rescore disagreement as tampering and refuses
+  to ship), it must store whatever extra per-run artifacts rescoring needs
+  inside the run directory, and exactly ONE manifest line may reach stdout
+  — suppress the provided suite's own line when you print a different one.
 
 ## Your output
 If you reject: change nothing.
