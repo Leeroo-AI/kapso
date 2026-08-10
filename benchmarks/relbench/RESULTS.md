@@ -48,7 +48,7 @@ Values in the best-known number's units (AUROC/acc/MAP in %, NMAE, R², raw MAE)
 | 46 | rel-hm/user-churn | clf | v1★ | 71.2 (KumoRFM-ft) | 71.1 | 71.2 | 67.7 | 69.3 | 71.6 | ✅ beats best-known | 4xA100 | 6h | ✅ done |
 | 47 | rel-hm/item-sales | reg | v1★ | 0.0686 (KumoRFM-ft/-2) | 0.0707 | 0.0686 | 0.0807 | 0.0686 | 0.0634 | ✅ beats best-known | 4xA100 | 6h | ✅ done |
 | 48 | rel-hm/user-item-purchase | rec | v1★ | 3.14 (KumoRFM-ft) | — | 3.14 | 2.73 | — | 3.26 | ✅ beats best-known | 4xA100 | 6h | ✅ done |
-| 49 | rel-stack/user-engagement | clf | v1★ | 95.6 (PluRel-ft) | 90.4 | 90.7 | 87.1 | 89.4 | 91 | below best-known | 4xA100 | 6h | ✅ done |
+| 49 | rel-stack/user-engagement | clf | v1★ | 95.6 (PluRel-ft) | 90.4 | 90.7 | 87.1 | 89.4 | 91.5 | below best-known | 4xA100 | 6h | ✅ done |
 | 50 | rel-stack/user-badge | clf | v1★ | 94.3 (PluRel-ft) | 88.4 | 89.9 | 80 | 87.2 | 89.4 | below best-known | 4xA100 | 6h | ✅ done |
 | 51 | rel-stack/post-votes | reg | v1★ | 0.121 (Rel-LLM) | 0.125 | 0.127 | 0.127 | 0.125 | 0.122 | below best-known | 4xA100 | 6h | ✅ done |
 | 52 | rel-stack/user-post-comment | rec | v1★ | 14 (RelGNN) | — | 13.3 | 11.8 | — | 13.1 | below best-known | 4xA100 | 6h | ✅ done |
@@ -123,7 +123,7 @@ Complete campaign state per run — session transcripts, lens/ideation history, 
 | rel-hm/user-churn | `gs://leeroo-kapso-relbench-artifacts/runs/rel-hm--user-churn/20260731T092629_lane-a2.tgz` |
 | rel-hm/item-sales | `gs://leeroo-kapso-relbench-artifacts/runs/rel-hm--item-sales/20260731T084234_lane-a1.tgz` |
 | rel-hm/user-item-purchase | `gs://leeroo-kapso-relbench-artifacts/runs/rel-hm--user-item-purchase/20260731T095502_lane-a3.tgz` |
-| rel-stack/user-engagement | `gs://leeroo-kapso-relbench-artifacts/runs/rel-stack--user-engagement/20260731T104428_lane-b3.tgz` |
+| rel-stack/user-engagement | `gs://leeroo-kapso-relbench-artifacts/runs/rel-stack--user-engagement/20260810T011603_lane-c5.tgz` |
 | rel-stack/user-badge | `gs://leeroo-kapso-relbench-artifacts/runs/rel-stack--user-badge/20260731T103444_lane-b2.tgz` |
 | rel-stack/post-votes | `gs://leeroo-kapso-relbench-artifacts/runs/rel-stack--post-votes/20260731T112323_lane-b1.tgz` |
 | rel-stack/user-post-comment | `gs://leeroo-kapso-relbench-artifacts/runs/rel-stack--user-post-comment/20260801T045936_lane-a1.tgz` |
