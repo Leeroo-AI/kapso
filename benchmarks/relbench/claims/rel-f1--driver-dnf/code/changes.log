@@ -1,0 +1,13 @@
+Repository strategy implementation started from the seeded constant baseline.
+Added PLAN.md and eval_profile.md with scorer mechanics, input distributions, coverage axes, and critical-path timing.
+RepoMemory sections consulted: core.architecture, core.entrypoints, core.where_to_edit, core.invariants, core.testing, core.gotchas, core.dependencies
+Implemented feature_layer.py with independently censored result, standings, qualifying, constructor, static-entity, race, circuit, calendar-mixture, state, and timestamp-cohort features.
+Implemented modeling.py with exact three-class race hazard M1, direct window LightGBM M2, ridge state M3, LambdaRank M4, train-only recency selection, fixed blending, and gated prequential meta-learning.
+Replaced main.py with rolling/static orchestration, ordered output restoration, target-free cache validation, two-model static handling, debug truncation, diagnostics, and reusable artifact registration.
+Fast rolling gate completed over 55 invocations with pooled validation ROC AUC 0.7953015873.
+Full timing confirmation found redundant historical refits; live rolling base outputs are now cached target-free at their own origin and consumed only after their windows close.
+Full attempt 2 showed repeated small-file feature reads were single-core bound; added cutoff-audited assembled bundles that reuse prior `(date, driverId)` causal rows despite task-table insertion order and append only unseen rows.
+Full attempt 3 measured roughly two minutes per 436-column multiclass fit; introduced a fixed 221-column model view retaining every table, state family, three-class history, and cohort percentiles, and versioned prequential caches separately.
+Full cache audit found rolling snapshots reorder historical task rows; cache reads now validate unique driver-set equality and restore current task order instead of refitting valid origins.
+Registered full evaluation completed as run_0004 with ROC AUC 0.8050249433; evaluation_results.md records slice, bootstrap, correlation, and representativeness diagnostics.
+Diagnostic script initially raised KeyError when a year Series was treated as a column selector; accepting Series directly fixed the slice calculation.

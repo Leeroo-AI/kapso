@@ -1,0 +1,3197 @@
+{
+  "schema_version": 2,
+  "generated_at": "2026-08-09T17:19:47.144129+00:00",
+  "baseline": {
+    "initial_repo": "/tmp/relbench_baseline_3fd92pkk"
+  },
+  "repo_map": {
+    "repo_root": ".",
+    "file_count": 18,
+    "files": [
+      ".gitignore",
+      "PLAN.md",
+      "eval_profile.md",
+      "feature_mart.py",
+      "kapso_datasets/CONTRACT.md",
+      "kapso_datasets/README.md",
+      "kapso_datasets/__init__.py",
+      "kapso_datasets/check_predictions.py",
+      "kapso_datasets/common.py",
+      "kapso_evaluation/README.md",
+      "kapso_evaluation/__pycache__/kapso_eval_archive.cpython-312.pyc",
+      "kapso_evaluation/grader.py",
+      "kapso_evaluation/kapso_eval.py",
+      "kapso_evaluation/kapso_eval_archive.py",
+      "main.py",
+      "modeling.py",
+      "output_data_generic_exp_0/debug_metrics.json",
+      "output_data_generic_exp_0/full_metrics.json"
+    ],
+    "languages_by_extension": {
+      ".py": 9,
+      ".md": 5,
+      ".json": 2,
+      ".pyc": 1
+    },
+    "key_files": [],
+    "entrypoints": [
+      "main.py"
+    ]
+  },
+  "repo_model": {
+    "summary": "A RelBench study-outcome candidate that builds a timestamp-censored historical evidence mart and cached biomedical semantic retrieval features, performs training-only forward-fold design selection, fits LightGBM and logistic blend models with separate validation/test lineages, and emits contract-compliant validation and test probability vectors.",
+    "entrypoints": [
+      {
+        "path": "main.py",
+        "how_to_run": "From the repository root: python main.py --debug for the fast contract run, or python main.py for the full run."
+      },
+      {
+        "path": "kapso_evaluation/grader.py",
+        "how_to_run": "python kapso_evaluation/grader.py --fidelity fast|full [--fraction F] [--seed S]"
+      },
+      {
+        "path": "kapso_datasets/check_predictions.py",
+        "how_to_run": "python kapso_datasets/check_predictions.py after prediction files have been written"
+      }
+    ],
+    "where_to_edit": [
+      {
+        "path": "main.py",
+        "role": "Primary orchestration file: task loading, cache management, forward selection, validation/test lineage, diagnostics, and prediction saving."
+      },
+      {
+        "path": "feature_mart.py",
+        "role": "Historical episode reconstruction, direct and temporal evidence features, document preparation, frozen embedding generation, and semantic retrieval."
+      },
+      {
+        "path": "modeling.py",
+        "role": "Categorical encoding, count-model OOF features, PCA/text feature assembly, LightGBM/logistic fitting, forward-fold selection, and blending."
+      },
+      {
+        "path": "kapso_datasets/common.py",
+        "role": "Reusable task-loading, output-saving, temporal-safety, and MAP@K helper functions."
+      },
+      {
+        "path": "kapso_datasets/CONTRACT.md",
+        "role": "Authoritative run-mode, data-access, prediction-shape, and evaluation contract."
+      },
+      {
+        "path": "kapso_evaluation/grader.py",
+        "role": "Immutable scoring and archiving pipeline; do not modify as part of the candidate solution."
+      }
+    ],
+    "claims": [
+      {
+        "kind": "architecture",
+        "statement": "The root candidate in main.py now runs a staged pipeline: load the RelBench task and immutable row register, build historical episodes, load or construct structured and semantic features, perform forward-fold selection, fit separate validation and test models, and save predictions plus diagnostics.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 79,
+            "description": "Defines the candidate main function"
+          },
+          {
+            "path": "main.py",
+            "line": 85,
+            "description": "Loads the task"
+          },
+          {
+            "path": "main.py",
+            "line": 86,
+            "description": "Creates the preserved seed row register"
+          },
+          {
+            "path": "main.py",
+            "line": 92,
+            "description": "Builds the historical result episode corpus"
+          },
+          {
+            "path": "main.py",
+            "line": 94,
+            "description": "Loads or builds the structured mart"
+          },
+          {
+            "path": "main.py",
+            "line": 96,
+            "description": "Loads or builds semantic retrieval features"
+          },
+          {
+            "path": "main.py",
+            "line": 113,
+            "description": "Runs forward design selection when no frozen selection is available"
+          },
+          {
+            "path": "main.py",
+            "line": 122,
+            "description": "Fits the validation-lineage model"
+          },
+          {
+            "path": "main.py",
+            "line": 130,
+            "description": "Fits the test-lineage model"
+          },
+          {
+            "path": "main.py",
+            "line": 140,
+            "description": "Saves the final prediction vectors"
+          }
+        ]
+      },
+      {
+        "kind": "architecture",
+        "statement": "feature_mart.py constructs the historical evidence layer from primary outcome analyses and related study tables, aggregates significance, reporting, dropout, and serious-event features by trial and report date, and rejects an unexpected corpus size or duplicate-trial structure.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "feature_mart.py",
+            "line": 84,
+            "description": "Defines historical episode construction"
+          },
+          {
+            "path": "feature_mart.py",
+            "line": 86,
+            "description": "Registers outcome, study, dropout, and event tables"
+          },
+          {
+            "path": "feature_mart.py",
+            "line": 90,
+            "description": "Begins the eligible primary-analysis query"
+          },
+          {
+            "path": "feature_mart.py",
+            "line": 112,
+            "description": "Aggregates analysis-level values by trial and report date"
+          },
+          {
+            "path": "feature_mart.py",
+            "line": 129,
+            "description": "Derives significance and timing-related episode features"
+          },
+          {
+            "path": "feature_mart.py",
+            "line": 144,
+            "description": "Checks the expected historical corpus dimensions"
+          },
+          {
+            "path": "feature_mart.py",
+            "line": 145,
+            "description": "Raises on corpus mismatch or non-unique trial coverage"
+          }
+        ]
+      },
+      {
+        "kind": "architecture",
+        "statement": "The structured lane combines direct study features with historical maps and empirical-Bayes priors, caches the resulting numeric and categorical frames, and registers the cache as the all-table temporal evidence mart.",
+        "confidence": 0.98,
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 24,
+            "description": "Defines structured-mart loading and construction"
+          },
+          {
+            "path": "main.py",
+            "line": 36,
+            "description": "Builds direct features and categorical values"
+          },
+          {
+            "path": "main.py",
+            "line": 37,
+            "description": "Builds historical maps"
+          },
+          {
+            "path": "main.py",
+            "line": 38,
+            "description": "Builds empirical-Bayes features"
+          },
+          {
+            "path": "main.py",
+            "line": 39,
+            "description": "Joins direct and prior features into the numeric mart"
+          },
+          {
+            "path": "main.py",
+            "line": 42,
+            "description": "Registers the timestamp-censored multi-view evidence mart"
+          },
+          {
+            "path": "main.py",
+            "line": 43,
+            "description": "Reports the cached structured-mart shape"
+          }
+        ]
+      },
+      {
+        "kind": "architecture",
+        "statement": "The semantic lane encodes combined trial text and separate sections using a pinned biomedical embedding model, computes temporally eligible top-k neighbor summaries at k=16, 64, and 256, excludes the query trial itself, and caches the resulting neighbor frame and seed embeddings on full runs.",
+        "confidence": 0.98,
+        "evidence": [
+          {
+            "path": "feature_mart.py",
+            "line": 201,
+            "description": "Starts section-specific semantic retrieval features"
+          },
+          {
+            "path": "feature_mart.py",
+            "line": 205,
+            "description": "Processes each seed timestamp separately"
+          },
+          {
+            "path": "feature_mart.py",
+            "line": 207,
+            "description": "Limits eligible semantic history in debug mode"
+          },
+          {
+            "path": "feature_mart.py",
+            "line": 216,
+            "description": "Builds the query-to-corpus similarity matrix"
+          },
+          {
+            "path": "feature_mart.py",
+            "line": 217,
+            "description": "Identifies same-trial query/corpus pairs"
+          },
+          {
+            "path": "feature_mart.py",
+            "line": 218,
+            "description": "Masks same-trial pairs from retrieval"
+          },
+          {
+            "path": "feature_mart.py",
+            "line": 219,
+            "description": "Selects up to the top 256 neighbors"
+          },
+          {
+            "path": "feature_mart.py",
+            "line": 227,
+            "description": "Computes section summaries at 16, 64, and 256 neighbors"
+          },
+          {
+            "path": "feature_mart.py",
+            "line": 239,
+            "description": "Returns the semantic feature frame"
+          },
+          {
+            "path": "main.py",
+            "line": 49,
+            "description": "Combines title, summary, eligibility, and entity text for encoding"
+          },
+          {
+            "path": "main.py",
+            "line": 60,
+            "description": "Encodes documents when the semantic cache is unavailable"
+          },
+          {
+            "path": "main.py",
+            "line": 61,
+            "description": "Builds semantic features from section embeddings"
+          },
+          {
+            "path": "main.py",
+            "line": 68,
+            "description": "Registers the pinned title-section retrieval artifact"
+          }
+        ]
+      },
+      {
+        "kind": "algorithm",
+        "statement": "modeling.py generates out-of-fold analysis-count predictions with LightGBM, adds optional PCA embedding features and timestamp-normalized count features, evaluates structured feature designs on forward folds, and selects the design, rounds, logistic C, and blend weight before final fitting.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "modeling.py",
+            "line": 78,
+            "description": "Defines the LightGBM count regressor"
+          },
+          {
+            "path": "modeling.py",
+            "line": 96,
+            "description": "Defines count prediction generation"
+          },
+          {
+            "path": "modeling.py",
+            "line": 100,
+            "description": "Allocates out-of-fold count predictions"
+          },
+          {
+            "path": "modeling.py",
+            "line": 102,
+            "description": "Runs the count-model folds"
+          },
+          {
+            "path": "modeling.py",
+            "line": 109,
+            "description": "Refits the count model for target inference"
+          },
+          {
+            "path": "modeling.py",
+            "line": 134,
+            "description": "Defines PCA embedding projection"
+          },
+          {
+            "path": "modeling.py",
+            "line": 175,
+            "description": "Evaluates each configured feature design per fold"
+          },
+          {
+            "path": "modeling.py",
+            "line": 184,
+            "description": "Caches fold data for later logistic and blend selection"
+          },
+          {
+            "path": "modeling.py",
+            "line": 187,
+            "description": "Summarizes fold scores and dispersion"
+          },
+          {
+            "path": "modeling.py",
+            "line": 192,
+            "description": "Applies the one-standard-error-style simpler-design selection rule"
+          },
+          {
+            "path": "modeling.py",
+            "line": 207,
+            "description": "Chooses logistic regularization from fold results"
+          },
+          {
+            "path": "modeling.py",
+            "line": 211,
+            "description": "Evaluates candidate LightGBM blend weights"
+          },
+          {
+            "path": "modeling.py",
+            "line": 223,
+            "description": "Stores the selected design, rounds, logistic C, and blend weight"
+          }
+        ]
+      },
+      {
+        "kind": "algorithm",
+        "statement": "The final chain fits a LightGBM binary classifier and a logistic member that receives PCA features, raw embeddings, and hashed word/character text, then blends their probabilities and clips the result to a valid open binary-probability interval.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "modeling.py",
+            "line": 241,
+            "description": "Defines the final fit-and-predict chain"
+          },
+          {
+            "path": "modeling.py",
+            "line": 242,
+            "description": "Builds count features for the fit and target rows"
+          },
+          {
+            "path": "modeling.py",
+            "line": 243,
+            "description": "Builds PCA features"
+          },
+          {
+            "path": "modeling.py",
+            "line": 246,
+            "description": "Creates the LightGBM binary classifier"
+          },
+          {
+            "path": "modeling.py",
+            "line": 249,
+            "description": "Produces LightGBM probabilities"
+          },
+          {
+            "path": "modeling.py",
+            "line": 250,
+            "description": "Adds PCA features to the logistic inputs"
+          },
+          {
+            "path": "modeling.py",
+            "line": 251,
+            "description": "Builds the text feature matrix"
+          },
+          {
+            "path": "modeling.py",
+            "line": 252,
+            "description": "Fits and predicts with the logistic member"
+          },
+          {
+            "path": "modeling.py",
+            "line": 253,
+            "description": "Blends LightGBM and logistic probabilities"
+          },
+          {
+            "path": "modeling.py",
+            "line": 254,
+            "description": "Records raw-embedding, PCA, and hashed text lineage"
+          },
+          {
+            "path": "modeling.py",
+            "line": 255,
+            "description": "Clips predictions to the valid probability interval"
+          }
+        ]
+      },
+      {
+        "kind": "architecture",
+        "statement": "kapso_datasets.common provides the reusable integration layer: it loads the dataset, task, database, and train/validation/test tables from the sanitized cache, and saves both prediction arrays using the evaluation output convention.",
+        "confidence": 0.98,
+        "evidence": [
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 60,
+            "description": "Defines the task-loading helper"
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 71,
+            "description": "Loads the dataset without downloading"
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 73,
+            "description": "Creates the database with the requested timestamp cutoff"
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 80,
+            "description": "Loads the train table"
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 82,
+            "description": "Loads the test table"
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 86,
+            "description": "Defines the prediction-saving helper"
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 89,
+            "description": "Writes validation and test prediction files"
+          }
+        ]
+      },
+      {
+        "kind": "architecture",
+        "statement": "The immutable grader runs main.py in an isolated child subprocess, validates the resulting artifacts, computes official RelBench validation metrics, and archives full-fidelity runs for later selection.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 93,
+            "description": "Defines candidate execution"
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 103,
+            "description": "Builds the main.py child command"
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 113,
+            "description": "Starts the candidate in a subprocess"
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 212,
+            "description": "Defines artifact loading and scoring"
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 248,
+            "description": "Computes task evaluation metrics"
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 379,
+            "description": "Runs and scores the candidate"
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 386,
+            "description": "Archives full-fidelity runs"
+          }
+        ]
+      },
+      {
+        "kind": "data",
+        "statement": "make_seeds preserves the source row order across train, validation, and test by assigning split-local IDs and a contiguous global row_id; missing outcomes are represented as NaN.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "feature_mart.py",
+            "line": 67,
+            "description": "Defines seed construction"
+          },
+          {
+            "path": "feature_mart.py",
+            "line": 70,
+            "description": "Processes train, validation, and test tables in order"
+          },
+          {
+            "path": "feature_mart.py",
+            "line": 73,
+            "description": "Assigns split-local row positions"
+          },
+          {
+            "path": "feature_mart.py",
+            "line": 74,
+            "description": "Assigns contiguous global row IDs"
+          },
+          {
+            "path": "feature_mart.py",
+            "line": 76,
+            "description": "Adds missing outcomes as NaN"
+          },
+          {
+            "path": "feature_mart.py",
+            "line": 78,
+            "description": "Retains the immutable-order seed columns"
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "For ordinary runs, validation and test predictions must be one-dimensional vectors aligned to the validation and test seed rows; main.py checks the exact shapes before writing diagnostics and prediction artifacts.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 103,
+            "description": "Builds validation and test row ID arrays"
+          },
+          {
+            "path": "main.py",
+            "line": 135,
+            "description": "Checks validation and test prediction shapes"
+          },
+          {
+            "path": "main.py",
+            "line": 137,
+            "description": "Records the prediction shapes in diagnostics"
+          },
+          {
+            "path": "main.py",
+            "line": 140,
+            "description": "Writes predictions in immutable row order"
+          },
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 15,
+            "description": "Requires both prediction files after every ordinary run"
+          },
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 17,
+            "description": "Requires out-of-sample validation predictions"
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "The current binary candidate returns probabilities clipped to [1e-6, 1-1e-6], while the broader RelBench contract remains task-dependent: binary predictions are float probabilities, regression predictions are float vectors, multiclass predictions are score matrices, and recommendation predictions are ranked integer IDs.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "modeling.py",
+            "line": 249,
+            "description": "Produces binary classifier probabilities"
+          },
+          {
+            "path": "modeling.py",
+            "line": 253,
+            "description": "Combines the two probability members"
+          },
+          {
+            "path": "modeling.py",
+            "line": 255,
+            "description": "Clips final probabilities to the valid interval"
+          },
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 20,
+            "description": "Defines binary, regression, and multiclass prediction formats"
+          },
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 21,
+            "description": "Defines recommendation prediction formats"
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 37,
+            "description": "Checks recommendation shape and dtype"
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 49,
+            "description": "Determines expected non-recommendation shapes"
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 58,
+            "description": "Checks binary probability bounds"
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "Historical evidence and semantic retrieval must be timestamp-safe: semantic candidates are restricted to report dates at or before the seed timestamp and same-trial candidates are masked, while reconstructed analysis counts require a report date after the seed and within one year.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "feature_mart.py",
+            "line": 205,
+            "description": "Processes retrieval separately for each seed timestamp"
+          },
+          {
+            "path": "feature_mart.py",
+            "line": 206,
+            "description": "Finds corpus rows eligible at the seed timestamp"
+          },
+          {
+            "path": "feature_mart.py",
+            "line": 216,
+            "description": "Computes query-to-corpus similarities"
+          },
+          {
+            "path": "feature_mart.py",
+            "line": 217,
+            "description": "Constructs the same-trial exclusion mask"
+          },
+          {
+            "path": "feature_mart.py",
+            "line": 218,
+            "description": "Removes same-trial candidates"
+          },
+          {
+            "path": "feature_mart.py",
+            "line": 266,
+            "description": "Defines authorized analysis-count reconstruction"
+          },
+          {
+            "path": "feature_mart.py",
+            "line": 269,
+            "description": "Requires report dates after the seed and no later than one year afterward"
+          },
+          {
+            "path": "feature_mart.py",
+            "line": 271,
+            "description": "Raises if any row violates the authorized date window"
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "Validation model A is fit only on training IDs, while test model B may use training plus validation IDs but must not include test IDs; main.py explicitly checks both lineage conditions.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 101,
+            "description": "Collects all training IDs"
+          },
+          {
+            "path": "main.py",
+            "line": 104,
+            "description": "Reconstructs training analysis counts"
+          },
+          {
+            "path": "main.py",
+            "line": 122,
+            "description": "Fits validation predictions from the training lineage"
+          },
+          {
+            "path": "main.py",
+            "line": 123,
+            "description": "Rejects non-training rows in validation fit lineage"
+          },
+          {
+            "path": "main.py",
+            "line": 127,
+            "description": "Reconstructs validation analysis counts only after validation inference"
+          },
+          {
+            "path": "main.py",
+            "line": 128,
+            "description": "Forms the train-plus-validation test-training lineage"
+          },
+          {
+            "path": "main.py",
+            "line": 131,
+            "description": "Rejects test rows in the test fit lineage"
+          },
+          {
+            "path": "output_data_generic_exp_0/full_metrics.json",
+            "line": 170,
+            "description": "Records validation fit lineage as train labels only"
+          },
+          {
+            "path": "output_data_generic_exp_0/full_metrics.json",
+            "line": 171,
+            "description": "Records test fit lineage as train plus validation labels"
+          }
+        ]
+      },
+      {
+        "kind": "algorithm",
+        "statement": "Analysis-count features use K-fold out-of-fold predictions for fit rows and a separate model refit for target rows; the count model trains on log1p counts and clips predicted counts to [0,100].",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "modeling.py",
+            "line": 97,
+            "description": "Chooses the count-model fold count by run mode"
+          },
+          {
+            "path": "modeling.py",
+            "line": 100,
+            "description": "Allocates fit-row OOF predictions"
+          },
+          {
+            "path": "modeling.py",
+            "line": 102,
+            "description": "Iterates over K-fold fit/validation positions"
+          },
+          {
+            "path": "modeling.py",
+            "line": 107,
+            "description": "Fits each fold on log-transformed counts"
+          },
+          {
+            "path": "modeling.py",
+            "line": 108,
+            "description": "Writes inverse-transformed OOF predictions"
+          },
+          {
+            "path": "modeling.py",
+            "line": 109,
+            "description": "Starts the full fit and target prediction"
+          },
+          {
+            "path": "modeling.py",
+            "line": 111,
+            "description": "Fits the target model on all fit-row counts"
+          },
+          {
+            "path": "modeling.py",
+            "line": 113,
+            "description": "Clips OOF and target count predictions"
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "Candidate data access must use the sanitized, read-only cache and RelBench APIs with download=False; test labels are physically absent and must not be probed.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 25,
+            "description": "Requires RelBench access with download=False"
+          },
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 26,
+            "description": "States that test labels are absent"
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 61,
+            "description": "Documents loading from the sanitized cache"
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 71,
+            "description": "Uses get_dataset with download=False"
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 72,
+            "description": "Uses get_task with download=False"
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "The official configured score is validation ROC-AUC for the current evaluation profile; official validation metrics are computed by the grader rather than by candidate-side test labels.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "eval_profile.md",
+            "line": 5,
+            "description": "States that the evaluator computes AP, accuracy, F1, and ROC-AUC and records validation ROC-AUC"
+          },
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 23,
+            "description": "Defines the official validation primary metric"
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 218,
+            "description": "Reads the primary metric environment variable"
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 248,
+            "description": "Computes validation metrics"
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 249,
+            "description": "Requires the configured primary metric"
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 397,
+            "description": "Places the primary validation metric in the manifest score"
+          }
+        ]
+      },
+      {
+        "kind": "testing",
+        "statement": "The fast harness invocation runs main.py --debug, still scores all 960 validation rows, and exercises a deliberately reduced feature/model path; the full invocation runs main.py without --debug.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "eval_profile.md",
+            "line": 5,
+            "description": "Defines the debug/full commands and states that both score all validation rows"
+          },
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 5,
+            "description": "Defines the debug command"
+          },
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 6,
+            "description": "Defines the full command"
+          },
+          {
+            "path": "kapso_evaluation/README.md",
+            "line": 22,
+            "description": "Maps fast fidelity to main.py --debug"
+          },
+          {
+            "path": "kapso_evaluation/README.md",
+            "line": 25,
+            "description": "Maps full fidelity to main.py"
+          },
+          {
+            "path": "kapso_evaluation/README.md",
+            "line": 28,
+            "description": "States that the validation item set is never reduced"
+          },
+          {
+            "path": "main.py",
+            "line": 121,
+            "description": "Subsamples training IDs in debug mode"
+          },
+          {
+            "path": "modeling.py",
+            "line": 97,
+            "description": "Uses fewer count-model folds in debug mode"
+          },
+          {
+            "path": "modeling.py",
+            "line": 101,
+            "description": "Uses fewer count-model rounds in debug mode"
+          },
+          {
+            "path": "modeling.py",
+            "line": 246,
+            "description": "Uses a fixed reduced classifier round count in debug mode"
+          }
+        ]
+      },
+      {
+        "kind": "testing",
+        "statement": "The recorded debug run completed in about 297.65 seconds with validation shape (960,) and test shape (825), and the recorded full run completed in about 411.61 seconds with the same exact output shapes.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "output_data_generic_exp_0/debug_metrics.json",
+            "line": 2,
+            "description": "Marks the recorded run as debug"
+          },
+          {
+            "path": "output_data_generic_exp_0/debug_metrics.json",
+            "line": 3,
+            "description": "Records the debug elapsed time"
+          },
+          {
+            "path": "output_data_generic_exp_0/debug_metrics.json",
+            "line": 121,
+            "description": "Records the debug validation shape"
+          },
+          {
+            "path": "output_data_generic_exp_0/debug_metrics.json",
+            "line": 124,
+            "description": "Records the debug test shape"
+          },
+          {
+            "path": "output_data_generic_exp_0/full_metrics.json",
+            "line": 2,
+            "description": "Marks the recorded run as full"
+          },
+          {
+            "path": "output_data_generic_exp_0/full_metrics.json",
+            "line": 3,
+            "description": "Records the full elapsed time"
+          },
+          {
+            "path": "output_data_generic_exp_0/full_metrics.json",
+            "line": 172,
+            "description": "Records the full validation shape"
+          },
+          {
+            "path": "output_data_generic_exp_0/full_metrics.json",
+            "line": 175,
+            "description": "Records the full test shape"
+          }
+        ]
+      },
+      {
+        "kind": "testing",
+        "statement": "After generating predictions, run kapso_datasets/check_predictions.py; success prints an OK line for each split followed by '[check_predictions] all checks passed'.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 27,
+            "description": "Recommends the prediction self-check command"
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 30,
+            "description": "Checks validation and test splits"
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 62,
+            "description": "Prints per-split success"
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 64,
+            "description": "Prints the all-checks-passed result"
+          }
+        ]
+      },
+      {
+        "kind": "testing",
+        "statement": "The final registered run passed prediction contract checks and reported official validation AP 0.778635, accuracy 0.658333, F1 0.734628, and ROC-AUC 0.714429.",
+        "confidence": 0.98,
+        "evidence": [
+          {
+            "path": "changes.log",
+            "line": 14,
+            "description": "Records the completed registered run, official metrics, and passed prediction checks"
+          }
+        ]
+      },
+      {
+        "kind": "gotcha",
+        "statement": "Debug mode is now materially cheaper but does not reuse the full semantic cache: it bypasses cached semantic neighbors, caps eligible retrieval history at 512 rows per timestamp, subsamples fit IDs to at most 2,000, reduces count folds/rounds, and uses 120 classifier rounds.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 53,
+            "description": "Only reuses the semantic cache when not in debug mode"
+          },
+          {
+            "path": "main.py",
+            "line": 60,
+            "description": "Passes debug mode into embedding construction"
+          },
+          {
+            "path": "main.py",
+            "line": 121,
+            "description": "Subsamples the validation-model training IDs in debug mode"
+          },
+          {
+            "path": "main.py",
+            "line": 129,
+            "description": "Subsamples the test-model training IDs in debug mode"
+          },
+          {
+            "path": "feature_mart.py",
+            "line": 207,
+            "description": "Caps eligible semantic history in debug mode"
+          },
+          {
+            "path": "modeling.py",
+            "line": 97,
+            "description": "Uses two count folds in debug mode"
+          },
+          {
+            "path": "modeling.py",
+            "line": 101,
+            "description": "Uses 80 count-model rounds in debug mode"
+          },
+          {
+            "path": "modeling.py",
+            "line": 246,
+            "description": "Uses 120 classifier rounds in debug mode"
+          },
+          {
+            "path": "eval_profile.md",
+            "line": 5,
+            "description": "Confirms that debug still scores all validation rows"
+          }
+        ]
+      },
+      {
+        "kind": "gotcha",
+        "statement": "Structured and semantic caches are validated primarily by row count, while the frozen forward-selection JSON is loaded only for non-debug runs; delete the relevant cache or selection artifact when changing feature design or model selection logic.",
+        "confidence": 0.98,
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 29,
+            "description": "Checks for structured cache files"
+          },
+          {
+            "path": "main.py",
+            "line": 32,
+            "description": "Validates structured cache row counts"
+          },
+          {
+            "path": "main.py",
+            "line": 53,
+            "description": "Checks semantic cache only outside debug mode"
+          },
+          {
+            "path": "main.py",
+            "line": 56,
+            "description": "Validates semantic cache dimensions"
+          },
+          {
+            "path": "main.py",
+            "line": 106,
+            "description": "Defines the frozen forward-selection cache path"
+          },
+          {
+            "path": "main.py",
+            "line": 107,
+            "description": "Loads selection only for non-debug runs"
+          },
+          {
+            "path": "main.py",
+            "line": 115,
+            "description": "Writes a new selection cache after full selection"
+          }
+        ]
+      },
+      {
+        "kind": "gotcha",
+        "statement": "The count normalization block can recreate the generic within_small_cohort column already present in structured features, so compose_numeric explicitly drops that column before joining normalized count features.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "modeling.py",
+            "line": 152,
+            "description": "Adds predicted analysis count features for the full design"
+          },
+          {
+            "path": "modeling.py",
+            "line": 156,
+            "description": "Computes within-timestamp normalized count features"
+          },
+          {
+            "path": "modeling.py",
+            "line": 157,
+            "description": "Drops the duplicate within_small_cohort column"
+          },
+          {
+            "path": "modeling.py",
+            "line": 159,
+            "description": "Joins the cleaned count frame into the training features"
+          },
+          {
+            "path": "changes.log",
+            "line": 4,
+            "description": "Records the duplicate-column repair"
+          }
+        ]
+      },
+      {
+        "kind": "gotcha",
+        "statement": "Within-timestamp rank and z-score features neutralize cohorts smaller than 20: ranks and percentiles become 0.5, while z-scores and leader gaps become 0.",
+        "confidence": 0.98,
+        "evidence": [
+          {
+            "path": "feature_mart.py",
+            "line": 244,
+            "description": "Defines within-timestamp feature construction"
+          },
+          {
+            "path": "feature_mart.py",
+            "line": 249,
+            "description": "Marks cohorts smaller than 20"
+          },
+          {
+            "path": "feature_mart.py",
+            "line": 260,
+            "description": "Identifies small cohorts for neutralization"
+          },
+          {
+            "path": "feature_mart.py",
+            "line": 261,
+            "description": "Sets small-cohort ranks and percentiles to 0.5"
+          },
+          {
+            "path": "feature_mart.py",
+            "line": 262,
+            "description": "Sets small-cohort z-scores and leader gaps to 0"
+          }
+        ]
+      },
+      {
+        "kind": "gotcha",
+        "statement": "true_analysis_counts is intentionally strict: it raises rather than silently imputing if any authorized row lacks a report date strictly after the seed and within the one-year reconstruction window.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "feature_mart.py",
+            "line": 266,
+            "description": "Defines the strict count reconstruction helper"
+          },
+          {
+            "path": "feature_mart.py",
+            "line": 269,
+            "description": "Defines the legal report-date window"
+          },
+          {
+            "path": "feature_mart.py",
+            "line": 271,
+            "description": "Raises on invalid reconstructed rows"
+          }
+        ]
+      },
+      {
+        "kind": "gotcha",
+        "statement": "Categorical transforms are fit only on the fit IDs; categories unseen during transformation map to ordinal -1 and frequency 0, so changing fit populations can change encoded values.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "modeling.py",
+            "line": 37,
+            "description": "Fits category transforms from training IDs"
+          },
+          {
+            "path": "modeling.py",
+            "line": 45,
+            "description": "Builds training-derived ordinal mappings"
+          },
+          {
+            "path": "modeling.py",
+            "line": 47,
+            "description": "Stores training-derived frequencies"
+          },
+          {
+            "path": "modeling.py",
+            "line": 50,
+            "description": "Defines category transformation"
+          },
+          {
+            "path": "modeling.py",
+            "line": 55,
+            "description": "Maps unseen values to ordinal -1"
+          },
+          {
+            "path": "modeling.py",
+            "line": 56,
+            "description": "Maps unseen values to frequency 0"
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "The prediction checker warns rather than fails when recommendation IDs are out of range or duplicated, even though the evaluation contract requires valid ranked distinct IDs; solutions must enforce those recommendation constraints themselves.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 21,
+            "description": "Requires ranked distinct destination IDs in range"
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 42,
+            "description": "Detects out-of-range recommendation IDs"
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 43,
+            "description": "Reports out-of-range IDs as a warning"
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 45,
+            "description": "Reports duplicate IDs as a warning"
+          }
+        ]
+      },
+      {
+        "kind": "dependency",
+        "statement": "The feature mart depends on DuckDB, NumPy, and Pandas for relational aggregation and dataframe/numeric feature construction.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "feature_mart.py",
+            "line": 11,
+            "description": "Imports DuckDB"
+          },
+          {
+            "path": "feature_mart.py",
+            "line": 12,
+            "description": "Imports NumPy"
+          },
+          {
+            "path": "feature_mart.py",
+            "line": 13,
+            "description": "Imports Pandas"
+          }
+        ]
+      },
+      {
+        "kind": "dependency",
+        "statement": "The modeling lane depends on LightGBM and scikit-learn components for gradient boosting, PCA, hashing, imputation, logistic regression, metrics, folds, and scaling, with SciPy sparse support.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "modeling.py",
+            "line": 8,
+            "description": "Imports LightGBM"
+          },
+          {
+            "path": "modeling.py",
+            "line": 11,
+            "description": "Imports SciPy sparse support"
+          },
+          {
+            "path": "modeling.py",
+            "line": 12,
+            "description": "Imports PCA"
+          },
+          {
+            "path": "modeling.py",
+            "line": 13,
+            "description": "Imports HashingVectorizer"
+          },
+          {
+            "path": "modeling.py",
+            "line": 15,
+            "description": "Imports LogisticRegression"
+          },
+          {
+            "path": "modeling.py",
+            "line": 16,
+            "description": "Imports ROC-AUC scoring"
+          },
+          {
+            "path": "modeling.py",
+            "line": 17,
+            "description": "Imports KFold"
+          }
+        ]
+      },
+      {
+        "kind": "dependency",
+        "statement": "Semantic features are tied to the frozen NeuML biomedical embedding model revision 048ad4491de0fb4e2695bfe4705da67caf4804b8; full-run semantic artifacts are registered for reuse.",
+        "confidence": 0.98,
+        "evidence": [
+          {
+            "path": "feature_mart.py",
+            "line": 16,
+            "description": "Defines the deterministic feature seed"
+          },
+          {
+            "path": "feature_mart.py",
+            "line": 17,
+            "description": "Defines the biomedical embedding model"
+          },
+          {
+            "path": "feature_mart.py",
+            "line": 18,
+            "description": "Pins the model revision"
+          },
+          {
+            "path": "main.py",
+            "line": 68,
+            "description": "Registers the frozen semantic retrieval artifact and model revision"
+          }
+        ]
+      },
+      {
+        "kind": "dependency",
+        "statement": "Runtime behavior uses OMP_NUM_THREADS for modeling parallelism and disables Hugging Face progress bars and tokenizer parallelism in the candidate process.",
+        "confidence": 0.98,
+        "evidence": [
+          {
+            "path": "modeling.py",
+            "line": 23,
+            "description": "Reads OMP_NUM_THREADS with a default of 40"
+          },
+          {
+            "path": "main.py",
+            "line": 81,
+            "description": "Disables Hugging Face hub progress bars"
+          },
+          {
+            "path": "main.py",
+            "line": 82,
+            "description": "Disables tokenizer parallelism"
+          }
+        ]
+      },
+      {
+        "kind": "dependency",
+        "statement": "RelBench remains accessed through the repository's sanitized-cache helpers with downloads disabled.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 61,
+            "description": "Documents sanitized-cache loading"
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 71,
+            "description": "Uses download=False for the dataset"
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 72,
+            "description": "Uses download=False for the task"
+          }
+        ]
+      },
+      {
+        "kind": "data",
+        "statement": "The profiled task contains 11,994 training rows, 960 validation rows at 2020-01-01, and 825 test rows at 2021-01-01; the historical eligible corpus contains 14,164 trials and exact reconstruction matches all train and validation labels.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "eval_profile.md",
+            "line": 9,
+            "description": "Reports training size and cohort distribution"
+          },
+          {
+            "path": "eval_profile.md",
+            "line": 10,
+            "description": "Reports validation size and label rate"
+          },
+          {
+            "path": "eval_profile.md",
+            "line": 11,
+            "description": "Reports test size and absent labels"
+          },
+          {
+            "path": "eval_profile.md",
+            "line": 12,
+            "description": "Reports the eligible historical corpus size"
+          },
+          {
+            "path": "eval_profile.md",
+            "line": 13,
+            "description": "Reports exact train and validation label reconstruction"
+          }
+        ]
+      },
+      {
+        "kind": "result",
+        "statement": "The frozen full-run selection chose structured_neighbors with 263 LightGBM rounds, logistic C=0.02, and LightGBM blend weight 0.85; its four 2016-2019 blended fold AUCs were 0.696398, 0.696961, 0.718819, and 0.714537 with pooled AUC 0.704612.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "output_data_generic_exp_0/full_metrics.json",
+            "line": 76,
+            "description": "Records the selected structured_neighbors design"
+          },
+          {
+            "path": "output_data_generic_exp_0/full_metrics.json",
+            "line": 77,
+            "description": "Records 263 selected rounds"
+          },
+          {
+            "path": "output_data_generic_exp_0/full_metrics.json",
+            "line": 92,
+            "description": "Records selected logistic C=0.02"
+          },
+          {
+            "path": "output_data_generic_exp_0/full_metrics.json",
+            "line": 96,
+            "description": "Records pooled blend AUC 0.704612 at weight 0.85"
+          },
+          {
+            "path": "output_data_generic_exp_0/full_metrics.json",
+            "line": 98,
+            "description": "Records LightGBM blend weight 0.85"
+          },
+          {
+            "path": "output_data_generic_exp_0/full_metrics.json",
+            "line": 99,
+            "description": "Begins the forward-fold result list"
+          },
+          {
+            "path": "output_data_generic_exp_0/full_metrics.json",
+            "line": 103,
+            "description": "Records the 2016 fold AUC"
+          },
+          {
+            "path": "output_data_generic_exp_0/full_metrics.json",
+            "line": 108,
+            "description": "Records the 2017 fold AUC"
+          },
+          {
+            "path": "output_data_generic_exp_0/full_metrics.json",
+            "line": 113,
+            "description": "Records the 2018 fold AUC"
+          },
+          {
+            "path": "output_data_generic_exp_0/full_metrics.json",
+            "line": 118,
+            "description": "Records the 2019 fold AUC"
+          },
+          {
+            "path": "eval_profile.md",
+            "line": 32,
+            "description": "Summarizes the frozen design and pooled forward AUC"
+          }
+        ]
+      },
+      {
+        "kind": "result",
+        "statement": "The final registered run used combined and title-section semantic neighbors and achieved official validation ROC-AUC 0.714429; the validation site-richness slices were 0.684695 for 0-4 sites, 0.781654 for 5-19 sites, and 0.758750 for 20 or more sites.",
+        "confidence": 0.98,
+        "evidence": [
+          {
+            "path": "eval_profile.md",
+            "line": 32,
+            "description": "Reports the final design, official validation ROC-AUC, and site-count slice AUCs"
+          },
+          {
+            "path": "changes.log",
+            "line": 14,
+            "description": "Records the final registered run and official validation metrics"
+          }
+        ]
+      },
+      {
+        "kind": "result",
+        "statement": "The full model lineage confirms that both final model members used raw embeddings, PCA embeddings, and hashed word/character text in addition to the selected structured-neighbor design.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "output_data_generic_exp_0/full_metrics.json",
+            "line": 147,
+            "description": "Records the selected design for model A"
+          },
+          {
+            "path": "output_data_generic_exp_0/full_metrics.json",
+            "line": 152,
+            "description": "Records raw embedding use for model A"
+          },
+          {
+            "path": "output_data_generic_exp_0/full_metrics.json",
+            "line": 153,
+            "description": "Records PCA embedding use for model A"
+          },
+          {
+            "path": "output_data_generic_exp_0/full_metrics.json",
+            "line": 154,
+            "description": "Records hashed word/character text use for model A"
+          },
+          {
+            "path": "output_data_generic_exp_0/full_metrics.json",
+            "line": 161,
+            "description": "Records the selected design for model B"
+          },
+          {
+            "path": "output_data_generic_exp_0/full_metrics.json",
+            "line": 166,
+            "description": "Records raw embedding use for model B"
+          },
+          {
+            "path": "output_data_generic_exp_0/full_metrics.json",
+            "line": 167,
+            "description": "Records PCA embedding use for model B"
+          },
+          {
+            "path": "output_data_generic_exp_0/full_metrics.json",
+            "line": 168,
+            "description": "Records hashed word/character text use for model B"
+          }
+        ]
+      }
+    ]
+  },
+  "book": {
+    "summary": "A RelBench study-outcome candidate that builds a timestamp-censored historical evidence mart and cached biomedical semantic retrieval features, performs training-only forward-fold design selection, fits LightGBM and logistic blend models with separate validation/test lineages, and emits contract-compliant validation and test probability vectors.",
+    "toc": [
+      {
+        "id": "core.architecture",
+        "title": "Architecture",
+        "one_liner": "Temporal evidence mart, cached semantic retrieval, forward selection, and leakage-safe two-lineage modeling"
+      },
+      {
+        "id": "core.entrypoints",
+        "title": "Entrypoints",
+        "one_liner": "Run the candidate directly or through the provided grader"
+      },
+      {
+        "id": "core.where_to_edit",
+        "title": "Where to edit",
+        "one_liner": "Change feature construction or modeling while preserving the task and prediction contract"
+      },
+      {
+        "id": "core.invariants",
+        "title": "Invariants",
+        "one_liner": "Temporal legality, row alignment, lineage separation, and binary prediction format must remain intact"
+      },
+      {
+        "id": "core.testing",
+        "title": "Testing",
+        "one_liner": "Run debug, validate artifacts, then run the registered full evaluator"
+      },
+      {
+        "id": "core.gotchas",
+        "title": "Gotchas",
+        "one_liner": "Debug cache behavior, temporal guards, category fallbacks, and warning-only checks affect implementation choices"
+      },
+      {
+        "id": "core.dependencies",
+        "title": "Dependencies",
+        "one_liner": "DuckDB/Pandas feature construction, LightGBM/scikit-learn modeling, and pinned biomedical embeddings"
+      },
+      {
+        "id": "opt.current_measurements",
+        "title": "Current measurements",
+        "one_liner": "The frozen candidate targets a forward 2020 validation cohort with a structured-neighbor semantic blend"
+      }
+    ],
+    "sections": {
+      "core.architecture": {
+        "title": "Architecture",
+        "one_liner": "Temporal evidence mart, cached semantic retrieval, forward selection, and leakage-safe two-lineage modeling",
+        "claims": [
+          {
+            "kind": "architecture",
+            "statement": "The root candidate in main.py now runs a staged pipeline: load the RelBench task and immutable row register, build historical episodes, load or construct structured and semantic features, perform forward-fold selection, fit separate validation and test models, and save predictions plus diagnostics.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "main.py",
+                "line": 79,
+                "description": "Defines the candidate main function"
+              },
+              {
+                "path": "main.py",
+                "line": 85,
+                "description": "Loads the task"
+              },
+              {
+                "path": "main.py",
+                "line": 86,
+                "description": "Creates the preserved seed row register"
+              },
+              {
+                "path": "main.py",
+                "line": 92,
+                "description": "Builds the historical result episode corpus"
+              },
+              {
+                "path": "main.py",
+                "line": 94,
+                "description": "Loads or builds the structured mart"
+              },
+              {
+                "path": "main.py",
+                "line": 96,
+                "description": "Loads or builds semantic retrieval features"
+              },
+              {
+                "path": "main.py",
+                "line": 113,
+                "description": "Runs forward design selection when no frozen selection is available"
+              },
+              {
+                "path": "main.py",
+                "line": 122,
+                "description": "Fits the validation-lineage model"
+              },
+              {
+                "path": "main.py",
+                "line": 130,
+                "description": "Fits the test-lineage model"
+              },
+              {
+                "path": "main.py",
+                "line": 140,
+                "description": "Saves the final prediction vectors"
+              }
+            ]
+          },
+          {
+            "kind": "architecture",
+            "statement": "feature_mart.py constructs the historical evidence layer from primary outcome analyses and related study tables, aggregates significance, reporting, dropout, and serious-event features by trial and report date, and rejects an unexpected corpus size or duplicate-trial structure.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "feature_mart.py",
+                "line": 84,
+                "description": "Defines historical episode construction"
+              },
+              {
+                "path": "feature_mart.py",
+                "line": 86,
+                "description": "Registers outcome, study, dropout, and event tables"
+              },
+              {
+                "path": "feature_mart.py",
+                "line": 90,
+                "description": "Begins the eligible primary-analysis query"
+              },
+              {
+                "path": "feature_mart.py",
+                "line": 112,
+                "description": "Aggregates analysis-level values by trial and report date"
+              },
+              {
+                "path": "feature_mart.py",
+                "line": 129,
+                "description": "Derives significance and timing-related episode features"
+              },
+              {
+                "path": "feature_mart.py",
+                "line": 144,
+                "description": "Checks the expected historical corpus dimensions"
+              },
+              {
+                "path": "feature_mart.py",
+                "line": 145,
+                "description": "Raises on corpus mismatch or non-unique trial coverage"
+              }
+            ]
+          },
+          {
+            "kind": "architecture",
+            "statement": "The structured lane combines direct study features with historical maps and empirical-Bayes priors, caches the resulting numeric and categorical frames, and registers the cache as the all-table temporal evidence mart.",
+            "confidence": 0.98,
+            "evidence": [
+              {
+                "path": "main.py",
+                "line": 24,
+                "description": "Defines structured-mart loading and construction"
+              },
+              {
+                "path": "main.py",
+                "line": 36,
+                "description": "Builds direct features and categorical values"
+              },
+              {
+                "path": "main.py",
+                "line": 37,
+                "description": "Builds historical maps"
+              },
+              {
+                "path": "main.py",
+                "line": 38,
+                "description": "Builds empirical-Bayes features"
+              },
+              {
+                "path": "main.py",
+                "line": 39,
+                "description": "Joins direct and prior features into the numeric mart"
+              },
+              {
+                "path": "main.py",
+                "line": 42,
+                "description": "Registers the timestamp-censored multi-view evidence mart"
+              },
+              {
+                "path": "main.py",
+                "line": 43,
+                "description": "Reports the cached structured-mart shape"
+              }
+            ]
+          },
+          {
+            "kind": "architecture",
+            "statement": "The semantic lane encodes combined trial text and separate sections using a pinned biomedical embedding model, computes temporally eligible top-k neighbor summaries at k=16, 64, and 256, excludes the query trial itself, and caches the resulting neighbor frame and seed embeddings on full runs.",
+            "confidence": 0.98,
+            "evidence": [
+              {
+                "path": "feature_mart.py",
+                "line": 201,
+                "description": "Starts section-specific semantic retrieval features"
+              },
+              {
+                "path": "feature_mart.py",
+                "line": 205,
+                "description": "Processes each seed timestamp separately"
+              },
+              {
+                "path": "feature_mart.py",
+                "line": 207,
+                "description": "Limits eligible semantic history in debug mode"
+              },
+              {
+                "path": "feature_mart.py",
+                "line": 216,
+                "description": "Builds the query-to-corpus similarity matrix"
+              },
+              {
+                "path": "feature_mart.py",
+                "line": 217,
+                "description": "Identifies same-trial query/corpus pairs"
+              },
+              {
+                "path": "feature_mart.py",
+                "line": 218,
+                "description": "Masks same-trial pairs from retrieval"
+              },
+              {
+                "path": "feature_mart.py",
+                "line": 219,
+                "description": "Selects up to the top 256 neighbors"
+              },
+              {
+                "path": "feature_mart.py",
+                "line": 227,
+                "description": "Computes section summaries at 16, 64, and 256 neighbors"
+              },
+              {
+                "path": "feature_mart.py",
+                "line": 239,
+                "description": "Returns the semantic feature frame"
+              },
+              {
+                "path": "main.py",
+                "line": 49,
+                "description": "Combines title, summary, eligibility, and entity text for encoding"
+              },
+              {
+                "path": "main.py",
+                "line": 60,
+                "description": "Encodes documents when the semantic cache is unavailable"
+              },
+              {
+                "path": "main.py",
+                "line": 61,
+                "description": "Builds semantic features from section embeddings"
+              },
+              {
+                "path": "main.py",
+                "line": 68,
+                "description": "Registers the pinned title-section retrieval artifact"
+              }
+            ]
+          },
+          {
+            "kind": "algorithm",
+            "statement": "modeling.py generates out-of-fold analysis-count predictions with LightGBM, adds optional PCA embedding features and timestamp-normalized count features, evaluates structured feature designs on forward folds, and selects the design, rounds, logistic C, and blend weight before final fitting.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "modeling.py",
+                "line": 78,
+                "description": "Defines the LightGBM count regressor"
+              },
+              {
+                "path": "modeling.py",
+                "line": 96,
+                "description": "Defines count prediction generation"
+              },
+              {
+                "path": "modeling.py",
+                "line": 100,
+                "description": "Allocates out-of-fold count predictions"
+              },
+              {
+                "path": "modeling.py",
+                "line": 102,
+                "description": "Runs the count-model folds"
+              },
+              {
+                "path": "modeling.py",
+                "line": 109,
+                "description": "Refits the count model for target inference"
+              },
+              {
+                "path": "modeling.py",
+                "line": 134,
+                "description": "Defines PCA embedding projection"
+              },
+              {
+                "path": "modeling.py",
+                "line": 175,
+                "description": "Evaluates each configured feature design per fold"
+              },
+              {
+                "path": "modeling.py",
+                "line": 184,
+                "description": "Caches fold data for later logistic and blend selection"
+              },
+              {
+                "path": "modeling.py",
+                "line": 187,
+                "description": "Summarizes fold scores and dispersion"
+              },
+              {
+                "path": "modeling.py",
+                "line": 192,
+                "description": "Applies the one-standard-error-style simpler-design selection rule"
+              },
+              {
+                "path": "modeling.py",
+                "line": 207,
+                "description": "Chooses logistic regularization from fold results"
+              },
+              {
+                "path": "modeling.py",
+                "line": 211,
+                "description": "Evaluates candidate LightGBM blend weights"
+              },
+              {
+                "path": "modeling.py",
+                "line": 223,
+                "description": "Stores the selected design, rounds, logistic C, and blend weight"
+              }
+            ]
+          },
+          {
+            "kind": "algorithm",
+            "statement": "The final chain fits a LightGBM binary classifier and a logistic member that receives PCA features, raw embeddings, and hashed word/character text, then blends their probabilities and clips the result to a valid open binary-probability interval.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "modeling.py",
+                "line": 241,
+                "description": "Defines the final fit-and-predict chain"
+              },
+              {
+                "path": "modeling.py",
+                "line": 242,
+                "description": "Builds count features for the fit and target rows"
+              },
+              {
+                "path": "modeling.py",
+                "line": 243,
+                "description": "Builds PCA features"
+              },
+              {
+                "path": "modeling.py",
+                "line": 246,
+                "description": "Creates the LightGBM binary classifier"
+              },
+              {
+                "path": "modeling.py",
+                "line": 249,
+                "description": "Produces LightGBM probabilities"
+              },
+              {
+                "path": "modeling.py",
+                "line": 250,
+                "description": "Adds PCA features to the logistic inputs"
+              },
+              {
+                "path": "modeling.py",
+                "line": 251,
+                "description": "Builds the text feature matrix"
+              },
+              {
+                "path": "modeling.py",
+                "line": 252,
+                "description": "Fits and predicts with the logistic member"
+              },
+              {
+                "path": "modeling.py",
+                "line": 253,
+                "description": "Blends LightGBM and logistic probabilities"
+              },
+              {
+                "path": "modeling.py",
+                "line": 254,
+                "description": "Records raw-embedding, PCA, and hashed text lineage"
+              },
+              {
+                "path": "modeling.py",
+                "line": 255,
+                "description": "Clips predictions to the valid probability interval"
+              }
+            ]
+          },
+          {
+            "kind": "architecture",
+            "statement": "kapso_datasets.common provides the reusable integration layer: it loads the dataset, task, database, and train/validation/test tables from the sanitized cache, and saves both prediction arrays using the evaluation output convention.",
+            "confidence": 0.98,
+            "evidence": [
+              {
+                "path": "kapso_datasets/common.py",
+                "line": 60,
+                "description": "Defines the task-loading helper"
+              },
+              {
+                "path": "kapso_datasets/common.py",
+                "line": 71,
+                "description": "Loads the dataset without downloading"
+              },
+              {
+                "path": "kapso_datasets/common.py",
+                "line": 73,
+                "description": "Creates the database with the requested timestamp cutoff"
+              },
+              {
+                "path": "kapso_datasets/common.py",
+                "line": 80,
+                "description": "Loads the train table"
+              },
+              {
+                "path": "kapso_datasets/common.py",
+                "line": 82,
+                "description": "Loads the test table"
+              },
+              {
+                "path": "kapso_datasets/common.py",
+                "line": 86,
+                "description": "Defines the prediction-saving helper"
+              },
+              {
+                "path": "kapso_datasets/common.py",
+                "line": 89,
+                "description": "Writes validation and test prediction files"
+              }
+            ]
+          },
+          {
+            "kind": "architecture",
+            "statement": "The immutable grader runs main.py in an isolated child subprocess, validates the resulting artifacts, computes official RelBench validation metrics, and archives full-fidelity runs for later selection.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 93,
+                "description": "Defines candidate execution"
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 103,
+                "description": "Builds the main.py child command"
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 113,
+                "description": "Starts the candidate in a subprocess"
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 212,
+                "description": "Defines artifact loading and scoring"
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 248,
+                "description": "Computes task evaluation metrics"
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 379,
+                "description": "Runs and scores the candidate"
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 386,
+                "description": "Archives full-fidelity runs"
+              }
+            ]
+          }
+        ]
+      },
+      "core.entrypoints": {
+        "title": "Entrypoints",
+        "one_liner": "Run the candidate directly or through the provided grader",
+        "content": [
+          {
+            "path": "main.py",
+            "how_to_run": "From the repository root: python main.py --debug for the fast contract run, or python main.py for the full run."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "how_to_run": "python kapso_evaluation/grader.py --fidelity fast|full [--fraction F] [--seed S]"
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "how_to_run": "python kapso_datasets/check_predictions.py after prediction files have been written"
+          }
+        ]
+      },
+      "core.where_to_edit": {
+        "title": "Where to edit",
+        "one_liner": "Change feature construction or modeling while preserving the task and prediction contract",
+        "content": [
+          {
+            "path": "main.py",
+            "role": "Primary orchestration file: task loading, cache management, forward selection, validation/test lineage, diagnostics, and prediction saving."
+          },
+          {
+            "path": "feature_mart.py",
+            "role": "Historical episode reconstruction, direct and temporal evidence features, document preparation, frozen embedding generation, and semantic retrieval."
+          },
+          {
+            "path": "modeling.py",
+            "role": "Categorical encoding, count-model OOF features, PCA/text feature assembly, LightGBM/logistic fitting, forward-fold selection, and blending."
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "role": "Reusable task-loading, output-saving, temporal-safety, and MAP@K helper functions."
+          },
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "role": "Authoritative run-mode, data-access, prediction-shape, and evaluation contract."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "role": "Immutable scoring and archiving pipeline; do not modify as part of the candidate solution."
+          }
+        ]
+      },
+      "core.invariants": {
+        "title": "Invariants",
+        "one_liner": "Temporal legality, row alignment, lineage separation, and binary prediction format must remain intact",
+        "claims": [
+          {
+            "kind": "data",
+            "statement": "make_seeds preserves the source row order across train, validation, and test by assigning split-local IDs and a contiguous global row_id; missing outcomes are represented as NaN.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "feature_mart.py",
+                "line": 67,
+                "description": "Defines seed construction"
+              },
+              {
+                "path": "feature_mart.py",
+                "line": 70,
+                "description": "Processes train, validation, and test tables in order"
+              },
+              {
+                "path": "feature_mart.py",
+                "line": 73,
+                "description": "Assigns split-local row positions"
+              },
+              {
+                "path": "feature_mart.py",
+                "line": 74,
+                "description": "Assigns contiguous global row IDs"
+              },
+              {
+                "path": "feature_mart.py",
+                "line": 76,
+                "description": "Adds missing outcomes as NaN"
+              },
+              {
+                "path": "feature_mart.py",
+                "line": 78,
+                "description": "Retains the immutable-order seed columns"
+              }
+            ]
+          },
+          {
+            "kind": "contract",
+            "statement": "For ordinary runs, validation and test predictions must be one-dimensional vectors aligned to the validation and test seed rows; main.py checks the exact shapes before writing diagnostics and prediction artifacts.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "main.py",
+                "line": 103,
+                "description": "Builds validation and test row ID arrays"
+              },
+              {
+                "path": "main.py",
+                "line": 135,
+                "description": "Checks validation and test prediction shapes"
+              },
+              {
+                "path": "main.py",
+                "line": 137,
+                "description": "Records the prediction shapes in diagnostics"
+              },
+              {
+                "path": "main.py",
+                "line": 140,
+                "description": "Writes predictions in immutable row order"
+              },
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 15,
+                "description": "Requires both prediction files after every ordinary run"
+              },
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 17,
+                "description": "Requires out-of-sample validation predictions"
+              }
+            ]
+          },
+          {
+            "kind": "contract",
+            "statement": "The current binary candidate returns probabilities clipped to [1e-6, 1-1e-6], while the broader RelBench contract remains task-dependent: binary predictions are float probabilities, regression predictions are float vectors, multiclass predictions are score matrices, and recommendation predictions are ranked integer IDs.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "modeling.py",
+                "line": 249,
+                "description": "Produces binary classifier probabilities"
+              },
+              {
+                "path": "modeling.py",
+                "line": 253,
+                "description": "Combines the two probability members"
+              },
+              {
+                "path": "modeling.py",
+                "line": 255,
+                "description": "Clips final probabilities to the valid interval"
+              },
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 20,
+                "description": "Defines binary, regression, and multiclass prediction formats"
+              },
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 21,
+                "description": "Defines recommendation prediction formats"
+              },
+              {
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 37,
+                "description": "Checks recommendation shape and dtype"
+              },
+              {
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 49,
+                "description": "Determines expected non-recommendation shapes"
+              },
+              {
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 58,
+                "description": "Checks binary probability bounds"
+              }
+            ]
+          },
+          {
+            "kind": "contract",
+            "statement": "Historical evidence and semantic retrieval must be timestamp-safe: semantic candidates are restricted to report dates at or before the seed timestamp and same-trial candidates are masked, while reconstructed analysis counts require a report date after the seed and within one year.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "feature_mart.py",
+                "line": 205,
+                "description": "Processes retrieval separately for each seed timestamp"
+              },
+              {
+                "path": "feature_mart.py",
+                "line": 206,
+                "description": "Finds corpus rows eligible at the seed timestamp"
+              },
+              {
+                "path": "feature_mart.py",
+                "line": 216,
+                "description": "Computes query-to-corpus similarities"
+              },
+              {
+                "path": "feature_mart.py",
+                "line": 217,
+                "description": "Constructs the same-trial exclusion mask"
+              },
+              {
+                "path": "feature_mart.py",
+                "line": 218,
+                "description": "Removes same-trial candidates"
+              },
+              {
+                "path": "feature_mart.py",
+                "line": 266,
+                "description": "Defines authorized analysis-count reconstruction"
+              },
+              {
+                "path": "feature_mart.py",
+                "line": 269,
+                "description": "Requires report dates after the seed and no later than one year afterward"
+              },
+              {
+                "path": "feature_mart.py",
+                "line": 271,
+                "description": "Raises if any row violates the authorized date window"
+              }
+            ]
+          },
+          {
+            "kind": "contract",
+            "statement": "Validation model A is fit only on training IDs, while test model B may use training plus validation IDs but must not include test IDs; main.py explicitly checks both lineage conditions.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "main.py",
+                "line": 101,
+                "description": "Collects all training IDs"
+              },
+              {
+                "path": "main.py",
+                "line": 104,
+                "description": "Reconstructs training analysis counts"
+              },
+              {
+                "path": "main.py",
+                "line": 122,
+                "description": "Fits validation predictions from the training lineage"
+              },
+              {
+                "path": "main.py",
+                "line": 123,
+                "description": "Rejects non-training rows in validation fit lineage"
+              },
+              {
+                "path": "main.py",
+                "line": 127,
+                "description": "Reconstructs validation analysis counts only after validation inference"
+              },
+              {
+                "path": "main.py",
+                "line": 128,
+                "description": "Forms the train-plus-validation test-training lineage"
+              },
+              {
+                "path": "main.py",
+                "line": 131,
+                "description": "Rejects test rows in the test fit lineage"
+              },
+              {
+                "path": "output_data_generic_exp_0/full_metrics.json",
+                "line": 170,
+                "description": "Records validation fit lineage as train labels only"
+              },
+              {
+                "path": "output_data_generic_exp_0/full_metrics.json",
+                "line": 171,
+                "description": "Records test fit lineage as train plus validation labels"
+              }
+            ]
+          },
+          {
+            "kind": "algorithm",
+            "statement": "Analysis-count features use K-fold out-of-fold predictions for fit rows and a separate model refit for target rows; the count model trains on log1p counts and clips predicted counts to [0,100].",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "modeling.py",
+                "line": 97,
+                "description": "Chooses the count-model fold count by run mode"
+              },
+              {
+                "path": "modeling.py",
+                "line": 100,
+                "description": "Allocates fit-row OOF predictions"
+              },
+              {
+                "path": "modeling.py",
+                "line": 102,
+                "description": "Iterates over K-fold fit/validation positions"
+              },
+              {
+                "path": "modeling.py",
+                "line": 107,
+                "description": "Fits each fold on log-transformed counts"
+              },
+              {
+                "path": "modeling.py",
+                "line": 108,
+                "description": "Writes inverse-transformed OOF predictions"
+              },
+              {
+                "path": "modeling.py",
+                "line": 109,
+                "description": "Starts the full fit and target prediction"
+              },
+              {
+                "path": "modeling.py",
+                "line": 111,
+                "description": "Fits the target model on all fit-row counts"
+              },
+              {
+                "path": "modeling.py",
+                "line": 113,
+                "description": "Clips OOF and target count predictions"
+              }
+            ]
+          },
+          {
+            "kind": "contract",
+            "statement": "Candidate data access must use the sanitized, read-only cache and RelBench APIs with download=False; test labels are physically absent and must not be probed.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 25,
+                "description": "Requires RelBench access with download=False"
+              },
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 26,
+                "description": "States that test labels are absent"
+              },
+              {
+                "path": "kapso_datasets/common.py",
+                "line": 61,
+                "description": "Documents loading from the sanitized cache"
+              },
+              {
+                "path": "kapso_datasets/common.py",
+                "line": 71,
+                "description": "Uses get_dataset with download=False"
+              },
+              {
+                "path": "kapso_datasets/common.py",
+                "line": 72,
+                "description": "Uses get_task with download=False"
+              }
+            ]
+          },
+          {
+            "kind": "contract",
+            "statement": "The official configured score is validation ROC-AUC for the current evaluation profile; official validation metrics are computed by the grader rather than by candidate-side test labels.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "eval_profile.md",
+                "line": 5,
+                "description": "States that the evaluator computes AP, accuracy, F1, and ROC-AUC and records validation ROC-AUC"
+              },
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 23,
+                "description": "Defines the official validation primary metric"
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 218,
+                "description": "Reads the primary metric environment variable"
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 248,
+                "description": "Computes validation metrics"
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 249,
+                "description": "Requires the configured primary metric"
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 397,
+                "description": "Places the primary validation metric in the manifest score"
+              }
+            ]
+          }
+        ]
+      },
+      "core.testing": {
+        "title": "Testing",
+        "one_liner": "Run debug, validate artifacts, then run the registered full evaluator",
+        "claims": [
+          {
+            "kind": "testing",
+            "statement": "The fast harness invocation runs main.py --debug, still scores all 960 validation rows, and exercises a deliberately reduced feature/model path; the full invocation runs main.py without --debug.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "eval_profile.md",
+                "line": 5,
+                "description": "Defines the debug/full commands and states that both score all validation rows"
+              },
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 5,
+                "description": "Defines the debug command"
+              },
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 6,
+                "description": "Defines the full command"
+              },
+              {
+                "path": "kapso_evaluation/README.md",
+                "line": 22,
+                "description": "Maps fast fidelity to main.py --debug"
+              },
+              {
+                "path": "kapso_evaluation/README.md",
+                "line": 25,
+                "description": "Maps full fidelity to main.py"
+              },
+              {
+                "path": "kapso_evaluation/README.md",
+                "line": 28,
+                "description": "States that the validation item set is never reduced"
+              },
+              {
+                "path": "main.py",
+                "line": 121,
+                "description": "Subsamples training IDs in debug mode"
+              },
+              {
+                "path": "modeling.py",
+                "line": 97,
+                "description": "Uses fewer count-model folds in debug mode"
+              },
+              {
+                "path": "modeling.py",
+                "line": 101,
+                "description": "Uses fewer count-model rounds in debug mode"
+              },
+              {
+                "path": "modeling.py",
+                "line": 246,
+                "description": "Uses a fixed reduced classifier round count in debug mode"
+              }
+            ]
+          },
+          {
+            "kind": "testing",
+            "statement": "The recorded debug run completed in about 297.65 seconds with validation shape (960,) and test shape (825), and the recorded full run completed in about 411.61 seconds with the same exact output shapes.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "output_data_generic_exp_0/debug_metrics.json",
+                "line": 2,
+                "description": "Marks the recorded run as debug"
+              },
+              {
+                "path": "output_data_generic_exp_0/debug_metrics.json",
+                "line": 3,
+                "description": "Records the debug elapsed time"
+              },
+              {
+                "path": "output_data_generic_exp_0/debug_metrics.json",
+                "line": 121,
+                "description": "Records the debug validation shape"
+              },
+              {
+                "path": "output_data_generic_exp_0/debug_metrics.json",
+                "line": 124,
+                "description": "Records the debug test shape"
+              },
+              {
+                "path": "output_data_generic_exp_0/full_metrics.json",
+                "line": 2,
+                "description": "Marks the recorded run as full"
+              },
+              {
+                "path": "output_data_generic_exp_0/full_metrics.json",
+                "line": 3,
+                "description": "Records the full elapsed time"
+              },
+              {
+                "path": "output_data_generic_exp_0/full_metrics.json",
+                "line": 172,
+                "description": "Records the full validation shape"
+              },
+              {
+                "path": "output_data_generic_exp_0/full_metrics.json",
+                "line": 175,
+                "description": "Records the full test shape"
+              }
+            ]
+          },
+          {
+            "kind": "testing",
+            "statement": "After generating predictions, run kapso_datasets/check_predictions.py; success prints an OK line for each split followed by '[check_predictions] all checks passed'.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 27,
+                "description": "Recommends the prediction self-check command"
+              },
+              {
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 30,
+                "description": "Checks validation and test splits"
+              },
+              {
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 62,
+                "description": "Prints per-split success"
+              },
+              {
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 64,
+                "description": "Prints the all-checks-passed result"
+              }
+            ]
+          },
+          {
+            "kind": "testing",
+            "statement": "The final registered run passed prediction contract checks and reported official validation AP 0.778635, accuracy 0.658333, F1 0.734628, and ROC-AUC 0.714429.",
+            "confidence": 0.98,
+            "evidence": [
+              {
+                "path": "changes.log",
+                "line": 14,
+                "description": "Records the completed registered run, official metrics, and passed prediction checks"
+              }
+            ]
+          }
+        ]
+      },
+      "core.gotchas": {
+        "title": "Gotchas",
+        "one_liner": "Debug cache behavior, temporal guards, category fallbacks, and warning-only checks affect implementation choices",
+        "claims": [
+          {
+            "kind": "gotcha",
+            "statement": "Debug mode is now materially cheaper but does not reuse the full semantic cache: it bypasses cached semantic neighbors, caps eligible retrieval history at 512 rows per timestamp, subsamples fit IDs to at most 2,000, reduces count folds/rounds, and uses 120 classifier rounds.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "main.py",
+                "line": 53,
+                "description": "Only reuses the semantic cache when not in debug mode"
+              },
+              {
+                "path": "main.py",
+                "line": 60,
+                "description": "Passes debug mode into embedding construction"
+              },
+              {
+                "path": "main.py",
+                "line": 121,
+                "description": "Subsamples the validation-model training IDs in debug mode"
+              },
+              {
+                "path": "main.py",
+                "line": 129,
+                "description": "Subsamples the test-model training IDs in debug mode"
+              },
+              {
+                "path": "feature_mart.py",
+                "line": 207,
+                "description": "Caps eligible semantic history in debug mode"
+              },
+              {
+                "path": "modeling.py",
+                "line": 97,
+                "description": "Uses two count folds in debug mode"
+              },
+              {
+                "path": "modeling.py",
+                "line": 101,
+                "description": "Uses 80 count-model rounds in debug mode"
+              },
+              {
+                "path": "modeling.py",
+                "line": 246,
+                "description": "Uses 120 classifier rounds in debug mode"
+              },
+              {
+                "path": "eval_profile.md",
+                "line": 5,
+                "description": "Confirms that debug still scores all validation rows"
+              }
+            ]
+          },
+          {
+            "kind": "gotcha",
+            "statement": "Structured and semantic caches are validated primarily by row count, while the frozen forward-selection JSON is loaded only for non-debug runs; delete the relevant cache or selection artifact when changing feature design or model selection logic.",
+            "confidence": 0.98,
+            "evidence": [
+              {
+                "path": "main.py",
+                "line": 29,
+                "description": "Checks for structured cache files"
+              },
+              {
+                "path": "main.py",
+                "line": 32,
+                "description": "Validates structured cache row counts"
+              },
+              {
+                "path": "main.py",
+                "line": 53,
+                "description": "Checks semantic cache only outside debug mode"
+              },
+              {
+                "path": "main.py",
+                "line": 56,
+                "description": "Validates semantic cache dimensions"
+              },
+              {
+                "path": "main.py",
+                "line": 106,
+                "description": "Defines the frozen forward-selection cache path"
+              },
+              {
+                "path": "main.py",
+                "line": 107,
+                "description": "Loads selection only for non-debug runs"
+              },
+              {
+                "path": "main.py",
+                "line": 115,
+                "description": "Writes a new selection cache after full selection"
+              }
+            ]
+          },
+          {
+            "kind": "gotcha",
+            "statement": "The count normalization block can recreate the generic within_small_cohort column already present in structured features, so compose_numeric explicitly drops that column before joining normalized count features.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "modeling.py",
+                "line": 152,
+                "description": "Adds predicted analysis count features for the full design"
+              },
+              {
+                "path": "modeling.py",
+                "line": 156,
+                "description": "Computes within-timestamp normalized count features"
+              },
+              {
+                "path": "modeling.py",
+                "line": 157,
+                "description": "Drops the duplicate within_small_cohort column"
+              },
+              {
+                "path": "modeling.py",
+                "line": 159,
+                "description": "Joins the cleaned count frame into the training features"
+              },
+              {
+                "path": "changes.log",
+                "line": 4,
+                "description": "Records the duplicate-column repair"
+              }
+            ]
+          },
+          {
+            "kind": "gotcha",
+            "statement": "Within-timestamp rank and z-score features neutralize cohorts smaller than 20: ranks and percentiles become 0.5, while z-scores and leader gaps become 0.",
+            "confidence": 0.98,
+            "evidence": [
+              {
+                "path": "feature_mart.py",
+                "line": 244,
+                "description": "Defines within-timestamp feature construction"
+              },
+              {
+                "path": "feature_mart.py",
+                "line": 249,
+                "description": "Marks cohorts smaller than 20"
+              },
+              {
+                "path": "feature_mart.py",
+                "line": 260,
+                "description": "Identifies small cohorts for neutralization"
+              },
+              {
+                "path": "feature_mart.py",
+                "line": 261,
+                "description": "Sets small-cohort ranks and percentiles to 0.5"
+              },
+              {
+                "path": "feature_mart.py",
+                "line": 262,
+                "description": "Sets small-cohort z-scores and leader gaps to 0"
+              }
+            ]
+          },
+          {
+            "kind": "gotcha",
+            "statement": "true_analysis_counts is intentionally strict: it raises rather than silently imputing if any authorized row lacks a report date strictly after the seed and within the one-year reconstruction window.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "feature_mart.py",
+                "line": 266,
+                "description": "Defines the strict count reconstruction helper"
+              },
+              {
+                "path": "feature_mart.py",
+                "line": 269,
+                "description": "Defines the legal report-date window"
+              },
+              {
+                "path": "feature_mart.py",
+                "line": 271,
+                "description": "Raises on invalid reconstructed rows"
+              }
+            ]
+          },
+          {
+            "kind": "gotcha",
+            "statement": "Categorical transforms are fit only on the fit IDs; categories unseen during transformation map to ordinal -1 and frequency 0, so changing fit populations can change encoded values.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "modeling.py",
+                "line": 37,
+                "description": "Fits category transforms from training IDs"
+              },
+              {
+                "path": "modeling.py",
+                "line": 45,
+                "description": "Builds training-derived ordinal mappings"
+              },
+              {
+                "path": "modeling.py",
+                "line": 47,
+                "description": "Stores training-derived frequencies"
+              },
+              {
+                "path": "modeling.py",
+                "line": 50,
+                "description": "Defines category transformation"
+              },
+              {
+                "path": "modeling.py",
+                "line": 55,
+                "description": "Maps unseen values to ordinal -1"
+              },
+              {
+                "path": "modeling.py",
+                "line": 56,
+                "description": "Maps unseen values to frequency 0"
+              }
+            ]
+          },
+          {
+            "kind": "contract",
+            "statement": "The prediction checker warns rather than fails when recommendation IDs are out of range or duplicated, even though the evaluation contract requires valid ranked distinct IDs; solutions must enforce those recommendation constraints themselves.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 21,
+                "description": "Requires ranked distinct destination IDs in range"
+              },
+              {
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 42,
+                "description": "Detects out-of-range recommendation IDs"
+              },
+              {
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 43,
+                "description": "Reports out-of-range IDs as a warning"
+              },
+              {
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 45,
+                "description": "Reports duplicate IDs as a warning"
+              }
+            ]
+          }
+        ]
+      },
+      "core.dependencies": {
+        "title": "Dependencies",
+        "one_liner": "DuckDB/Pandas feature construction, LightGBM/scikit-learn modeling, and pinned biomedical embeddings",
+        "claims": [
+          {
+            "kind": "dependency",
+            "statement": "The feature mart depends on DuckDB, NumPy, and Pandas for relational aggregation and dataframe/numeric feature construction.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "feature_mart.py",
+                "line": 11,
+                "description": "Imports DuckDB"
+              },
+              {
+                "path": "feature_mart.py",
+                "line": 12,
+                "description": "Imports NumPy"
+              },
+              {
+                "path": "feature_mart.py",
+                "line": 13,
+                "description": "Imports Pandas"
+              }
+            ]
+          },
+          {
+            "kind": "dependency",
+            "statement": "The modeling lane depends on LightGBM and scikit-learn components for gradient boosting, PCA, hashing, imputation, logistic regression, metrics, folds, and scaling, with SciPy sparse support.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "modeling.py",
+                "line": 8,
+                "description": "Imports LightGBM"
+              },
+              {
+                "path": "modeling.py",
+                "line": 11,
+                "description": "Imports SciPy sparse support"
+              },
+              {
+                "path": "modeling.py",
+                "line": 12,
+                "description": "Imports PCA"
+              },
+              {
+                "path": "modeling.py",
+                "line": 13,
+                "description": "Imports HashingVectorizer"
+              },
+              {
+                "path": "modeling.py",
+                "line": 15,
+                "description": "Imports LogisticRegression"
+              },
+              {
+                "path": "modeling.py",
+                "line": 16,
+                "description": "Imports ROC-AUC scoring"
+              },
+              {
+                "path": "modeling.py",
+                "line": 17,
+                "description": "Imports KFold"
+              }
+            ]
+          },
+          {
+            "kind": "dependency",
+            "statement": "Semantic features are tied to the frozen NeuML biomedical embedding model revision 048ad4491de0fb4e2695bfe4705da67caf4804b8; full-run semantic artifacts are registered for reuse.",
+            "confidence": 0.98,
+            "evidence": [
+              {
+                "path": "feature_mart.py",
+                "line": 16,
+                "description": "Defines the deterministic feature seed"
+              },
+              {
+                "path": "feature_mart.py",
+                "line": 17,
+                "description": "Defines the biomedical embedding model"
+              },
+              {
+                "path": "feature_mart.py",
+                "line": 18,
+                "description": "Pins the model revision"
+              },
+              {
+                "path": "main.py",
+                "line": 68,
+                "description": "Registers the frozen semantic retrieval artifact and model revision"
+              }
+            ]
+          },
+          {
+            "kind": "dependency",
+            "statement": "Runtime behavior uses OMP_NUM_THREADS for modeling parallelism and disables Hugging Face progress bars and tokenizer parallelism in the candidate process.",
+            "confidence": 0.98,
+            "evidence": [
+              {
+                "path": "modeling.py",
+                "line": 23,
+                "description": "Reads OMP_NUM_THREADS with a default of 40"
+              },
+              {
+                "path": "main.py",
+                "line": 81,
+                "description": "Disables Hugging Face hub progress bars"
+              },
+              {
+                "path": "main.py",
+                "line": 82,
+                "description": "Disables tokenizer parallelism"
+              }
+            ]
+          },
+          {
+            "kind": "dependency",
+            "statement": "RelBench remains accessed through the repository's sanitized-cache helpers with downloads disabled.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "kapso_datasets/common.py",
+                "line": 61,
+                "description": "Documents sanitized-cache loading"
+              },
+              {
+                "path": "kapso_datasets/common.py",
+                "line": 71,
+                "description": "Uses download=False for the dataset"
+              },
+              {
+                "path": "kapso_datasets/common.py",
+                "line": 72,
+                "description": "Uses download=False for the task"
+              }
+            ]
+          }
+        ]
+      },
+      "opt.current_measurements": {
+        "title": "Current measurements",
+        "one_liner": "The frozen candidate targets a forward 2020 validation cohort with a structured-neighbor semantic blend",
+        "claims": [
+          {
+            "kind": "data",
+            "statement": "The profiled task contains 11,994 training rows, 960 validation rows at 2020-01-01, and 825 test rows at 2021-01-01; the historical eligible corpus contains 14,164 trials and exact reconstruction matches all train and validation labels.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "eval_profile.md",
+                "line": 9,
+                "description": "Reports training size and cohort distribution"
+              },
+              {
+                "path": "eval_profile.md",
+                "line": 10,
+                "description": "Reports validation size and label rate"
+              },
+              {
+                "path": "eval_profile.md",
+                "line": 11,
+                "description": "Reports test size and absent labels"
+              },
+              {
+                "path": "eval_profile.md",
+                "line": 12,
+                "description": "Reports the eligible historical corpus size"
+              },
+              {
+                "path": "eval_profile.md",
+                "line": 13,
+                "description": "Reports exact train and validation label reconstruction"
+              }
+            ]
+          },
+          {
+            "kind": "result",
+            "statement": "The frozen full-run selection chose structured_neighbors with 263 LightGBM rounds, logistic C=0.02, and LightGBM blend weight 0.85; its four 2016-2019 blended fold AUCs were 0.696398, 0.696961, 0.718819, and 0.714537 with pooled AUC 0.704612.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "output_data_generic_exp_0/full_metrics.json",
+                "line": 76,
+                "description": "Records the selected structured_neighbors design"
+              },
+              {
+                "path": "output_data_generic_exp_0/full_metrics.json",
+                "line": 77,
+                "description": "Records 263 selected rounds"
+              },
+              {
+                "path": "output_data_generic_exp_0/full_metrics.json",
+                "line": 92,
+                "description": "Records selected logistic C=0.02"
+              },
+              {
+                "path": "output_data_generic_exp_0/full_metrics.json",
+                "line": 96,
+                "description": "Records pooled blend AUC 0.704612 at weight 0.85"
+              },
+              {
+                "path": "output_data_generic_exp_0/full_metrics.json",
+                "line": 98,
+                "description": "Records LightGBM blend weight 0.85"
+              },
+              {
+                "path": "output_data_generic_exp_0/full_metrics.json",
+                "line": 99,
+                "description": "Begins the forward-fold result list"
+              },
+              {
+                "path": "output_data_generic_exp_0/full_metrics.json",
+                "line": 103,
+                "description": "Records the 2016 fold AUC"
+              },
+              {
+                "path": "output_data_generic_exp_0/full_metrics.json",
+                "line": 108,
+                "description": "Records the 2017 fold AUC"
+              },
+              {
+                "path": "output_data_generic_exp_0/full_metrics.json",
+                "line": 113,
+                "description": "Records the 2018 fold AUC"
+              },
+              {
+                "path": "output_data_generic_exp_0/full_metrics.json",
+                "line": 118,
+                "description": "Records the 2019 fold AUC"
+              },
+              {
+                "path": "eval_profile.md",
+                "line": 32,
+                "description": "Summarizes the frozen design and pooled forward AUC"
+              }
+            ]
+          },
+          {
+            "kind": "result",
+            "statement": "The final registered run used combined and title-section semantic neighbors and achieved official validation ROC-AUC 0.714429; the validation site-richness slices were 0.684695 for 0-4 sites, 0.781654 for 5-19 sites, and 0.758750 for 20 or more sites.",
+            "confidence": 0.98,
+            "evidence": [
+              {
+                "path": "eval_profile.md",
+                "line": 32,
+                "description": "Reports the final design, official validation ROC-AUC, and site-count slice AUCs"
+              },
+              {
+                "path": "changes.log",
+                "line": 14,
+                "description": "Records the final registered run and official validation metrics"
+              }
+            ]
+          },
+          {
+            "kind": "result",
+            "statement": "The full model lineage confirms that both final model members used raw embeddings, PCA embeddings, and hashed word/character text in addition to the selected structured-neighbor design.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "output_data_generic_exp_0/full_metrics.json",
+                "line": 147,
+                "description": "Records the selected design for model A"
+              },
+              {
+                "path": "output_data_generic_exp_0/full_metrics.json",
+                "line": 152,
+                "description": "Records raw embedding use for model A"
+              },
+              {
+                "path": "output_data_generic_exp_0/full_metrics.json",
+                "line": 153,
+                "description": "Records PCA embedding use for model A"
+              },
+              {
+                "path": "output_data_generic_exp_0/full_metrics.json",
+                "line": 154,
+                "description": "Records hashed word/character text use for model A"
+              },
+              {
+                "path": "output_data_generic_exp_0/full_metrics.json",
+                "line": 161,
+                "description": "Records the selected design for model B"
+              },
+              {
+                "path": "output_data_generic_exp_0/full_metrics.json",
+                "line": 166,
+                "description": "Records raw embedding use for model B"
+              },
+              {
+                "path": "output_data_generic_exp_0/full_metrics.json",
+                "line": 167,
+                "description": "Records PCA embedding use for model B"
+              },
+              {
+                "path": "output_data_generic_exp_0/full_metrics.json",
+                "line": 168,
+                "description": "Records hashed word/character text use for model B"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "experiments": [
+    {
+      "recorded_at": "2026-08-09T17:19:47.152764+00:00",
+      "branch": "generic_exp_0",
+      "parent_branch": "main",
+      "base_commit": "46f545b4304267d63b4459e4fdc3e287735c4a4e",
+      "head_commit": "c159944bf917ea98af8c68213118cfe09774f348",
+      "code_head_commit": "c159944bf917ea98af8c68213118cfe09774f348",
+      "solution_spec": "# Core Idea\n\nBuild a staged all-table temporal evidence mart, then combine exact-key historical priors, frozen biomedical semantics, temporally eligible semantic neighbors, and an out-of-fold prediction of future analysis multiplicity. Fit a regularized LightGBM–logistic ensemble chosen exclusively by forward training folds.\n\n# Why This Is Rank 1\n\nThe relational core is low-risk and immediately competitive, while semantic retrieval generalizes beyond exact sponsors and MeSH IDs. Direct reconstruction establishes two unusually valuable facts:\n\n- Seed trials have zero legal pre-timestamp rows in `outcomes`, `outcome_analyses`, `drop_withdrawals`, and `reported_event_totals`; those tables must enter through other trials’ completed histories.\n- The future eligible-analysis count is strongly associated with success: train positives average 3.44 analyses versus 1.85 for negatives.\n\nThis design first banks the structured model, then adds the more expensive semantic block, so a download or embedding problem cannot destroy the run.\n\n# Implementation\n\n1. Read both living documents and append entries for every proposed block. Preserve an immutable `row_id`; all joins return to original task-table order.\n\n2. Construct a historical result table using the exact label filters. Per `(nct_id, outcome_analyses.date)`, calculate:\n\n   - eligible primary-analysis count `N`;\n   - significant count `S`;\n   - minimum and median p-value;\n   - success `1[min(p)<=0.05]`;\n   - CI, non-inferiority, method, and missingness summaries.\n\n   Only episodes with `date <= seed.timestamp` may contribute to that seed. Exclude the seed’s own `nct_id` explicitly.\n\n3. Build direct timestamp-censored features from all registration-side tables:\n\n   - `studies`: log enrollment, arms/groups, age since start, phase, type, source/source class, DMC/FDA/IPD flags, missingness;\n   - `designs`: allocation, purpose, intervention/observational model, masking and masked-party flags;\n   - `eligibilities`: parsed age bounds, gender and age-group flags, healthy volunteers, criteria length, section/bullet counts, inclusion/exclusion balance;\n   - relation tables: sponsor/condition/intervention/facility counts, collaborator composition, countries, US fraction, multinational flag, site concentration, enrollment per arm/site, relation recencies.\n\n4. Use completed trials to compute empirical-Bayes histories for lead sponsor, all sponsors, conditions, interventions, facilities, countries, source, source class, and phase×purpose:\n\n   - counts and beta-smoothed success rates;\n   - mean `N`, significant fraction, reporting delay, and reporting rate;\n   - dropout-to-enrollment and serious-event ratios;\n   - 2-year, 5-year, all-history, and 5-year half-life views;\n   - set-level weighted mean, max, quantiles, effective support, and cold-start flags.\n\n   Join historical relations only when their relation date was visible by the relevant cutoff.\n\n5. Create registration-only documents containing titles, summaries, eligibility text, phase/design metadata, and condition/intervention terms. Never include seed outcomes or result text. Encode title/summary, eligibility, and entity terms separately with frozen `NeuML/bioclinical-modernbert-base-embeddings`, using at most 2,048 tokens per section. Cache normalized embeddings by model revision and content hash.\n\n6. Build the verified 14,164-trial historical result corpus. For each seed, retrieve only corpus trials with `report_date <= timestamp` and a different `nct_id`. At `k=16,64,256`, calculate similarity-weighted success, analysis count, significant fraction, similarity quantiles, effective neighbor count, and phase/source-matched variants. Never download an external NCT embedding database.\n\n7. Reconstruct `N` only for authorized training rows. Train a count regressor on `log1p(N)` and generate out-of-fold count predictions for every downstream training row. Fit the count model on all train rows for validation inference; for the test chain, refit it on train+validation. Never expose true validation `N` to the validation classifier.\n\n8. Add within-timestamp rank, percentile, z-score, and leader-gap versions of the strongest 30 scalars: predicted `N`, historical rates, semantic-neighbor rates, enrollment, trial age, site/country counts, and text complexity. Use neutral values plus a small-cohort flag for groups below 20 rows.\n\n9. Compare only on forward validation cohorts 2016, 2017, 2018, and 2019:\n\n   - structured-only;\n   - structured plus frozen embeddings;\n   - structured plus semantic neighbors;\n   - full design.\n\n   Select by mean AUC and fold stability. Differences below one fold standard error favor the simpler design. The official validation result is diagnostic only and never changes features, rounds, or weights.\n\n10. Fit:\n\n   - LightGBM on dense features and ordinal/frequency-encoded categories;\n   - L2 logistic regression on standardized dense features, raw/PCA embeddings, and hashed word/character text.\n\n   Choose a convex probability blend from pooled forward OOF predictions.\n\n11. Model A, including its scaler, PCA, count model, rounds, and blend, is fitted without validation labels and writes validation predictions. Freeze the design. Model B refits trainable components on train+validation and writes test predictions; do not regenerate validation predictions.\n\n# Hyperparameters\n\n- Historical windows: 730 days, 1,825 days, all history\n- Empirical-Bayes strength: 20 pseudo-observations\n- Historical half-life: 5 years\n- Embedding sequence length: 2,048; batch size 16–32; PCA 64 dimensions\n- Neighbor `k`: 16, 64, 256; cosine temperature 0.07\n- Count LightGBM: 300 trees, learning rate 0.04, 15 leaves, minimum leaf 80\n- Classifier LightGBM: learning rate 0.02, 15 leaves, depth 5, minimum leaf 100, L1 1, L2 10, at most 1,400 trees\n- Logistic regression: L2, `C` in `{0.02,0.05}`, maximum 3,000 iterations\n- LightGBM blend weight: `{0.5,0.7,0.85}`\n- Seed: 20260809; threads: 40\n\n# Runtime and Staging\n\nBank the structured-only run first, expected in 35–60 minutes. Frozen encoding, retrieval, and the final refit should bring the complete run to roughly 90–150 minutes. Continue testing listed feature blocks while campaign time remains.\n\nDebug mode trains on at most 2,000 rows, encodes a small document subset, exercises retrieval and both model paths, and fills skipped embedding rows with neutral features. It still writes complete `(960,)` and `(825,)` arrays.\n\n# Coverage\n\n- **MEASURED — input distribution:** Train has 11,994 rows across 19 timestamps from 2001–2019; validation and test are single cohorts of 960 and 825 rows. Early cohorts are tiny, motivating recent forward folds and small-cohort guards.\n- **MEASURED — relational availability:** All 13,779 seed trials have zero pre-seed rows in the four result-side tables. Registration and relation tables have broad pre-seed coverage.\n- **MEASURED — label mechanics:** The historical eligible-primary corpus contains 14,164 trials, and all eligible analyses for a trial share one report date. Reconstructed labels exactly match train and validation labels.\n- **MEASURED — reference/output register:** Predictions retain immutable row order, are clipped to `[1e-6,1-1e-6]`, and have exact shapes `(960,)` and `(825,)`.\n- **MEASURED — metric mechanics:** ROC-AUC is the primary global ranking metric; the 960-row validation sample is noisy enough that small differences must not drive selection.\n- **MEASURED — harness controls:** Debug and full runs must both write both arrays; elapsed time and fit lineage are recorded after each phase.\n- **MEASURED — permitted data:** Every database feature, prior, and neighbor is censored at the row timestamp. Validation labels enter only the test-producing chain.\n- **ASSUMED — expected return:** Semantic neighbors and predicted multiplicity provide stable residual signal beyond exact-key histories. This must be confirmed across recent forward folds, not the official validation split.",
+      "changed_files": [
+        "PLAN.md",
+        "changes.log",
+        "eval_profile.md",
+        "feature_mart.py",
+        "main.py",
+        "modeling.py",
+        "output_data_generic_exp_0/debug_metrics.json",
+        "output_data_generic_exp_0/full_metrics.json"
+      ],
+      "diff_numstat": [
+        {
+          "added": "10",
+          "deleted": "0",
+          "path": "PLAN.md"
+        },
+        {
+          "added": "14",
+          "deleted": "0",
+          "path": "changes.log"
+        },
+        {
+          "added": "34",
+          "deleted": "0",
+          "path": "eval_profile.md"
+        },
+        {
+          "added": "656",
+          "deleted": "0",
+          "path": "feature_mart.py"
+        },
+        {
+          "added": "130",
+          "deleted": "46",
+          "path": "main.py"
+        },
+        {
+          "added": "337",
+          "deleted": "0",
+          "path": "modeling.py"
+        },
+        {
+          "added": "127",
+          "deleted": "0",
+          "path": "output_data_generic_exp_0/debug_metrics.json"
+        },
+        {
+          "added": "178",
+          "deleted": "0",
+          "path": "output_data_generic_exp_0/full_metrics.json"
+        }
+      ],
+      "run_result": {
+        "score": 0,
+        "run_had_error": false,
+        "error_message": "",
+        "error_details": "",
+        "feedbacks": "",
+        "ideation_repo_memory_sections_consulted": [],
+        "repo_memory_sections_consulted": [
+          "core.architecture",
+          "core.dependencies",
+          "core.entrypoints",
+          "core.gotchas",
+          "core.invariants",
+          "core.testing",
+          "core.where_to_edit"
+        ]
+      }
+    }
+  ],
+  "quality": {
+    "evidence_ok": true,
+    "missing_evidence": [],
+    "section_count": 8,
+    "claim_count": 36
+  }
+}

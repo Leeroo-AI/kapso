@@ -1,0 +1,42 @@
+2026-08-09 generic_exp_3 lane 3
+- Replaced the constant baseline with deterministic chronological heterogeneous graph preprocessing, a bf16 TGN-style recurrent memory encoder, legal cutoff replay, a 13-bin neural hazard head, all-table temporal features, LightGBM, and a purged-OOF logistic meta-model.
+- Added measurement profile, time allocation, shared-cache artifact registration, validation bootstrap/rank-correlation diagnostics, and validation slice reporting.
+- External data sources: none.
+- Evaluation suite left byte-for-byte unchanged because it is protected and system-maintained.
+RepoMemory sections consulted: core.architecture, core.entrypoints, core.where_to_edit, core.invariants, core.testing, core.gotchas, core.dependencies
+2026-08-09 measured expansion
+- Added 93 active-day cadence, anniversary phase, cohort, activity-rate, channel-ratio, and prior-badge eligibility features after they improved both purged forward folds when combined with graph memory (+0.001420 and +0.001340 ROC AUC).
+- Versioned supervised model caches so the promoted feature contract cannot load first-run boosters or heads with the earlier feature dimension.
+2026-08-09 post mechanism expansion
+- Added 46 temporally reconstructed per-post vote-score, accepted-answer, response, comment, threshold-gap, and old-post momentum features.
+- Promoted only after purged forward AUC improved from 0.879504 to 0.880438 and from 0.886948 to 0.887493; supervised caches advanced to v3.
+2026-08-09 recent-origin supervision
+- Restricted LightGBM to the latest 16 eligible quarterly origins after purged fold gains of +0.001715 and +0.001156 over all-history training; 12 origins was effectively tied but less stable.
+- Kept all legal history for the neural hazard because the same 16-origin restriction moved its folds by +0.000641 and -0.000045, failing the stable-improvement rule.
+2026-08-09 OOF capacity alignment
+- Increased purged OOF LightGBM rounds from 260 to the final model's existing 500 after fold AUC rose from 0.882153/0.888649 to 0.883140/0.889428.
+- Reused byte-identical 500-round final boosters; this change only aligns the legal meta-model training predictions with inference capacity.
+2026-08-09 family-head rejection
+- Tested five exact-union badge family heads (Yearling, tag, and non-tag classes 1/2/3) with cross-fold logistic meta-models.
+- Rejected: union family risk moved cross-fold AUC +0.000169 and -0.000333; individual family logits moved +0.000695 and -0.001877, failing stability.
+2026-08-09 extended badge-name rejection
+- Tested count, missing, and recency state for frequent badge names 11 through 64.
+- Rejected after 500-tree fold AUC moved -0.000048 and -0.000201 relative to v5.
+2026-08-09 causal-prior rejection
+- Tested eight smoothed causal priors using only label origins whose outcome windows closed at least 92 days before each row; validation labels entered test features only.
+- Rejected after fold AUC moved -0.001199 and -0.000494, indicating historical cohort rates lag the current conditional ranking.
+2026-08-09 seed-ensemble rejection
+- Tested an independent LightGBM bagging/column seed with equal-logit averaging.
+- Rejected after ensemble fold AUC moved -0.000071 and +0.000201; the primary seed was retained deterministically.
+2026-08-09 badge-readiness rejection
+- Tested 18 explicit Student, Autobiographer, Editor, Yearling, question-threshold, and question-acceptance readiness interactions.
+- Rejected after fold AUC moved +0.000044 and -0.000089; the conjunctions did not beat tree discovery stably.
+2026-08-09 exponential-decay rejection
+- Tested 14/60/180/730-day continuous decays, total ranks, and badge-to-activity decay ratios.
+- Rejected after fold AUC moved +0.000467 and -0.000046, failing the both-fold promotion rule.
+2026-08-09 inter-event interval rejection
+- Tested mean/last inter-event gaps and recency-to-cadence ratios for ten primary typed event channels.
+- Rejected after fold AUC moved -0.000242 and -0.000314; active-day and hard-window features remain preferable.
+2026-08-09 meta-model audit
+- Cross-fold checks over L2 C in [0.0001, 10] and fixed neural logit weights found no setting that beat the tree on both folds; kept the specified C=1 OOF logistic meta-model.
+- Final registered candidate: v5, archived as run_0010, validation ROC AUC 0.9038666848293635.

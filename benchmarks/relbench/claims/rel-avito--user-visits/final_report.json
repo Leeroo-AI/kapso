@@ -1,0 +1,46 @@
+{
+  "dataset": "rel-avito",
+  "task": "user-visits",
+  "family": "entity_binary_classification",
+  "primary_metric": "roc_auc",
+  "selected_by": "max rescored validation roc_auc among head-stamped final runs (evaluator d9529b71c0b7)",
+  "run": "run_0020",
+  "head_evaluator_id": "d9529b71c0b7ba97cff34e7d2c810e0a3d7e1bbaea46b5f3eb44d9955b266d93",
+  "scored": {
+    "run_0009": 0.6804106105531309,
+    "run_0014": 0.7131110202708792,
+    "run_0020": 0.7133385221335052,
+    "run_0021": 0.7028157665745897
+  },
+  "excluded": {},
+  "val_metrics": {
+    "average_precision": 0.9581618253675765,
+    "accuracy": 0.6034223956769739,
+    "f1": 0.7291491058207085,
+    "roc_auc": 0.7133385221335052
+  },
+  "test_metrics": {
+    "average_precision": 0.9226647095831237,
+    "accuracy": 0.5468460239696643,
+    "f1": 0.6568578135479544,
+    "roc_auc": 0.6777924268662243
+  },
+  "audit": {
+    "clean": false,
+    "findings": [
+      {
+        "file": "feature_pipeline.py",
+        "line": 23,
+        "pattern": "RELBENCH_CACHE_DIR",
+        "concern": "tampers with the data cache location",
+        "snippet": "root = Path(os.environ[\"RELBENCH_CACHE_DIR\"]) / os.environ[\"RELBENCH_DATASET\"]"
+      }
+    ],
+    "note": "static scan; manually review flagged lines before publishing results. 'verify:' findings are advisory OOS-contract review hooks (legal patterns that warrant tracing), not violations."
+  },
+  "code_path": "/home/ubuntu/kapso/tmp/relbench/rel-avito--user-visits/runs/run_0020/code",
+  "predictions": {
+    "val": "/home/ubuntu/kapso/tmp/relbench/rel-avito--user-visits/runs/run_0020/val_predictions.npy",
+    "test": "/home/ubuntu/kapso/tmp/relbench/rel-avito--user-visits/runs/run_0020/test_predictions.npy"
+  }
+}

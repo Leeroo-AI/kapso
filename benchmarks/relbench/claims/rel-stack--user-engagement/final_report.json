@@ -1,0 +1,73 @@
+{
+  "dataset": "rel-stack",
+  "task": "user-engagement",
+  "family": "entity_binary_classification",
+  "primary_metric": "roc_auc",
+  "selected_by": "max rescored validation roc_auc among head-stamped final runs (evaluator 4d361b7ded6e)",
+  "run": "run_0005",
+  "head_evaluator_id": "4d361b7ded6edeb02f3ccd7a295d767102e57a6d011313c52970c4f918642ead",
+  "scored": {
+    "run_0005": 0.9076094794627114,
+    "run_0009": 0.9012079953447132,
+    "run_0011": 0.9054365821062665
+  },
+  "excluded": {},
+  "val_metrics": {
+    "average_precision": 0.42536772194235944,
+    "accuracy": 0.527924695356369,
+    "f1": 0.10246301054310268,
+    "roc_auc": 0.9076094794627114
+  },
+  "test_metrics": {
+    "average_precision": 0.4285906591241513,
+    "accuracy": 0.5286202162542406,
+    "f1": 0.10100835244731034,
+    "roc_auc": 0.9151214566278043
+  },
+  "audit": {
+    "clean": true,
+    "findings": [
+      {
+        "file": "relbench_solution/pipeline.py",
+        "line": 134,
+        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
+        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
+        "snippet": "combined_matrix = np.concatenate([matrices.train, matrices.val], axis=0)"
+      },
+      {
+        "file": "relbench_solution/pipeline.py",
+        "line": 135,
+        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
+        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
+        "snippet": "combined_frame = pd.concat([train_frame, ctx.val.df], ignore_index=True)"
+      },
+      {
+        "file": "relbench_solution/pipeline.py",
+        "line": 181,
+        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
+        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
+        "snippet": "combined_matrix = np.concatenate([matrices.train, matrices.val], axis=0)"
+      },
+      {
+        "file": "relbench_solution/pipeline.py",
+        "line": 182,
+        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
+        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
+        "snippet": "combined_frame = pd.concat([train_frame, ctx.val.df], ignore_index=True)"
+      },
+      {
+        "file": "relbench_solution/pipeline.py",
+        "line": 522,
+        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
+        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
+        "snippet": "train_b = pd.concat([train_a, ctx.val.df], ignore_index=True)"
+      }
+    ],
+    "note": "static scan; manually review flagged lines before publishing results. 'verify:' findings are advisory OOS-contract review hooks (legal patterns that warrant tracing), not violations."
+  },
+  "code_path": "/home/ubuntu/kapso/tmp/relbench/rel-stack--user-engagement/runs/run_0005/code",
+  "predictions": {
+    "val": "/home/ubuntu/kapso/tmp/relbench/rel-stack--user-engagement/runs/run_0005/val_predictions.npy",
+    "test": "/home/ubuntu/kapso/tmp/relbench/rel-stack--user-engagement/runs/run_0005/test_predictions.npy"
+  }
+}

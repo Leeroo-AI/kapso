@@ -1,0 +1,2647 @@
+{
+  "schema_version": 2,
+  "generated_at": "2026-08-09T19:18:41.055834+00:00",
+  "baseline": {
+    "initial_repo": "/tmp/relbench_baseline_kob46ou2"
+  },
+  "repo_map": {
+    "repo_root": ".",
+    "file_count": 15,
+    "files": [
+      ".gitignore",
+      "PLAN.md",
+      "eval_profile.md",
+      "graph_moe.py",
+      "kapso_datasets/CONTRACT.md",
+      "kapso_datasets/README.md",
+      "kapso_datasets/__init__.py",
+      "kapso_datasets/check_predictions.py",
+      "kapso_datasets/common.py",
+      "kapso_evaluation/README.md",
+      "kapso_evaluation/__pycache__/kapso_eval_archive.cpython-312.pyc",
+      "kapso_evaluation/grader.py",
+      "kapso_evaluation/kapso_eval.py",
+      "kapso_evaluation/kapso_eval_archive.py",
+      "main.py"
+    ],
+    "languages_by_extension": {
+      ".py": 8,
+      ".md": 5,
+      ".pyc": 1
+    },
+    "key_files": [],
+    "entrypoints": [
+      "main.py"
+    ]
+  },
+  "repo_model": {
+    "summary": "This repository is a RelBench prediction workspace whose root candidate now runs a graph-based mixture-of-experts pipeline. graph_moe.py reconstructs a censored daily panel, builds graph and temporal features, performs purged forward model selection, fits separate Model A and Model B chains, and returns validation/test predictions plus diagnostics. main.py serializes the prediction contract artifacts, while the immutable evaluator performs official scoring and archival.",
+    "entrypoints": [
+      {
+        "path": "main.py",
+        "how_to_run": "Set KAPSO_RUN_DATA_DIR, then run python main.py --debug for the compact/debug pipeline or python main.py for the full pipeline.",
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 16,
+            "description": "Recognizes --debug."
+          },
+          {
+            "path": "main.py",
+            "line": 18,
+            "description": "Requires KAPSO_RUN_DATA_DIR."
+          }
+        ]
+      },
+      {
+        "path": "kapso_evaluation/grader.py",
+        "how_to_run": "python kapso_evaluation/grader.py --fidelity fast|full [--fraction F] [--seed S]",
+        "evidence": [
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 348,
+            "description": "Defines the grader command-line entrypoint."
+          }
+        ]
+      }
+    ],
+    "where_to_edit": [
+      {
+        "path": "graph_moe.py",
+        "role": "Daily panel reconstruction, graph construction, static/dynamic features, caching, forward model selection, expert fitting, diagnostics, and prediction generation.",
+        "evidence": [
+          {
+            "path": "graph_moe.py",
+            "line": 159,
+            "description": "Defines daily panel construction."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 213,
+            "description": "Begins graph construction utilities."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 286,
+            "description": "Defines the end-to-end pipeline."
+          }
+        ]
+      },
+      {
+        "path": "main.py",
+        "role": "Candidate entrypoint, debug flag parsing, evaluator artifact serialization, and local metrics output.",
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 13,
+            "description": "Defines the root entrypoint."
+          },
+          {
+            "path": "main.py",
+            "line": 20,
+            "description": "Serializes validation predictions."
+          },
+          {
+            "path": "main.py",
+            "line": 23,
+            "description": "Serializes diagnostics."
+          }
+        ]
+      },
+      {
+        "path": "kapso_datasets/common.py",
+        "role": "Reusable contract-aware task loading, cache/database access, and prediction saving."
+      },
+      {
+        "path": "kapso_datasets/check_predictions.py",
+        "role": "Read-only local validator for prediction files before official scoring."
+      },
+      {
+        "path": "kapso_evaluation/grader.py",
+        "role": "Immutable official scorer; do not modify for candidate improvements."
+      }
+    ],
+    "claims": [
+      {
+        "kind": "architecture",
+        "statement": "The evaluation flow runs the repository-root main.py in an isolated child process, passes it the run output directory, then loads and scores the prediction files without importing candidate modules.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 93,
+            "description": "Defines execution of the root candidate."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 103,
+            "description": "Builds the main.py subprocess command and adds --debug for fast fidelity."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 225,
+            "description": "Loads the candidate validation and test prediction files."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 248,
+            "description": "Computes official task validation metrics."
+          }
+        ]
+      },
+      {
+        "kind": "architecture",
+        "statement": "main.py is a thin serializer: it parses the debug flag, invokes graph_moe.run_pipeline, writes validation/test arrays and diagnostics to KAPSO_RUN_DATA_DIR, and also writes local debug/full metrics.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 10,
+            "description": "Imports the graph_moe pipeline."
+          },
+          {
+            "path": "main.py",
+            "line": 16,
+            "description": "Selects debug mode from --debug."
+          },
+          {
+            "path": "main.py",
+            "line": 17,
+            "description": "Runs the modeling pipeline."
+          },
+          {
+            "path": "main.py",
+            "line": 18,
+            "description": "Obtains the required evaluator output directory."
+          },
+          {
+            "path": "main.py",
+            "line": 20,
+            "description": "Writes validation predictions as a NumPy artifact."
+          },
+          {
+            "path": "main.py",
+            "line": 21,
+            "description": "Writes test predictions as a NumPy artifact."
+          },
+          {
+            "path": "main.py",
+            "line": 22,
+            "description": "Starts metrics JSON serialization."
+          },
+          {
+            "path": "main.py",
+            "line": 26,
+            "description": "Writes debug/full metrics to the local output directory."
+          }
+        ]
+      },
+      {
+        "kind": "architecture",
+        "statement": "run_pipeline loads the shared task context, verifies zero-based contiguous user IDs, reconstructs the panel, builds graph and demographic features, loads or creates temporal feature matrices, performs forward model selection, fits the final chains, and returns predictions with diagnostics.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "graph_moe.py",
+            "line": 288,
+            "description": "Defines the end-to-end pipeline."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 290,
+            "description": "Loads the task context through the shared helper."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 294,
+            "description": "Checks that user IDs are contiguous and zero based."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 296,
+            "description": "Builds the daily panel."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 299,
+            "description": "Builds graph views and embeddings."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 301,
+            "description": "Builds demographic and joined user features."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 307,
+            "description": "Loads the feature cache or prepares feature construction."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 334,
+            "description": "Selects the model using forward evaluation."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 385,
+            "description": "Returns validation/test predictions and diagnostics."
+          }
+        ]
+      },
+      {
+        "kind": "architecture",
+        "statement": "The candidate reconstructs an exact censored daily panel from known attendee rows: each seed uses a seven-day future window, marks users with more than two invitations as positive, and uses weekly seeds only in debug mode.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "graph_moe.py",
+            "line": 161,
+            "description": "Defines daily panel construction."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 162,
+            "description": "Selects known attendee user, status, and time fields."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 168,
+            "description": "Uses weekly debug dates and daily full-run dates."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 171,
+            "description": "Starts each seed's time window."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 173,
+            "description": "Ends the seven-day attendee window."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 183,
+            "description": "Defines the invitation-count target threshold."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 187,
+            "description": "Concatenates reconstructed panel frames."
+          }
+        ]
+      },
+      {
+        "kind": "algorithm",
+        "statement": "The implemented candidate combines static directed/symmetric graph views, normalized-SVD, structural and community features, censored temporal propagation, compact history and cold LightGBM experts, purged forward selection, deterministic history gating, and separate Model A/Model B fits.",
+        "confidence": 0.96,
+        "evidence": [
+          {
+            "path": "changes.log",
+            "line": 3,
+            "description": "Records the implemented panel, graph, propagation, expert, gating, and Model A/Model B components."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 334,
+            "description": "Runs forward model selection."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 336,
+            "description": "Begins the final validation chain."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 342,
+            "description": "Begins the separate test chain."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 349,
+            "description": "Computes validation diagnostics from the selected prediction."
+          }
+        ]
+      },
+      {
+        "kind": "architecture",
+        "statement": "Static graph artifacts are registered in the shared cache with a content key, file-relative path, rebuild hint, and description covering resolved friendship CSR, normalized-SVD embeddings, structural features, and Louvain assignments.",
+        "confidence": 0.96,
+        "evidence": [
+          {
+            "path": "graph_moe.py",
+            "line": 129,
+            "description": "Defines shared-cache artifact registration."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 130,
+            "description": "Uses the shared cache root."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 148,
+            "description": "Describes the registered graph artifact contents."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 150,
+            "description": "Documents rebuilding the graph cache from sanitized user_friends data."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 155,
+            "description": "Atomically replaces the registry file."
+          }
+        ]
+      },
+      {
+        "kind": "architecture",
+        "statement": "kapso_datasets.common provides the reusable task context, database access, prediction-saving helper, temporal-safety guard, and local MAP@K implementation for candidate solutions.",
+        "confidence": 0.96,
+        "evidence": [
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 44,
+            "description": "Defines TaskContext with dataset, task, database, and split tables."
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 60,
+            "description": "Defines the sanitized-cache task loader."
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 86,
+            "description": "Defines contract-compliant prediction persistence."
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 97,
+            "description": "Defines the temporal feature-safety assertion."
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 106,
+            "description": "Defines the MAP@K helper."
+          }
+        ]
+      },
+      {
+        "kind": "architecture",
+        "statement": "Full-fidelity runs are archived with prediction artifacts, validation metrics, selection labels, an evaluator snapshot, and a candidate-code snapshot; fast runs are not archived as results.",
+        "confidence": 0.98,
+        "evidence": [
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 255,
+            "description": "Documents full-run archival and exclusion of fast runs."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 265,
+            "description": "Allocates an archive run directory."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 268,
+            "description": "Stores validation metrics and prediction artifacts."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 279,
+            "description": "Snapshots the evaluator tree."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 285,
+            "description": "Snapshots candidate code for audit."
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "The harness invokes the candidate twice per experiment: python main.py --debug and python main.py, and expects prediction files after each invocation.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 3,
+            "description": "States that the harness runs the program twice."
+          },
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 5,
+            "description": "Specifies the debug command."
+          },
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 6,
+            "description": "Specifies the full command."
+          },
+          {
+            "path": "main.py",
+            "line": 20,
+            "description": "Writes validation predictions."
+          },
+          {
+            "path": "main.py",
+            "line": 21,
+            "description": "Writes test predictions."
+          }
+        ]
+      },
+      {
+        "kind": "deployment",
+        "statement": "The registered evaluation entrypoint should delegate to grader.py, which supports fast/full scoring, archive rescoring, and run voiding.",
+        "confidence": 0.97,
+        "evidence": [
+          {
+            "path": "kapso_evaluation/README.md",
+            "line": 3,
+            "description": "Describes grader.py as the complete immutable scoring pipeline."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 14,
+            "description": "Documents the fast/full grader CLI."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 314,
+            "description": "Defines archived-run rescoring."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 348,
+            "description": "Defines the grader command-line entrypoint."
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "The candidate solution is expected at the repository root as main.py; the grader explicitly locates and executes that file.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 95,
+            "description": "Constructs the root main.py path."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 97,
+            "description": "Fails if root main.py is absent."
+          }
+        ]
+      },
+      {
+        "kind": "other",
+        "statement": "The starter kit is intended for contract helpers while method choice remains in the candidate implementation.",
+        "confidence": 0.97,
+        "evidence": [
+          {
+            "path": "kapso_datasets/README.md",
+            "line": 3,
+            "description": "States that helpers cover the contract and method choice is up to the candidate."
+          },
+          {
+            "path": "kapso_datasets/README.md",
+            "line": 7,
+            "description": "Lists the contract, common helper, and prediction checker roles."
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "Files under kapso_evaluation are provided evaluation infrastructure and must not be modified.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "kapso_datasets/README.md",
+            "line": 11,
+            "description": "Explicitly prohibits modifying kapso_evaluation."
+          },
+          {
+            "path": "kapso_evaluation/README.md",
+            "line": 3,
+            "description": "Describes the grader as the complete immutable scoring pipeline."
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "Every run, including debug and rolling-compatible runs, must produce val_predictions.npy and test_predictions.npy with rows positionally aligned to the corresponding RelBench validation and test tables; validation predictions must be out-of-sample.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 15,
+            "description": "Requires both files after every run and positional row alignment."
+          },
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 17,
+            "description": "Requires validation predictions to be out-of-sample."
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 86,
+            "description": "Documents that both files must be written in every mode."
+          },
+          {
+            "path": "main.py",
+            "line": 20,
+            "description": "Writes validation predictions."
+          },
+          {
+            "path": "main.py",
+            "line": 21,
+            "description": "Writes test predictions."
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "Prediction formats are task-specific: binary and regression use finite float vectors, multiclass uses finite float matrices with one column per class, and recommendation uses integer ranked destination IDs with shape (N, K), valid ranges, and distinct entries per row.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 20,
+            "description": "Defines binary, regression, and multiclass prediction formats."
+          },
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 21,
+            "description": "Defines recommendation shape, integer IDs, range, and distinctness requirements."
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 37,
+            "description": "Validates recommendation shape and integer dtype."
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 54,
+            "description": "Validates non-recommendation shapes."
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 56,
+            "description": "Rejects non-finite non-recommendation values."
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "Binary predictions must be probabilities in the closed interval [0, 1], and the local checker rejects values outside that interval.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 20,
+            "description": "Requires binary probabilities in [0,1]."
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 58,
+            "description": "Checks binary prediction bounds."
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 61,
+            "description": "Reports that sigmoid-style bounded outputs are required."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 233,
+            "description": "Clips final expert predictions inside the probability interval."
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "Task and dataset access must use the sanitized local cache with download=False; test labels are absent and must not be probed.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 25,
+            "description": "Requires RelBench access with download=False."
+          },
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 26,
+            "description": "States that the cache is sanitized and test labels are physically absent."
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 60,
+            "description": "Documents loading from the sanitized cache without downloads."
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 71,
+            "description": "Loads the dataset with download=False."
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 72,
+            "description": "Loads the task with download=False."
+          },
+          {
+            "path": "eval_profile.md",
+            "line": 7,
+            "description": "States that test labels are absent."
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "The score of record is the official primary validation metric; test metrics are private and unavailable during the search.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 23,
+            "description": "Defines the search score as the official validation primary metric."
+          },
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 24,
+            "description": "States that test metrics are private."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 248,
+            "description": "Computes validation metrics from the official task evaluator."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 397,
+            "description": "Places the selected primary validation metric in the manifest score."
+          },
+          {
+            "path": "eval_profile.md",
+            "line": 6,
+            "description": "Identifies official validation ROC-AUC as the primary score."
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "Model A validation predictions are fitted using labels only through 2012-11-14, are frozen before Model B fitting, and are checked by hash so test-chain fitting cannot mutate them.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "graph_moe.py",
+            "line": 336,
+            "description": "Fits the validation prediction chain with MODEL_A_END."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 339,
+            "description": "Copies the validation prediction before Model B."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 341,
+            "description": "Records that validation predictions are frozen from Model A through 2012-11-14."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 342,
+            "description": "Fits the separate test chain with MODEL_B_END."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 345,
+            "description": "Recomputes the validation prediction hash after Model B fitting."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 346,
+            "description": "Raises if Model B changes Model A validation predictions."
+          },
+          {
+            "path": "eval_profile.md",
+            "line": 7,
+            "description": "Documents the Model A/Model B label contract."
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "The reconstructed panel target is a binary indicator that a known user receives more than two invitations in the following seven-day window, and full-run panel checks compare reconstructed labels with official train and validation rows.",
+        "confidence": 0.98,
+        "evidence": [
+          {
+            "path": "graph_moe.py",
+            "line": 173,
+            "description": "Defines the seven-day future window."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 183,
+            "description": "Creates the binary target from invitation counts greater than two."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 192,
+            "description": "Defines panel verification."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 194,
+            "description": "Always verifies train rows."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 195,
+            "description": "Adds validation verification outside debug mode."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 203,
+            "description": "Aligns reconstructed and official targets."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 207,
+            "description": "Counts label mismatches."
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "The candidate requires user IDs to be contiguous, zero based, and aligned with the graph/database row order.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "graph_moe.py",
+            "line": 292,
+            "description": "Loads the user table."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 294,
+            "description": "Checks sorted user IDs against arange(n_users)."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 295,
+            "description": "Raises when the ID invariant fails."
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "A quick end-to-end sanity check is python main.py --debug; it must finish quickly and still write valid prediction artifacts.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 5,
+            "description": "Specifies the debug command and requires it to finish fast."
+          },
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 8,
+            "description": "States that outputs are validated and scored after each run."
+          },
+          {
+            "path": "main.py",
+            "line": 16,
+            "description": "Enables debug mode from the command line."
+          },
+          {
+            "path": "main.py",
+            "line": 20,
+            "description": "Writes validation predictions during the debug run."
+          },
+          {
+            "path": "main.py",
+            "line": 21,
+            "description": "Writes test predictions during the debug run."
+          }
+        ]
+      },
+      {
+        "kind": "validation",
+        "statement": "The compact/debug pipeline has been confirmed to reconstruct training labels exactly and produce valid arrays in 28.9 seconds.",
+        "confidence": 0.96,
+        "evidence": [
+          {
+            "path": "PLAN.md",
+            "line": 14,
+            "description": "Records exact training reconstruction, valid arrays, and debug runtime."
+          },
+          {
+            "path": "changes.log",
+            "line": 3,
+            "description": "Records that the debug pipeline passed the prediction contract."
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "After generating predictions, run python kapso_datasets/check_predictions.py to catch missing files, shape errors, dtype errors, non-finite values, and binary range violations before official scoring.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 27,
+            "description": "Provides the local checker command."
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 30,
+            "description": "Checks both validation and test splits."
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 33,
+            "description": "Rejects missing prediction files."
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 54,
+            "description": "Checks expected shapes."
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 56,
+            "description": "Checks finite values."
+          }
+        ]
+      },
+      {
+        "kind": "validation",
+        "statement": "The pipeline emits diagnostics covering validation/candidate AUCs, bootstrap uncertainty, prediction rank correlations, slices, panel checks, feature count, Model A hash, model choice, forward scores, representativeness, and elapsed time.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "graph_moe.py",
+            "line": 273,
+            "description": "Starts the diagnostics result."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 274,
+            "description": "Records validation AUC."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 276,
+            "description": "Records bootstrap AUC standard error."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 280,
+            "description": "Records slice metrics."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 359,
+            "description": "Adds run-level diagnostics."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 363,
+            "description": "Stores panel verification results."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 365,
+            "description": "Stores the Model A validation hash."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 366,
+            "description": "Starts model-choice diagnostics."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 373,
+            "description": "Stores forward selection scores."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 381,
+            "description": "Stores elapsed runtime."
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "An official grader run reports validation metrics and emits a KAPSO_EVAL_MANIFEST line containing the score of record; use the fast fidelity mode for a dry run.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "kapso_evaluation/README.md",
+            "line": 37,
+            "description": "Recommends verifying the setup with a fast-fidelity dry run."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 388,
+            "description": "Emits the evaluation manifest."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 397,
+            "description": "Places the selected validation metric in the manifest score."
+          }
+        ]
+      },
+      {
+        "kind": "validation",
+        "statement": "The final registered full evaluation completed as run_0006, passed local prediction validation, and scored validation ROC-AUC 0.8383545857654633 across 2,013 validation rows.",
+        "confidence": 0.97,
+        "evidence": [
+          {
+            "path": "changes.log",
+            "line": 9,
+            "description": "Records the final run ID, validation checks, and official ROC-AUC."
+          },
+          {
+            "path": "PLAN.md",
+            "line": 18,
+            "description": "Records the final archive confirmation and score."
+          },
+          {
+            "path": "eval_profile.md",
+            "line": 50,
+            "description": "Records final accuracy, average precision, F1, ROC-AUC, and row count."
+          }
+        ]
+      },
+      {
+        "kind": "gotcha",
+        "statement": "Debug mode changes the panel cadence from daily to every seven days and verifies only training rows; validation-panel verification is enabled only in full mode.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "graph_moe.py",
+            "line": 168,
+            "description": "Selects 7D debug cadence versus daily full cadence."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 194,
+            "description": "Always includes train verification."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 195,
+            "description": "Conditionally includes validation verification."
+          }
+        ]
+      },
+      {
+        "kind": "gotcha",
+        "statement": "KAPSO_RUN_DATA_DIR is accessed directly and has no fallback, so direct runs must provide it; local output_data_generic_exp_1 artifacts are ignored by git.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 18,
+            "description": "Directly reads KAPSO_RUN_DATA_DIR."
+          },
+          {
+            "path": ".gitignore",
+            "line": 11,
+            "description": "Ignores the local output_data_generic_exp_1 directory."
+          }
+        ]
+      },
+      {
+        "kind": "gotcha",
+        "statement": "Do not assume graph row IDs can be remapped arbitrarily: the pipeline aborts unless the database user IDs equal the contiguous range from zero to n_users-1.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "graph_moe.py",
+            "line": 294,
+            "description": "Checks the exact contiguous ID sequence."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 295,
+            "description": "Aborts on nonconforming IDs."
+          }
+        ]
+      },
+      {
+        "kind": "gotcha",
+        "statement": "The validation split is a single later time slice with a lower event rate and a materially different zero-history regime, so model selection relies on purged forward origins rather than repeated validation tuning.",
+        "confidence": 0.97,
+        "evidence": [
+          {
+            "path": "eval_profile.md",
+            "line": 12,
+            "description": "Identifies validation as a single origin with its own positive rate."
+          },
+          {
+            "path": "eval_profile.md",
+            "line": 30,
+            "description": "Confirms the measured zero-history validation coverage."
+          },
+          {
+            "path": "eval_profile.md",
+            "line": 32,
+            "description": "Requires purged forward origins because validation is a single time slice."
+          },
+          {
+            "path": "eval_profile.md",
+            "line": 47,
+            "description": "Documents the nonstationary zero-history regime."
+          }
+        ]
+      },
+      {
+        "kind": "gotcha",
+        "statement": "The current experiment intentionally uses no external datasets or pretrained models; graph artifacts are rebuilt from the sanitized local friendship table when absent.",
+        "confidence": 0.96,
+        "evidence": [
+          {
+            "path": "changes.log",
+            "line": 4,
+            "description": "Records that no external datasets or pretrained models were used."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 150,
+            "description": "Documents rebuilding the graph cache from sanitized user_friends."
+          }
+        ]
+      },
+      {
+        "kind": "gotcha",
+        "statement": "Model B is allowed to use closed validation outcomes for test prediction, but the test labels are physically absent and must never be loaded as targets.",
+        "confidence": 0.98,
+        "evidence": [
+          {
+            "path": "eval_profile.md",
+            "line": 7,
+            "description": "Defines the Model A/Model B label boundary and absence of test labels."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 342,
+            "description": "Uses a separate Model B test chain."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 345,
+            "description": "Protects the frozen validation predictions after Model B fitting."
+          }
+        ]
+      },
+      {
+        "kind": "dependency",
+        "statement": "graph_moe.py directly depends on LightGBM, NetworkX, NumPy, pandas, SciPy sparse/statistical utilities, scikit-learn metrics and randomized SVD, and kapso_datasets.common.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "graph_moe.py",
+            "line": 14,
+            "description": "Imports LightGBM."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 15,
+            "description": "Imports NetworkX."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 16,
+            "description": "Imports NumPy."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 17,
+            "description": "Imports pandas."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 18,
+            "description": "Imports SciPy sparse utilities."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 19,
+            "description": "Imports SciPy rank/statistical utilities."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 20,
+            "description": "Imports scikit-learn ROC-AUC."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 21,
+            "description": "Imports scikit-learn randomized SVD."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 23,
+            "description": "Imports task loading and shared-cache helpers."
+          }
+        ]
+      },
+      {
+        "kind": "environment",
+        "statement": "Direct candidate execution requires KAPSO_RUN_DATA_DIR for evaluator artifacts, while graph cache registration uses the shared cache directory and filesystem locking.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 18,
+            "description": "Requires KAPSO_RUN_DATA_DIR."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 130,
+            "description": "Obtains the shared cache root."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 133,
+            "description": "Opens the artifact lock."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 134,
+            "description": "Acquires an exclusive filesystem lock."
+          }
+        ]
+      },
+      {
+        "kind": "dependency",
+        "statement": "The candidate relies on the sanitized local RelBench cache rather than network downloads or external data sources.",
+        "confidence": 0.98,
+        "evidence": [
+          {
+            "path": "graph_moe.py",
+            "line": 23,
+            "description": "Uses the shared task-loading helper."
+          },
+          {
+            "path": "graph_moe.py",
+            "line": 290,
+            "description": "Loads the task context through that helper."
+          },
+          {
+            "path": "changes.log",
+            "line": 4,
+            "description": "Records that no external datasets or pretrained models were used."
+          }
+        ]
+      },
+      {
+        "kind": "performance",
+        "statement": "Daily label reconstruction produces about 12,655 panel rows per second, while two sparse propagation steps run at about 863 seeds per second; the wide censored feature panel and purged model gates are the critical path.",
+        "confidence": 0.96,
+        "evidence": [
+          {
+            "path": "eval_profile.md",
+            "line": 36,
+            "description": "Reports database and aggregation timing."
+          },
+          {
+            "path": "eval_profile.md",
+            "line": 37,
+            "description": "Reports daily panel throughput and propagation throughput."
+          },
+          {
+            "path": "eval_profile.md",
+            "line": 38,
+            "description": "Identifies the wide panel and purged gates as the bounded artifact."
+          }
+        ]
+      },
+      {
+        "kind": "performance",
+        "statement": "The full temporal matrix covers 156 feature origins and builds in about 55.2 seconds; purged forward gating takes about 30.3 seconds and the two final expert chains about 6.6 seconds.",
+        "confidence": 0.96,
+        "evidence": [
+          {
+            "path": "eval_profile.md",
+            "line": 42,
+            "description": "Reports full matrix, forward-gating, and final-chain runtimes."
+          }
+        ]
+      },
+      {
+        "kind": "selection",
+        "statement": "The selected compact history plus 16-dimensional hard-zero graph mixture improved the four-origin equal-fold mean AUC from 0.89082 to 0.89392; 32-dimensional and community alternatives did not pass the internal gate.",
+        "confidence": 0.96,
+        "evidence": [
+          {
+            "path": "eval_profile.md",
+            "line": 43,
+            "description": "Reports forward AUCs and the selected 16-dimensional hard-zero graph mixture."
+          },
+          {
+            "path": "eval_profile.md",
+            "line": 44,
+            "description": "Reports rejection of the 32-dimensional and community comparators."
+          },
+          {
+            "path": "PLAN.md",
+            "line": 17,
+            "description": "Records the final compact history and community graph mixture selection."
+          }
+        ]
+      }
+    ]
+  },
+  "book": {
+    "summary": "This repository is a RelBench prediction workspace whose root candidate now runs a graph-based mixture-of-experts pipeline. graph_moe.py reconstructs a censored daily panel, builds graph and temporal features, performs purged forward model selection, fits separate Model A and Model B chains, and returns validation/test predictions plus diagnostics. main.py serializes the prediction contract artifacts, while the immutable evaluator performs official scoring and archival.",
+    "toc": [
+      {
+        "id": "core.architecture",
+        "title": "Architecture",
+        "one_liner": "A thin root entrypoint delegates to a graph-and-history modeling pipeline, then the immutable grader validates and scores its prediction artifacts."
+      },
+      {
+        "id": "core.entrypoints",
+        "title": "Entrypoints",
+        "one_liner": "Run main.py for candidate generation or invoke the registered grader for official validation scoring and archival."
+      },
+      {
+        "id": "core.where_to_edit",
+        "title": "Where to edit",
+        "one_liner": "Put modeling, feature, and selection changes in graph_moe.py; keep main.py as orchestration and leave the immutable evaluator untouched."
+      },
+      {
+        "id": "core.invariants",
+        "title": "Invariants",
+        "one_liner": "Prediction artifacts, temporal safety, task access, and Model A/Model B separation must remain contract-compliant."
+      },
+      {
+        "id": "core.testing",
+        "title": "Testing",
+        "one_liner": "Use the debug pipeline, local prediction checker, diagnostics, and registered full grader to validate both contract correctness and model behavior."
+      },
+      {
+        "id": "core.gotchas",
+        "title": "Gotchas",
+        "one_liner": "Debug mode is a reduced weekly reconstruction, validation must remain temporally isolated, and several data-shape assumptions are enforced at runtime."
+      },
+      {
+        "id": "core.dependencies",
+        "title": "Dependencies",
+        "one_liner": "The modeling pipeline depends on scientific Python, LightGBM, NetworkX, the shared RelBench helpers, and the evaluator-provided output directory."
+      },
+      {
+        "id": "opt.performance",
+        "title": "Performance and selection notes",
+        "one_liner": "The expensive work is the wide censored temporal panel and purged gates, not sparse graph construction or SVD multiplication."
+      }
+    ],
+    "sections": {
+      "core.architecture": {
+        "title": "Architecture",
+        "one_liner": "A thin root entrypoint delegates to a graph-and-history modeling pipeline, then the immutable grader validates and scores its prediction artifacts.",
+        "claims": [
+          {
+            "kind": "architecture",
+            "statement": "The evaluation flow runs the repository-root main.py in an isolated child process, passes it the run output directory, then loads and scores the prediction files without importing candidate modules.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 93,
+                "description": "Defines execution of the root candidate."
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 103,
+                "description": "Builds the main.py subprocess command and adds --debug for fast fidelity."
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 225,
+                "description": "Loads the candidate validation and test prediction files."
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 248,
+                "description": "Computes official task validation metrics."
+              }
+            ]
+          },
+          {
+            "kind": "architecture",
+            "statement": "main.py is a thin serializer: it parses the debug flag, invokes graph_moe.run_pipeline, writes validation/test arrays and diagnostics to KAPSO_RUN_DATA_DIR, and also writes local debug/full metrics.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "main.py",
+                "line": 10,
+                "description": "Imports the graph_moe pipeline."
+              },
+              {
+                "path": "main.py",
+                "line": 16,
+                "description": "Selects debug mode from --debug."
+              },
+              {
+                "path": "main.py",
+                "line": 17,
+                "description": "Runs the modeling pipeline."
+              },
+              {
+                "path": "main.py",
+                "line": 18,
+                "description": "Obtains the required evaluator output directory."
+              },
+              {
+                "path": "main.py",
+                "line": 20,
+                "description": "Writes validation predictions as a NumPy artifact."
+              },
+              {
+                "path": "main.py",
+                "line": 21,
+                "description": "Writes test predictions as a NumPy artifact."
+              },
+              {
+                "path": "main.py",
+                "line": 22,
+                "description": "Starts metrics JSON serialization."
+              },
+              {
+                "path": "main.py",
+                "line": 26,
+                "description": "Writes debug/full metrics to the local output directory."
+              }
+            ]
+          },
+          {
+            "kind": "architecture",
+            "statement": "run_pipeline loads the shared task context, verifies zero-based contiguous user IDs, reconstructs the panel, builds graph and demographic features, loads or creates temporal feature matrices, performs forward model selection, fits the final chains, and returns predictions with diagnostics.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "graph_moe.py",
+                "line": 288,
+                "description": "Defines the end-to-end pipeline."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 290,
+                "description": "Loads the task context through the shared helper."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 294,
+                "description": "Checks that user IDs are contiguous and zero based."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 296,
+                "description": "Builds the daily panel."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 299,
+                "description": "Builds graph views and embeddings."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 301,
+                "description": "Builds demographic and joined user features."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 307,
+                "description": "Loads the feature cache or prepares feature construction."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 334,
+                "description": "Selects the model using forward evaluation."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 385,
+                "description": "Returns validation/test predictions and diagnostics."
+              }
+            ]
+          },
+          {
+            "kind": "architecture",
+            "statement": "The candidate reconstructs an exact censored daily panel from known attendee rows: each seed uses a seven-day future window, marks users with more than two invitations as positive, and uses weekly seeds only in debug mode.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "graph_moe.py",
+                "line": 161,
+                "description": "Defines daily panel construction."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 162,
+                "description": "Selects known attendee user, status, and time fields."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 168,
+                "description": "Uses weekly debug dates and daily full-run dates."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 171,
+                "description": "Starts each seed's time window."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 173,
+                "description": "Ends the seven-day attendee window."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 183,
+                "description": "Defines the invitation-count target threshold."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 187,
+                "description": "Concatenates reconstructed panel frames."
+              }
+            ]
+          },
+          {
+            "kind": "algorithm",
+            "statement": "The implemented candidate combines static directed/symmetric graph views, normalized-SVD, structural and community features, censored temporal propagation, compact history and cold LightGBM experts, purged forward selection, deterministic history gating, and separate Model A/Model B fits.",
+            "confidence": 0.96,
+            "evidence": [
+              {
+                "path": "changes.log",
+                "line": 3,
+                "description": "Records the implemented panel, graph, propagation, expert, gating, and Model A/Model B components."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 334,
+                "description": "Runs forward model selection."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 336,
+                "description": "Begins the final validation chain."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 342,
+                "description": "Begins the separate test chain."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 349,
+                "description": "Computes validation diagnostics from the selected prediction."
+              }
+            ]
+          },
+          {
+            "kind": "architecture",
+            "statement": "Static graph artifacts are registered in the shared cache with a content key, file-relative path, rebuild hint, and description covering resolved friendship CSR, normalized-SVD embeddings, structural features, and Louvain assignments.",
+            "confidence": 0.96,
+            "evidence": [
+              {
+                "path": "graph_moe.py",
+                "line": 129,
+                "description": "Defines shared-cache artifact registration."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 130,
+                "description": "Uses the shared cache root."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 148,
+                "description": "Describes the registered graph artifact contents."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 150,
+                "description": "Documents rebuilding the graph cache from sanitized user_friends data."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 155,
+                "description": "Atomically replaces the registry file."
+              }
+            ]
+          },
+          {
+            "kind": "architecture",
+            "statement": "kapso_datasets.common provides the reusable task context, database access, prediction-saving helper, temporal-safety guard, and local MAP@K implementation for candidate solutions.",
+            "confidence": 0.96,
+            "evidence": [
+              {
+                "path": "kapso_datasets/common.py",
+                "line": 44,
+                "description": "Defines TaskContext with dataset, task, database, and split tables."
+              },
+              {
+                "path": "kapso_datasets/common.py",
+                "line": 60,
+                "description": "Defines the sanitized-cache task loader."
+              },
+              {
+                "path": "kapso_datasets/common.py",
+                "line": 86,
+                "description": "Defines contract-compliant prediction persistence."
+              },
+              {
+                "path": "kapso_datasets/common.py",
+                "line": 97,
+                "description": "Defines the temporal feature-safety assertion."
+              },
+              {
+                "path": "kapso_datasets/common.py",
+                "line": 106,
+                "description": "Defines the MAP@K helper."
+              }
+            ]
+          },
+          {
+            "kind": "architecture",
+            "statement": "Full-fidelity runs are archived with prediction artifacts, validation metrics, selection labels, an evaluator snapshot, and a candidate-code snapshot; fast runs are not archived as results.",
+            "confidence": 0.98,
+            "evidence": [
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 255,
+                "description": "Documents full-run archival and exclusion of fast runs."
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 265,
+                "description": "Allocates an archive run directory."
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 268,
+                "description": "Stores validation metrics and prediction artifacts."
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 279,
+                "description": "Snapshots the evaluator tree."
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 285,
+                "description": "Snapshots candidate code for audit."
+              }
+            ]
+          }
+        ]
+      },
+      "core.entrypoints": {
+        "title": "Entrypoints",
+        "one_liner": "Run main.py for candidate generation or invoke the registered grader for official validation scoring and archival.",
+        "content": [
+          {
+            "path": "main.py",
+            "how_to_run": "Set KAPSO_RUN_DATA_DIR, then run python main.py --debug for the compact/debug pipeline or python main.py for the full pipeline.",
+            "evidence": [
+              {
+                "path": "main.py",
+                "line": 16,
+                "description": "Recognizes --debug."
+              },
+              {
+                "path": "main.py",
+                "line": 18,
+                "description": "Requires KAPSO_RUN_DATA_DIR."
+              }
+            ]
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "how_to_run": "python kapso_evaluation/grader.py --fidelity fast|full [--fraction F] [--seed S]",
+            "evidence": [
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 348,
+                "description": "Defines the grader command-line entrypoint."
+              }
+            ]
+          }
+        ],
+        "claims": [
+          {
+            "kind": "contract",
+            "statement": "The harness invokes the candidate twice per experiment: python main.py --debug and python main.py, and expects prediction files after each invocation.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 3,
+                "description": "States that the harness runs the program twice."
+              },
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 5,
+                "description": "Specifies the debug command."
+              },
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 6,
+                "description": "Specifies the full command."
+              },
+              {
+                "path": "main.py",
+                "line": 20,
+                "description": "Writes validation predictions."
+              },
+              {
+                "path": "main.py",
+                "line": 21,
+                "description": "Writes test predictions."
+              }
+            ]
+          },
+          {
+            "kind": "deployment",
+            "statement": "The registered evaluation entrypoint should delegate to grader.py, which supports fast/full scoring, archive rescoring, and run voiding.",
+            "confidence": 0.97,
+            "evidence": [
+              {
+                "path": "kapso_evaluation/README.md",
+                "line": 3,
+                "description": "Describes grader.py as the complete immutable scoring pipeline."
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 14,
+                "description": "Documents the fast/full grader CLI."
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 314,
+                "description": "Defines archived-run rescoring."
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 348,
+                "description": "Defines the grader command-line entrypoint."
+              }
+            ]
+          }
+        ]
+      },
+      "core.where_to_edit": {
+        "title": "Where to edit",
+        "one_liner": "Put modeling, feature, and selection changes in graph_moe.py; keep main.py as orchestration and leave the immutable evaluator untouched.",
+        "content": [
+          {
+            "path": "graph_moe.py",
+            "role": "Daily panel reconstruction, graph construction, static/dynamic features, caching, forward model selection, expert fitting, diagnostics, and prediction generation.",
+            "evidence": [
+              {
+                "path": "graph_moe.py",
+                "line": 159,
+                "description": "Defines daily panel construction."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 213,
+                "description": "Begins graph construction utilities."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 286,
+                "description": "Defines the end-to-end pipeline."
+              }
+            ]
+          },
+          {
+            "path": "main.py",
+            "role": "Candidate entrypoint, debug flag parsing, evaluator artifact serialization, and local metrics output.",
+            "evidence": [
+              {
+                "path": "main.py",
+                "line": 13,
+                "description": "Defines the root entrypoint."
+              },
+              {
+                "path": "main.py",
+                "line": 20,
+                "description": "Serializes validation predictions."
+              },
+              {
+                "path": "main.py",
+                "line": 23,
+                "description": "Serializes diagnostics."
+              }
+            ]
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "role": "Reusable contract-aware task loading, cache/database access, and prediction saving."
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "role": "Read-only local validator for prediction files before official scoring."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "role": "Immutable official scorer; do not modify for candidate improvements."
+          }
+        ],
+        "claims": [
+          {
+            "kind": "contract",
+            "statement": "The candidate solution is expected at the repository root as main.py; the grader explicitly locates and executes that file.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 95,
+                "description": "Constructs the root main.py path."
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 97,
+                "description": "Fails if root main.py is absent."
+              }
+            ]
+          },
+          {
+            "kind": "other",
+            "statement": "The starter kit is intended for contract helpers while method choice remains in the candidate implementation.",
+            "confidence": 0.97,
+            "evidence": [
+              {
+                "path": "kapso_datasets/README.md",
+                "line": 3,
+                "description": "States that helpers cover the contract and method choice is up to the candidate."
+              },
+              {
+                "path": "kapso_datasets/README.md",
+                "line": 7,
+                "description": "Lists the contract, common helper, and prediction checker roles."
+              }
+            ]
+          },
+          {
+            "kind": "contract",
+            "statement": "Files under kapso_evaluation are provided evaluation infrastructure and must not be modified.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "kapso_datasets/README.md",
+                "line": 11,
+                "description": "Explicitly prohibits modifying kapso_evaluation."
+              },
+              {
+                "path": "kapso_evaluation/README.md",
+                "line": 3,
+                "description": "Describes the grader as the complete immutable scoring pipeline."
+              }
+            ]
+          }
+        ]
+      },
+      "core.invariants": {
+        "title": "Invariants",
+        "one_liner": "Prediction artifacts, temporal safety, task access, and Model A/Model B separation must remain contract-compliant.",
+        "claims": [
+          {
+            "kind": "contract",
+            "statement": "Every run, including debug and rolling-compatible runs, must produce val_predictions.npy and test_predictions.npy with rows positionally aligned to the corresponding RelBench validation and test tables; validation predictions must be out-of-sample.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 15,
+                "description": "Requires both files after every run and positional row alignment."
+              },
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 17,
+                "description": "Requires validation predictions to be out-of-sample."
+              },
+              {
+                "path": "kapso_datasets/common.py",
+                "line": 86,
+                "description": "Documents that both files must be written in every mode."
+              },
+              {
+                "path": "main.py",
+                "line": 20,
+                "description": "Writes validation predictions."
+              },
+              {
+                "path": "main.py",
+                "line": 21,
+                "description": "Writes test predictions."
+              }
+            ]
+          },
+          {
+            "kind": "contract",
+            "statement": "Prediction formats are task-specific: binary and regression use finite float vectors, multiclass uses finite float matrices with one column per class, and recommendation uses integer ranked destination IDs with shape (N, K), valid ranges, and distinct entries per row.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 20,
+                "description": "Defines binary, regression, and multiclass prediction formats."
+              },
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 21,
+                "description": "Defines recommendation shape, integer IDs, range, and distinctness requirements."
+              },
+              {
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 37,
+                "description": "Validates recommendation shape and integer dtype."
+              },
+              {
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 54,
+                "description": "Validates non-recommendation shapes."
+              },
+              {
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 56,
+                "description": "Rejects non-finite non-recommendation values."
+              }
+            ]
+          },
+          {
+            "kind": "contract",
+            "statement": "Binary predictions must be probabilities in the closed interval [0, 1], and the local checker rejects values outside that interval.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 20,
+                "description": "Requires binary probabilities in [0,1]."
+              },
+              {
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 58,
+                "description": "Checks binary prediction bounds."
+              },
+              {
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 61,
+                "description": "Reports that sigmoid-style bounded outputs are required."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 233,
+                "description": "Clips final expert predictions inside the probability interval."
+              }
+            ]
+          },
+          {
+            "kind": "contract",
+            "statement": "Task and dataset access must use the sanitized local cache with download=False; test labels are absent and must not be probed.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 25,
+                "description": "Requires RelBench access with download=False."
+              },
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 26,
+                "description": "States that the cache is sanitized and test labels are physically absent."
+              },
+              {
+                "path": "kapso_datasets/common.py",
+                "line": 60,
+                "description": "Documents loading from the sanitized cache without downloads."
+              },
+              {
+                "path": "kapso_datasets/common.py",
+                "line": 71,
+                "description": "Loads the dataset with download=False."
+              },
+              {
+                "path": "kapso_datasets/common.py",
+                "line": 72,
+                "description": "Loads the task with download=False."
+              },
+              {
+                "path": "eval_profile.md",
+                "line": 7,
+                "description": "States that test labels are absent."
+              }
+            ]
+          },
+          {
+            "kind": "contract",
+            "statement": "The score of record is the official primary validation metric; test metrics are private and unavailable during the search.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 23,
+                "description": "Defines the search score as the official validation primary metric."
+              },
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 24,
+                "description": "States that test metrics are private."
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 248,
+                "description": "Computes validation metrics from the official task evaluator."
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 397,
+                "description": "Places the selected primary validation metric in the manifest score."
+              },
+              {
+                "path": "eval_profile.md",
+                "line": 6,
+                "description": "Identifies official validation ROC-AUC as the primary score."
+              }
+            ]
+          },
+          {
+            "kind": "contract",
+            "statement": "Model A validation predictions are fitted using labels only through 2012-11-14, are frozen before Model B fitting, and are checked by hash so test-chain fitting cannot mutate them.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "graph_moe.py",
+                "line": 336,
+                "description": "Fits the validation prediction chain with MODEL_A_END."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 339,
+                "description": "Copies the validation prediction before Model B."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 341,
+                "description": "Records that validation predictions are frozen from Model A through 2012-11-14."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 342,
+                "description": "Fits the separate test chain with MODEL_B_END."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 345,
+                "description": "Recomputes the validation prediction hash after Model B fitting."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 346,
+                "description": "Raises if Model B changes Model A validation predictions."
+              },
+              {
+                "path": "eval_profile.md",
+                "line": 7,
+                "description": "Documents the Model A/Model B label contract."
+              }
+            ]
+          },
+          {
+            "kind": "contract",
+            "statement": "The reconstructed panel target is a binary indicator that a known user receives more than two invitations in the following seven-day window, and full-run panel checks compare reconstructed labels with official train and validation rows.",
+            "confidence": 0.98,
+            "evidence": [
+              {
+                "path": "graph_moe.py",
+                "line": 173,
+                "description": "Defines the seven-day future window."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 183,
+                "description": "Creates the binary target from invitation counts greater than two."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 192,
+                "description": "Defines panel verification."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 194,
+                "description": "Always verifies train rows."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 195,
+                "description": "Adds validation verification outside debug mode."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 203,
+                "description": "Aligns reconstructed and official targets."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 207,
+                "description": "Counts label mismatches."
+              }
+            ]
+          },
+          {
+            "kind": "contract",
+            "statement": "The candidate requires user IDs to be contiguous, zero based, and aligned with the graph/database row order.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "graph_moe.py",
+                "line": 292,
+                "description": "Loads the user table."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 294,
+                "description": "Checks sorted user IDs against arange(n_users)."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 295,
+                "description": "Raises when the ID invariant fails."
+              }
+            ]
+          }
+        ]
+      },
+      "core.testing": {
+        "title": "Testing",
+        "one_liner": "Use the debug pipeline, local prediction checker, diagnostics, and registered full grader to validate both contract correctness and model behavior.",
+        "claims": [
+          {
+            "kind": "contract",
+            "statement": "A quick end-to-end sanity check is python main.py --debug; it must finish quickly and still write valid prediction artifacts.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 5,
+                "description": "Specifies the debug command and requires it to finish fast."
+              },
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 8,
+                "description": "States that outputs are validated and scored after each run."
+              },
+              {
+                "path": "main.py",
+                "line": 16,
+                "description": "Enables debug mode from the command line."
+              },
+              {
+                "path": "main.py",
+                "line": 20,
+                "description": "Writes validation predictions during the debug run."
+              },
+              {
+                "path": "main.py",
+                "line": 21,
+                "description": "Writes test predictions during the debug run."
+              }
+            ]
+          },
+          {
+            "kind": "validation",
+            "statement": "The compact/debug pipeline has been confirmed to reconstruct training labels exactly and produce valid arrays in 28.9 seconds.",
+            "confidence": 0.96,
+            "evidence": [
+              {
+                "path": "PLAN.md",
+                "line": 14,
+                "description": "Records exact training reconstruction, valid arrays, and debug runtime."
+              },
+              {
+                "path": "changes.log",
+                "line": 3,
+                "description": "Records that the debug pipeline passed the prediction contract."
+              }
+            ]
+          },
+          {
+            "kind": "contract",
+            "statement": "After generating predictions, run python kapso_datasets/check_predictions.py to catch missing files, shape errors, dtype errors, non-finite values, and binary range violations before official scoring.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 27,
+                "description": "Provides the local checker command."
+              },
+              {
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 30,
+                "description": "Checks both validation and test splits."
+              },
+              {
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 33,
+                "description": "Rejects missing prediction files."
+              },
+              {
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 54,
+                "description": "Checks expected shapes."
+              },
+              {
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 56,
+                "description": "Checks finite values."
+              }
+            ]
+          },
+          {
+            "kind": "validation",
+            "statement": "The pipeline emits diagnostics covering validation/candidate AUCs, bootstrap uncertainty, prediction rank correlations, slices, panel checks, feature count, Model A hash, model choice, forward scores, representativeness, and elapsed time.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "graph_moe.py",
+                "line": 273,
+                "description": "Starts the diagnostics result."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 274,
+                "description": "Records validation AUC."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 276,
+                "description": "Records bootstrap AUC standard error."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 280,
+                "description": "Records slice metrics."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 359,
+                "description": "Adds run-level diagnostics."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 363,
+                "description": "Stores panel verification results."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 365,
+                "description": "Stores the Model A validation hash."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 366,
+                "description": "Starts model-choice diagnostics."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 373,
+                "description": "Stores forward selection scores."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 381,
+                "description": "Stores elapsed runtime."
+              }
+            ]
+          },
+          {
+            "kind": "contract",
+            "statement": "An official grader run reports validation metrics and emits a KAPSO_EVAL_MANIFEST line containing the score of record; use the fast fidelity mode for a dry run.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "kapso_evaluation/README.md",
+                "line": 37,
+                "description": "Recommends verifying the setup with a fast-fidelity dry run."
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 388,
+                "description": "Emits the evaluation manifest."
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 397,
+                "description": "Places the selected validation metric in the manifest score."
+              }
+            ]
+          },
+          {
+            "kind": "validation",
+            "statement": "The final registered full evaluation completed as run_0006, passed local prediction validation, and scored validation ROC-AUC 0.8383545857654633 across 2,013 validation rows.",
+            "confidence": 0.97,
+            "evidence": [
+              {
+                "path": "changes.log",
+                "line": 9,
+                "description": "Records the final run ID, validation checks, and official ROC-AUC."
+              },
+              {
+                "path": "PLAN.md",
+                "line": 18,
+                "description": "Records the final archive confirmation and score."
+              },
+              {
+                "path": "eval_profile.md",
+                "line": 50,
+                "description": "Records final accuracy, average precision, F1, ROC-AUC, and row count."
+              }
+            ]
+          }
+        ]
+      },
+      "core.gotchas": {
+        "title": "Gotchas",
+        "one_liner": "Debug mode is a reduced weekly reconstruction, validation must remain temporally isolated, and several data-shape assumptions are enforced at runtime.",
+        "claims": [
+          {
+            "kind": "gotcha",
+            "statement": "Debug mode changes the panel cadence from daily to every seven days and verifies only training rows; validation-panel verification is enabled only in full mode.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "graph_moe.py",
+                "line": 168,
+                "description": "Selects 7D debug cadence versus daily full cadence."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 194,
+                "description": "Always includes train verification."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 195,
+                "description": "Conditionally includes validation verification."
+              }
+            ]
+          },
+          {
+            "kind": "gotcha",
+            "statement": "KAPSO_RUN_DATA_DIR is accessed directly and has no fallback, so direct runs must provide it; local output_data_generic_exp_1 artifacts are ignored by git.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "main.py",
+                "line": 18,
+                "description": "Directly reads KAPSO_RUN_DATA_DIR."
+              },
+              {
+                "path": ".gitignore",
+                "line": 11,
+                "description": "Ignores the local output_data_generic_exp_1 directory."
+              }
+            ]
+          },
+          {
+            "kind": "gotcha",
+            "statement": "Do not assume graph row IDs can be remapped arbitrarily: the pipeline aborts unless the database user IDs equal the contiguous range from zero to n_users-1.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "graph_moe.py",
+                "line": 294,
+                "description": "Checks the exact contiguous ID sequence."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 295,
+                "description": "Aborts on nonconforming IDs."
+              }
+            ]
+          },
+          {
+            "kind": "gotcha",
+            "statement": "The validation split is a single later time slice with a lower event rate and a materially different zero-history regime, so model selection relies on purged forward origins rather than repeated validation tuning.",
+            "confidence": 0.97,
+            "evidence": [
+              {
+                "path": "eval_profile.md",
+                "line": 12,
+                "description": "Identifies validation as a single origin with its own positive rate."
+              },
+              {
+                "path": "eval_profile.md",
+                "line": 30,
+                "description": "Confirms the measured zero-history validation coverage."
+              },
+              {
+                "path": "eval_profile.md",
+                "line": 32,
+                "description": "Requires purged forward origins because validation is a single time slice."
+              },
+              {
+                "path": "eval_profile.md",
+                "line": 47,
+                "description": "Documents the nonstationary zero-history regime."
+              }
+            ]
+          },
+          {
+            "kind": "gotcha",
+            "statement": "The current experiment intentionally uses no external datasets or pretrained models; graph artifacts are rebuilt from the sanitized local friendship table when absent.",
+            "confidence": 0.96,
+            "evidence": [
+              {
+                "path": "changes.log",
+                "line": 4,
+                "description": "Records that no external datasets or pretrained models were used."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 150,
+                "description": "Documents rebuilding the graph cache from sanitized user_friends."
+              }
+            ]
+          },
+          {
+            "kind": "gotcha",
+            "statement": "Model B is allowed to use closed validation outcomes for test prediction, but the test labels are physically absent and must never be loaded as targets.",
+            "confidence": 0.98,
+            "evidence": [
+              {
+                "path": "eval_profile.md",
+                "line": 7,
+                "description": "Defines the Model A/Model B label boundary and absence of test labels."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 342,
+                "description": "Uses a separate Model B test chain."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 345,
+                "description": "Protects the frozen validation predictions after Model B fitting."
+              }
+            ]
+          }
+        ]
+      },
+      "core.dependencies": {
+        "title": "Dependencies",
+        "one_liner": "The modeling pipeline depends on scientific Python, LightGBM, NetworkX, the shared RelBench helpers, and the evaluator-provided output directory.",
+        "claims": [
+          {
+            "kind": "dependency",
+            "statement": "graph_moe.py directly depends on LightGBM, NetworkX, NumPy, pandas, SciPy sparse/statistical utilities, scikit-learn metrics and randomized SVD, and kapso_datasets.common.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "graph_moe.py",
+                "line": 14,
+                "description": "Imports LightGBM."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 15,
+                "description": "Imports NetworkX."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 16,
+                "description": "Imports NumPy."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 17,
+                "description": "Imports pandas."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 18,
+                "description": "Imports SciPy sparse utilities."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 19,
+                "description": "Imports SciPy rank/statistical utilities."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 20,
+                "description": "Imports scikit-learn ROC-AUC."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 21,
+                "description": "Imports scikit-learn randomized SVD."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 23,
+                "description": "Imports task loading and shared-cache helpers."
+              }
+            ]
+          },
+          {
+            "kind": "environment",
+            "statement": "Direct candidate execution requires KAPSO_RUN_DATA_DIR for evaluator artifacts, while graph cache registration uses the shared cache directory and filesystem locking.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "main.py",
+                "line": 18,
+                "description": "Requires KAPSO_RUN_DATA_DIR."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 130,
+                "description": "Obtains the shared cache root."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 133,
+                "description": "Opens the artifact lock."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 134,
+                "description": "Acquires an exclusive filesystem lock."
+              }
+            ]
+          },
+          {
+            "kind": "dependency",
+            "statement": "The candidate relies on the sanitized local RelBench cache rather than network downloads or external data sources.",
+            "confidence": 0.98,
+            "evidence": [
+              {
+                "path": "graph_moe.py",
+                "line": 23,
+                "description": "Uses the shared task-loading helper."
+              },
+              {
+                "path": "graph_moe.py",
+                "line": 290,
+                "description": "Loads the task context through that helper."
+              },
+              {
+                "path": "changes.log",
+                "line": 4,
+                "description": "Records that no external datasets or pretrained models were used."
+              }
+            ]
+          }
+        ]
+      },
+      "opt.performance": {
+        "title": "Performance and selection notes",
+        "one_liner": "The expensive work is the wide censored temporal panel and purged gates, not sparse graph construction or SVD multiplication.",
+        "claims": [
+          {
+            "kind": "performance",
+            "statement": "Daily label reconstruction produces about 12,655 panel rows per second, while two sparse propagation steps run at about 863 seeds per second; the wide censored feature panel and purged model gates are the critical path.",
+            "confidence": 0.96,
+            "evidence": [
+              {
+                "path": "eval_profile.md",
+                "line": 36,
+                "description": "Reports database and aggregation timing."
+              },
+              {
+                "path": "eval_profile.md",
+                "line": 37,
+                "description": "Reports daily panel throughput and propagation throughput."
+              },
+              {
+                "path": "eval_profile.md",
+                "line": 38,
+                "description": "Identifies the wide panel and purged gates as the bounded artifact."
+              }
+            ]
+          },
+          {
+            "kind": "performance",
+            "statement": "The full temporal matrix covers 156 feature origins and builds in about 55.2 seconds; purged forward gating takes about 30.3 seconds and the two final expert chains about 6.6 seconds.",
+            "confidence": 0.96,
+            "evidence": [
+              {
+                "path": "eval_profile.md",
+                "line": 42,
+                "description": "Reports full matrix, forward-gating, and final-chain runtimes."
+              }
+            ]
+          },
+          {
+            "kind": "selection",
+            "statement": "The selected compact history plus 16-dimensional hard-zero graph mixture improved the four-origin equal-fold mean AUC from 0.89082 to 0.89392; 32-dimensional and community alternatives did not pass the internal gate.",
+            "confidence": 0.96,
+            "evidence": [
+              {
+                "path": "eval_profile.md",
+                "line": 43,
+                "description": "Reports forward AUCs and the selected 16-dimensional hard-zero graph mixture."
+              },
+              {
+                "path": "eval_profile.md",
+                "line": 44,
+                "description": "Reports rejection of the 32-dimensional and community comparators."
+              },
+              {
+                "path": "PLAN.md",
+                "line": 17,
+                "description": "Records the final compact history and community graph mixture selection."
+              }
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "experiments": [
+    {
+      "recorded_at": "2026-08-09T19:18:41.064170+00:00",
+      "branch": "generic_exp_1",
+      "parent_branch": "main",
+      "base_commit": "cdf734bb00e8ea4015121ec124f12ef633a164d1",
+      "head_commit": "d97e722e07307898c80ba0dd75c37a861d8f8d5e",
+      "code_head_commit": "d97e722e07307898c80ba0dd75c37a861d8f8d5e",
+      "solution_spec": "# Cold-User Graph Mixture of Experts\n\n## Core Idea\n\nTarget users with sparse or zero attendee history using static friendship structure, censored neighbor activity, community priors, and sparse graph embeddings. Combine a graph specialist with a compact history model through a history-dependent mixture.\n\n## Implementation\n\n1. Build the same exact daily binary panel:\n\n   - Validation chain: daily seeds through 2012-11-14.\n   - Test chain: daily seeds through 2012-11-21.\n   - Every feature uses source times `<= seed`; historical task outcomes require `label_end <= seed`.\n\n2. Construct two graph views:\n\n   - Full outgoing degree and endpoint-null fraction from all 30.4M friendship rows.\n   - A resolved known-user graph from non-null `(user,friend)` endpoints. Preserve directed degrees and also create a deduplicated symmetric adjacency for representation learning.\n\n3. Produce dependency-light structural representations:\n\n   - Row-normalize the sparse adjacency.\n   - Compute 32-dimensional randomized truncated-SVD embeddings.\n   - Add one-hop and two-hop structural features: degree moments, neighbor-degree quantiles, common-neighbor density, and resolved/full-degree ratio.\n   - Optionally add Louvain/Leiden communities only if the package is already available and the forward gate shows stable benefit; graph embeddings and propagation do not depend on it.\n\n4. At every seed, create censored propagation features:\n\n   - Neighbor mean/max/quantiles of 14-, 30-, and 90-day invitation counts.\n   - Fraction of neighbors with a closed historical positive label.\n   - One- and two-hop smoothed positive rates.\n   - Neighbor interest activity and mass-blast exposure.\n   - Community-level empirical-Bayes invitation and positive rates, with counts and coverage.\n   - Missing-neighbor and isolated-node indicators.\n\n5. Train two experts:\n\n   - History expert: attendee RFM, interest, demographics, degree, and within-timestamp ranks.\n   - Cold expert: graph embeddings, propagation, community priors, demographics, account age, and degree. Train primarily on zero/sparse-history episodes, while retaining lower-weight rich-history rows for stability.\n\n6. Blend with a deterministic history gate such as  \n   `cold_weight = exp(-historical_invitation_count / τ)`, with `τ ∈ {1,3,10}` selected only on purged forward folds. Compare against simple hard routing at zero history.\n\n7. Evaluate overall and separately for:\n\n   - Zero versus nonzero attendee history\n   - Isolated versus resolved-neighbor users\n   - Low versus high friend coverage\n   - Common versus rare locale\n\n   Keep a graph block when it improves overall forward-fold AUC or consistently improves the cold slice without degrading overall AUC beyond the fold-level tie band.\n\n8. Freeze Model A validation predictions before fitting Model B with the additional closed validation outcomes. Preserve row order and save the two required arrays.\n\n## Staging and Runtime\n\nFirst bank the compact history model plus degree and one-hop propagation. Add SVD embeddings, two-hop propagation, and communities afterward.\n\nExpected full runtime:\n\n- Friendship scans and CSR construction: 8–15 minutes\n- SVD and structural features: 5–10 minutes\n- Temporal propagation features: 15–25 minutes\n- Forward gates and final experts: 20–30 minutes\n- Total: 50–80 minutes\n\nDebug uses 8 SVD dimensions, one-hop propagation, weekly seeds, and 100 trees.\n\n## Hyperparameters\n\n- SVD dimensions: `32`, comparator `16`\n- Normalized adjacency: symmetric `D^-1/2 A D^-1/2`\n- Propagation depths: `1` and `2`\n- Community prior strength: `20` observed members\n- LightGBM experts: `learning_rate=0.035`, `num_leaves=31`, `max_depth=5`, `min_child_samples=80`, `lambda_l2=10`, `n_estimators<=900`\n- Cold-expert rich-row weight: `0.25`\n- Mixture scale candidates: `τ=[1,3,10]`\n- Forward origins: 2012-10-24 through 2012-11-14, with outcome-window purging\n\n# Coverage\n\n- **MEASURED — input distribution:** Candidate reconstruction reports about 30.2% zero-history validation users; this is the explicitly targeted stratum.\n- **MEASURED — graph availability:** The table has 30.4M rows for full degree but only roughly 217K resolved friend endpoints. The design therefore preserves scalar degree and has explicit isolated-node fallbacks.\n- **MEASURED — relational coverage:** Attendees, interests, users, friendships, and event blast/content data all enter either the history expert or graph propagation.\n- **MEASURED — output register:** Both full-length arrays are finite probabilities in original task order.\n- **MEASURED — metric mechanics:** Slice gains can affect both within-slice and cross-slice ROC-AUC pairs, so acceptance is based on aggregate forward-fold AUC as well as slice diagnostics.\n- **MEASURED — harness controls:** Debug remains a correctness run; the full graph pipeline retains at least 30 minutes of runtime margin.\n- **MEASURED — permitted data:** Neighbor labels and activity are censored at each seed; validation labels enter only the test chain.\n- **ASSUMED — graph stationarity:** Friendship topology without timestamps is valid as static information at historical seeds.\n- **ASSUMED — homophily:** Resolved friends and graph communities share invitation exposure or behavior strongly enough to improve cold-user ranking. Forward slice results must verify this.\n- **ASSUMED — transductive embeddings:** Unsupervised embeddings over all database users, including prediction identities but no labels, conform to the benchmark’s static-table semantics.",
+      "changed_files": [
+        ".gitignore",
+        "PLAN.md",
+        "changes.log",
+        "eval_profile.md",
+        "graph_moe.py",
+        "main.py"
+      ],
+      "diff_numstat": [
+        {
+          "added": "1",
+          "deleted": "0",
+          "path": ".gitignore"
+        },
+        {
+          "added": "18",
+          "deleted": "0",
+          "path": "PLAN.md"
+        },
+        {
+          "added": "9",
+          "deleted": "0",
+          "path": "changes.log"
+        },
+        {
+          "added": "50",
+          "deleted": "0",
+          "path": "eval_profile.md"
+        },
+        {
+          "added": "1304",
+          "deleted": "0",
+          "path": "graph_moe.py"
+        },
+        {
+          "added": "20",
+          "deleted": "48",
+          "path": "main.py"
+        }
+      ],
+      "run_result": {
+        "score": 0,
+        "run_had_error": false,
+        "error_message": "",
+        "error_details": "",
+        "feedbacks": "",
+        "ideation_repo_memory_sections_consulted": [],
+        "repo_memory_sections_consulted": [
+          "core.architecture",
+          "core.dependencies",
+          "core.entrypoints",
+          "core.gotchas",
+          "core.invariants",
+          "core.testing",
+          "core.where_to_edit"
+        ]
+      }
+    }
+  ],
+  "quality": {
+    "evidence_ok": true,
+    "missing_evidence": [],
+    "section_count": 8,
+    "claim_count": 39
+  }
+}

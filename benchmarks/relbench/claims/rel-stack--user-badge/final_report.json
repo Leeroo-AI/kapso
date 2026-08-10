@@ -1,0 +1,53 @@
+{
+  "dataset": "rel-stack",
+  "task": "user-badge",
+  "family": "entity_binary_classification",
+  "primary_metric": "roc_auc",
+  "selected_by": "max rescored validation roc_auc among head-stamped final runs (evaluator 052a7dac07cc)",
+  "run": "run_0013",
+  "head_evaluator_id": "052a7dac07cc03448f0632407aef11989be7b9f4150d2debb45a87759cd38d27",
+  "scored": {
+    "run_0012": 0.8863832229378766,
+    "run_0013": 0.9038666848293635,
+    "run_0014": 0.9008329828014878,
+    "run_0016": 0.8873872158128584
+  },
+  "excluded": {},
+  "val_metrics": {
+    "average_precision": 0.345579028893044,
+    "accuracy": 0.9707717928196671,
+    "f1": 0.2635706283735615,
+    "roc_auc": 0.9038666848293635
+  },
+  "test_metrics": {
+    "average_precision": 0.3340154894968106,
+    "accuracy": 0.9755639097744361,
+    "f1": 0.1728525980911983,
+    "roc_auc": 0.8929209786714831
+  },
+  "audit": {
+    "clean": false,
+    "findings": [
+      {
+        "file": "main.py",
+        "line": 154,
+        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
+        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
+        "snippet": "labeled_times = np.concatenate([train_times, validation[\"timestamp\"].to_numpy(dtype=\"datetime64[s]\").astype(np.int64)])"
+      },
+      {
+        "file": "temporal_features.py",
+        "line": 49,
+        "pattern": "RELBENCH_CACHE_DIR",
+        "concern": "tampers with the data cache location",
+        "snippet": "return Path(os.environ[\"RELBENCH_CACHE_DIR\"]) / os.environ[\"RELBENCH_DATASET\"] / \"db\""
+      }
+    ],
+    "note": "static scan; manually review flagged lines before publishing results. 'verify:' findings are advisory OOS-contract review hooks (legal patterns that warrant tracing), not violations."
+  },
+  "code_path": "/home/ubuntu/kapso/tmp/relbench/rel-stack--user-badge/runs/run_0013/code",
+  "predictions": {
+    "val": "/home/ubuntu/kapso/tmp/relbench/rel-stack--user-badge/runs/run_0013/val_predictions.npy",
+    "test": "/home/ubuntu/kapso/tmp/relbench/rel-stack--user-badge/runs/run_0013/test_predictions.npy"
+  }
+}

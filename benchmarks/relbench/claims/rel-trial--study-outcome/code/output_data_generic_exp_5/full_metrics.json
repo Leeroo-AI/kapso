@@ -1,0 +1,679 @@
+{
+  "debug": false,
+  "elapsed_seconds": 413.05781388282776,
+  "historical_corpus_rows": 14164,
+  "selection": {
+    "designs": {
+      "structured": {
+        "fold_scores": [
+          0.6899751039095301,
+          0.6761666129552045,
+          0.697959473800794,
+          0.6794140682363305
+        ],
+        "mean": 0.6858788147254649,
+        "std": 0.00998067664988778,
+        "se": 0.00499033832494389,
+        "rounds": [
+          153,
+          207,
+          351,
+          186
+        ]
+      },
+      "structured_embeddings": {
+        "fold_scores": [
+          0.6945376289638585,
+          0.6824395746052208,
+          0.7080943297043353,
+          0.6814489905806171
+        ],
+        "mean": 0.6916301309635079,
+        "std": 0.012485262385048032,
+        "se": 0.006242631192524016,
+        "rounds": [
+          247,
+          208,
+          306,
+          106
+        ]
+      },
+      "structured_neighbors": {
+        "fold_scores": [
+          0.6974878860124761,
+          0.6928488559458589,
+          0.7235668874040817,
+          0.7105060732991615
+        ],
+        "mean": 0.7061024256653946,
+        "std": 0.013835545285564826,
+        "se": 0.006917772642782413,
+        "rounds": [
+          421,
+          214,
+          312,
+          105
+        ]
+      },
+      "full": {
+        "fold_scores": [
+          0.6939925874352103,
+          0.690534966161779,
+          0.7274713939518169,
+          0.7148573806143927
+        ],
+        "mean": 0.7067140820407998,
+        "std": 0.017519318147469473,
+        "se": 0.008759659073734737,
+        "rounds": [
+          366,
+          157,
+          148,
+          81
+        ]
+      }
+    },
+    "selected_design": "structured_neighbors",
+    "selected_rounds": 263,
+    "logistic_scores": {
+      "0.02": [
+        0.6399736973507465,
+        0.6556106993232356,
+        0.638887695018696,
+        0.6662063033642651
+      ],
+      "0.05": [
+        0.6291783586865555,
+        0.6461198839832419,
+        0.6238548488946047,
+        0.6533254547107403
+      ]
+    },
+    "selected_c": 0.02,
+    "blend_scores": {
+      "0.5": 0.6644475629791895,
+      "0.7": 0.6899039761740565,
+      "0.85": 0.7046120086406231
+    },
+    "blend_weight": 0.85,
+    "forward_folds": [
+      {
+        "year": 2016,
+        "count": 1093,
+        "auc": 0.69639780295518
+      },
+      {
+        "year": 2017,
+        "count": 1153,
+        "auc": 0.6969610054785692
+      },
+      {
+        "year": 2018,
+        "count": 1128,
+        "auc": 0.7188193248278347
+      },
+      {
+        "year": 2019,
+        "count": 1093,
+        "auc": 0.7145374572561415
+      }
+    ],
+    "slices": [
+      {
+        "axis": "site_richness",
+        "stratum": "sites_0_4",
+        "count": 3022,
+        "auc": 0.6878239691594384
+      },
+      {
+        "axis": "site_richness",
+        "stratum": "sites_5_19",
+        "count": 479,
+        "auc": 0.6992202729044834
+      },
+      {
+        "axis": "site_richness",
+        "stratum": "sites_20_plus",
+        "count": 966,
+        "auc": 0.7441554507683474
+      }
+    ]
+  },
+  "diffusion_selection": {
+    "candidates": {
+      "base": {
+        "fold_scores": [
+          0.6924242743914875,
+          0.6935417338059942,
+          0.7271341715404122,
+          0.708658209967623
+        ],
+        "mean": 0.7054395974263792,
+        "rounds": [
+          364,
+          193,
+          384,
+          81
+        ],
+        "slices": [
+          {
+            "sparse": 0.6793595498090709,
+            "rich": 0.7424691358024691
+          },
+          {
+            "sparse": 0.6945394300861497,
+            "rich": 0.7264935064935065
+          },
+          {
+            "sparse": 0.7272412762812348,
+            "rich": 0.7346243500089653
+          },
+          {
+            "sparse": 0.6515137975407492,
+            "rich": 0.7856965913594927
+          }
+        ]
+      },
+      "loose_d2": {
+        "fold_scores": [
+          0.6910493631805107,
+          0.6938736706413149,
+          0.7237321925077114,
+          0.7097438515275903
+        ],
+        "mean": 0.7045997694642818,
+        "rounds": [
+          171,
+          227,
+          290,
+          77
+        ],
+        "slices": [
+          {
+            "sparse": 0.6752729952435184,
+            "rich": 0.7485185185185185
+          },
+          {
+            "sparse": 0.6975612988734261,
+            "rich": 0.7275324675324676
+          },
+          {
+            "sparse": 0.7206051170763159,
+            "rich": 0.7346243500089654
+          },
+          {
+            "sparse": 0.6522152916785817,
+            "rich": 0.7880251684502576
+          }
+        ]
+      },
+      "loose_d3": {
+        "fold_scores": [
+          0.6912568306010929,
+          0.6927924589107315,
+          0.7232098283802413,
+          0.7112945182968189
+        ],
+        "mean": 0.7046384090472212,
+        "rounds": [
+          168,
+          161,
+          292,
+          96
+        ],
+        "slices": [
+          {
+            "sparse": 0.6769076170697395,
+            "rich": 0.7476543209876543
+          },
+          {
+            "sparse": 0.6963883366467859,
+            "rich": 0.7233333333333334
+          },
+          {
+            "sparse": 0.7223506471041501,
+            "rich": 0.7334887334887334
+          },
+          {
+            "sparse": 0.6545699885616243,
+            "rich": 0.7886196987713039
+          }
+        ]
+      },
+      "strict_d2": {
+        "fold_scores": [
+          0.6911267239136092,
+          0.6956783757653884,
+          0.7217518373662268,
+          0.7095987496765802
+        ],
+        "mean": 0.7045389216804512,
+        "rounds": [
+          156,
+          347,
+          198,
+          131
+        ],
+        "slices": [
+          {
+            "sparse": 0.6766798418972333,
+            "rich": 0.7476543209876545
+          },
+          {
+            "sparse": 0.7000132538104705,
+            "rich": 0.7278787878787879
+          },
+          {
+            "sparse": 0.7212577251497854,
+            "rich": 0.7317554240631164
+          },
+          {
+            "sparse": 0.6520499714040606,
+            "rich": 0.7881738010305191
+          }
+        ]
+      },
+      "strict_d3": {
+        "fold_scores": [
+          0.6924559219641186,
+          0.6946745085401225,
+          0.7184540005488129,
+          0.7095393103641182
+        ],
+        "mean": 0.7037809353542931,
+        "rounds": [
+          290,
+          212,
+          80,
+          86
+        ],
+        "slices": [
+          {
+            "sparse": 0.6762845849802371,
+            "rich": 0.7519753086419754
+          },
+          {
+            "sparse": 0.6967362491716369,
+            "rich": 0.7299567099567099
+          },
+          {
+            "sparse": 0.7129507320218269,
+            "rich": 0.7328910405833482
+          },
+          {
+            "sparse": 0.6524967829568201,
+            "rich": 0.7885701545778834
+          }
+        ]
+      },
+      "pure_loose_d3": {
+        "fold_scores": [
+          0.6391526186608154,
+          0.6425797615211086,
+          0.6294124064786376,
+          0.6155045698341992
+        ],
+        "mean": 0.6316623391236902,
+        "rounds": [
+          116,
+          105,
+          8,
+          7
+        ],
+        "slices": [
+          {
+            "sparse": 0.6045119581965566,
+            "rich": 0.7274074074074074
+          },
+          {
+            "sparse": 0.6506063618290258,
+            "rich": 0.6711688311688312
+          },
+          {
+            "sparse": 0.6264251230520042,
+            "rich": 0.6576116191500807
+          },
+          {
+            "sparse": 0.5765745639119245,
+            "rich": 0.6844282600079271
+          }
+        ]
+      }
+    },
+    "selected": "strict_d3",
+    "selected_rounds": 149,
+    "base_blend_weight": 1.0,
+    "blend_scores": {
+      "0.0": 0.7005886551255527,
+      "0.1": 0.7014756204954498,
+      "0.2": 0.7021834180154962,
+      "0.3": 0.7027600088907819,
+      "0.4": 0.7032085623639339,
+      "1.0": 0.7035964776614877
+    },
+    "fold_years": [
+      2016,
+      2017,
+      2018,
+      2019
+    ],
+    "route_dropout": {
+      "facility": 0.3,
+      "condition": 0.1,
+      "intervention": 0.1,
+      "sponsor": 0.1
+    }
+  },
+  "diffusion_diagnostics": {
+    "version": "lane1_causal_entity_diffusion_v1",
+    "debug": false,
+    "elapsed_seconds": 117.54321932792664,
+    "shape": [
+      13779,
+      648
+    ],
+    "script_profile": {
+      "condition": {
+        "count": 3973,
+        "non_ascii_rate": 0.0,
+        "non_latin_rate": 0.0,
+        "empty_rate": 0.0
+      },
+      "intervention": {
+        "count": 3462,
+        "non_ascii_rate": 0.0,
+        "non_latin_rate": 0.0,
+        "empty_rate": 0.0
+      },
+      "sponsor": {
+        "count": 53241,
+        "non_ascii_rate": 0.07165530324374073,
+        "non_latin_rate": 7.513006893183825e-05,
+        "empty_rate": 0.0
+      },
+      "facility": {
+        "count": 453233,
+        "non_ascii_rate": 0.08732815130407538,
+        "non_latin_rate": 0.0002890345583838776,
+        "empty_rate": 2.2063706746860885e-06
+      },
+      "facility_top_countries": [
+        {
+          "country": "United States",
+          "count": 150824,
+          "non_ascii_rate": 0.00037129369331140934
+        },
+        {
+          "country": "Germany",
+          "count": 31068,
+          "non_ascii_rate": 0.2753315308355865
+        },
+        {
+          "country": "France",
+          "count": 30762,
+          "non_ascii_rate": 0.3543007606787595
+        },
+        {
+          "country": "Italy",
+          "count": 18644,
+          "non_ascii_rate": 0.08313666595151255
+        },
+        {
+          "country": "Japan",
+          "count": 16296,
+          "non_ascii_rate": 0.0006750122729504173
+        },
+        {
+          "country": "Canada",
+          "count": 14269,
+          "non_ascii_rate": 0.04919756114654145
+        },
+        {
+          "country": "Spain",
+          "count": 13751,
+          "non_ascii_rate": 0.22892880517780526
+        },
+        {
+          "country": "China",
+          "count": 12881,
+          "non_ascii_rate": 0.011567424889371944
+        },
+        {
+          "country": "United Kingdom",
+          "count": 12342,
+          "non_ascii_rate": 0.0012153621779290229
+        },
+        {
+          "country": "Russian Federation",
+          "count": 12183,
+          "non_ascii_rate": 0.02708692440285644
+        },
+        {
+          "country": "Poland",
+          "count": 10925,
+          "non_ascii_rate": 0.11835240274599543
+        },
+        {
+          "country": "Brazil",
+          "count": 6090,
+          "non_ascii_rate": 0.3252873563218391
+        },
+        {
+          "country": "Belgium",
+          "count": 5668,
+          "non_ascii_rate": 0.0776287932251235
+        },
+        {
+          "country": "Ukraine",
+          "count": 5636,
+          "non_ascii_rate": 0.015436479772888574
+        },
+        {
+          "country": "Turkey",
+          "count": 5608,
+          "non_ascii_rate": 0.2660485021398003
+        },
+        {
+          "country": "India",
+          "count": 5075,
+          "non_ascii_rate": 0.00019704433497536947
+        },
+        {
+          "country": "Korea, Republic of",
+          "count": 5011,
+          "non_ascii_rate": 0.0007982438635002994
+        },
+        {
+          "country": "Australia",
+          "count": 4989,
+          "non_ascii_rate": 0.0006013229104028864
+        },
+        {
+          "country": "Hungary",
+          "count": 4886,
+          "non_ascii_rate": 0.2177650429799427
+        },
+        {
+          "country": "Netherlands",
+          "count": 4599,
+          "non_ascii_rate": 0.005218525766470972
+        }
+      ]
+    },
+    "bridge_audit": {
+      "condition": {
+        "sample_count": 64,
+        "mean_cosine": 0.8300153724849224,
+        "mean_token_jaccard": 0.36180555555555555,
+        "script_agreement_rate": 1.0,
+        "agency_or_locality_agreement_rate": null,
+        "enabled": true
+      },
+      "intervention": {
+        "sample_count": 64,
+        "mean_cosine": 0.8395872917026281,
+        "mean_token_jaccard": 0.21473214285714282,
+        "script_agreement_rate": 1.0,
+        "agency_or_locality_agreement_rate": null,
+        "enabled": true
+      },
+      "sponsor": {
+        "sample_count": 64,
+        "mean_cosine": 0.8702063960954547,
+        "mean_token_jaccard": 0.4830225840336134,
+        "script_agreement_rate": 0.96875,
+        "agency_or_locality_agreement_rate": 1.0,
+        "enabled": true
+      },
+      "facility": {
+        "sample_count": 64,
+        "mean_cosine": 0.958554239012301,
+        "mean_token_jaccard": 0.3869256177849928,
+        "script_agreement_rate": 0.9375,
+        "agency_or_locality_agreement_rate": 0.859375,
+        "enabled": true
+      }
+    }
+  },
+  "graph_fusion_selection": {
+    "weights": [
+      0.0,
+      0.1,
+      0.2,
+      0.3,
+      0.4,
+      1.0
+    ],
+    "fold_scores": {
+      "0.0": {
+        "2017": 0.695043506284241,
+        "2018": 0.717566312142321,
+        "2019": 0.7133801388782055
+      },
+      "0.1": {
+        "2017": 0.6966774089590718,
+        "2018": 0.7197549517143793,
+        "2019": 0.7150759074984441
+      },
+      "0.2": {
+        "2017": 0.6972574927489527,
+        "2018": 0.7212592281574102,
+        "2019": 0.7163590973615939
+      },
+      "0.3": {
+        "2017": 0.6976667740895908,
+        "2018": 0.7222146916563902,
+        "2019": 0.7169360083354894
+      },
+      "0.4": {
+        "2017": 0.6975572027070577,
+        "2018": 0.7224957103325609,
+        "2019": 0.7168101368502758
+      },
+      "1.0": {
+        "2017": 0.6852175314212052,
+        "2018": 0.7111128008966148,
+        "2019": 0.7019013587127543
+      }
+    },
+    "fold_means": {
+      "0.0": 0.7086633191015892,
+      "0.1": 0.7105027560572984,
+      "0.2": 0.7116252727559855,
+      "0.3": 0.7122724913604902,
+      "0.4": 0.7122876832966315,
+      "1.0": 0.699410563676858
+    },
+    "pooled_scores": {
+      "0.0": 0.70873976120636,
+      "0.1": 0.7104935792831444,
+      "0.2": 0.7115714543675447,
+      "0.3": 0.7119904426184466,
+      "0.4": 0.7118573304219211,
+      "1.0": 0.6982906391721385
+    },
+    "fold_wins_over_semantic": {
+      "0.0": 0,
+      "0.1": 3,
+      "0.2": 3,
+      "0.3": 3,
+      "0.4": 3,
+      "1.0": 0
+    },
+    "selected_graph_weight": 0.4,
+    "graph_details": {
+      "2017": {
+        "count": 1153,
+        "tabular_auc": 0.6812310667096358,
+        "graph_auc": 0.6669738962294554,
+        "frozen_run0006_blend_auc": 0.6852175314212052,
+        "best_epoch": 6
+      },
+      "2018": {
+        "count": 1128,
+        "tabular_auc": 0.7061734844001573,
+        "graph_auc": 0.6981793295886217,
+        "frozen_run0006_blend_auc": 0.7111128008966148,
+        "best_epoch": 10
+      },
+      "2019": {
+        "count": 1093,
+        "tabular_auc": 0.7006286581400389,
+        "graph_auc": 0.6838143255735896,
+        "frozen_run0006_blend_auc": 0.7019013587127543,
+        "best_epoch": 14
+      }
+    },
+    "selection_lineage": "2017-2019 forward folds from training labels only"
+  },
+  "semantic_base_model_a": {
+    "fit_rows": 11994,
+    "target_rows": 960,
+    "count_oof_rows": 11994,
+    "count_inference_rows": 960,
+    "design": "structured_neighbors",
+    "rounds": 263,
+    "C": 0.02,
+    "lgb_weight": 0.85,
+    "dense_features": 974,
+    "logistic_raw_embeddings": true,
+    "logistic_pca_embeddings": true,
+    "logistic_hashed_word_character_text": true
+  },
+  "semantic_base_model_b": {
+    "fit_rows": 12954,
+    "target_rows": 825,
+    "count_oof_rows": 12954,
+    "count_inference_rows": 825,
+    "design": "structured_neighbors",
+    "rounds": 263,
+    "C": 0.02,
+    "lgb_weight": 0.85,
+    "dense_features": 974,
+    "logistic_raw_embeddings": true,
+    "logistic_pca_embeddings": true,
+    "logistic_hashed_word_character_text": true
+  },
+  "diffusion_model_a": {
+    "fit_rows": 11994,
+    "target_rows": 960,
+    "selected": "base",
+    "base_blend_weight": 1.0,
+    "route_dropout_applied": false
+  },
+  "diffusion_model_b": {
+    "fit_rows": 12954,
+    "target_rows": 825,
+    "selected": "base",
+    "base_blend_weight": 1.0,
+    "route_dropout_applied": false
+  },
+  "validation_fit_lineage": "train labels only including banked graph Model A",
+  "test_fit_lineage": "train plus validation labels including banked graph Model B",
+  "val_shape": [
+    960
+  ],
+  "test_shape": [
+    825
+  ]
+}

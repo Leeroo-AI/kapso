@@ -1,0 +1,58 @@
+{
+  "dataset": "rel-f1",
+  "task": "driver-top3",
+  "family": "entity_binary_classification",
+  "primary_metric": "roc_auc",
+  "selected_by": "max rescored validation roc_auc among head-stamped final runs (evaluator 199facd9d958)",
+  "run": "run_0008",
+  "head_evaluator_id": "199facd9d95858dec102a78efe46437069624aae2269d34573deff1a119ed6e2",
+  "scored": {
+    "run_0002": 0.9034240561896401,
+    "run_0004": 0.8964541040296716,
+    "run_0005": 0.9103940083496085,
+    "run_0006": 0.9083872354912114,
+    "run_0007": 0.9108061134901722,
+    "run_0008": 0.9111286305567003,
+    "run_0009": 0.9093547866907957,
+    "run_0010": 0.9111286305567003,
+    "run_0011": 0.9111286305567003
+  },
+  "excluded": {},
+  "val_metrics": {
+    "average_precision": 0.7420225398462439,
+    "accuracy": 0.8775510204081632,
+    "f1": 0.6727272727272727,
+    "roc_auc": 0.9111286305567003
+  },
+  "test_metrics": {
+    "average_precision": 0.7638560979927747,
+    "accuracy": 0.9022038567493113,
+    "f1": 0.714859437751004,
+    "roc_auc": 0.9339595526755853
+  },
+  "audit": {
+    "clean": false,
+    "findings": [
+      {
+        "file": "main.py",
+        "line": 51,
+        "pattern": "RELBENCH_CACHE_DIR",
+        "concern": "tampers with the data cache location",
+        "snippet": "cache_root = Path(os.environ[\"RELBENCH_CACHE_DIR\"])"
+      },
+      {
+        "file": "main.py",
+        "line": 73,
+        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
+        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
+        "snippet": "combined = pd.concat([splits[\"train\"], splits[\"val\"]], ignore_index=True)"
+      }
+    ],
+    "note": "static scan; manually review flagged lines before publishing results. 'verify:' findings are advisory OOS-contract review hooks (legal patterns that warrant tracing), not violations."
+  },
+  "code_path": "/home/ubuntu/kapso/tmp/relbench/rel-f1--driver-top3/runs/run_0008/code",
+  "predictions": {
+    "val": "/home/ubuntu/kapso/tmp/relbench/rel-f1--driver-top3/runs/run_0008/val_predictions.npy",
+    "test": "/home/ubuntu/kapso/tmp/relbench/rel-f1--driver-top3/runs/run_0008/test_predictions.npy"
+  }
+}
