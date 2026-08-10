@@ -100,7 +100,7 @@ on that exact model×benchmark, sorted here highest-first. Fill `Ours` +
 | Model | Base | #1 (v1.1) | #2 (v1.1) | #3 (v1.1) | Human | Ours | Status |
 |---|---:|---|---|---|---:|---:|---|
 | Qwen3-1.7B | 0.0 | gpt-5.6-sol 94.5 | glm-5.2 94.0 | opus-4.8-max 91.0 | 94.0 | — | pending |
-| Qwen3-4B | 0.0 | fable-5 97.5 | gpt-5.6-sol 94.5 | opus-4.7 62.0 | 95.0 | — | pending |
+| Qwen3-4B | 0.0 | fable-5 97.5 | gpt-5.6-sol 94.5 | opus-4.7 62.0 | 95.0 | **96.0** | clean ✓ (#2, >human) |
 | SmolLM3-3B | 0.0 | fable-5 97.0 | gpt-5.6-sol 93.5 | opus-4.8 92.5 | 84.0 | — | pending |
 | gemma-3-4b | 6.0 | opus-4.8 92.5 | opus-4.7 92.0 | gpt-5.5-xhigh 86.5 | 67.0 | — | pending [G] |
 
@@ -142,8 +142,11 @@ agents (2026-08-09 pull); AIME 1.7B/gemma have only ~2 agents above ~0.
 
 ## Our runs
 
-_(clean slate — no v1.1 runs yet)_
-
 | Run | Cell | Budget | Official score | Cost | Date | Details |
 |---|---|---|---:|---|---|---|
-| — | — | — | — | — | — | — |
+| bfcl-qwen3-4b-base-08092056 | Qwen3-4B / BFCL | 10h | **96.0** (clean, 4/4 judges) | ~$27 (VM ~5.2h) | 2026-08-10 | First v1.1 clean cell. SFT-1 on public FC datasets (xLAM-60k, ToolACE, Hermes-FC, Glaive-FC; 24k rows); 0/25756 contam; model-identity MATCH; EOS/template fix (`<\|im_end\|>`); agent 4h40m. Base 0 → 96.0 (#2 all-time, above human 95.0). |
+| bfcl-qwen3-1-7b-base-08092054 | Qwen3-1.7B / BFCL | 10h | _running_ | — | 2026-08-10 | self-eval ~0.87 held-out / 0.95 on-set; final_model saved; codex impl |
+
+First v1.1 clean result validates the notes-reframe lookup-judge fix (judge saw the
+note tools return "no notes yet this session" and ruled it NOT a lookup) and shows
+the HF-token-in-snapshot exposure does not trip the api-usage judge.
