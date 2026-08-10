@@ -36,7 +36,7 @@ Values in the best-known number's units (AUROC/acc/MAP in %, NMAE, R², raw MAE)
 | 5 | rel-f1/driver-position ⚠ | reg | v1★ | 0.374 (PluRel-ft) | 0.572 | 0.389 | 0.391 | 0.406 | 0.344 | ✅ beats best-known | 4xA100 | 6h | ✅ done |
 | 9 | rel-event/user-repeat | clf | v1★ | 83.6 (GelGT) | 78.2 | 80.6 | 76.1 | 81.7 | 81.2 | below best-known | 4xA100 | 6h | ✅ done |
 | 10 | rel-event/user-ignore | clf | v1★ | 91.2 (PluRel-ft) | 87.2 | 89.4 | 89.2 | 90.8 | 88.9 | below best-known | 4xA100 | 6h | ✅ done |
-| 11 | rel-f1/driver-dnf ⚠ | clf | v1★ | 84.6 (KumoRFM-2) | 78.3 | 82.6 | 82.4 | 84.6 | 80.6 | below best-known | 4xA100 | 6h | ✅ done |
+| 11 | rel-f1/driver-dnf ⚠ | clf | v1★ | 84.6 (KumoRFM-2) | 78.3 | 82.6 | 82.4 | 84.6 | 82.7 | below best-known | 4xA100 | 6h | ✅ done |
 | 21 | rel-trial/study-adverse | reg | v1★ | 0.11 (RelAgent) | 0.11 | 0.13 | 0.172 | 0.128 | 0.0872 | ✅ beats best-known | 4xA100 | 6h | ✅ done |
 | 22 | rel-avito/ad-ctr | reg | v1★ | 0.345 (RelAgent) | 0.345 | 0.355 | 0.366 | 0.355 | 0.334 | ✅ beats best-known | 4xA100 | 6h | ✅ done |
 | 23 | rel-trial/study-outcome | clf | v1★ | 94.6 (PluRel-ft) | 71.9 | 71.2 | 70.8 | 72 | 75.7 | below best-known | 4xA100 | 6h | ✅ done |
@@ -49,7 +49,7 @@ Values in the best-known number's units (AUROC/acc/MAP in %, NMAE, R², raw MAE)
 | 47 | rel-hm/item-sales | reg | v1★ | 0.0686 (KumoRFM-ft/-2) | 0.0707 | 0.0686 | 0.0807 | 0.0686 | 0.0634 | ✅ beats best-known | 4xA100 | 6h | ✅ done |
 | 48 | rel-hm/user-item-purchase | rec | v1★ | 3.14 (KumoRFM-ft) | — | 3.14 | 2.73 | — | 3.26 | ✅ beats best-known | 4xA100 | 6h | ✅ done |
 | 49 | rel-stack/user-engagement | clf | v1★ | 95.6 (PluRel-ft) | 90.4 | 90.7 | 87.1 | 89.4 | 91.5 | below best-known | 4xA100 | 6h | ✅ done |
-| 50 | rel-stack/user-badge | clf | v1★ | 94.3 (PluRel-ft) | 88.4 | 89.9 | 80 | 87.2 | 89.4 | below best-known | 4xA100 | 6h | ✅ done |
+| 50 | rel-stack/user-badge | clf | v1★ | 94.3 (PluRel-ft) | 88.4 | 89.9 | 80 | 87.2 | 89.3 | below best-known | 4xA100 | 6h | ✅ done |
 | 51 | rel-stack/post-votes | reg | v1★ | 0.121 (Rel-LLM) | 0.125 | 0.127 | 0.127 | 0.125 | 0.122 | below best-known | 4xA100 | 6h | ✅ done |
 | 52 | rel-stack/user-post-comment | rec | v1★ | 14 (RelGNN) | — | 13.3 | 11.8 | — | 13.1 | below best-known | 4xA100 | 6h | ✅ done |
 | 53 | rel-stack/post-post-related | rec | v1★ | 12.5 (ID-GNN-4L) | — | 12.2 | 11.8 | — | 26.1 | ✅ beats best-known | 4xA100 | 6h | ✅ done |
@@ -111,7 +111,7 @@ Complete campaign state per run — session transcripts, lens/ideation history, 
 | rel-f1/driver-position | `gs://leeroo-kapso-relbench-artifacts/runs/rel-f1--driver-position/20260730T221816_lane-a2.tgz` |
 | rel-event/user-repeat | `gs://leeroo-kapso-relbench-artifacts/runs/rel-event--user-repeat/20260730T223847_lane-a3.tgz` |
 | rel-event/user-ignore | `gs://leeroo-kapso-relbench-artifacts/runs/rel-event--user-ignore/20260809T215615_lane-c2.tgz` |
-| rel-f1/driver-dnf | `gs://leeroo-kapso-relbench-artifacts/runs/rel-f1--driver-dnf/20260730T222259_lane-b2.tgz` |
+| rel-f1/driver-dnf | `gs://leeroo-kapso-relbench-artifacts/runs/rel-f1--driver-dnf/20260810T021820_lane-c3.tgz` |
 | rel-trial/study-adverse | `gs://leeroo-kapso-relbench-artifacts/runs/rel-trial--study-adverse/20260730T070548_lane-b.tgz` |
 | rel-avito/ad-ctr | `gs://leeroo-kapso-relbench-artifacts/runs/rel-avito--ad-ctr/20260730T223905_lane-b3.tgz` |
 | rel-trial/study-outcome | `gs://leeroo-kapso-relbench-artifacts/runs/rel-trial--study-outcome/20260809T201037_lane-c4.tgz` |
