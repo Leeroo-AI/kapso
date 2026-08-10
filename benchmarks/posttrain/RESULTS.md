@@ -152,3 +152,16 @@ real judged runs — the 1.7B is the STRONG case: its agent actually read popula
 files and the judge ruled them "the agent's own notes from this same session, not
 external data or prior runs." The HF-token-in-snapshot exposure does not trip the
 api-usage judge (local-vLLM-only; token never used to call a disallowed endpoint).
+
+## Trace archives (organizer evidence records)
+
+PostTrainBench rule: every finished run's full trace + details are saved to GCP storage
+after the task. One dated tarball per run (full agent trace `solve_out`/`solve_parsed`,
+all 4 judge outputs + verdicts, official `final_eval` runs, model config/generation_config/
+SHA manifest, kapso session + campaign data, contamination-check logs; the multi-GB
+`final_model` weights are excluded from the tarball but remain in the per-run results prefix).
+
+| Run | Trace archive (gs://…-posttrainbench/) | Full results incl. final_model |
+|---|---|---|
+| bfcl-qwen3-4b-base-08092056 | `trace_archives/bfcl-qwen3-4b-base-08092056_trace_20260810.tar.gz` (156 MiB) | `results/bfcl-qwen3-4b-base-08092056/` |
+| bfcl-qwen3-1-7b-base-08092054 | `trace_archives/bfcl-qwen3-1-7b-base-08092054_trace_20260810.tar.gz` (207 MiB) | `results/bfcl-qwen3-1-7b-base-08092054/` |
