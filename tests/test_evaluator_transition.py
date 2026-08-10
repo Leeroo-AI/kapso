@@ -64,6 +64,31 @@ def test_transition_state_round_trips_and_validates():
         fresh.load_state(broken)
 
 
+def test_multi_lane_checkpoint_restores_with_fewer_iterations_than_nodes():
+    """One iteration legitimately spawns several lane nodes, so nodes
+    routinely outnumber iterations. The old 'every node consumed an
+    iteration' invariant rejected every multi-lane checkpoint as corrupt
+    (first live hit: rel-event/user-ignore resume, 2026-08-09 — 4 lane
+    nodes, iteration_count 1, RunCheckpointCorruptError)."""
+    source = GenericSearch.__new__(GenericSearch)
+    source.node_history = [
+        SearchNode(node_id=i, branch_name=f"generic_exp_{i}")
+        for i in range(4)
+    ]
+    source.iteration_count = 1
+    source.previous_errors = []
+    source.parent_policy = "best"
+    source.scores_evaluator_id = "ev-1"
+    source.evaluator_transition = None
+    state = source.dump_state()
+
+    restored = GenericSearch.__new__(GenericSearch)
+    restored.parent_policy = "best"
+    restored.load_state(state)
+    assert restored.iteration_count == 1
+    assert len(restored.node_history) == 4
+
+
 class FakeEvalPopen:
     """A completed frame-run process for the strategy's Popen pattern."""
 

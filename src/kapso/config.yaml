@@ -56,6 +56,7 @@ modes:
       max_delay_seconds: 60
       multiplier: 2
       jitter: true
+      request_timeout_seconds: 600
     
     coding_agent:
       type: "claude_code"
@@ -132,6 +133,7 @@ modes:
       max_delay_seconds: 60
       multiplier: 2
       jitter: true
+      request_timeout_seconds: 600
     
     coding_agent:
       type: "claude_code"

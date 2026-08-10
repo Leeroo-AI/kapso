@@ -382,9 +382,17 @@ def test_generic_strategy_state_round_trip() -> None:
     restored.load_state(validate_consumed)
     assert restored.iteration_count == 3
 
+    # Fewer iterations than nodes is LEGAL: one iteration spawns several
+    # lane nodes (the old cross-check rejected every multi-lane checkpoint
+    # as corrupt — live hit 2026-08-09). Only negativity is invalid.
+    fewer = source.dump_state()
+    fewer["iteration_count"] = 0
+    restored.load_state(fewer)
+    assert restored.iteration_count == 0
+
     invalid = source.dump_state()
-    invalid["iteration_count"] = 0
-    with pytest.raises(ValueError, match="cannot be smaller"):
+    invalid["iteration_count"] = -1
+    with pytest.raises(ValueError, match="non-negative"):
         restored.load_state(invalid)
 
 

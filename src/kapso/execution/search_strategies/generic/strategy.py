@@ -2957,11 +2957,12 @@ Problem: {problem}"""
             raise ValueError(
                 "GenericSearch checkpoint iteration_count must be non-negative"
             )
-        if iteration_count < len(self.node_history):
-            raise ValueError(
-                "GenericSearch checkpoint iteration_count cannot be smaller "
-                "than node_history: every node consumed an iteration"
-            )
+        # No cross-check against node_history: one iteration legitimately
+        # spawns several lane nodes, so nodes routinely outnumber
+        # iterations. The old "every node consumed an iteration" invariant
+        # made every multi-lane checkpoint unrestorable (first live hit:
+        # rel-event/user-ignore resume, 2026-08-09 — 4 lane nodes,
+        # iteration_count 1, RunCheckpointCorruptError).
         self.iteration_count = iteration_count
 
         previous_errors = state.get("previous_errors", [])

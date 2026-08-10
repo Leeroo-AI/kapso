@@ -193,6 +193,83 @@ def test_change_request_rejection_registers_nothing(tmp_path, monkeypatch):
     assert len(EvaluationRegistry(str(workspace)).versions()) == 1
 
 
+def test_failed_triage_agent_rejects_and_restores_instead_of_raising(
+    tmp_path, monkeypatch
+):
+    """A triage agent that dies (deadline, crash) is a verdict failure, not
+    a campaign failure: the request is rejected with the infrastructure
+    reason, partial edits are rolled back, and nothing registers. First
+    live hit: rel-event/user-repeat 2026-08-10 — the raised error killed a
+    4h campaign at its iteration boundary with the frontier unshipped."""
+    workspace = _workspace(tmp_path)
+    patch_agent(monkeypatch, ScriptedAgent(write_wrapper))
+    maintainer = make_maintainer(workspace)
+    maintainer.setup(goal="g", eval_dir=str(workspace), data_dir=None)
+
+    class DyingAgent(ScriptedAgent):
+        def generate_code(self, prompt):
+            self.action(self.workspace)
+            return SimpleNamespace(
+                success=False,
+                output=None,
+                error="Codex CLI killed by its deadline after 1800s",
+            )
+
+    partial = workspace / "kapso_evaluation" / "half_finished_rework.py"
+    patch_agent(
+        monkeypatch,
+        DyingAgent(lambda root: partial.write_text("BROKEN = True\n")),
+    )
+    outcome = maintainer.handle_change_request(
+        EvaluationChangeRequest(
+            iteration=1,
+            requested_by="implementation",
+            summary="resolution defect",
+            evidence="bootstrap SE 0.02",
+        )
+    )
+
+    assert outcome.accepted is False
+    assert "triage unavailable" in outcome.reason
+    assert "deadline" in outcome.reason
+    assert outcome.new_version is None
+    assert len(EvaluationRegistry(str(workspace)).versions()) == 1
+    # The dead agent's partial edit is rolled back — a half-edited tree
+    # would stamp future archives with an unregistered fingerprint.
+    assert not partial.exists()
+
+
+def test_triage_without_verdict_tags_rejects_and_restores(
+    tmp_path, monkeypatch
+):
+    workspace = _workspace(tmp_path)
+    patch_agent(monkeypatch, ScriptedAgent(write_wrapper))
+    maintainer = make_maintainer(workspace)
+    maintainer.setup(goal="g", eval_dir=str(workspace), data_dir=None)
+
+    stray = workspace / "kapso_evaluation" / "unjustified_edit.py"
+    patch_agent(
+        monkeypatch,
+        ScriptedAgent(
+            lambda root: stray.write_text("EDIT = True\n"),
+            output="rambling with no verdict tags",
+        ),
+    )
+    outcome = maintainer.handle_change_request(
+        EvaluationChangeRequest(
+            iteration=2,
+            requested_by="implementation",
+            summary="s",
+            evidence="e",
+        )
+    )
+
+    assert outcome.accepted is False
+    assert "no" in outcome.reason and "tags" in outcome.reason
+    assert len(EvaluationRegistry(str(workspace)).versions()) == 1
+    assert not stray.exists()
+
+
 def test_accepted_change_registers_v2_with_reanchor(tmp_path, monkeypatch):
     workspace = _workspace(tmp_path)
     patch_agent(monkeypatch, ScriptedAgent(write_wrapper))

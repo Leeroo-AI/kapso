@@ -190,6 +190,13 @@ class RetryPolicy:
     max_delay_seconds: float = 60.0
     multiplier: float = 2.0
     jitter: bool = True
+    # Hard per-request wall clock handed to the provider client. Without it
+    # a connection the server abandons mid-stream blocks the calling thread
+    # forever: the first live wedge (rel-event/user-ignore re-run,
+    # 2026-08-09) held three CLOSE-WAIT sockets for 50 minutes with the
+    # campaign frozen. A timeout surfaces as APITimeoutError/Timeout, which
+    # is classified transient and consumed by this same retry loop.
+    request_timeout_seconds: float = 600.0
 
     def __post_init__(self) -> None:
         if isinstance(self.max_attempts, bool) or not isinstance(
@@ -203,6 +210,7 @@ class RetryPolicy:
             "initial_delay_seconds": self.initial_delay_seconds,
             "max_delay_seconds": self.max_delay_seconds,
             "multiplier": self.multiplier,
+            "request_timeout_seconds": self.request_timeout_seconds,
         }
         for name, value in numeric_fields.items():
             if isinstance(value, bool) or not isinstance(value, (int, float)):
@@ -217,6 +225,10 @@ class RetryPolicy:
             raise ValueError("retry.multiplier must be at least 1")
         if not isinstance(self.jitter, bool):
             raise ValueError("retry.jitter must be a boolean")
+        if self.request_timeout_seconds <= 0:
+            raise ValueError(
+                "retry.request_timeout_seconds must be positive"
+            )
 
     @classmethod
     def from_config(
@@ -465,6 +477,7 @@ class LLMBackend:
                 messages=messages,
                 temperature=temperature,
                 drop_params=True,
+                timeout=self.retry_policy.request_timeout_seconds,
                 **_effort_kwargs(effective_effort),
                 **kwargs,
             ),
@@ -524,6 +537,7 @@ class LLMBackend:
                             messages=messages,
                             temperature=temperature,
                             drop_params=True,
+                            timeout=self.retry_policy.request_timeout_seconds,
                             **_effort_kwargs(model_effort),
                             **model_kwargs,
                         ),
@@ -555,6 +569,7 @@ class LLMBackend:
                 messages=messages,
                 web_search_options={"search_context_size": search_context_size},
                 drop_params=True,
+                timeout=self.retry_policy.request_timeout_seconds,
                 **_effort_kwargs(reasoning_effort),
                 **kwargs,
             ),
@@ -595,6 +610,7 @@ class LLMBackend:
                                 "search_context_size": search_context_size
                             },
                             drop_params=True,
+                            timeout=self.retry_policy.request_timeout_seconds,
                             **_effort_kwargs(effort),
                             **kwargs,
                         ),
@@ -632,7 +648,11 @@ class LLMBackend:
         response = self._run_sync(
             "embedding",
             resolved,
-            lambda: embedding(model=resolved, input=[text]),
+            lambda: embedding(
+                model=resolved,
+                input=[text],
+                timeout=self.retry_policy.request_timeout_seconds,
+            ),
         )
         return list(response.data[0]["embedding"])
 

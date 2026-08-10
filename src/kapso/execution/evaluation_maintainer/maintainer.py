@@ -271,7 +271,34 @@ class EvaluationMaintainer:
                 "manifest_marker": MANIFEST_MARKER,
             },
         )
-        agent_output, agent_cost = self._run_agent_with_output(prompt)
+        agent = CodingAgentFactory.create(self.coding_agent_config)
+        agent.initialize(str(self.workspace_dir))
+        result = agent.generate_code(prompt)
+        agent_cost = agent.get_cumulative_cost()
+        agent.cleanup()
+        if not result.success:
+            # A triage that cannot run is a verdict failure, not a campaign
+            # failure: reject with the infrastructure reason and let the
+            # search continue under the registered head. (First live hit:
+            # rel-event/user-repeat 2026-08-10 — a triage agent hit its
+            # deadline and the raised error killed a 4h campaign at its
+            # iteration boundary with the frontier unshipped.) Setup and
+            # transition agent calls keep raising: without them there is no
+            # sound evaluator to continue under. A killed agent may have
+            # left partial edits with no verdict to justify them — restore
+            # the tree to the registered head before continuing.
+            self._restore_evaluation_tree()
+            self.last_transaction_telemetry = MaintainerTransactionTelemetry(
+                cost_usd=agent_cost,
+                duration_seconds=time.monotonic() - transaction_started,
+            )
+            return ChangeOutcome(
+                accepted=False,
+                reason=f"triage unavailable: {result.error}",
+                new_version=None,
+                requires_reanchor=False,
+            )
+        agent_output = result.output or ""
         self._enforce_provided_immutable()
 
         verdict_match = re.search(
@@ -282,9 +309,21 @@ class EvaluationMaintainer:
             r"<reason>(.*?)</reason>", agent_output, re.DOTALL
         )
         if verdict_match is None or reason_match is None:
-            raise EvaluationMaintainerError(
-                "Change-request agent did not return the required "
-                "<change_verdict> and <reason> tags"
+            # Same class as a failed agent call: edits without a verdict
+            # are unjustified — restore and reject.
+            self._restore_evaluation_tree()
+            self.last_transaction_telemetry = MaintainerTransactionTelemetry(
+                cost_usd=agent_cost,
+                duration_seconds=time.monotonic() - transaction_started,
+            )
+            return ChangeOutcome(
+                accepted=False,
+                reason=(
+                    "triage unavailable: agent returned no "
+                    "<change_verdict>/<reason> tags"
+                ),
+                new_version=None,
+                requires_reanchor=False,
             )
         reason = reason_match.group(1).strip()
 
@@ -445,6 +484,16 @@ class EvaluationMaintainer:
             ),
             manifest,
         )
+
+    def _restore_evaluation_tree(self) -> None:
+        """Discard partial agent edits, returning the evaluation tree to the
+        last committed (registered) state. Used on triage-agent failure or
+        a missing verdict, where any edits carry no verdict to justify
+        them; a half-edited tree would otherwise stamp future archives
+        with a fingerprint no registry entry can explain."""
+        repo = git.Repo(str(self.workspace_dir))
+        repo.git.checkout("HEAD", "--", EVALUATION_DIR_NAME)
+        repo.git.clean("-fd", EVALUATION_DIR_NAME)
 
     def _commit_evaluation(self, message: str) -> None:
         # The registry is deliberately NOT committed: a tracked registry

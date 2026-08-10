@@ -553,6 +553,36 @@ def test_none_reasoning_effort_is_omitted_not_sent_as_null(monkeypatch):
     assert "allowed_openai_params" not in calls[-1]
 
 
+def test_every_provider_call_carries_the_request_timeout(monkeypatch):
+    """A connection the server abandons mid-stream must surface as a
+    (transient, retried) timeout, never an indefinite block: the first live
+    wedge held three CLOSE-WAIT sockets for 50 minutes with the campaign
+    frozen (rel-event/user-ignore, 2026-08-09). The policy value must reach
+    the provider client on every completion surface."""
+    calls = []
+
+    def fake_completion(**kwargs):
+        calls.append(kwargs)
+        return response("ok")
+
+    monkeypatch.setattr(llm_module, "completion", fake_completion)
+    backend = LLMBackend(
+        models={"utility": "openai/gpt-5.6-luna"},
+        retry_policy={"request_timeout_seconds": 123.0},
+    )
+
+    backend.llm_completion("utility", [{"role": "user", "content": "x"}])
+    assert calls[-1]["timeout"] == 123.0
+
+    # Default is sourced from the policy, not a scattered literal.
+    assert LLMBackend().retry_policy.request_timeout_seconds == 600.0
+
+
+def test_request_timeout_must_be_positive():
+    with pytest.raises(ValueError, match="request_timeout_seconds"):
+        LLMBackend(retry_policy={"request_timeout_seconds": 0})
+
+
 def embedding_response(vector, cost=0.0):
     return SimpleNamespace(
         data=[{"embedding": list(vector)}],
