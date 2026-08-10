@@ -4,14 +4,17 @@ Baselines transcribed from the official board at
 <https://huggingface.co/spaces/relbench/leaderboard> (verified against the live
 page on 2026-08-03; identical to our 2026-07-14 snapshot — no methods added since).
 Kapso rows are our own runs, test metrics computed by the maintainer-registered
-grader against pristine labels. Every Kapso run was budget-bound at 4h on one
-4xA100 box with the test split physically masked in-loop.
+grader against pristine labels. Every Kapso run was budget-bound at 4–6h per
+task on one 4xA100 box with the test split physically masked in-loop.
+Classification cells updated 2026-08-10 after the evaluation-governance wave
+(user-ignore, driver-top3, driver-dnf, study-outcome, user-engagement,
+user-badge, user-visits re-runs).
 
 The board ranks **31 tasks in three independent categories**; this document covers
 the two the request asked for — Classification (12 tasks) and Regression (9).
 Recommendation (10) is omitted.
 
-**Headline:** Kapso ranks **4 of 28** on classification (mean AUROC 79.31)
+**Headline:** Kapso ranks **2 of 28** on classification (mean AUROC 80.57)
 and **4 of 26** on regression (mean NMAE 0.2608), beating the single
 best published number on **2/12** classification and **6/9** regression tasks.
 
@@ -24,9 +27,9 @@ best published number on **2/12** classification and **6/9** regression tasks.
 | # | Method | Regime | Mean | amazon/user-churn | amazon/item-churn | avito/user-visits | avito/user-clicks | event/user-repeat | event/user-ignore | f1/driver-dnf | f1/driver-top3 | hm/user-churn | stack/user-engagement | stack/user-badge | trial/study-outcome |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | 1 | KumoRFM (fine-tuned) | task-specific | 81.1 | 70.5 | 82.8 | 78.3 | 66.8 | 80.6 | 89.4 | 82.6 | 99.6 | 71.2 | 90.7 | 89.9 | 71.2 |
-| 2 | PluRel (pretrained + fine-tuned) | task-specific | 79.7 | 63.2 | 82.8 | 60.1 | 58.6 | 83 | 91.2 | 80.1 | 89.3 | 63.8 | 95.6 | 94.3 | 94.6 |
-| 3 | KumoRFM-2 (in-context) | zero-shot | 79.6 | 69.1 | 82.2 | 69.4 | 67.4 | 81.7 | 90.8 | 84.6 | 92.2 | 69.3 | 89.4 | 87.2 | 72 |
-| 4 | **Kapso (this work)** | agent | 79.3 | 71.4 | 83.1 | 67.9 | 70.2 | 81.2 | 79.5 | 80.6 | 91.5 | 71.6 | 91 | 89.4 | 74.3 |
+| 2 | **Kapso (this work)** | agent | 80.6 | 71.4 | 83.1 | 67.8 | 70.2 | 81.2 | 88.9 | 82.7 | 93.4 | 71.6 | 91.5 | 89.3 | 75.7 |
+| 3 | PluRel (pretrained + fine-tuned) | task-specific | 79.7 | 63.2 | 82.8 | 60.1 | 58.6 | 83 | 91.2 | 80.1 | 89.3 | 63.8 | 95.6 | 94.3 | 94.6 |
+| 4 | KumoRFM-2 (in-context) | zero-shot | 79.6 | 69.1 | 82.2 | 69.4 | 67.4 | 81.7 | 90.8 | 84.6 | 92.2 | 69.3 | 89.4 | 87.2 | 72 |
 | 5 | RT (pretrained + fine-tuned) | task-specific | 78.9 | 70.8 | 83.4 | 66.6 | 65.8 | 77.4 | 87.1 | 84.2 | 92.1 | 70.5 | 90.2 | 88.7 | 70.2 |
 | 6 | GelGT | task-specific | 78.7 | 70.5 | 83 | 67 | 68.4 | 83.6 | 87.8 | 76.1 | 84.1 | 70 | 90.9 | 90.4 | 72.5 |
 | 7 | RelAgent (GPT-5.2 agent) | task-specific | 78.4 | 70.8 | 82.8 | 67.8 | 68.4 | 78.2 | 87.2 | 78.3 | 85.2 | 71.1 | 90.4 | 88.4 | 71.9 |
@@ -58,16 +61,16 @@ best published number on **2/12** classification and **6/9** regression tasks.
 |---|---|---|---|---|
 | rel-amazon/user-churn | 71.9 | Rel-LLM (Llama-3.2-1B + GNN soft prompts, fine-tuned) | **71.4** | -0.5  |
 | rel-amazon/item-churn | 83.4 | RT (pretrained + fine-tuned) | **83.1** | -0.3  |
-| rel-avito/user-visits | 78.3 | KumoRFM (fine-tuned) | **67.9** | -10.4  |
+| rel-avito/user-visits | 78.3 | KumoRFM (fine-tuned) | **67.8** | -10.5  |
 | rel-avito/user-clicks | 69.4 | RGP | **70.2** | +0.8 ✅ |
 | rel-event/user-repeat | 83.6 | GelGT | **81.2** | -2.4  |
-| rel-event/user-ignore | 91.2 | PluRel (pretrained + fine-tuned) | **79.5** | -11.7  |
-| rel-f1/driver-dnf | 84.6 | KumoRFM-2 (in-context) | **80.6** | -4  |
-| rel-f1/driver-top3 | 99.6 | KumoRFM (fine-tuned) | **91.5** | -8.1  |
+| rel-event/user-ignore | 91.2 | PluRel (pretrained + fine-tuned) | **88.9** | -2.3  |
+| rel-f1/driver-dnf | 84.6 | KumoRFM-2 (in-context) | **82.7** | -1.9  |
+| rel-f1/driver-top3 | 99.6 | KumoRFM (fine-tuned) | **93.4** | -6.2  |
 | rel-hm/user-churn | 71.2 | KumoRFM (fine-tuned) | **71.6** | +0.4 ✅ |
-| rel-stack/user-engagement | 95.6 | PluRel (pretrained + fine-tuned) | **91** | -4.6  |
-| rel-stack/user-badge | 94.3 | PluRel (pretrained + fine-tuned) | **89.4** | -4.9  |
-| rel-trial/study-outcome | 94.6 | PluRel (pretrained + fine-tuned) | **74.3** | -20.3  |
+| rel-stack/user-engagement | 95.6 | PluRel (pretrained + fine-tuned) | **91.5** | -4.1  |
+| rel-stack/user-badge | 94.3 | PluRel (pretrained + fine-tuned) | **89.3** | -5  |
+| rel-trial/study-outcome | 94.6 | PluRel (pretrained + fine-tuned) | **75.7** | -18.9  |
 
 ---
 
