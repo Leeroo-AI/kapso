@@ -146,6 +146,15 @@ timeout --signal=TERM --kill-after=60s 45m apptainer exec \
     containers/kapso.sif python -u containers/download_hf_cache/download_resources.py \
     || echo "WARN: cache download incomplete (timeout/gated model?)"
 
+# Strip any persisted HF credential before the cache disk is snapshotted. The
+# snapshot is bind-mounted read-only into every agent sandbox as HF_HOME, so a
+# leftover token file lets the agent resolve `huggingface-cli whoami` to the
+# operator's (write-scoped) account and leaks that identity into the judged
+# trace. Only the BUILDER needs HF_TOKEN (env, above) to fetch gated weights;
+# runs read the already-cached weights from the snapshot without any token.
+rm -f "$HF_HOME/token" "$HF_HOME/stored_tokens"
+echo "HF token files remaining in cache: $(ls -1 "$HF_HOME"/token "$HF_HOME"/stored_tokens 2>/dev/null | wc -l) (expect 0)"
+
 du -sh "$HF_HOME" | gsutil cp - "gs://$BUCKET/assets/cache_size.txt" || true
 umount /mnt/hfcache
 
