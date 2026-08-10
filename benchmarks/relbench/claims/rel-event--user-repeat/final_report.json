@@ -1,0 +1,38 @@
+{
+  "dataset": "rel-event",
+  "task": "user-repeat",
+  "family": "entity_binary_classification",
+  "primary_metric": "roc_auc",
+  "selected_by": "best validation roc_auc",
+  "run": "run_0009",
+  "val_metrics": {
+    "accuracy": 0.6940298507462687,
+    "average_precision": 0.7455402978313888,
+    "f1": 0.6771653543307087,
+    "roc_auc": 0.7731326644370122
+  },
+  "test_metrics": {
+    "accuracy": 0.7479674796747967,
+    "average_precision": 0.7666396093200826,
+    "f1": 0.7232142857142857,
+    "roc_auc": 0.8115641711229946
+  },
+  "audit": {
+    "clean": false,
+    "findings": [
+      {
+        "file": "retrieval_pipeline.py",
+        "line": 104,
+        "pattern": "RELBENCH_CACHE_DIR",
+        "concern": "tampers with the data cache location",
+        "snippet": "root = Path(os.environ[\"RELBENCH_CACHE_DIR\"]) / \"rel-event\" / \"db\""
+      }
+    ],
+    "note": "static scan; manually review flagged lines before publishing results. 'verify:' findings are advisory OOS-contract review hooks (legal patterns that warrant tracing), not violations."
+  },
+  "code_path": "/home/ubuntu/kapso/tmp/relbench/rel-event--user-repeat/runs/run_0009/code",
+  "predictions": {
+    "val": "/home/ubuntu/kapso/tmp/relbench/rel-event--user-repeat/runs/run_0009/val_predictions.npy",
+    "test": "/home/ubuntu/kapso/tmp/relbench/rel-event--user-repeat/runs/run_0009/test_predictions.npy"
+  }
+}

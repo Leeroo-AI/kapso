@@ -1,0 +1,52 @@
+{
+  "version": "lane3_context_eb_v1",
+  "debug": false,
+  "feature_count": 245,
+  "pool_a_rows": 25648,
+  "pool_b_rows": 29338,
+  "replay_rows": 29338,
+  "official_replay_exact": true,
+  "embedding_method": "truncated_svd_cached",
+  "tabpfn_available": true,
+  "tabpfn_status": "tabpfn_v2_local_checkpoint",
+  "context_count": 6,
+  "context_rows": 8192,
+  "context_a_sizes": [
+    8192,
+    8192,
+    8192,
+    8192,
+    8192,
+    8192
+  ],
+  "context_b_sizes": [
+    8192,
+    8192,
+    8192,
+    8192,
+    8192,
+    8192
+  ],
+  "stack_coefficients": [
+    0.2628994401980429,
+    0.7850396285651551,
+    0.47563533035228095,
+    1.7248277731296418
+  ],
+  "stack_intercept": -1.7613482301975092,
+  "stack_stable": true,
+  "stack_spread": [
+    0.5107092581190195,
+    0.06153743708268179,
+    0.21135686185208946,
+    0.04155842780582142
+  ],
+  "oof_rows": 8192,
+  "oof_auc": 0.7187624778450923,
+  "elapsed_seconds": 594.8733143806458,
+  "model_versions": {
+    "catboost": "1.2.10",
+    "lightgbm": "4.6.0",
+    "tabpfn": "8.2.0"
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "version": "lane3_context_eb_v1",
+  "debug": true,
+  "feature_count": 223,
+  "pool_a_rows": 25648,
+  "pool_b_rows": 28749,
+  "replay_rows": 28915,
+  "official_replay_exact": true,
+  "embedding_method": "truncated_svd_cached",
+  "tabpfn_available": false,
+  "tabpfn_status": "TabPFNLicenseError: TabPFN requires a one-time license acceptance to download",
+  "context_count": 1,
+  "context_rows": 2000,
+  "context_a_sizes": [
+    2000
+  ],
+  "context_b_sizes": [
+    2000
+  ],
+  "stack_coefficients": [
+    1.0276116304508014,
+    1.2304524625939444,
+    0.435023545789186,
+    0.5378792298478982
+  ],
+  "stack_intercept": -1.7107330804130063,
+  "stack_stable": true,
+  "stack_spread": [
+    0.059882423528812144,
+    0.046994645608836705,
+    0.08375118074804697,
+    0.09426200120194006
+  ],
+  "oof_rows": 22332,
+  "oof_auc": 0.7096701142513442,
+  "elapsed_seconds": 108.15333199501038,
+  "model_versions": {
+    "catboost": "1.2.10",
+    "lightgbm": "4.6.0",
+    "tabpfn": "8.2.0"
+  }
+}
