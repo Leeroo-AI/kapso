@@ -5,9 +5,13 @@
 # evaluation — the write-capable counterpart of the read-only ideation
 # runner in search_strategies/generic/codex_ideation.py.
 #
-# Auth: the subprocess never sees OPENAI_API_KEY (same hygiene as the
-# ideation runner); Codex authenticates via ~/.codex/auth.json (ChatGPT
-# login) or CODEX_API_KEY. Cost: the Codex CLI reports no billing
+# Auth: Codex authenticates via ~/.codex/auth.json (ChatGPT login) or
+# CODEX_API_KEY, never OPENAI_API_KEY. Whether OPENAI_API_KEY reaches the
+# child is decided upstream (env_strip / solve.sh), NOT hardcoded here: on
+# judge-scored tasks (arenahardwriting/healthbench) the agent's own win-rate/
+# rubric eval must call the OpenAI GPT-judge, so it needs the key; on
+# non-judge tasks solve.sh adds it to --strip-agent-env and it is removed via
+# env_strip below. Cost: the Codex CLI reports no billing
 # telemetry, so get_cumulative_cost() is always 0 and campaign ledgers
 # undercount codex compute (documented behavior, matching ideation).
 #
@@ -123,6 +127,24 @@ class CodexCodingAgent(CodingAgentInterface):
     def initialize(self, workspace: str) -> None:
         self._workspace = workspace
 
+    def _child_env(self) -> Dict[str, str]:
+        """Environment for the codex subprocess and the Bash tools it spawns.
+
+        OPENAI_API_KEY is removed ONLY when it is in env_strip: solve.sh adds it
+        there on non-judge tasks and omits it on judge-scored tasks
+        (arenahardwriting/healthbench), where the agent's own GPT-judge win-rate/
+        rubric eval needs the key. Codex's own auth uses auth.json / CODEX_API_KEY
+        (not OPENAI_API_KEY), so keeping the key never changes how codex signs in.
+        """
+        env = os.environ.copy()
+        for name in self._env_strip:
+            env.pop(name, None)
+        for name, value in self._env_overrides.items():
+            env[name] = value
+        for name, value in self._env_defaults.items():
+            env.setdefault(name, value)
+        return env
+
     def generate_code(
         self,
         prompt: str,
@@ -170,14 +192,7 @@ class CodexCodingAgent(CodingAgentInterface):
             cmd.extend(["-c", f'model_reasoning_effort="{self._effort}"'])
         cmd.extend(self._mcp_overrides)
 
-        env = os.environ.copy()
-        env.pop("OPENAI_API_KEY", None)
-        for name in self._env_strip:
-            env.pop(name, None)
-        for name, value in self._env_overrides.items():
-            env[name] = value
-        for name, value in self._env_defaults.items():
-            env.setdefault(name, value)
+        env = self._child_env()
 
         started = time.monotonic()
         # Prompt via stdin, never argv (argv-borne prompt text makes kill
