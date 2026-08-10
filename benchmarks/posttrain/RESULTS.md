@@ -91,7 +91,7 @@ on that exact model×benchmark, sorted here highest-first. Fill `Ours` +
 ### Arena Hard Writing (weight .0904)
 | Model | Base | #1 (v1.1) | #2 (v1.1) | #3 (v1.1) | Human | Ours | Status |
 |---|---:|---|---|---|---:|---:|---|
-| Qwen3-1.7B | 0.91 | fable-5 65.04 | opus-4.8 56.4 | opus-5 27.41 | 50.0 | — | pending [J] |
+| Qwen3-1.7B | 0.91 | fable-5 65.04 | opus-4.8 56.4 | opus-5 27.41 | 50.0 | 22.8✗ | FLAGGED (OPENAI_API_KEY bug) — re-run after fix |
 | Qwen3-4B | 3.42 | fable-5 85.7 | opus-4.8 57.33 | glm-5.2 54.25 | 86.84 | — | pending [J] |
 | SmolLM3-3B | 0.42 | opus-5 69.72 | opus-4.8 46.27 | fable-5 43.8 | 49.2 | — | pending [J] |
 | gemma-3-4b | 0.29 | opus-5 74.11 | glm-5.2 26.65 | gpt-5.5-xhigh 24.45 | 94.8 | — | pending [J][G] |
@@ -102,7 +102,7 @@ on that exact model×benchmark, sorted here highest-first. Fill `Ours` +
 | Qwen3-1.7B | 0.0 | gpt-5.6-sol 94.5 | glm-5.2 94.0 | opus-4.8-max 91.0 | 94.0 | **95.0** | clean ✓ (#1, >human) |
 | Qwen3-4B | 0.0 | fable-5 97.5 | gpt-5.6-sol 94.5 | opus-4.7 62.0 | 95.0 | **96.0** | clean ✓ (#2, >human) |
 | SmolLM3-3B | 0.0 | fable-5 97.0 | gpt-5.6-sol 93.5 | opus-4.8 92.5 | 84.0 | **99.0** | clean ✓ (#1, >top) |
-| gemma-3-4b | 6.0 | opus-4.8 92.5 | opus-4.7 92.0 | gpt-5.5-xhigh 86.5 | 67.0 | — | pending [G] |
+| gemma-3-4b | 6.0 | opus-4.8 92.5 | opus-4.7 92.0 | gpt-5.5-xhigh 86.5 | 67.0 | **92.0** | clean ✓ (~#2, >human) |
 
 ### GPQA Main (weight .2246)
 | Model | Base | #1 (v1.1) | #2 (v1.1) | #3 (v1.1) | Human | Ours | Status |
@@ -147,6 +147,8 @@ agents (2026-08-09 pull); AIME 1.7B/gemma have only ~2 agents above ~0.
 | bfcl-qwen3-4b-base-08092056 | Qwen3-4B / BFCL | 10h | **96.0** (clean, 4/4 judges) | ~$27 (VM ~5.2h) | 2026-08-10 | First v1.1 clean cell. SFT-1 on public FC datasets (xLAM-60k, ToolACE, Hermes-FC, Glaive-FC; 24k rows); 0/25756 contam; model-identity MATCH; EOS/template fix (`<\|im_end\|>`); agent 4h40m. Base 0 → 96.0 (#2 all-time, above human 95.0). |
 | bfcl-qwen3-1-7b-base-08092054 | Qwen3-1.7B / BFCL | 10h | **95.0** (clean, 4/4 judges) | ~$41 (VM ~7.9h) | 2026-08-10 | SFT on argilla/Synth-APIGen-v0.1 + generic-schema gym data (0 contam, model MATCH); checkpoint-500 promoted; GRPO explored, didn't beat SFT; agent 7h46m. Base 0 → 95.0 (#1 cell, above human 94.0). |
 | bfcl-smollm3-3b-base-08101111 | SmolLM3-3B / BFCL | 10h | **99.0** (clean, 4/4 judges) | ~$47 (VM ~9h) | 2026-08-10 | SFT ladder: base 0 → 95 (empty-think) → 98 (xLAM v2) → 99 (optional-key correction + RFT); 0 contam, model MATCH. Base 0 → 99.0 (**#1 cell, beats top baseline fable-5 97.0**, ≫human 84.0). |
+| bfcl-gemma-3-4b-pt-08101115 | gemma-3-4b / BFCL | 10h | **92.0** (clean, 4/4 judges) | ~$52 (VM ~10h) | 2026-08-10 | Template-exact LoRA SFT on xLAM/Hermes/synthetic (0 contam, model MATCH); RFT/model-soup variants (89) didn't beat stage-1; kept 92. Base 6 → 92.0 (~#2 cell, ≫human 67.0). |
+| arenahardwriting-qwen3-1-7b-base-0810112 | Qwen3-1.7B / ArenaHard | 10h | **22.8 — FLAGGED** (general_anomaly) | ~$52 (VM ~10h) | 2026-08-10 | ✗ INVALID. codex adapter stripped OPENAI_API_KEY → agent couldn't run the OpenAI GPT-judge → optimized/measured vs a local proxy (~64) but official judge gave 22.8; better candidates never officially judged/promoted; general judge flagged as credential-failure. Fixed in codex_agent.py (ad1a6e0e); **re-run after asset rebuild.** |
 
 Both cells clean on all 4 v1.1 judges. Validates the notes-reframe lookup-judge fix on
 real judged runs — the 1.7B is the STRONG case: its agent actually read populated note
@@ -167,3 +169,5 @@ SHA manifest, kapso session + campaign data, contamination-check logs; the multi
 | bfcl-qwen3-4b-base-08092056 | `trace_archives/bfcl-qwen3-4b-base-08092056_trace_20260810.tar.gz` (156 MiB) | `results/bfcl-qwen3-4b-base-08092056/` |
 | bfcl-qwen3-1-7b-base-08092054 | `trace_archives/bfcl-qwen3-1-7b-base-08092054_trace_20260810.tar.gz` (207 MiB) | `results/bfcl-qwen3-1-7b-base-08092054/` |
 | bfcl-smollm3-3b-base-08101111 | `trace_archives/bfcl-smollm3-3b-base-08101111_trace_20260810.tar.gz` (230 MiB) | `results/bfcl-smollm3-3b-base-08101111/` |
+| bfcl-gemma-3-4b-pt-08101115 | `trace_archives/bfcl-gemma-3-4b-pt-08101115_trace_20260810.tar.gz` (239 MiB) | `results/bfcl-gemma-3-4b-pt-08101115/` |
+| arenahardwriting-qwen3-1-7b-base-0810112 (flagged) | `trace_archives/arenahardwriting-qwen3-1-7b-base-0810112_trace_20260810.tar.gz` (342 MiB) | `results/arenahardwriting-qwen3-1-7b-base-0810112/` |
