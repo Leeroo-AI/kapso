@@ -56,28 +56,25 @@ def parse_timer(task_dir: str):
 def shape_session_timeouts(mode_cfg: dict, total_run_seconds: float) -> dict:
     """Scale per-session deadlines to the run size.
 
-    A fixed cap dominates short runs (live run #6: the 30-minute ideation
-    cap consumed 77% of a 39-minute budget); fractions of the run keep the
-    ratio sane at every scale while the config caps still bound long runs.
-    Derived from the run's TOTAL budget, not live remaining, so a resumed
-    campaign recomputes identical values and passes strict resume checks.
+    A fixed cap misbehaves at both ends: it dominates short runs (live run
+    #6: a 30-minute ideation cap consumed 77% of a 39-minute budget) and
+    artificially truncates long ones (a 5h implementation ceiling cut 10h
+    runs' sessions mid-flight). Sessions are therefore shaped ONLY by
+    run-size fractions with floors — no fixed ceilings — and the
+    orchestrator's live budget clamp still bounds every session by what
+    actually remains. Derived from the run's TOTAL budget, not live
+    remaining, so a resumed campaign recomputes identical values and
+    passes strict resume checks.
     """
     knobs = mode_cfg["session_budget"]
-    params = mode_cfg["search_strategy"]["params"]
     return {
-        "ideation_timeout": int(min(
-            params["ideation_timeout"],
-            max(
-                knobs["ideation_min_seconds"],
-                total_run_seconds * knobs["ideation_fraction"],
-            ),
+        "ideation_timeout": int(max(
+            knobs["ideation_min_seconds"],
+            total_run_seconds * knobs["ideation_fraction"],
         )),
-        "implementation_timeout": int(min(
-            params["implementation_timeout"],
-            max(
-                knobs["implementation_min_seconds"],
-                total_run_seconds * knobs["implementation_fraction"],
-            ),
+        "implementation_timeout": int(max(
+            knobs["implementation_min_seconds"],
+            total_run_seconds * knobs["implementation_fraction"],
         )),
     }
 
@@ -356,7 +353,7 @@ def main():
     print(f"budget={budget_minutes} min of a {total_run_hours}h run "
           f"(guard={guard_minutes} min, finalization reserve={reserve_minutes:.0f} min), "
           f"iterations<={args.iterations}")
-    print(f"session caps: ideation={session_timeouts['ideation_timeout']}s "
+    print(f"session deadlines (fraction-shaped): ideation={session_timeouts['ideation_timeout']}s "
           f"implementation={session_timeouts['implementation_timeout']}s")
     print(f"config={config_path} mode={args.mode} coding_model={args.coding_model} "
           f"agent_env_strip={args.strip_agent_env or []}")
