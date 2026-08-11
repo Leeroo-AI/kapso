@@ -14,7 +14,10 @@
     "run_0004": "final under evaluator 23590790ff94, not head 2eb62494b96f \u2014 never re-ranked across rulers",
     "run_0006": "final under evaluator 23590790ff94, not head 2eb62494b96f \u2014 never re-ranked across rulers"
   },
-  "val_metrics": {},
+  "val_metrics": {
+    "roc_auc": 0.8378948818799008,
+    "average_precision": 0.6191304743460784
+  },
   "test_metrics": {
     "accuracy": 0.8973442288049029,
     "average_precision": 0.5935107684749846,
