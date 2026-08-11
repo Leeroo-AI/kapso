@@ -309,13 +309,18 @@ def test_accepted_change_registers_v2_with_reanchor(tmp_path, monkeypatch):
     assert versions[0].evaluator_id == v1.evaluator_id  # append-only
 
 
-def test_accepted_change_with_identical_tree_fails_loud(
+def test_accepted_change_with_identical_tree_resolves_as_no_change(
     tmp_path, monkeypatch
 ):
+    """An accepted CR that edits nothing (doc-only clarification) must not
+    crash the campaign: no new version registers, the head stays anchored,
+    and the requester gets an explanatory rejection (live crash on
+    rel-amazon/user-churn, 2026-08-11)."""
     workspace = _workspace(tmp_path)
     patch_agent(monkeypatch, ScriptedAgent(write_wrapper))
     maintainer = make_maintainer(workspace)
     maintainer.setup(goal="g", eval_dir=str(workspace), data_dir=None)
+    head_before = maintainer.registry.head().evaluator_id
 
     patch_agent(
         monkeypatch,
@@ -323,19 +328,25 @@ def test_accepted_change_with_identical_tree_fails_loud(
             lambda root: None,
             output=(
                 "<change_verdict>accept</change_verdict>"
-                "<reason>claims a fix but changed nothing</reason>"
+                "<reason>the count wording was approximate; conclusions "
+                "unchanged</reason>"
             ),
         ),
     )
-    with pytest.raises(EvaluationMaintainerError, match="byte-identical"):
-        maintainer.handle_change_request(
-            EvaluationChangeRequest(
-                iteration=5,
-                requested_by="feedback",
-                summary="phantom fix",
-                evidence="none",
-            )
+    outcome = maintainer.handle_change_request(
+        EvaluationChangeRequest(
+            iteration=5,
+            requested_by="feedback",
+            summary="phantom fix",
+            evidence="none",
         )
+    )
+    assert outcome.accepted is False
+    assert "accepted as clarification only" in outcome.reason
+    assert "conclusions unchanged" in outcome.reason
+    assert outcome.new_version is None
+    assert outcome.requires_reanchor is False
+    assert maintainer.registry.head().evaluator_id == head_before
 
 
 def test_calibration_requires_the_manifest_line(tmp_path, monkeypatch):

@@ -342,9 +342,26 @@ class EvaluationMaintainer:
         new_manifest = build_evaluation_manifest(self.evaluation_dir)
         new_id = manifest_fingerprint(new_manifest)
         if new_id == head.evaluator_id:
-            raise EvaluationMaintainerError(
-                "Change request was accepted but the evaluation tree is "
-                "byte-identical to the registered head"
+            # The triage judged the claim valid but made no evaluation-tree
+            # edit (e.g. a report-wording clarification): there is no new
+            # version to register and nothing to re-anchor. Resolve as a
+            # no-change outcome — the registered head already embodies the
+            # correct behavior — instead of crashing the campaign
+            # (observed live: rel-amazon/user-churn, 2026-08-11).
+            self._restore_evaluation_tree()
+            self.last_transaction_telemetry = MaintainerTransactionTelemetry(
+                cost_usd=agent_cost,
+                duration_seconds=time.monotonic() - transaction_started,
+            )
+            return ChangeOutcome(
+                accepted=False,
+                reason=(
+                    "accepted as clarification only: the triage found no "
+                    "evaluation change to make — the registered evaluator "
+                    "already behaves correctly. Triage response: " + reason
+                ),
+                new_version=None,
+                requires_reanchor=False,
             )
 
         timing, calibration_manifest = self._run_calibration()
