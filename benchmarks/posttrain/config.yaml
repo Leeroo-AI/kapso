@@ -56,9 +56,9 @@ modes:
         # the ensemble codex member and the luna litellm roles stay at xhigh
         # (their model ceiling — max is Claude-only, per the ioai configs).
         effort: "max"
-        # No fixed ideation/implementation session caps: the runner shapes
-        # both deadlines purely from session_budget fractions of the run
-        # size (see below), live-clamped to what actually remains.
+        # No fixed session caps: ideation's deadline is the whole run budget
+        # (live-clamped to what remains); implementation is shaped from the
+        # session_budget fraction of the run size (see below), live-clamped.
         # Only local, dependency-free gates. `research` and `leeroopedia`
         # need external backends we don't ship in the container. The coding
         # agent still has Claude Code's built-in WebSearch/WebFetch, which is
@@ -110,12 +110,11 @@ modes:
     # kapso core): per-session deadlines scale with the run size — these
     # fractions/floors are the ONLY shaping (no fixed ceilings; a fixed cap
     # dominated short runs — live run #6: a 30-minute ideation cap consumed
-    # 77% of a 39-minute budget — and truncated long ones at 5h). The
-    # orchestrator's live budget clamp still bounds every session by what
-    # actually remains. At 10h: ideation 1.5h, implementation 7.5h.
+    # 77% of a 39-minute budget — and truncated long ones at 5h). Ideation
+    # carries NO shaping at all: its deadline is the whole run budget and
+    # the orchestrator's live clamp (what actually remains) is its only
+    # bound. At 10h: implementation 7.5h.
     session_budget:
-      ideation_fraction: 0.15
-      ideation_min_seconds: 300
       implementation_fraction: 0.75
       implementation_min_seconds: 1800
       finalization_reserve_fraction: 0.10

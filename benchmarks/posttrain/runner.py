@@ -68,10 +68,9 @@ def shape_session_timeouts(mode_cfg: dict, total_run_seconds: float) -> dict:
     """
     knobs = mode_cfg["session_budget"]
     return {
-        "ideation_timeout": int(max(
-            knobs["ideation_min_seconds"],
-            total_run_seconds * knobs["ideation_fraction"],
-        )),
+        # Ideation is unshaped: its deadline is the whole run budget, so the
+        # orchestrator's live clamp (what actually remains) is the only bound.
+        "ideation_timeout": int(total_run_seconds),
         "implementation_timeout": int(max(
             knobs["implementation_min_seconds"],
             total_run_seconds * knobs["implementation_fraction"],
