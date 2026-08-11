@@ -2418,6 +2418,7 @@ Problem: {problem}"""
                 session_end_facts=getattr(
                     self, "_pending_session_end_facts", ""
                 ),
+                budget_status=self._render_budget_status(),
                 timeout_seconds=self._clamped_timeout(
                     self.feedback_generator.configured_timeout_seconds
                 ),

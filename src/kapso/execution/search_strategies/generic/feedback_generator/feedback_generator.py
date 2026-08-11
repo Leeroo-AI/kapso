@@ -124,6 +124,7 @@ class FeedbackGenerator:
         evaluation_result: str,
         workspace_dir: str,
         session_end_facts: str = "",
+        budget_status: str = "",
         timeout_seconds: Optional[float] = None,
     ) -> FeedbackResult:
         """
@@ -164,8 +165,9 @@ class FeedbackGenerator:
             evaluation_result=evaluation_result,
             workspace_dir=workspace_dir,
             session_end_facts=session_end_facts,
+            budget_status=budget_status,
         )
-        
+
         # Run the coding agent to analyze and generate feedback. The agent is
         # persistent across iterations, so this call's spend is the cumulative
         # delta around it (retry included).
@@ -215,6 +217,7 @@ class FeedbackGenerator:
         evaluation_result: str,
         workspace_dir: str,
         session_end_facts: str = "",
+        budget_status: str = "",
     ) -> str:
         """Build the prompt for the feedback generator."""
         template = load_prompt(self.PROMPT_PATH)
@@ -232,6 +235,7 @@ class FeedbackGenerator:
                 "workspace_dir": workspace_dir,
                 "session_end_facts": session_end_facts
                 or "(not recorded)",
+                "budget_status": budget_status or "(no budget information)",
             }
         )
     

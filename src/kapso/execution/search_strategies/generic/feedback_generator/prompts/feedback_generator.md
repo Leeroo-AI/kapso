@@ -8,6 +8,9 @@ You have access to the full workspace at: `{{workspace_dir}}`
 ## Goal
 {{goal}}
 
+## Budget status (ground truth from the orchestrator)
+{{budget_status}}
+
 ## How the implementation session ended (ground truth from the harness)
 {{session_end_facts}}
 
@@ -95,7 +98,7 @@ You MUST respond with your results using these XML tags:
 
 ### Field Definitions:
 
-- **stop**: Set to `true` ONLY if the goal is fully achieved. Set to `false` otherwise.
+- **stop**: Budget-aware. Set to `true` ONLY if the goal is fully achieved AND the budget status above shows too little searchable time for another meaningful iteration. While an hour or more of searchable time remains, set `false` and propose the next experiment — a strong banked score can still be improved, made more robust, or attacked from a different angle; unused budget is wasted budget. The sole exception: the provable maximum score has been reached and verified, and no further robustness work is possible.
 - **evaluation_valid**: Set to `true` if the evaluation is fair and correctly tests the goal. Set to `false` if the evaluation is flawed, hardcoded, or doesn't actually test what it claims.
 - **score**: Extract the numeric score from the evaluation result. Look for values like "score: 0.85", "accuracy: 95%", etc. Convert percentages to decimals (95% → 0.95). Set to `null` if no score found.
 - **feedback**: If stopping, provide a success message. If not stopping, provide specific, actionable feedback on what to improve. If evaluation is invalid, explain what's wrong with it.
