@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import inspect
 import textwrap
-from typing import List
+from typing import List, Optional
 
 import numpy as np
 import pandas as pd
@@ -511,6 +511,23 @@ ROLLING_CONTRACT_NOTE = (
     "is flagged by the audit."
 )
 
+CHAMPION_NOTE_TEMPLATE = (
+    "A previous campaign's winning solution for this task is staged in your "
+    "shared artifact workspace at $KAPSO_SHARED_CACHE_DIR/champion/: full "
+    "code (code/), design notes (solution.md, when present), and its "
+    "validation metrics (champion_report.json). Its validation {metric} was "
+    "{val:.4f}. Treat it as the baseline to beat, not a suggestion:\n"
+    "- Reproduce it as one of your FIRST candidates. Task tables are "
+    "resampled per cache build, so retrain it in this environment rather "
+    "than reusing any saved outputs; expect its validation score here to "
+    "land near the quoted number, and investigate before building on it if "
+    "it does not.\n"
+    "- Then spend the budget IMPROVING on it: add the signal it lacks, "
+    "apply the practices above, and ensemble it with your own designs — a "
+    "reproduced champion is a free decorrelated finalist for practice 6.\n"
+    "- Ship nothing that scores below your reproduced champion."
+)
+
 LIVING_DOCUMENTS_NOTE = (
     "Two agent-maintained files live in the shared artifact workspace "
     "($KAPSO_SHARED_CACHE_DIR) and persist across iterations and campaigns:\n"
@@ -590,6 +607,7 @@ def build_problem_context(
     extra_knowledge: str = "",
     gpu_name: str = "",
     rolling: bool = False,
+    champion: Optional[dict] = None,
 ) -> str:
     sections = [
         "# RelBench task",
@@ -610,6 +628,9 @@ def build_problem_context(
         + FEATURE_ENGINEERING_NOTE,
         "\n## Modelling practices (measured — suggestion)\n"
         + MODELLING_PRACTICE_NOTE,
+        ("\n## Prior champion (provided — reproduce it, then beat it)\n"
+         + CHAMPION_NOTE_TEMPLATE.format(metric=spec.primary_metric, val=champion["val"]))
+        if champion else "",
         "\n## Resources\n" + _resources(spec, has_gpu, num_cpus, mem_gb, gpu_name),
         "\n## Living documents (shared artifact workspace)\n"
         + LIVING_DOCUMENTS_NOTE,

@@ -52,6 +52,7 @@ from benchmarks.relbench.task_specs import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+CLAIMS_DIR = Path(__file__).resolve().parent / "claims"
 CUDA_DEVICE = os.getenv("CUDA_DEVICE", "0")
 
 MAX_OUTPUT_LINES = 400
@@ -131,6 +132,13 @@ class RelBenchHandler(ProblemHandler):
         self._seed_living_documents()
 
         # ------------------------------------------------------------------
+        # Champion seeding: stage the banked winning solution (committed
+        # claims/) into the shared artifact workspace so campaigns start
+        # from the frontier instead of rediscovering it.
+        # ------------------------------------------------------------------
+        champion = self._seed_champion()
+
+        # ------------------------------------------------------------------
         # Problem context.
         # ------------------------------------------------------------------
         extra_knowledge = ""
@@ -151,6 +159,7 @@ class RelBenchHandler(ProblemHandler):
             mem_gb=self._detect_mem_gb(),
             extra_knowledge=extra_knowledge,
             rolling=self.rolling,
+            champion=champion,
         )
 
         # Harden the whole process tree: coding agents (e.g. claude_code) can
@@ -839,6 +848,41 @@ class RelBenchHandler(ProblemHandler):
                 print(f"[RelBenchHandler] rolling cascade OK at {self.rolling_root}")
             else:
                 _build(self.rolling_root, rolling_marker, rolling=True)
+
+    def _seed_champion(self) -> Optional[Dict]:
+        """Stage the banked champion into the shared artifact workspace.
+
+        Source is the committed claims/ dir for this task. The staged bundle
+        is SANITIZED to search-side fields: code, design notes, and
+        validation metrics only — never test metrics or audit output. A task
+        with no claim (or a claim without a code snapshot) seeds nothing and
+        returns None, the documented default. Re-staged on every init so the
+        bundle always mirrors the current claim.
+        """
+        claim_dir = CLAIMS_DIR / self.problem_id
+        if not (claim_dir / "final_report.json").exists():
+            return None
+        if not (claim_dir / "code").is_dir():
+            return None
+        report = json.loads((claim_dir / "final_report.json").read_text())
+        val_metrics = report["val_metrics"]
+        dest = self.shared_cache_dir / "champion"
+        if dest.exists():
+            shutil.rmtree(dest)
+        dest.mkdir(parents=True)
+        shutil.copytree(claim_dir / "code", dest / "code")
+        if (claim_dir / "solution.md").exists():
+            shutil.copy2(claim_dir / "solution.md", dest / "solution.md")
+        sanitized = {
+            "run": report["run"],
+            "primary_metric": self.spec.primary_metric,
+            "val_metrics": val_metrics,
+        }
+        (dest / "champion_report.json").write_text(json.dumps(sanitized, indent=2))
+        val = val_metrics[self.spec.primary_metric]
+        print(f"[RelBenchHandler] seeded champion {report['run']} "
+              f"(val {self.spec.primary_metric}={val:.4f})")
+        return {"run": report["run"], "val": val}
 
     def _seed_living_documents(self) -> None:
         """Seed agent-editable living documents into the shared cache.
