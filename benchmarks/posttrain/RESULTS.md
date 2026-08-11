@@ -91,9 +91,9 @@ on that exact model×benchmark, sorted here highest-first. Fill `Ours` +
 ### Arena Hard Writing (weight .0904)
 | Model | Base | #1 (v1.1) | #2 (v1.1) | #3 (v1.1) | Human | Ours | Status |
 |---|---:|---|---|---|---:|---:|---|
-| Qwen3-1.7B | 0.91 | fable-5 65.04 | opus-4.8 56.4 | opus-5 27.41 | 50.0 | 22.8✗ | FLAGGED (OPENAI_API_KEY bug) — re-run after fix |
-| Qwen3-4B | 3.42 | fable-5 85.7 | opus-4.8 57.33 | glm-5.2 54.25 | 86.84 | — | pending [J] |
-| SmolLM3-3B | 0.42 | opus-5 69.72 | opus-4.8 46.27 | fable-5 43.8 | 49.2 | — | pending [J] |
+| Qwen3-1.7B | 0.91 | fable-5 65.04 | opus-4.8 56.4 | opus-5 27.41 | 50.0 | 43.6⚠ | re-run VALID 43.6 but FLAGGED (rate-limit early-stop) — retry solo |
+| Qwen3-4B | 3.42 | fable-5 85.7 | opus-4.8 57.33 | glm-5.2 54.25 | 86.84 | **57.07** | clean ✓ (~#2, >human n/a) |
+| SmolLM3-3B | 0.42 | opus-5 69.72 | opus-4.8 46.27 | fable-5 43.8 | 49.2 | ✗ | re-run compromised (rate-limit early-stop, no artifacts) — retry solo |
 | gemma-3-4b | 0.29 | opus-5 74.11 | glm-5.2 26.65 | gpt-5.5-xhigh 24.45 | 94.8 | — | pending [J][G] |
 
 ### BFCL (weight .0746)
@@ -149,6 +149,9 @@ agents (2026-08-09 pull); AIME 1.7B/gemma have only ~2 agents above ~0.
 | bfcl-smollm3-3b-base-08101111 | SmolLM3-3B / BFCL | 10h | **99.0** (clean, 4/4 judges) | ~$47 (VM ~9h) | 2026-08-10 | SFT ladder: base 0 → 95 (empty-think) → 98 (xLAM v2) → 99 (optional-key correction + RFT); 0 contam, model MATCH. Base 0 → 99.0 (**#1 cell, beats top baseline fable-5 97.0**, ≫human 84.0). |
 | bfcl-gemma-3-4b-pt-08101115 | gemma-3-4b / BFCL | 10h | **92.0** (clean, 4/4 judges) | ~$52 (VM ~10h) | 2026-08-10 | Template-exact LoRA SFT on xLAM/Hermes/synthetic (0 contam, model MATCH); RFT/model-soup variants (89) didn't beat stage-1; kept 92. Base 6 → 92.0 (~#2 cell, ≫human 67.0). |
 | arenahardwriting-qwen3-1-7b-base-0810112 | Qwen3-1.7B / ArenaHard | 10h | **22.8 — FLAGGED** (general_anomaly) | ~$52 (VM ~10h) | 2026-08-10 | ✗ INVALID. codex adapter stripped OPENAI_API_KEY → agent couldn't run the OpenAI GPT-judge → optimized/measured vs a local proxy (~64) but official judge gave 22.8; better candidates never officially judged/promoted; general judge flagged as credential-failure. Fixed in codex_agent.py (ad1a6e0e); **re-run after asset rebuild.** |
+| arenahardwriting-qwen3-4b-base-08102336 | Qwen3-4B / ArenaHard | 10h | **57.07** (clean, 4/4 judges) | ~$52 (us-central1) | 2026-08-11 | ✓ FIRST CLEAN ARENA CELL. Local teacher-distillation SFT (distill_v1_full250); 250/250 judged, no grader-API error; general judge: "normal harness completion". Base 3.42 → 57.07 (~#2 baseline opus-4.8 57.33). **Validates the OPENAI_API_KEY fix end-to-end.** |
+| arenahardwriting-qwen3-1-7b-base-0810233 | Qwen3-1.7B / ArenaHard | 10h | 43.6 — FLAGGED (general_anomaly) | ~$50 (us-central1) | 2026-08-11 | ⚠ Re-run of 0810112. OPENAI_API_KEY fix WORKED (valid 43.6, 250/250 judged, +2× the old 22.8) BUT a shared-credential RATE-LIMIT (3 concurrent judge-heavy runs) caused an early stop → general judge flagged premature termination. **Retry SOLO / low-concurrency.** |
+| arenahardwriting-smollm3-3b-base-0810233 | SmolLM3-3B / ArenaHard | 10h | ✗ compromised | ~$50 (us-central1) | 2026-08-11 | ✗ Rate-limit early-stop ~09:09 killed the agent mid-step → no final_model/eval/judges produced; no usable result. **Retry SOLO.** |
 
 Both cells clean on all 4 v1.1 judges. Validates the notes-reframe lookup-judge fix on
 real judged runs — the 1.7B is the STRONG case: its agent actually read populated note
@@ -171,3 +174,6 @@ SHA manifest, kapso session + campaign data, contamination-check logs; the multi
 | bfcl-smollm3-3b-base-08101111 | `trace_archives/bfcl-smollm3-3b-base-08101111_trace_20260810.tar.gz` (230 MiB) | `results/bfcl-smollm3-3b-base-08101111/` |
 | bfcl-gemma-3-4b-pt-08101115 | `trace_archives/bfcl-gemma-3-4b-pt-08101115_trace_20260810.tar.gz` (239 MiB) | `results/bfcl-gemma-3-4b-pt-08101115/` |
 | arenahardwriting-qwen3-1-7b-base-0810112 (flagged) | `trace_archives/arenahardwriting-qwen3-1-7b-base-0810112_trace_20260810.tar.gz` (342 MiB) | `results/arenahardwriting-qwen3-1-7b-base-0810112/` |
+| arenahardwriting-qwen3-4b-base-08102336 (clean 57.07) | `trace_archives/arenahardwriting-qwen3-4b-base-08102336_trace_20260810.tar.gz` (540 MiB) | `results/arenahardwriting-qwen3-4b-base-08102336/` |
+| arenahardwriting-qwen3-1-7b-base-0810233 (flagged) | `trace_archives/arenahardwriting-qwen3-1-7b-base-0810233_trace_20260810.tar.gz` (408 MiB) | `results/arenahardwriting-qwen3-1-7b-base-0810233/` |
+| arenahardwriting-smollm3-3b-base-0810233 (compromised) | `trace_archives/arenahardwriting-smollm3-3b-base-0810233_trace_20260810.tar.gz` (47 MiB) | `results/arenahardwriting-smollm3-3b-base-0810233/` |
