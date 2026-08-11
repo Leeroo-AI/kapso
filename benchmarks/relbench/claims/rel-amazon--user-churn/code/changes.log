@@ -1,0 +1,6 @@
+RepoMemory sections consulted: core.architecture, core.entrypoints, core.where_to_edit, core.invariants, core.testing, core.gotchas, core.dependencies
+2026-07-31: Profiled immutable evaluation mechanics, split/origin distributions, schema null/length statistics, customer repetition, label stability, and validation-to-test activity boundary gap.
+2026-07-31: Implemented cutoff-partitioned customer/review/product feature materialization, causal hierarchical customer/product/cohort target statistics, level-invariant renewal transforms, expanding-origin LightGBM OOF, temporal PyG smoke validation, and a two-layer heterogeneous graph referee with the precommitted +0.002 admission gate.
+2026-07-31: Debug execution wrote contract-valid full-shape vectors; PyG/PyTorch Frame/pyg-lib materialized and sampled a backward-time graph with zero post-seed violations and completed training plus inference.
+2026-07-31: Added causal last/recent/co-review product priors, category-level-2 and brand shrinkage, review lexical proxies, customer-name features, distinct active-day renewal/burst features, and OOF-selected richer LightGBM regularization. Persisted the measured GraphSAGE rejection for check-before-compute reuse.
+2026-07-31: Registered full run_0003 scored validation ROC-AUC 0.709553; widened run_0006 scored 0.711420 with average precision 0.790676.

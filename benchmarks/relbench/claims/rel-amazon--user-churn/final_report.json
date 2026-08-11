@@ -1,0 +1,52 @@
+{
+  "dataset": "rel-amazon",
+  "task": "user-churn",
+  "family": "entity_binary_classification",
+  "primary_metric": "roc_auc",
+  "selected_by": "best recomputed validation roc_auc among registered-final runs",
+  "run": "run_0009",
+  "val_metrics": {
+    "average_precision": 0.7906628892419884,
+    "accuracy": 0.70608015773856,
+    "f1": 0.7921660656048867,
+    "roc_auc": 0.7113803846421212
+  },
+  "test_metrics": {
+    "average_precision": 0.7678824963153088,
+    "accuracy": 0.6912911888827316,
+    "f1": 0.7785682253658934,
+    "roc_auc": 0.71355557538078
+  },
+  "audit": {
+    "clean": false,
+    "findings": [
+      {
+        "file": "main.py",
+        "line": 134,
+        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
+        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
+        "snippet": "train_b = pd.concat([train_frame, val_for_b], ignore_index=True)"
+      },
+      {
+        "file": "main.py",
+        "line": 135,
+        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
+        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
+        "snippet": "y_b = np.concatenate([y_train, val_labels])"
+      },
+      {
+        "file": "renewal.py",
+        "line": 279,
+        "pattern": "RELBENCH_CACHE_DIR",
+        "concern": "tampers with the data cache location",
+        "snippet": "return Path(os.environ[\"RELBENCH_CACHE_DIR\"]) / os.environ[\"RELBENCH_DATASET\"]"
+      }
+    ],
+    "note": "static scan; manually review flagged lines before publishing results. 'verify:' findings are advisory OOS-contract review hooks (legal patterns that warrant tracing), not violations."
+  },
+  "code_path": "/home/ubuntu/kapso/tmp/relbench/rel-amazon--user-churn/runs/run_0009/code",
+  "predictions": {
+    "val": "/home/ubuntu/kapso/tmp/relbench/rel-amazon--user-churn/runs/run_0009/val_predictions.npy",
+    "test": "/home/ubuntu/kapso/tmp/relbench/rel-amazon--user-churn/runs/run_0009/test_predictions.npy"
+  }
+}
