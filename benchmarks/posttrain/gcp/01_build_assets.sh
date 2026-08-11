@@ -21,7 +21,7 @@ KAPSO_ROOT="$(cd ../../.. && pwd)"
 # install, silently shipping outdated package files (bit us with an old
 # config.yaml inside the container).
 tar -czf - -C "$KAPSO_ROOT" \
-    --exclude=.git --exclude=.claude --exclude=archive --exclude=tests \
+    --exclude=.git --exclude=.claude --exclude=archive --exclude='_archive' --exclude=tests \
     --exclude=moltbook_bot --exclude=tmp \
     --exclude=build --exclude=dist --exclude='*.egg-info' \
     --exclude='.env' --exclude='*.env' --exclude='*.pem' --exclude='*token*' . \

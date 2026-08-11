@@ -56,3 +56,20 @@ def test_iteration_admission_floor_survives_runtime_config(tmp_path):
     # (900s since the tail trim — the floor must stay well above 60s.)
     mode_cfg = load_runtime_mode_config(tmp_path)
     assert mode_cfg["budget"]["min_iteration_seconds"] == 900
+
+
+def test_implementation_model_pinned_against_agent_config(tmp_path):
+    # The implementor is pinned by the config (claude-fable-5 @ max); the
+    # harness $AGENT_CONFIG (--coding-model) drives ideation-base/feedback
+    # only. Regression: an earlier guard let a Claude $AGENT_CONFIG clobber
+    # the pinned implementation model whenever implementation ran on Claude.
+    path = build_runtime_config(
+        "POSTTRAIN", "claude-opus-4-8", str(tmp_path), dict(SESSION_TIMEOUTS)
+    )
+    with open(path) as f:
+        mode_cfg = yaml.safe_load(f)["modes"]["POSTTRAIN"]
+    params = mode_cfg["search_strategy"]["params"]
+    assert params["implementation_cli"] == "claude_code"
+    assert params["implementation_model"] == "claude-fable-5"
+    assert params["idea_generation_model"] == "claude-opus-4-8"
+    assert mode_cfg["coding_agent"]["model"] == "claude-opus-4-8"
