@@ -69,6 +69,16 @@ export IS_SANDBOX=1
 export HF_HUB_DOWNLOAD_TIMEOUT=60
 export HF_HUB_ETAG_TIMEOUT=60
 
+# Curated public post-training knowledge bank: copy from the baked source
+# tree into the task workspace so the agent reads it as local files (the
+# tarball and container are built together, so the bank is always present
+# in a matched image — its absence means a stale container).
+if [ ! -d /opt/kapso-src/benchmarks/posttrain/knowledge_bank ]; then
+    echo "FATAL: knowledge_bank missing from the container image — rebuild assets" >&2
+    exit 1
+fi
+cp -r /opt/kapso-src/benchmarks/posttrain/knowledge_bank "$PWD/knowledge_bank"
+
 exec /opt/kapso/venv/bin/expert-posttrain \
     --task-dir "$PWD" \
     --prompt-env PROMPT \

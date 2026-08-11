@@ -239,3 +239,7 @@ examples/ml_model_development/e2e/runs/
 
 # fetched run artifacts (large, regenerable from GCS)
 benchmarks/posttrain/_archive/results_fetched/
+
+# Curated post-training knowledge bank: ships to runs via the kapso-src
+# tarball (tar ignores gitignore) but stays out of version control.
+benchmarks/posttrain/knowledge_bank/

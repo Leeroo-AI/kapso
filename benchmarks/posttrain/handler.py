@@ -116,6 +116,36 @@ class PostTrainBenchHandler(ProblemHandler):
             return "this benchmark is small; use --limit -1 (full set) every time"
         return f"use --limit {limit} for iteration evals (full set only if time clearly allows)"
 
+    def _knowledge_bank_section(self) -> str:
+        """Inline the curated recipe library's index, when shipped.
+
+        The bank is copied into the task dir by solve.sh (from the container's
+        baked source tree). The INDEX (routing table + evidence-tier legend)
+        is inlined IN FULL so both the ideation and implementation sessions
+        see the routing without needing to choose to read it; the recipe
+        bodies stay on disk for on-demand Read. When absent (e.g. hermetic
+        tests), the section is simply omitted.
+        """
+        bank_dir = os.path.join(self.task_dir, "knowledge_bank")
+        bank_index = os.path.join(bank_dir, "INDEX.md")
+        if not os.path.isfile(bank_index):
+            return ""
+        with open(bank_index, "r", encoding="utf-8") as fh:
+            index_text = fh.read()
+        return f"""
+## Knowledge bank (curated public post-training craft)
+{bank_dir}/ holds method-family recipes built ONLY from public research and
+engineering sources (verified papers, framework docs, repos, datasets);
+every recommendation carries an evidence tier. Its full index follows.
+Read the matched entries (local files under {bank_dir}/) BEFORE designing
+the first experiment, state in your plan which entries informed it, and
+return to each entry's Pitfalls section when debugging. Treat recipes as
+strong defaults to adapt — verify framework flags against the installed
+versions, and extend with your own web research.
+
+{index_text}
+"""
+
     def get_problem_context(self, budget_progress: float = 0, **kwargs) -> str:
         evaluate_py = os.path.join(self.task_dir, "evaluate.py")
         templates_dir = os.path.join(self.task_dir, "templates")
@@ -234,6 +264,7 @@ benchmark-specific:
 
 ## Insights from prior runs of this benchmark
 {PRIOR_RUN_INSIGHTS}
+{self._knowledge_bank_section()}
 
 ## Reporting (kapso convention)
 At the end of every experiment, report the measured benchmark score (0-100) of
