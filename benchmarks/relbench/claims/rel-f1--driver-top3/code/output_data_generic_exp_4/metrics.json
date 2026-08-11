@@ -1,0 +1,158 @@
+{
+  "debug": false,
+  "rolling": false,
+  "feature_cache_hit": true,
+  "gate_cache_hit": false,
+  "gate": {
+    "selected_prefix": 0,
+    "rows": 541,
+    "origins": 28,
+    "synthetic_rows": 107,
+    "weak_band_rows": 193,
+    "weak_band_opener_rows": 154,
+    "weak_band_opener_fraction": 0.7979274611398963,
+    "bootstrap_draws": 2000,
+    "metrics": {
+      "0": {
+        "pooled_auc": 0.8773518148518149,
+        "mean_yearly_auc": 0.8938260492003007,
+        "worst_year_auc": 0.8432226456178551,
+        "yearly_auc": {
+          "2001": 0.8857142857142858,
+          "2002": 0.9466666666666667,
+          "2003": 0.8432226456178551,
+          "2004": 0.8997005988023952
+        },
+        "slices": {
+          "lt92d": {
+            "n": 321,
+            "auc": 0.8511278195488722
+          },
+          "92_365d": {
+            "n": 193,
+            "auc": 0.9074141048824593
+          },
+          "gt365d_or_no_history": {
+            "n": 27,
+            "auc": 1.0
+          }
+        }
+      },
+      "1": {
+        "pooled_auc": 0.8741050616050616,
+        "mean_yearly_auc": 0.8944421961936931,
+        "worst_year_auc": 0.8413173652694611,
+        "yearly_auc": {
+          "2001": 0.9015873015873016,
+          "2002": 0.94,
+          "2003": 0.8413173652694611,
+          "2004": 0.8948641179180101
+        },
+        "slices": {
+          "lt92d": {
+            "n": 321,
+            "auc": 0.8446294307196563
+          },
+          "92_365d": {
+            "n": 193,
+            "auc": 0.910488245931284
+          },
+          "gt365d_or_no_history": {
+            "n": 27,
+            "auc": 1.0
+          }
+        },
+        "bootstrap_positive_support": 0.203,
+        "bootstrap_delta_sd": 0.0038830746318738764,
+        "mean_delta": 0.000616146993392408,
+        "worst_delta": -0.0019052803483939895,
+        "stale_delta": 0.0030741410488246412,
+        "passed": false,
+        "gate_path": "none"
+      },
+      "2": {
+        "pooled_auc": 0.868527306027306,
+        "mean_yearly_auc": 0.8939009742752257,
+        "worst_year_auc": 0.8361458900381056,
+        "yearly_auc": {
+          "2001": 0.9111111111111112,
+          "2002": 0.9355555555555556,
+          "2003": 0.8361458900381056,
+          "2004": 0.8927913403961308
+        },
+        "slices": {
+          "lt92d": {
+            "n": 321,
+            "auc": 0.8412459720730397
+          },
+          "92_365d": {
+            "n": 193,
+            "auc": 0.9052441229656419
+          },
+          "gt365d_or_no_history": {
+            "n": 27,
+            "auc": 1.0
+          }
+        },
+        "bootstrap_positive_support": 0.045,
+        "bootstrap_delta_sd": 0.005049653276179976,
+        "mean_delta": 7.49250749250141e-05,
+        "worst_delta": -0.007076755579749516,
+        "stale_delta": -0.0021699819168173873,
+        "passed": false,
+        "gate_path": "none"
+      },
+      "3": {
+        "pooled_auc": 0.8592865467865468,
+        "mean_yearly_auc": 0.8992459918657523,
+        "worst_year_auc": 0.8285247686445292,
+        "yearly_auc": {
+          "2001": 0.946031746031746,
+          "2002": 0.94,
+          "2003": 0.8285247686445292,
+          "2004": 0.8824274527867342
+        },
+        "slices": {
+          "lt92d": {
+            "n": 321,
+            "auc": 0.8386680988184747
+          },
+          "92_365d": {
+            "n": 193,
+            "auc": 0.8877034358047017
+          },
+          "gt365d_or_no_history": {
+            "n": 27,
+            "auc": 1.0
+          }
+        },
+        "bootstrap_positive_support": 0.0,
+        "bootstrap_delta_sd": 0.005322852817242814,
+        "mean_delta": 0.005419942665451538,
+        "worst_delta": -0.014697876973325918,
+        "stale_delta": -0.019710669077757648,
+        "passed": false,
+        "gate_path": "none"
+      }
+    }
+  },
+  "val": {
+    "prefix": 0,
+    "feature_count": 92,
+    "fit_rows": 1661,
+    "fit_origins": 77,
+    "synthetic_rows": 308,
+    "prediction_min": 0.0006197301828736734,
+    "prediction_max": 0.9445811864319208
+  },
+  "test": {
+    "prefix": 0,
+    "feature_count": 92,
+    "fit_rows": 2429,
+    "fit_origins": 114,
+    "synthetic_rows": 488,
+    "prediction_min": 0.0017291369983308113,
+    "prediction_max": 0.7166210177851197
+  },
+  "elapsed_seconds": 20.03044629096985
+}

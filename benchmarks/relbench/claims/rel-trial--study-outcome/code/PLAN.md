@@ -1,10 +1,13 @@
-TIME ALLOCATION: Critical-path artifact = timestamp-censored entity-semantic diffusion matrix; target BioClinical name encoding at least 100 entities/s and annual exact-bridge propagation at least 500 seed routes/s.
-TIME ALLOCATION: Confirmation points = run_0006 final-bank verification, entity/script profile, bridge precision audit, 2016--2019 forward gate, debug contract check, and separate Model A/Model B lineage check.
-TIME ALLOCATION: Freeze bridge rules by 2026-08-09T19:35:00Z; reserve the remaining time for two-chain refits, the foreground full evaluation, and up to three repairs.
+TIME ALLOCATION: Critical-path artifact is the five-window locked Family-1 replay bank at a target warm rate of one complete window per 5 minutes, followed by the common-OOF prediction matrix.
+TIME ALLOCATION: Confirm exact orphan hashes before build, prediction/fold fingerprints after each family, and the nested combiner gate by minute 70.
+TIME ALLOCATION: Freeze the combiner by minute 85; reserve at least 15 minutes for contract validation, the foreground full grader, and replay-marker promotion.
 
-1. Verify and preserve the normally promoted run_0006 archive.
-2. Profile entity names, scripts, support, and bridge reliability without reading test labels.
-3. Build and cache typed BioClinical/facility representations and exact same-type bridges.
-4. Build all-history and half-life diffusion features and screen thresholds/depth on 2016--2019 forward folds.
-5. Fit route-dropout shallow residual models with separate validation and test lineages.
-6. Exercise debug mode, validate artifacts, and run the registered full evaluator.
+# Plan
+
+1. Preserve and hash-verify the orphan champion under the shared replay lock.
+2. Export the purged 2016-2019 fold specification and validate all cached family vectors by row fingerprint.
+3. Build the common Family-1, ontology CatBoost, and dual-view LM/sidecar OOF matrix.
+4. Compare equal rank, simplex rank, and L2-logistic combiners through nested leave-one-year-out evaluation.
+5. Apply the sparse-history, low-site, 2019, paired-year, and sponsor-blocked bootstrap gate.
+6. Retain the champion if the gate fails; otherwise assemble locked Model-A and Model-B combinations.
+7. Validate shapes, bounds, row order, run the maintained full evaluation, and atomically publish the replay marker.

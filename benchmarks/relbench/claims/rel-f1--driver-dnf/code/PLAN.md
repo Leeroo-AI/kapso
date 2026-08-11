@@ -1,10 +1,10 @@
-TIME ALLOCATION
-Critical path: reusable causal feature rows and prequential base predictions; target at least 25 historical origins/minute after the first snapshot build.
-Confirmation points: static feature benchmark, rolling fast gate, then full registered evaluation with manifest capture.
-Freeze time: reserve the final 35 minutes for the full foreground evaluation, diagnostics, artifact sweep, and result handoff.
+Critical-path artifact + target rate: pinned TabPFN-v2 inference across 55 rolling ticks; target at most 45 seconds per full tick after one checkpoint download.
+Planned confirmation points: sidecar debug gate, one static TabPFN timing probe, rolling fast gate, then registered full manifest.
+Freeze time: stop model changes after the full-run gate leaves 90 minutes of the 120-minute evaluator timeout for completion and capture.
 
-1. Profile scorer mechanics, legal input metadata, temporal coverage, and installed APIs.
-2. Build and cache the all-table causal feature layer with cohort-relative transforms.
-3. Implement M1/M2, then M3/M4 and leakage-safe prequential adaptation.
-4. Run static contract checks, rolling fast evaluation, full evaluation, and diagnostic slices.
-5. Record campaign memory, cache registrations, measured results, and repository changes.
+# Plan
+
+1. Characterize evaluator mechanics, snapshot formats, temporal strata, and dependency availability.
+2. Build and validate a compact all-table feature matrix plus logistic and LightGBM sidecars.
+3. Pin, hash, and time TabPFN-v2; retain the sidecar fallback if the measured projection exceeds budget.
+4. Exercise the rolling contract in fast mode and run the immutable full-fidelity evaluator.

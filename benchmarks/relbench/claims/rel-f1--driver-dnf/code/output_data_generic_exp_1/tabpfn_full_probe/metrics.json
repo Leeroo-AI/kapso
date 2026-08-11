@@ -1,0 +1,66 @@
+{
+  "blend_weights": [
+    0.0,
+    0.0,
+    1.0
+  ],
+  "debug": false,
+  "elapsed_seconds": 49.51272042599976,
+  "feature_count": 60,
+  "feature_version": "lane1_compact_rel_v1",
+  "rolling": false,
+  "selection_diagnostics": {
+    "blend_fold_auc": [
+      0.8663403006967364,
+      0.8857823878281323,
+      0.8425514882468523
+    ],
+    "blend_objective": 0.8645788574763063,
+    "calibration_brier_candidate": 0.08910932006349608,
+    "calibration_brier_raw": 0.08899533217631748,
+    "context_policy_fold_auc": {
+      "balanced": [
+        0.8663403006967364,
+        0.8857823878281323,
+        0.8414356063362686
+      ],
+      "last": [
+        0.8663403006967364,
+        0.8857823878281323,
+        0.8425514882468523
+      ]
+    },
+    "context_policy_scores": {
+      "balanced": 0.8641900010001679,
+      "last": 0.8645788574763063
+    },
+    "oof_slices": {
+      "1980": {
+        "count": 2130,
+        "roc_auc": 0.8687063043055117
+      },
+      "1990": {
+        "count": 2393,
+        "roc_auc": 0.8705104001904859
+      },
+      "2000": {
+        "count": 900,
+        "roc_auc": 0.8521921394485684
+      }
+    },
+    "sidecar_calibration_brier_candidate": 0.08714834476157966,
+    "sidecar_calibration_brier_raw": 0.0989951031914255,
+    "sidecar_fold_auc": [
+      0.8563366336633664,
+      0.8870461199669677,
+      0.8318899643402955
+    ],
+    "sidecar_objective": 0.857915026690928
+  },
+  "selection_policy": "last",
+  "tabpfn_checkpoint_seconds": 2.261844692000068,
+  "tabpfn_status": "pinned_v2",
+  "tabpfn_total_seconds": 40.783207691999905,
+  "train_origins": 420,
+  "train_rows": 11411
+}

@@ -1,15 +1,48 @@
 # Evaluation profile
 
-The immutable grader invokes `main.py` independently for every rolling validation and test origin, reads each tick's `test_predictions.npy`, restores original row order through protected indices, and computes pooled validation ROC AUC. The candidate controls all model and feature logic but not row sampling, labels, aggregation, or scoring. Validation contains 588 rows and 27 nonempty timestamps; test contains 726 rows and 30 nonempty timestamps.
+The protected evaluator invokes `main.py` once for every rolling origin, assembles tick-level test vectors into official row order, then computes all metrics on 588 validation rows. The search score is global validation ROC AUC, so cross-origin positive-negative pairs dominate and raw within-field percentiles are not sufficient. Full fidelity uses the complete 27 validation and 30 prediction origins; `fraction` does not subsample scoring rows.
 
-Training contains 1,353 rows over 59 timestamps from 1994-02-28 through 2004-10-03 with positive rate 0.1707. Validation spans 2005-03-02 through 2008-03-16 with positive rate 0.2024 and 20 to 24 drivers per timestamp. Test spans 2010-03-02 through 2013-03-16 with 22 to 26 drivers per timestamp. The observed train/validation 30-day windows contain one to three qualifying sessions: train timestamp counts are 26/25/8 for one/two/three sessions, and validation counts are 4/16/7.
+## Input distribution
 
-Coverage axes are origin date and season phase, one/two/three-event windows, driver history density, constructor continuity, circuit familiarity, within-origin competitive strength, and temporal regime. The provided 40-window wording counts scheduled origins, while the stored nonempty task tables expose 27 validation and 30 test origins; the rolling grader only invokes existing nonempty snapshots. The score-critical artifact is the legal origin-censored feature replay because both event calibration and direct-window selection consume it.
+| Split | Rows | Origins | Field size min / median / max | Positive rate |
+| --- | ---: | ---: | ---: | ---: |
+| Train | 1,353 | 59 | 20 / 22 / 32 | 0.1707 |
+| Validation | 588 | 27 | 20 / 22 / 24 | 0.2024 |
+| Prediction | 726 | 30 | 22 / 24 / 26 | unavailable |
 
-Slice reporting uses timestamp, race-count posterior, history-density, rookie, and constructor-change strata in candidate diagnostics. The evaluator itself exposes only pooled official metrics.
+The validation origins span 2005-03-02 through 2008-03-16 and prediction origins span 2010-03-02 through 2013-03-16. Rolling snapshots contain 1,353 to 2,645 closed exact-window labels and grow from 18,469 to 21,715 results and from 2,228 to 5,466 qualifying rows. The prediction field is measurably larger than validation.
 
-Iteration 2 rechecked the scorer hash and archive state before model work: run_0005 remains the final generic_exp_2 artifact at ROC AUC 0.9103940083, and the current immutable evaluator invokes 27 validation plus 30 test rolling snapshots. The new exact DuckDB label implementation reproduces all 1,353 official training rows across 59 origins with identical nanosecond dates, int64 driver IDs, int64 labels, and values.
+## Coverage axes
 
-The specified global grid anchored at 1994-02-28 produces 262 eligible candidate timestamps by the 2005-01-01 closure cutoff, of which 116 are nonempty and contain 2,655 rows at positive rate 0.1763. This contradicts the solution's approximate 114-origin/2,438-row coverage claim by 2 nonempty origins and 217 rows; the implementation retains the exact `{10,20}` modulo-30 grid and exact future-participant SQL semantics. Mean qualifying-session overlap is 2.0, so pseudo rows receive base weight 0.175 before whole-fit normalization.
+- Origin year and season phase, including long winter gaps.
+- Field size and within-origin competitive rank.
+- Driver history depth: validation none/sparse/rich counts are 20/23/545; prediction counts measured from the legal tick snapshots are 17/13/696.
+- Driver recency: validation none/>365d/92-365d/<92d counts are 20/7/75/486; prediction counts are 17/9/60/640.
+- Exact qualifying availability versus grid-derived historical sessions.
+- Constructor continuity, teammate comparison, standing position, recent form, and expected sessions inside the label window.
 
-The first uncached pseudo build produced 116 origin matrices in 3.17 seconds, or 36.6 origins/second; the cached replay loaded them in 1.06 seconds, or 109.4 origins/second. Static debug exercised exact checks, both two-model chains, four folds, five challengers, paired timestamp bootstraps, season-block diagnostics, and output writing in 17.64 seconds. On the validation-chain training replay, official-only logistic pooled AUC was 0.896710; uniform pseudo logistic was 0.895096, recency pseudo logistic 0.892844, shallow LightGBM 0.875638, the fixed blend 0.895156, and count offset 0.895265, so no challenger passed the three-fold and one-standard-error shipping gate.
+The static 2009 database view misleadingly classifies 28.2% of prediction rows as zero-history because it omits rolling history. The legal per-origin snapshots reduce this to 2.3%, so the solution's rolling-safe loader is essential.
+
+## Internal selection and strata
+
+The prescribed expanding yearly tests contain 66/22/42/183/187 rows for 2000 through 2004, with positive rates 0.1667/0.1364/0.1429/0.2022/0.2406. Model selection uses these forward folds only. Evaluation reporting should include yearly fold AUC plus history-depth and recency strata wherever both classes occur.
+
+This profile is stored outside `kapso_evaluation/` because the task explicitly marks every file under that directory immutable and says any edit there voids the score.
+
+## First-iteration diagnostics
+
+Run `run_0001` scored ROC AUC 0.9117736647. A 200-draw row bootstrap estimated standard error 0.01305484 and a 95% percentile interval of [0.88668075, 0.93703885]. The gated stacked alternative scored 0.91209618 only for this diagnostic, a +0.00032252 difference, and had Spearman rank correlation 0.97700126 with the archived classifier. These candidates are not sufficiently different and are nowhere near separated by two standard errors, so the resolution check does not establish an evaluator defect.
+
+Validation AUC by origin year was 0.85874 (2005, n=165), 0.88207 (2006, n=178), 0.97763 (2007, n=201), and 0.86806 (2008, n=44). By history depth it was 0.21053 for none (n=20), 1.0 for sparse (n=23), and 0.90938 for rich (n=545); the none and sparse slices each contain only one positive. By recency it was 0.69321 for 92–365 days (n=75) and 0.93883 for under 92 days (n=486); the >365-day slice had no positives.
+
+The 29 legally closed prediction-era origins available in the final rolling training snapshot contain 704 rows, mean field size 24.276, and label rate 0.17330. Validation contains 588 rows across 27 origins, mean field size 21.778, and label rate 0.20238. This shift is recorded but does not by itself establish inverted ROC AUC candidate ordering, so no evaluation-change request is warranted.
+
+After the first-iteration diagnostic, a feature compactness decision was made solely from the prescribed 2000–2004 forward folds. Removing raw numeric circuit-cluster identity and two nationality cohort scalars while retaining recent circuit-cluster performance raised weighted forward AUC from 0.89994 to 0.90364 and worst-fold AUC from 0.84691 to 0.85061. Full run `run_0002` then scored ROC AUC 0.9128845568; this validation result was not used to select or revise the candidate.
+
+## Constructor-season prequential profile
+
+The frozen iteration-2 replay uses pseudo-test years 2001–2004. For each year Y, its base fit contains only exact windows closed by December 31 of Y-3; earlier same-year pseudo-test origins enter the fit only after their 30-day windows close. The full replay contains 541 rows across 28 origins, including 107 synthetic pre-opener rows. Whole-origin bootstrap comparisons use 2,000 draws.
+
+The compact identical-origin baseline scored pooled AUC 0.87735, mean yearly AUC 0.89383, and worst-year AUC 0.84322. Its recency AUCs were 0.85113 for `<92d` (n=321), 0.90741 for `92–365d` (n=193), and 1.0 for `>365d/no-history` (n=27). Opener-related rows account for 154 of the 193 medium-recency rows, or 79.79%; opener concentration is substantial but not near-total, correcting the solution's unverified assumption.
+
+No constructor-season prefix passed its frozen adoption gate. Prefix 1 changed mean/worst/medium-recency AUC by +0.00062/-0.00191/+0.00307 with 20.3% positive bootstrap support. Prefix 2 changed them by +0.00007/-0.00708/-0.00217 with 4.5% support. Prefix 3 changed them by +0.00542/-0.01470/-0.01971 with 0% support. The deployed prefix is therefore 0; the exact synthetic origins, one-origin-total weighting, eight-year half-life, and 20% opener-mass cap remain part of the prescribed training distribution.

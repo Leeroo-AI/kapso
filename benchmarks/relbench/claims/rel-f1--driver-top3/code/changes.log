@@ -1,18 +1,16 @@
-RepoMemory sections consulted: core.architecture, core.where_to_edit, core.invariants, core.testing, core.gotchas, core.dependencies
-Measurement profile created from immutable grader mechanics and metadata-level static task/database statistics.
-Implemented rolling-safe direct event modeling, prequential calibration, schedule geometry, circuit mixtures, correlation-aware aggregation, compact direct/residual models, and four-fold expanding replay selection.
-Added all-table temporally censored relational features and within-cohort ranks, percentiles, z-scores, and leader gaps.
-Kept the immutable kapso_evaluation directory unchanged; the registered evaluator remains kapso_evaluation/kapso_eval.py.
-Corrected constructor-circuit accumulators to aggregate at race level before shifting, eliminating within-race teammate-label contamination discovered before the archived full run.
-Rejected added trend, inactivity, schedule-posterior-component, and inferred-teammate features after the direct replay mean declined from 0.8954 to 0.8944.
-Changed the direct L2 regularization from C=0.05 to C=0.01 after an internal expanding-fold sweep improved the comparable three-fold mean from 0.8954 to 0.8997 with lower dispersion; event logistic remains at the specified C=0.05.
-Registered full run_0001 scored validation ROC AUC 0.9080468008. The replay-selected C=0.01 refinement was then evaluated as run_0005 and scored 0.9103940083 with average precision 0.7412376880, accuracy 0.8758503401, and F1 0.6635944700.
-Technical difficulties: the first local shell command was rejected because it included rm -rf; rerunning without deletion worked. The first pipeline execution raised pandas MergeError for int64 versus nullable Int64 as-of keys; normalizing both join keys to int64 fixed it. An initial patch accidentally removed main.py while replacing it; it was immediately recreated with apply_patch. A review found constructor-circuit cumulative features advanced once per teammate row and could expose the first teammate's same-race label; aggregation at constructor-race level before shifting removed the contamination before archived evaluation. A widened trend/inactivity/teammate feature attempt reduced internal replay and was fully reverted. Full-evaluation stdout was block-buffered through tee, but the foreground process remained alive and the complete output was captured on disk.
-RepoMemory sections consulted: none
-Verified run_0005 was already stamped final for generic_exp_2 at archived ROC AUC 0.9103940083, superseding run_0001, with candidate hashes matching this branch's starting point.
-Implemented the exact task SQL with mandatory equality verification on every snapshot, the anchored +10/+20 pseudo grid, exact future-participant cohorts, 30-day closure gates, qualifying-prefix keyed per-origin feature caches, overlap-adjusted 0.35 weights, and uniform/five-year recency alternatives.
-Implemented official-only and pseudo L2 logistic candidates, fixed shallow LightGBM, fixed 50/50 logit blend, and a prequential ridge-Poisson alpha-0.5 expected-count offset, selected only through four embargoed expanding folds, 100 paired timestamp bootstraps, and leave-one-season-out diagnostics.
-The measured pre-2005 grid contains 116 nonempty origins and 2,655 rows rather than the proposal's approximate 114/2,438; exact SQL semantics and the specified global grid were retained and the discrepancy was recorded in eval_profile.md and the living documents.
-Train-only static replay rejected every augmented candidate: pooled AUC was 0.896710 official-only, 0.895096 pseudo logistic, 0.892844 pseudo recency, 0.875638 LightGBM, 0.895156 blend, and 0.895265 count offset.
-The immutable kapso_evaluation tree remained byte-identical. Registered fast rolling evaluation completed all 588 validation and 726 test rows with ROC AUC 0.9111286306, AP 0.7420225398, accuracy 0.8775510204, and F1 0.6727272727.
-Iteration 2 technical difficulties: DuckDB emits the SQL CASE label as int32 while the official task table stores int64; explicit int64 normalization was required before exact dtype equality passed. The solution's approximate pseudo sizing contradicted the exact global-grid measurement by 217 rows; retaining the literal grid and documenting the discrepancy resolved the ambiguity. The uncached static debug path took 17.64 seconds rather than the proposed under five minutes and registered rolling ticks grew from 7.64 to 12.14 seconds, but both remained far inside their hard timeouts after the shared origin cache was populated.
+Implemented a rolling-safe direct-parquet candidate for rel-f1/driver-top3.
+Added causal full-field driver/package Elo, teammate Elo, constructor Elo, uncertainty, form, standings, cohort, calendar, circuit-cluster, and within-origin features.
+Added a 300-tree LambdaRank head, C=0.05 exact-window logistic head, yearly forward OOF generation, C=0.03 three-variable meta-head, and the required +0.005/no-worst-fold-loss gate.
+Added snapshot-keyed shared feature caches, debug/full OOF caches, elapsed phase logging, exact rolling/non-rolling output handling, PLAN.md, and eval_profile.md.
+Registered full evaluation run_0001 at validation ROC AUC 0.9117736646897565, then internally selected compact model run_0002 at 0.9128845568077978.
+Evaluation files were not modified because the task explicitly identifies kapso_evaluation as immutable and treats edits as tampering.
+External data sources: none.
+RepoMemory sections consulted: core.architecture, core.entrypoints, core.where_to_edit, core.invariants, core.testing, core.gotchas, core.dependencies
+Iteration 2 implemented exact 28/14-day pre-opener origins, official eligibility and duplicate preference, closed-window censoring, one-origin-total weights, an eight-year half-life, and a 20% opener-mass cap.
+Added three cumulative diagnostic feature prefixes for frozen prior-season state, era-regressed constructor initialization and transfer uncertainty, and shrunk teammate residuals with reshuffle and last-constructor neighbour context.
+Added the frozen 2001–2004 two-year-embargo prequential replay, yearly and recency slices, and 2,000 whole-origin bootstrap gates; all three prefixes failed and prefix 0 was selected without using official validation feedback.
+Updated PLAN.md, eval_profile.md, the shared feature history, and shared table information with the measured 79.79% weak-band opener concentration and complete gate outcomes.
+Confirmed through read-only archive inspection that run_0002 is strategy-stamped final and run_0001 strategy-stamped superseded; selection metadata was not edited.
+Evaluation files were not modified because the registered suite is immutable and explicitly treats edits under kapso_evaluation as tampering.
+External data sources: none.
+RepoMemory sections consulted: core.architecture, core.where_to_edit, core.invariants, core.testing, core.gotchas

@@ -1,0 +1,51 @@
+{
+  "debug": true,
+  "rolling": false,
+  "feature_cache_hit": true,
+  "val": {
+    "binary_min": 0.0006201141307527976,
+    "binary_max": 0.9445853338756081,
+    "rank_std": 0.9767710236555245,
+    "stacked_min": 0.01759914409188992,
+    "stacked_max": 0.765842744475823,
+    "selected": "binary"
+  },
+  "test": {
+    "binary_min": 0.0008825861820780463,
+    "binary_max": 0.7447151803561418,
+    "rank_std": 0.9791208740244552,
+    "stacked_min": 0.011700847723206521,
+    "stacked_max": 0.7230294460339197,
+    "selected": "binary"
+  },
+  "gate": {
+    "selected": "binary",
+    "folds": [
+      {
+        "year": 2001,
+        "n": 22,
+        "binary_auc": 0.894736842105263,
+        "stacked_auc": 0.894736842105263
+      },
+      {
+        "year": 2002,
+        "n": 42,
+        "binary_auc": 0.9629629629629629,
+        "stacked_auc": 0.9490740740740741
+      },
+      {
+        "year": 2003,
+        "n": 183,
+        "binary_auc": 0.8506108848574602,
+        "stacked_auc": 0.8602369492780452
+      },
+      {
+        "year": 2004,
+        "n": 187,
+        "binary_auc": 0.9115805946791862,
+        "stacked_auc": 0.9131455399061033
+      }
+    ]
+  },
+  "elapsed_seconds": 0.37682580947875977
+}

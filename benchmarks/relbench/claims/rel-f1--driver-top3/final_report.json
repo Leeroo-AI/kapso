@@ -3,49 +3,52 @@
   "task": "driver-top3",
   "family": "entity_binary_classification",
   "primary_metric": "roc_auc",
-  "selected_by": "max rescored validation roc_auc among head-stamped final runs (evaluator 199facd9d958)",
+  "selected_by": "max rescored validation roc_auc among head-stamped final runs (evaluator af30c86f4069)",
   "run": "run_0008",
-  "head_evaluator_id": "199facd9d95858dec102a78efe46437069624aae2269d34573deff1a119ed6e2",
+  "head_evaluator_id": "af30c86f4069483335a4ec6c6fc987dd515f47ec3123c678f7b8868e23e764ef",
   "scored": {
-    "run_0002": 0.9034240561896401,
-    "run_0004": 0.8964541040296716,
-    "run_0005": 0.9103940083496085,
-    "run_0006": 0.9083872354912114,
-    "run_0007": 0.9108061134901722,
-    "run_0008": 0.9111286305567003,
-    "run_0009": 0.9093547866907957,
-    "run_0010": 0.9111286305567003,
-    "run_0011": 0.9111286305567003
+    "run_0002": 0.9128845568077978,
+    "run_0004": 0.902044399849492,
+    "run_0005": 0.9019906470050707,
+    "run_0006": 0.9114332300084214,
+    "run_0007": 0.9128845568077978,
+    "run_0008": 0.9150525881994589,
+    "run_0009": 0.9128845568077978,
+    "run_0010": 0.9128845568077978,
+    "run_0011": 0.9150525881994589,
+    "run_0012": 0.9150525881994589,
+    "run_0013": 0.9150525881994589,
+    "run_0014": 0.9150525881994589
   },
   "excluded": {},
   "val_metrics": {
-    "average_precision": 0.7420225398462439,
-    "accuracy": 0.8775510204081632,
-    "f1": 0.6727272727272727,
-    "roc_auc": 0.9111286305567003
+    "average_precision": 0.7523055101145862,
+    "accuracy": 0.8758503401360545,
+    "f1": 0.6604651162790698,
+    "roc_auc": 0.9150525881994589
   },
   "test_metrics": {
-    "average_precision": 0.7638560979927747,
-    "accuracy": 0.9022038567493113,
-    "f1": 0.714859437751004,
-    "roc_auc": 0.9339595526755853
+    "average_precision": 0.7668899042378442,
+    "accuracy": 0.9008264462809917,
+    "f1": 0.6896551724137931,
+    "roc_auc": 0.9356579222408027
   },
   "audit": {
     "clean": false,
     "findings": [
       {
         "file": "main.py",
-        "line": 51,
+        "line": 907,
         "pattern": "RELBENCH_CACHE_DIR",
         "concern": "tampers with the data cache location",
-        "snippet": "cache_root = Path(os.environ[\"RELBENCH_CACHE_DIR\"])"
+        "snippet": "cache = Path(os.environ[\"RELBENCH_CACHE_DIR\"])"
       },
       {
         "file": "main.py",
-        "line": 73,
+        "line": 1593,
         "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
         "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
-        "snippet": "combined = pd.concat([splits[\"train\"], splits[\"val\"]], ignore_index=True)"
+        "snippet": "combined_features = pd.concat([train_features, val_features, synthetic_features], ignore_index=True)"
       }
     ],
     "note": "static scan; manually review flagged lines before publishing results. 'verify:' findings are advisory OOS-contract review hooks (legal patterns that warrant tracing), not violations."

@@ -1,293 +1,390 @@
 from __future__ import annotations
 
-import fcntl
 import json
 import os
 import sys
 import time
 import warnings
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from relbench.datasets import get_dataset
-from relbench.tasks import get_task
+from sklearn.metrics import roc_auc_score
 
-from feature_layer import FEATURE_VERSION, FeatureBuilder, build_features, model_feature_columns
-from modeling import MODEL_VERSION, adaptive_blend, base_frame, fit_all_bases, fixed_blend, select_half_life
+from model_pipeline import (
+    CalibrationChoice,
+    fit_oof_calibrator,
+    fit_sidecars,
+    predict_sidecars,
+    save_diagnostics,
+    select_blend,
+    sidecar_oof,
+)
+from relational_features import FEATURE_NAMES, FEATURE_VERSION, build_all_features, read_snapshot
 
 
 warnings.filterwarnings("ignore")
 
 
-def is_debug() -> bool:
-    return "--debug" in sys.argv
+@dataclass
+class Selection:
+    policy: str
+    weights: np.ndarray
+    sidecar_weights: np.ndarray
+    calibration_enabled: bool
+    calibration_coefficient: float
+    calibration_intercept: float
+    sidecar_calibration_enabled: bool
+    sidecar_calibration_coefficient: float
+    sidecar_calibration_intercept: float
+    diagnostics: dict
 
 
-def shared_cache() -> Path:
-    path = Path(os.environ.get("KAPSO_SHARED_CACHE_DIR", "./shared_cache"))
-    path.mkdir(parents=True, exist_ok=True)
-    return path
+def elapsed(start: float, phase: str) -> None:
+    print(f"[lane1] phase={phase} elapsed={time.monotonic() - start:.2f}s", flush=True)
 
 
-def output_directory() -> Path:
-    path = Path(os.environ.get("KAPSO_RUN_DATA_DIR", "./output_data_generic_exp_0"))
-    path.mkdir(parents=True, exist_ok=True)
-    return path
+def temporal_slice_metrics(predictions: np.ndarray, labels: np.ndarray, dates: pd.Series) -> dict[str, dict[str, float]]:
+    output: dict[str, dict[str, float]] = {}
+    years = pd.to_datetime(dates).dt.year
+    for first in range(int(years.min() // 10 * 10), int(years.max() // 10 * 10) + 1, 10):
+        mask = (years >= first) & (years < first + 10) & np.isfinite(predictions)
+        if mask.sum() and len(np.unique(labels[mask])) > 1:
+            output[str(first)] = {"count": int(mask.sum()), "roc_auc": float(roc_auc_score(labels[mask], predictions[mask]))}
+    return output
 
 
-def register_cache(root: Path) -> None:
-    registry = root / "artifacts.json"
-    lock_path = root / "artifacts.lock"
-    entry = {
-        "name": "driver-dnf lane0 causal and prequential cache",
-        "path": FEATURE_VERSION,
-        "description": "Target-free per-origin all-nine-table causal features and leakage-safe prequential base predictions",
-        "content_key": f"{FEATURE_VERSION}:{MODEL_VERSION}",
-        "rebuild_hint": "Run the rolling candidate chronologically; each tick extends missing origins",
-    }
-    with lock_path.open("a+") as lock:
-        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
-        try:
-            records = json.loads(registry.read_text()) if registry.exists() else []
-        except Exception:
-            records = []
-        if not any(record.get("content_key") == entry["content_key"] for record in records):
-            records.append(entry)
-            temporary = Path(str(registry) + f".{os.getpid()}.tmp")
-            temporary.write_text(json.dumps(records, indent=2))
-            os.replace(temporary, registry)
-        fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+def calibration_values(choice: CalibrationChoice) -> tuple[bool, float, float]:
+    if not choice.enabled or choice.model is None:
+        return False, 1.0, 0.0
+    return True, float(choice.model.coef_[0, 0]), float(choice.model.intercept_[0])
 
 
-def matrix(frame: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
-    output = frame.reindex(columns=columns).astype(np.float32)
-    return output.replace([np.inf, -np.inf], np.nan).reset_index(drop=True)
+def apply_calibration(values: np.ndarray, enabled: bool, coefficient: float, intercept: float) -> np.ndarray:
+    probabilities = np.clip(np.asarray(values, dtype=np.float64), 1e-5, 1.0 - 1e-5)
+    if not enabled:
+        return probabilities
+    logits = np.log(probabilities / (1.0 - probabilities))
+    transformed = coefficient * logits + intercept
+    return 1.0 / (1.0 + np.exp(-np.clip(transformed, -30.0, 30.0)))
 
 
-def load_context():
-    dataset_name = os.environ["RELBENCH_DATASET"]
-    task_name = os.environ["RELBENCH_TASK"]
-    dataset = get_dataset(dataset_name, download=False)
-    task = get_task(dataset_name, task_name, download=False)
-    db = dataset.get_db(upto_test_timestamp=False)
-    train = task.get_table("train", mask_input_cols=False).df.copy()
-    val = task.get_table("val", mask_input_cols=False).df.copy()
-    test = task.get_table("test").df.copy()
-    for frame in [train, val, test]:
-        frame["date"] = pd.to_datetime(frame["date"])
-    return task, db, train, val, test
-
-
-def prediction_cache_paths(root: Path, origin: pd.Timestamp) -> tuple[Path, Path]:
-    directory = root / FEATURE_VERSION / "prequential" / MODEL_VERSION
-    directory.mkdir(parents=True, exist_ok=True)
-    stamp = pd.Timestamp(origin).strftime("%Y%m%dT%H%M%S")
-    return directory / f"{stamp}.npz", directory / f"{stamp}.json"
-
-
-def read_prequential_cache(root: Path, origin: pd.Timestamp, drivers: np.ndarray) -> pd.DataFrame | None:
-    data_path, meta_path = prediction_cache_paths(root, origin)
-    if not data_path.exists() or not meta_path.exists():
+def load_selection(path: Path) -> Selection | None:
+    if not path.exists():
         return None
     try:
-        meta = json.loads(meta_path.read_text())
-        if meta.get("feature_version") != FEATURE_VERSION or meta.get("model_version") != MODEL_VERSION:
-            return None
-        if pd.Timestamp(meta["source_cutoff"]) > pd.Timestamp(origin):
-            return None
-        if pd.Timestamp(meta["auxiliary_cutoff"]) > pd.Timestamp(origin):
-            return None
-        if pd.Timestamp(meta["task_label_cutoff"]) + pd.Timedelta(days=30) > pd.Timestamp(origin):
-            return None
-        with np.load(data_path, allow_pickle=False) as values:
-            stored_drivers = values["driverId"].astype(int)
-            requested_drivers = drivers.astype(int)
-            if len(np.unique(stored_drivers)) != len(stored_drivers) or len(stored_drivers) != len(requested_drivers):
-                return None
-            order = pd.Index(stored_drivers).get_indexer(requested_drivers)
-            if np.any(order < 0):
-                return None
-            return pd.DataFrame({name: values[name][order] for name in ["m1", "m2", "m3", "m4", "disagreement_std", "disagreement_range", "calendar_khat", "rookie", "new_team"]})
+        data = json.loads(path.read_text())
+        return Selection(
+            policy=str(data["policy"]),
+            weights=np.asarray(data["weights"], dtype=np.float64),
+            sidecar_weights=np.asarray(data["sidecar_weights"], dtype=np.float64),
+            calibration_enabled=bool(data["calibration_enabled"]),
+            calibration_coefficient=float(data["calibration_coefficient"]),
+            calibration_intercept=float(data["calibration_intercept"]),
+            sidecar_calibration_enabled=bool(data["sidecar_calibration_enabled"]),
+            sidecar_calibration_coefficient=float(data["sidecar_calibration_coefficient"]),
+            sidecar_calibration_intercept=float(data["sidecar_calibration_intercept"]),
+            diagnostics=dict(data["diagnostics"]),
+        )
     except Exception:
         return None
 
 
-def write_prequential_cache(root: Path, origin: pd.Timestamp, drivers: np.ndarray, frame: pd.DataFrame, task_cutoff: pd.Timestamp, auxiliary_cutoff: pd.Timestamp) -> None:
-    data_path, meta_path = prediction_cache_paths(root, origin)
-    temp_data = Path(str(data_path) + f".{os.getpid()}.tmp")
-    temp_meta = Path(str(meta_path) + f".{os.getpid()}.tmp")
-    arrays = {name: frame[name].to_numpy(dtype=float) for name in ["m1", "m2", "m3", "m4", "disagreement_std", "disagreement_range", "calendar_khat", "rookie", "new_team"]}
-    arrays["driverId"] = drivers.astype(int)
-    with temp_data.open("wb") as handle:
-        np.savez_compressed(handle, **arrays)
-    meta = {
-        "feature_version": FEATURE_VERSION,
-        "model_version": MODEL_VERSION,
-        "origin": pd.Timestamp(origin).isoformat(),
-        "source_cutoff": pd.Timestamp(origin).isoformat(),
-        "task_label_cutoff": pd.Timestamp(task_cutoff).isoformat(),
-        "auxiliary_cutoff": pd.Timestamp(auxiliary_cutoff).isoformat(),
-        "contains_targets": False,
+def save_selection(path: Path, selection: Selection) -> None:
+    data = {
+        "policy": selection.policy,
+        "weights": selection.weights.tolist(),
+        "sidecar_weights": selection.sidecar_weights.tolist(),
+        "calibration_enabled": selection.calibration_enabled,
+        "calibration_coefficient": selection.calibration_coefficient,
+        "calibration_intercept": selection.calibration_intercept,
+        "sidecar_calibration_enabled": selection.sidecar_calibration_enabled,
+        "sidecar_calibration_coefficient": selection.sidecar_calibration_coefficient,
+        "sidecar_calibration_intercept": selection.sidecar_calibration_intercept,
+        "diagnostics": selection.diagnostics,
     }
-    temp_meta.write_text(json.dumps(meta))
-    os.replace(temp_data, data_path)
-    os.replace(temp_meta, meta_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(f".{os.getpid()}.json")
+    temporary.write_text(json.dumps(data, indent=2, sort_keys=True))
+    os.replace(temporary, path)
 
 
-def generate_prequential(train: pd.DataFrame, train_features: pd.DataFrame, event: pd.DataFrame, event_features: pd.DataFrame, columns: list[str], current_origin: pd.Timestamp, cache_root: Path) -> tuple[pd.DataFrame, dict]:
-    closed_limit = pd.Timestamp(current_origin) - pd.Timedelta(days=30)
-    trailing_limit = pd.Timestamp(current_origin) - pd.DateOffset(months=30)
-    origins = [pd.Timestamp(value) for value in sorted(train.loc[(train["date"] <= closed_limit) & (train["date"] >= trailing_limit), "date"].unique())]
-    parts = []
-    created = 0
-    for origin in origins:
-        target_mask = train["date"].eq(origin).to_numpy()
-        drivers = train.loc[target_mask, "driverId"].to_numpy(dtype=int)
-        cached = read_prequential_cache(cache_root, origin, drivers)
-        if cached is None:
-            task_mask = (train["date"] + pd.Timedelta(days=30) <= origin).to_numpy()
-            event_mask = (event["date"] <= origin).to_numpy()
-            if task_mask.sum() < 200 or np.unique(train.loc[task_mask, "did_not_finish"]).size < 2 or event_mask.sum() < 500:
-                continue
-            task_x = matrix(train_features.loc[task_mask], columns)
-            event_x = matrix(event_features.loc[event_mask], columns)
-            prediction_x = matrix(train_features.loc[target_mask], columns)
-            half_life, _ = select_half_life(task_x, train.loc[task_mask, "did_not_finish"].to_numpy(dtype=int), train.loc[task_mask, "date"].reset_index(drop=True), origin, cache_root, False)
-            predictions = fit_all_bases(
-                task_x,
-                train.loc[task_mask, "did_not_finish"].to_numpy(dtype=int),
-                train.loc[task_mask, "date"].reset_index(drop=True),
-                event_x,
-                event.loc[event_mask, "outcome_class"].to_numpy(dtype=int),
-                event.loc[event_mask, "date"].reset_index(drop=True),
-                prediction_x,
-                train_features.loc[target_mask].reset_index(drop=True),
-                origin,
-                half_life,
-                False,
-                True,
-            )
-            cached = base_frame(predictions, train_features.loc[target_mask].reset_index(drop=True))
-            task_cutoff = train.loc[task_mask, "date"].max()
-            auxiliary_cutoff = event.loc[event_mask, "date"].max()
-            write_prequential_cache(cache_root, origin, drivers, cached, task_cutoff, auxiliary_cutoff)
-            created += 1
-        cached = cached.copy()
-        cached["date"] = origin
-        cached["driverId"] = drivers
-        cached["target"] = train.loc[target_mask, "did_not_finish"].to_numpy(dtype=int)
-        parts.append(cached)
-    result = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
-    return result, {"origins": len(origins), "usable_origins": int(result["date"].nunique()) if len(result) else 0, "created": created}
+def tabpfn_oof(
+    runner: object,
+    matrix: np.ndarray,
+    labels: np.ndarray,
+    dates: pd.Series,
+    folds: list[tuple[np.ndarray, np.ndarray]],
+    policy: str,
+    maximum: int,
+    debug: bool,
+) -> tuple[np.ndarray, np.ndarray]:
+    predictions = np.full(len(labels), np.nan, dtype=np.float64)
+    fold_ids = np.full(len(labels), -1, dtype=np.int32)
+    for fold_id, (train_idx, valid_idx) in enumerate(folds):
+        predictions[valid_idx] = runner.predict(
+            matrix[train_idx],
+            labels[train_idx],
+            dates.iloc[train_idx],
+            matrix[valid_idx],
+            policy,
+            maximum,
+            3137 + fold_id,
+            debug,
+        )
+        fold_ids[valid_idx] = fold_id
+    return predictions, fold_ids
 
 
-def run_rolling(builder: FeatureBuilder, train: pd.DataFrame, test: pd.DataFrame, cache_root: Path, debug: bool) -> tuple[np.ndarray, dict]:
-    phase = time.time()
-    origin = pd.Timestamp(test["date"].max())
-    model_train = train[train["date"] >= origin - pd.DateOffset(years=2)].reset_index(drop=True) if debug else train.reset_index(drop=True)
-    train_features = build_features(builder, model_train[["date", "driverId"]], cache_root, "task", True, None if debug else "full_task")
-    test_features = build_features(builder, test[["date", "driverId"]], cache_root, "task", True)
-    event = builder.results[["date", "driverId", "outcome_class"]].copy().reset_index(drop=True)
-    if debug:
-        event = event[event["date"] >= origin - pd.DateOffset(years=2)].reset_index(drop=True)
-    event_features = build_features(builder, event[["date", "driverId"]], cache_root, "event", True, None if debug else "full_event")
-    columns = model_feature_columns(train_features)
-    print(f"[candidate] features rows={len(train_features)}/{len(event_features)}/{len(test_features)} cols={len(columns)} elapsed={time.time() - phase:.2f}s")
-    half_life, recency_diagnostics = (8.0, {"selected": "8", "mode": "debug"}) if debug else select_half_life(matrix(train_features, columns), model_train["did_not_finish"].to_numpy(dtype=int), model_train["date"].reset_index(drop=True), origin, cache_root, False)
-    phase = time.time()
-    predictions = fit_all_bases(
-        matrix(train_features, columns),
-        model_train["did_not_finish"].to_numpy(dtype=int),
-        model_train["date"].reset_index(drop=True),
-        matrix(event_features, columns),
-        event["outcome_class"].to_numpy(dtype=int),
-        event["date"].reset_index(drop=True),
-        matrix(test_features, columns),
-        test_features,
-        origin,
-        half_life,
-        debug,
-        not debug,
+def build_selection(
+    runner: object,
+    train_matrix: np.ndarray,
+    labels: np.ndarray,
+    dates: pd.Series,
+    sidecar_predictions: np.ndarray,
+    fold_ids: np.ndarray,
+    folds: list[tuple[np.ndarray, np.ndarray]],
+    sidecar_choice: object,
+    sidecar_calibrator: CalibrationChoice,
+    maximum: int,
+    debug: bool,
+) -> Selection:
+    policy_candidates: dict[str, tuple[np.ndarray, object]] = {}
+    for policy in ("balanced", "last"):
+        predictions, tab_fold_ids = tabpfn_oof(
+            runner, train_matrix, labels, dates, folds, policy, maximum, debug
+        )
+        choice = select_blend(predictions.reshape(-1, 1), labels, tab_fold_ids)
+        policy_candidates[policy] = (predictions, choice)
+    chosen_policy = max(policy_candidates, key=lambda name: policy_candidates[name][1].score)
+    tab_predictions, tab_choice = policy_candidates[chosen_policy]
+    stacked = np.column_stack([sidecar_predictions, tab_predictions])
+    blend_choice = select_blend(stacked, labels, fold_ids)
+    blend_oof = stacked @ blend_choice.weights
+    calibrator = fit_oof_calibrator(blend_oof, labels, fold_ids)
+    calibration_enabled, calibration_coefficient, calibration_intercept = calibration_values(calibrator)
+    sidecar_enabled, sidecar_coefficient, sidecar_intercept = calibration_values(sidecar_calibrator)
+    diagnostics = {
+        "context_policy_scores": {name: value[1].score for name, value in policy_candidates.items()},
+        "context_policy_fold_auc": {name: value[1].fold_scores for name, value in policy_candidates.items()},
+        "blend_objective": blend_choice.score,
+        "blend_fold_auc": blend_choice.fold_scores,
+        "sidecar_objective": sidecar_choice.score,
+        "sidecar_fold_auc": sidecar_choice.fold_scores,
+        "calibration_brier_raw": calibrator.brier_raw,
+        "calibration_brier_candidate": calibrator.brier_calibrated,
+        "sidecar_calibration_brier_raw": sidecar_calibrator.brier_raw,
+        "sidecar_calibration_brier_candidate": sidecar_calibrator.brier_calibrated,
+        "oof_slices": temporal_slice_metrics(blend_oof, labels, dates),
+    }
+    return Selection(
+        policy=chosen_policy,
+        weights=blend_choice.weights,
+        sidecar_weights=sidecar_choice.weights,
+        calibration_enabled=calibration_enabled,
+        calibration_coefficient=calibration_coefficient,
+        calibration_intercept=calibration_intercept,
+        sidecar_calibration_enabled=sidecar_enabled,
+        sidecar_calibration_coefficient=sidecar_coefficient,
+        sidecar_calibration_intercept=sidecar_intercept,
+        diagnostics=diagnostics,
     )
-    current = base_frame(predictions, test_features)
-    print(f"[candidate] bases stage_b={not debug} half_life={half_life} elapsed={time.time() - phase:.2f}s")
-    if debug:
-        final = fixed_blend(current)
-        adaptation = {"enabled": False, "reason": "debug_fixed_blend"}
-        prequential_diagnostics = {"origins": 0, "usable_origins": 0, "created": 0}
-    else:
-        phase = time.time()
-        current_drivers = test["driverId"].to_numpy(dtype=int)
-        if read_prequential_cache(cache_root, origin, current_drivers) is None:
-            write_prequential_cache(cache_root, origin, current_drivers, current, model_train["date"].max(), event["date"].max())
-        prequential, prequential_diagnostics = generate_prequential(model_train, train_features, event, event_features, columns, origin, cache_root)
-        final, adaptation = adaptive_blend(prequential, current)
-        print(f"[candidate] prequential {prequential_diagnostics} adaptive={adaptation.get('enabled', False)} elapsed={time.time() - phase:.2f}s")
-    diagnostics = {"rolling": True, "debug": debug, "features": len(columns), "half_life": half_life, "recency": recency_diagnostics, "prequential": prequential_diagnostics, "adaptation": adaptation}
-    return final, diagnostics
 
 
-def fit_static_chain(train: pd.DataFrame, train_features: pd.DataFrame, prediction_features: pd.DataFrame, event: pd.DataFrame, event_features: pd.DataFrame, event_cutoff: pd.Timestamp, origin: pd.Timestamp, cache_root: Path, debug: bool) -> tuple[np.ndarray, dict, list[str]]:
-    columns = model_feature_columns(train_features)
-    event_mask = (event["date"] <= event_cutoff).to_numpy()
-    half_life, recency = (8.0, {"selected": "8", "mode": "debug"}) if debug else select_half_life(matrix(train_features, columns), train["did_not_finish"].to_numpy(dtype=int), train["date"].reset_index(drop=True), origin, cache_root, False)
-    predictions = fit_all_bases(
-        matrix(train_features, columns),
-        train["did_not_finish"].to_numpy(dtype=int),
-        train["date"].reset_index(drop=True),
-        matrix(event_features.loc[event_mask], columns),
-        event.loc[event_mask, "outcome_class"].to_numpy(dtype=int),
-        event.loc[event_mask, "date"].reset_index(drop=True),
-        matrix(prediction_features, columns),
-        prediction_features,
-        origin,
-        half_life,
-        debug,
-        not debug,
-    )
-    return fixed_blend(base_frame(predictions, prediction_features)), {"half_life": half_life, "recency": recency}, columns
-
-
-def run_static(builder: FeatureBuilder, train: pd.DataFrame, val: pd.DataFrame, test: pd.DataFrame, cache_root: Path, debug: bool) -> tuple[np.ndarray, np.ndarray, dict]:
-    phase = time.time()
-    train_features = build_features(builder, train[["date", "driverId"]], cache_root, "task", False)
-    val_features = build_features(builder, val[["date", "driverId"]], cache_root, "task", False)
-    test_features = build_features(builder, test[["date", "driverId"]], cache_root, "task", False)
-    event = builder.results[["date", "driverId", "outcome_class"]].copy().reset_index(drop=True)
-    event_features = build_features(builder, event[["date", "driverId"]], cache_root, "event", False)
-    first_val = pd.Timestamp(val["date"].min())
-    val_prediction, val_diagnostics, columns = fit_static_chain(train, train_features, val_features, event, event_features, first_val, first_val, cache_root, debug)
-    combined = pd.concat([train, val], ignore_index=True)
-    combined_features = pd.concat([train_features, val_features], ignore_index=True)
-    first_test = pd.Timestamp(test["date"].min())
-    test_prediction, test_diagnostics, _ = fit_static_chain(combined, combined_features, test_features, event, event_features, pd.Timestamp(builder.db_max_date), first_test, cache_root, debug)
-    diagnostics = {"rolling": False, "debug": debug, "features": len(columns), "val_chain": val_diagnostics, "test_chain": test_diagnostics, "elapsed": time.time() - phase}
-    return val_prediction, test_prediction, diagnostics
+def write_metrics(directory: Path, payload: dict) -> None:
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "metrics.json").write_text(json.dumps(payload, indent=2, sort_keys=True))
 
 
 def main() -> None:
-    started = time.time()
-    debug = is_debug()
-    cache_root = shared_cache()
-    register_cache(cache_root)
-    task, db, train, val, test = load_context()
+    start = time.monotonic()
+    debug = "--debug" in sys.argv
+    run_directory = Path(os.environ.get("KAPSO_RUN_DATA_DIR", "output_data_generic_exp_1"))
+    run_directory.mkdir(parents=True, exist_ok=True)
+    shared = Path(os.environ.get("KAPSO_SHARED_CACHE_DIR", "output_data_generic_exp_1/shared"))
+    tables, train, val, test = read_snapshot()
     rolling = len(val) == 0
-    print(f"[candidate] mode={'rolling' if rolling else 'static'} debug={debug} train={len(train)} val={len(val)} test={len(test)}")
-    phase = time.time()
-    builder = FeatureBuilder(db)
-    print(f"[candidate] database prepared elapsed={time.time() - phase:.2f}s max_date={builder.db_max_date}")
-    output = output_directory()
-    if rolling:
-        prediction, diagnostics = run_rolling(builder, train, test, cache_root, debug)
-        np.save(output / "test_predictions.npy", np.asarray(prediction, dtype=float))
+    elapsed(start, "load_snapshot")
+    train_matrix, val_matrix, test_matrix = build_all_features(tables, [train, val, test], shared)
+    if train_matrix.shape[1] != len(FEATURE_NAMES) or len(FEATURE_NAMES) != 60:
+        raise RuntimeError(f"feature contract mismatch: {train_matrix.shape[1]} columns, {len(FEATURE_NAMES)} names")
+    elapsed(start, "build_60_features")
+    labels = train["did_not_finish"].to_numpy(dtype=np.int32)
+    target_matrix = test_matrix if rolling else val_matrix
+    selection_path = shared / "lane1_tabpfn_v2" / "selection" / f"{FEATURE_VERSION}_{'debug' if debug else 'full'}.json"
+    selection = load_selection(selection_path)
+    sidecar_predictions: np.ndarray | None = None
+    fold_ids: np.ndarray | None = None
+    folds: list[tuple[np.ndarray, np.ndarray]] | None = None
+    if selection is None:
+        sidecar_predictions, fold_ids, folds = sidecar_oof(train_matrix, labels, train["date"], debug, 1337)
+        sidecar_choice = select_blend(sidecar_predictions, labels, fold_ids)
+        sidecar_oof_blend = sidecar_predictions @ sidecar_choice.weights
+        sidecar_calibrator = fit_oof_calibrator(sidecar_oof_blend, labels, fold_ids)
+        fallback_weights = sidecar_choice.weights
+        fallback_calibration = calibration_values(sidecar_calibrator)
     else:
-        val_prediction, test_prediction, diagnostics = run_static(builder, train, val, test, cache_root, debug)
-        np.save(output / "val_predictions.npy", np.asarray(val_prediction, dtype=float))
-        np.save(output / "test_predictions.npy", np.asarray(test_prediction, dtype=float))
-    diagnostics["total_elapsed"] = time.time() - started
-    (output / "metrics.json").write_text(json.dumps(diagnostics, default=str))
-    print(f"[candidate] saved test={len(test)} elapsed={time.time() - started:.2f}s")
+        fallback_weights = selection.sidecar_weights
+        fallback_calibration = (
+            selection.sidecar_calibration_enabled,
+            selection.sidecar_calibration_coefficient,
+            selection.sidecar_calibration_intercept,
+        )
+    model_a = fit_sidecars(train_matrix, labels, debug, 1737)
+    target_sidecars = predict_sidecars(model_a, target_matrix)
+    fallback_target = apply_calibration(target_sidecars @ fallback_weights, *fallback_calibration)
+    if rolling:
+        fallback_test = fallback_target
+        fallback_validation = None
+        model_b = None
+        test_sidecars = None
+        combined_matrix = None
+        combined_labels = None
+        combined_dates = None
+    else:
+        fallback_validation = fallback_target
+        combined_matrix = np.vstack([train_matrix, val_matrix])
+        combined_labels = np.concatenate([labels, val["did_not_finish"].to_numpy(dtype=np.int32)])
+        combined_dates = pd.concat([train["date"], val["date"]], ignore_index=True)
+        model_b = fit_sidecars(combined_matrix, combined_labels, debug, 2137)
+        test_sidecars = predict_sidecars(model_b, test_matrix)
+        fallback_test = apply_calibration(test_sidecars @ fallback_weights, *fallback_calibration)
+    elapsed(start, "sidecar_ready")
+    if fallback_validation is not None:
+        np.save(run_directory / "val_predictions.npy", np.clip(fallback_validation, 1e-5, 1.0 - 1e-5).astype(np.float64))
+    np.save(run_directory / "test_predictions.npy", np.clip(fallback_test, 1e-5, 1.0 - 1e-5).astype(np.float64))
+    validation_prediction = fallback_validation
+    test_prediction = fallback_test
+    target_components = target_sidecars
+    tabpfn_status = "fallback_disabled"
+    checkpoint_seconds = 0.0
+    tabpfn_seconds = 0.0
+    debug_probe_origin = bool(
+        len(test)
+        and pd.Timestamp(test["date"].iloc[0]).month == 3
+        and pd.Timestamp(test["date"].iloc[0]).day == 2
+    )
+    run_tabpfn = os.environ.get("KAPSO_DISABLE_TABPFN") != "1" and not (debug and rolling and not debug_probe_origin)
+    if debug and rolling and not debug_probe_origin:
+        tabpfn_status = "debug_sidecar_cut"
+    if run_tabpfn:
+        tab_start = time.monotonic()
+        try:
+            from tabpfn_support import TabPFNRunner, ensure_tabpfn
+
+            checkpoint, checkpoint_seconds = ensure_tabpfn(shared)
+            runner = TabPFNRunner(checkpoint, 2 if debug else 4, 2737)
+            maximum = 2000 if debug else 9500
+            if selection is None:
+                if sidecar_predictions is None or fold_ids is None or folds is None:
+                    raise RuntimeError("forward selection state unavailable")
+                sidecar_choice = select_blend(sidecar_predictions, labels, fold_ids)
+                sidecar_calibrator = fit_oof_calibrator(sidecar_predictions @ sidecar_choice.weights, labels, fold_ids)
+                selection = build_selection(
+                    runner,
+                    train_matrix,
+                    labels,
+                    train["date"],
+                    sidecar_predictions,
+                    fold_ids,
+                    folds,
+                    sidecar_choice,
+                    sidecar_calibrator,
+                    maximum,
+                    debug,
+                )
+                save_selection(selection_path, selection)
+            tab_target = runner.predict(
+                train_matrix,
+                labels,
+                train["date"],
+                target_matrix,
+                selection.policy,
+                maximum,
+                4137,
+                debug,
+            )
+            target_components = np.column_stack([target_sidecars, tab_target])
+            target_raw = target_components @ selection.weights
+            target_final = apply_calibration(
+                target_raw,
+                selection.calibration_enabled,
+                selection.calibration_coefficient,
+                selection.calibration_intercept,
+            )
+            if rolling:
+                test_prediction = target_final
+            else:
+                validation_prediction = target_final
+                if combined_matrix is None or combined_labels is None or combined_dates is None or test_sidecars is None:
+                    raise RuntimeError("static model B state unavailable")
+                tab_test = runner.predict(
+                    combined_matrix,
+                    combined_labels,
+                    combined_dates,
+                    test_matrix,
+                    selection.policy,
+                    maximum,
+                    5137,
+                    debug,
+                )
+                test_components = np.column_stack([test_sidecars, tab_test])
+                test_raw = test_components @ selection.weights
+                test_prediction = apply_calibration(
+                    test_raw,
+                    selection.calibration_enabled,
+                    selection.calibration_coefficient,
+                    selection.calibration_intercept,
+                )
+            tabpfn_seconds = time.monotonic() - tab_start
+            tabpfn_status = "pinned_v2"
+        except Exception as error:
+            tabpfn_seconds = time.monotonic() - tab_start
+            tabpfn_status = f"sidecar_fallback:{type(error).__name__}:{str(error)[:160]}"
+            print(f"[lane1] TabPFN fallback activated: {type(error).__name__}: {str(error)[:160]}", flush=True)
+    validation_prediction = None if validation_prediction is None else np.clip(validation_prediction, 1e-5, 1.0 - 1e-5)
+    test_prediction = np.clip(test_prediction, 1e-5, 1.0 - 1e-5)
+    elapsed(start, "tabpfn_or_fallback")
+    if validation_prediction is not None:
+        np.save(run_directory / "val_predictions.npy", validation_prediction.astype(np.float64))
+    np.save(run_directory / "test_predictions.npy", test_prediction.astype(np.float64))
+    diagnostic_frame = test if rolling else val
+    origin = pd.Timestamp(diagnostic_frame["date"].min()).strftime("%Y%m%dT%H%M%S") if len(diagnostic_frame) else "empty"
+    diagnostic_path = shared / "lane1_tabpfn_v2" / "diagnostics" / f"{FEATURE_VERSION}_{'debug' if debug else 'full'}_{origin}.npz"
+    diagnostic_payload = {
+        "dates_ns": pd.to_datetime(diagnostic_frame["date"]).to_numpy(dtype="datetime64[ns]").astype(np.int64),
+        "driver_ids": diagnostic_frame["driverId"].to_numpy(dtype=np.int64),
+        "logistic": target_sidecars[:, 0],
+        "lightgbm": target_sidecars[:, 1],
+        "blend": test_prediction if rolling else validation_prediction,
+    }
+    if target_components.shape[1] == 3:
+        diagnostic_payload["tabpfn"] = target_components[:, 2]
+    save_diagnostics(diagnostic_path, diagnostic_payload)
+    metrics = {
+        "feature_version": FEATURE_VERSION,
+        "feature_count": len(FEATURE_NAMES),
+        "rolling": rolling,
+        "debug": debug,
+        "train_rows": len(train),
+        "train_origins": int(train["date"].nunique()),
+        "tabpfn_status": tabpfn_status,
+        "tabpfn_checkpoint_seconds": checkpoint_seconds,
+        "tabpfn_total_seconds": tabpfn_seconds,
+        "selection_policy": None if selection is None else selection.policy,
+        "blend_weights": None if selection is None else selection.weights.tolist(),
+        "selection_diagnostics": {} if selection is None else selection.diagnostics,
+        "elapsed_seconds": time.monotonic() - start,
+    }
+    write_metrics(run_directory, metrics)
+    elapsed(start, "write_predictions")
+    weights = fallback_weights.tolist() if selection is None else selection.weights.tolist()
+    print(
+        f"[lane1] wrote {'rolling ' if rolling else ''}predictions test{test_prediction.shape} "
+        f"weights={weights} tabpfn={tabpfn_status}",
+        flush=True,
+    )
 
 
 if __name__ == "__main__":

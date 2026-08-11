@@ -3,70 +3,105 @@
   "task": "study-outcome",
   "family": "entity_binary_classification",
   "primary_metric": "roc_auc",
-  "selected_by": "max rescored validation roc_auc among head-stamped final runs (evaluator 79232da6a2af)",
-  "run": "run_0018",
-  "head_evaluator_id": "79232da6a2afc08f95f5d42e05f03126e7522bd6d997def1fce47d8d7a35af3e",
+  "selected_by": "max rescored validation roc_auc among head-stamped final runs (evaluator 88d9dc57f399)",
+  "run": "run_0010",
+  "head_evaluator_id": "88d9dc57f399d143c493dfc3730cbdb2016a09355abfd8a677272e7eb08bf2e3",
   "scored": {
-    "run_0006": 0.7148128788995662,
-    "run_0007": 0.6991140953989251,
-    "run_0009": 0.6963442474278388,
-    "run_0012": 0.7144286741809962,
-    "run_0014": 0.7181322289681423,
-    "run_0018": 0.7217330313305546,
-    "run_0020": 0.7194054655354964,
-    "run_0021": 0.7190748707776571,
-    "run_0022": 0.7141226506551585
+    "run_0010": 0.7160894500733125,
+    "run_0011": 0.7086049442079723,
+    "run_0012": 0.7051543144657122,
+    "run_0013": 0.7093294133716518
   },
-  "excluded": {},
+  "excluded": {
+    "run_0003": "final under evaluator 728d6bc7a4c9, not head 88d9dc57f399 \u2014 never re-ranked across rulers",
+    "run_0006": "final under evaluator 728d6bc7a4c9, not head 88d9dc57f399 \u2014 never re-ranked across rulers",
+    "run_0007": "final under evaluator 728d6bc7a4c9, not head 88d9dc57f399 \u2014 never re-ranked across rulers",
+    "run_0008": "final under evaluator 728d6bc7a4c9, not head 88d9dc57f399 \u2014 never re-ranked across rulers"
+  },
   "val_metrics": {
-    "average_precision": 0.7863562131857363,
-    "accuracy": 0.6604166666666667,
-    "f1": 0.7362459546925566,
-    "roc_auc": 0.7217330313305546
+    "average_precision": 0.7959014753052818,
+    "accuracy": 0.6443938941478209,
+    "f1": 0.6778694310333933,
+    "roc_auc": 0.7160894500733125
   },
   "test_metrics": {
-    "average_precision": 0.8130260227632609,
-    "accuracy": 0.7006060606060606,
-    "f1": 0.7542288557213931,
-    "roc_auc": 0.7568135314130737
+    "average_precision": 0.8094095970994792,
+    "accuracy": 0.6787878787878788,
+    "f1": 0.7045707915273133,
+    "roc_auc": 0.7587598222609664
   },
   "audit": {
-    "clean": true,
+    "clean": false,
     "findings": [
       {
-        "file": "graph_fusion.py",
-        "line": 35,
-        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
-        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
-        "snippet": "combined = pd.concat([train[[\"timestamp\", \"nct_id\"]], val[[\"timestamp\", \"nct_id\"]], test[[\"timestamp\", \"nct_id\"]]], ignore_index=True)"
+        "file": "ensemble_pipeline.py",
+        "line": 170,
+        "pattern": "RELBENCH_CACHE_DIR",
+        "concern": "tampers with the data cache location",
+        "snippet": "task_root = Path(os.environ[\"RELBENCH_CACHE_DIR\"]) / \"rel-trial\" / \"tasks\" / \"study-outcome\""
       },
       {
-        "file": "main.py",
-        "line": 130,
-        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
-        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
-        "snippet": "train_ids_b_all = np.concatenate([train_ids_all, val_ids])"
+        "file": "ensemble_pipeline.py",
+        "line": 246,
+        "pattern": "RELBENCH_CACHE_DIR",
+        "concern": "tampers with the data cache location",
+        "snippet": "task_root = Path(os.environ[\"RELBENCH_CACHE_DIR\"]) / \"rel-trial\" / \"tasks\" / \"study-outcome\""
       },
       {
-        "file": "modeling.py",
-        "line": 173,
-        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
-        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
-        "snippet": "x_train, x_valid, _ = dense_matrices(pd.concat([train_numeric, valid_numeric]), categories, train_ids, valid_ids)"
+        "file": "feature_pipeline.py",
+        "line": 480,
+        "pattern": "RELBENCH_CACHE_DIR",
+        "concern": "tampers with the data cache location",
+        "snippet": "root = Path(os.environ[\"RELBENCH_CACHE_DIR\"]) / \"rel-trial\""
       },
       {
-        "file": "modeling.py",
-        "line": 258,
+        "file": "model_pipeline.py",
+        "line": 103,
         "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
         "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
-        "snippet": "train_numeric, valid_numeric = compose_numeric(structured, neighbors, np.concatenate([fit_ids, valid_ids]), design, pca_train, pca_valid, fit_ids, valid_ids, count_train, count_valid, seed"
+        "snippet": "selected = np.concatenate([training, evaluation])"
+      },
+      {
+        "file": "model_pipeline.py",
+        "line": 147,
+        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
+        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
+        "snippet": "selected = np.concatenate([training, evaluation])"
+      },
+      {
+        "file": "trial2vec_pipeline.py",
+        "line": 104,
+        "pattern": "RELBENCH_CACHE_DIR",
+        "concern": "tampers with the data cache location",
+        "snippet": "configured = os.environ.get(\"RELBENCH_CACHE_DIR\")"
+      },
+      {
+        "file": "trial2vec_pipeline.py",
+        "line": 763,
+        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
+        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
+        "snippet": "train_dense = np.concatenate([train_pooled, train_retrieval], axis=1)"
+      },
+      {
+        "file": "trial2vec_pipeline.py",
+        "line": 1304,
+        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
+        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
+        "snippet": "all_entities = pd.concat([train_entities, val_entities, test_entities], ignore_index=True)"
+      },
+      {
+        "file": "trial2vec_pipeline.py",
+        "line": 1346,
+        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
+        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
+        "snippet": "labels_train_val = np.concatenate([labels_train, val.outcome.to_numpy(np.int64)])"
       }
     ],
     "note": "static scan; manually review flagged lines before publishing results. 'verify:' findings are advisory OOS-contract review hooks (legal patterns that warrant tracing), not violations."
   },
-  "code_path": "/home/ubuntu/kapso/tmp/relbench/rel-trial--study-outcome/runs/run_0018/code",
+  "code_path": "/home/ubuntu/kapso/tmp/relbench/rel-trial--study-outcome/runs/run_0010/code",
   "predictions": {
-    "val": "/home/ubuntu/kapso/tmp/relbench/rel-trial--study-outcome/runs/run_0018/val_predictions.npy",
-    "test": "/home/ubuntu/kapso/tmp/relbench/rel-trial--study-outcome/runs/run_0018/test_predictions.npy"
+    "val": "/home/ubuntu/kapso/tmp/relbench/rel-trial--study-outcome/runs/run_0010/val_predictions.npy",
+    "test": "/home/ubuntu/kapso/tmp/relbench/rel-trial--study-outcome/runs/run_0010/test_predictions.npy"
   }
 }

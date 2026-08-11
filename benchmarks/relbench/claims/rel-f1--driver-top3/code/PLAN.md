@@ -1,12 +1,11 @@
-TIME ALLOCATION: Critical-path artifact is the exact-label pseudo-window feature replay; target at least 100 cached origins/minute and one rolling tick under 8 seconds.
-CONFIRMATION POINTS: exact official-label equality plus pseudo-profile, four-fold paired-bootstrap gate, then one debug insurance run.
-FREEZE TIME: stop design changes with 40 minutes remaining and reserve that interval for one foreground full evaluation, manifest capture, and audit.
-
-Revision after registered fast: growing histories reduced cached throughput from 109 to 84 origins/second and raised ticks from 7.64 to 12.14 seconds; the measured full-run bound is now 13 seconds per tick, still leaving more than 100 minutes of timeout margin.
+TIME ALLOCATION: Critical-path artifact is the winter/constructor causal frame plus dense exact pre-opener origins; target at least 1 warm rolling origin/second and all three gates inside 60 minutes.
+CONFIRMATION POINTS: one static debug gate with four prequential years, one rolling-tick contract/rate check, then the registered full artifact before evaluating any official-score-driven revision.
+FREEZE TIME: 2026-08-10 20:05 UTC, reserving the final 45 minutes for the internally selected full run, contract checks, documentation, and archive verification.
 
 # Plan
 
-1. Profile scorer mechanics and metadata-level input strata.
-2. Implement exact synthetic grids, overlap and recency weighting, compact logistic/tree candidates, and the count offset.
-3. Verify temporal contracts, replay gates, slice diagnostics, and prediction shapes in debug mode.
-4. Run the immutable registered evaluator once at full fidelity and record all output.
+1. Confirm run_0002 promotion, extend the persisted input profile, and freeze the 2001–2004 prequential gate.
+2. Build synthetic opener origins and the three cumulative constructor-season feature prefixes.
+3. Run the clustered bootstrap gate and retain only prefixes satisfying the predeclared thresholds.
+4. Run debug contract checks followed by the registered full evaluation.
+5. Record every gate, table finding, code change, and archived artifact verification.

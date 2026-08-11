@@ -2,40 +2,35 @@
 
 ## Mechanics
 
-- The immutable grader invokes `main.py` once for every rolling snapshot, first for 26 validation ticks and then for 29 test ticks.
-- Each invocation sees an already-censored snapshot. Its task validation table is empty and its task test table contains only the current tick's rows. The candidate must write only `test_predictions.npy` for the tick.
-- The grader concatenates tick vectors, restores official order through each snapshot's `indices.npy`, pools all 566 validation rows, and computes official RelBench metrics. Full and fast fidelity both score every validation row; `fraction` does not subsample.
-- The primary metric is pooled ROC AUC. Average precision, accuracy, and F1 are also reported. Test labels are absent and test metrics remain hidden.
-- The full timeout is 7,200 seconds for all 55 invocations together; debug is 900 seconds. The candidate controls its models and predictions but not scoring thresholds or aggregation.
+- The immutable grader invokes `main.py` once for each rolling snapshot and assembles 26 validation origins and 29 hidden-test origins in original row order.
+- Each tick exposes a date-truncated database, all label windows closed by that date in `train.parquet`, an empty `val.parquet`, and only current-origin inputs in `test.parquet`.
+- The official selection score is validation ROC AUC over all 566 rows. Average precision, accuracy, and F1 are also reported. The fidelity fraction does not subsample scoring rows.
+- The candidate must use direct snapshot data or `upto_test_timestamp=False`; static-freeze clamping would silently discard post-2009 rolling history.
 
-## Input distribution
+## Input profile
 
-| Split | Rows | Origins | Rows/origin mean | Rows/origin range | Positive rate | Unique drivers |
-|---|---:|---:|---:|---:|---:|---:|
-| train | 11,411 | 420 | 27.17 | 10-65 | 0.8804 | 780 |
-| validation | 566 | 26 | 21.77 | 20-24 | 0.7792 | 42 |
-| test | 702 | 29 | 24.21 | 22-26 | unavailable | 42 |
+| split | rows | origins | rows/origin | date range | positive rate |
+|---|---:|---:|---:|---|---:|
+| train | 11,411 | 420 | mean 27.17, range 10–65 | 1950-05-20 to 2004-10-03 | 0.8804 |
+| validation | 566 | 26 | mean 21.77, range 20–24 | 2005-03-02 to 2008-03-16 | 0.7792 |
+| test inputs | 702 | 29 | mean 24.21, range 22–26 | 2010-03-02 to 2013-03-16 | hidden |
 
-Training origins span 1950-05-20 through 2004-10-03. Validation origins span 2005-03-02 through 2008-03-16. Test origins span 2010-03-02 through 2013-03-16. Training driver frequency is highly skewed: median 5 rows, mean 14.63, maximum 144. Validation cohort label rates range from 0.45 to 0.9565.
+The train positive rate by decade is 0.861, 0.876, 0.876, 0.920, 0.884, and 0.818 for the 1950s through 2000s. Validation rates are 0.788 in 2005, 0.809 in 2006, 0.736 in 2007, and 0.864 for its single 2008 origin. Origin-level rates vary sharply, from 0.45 to 0.96 in validation.
 
-The static database contains 820 races and 20,323 result rows through 2009-11-01. Results have an exact finish rate of 0.2150; the three proposed classes contain 4,369 finish, 5,380 status-11-through-19, and 10,574 other rows. Qualifying begins only in 1994 and has 4,082 rows, so an availability indicator is required. Position, milliseconds, fastest-lap, and rank fields have substantial missingness.
+The database has 20,323 results across 820 races. Status 1 accounts for 4,369 results; its share rises from roughly 0.17–0.21 in the 1950s–1970s to 0.382 in the 2000s. Recent seasons contain 16–19 races, and race intervals have a median of 14 days.
 
 ## Coverage axes
 
-- Seed-time cohort and calendar regime.
-- Rich versus sparse driver history and rookie status.
-- Current constructor, recent team switch, and team tenure.
-- Driver, constructor, circuit, and driver-constructor reliability state.
-- Qualifying and standings availability.
-- Expected number of races in the next 30 days.
-- Within-field relative strength and field dispersion.
-- Off-season versus in-season cadence and circuit uncertainty.
-- Validation temporal shift in class balance relative to long-run training.
+- Era and reliability regime, especially the 2000s shift toward more finishers.
+- Driver, constructor, and driver–constructor history density and recency.
+- Failure type: status 11–19, status 3/4/20, and other non-finish statuses.
+- Current form, standings level/trend, constructor momentum, and team switches.
+- Calendar phase, recent circuit transitions, and expected races in the next 30 days.
+- Within-origin competition among roughly 20–26 active drivers.
+- Sparse early-era records versus rich modern records and missing pre-1994 qualifying history.
 
-The supplied coverage counts claimed 26 validation and 29 test origins, which match measurement. The task overview's statement of 40 evaluation timestamps is not the split-specific count exposed by the registered rolling harness. The score-bounding artifact is the legal prequential base-prediction cache: without enough recent closed origins, adaptation falls back to the fixed M1/M2 blend.
+The solution assumption that origin-balanced context can beat the latest 9,500 rows is plausible but unmeasured; it will be decided on forward training folds only. Four-estimator TabPFN runtime is also unmeasured and must pass the timing gate before full rolling evaluation.
 
-This profile is stored outside `kapso_evaluation/` because that directory is evaluator-owned and immutable under the task's anti-tampering rules.
+## Critical path
 
-## First full measurement
-
-`run_0004` scored validation ROC AUC 0.8050249433, average precision 0.9346666527, accuracy 0.7985865724, and F1 0.8794926004. Slice results and the required resolution/representativeness diagnostics are recorded in `evaluation_results.md`.
+The score-bounding artifact is the per-tick TabPFN prediction because the full evaluator needs 55 independent invocations within 7,200 seconds. The confirmation target is at most 45 seconds per tick after checkpoint setup, leaving substantial evaluator and feature-building margin.
