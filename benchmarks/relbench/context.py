@@ -301,6 +301,14 @@ Experimentation notes for this search:
   $KAPSO_SHARED_CACHE_DIR. How to spend the remaining budget is your call.
 - Every iteration, before anything else: read features_history.md and apply the
   FEATURE ENGINEERING rules above — new features first, all tables covered.
+- When the schema has text columns, your FIRST full evaluation must EXECUTE the
+  LLM text measurement of modelling practice 8: the run itself makes a
+  non-empty batch of hosted-LLM calls — feature extraction over the text, or
+  direct classification, whichever you designed — and your logs report how
+  many calls were made and the measured score of the resulting features.
+  Code that is wired up but makes zero calls at run time is not the
+  measurement; a campaign must not reach final selection without this
+  comparison having actually run.
 """
 
 
