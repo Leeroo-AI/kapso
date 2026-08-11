@@ -56,9 +56,8 @@ modes:
         # the ensemble codex member and the luna litellm roles stay at xhigh
         # (their model ceiling — max is Claude-only, per the ioai configs).
         effort: "max"
-        # No fixed session caps: ideation's deadline is the whole run budget
-        # (live-clamped to what remains); implementation is shaped from the
-        # session_budget fraction of the run size (see below), live-clamped.
+        # No session caps at all: ideation and implementation deadlines are
+        # the whole run budget, live-clamped to what actually remains.
         # Only local, dependency-free gates. `research` and `leeroopedia`
         # need external backends we don't ship in the container. The coding
         # agent still has Claude Code's built-in WebSearch/WebFetch, which is
@@ -106,17 +105,12 @@ modes:
           model: "claude-fable-5"
           effort: "max"
 
-    # Wall-clock shaping, read by benchmarks/posttrain/runner.py (not by
-    # kapso core): per-session deadlines scale with the run size — these
-    # fractions/floors are the ONLY shaping (no fixed ceilings; a fixed cap
-    # dominated short runs — live run #6: a 30-minute ideation cap consumed
-    # 77% of a 39-minute budget — and truncated long ones at 5h). Ideation
-    # carries NO shaping at all: its deadline is the whole run budget and
-    # the orchestrator's live clamp (what actually remains) is its only
-    # bound. At 10h: implementation 7.5h.
+    # Wall-clock reserves, read by benchmarks/posttrain/runner.py (not by
+    # kapso core). Session deadlines carry NO shaping: ideation and
+    # implementation both get the whole run budget as their deadline, and
+    # the orchestrator's live clamp (what actually remains after reserves)
+    # is the only bound — a single session may run the entire budget.
     session_budget:
-      implementation_fraction: 0.75
-      implementation_min_seconds: 1800
       finalization_reserve_fraction: 0.10
       finalization_reserve_min_minutes: 5
       finalization_reserve_max_minutes: 15

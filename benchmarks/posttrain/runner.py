@@ -54,27 +54,21 @@ def parse_timer(task_dir: str):
 
 
 def shape_session_timeouts(mode_cfg: dict, total_run_seconds: float) -> dict:
-    """Scale per-session deadlines to the run size.
+    """Per-session deadlines: the whole run budget, nothing less.
 
-    A fixed cap misbehaves at both ends: it dominates short runs (live run
-    #6: a 30-minute ideation cap consumed 77% of a 39-minute budget) and
-    artificially truncates long ones (a 5h implementation ceiling cut 10h
-    runs' sessions mid-flight). Sessions are therefore shaped ONLY by
-    run-size fractions with floors — no fixed ceilings — and the
-    orchestrator's live budget clamp still bounds every session by what
-    actually remains. Derived from the run's TOTAL budget, not live
-    remaining, so a resumed campaign recomputes identical values and
-    passes strict resume checks.
+    No fixed caps and no fractions — both session deadlines equal the total
+    run budget, and the orchestrator's live clamp (what actually remains
+    after reserves) is the only real bound. History: fixed caps dominated
+    short runs (live run #6: a 30-minute ideation cap consumed 77% of a
+    39-minute budget) and truncated long ones (a 5h implementation ceiling
+    cut 10h runs' sessions mid-flight); fraction shaping was then dropped
+    too so a single session may use everything that remains. Derived from
+    the run's TOTAL budget so a resumed campaign recomputes identical
+    values and passes strict resume checks.
     """
-    knobs = mode_cfg["session_budget"]
     return {
-        # Ideation is unshaped: its deadline is the whole run budget, so the
-        # orchestrator's live clamp (what actually remains) is the only bound.
         "ideation_timeout": int(total_run_seconds),
-        "implementation_timeout": int(max(
-            knobs["implementation_min_seconds"],
-            total_run_seconds * knobs["implementation_fraction"],
-        )),
+        "implementation_timeout": int(total_run_seconds),
     }
 
 
