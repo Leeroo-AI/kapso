@@ -53,5 +53,6 @@ def test_iteration_admission_floor_survives_runtime_config(tmp_path):
     # R10-P2-2: the core reserve gate reads budget.min_iteration_seconds;
     # losing this key in the runtime-config round-trip silently reverts to
     # the 60s default that admitted a doomed iteration at 96.6% budget.
+    # (900s since the tail trim — the floor must stay well above 60s.)
     mode_cfg = load_runtime_mode_config(tmp_path)
-    assert mode_cfg["budget"]["min_iteration_seconds"] == 1800
+    assert mode_cfg["budget"]["min_iteration_seconds"] == 900

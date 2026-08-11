@@ -113,7 +113,7 @@ modes:
     session_budget:
       finalization_reserve_fraction: 0.10
       finalization_reserve_min_minutes: 5
-      finalization_reserve_max_minutes: 15
+      finalization_reserve_max_minutes: 10
       # Held OUTSIDE the orchestrator budget for the runner's finally-block
       # (final_model verify/copy) before the harness hard-kills the process.
       guard_minutes: 5
@@ -123,10 +123,12 @@ modes:
     # reserve. Run #10 (R10-P2-2): with the 60s default, a doomed iteration
     # was admitted at 96.6% budget — ideation ran, the implementation got a
     # 60s slot, and its killed session stranded an eval process on the GPU
-    # into the official-eval window. 30 min is the smallest slot in which a
-    # train+eval cycle does useful work on this benchmark.
+    # into the official-eval window. 15 min still holds a quick targeted
+    # train or robustness/eval pass; the 30-min floor plus the 15-min
+    # reserve left ~50 min of every run structurally unused (the arena-1.7B
+    # early-stop flag), so the tail is trimmed to floor+reserve ≈ 25 min.
     budget:
-      min_iteration_seconds: 1800
+      min_iteration_seconds: 900
 
     # Litellm roles (repo memory, insight extraction). Rich form: the role's
     # reasoning_effort applies to every call resolved through it — these call
