@@ -36,7 +36,7 @@ Values in the best-known number's units (AUROC/acc/MAP in %, NMAE, R², raw MAE)
 | 5 | rel-f1/driver-position ⚠ | reg | v1★ | 0.374 (PluRel-ft) | 0.572 | 0.389 | 0.391 | 0.406 | 0.344 | ✅ beats best-known | 4xA100 | 6h | ✅ done |
 | 9 | rel-event/user-repeat | clf | v1★ | 83.6 (GelGT) | 78.2 | 80.6 | 76.1 | 81.7 | — | — | CPU-ok | 2h | · pending |
 | 10 | rel-event/user-ignore | clf | v1★ | 91.2 (PluRel-ft) | 87.2 | 89.4 | 89.2 | 90.8 | — | — | CPU-ok | 2h | · pending |
-| 11 | rel-f1/driver-dnf ⚠ | clf | v1★ | 84.6 (KumoRFM-2) | 78.3 | 82.6 | 82.4 | 84.6 | 82.7 | below best-known | 4xA100 | 6h | ✅ done |
+| 11 | rel-f1/driver-dnf ⚠ | clf | v1★ | 84.6 (KumoRFM-2) | 78.3 | 82.6 | 82.4 | 84.6 | 83.3 | below best-known | 4xA100 | 12h | ✅ done |
 | 21 | rel-trial/study-adverse | reg | v1★ | 0.11 (RelAgent) | 0.11 | 0.13 | 0.172 | 0.128 | 0.0872 | ✅ beats best-known | 4xA100 | 6h | ✅ done |
 | 22 | rel-avito/ad-ctr | reg | v1★ | 0.345 (RelAgent) | 0.345 | 0.355 | 0.366 | 0.355 | 0.334 | ✅ beats best-known | 4xA100 | 6h | ✅ done |
 | 23 | rel-trial/study-outcome | clf | v1★ | 94.6 (PluRel-ft) | 71.9 | 71.2 | 70.8 | 72 | 75.9 | below best-known | 4xA100 | 12h | ✅ done |
@@ -109,7 +109,7 @@ Complete campaign state per run — session transcripts, lens/ideation history, 
 |---|---|
 | rel-event/user-attendance | `gs://leeroo-kapso-relbench-artifacts/runs/rel-event--user-attendance/20260730T223947_lane-a1.tgz` |
 | rel-f1/driver-position | `gs://leeroo-kapso-relbench-artifacts/runs/rel-f1--driver-position/20260730T221816_lane-a2.tgz` |
-| rel-f1/driver-dnf | `gs://leeroo-kapso-relbench-artifacts/runs/rel-f1--driver-dnf/20260810T021820_lane-c3.tgz` |
+| rel-f1/driver-dnf | `gs://leeroo-kapso-relbench-artifacts/runs/rel-f1--driver-dnf/20260811T002323_lane-c9.tgz` |
 | rel-trial/study-adverse | `gs://leeroo-kapso-relbench-artifacts/runs/rel-trial--study-adverse/20260730T070548_lane-b.tgz` |
 | rel-avito/ad-ctr | `gs://leeroo-kapso-relbench-artifacts/runs/rel-avito--ad-ctr/20260730T223905_lane-b3.tgz` |
 | rel-trial/study-outcome | `gs://leeroo-kapso-relbench-artifacts/runs/rel-trial--study-outcome/20260810T222559_lane-c5.tgz` |
