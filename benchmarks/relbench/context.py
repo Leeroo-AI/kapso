@@ -458,7 +458,18 @@ MODELLING_PRACTICE_NOTE = (
     "And never let a stacker learn a sparse-slice weight from a validation "
     "set dominated by the rich slice — a stacker that drives the sparse "
     "expert to zero is usually mis-calibrated on that slice, not proof the "
-    "expert is worthless (calibrate per-slice, practice 5)."
+    "expert is worthless (calibrate per-slice, practice 5).\n"
+    "8. TEXT COLUMNS: CALL AN LLM TO GET THE SIGNAL OUT. An OpenAI key is "
+    "present in the environment (OPENAI_API_KEY); credits are free — do not "
+    "optimise for or worry about API cost. Whenever the schema has text "
+    "columns, use a cheap hosted model (e.g. gpt-5.6-luna at low or medium "
+    "reasoning effort) for whatever extracts the signal: score or "
+    "categorise each row's text, pull structured attributes out as tabular "
+    "features, classify rows directly with the LLM, embed, or anything "
+    "else that helps. For efficiency, send rows batch-wise (many rows per "
+    "request) and cache responses on disk keyed by the input text, so "
+    "iterations and re-runs never re-pay the same call. Text entering a "
+    "call obeys the same as-of-cutoff discipline as any feature."
 )
 
 ROLLING_CONTRACT_NOTE = (
