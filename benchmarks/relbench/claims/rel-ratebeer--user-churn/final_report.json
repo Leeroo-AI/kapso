@@ -1,0 +1,66 @@
+{
+  "dataset": "rel-ratebeer",
+  "task": "user-churn",
+  "family": "entity_binary_classification",
+  "primary_metric": "roc_auc",
+  "selected_by": "best recomputed validation roc_auc among registered-final runs",
+  "run": "run_0013",
+  "val_metrics": {
+    "accuracy": 0.7891299979907574,
+    "average_precision": 0.8762164816225453,
+    "f1": 0.8386129478702138,
+    "roc_auc": 0.8405404899484847
+  },
+  "test_metrics": {
+    "accuracy": 0.8558347529812607,
+    "average_precision": 0.9463277410664248,
+    "f1": 0.8797513321492008,
+    "roc_auc": 0.9328535341117707
+  },
+  "audit": {
+    "clean": false,
+    "findings": [
+      {
+        "file": "main.py",
+        "line": 263,
+        "pattern": "RELBENCH_CACHE_DIR",
+        "concern": "tampers with the data cache location",
+        "snippet": "database_root = Path(os.environ[\"RELBENCH_CACHE_DIR\"]) / os.environ[\"RELBENCH_DATASET\"] / \"db\""
+      },
+      {
+        "file": "main.py",
+        "line": 284,
+        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
+        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
+        "snippet": "official_b = pd.concat([train.iloc[train_b_indices], validation.iloc[validation_b_indices]], ignore_index=True)"
+      },
+      {
+        "file": "main.py",
+        "line": 285,
+        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
+        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
+        "snippet": "hazard_official_b = np.vstack([hazard_train[train_b_indices], hazard_validation[validation_b_indices]])"
+      },
+      {
+        "file": "main.py",
+        "line": 287,
+        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
+        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
+        "snippet": "official_b = pd.concat([train, validation], ignore_index=True)"
+      },
+      {
+        "file": "main.py",
+        "line": 288,
+        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
+        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
+        "snippet": "hazard_official_b = np.vstack([hazard_train, hazard_validation])"
+      }
+    ],
+    "note": "static scan; manually review flagged lines before publishing results. 'verify:' findings are advisory OOS-contract review hooks (legal patterns that warrant tracing), not violations."
+  },
+  "code_path": "/home/ubuntu/kapso/tmp/relbench/rel-ratebeer--user-churn/runs/run_0013/code",
+  "predictions": {
+    "val": "/home/ubuntu/kapso/tmp/relbench/rel-ratebeer--user-churn/runs/run_0013/val_predictions.npy",
+    "test": "/home/ubuntu/kapso/tmp/relbench/rel-ratebeer--user-churn/runs/run_0013/test_predictions.npy"
+  }
+}
