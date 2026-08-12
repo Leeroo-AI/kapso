@@ -8,13 +8,16 @@ grader against pristine labels. Every Kapso run was budget-bound at 4–6h per
 task on one 4xA100 box with the test split physically masked in-loop.
 Classification cells updated 2026-08-10 after the evaluation-governance wave
 (user-ignore, driver-top3, driver-dnf, study-outcome, user-engagement,
-user-badge, user-visits re-runs).
+user-badge, user-visits re-runs), and again 2026-08-12 after the LLM-channel
+wave (study-outcome 78.4 via hosted-LLM protocol-judgment features — the
+single largest banked gain of the campaign; user-badge 89.5; amazon/user-churn
+71.43).
 
 The board ranks **31 tasks in three independent categories**; this document covers
 the two the request asked for — Classification (12 tasks) and Regression (9).
 Recommendation (10) is omitted.
 
-**Headline:** Kapso ranks **2 of 28** on classification (mean AUROC 80.65)
+**Headline:** Kapso ranks **2 of 28** on classification (mean AUROC 80.89)
 and **4 of 26** on regression (mean NMAE 0.2608), beating the single
 best published number on **2/12** classification and **6/9** regression tasks.
 
@@ -27,7 +30,7 @@ best published number on **2/12** classification and **6/9** regression tasks.
 | # | Method | Regime | Mean | amazon/user-churn | amazon/item-churn | avito/user-visits | avito/user-clicks | event/user-repeat | event/user-ignore | f1/driver-dnf | f1/driver-top3 | hm/user-churn | stack/user-engagement | stack/user-badge | trial/study-outcome |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | 1 | KumoRFM (fine-tuned) | task-specific | 81.1 | 70.5 | 82.8 | 78.3 | 66.8 | 80.6 | 89.4 | 82.6 | 99.6 | 71.2 | 90.7 | 89.9 | 71.2 |
-| 2 | **Kapso (this work)** | agent | 80.7 | 71.4 | 83.1 | 67.8 | 70.2 | 81.2 | 88.9 | 83.3 | 93.6 | 71.6 | 91.5 | 89.3 | 75.9 |
+| 2 | **Kapso (this work)** | agent | 80.9 | 71.4 | 83.1 | 67.8 | 70.2 | 81.2 | 88.9 | 83.3 | 93.6 | 71.6 | 91.5 | 89.5 | 78.4 |
 | 3 | PluRel (pretrained + fine-tuned) | task-specific | 79.7 | 63.2 | 82.8 | 60.1 | 58.6 | 83 | 91.2 | 80.1 | 89.3 | 63.8 | 95.6 | 94.3 | 94.6 |
 | 4 | KumoRFM-2 (in-context) | zero-shot | 79.6 | 69.1 | 82.2 | 69.4 | 67.4 | 81.7 | 90.8 | 84.6 | 92.2 | 69.3 | 89.4 | 87.2 | 72 |
 | 5 | RT (pretrained + fine-tuned) | task-specific | 78.9 | 70.8 | 83.4 | 66.6 | 65.8 | 77.4 | 87.1 | 84.2 | 92.1 | 70.5 | 90.2 | 88.7 | 70.2 |
@@ -69,8 +72,8 @@ best published number on **2/12** classification and **6/9** regression tasks.
 | rel-f1/driver-top3 | 99.6 | KumoRFM (fine-tuned) | **93.6** | -6  |
 | rel-hm/user-churn | 71.2 | KumoRFM (fine-tuned) | **71.6** | +0.4 ✅ |
 | rel-stack/user-engagement | 95.6 | PluRel (pretrained + fine-tuned) | **91.5** | -4.1  |
-| rel-stack/user-badge | 94.3 | PluRel (pretrained + fine-tuned) | **89.3** | -5  |
-| rel-trial/study-outcome | 94.6 | PluRel (pretrained + fine-tuned) | **75.9** | -18.7  |
+| rel-stack/user-badge | 94.3 | PluRel (pretrained + fine-tuned) | **89.5** | -4.8  |
+| rel-trial/study-outcome | 94.6 | PluRel (pretrained + fine-tuned) | **78.4** | -16.2  |
 
 ---
 
