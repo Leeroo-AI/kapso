@@ -247,6 +247,11 @@ Data access (violations invalidate the run):
   methods, domain background, and library usage are fine. Solve it yourself.
 - PRETRAINED MODELS (encouraged) — any pretrained model may be downloaded
   and used however helps (fine-tune, distill, feature-extract).
+- HOSTED MODEL APIS (encouraged) — calling hosted LLM APIs with the
+  provided credentials (OPENAI_API_KEY) is explicitly PERMITTED, for
+  feature extraction and anything else that helps. There is NO
+  competition-style prohibition on third-party model APIs here — do not
+  assume one, and do not design around one.
 - EXTERNAL DATASETS (encouraged) — allowed under ONE condition: ZERO leakage
   into the test windows; ANY leakage voids the experiment. Test labels are
   public real-world history, so truncate any source covering this database's
