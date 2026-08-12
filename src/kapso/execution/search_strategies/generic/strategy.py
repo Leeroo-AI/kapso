@@ -45,6 +45,7 @@ from kapso.execution.evaluation_maintainer.maintainer import (
 )
 import shlex
 import subprocess
+import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from kapso.execution.search_strategies.generic import codex_ideation
 from kapso.execution.search_strategies.generic.shared_cache import (
@@ -2215,14 +2216,18 @@ Problem: {problem}"""
                         f"{data_problem}"
                     )
                     return None
-            # The frame emits a handful of lines plus the manifest — far
-            # below pipe capacity — so draining once at exit cannot
-            # deadlock the child.
+            # Spooled files, never PIPE: an evolved evaluator may emit
+            # per-window progress lines, and an undrained 64KB pipe
+            # deadlocks the child mid-write while this loop sleeps
+            # (observed live: rel-event/user-ignore froze 6h inside
+            # _emit_process_line, 2026-08-12).
+            stdout_file = tempfile.TemporaryFile(mode="w+")
+            stderr_file = tempfile.TemporaryFile(mode="w+")
             process = subprocess.Popen(
                 command,
                 cwd=worktree,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                stdout=stdout_file,
+                stderr=stderr_file,
                 text=True,
                 start_new_session=True,
             )
@@ -2239,6 +2244,8 @@ Problem: {problem}"""
                     if process.poll() is None:
                         os.killpg(process.pid, signal.SIGKILL)
                     process.wait()
+                    stdout_file.close()
+                    stderr_file.close()
                     print(
                         "[GenericSearch] Registered evaluation exceeded its "
                         f"{deadline_seconds:.0f}s affordability window; "
@@ -2246,7 +2253,13 @@ Problem: {problem}"""
                     )
                     return None
                 time.sleep(0.5)
-            stdout, stderr = process.communicate()
+            process.wait()
+            stdout_file.seek(0)
+            stdout = stdout_file.read()
+            stdout_file.close()
+            stderr_file.seek(0)
+            stderr = stderr_file.read()
+            stderr_file.close()
         duration = time.monotonic() - run_started
         if process.returncode != 0:
             print(

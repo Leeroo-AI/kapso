@@ -720,15 +720,19 @@ class OrchestratorAgent:
         old_evaluator_id = strategy.scores_evaluator_id
         fidelity, fraction = self._canonical_evaluation_params()
         # Affordability window, not the timing estimate: the bridge is
-        # delivery-critical and may legitimately run inside the reserve.
+        # delivery-critical and may legitimately run inside the reserve —
+        # but the window is never unbounded, and even past the cap one
+        # calibrated full-eval upper is allowed (an unbounded window let a
+        # deadlocked evaluator hold a campaign 6h, 2026-08-12).
+        bridge_upper = self.evaluation_maintainer.timing(1.0).upper_seconds
         deadline = (
             max(
-                0.0,
                 self.budget_spec.time_budget_seconds
                 - self.get_elapsed_seconds(),
+                bridge_upper,
             )
             if self.budget_spec.time_budget_seconds is not None
-            else None
+            else bridge_upper
         )
 
         print(
@@ -1427,7 +1431,9 @@ class OrchestratorAgent:
                                 )
                                 if self.budget_spec.time_budget_seconds
                                 is not None
-                                else None
+                                else self.evaluation_maintainer.timing(
+                                    1.0
+                                ).upper_seconds
                             ),
                         )
                         print(

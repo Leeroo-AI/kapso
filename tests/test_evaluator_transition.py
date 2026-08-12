@@ -92,8 +92,7 @@ def test_multi_lane_checkpoint_restores_with_fewer_iterations_than_nodes():
 class FakeEvalPopen:
     """A completed frame-run process for the strategy's Popen pattern."""
 
-    def __init__(self, stdout: str, returncode: int = 0):
-        self._stdout = stdout
+    def __init__(self, returncode: int = 0):
         self.pid = 99999
         self.returncode = returncode
 
@@ -103,12 +102,14 @@ class FakeEvalPopen:
     def wait(self):
         return self.returncode
 
-    def communicate(self):
-        return self._stdout, ""
-
 
 def fake_eval_subprocess(payload, returncode: int = 0):
-    """A strategy_module.subprocess stand-in emitting one manifest line."""
+    """A strategy_module.subprocess stand-in emitting one manifest line.
+
+    Mirrors the live contract: the strategy hands Popen spooled FILES
+    (never PIPE — an undrained pipe deadlocked a chatty evaluator live),
+    so the fake writes the manifest line into the provided stdout file.
+    """
     manifest_line = (
         f"{maintainer_module.MANIFEST_MARKER} {json.dumps(payload)}\n"
     )
@@ -117,7 +118,8 @@ def fake_eval_subprocess(payload, returncode: int = 0):
         command, cwd, stdout=None, stderr=None, text=None,
         start_new_session=None,
     ):
-        return FakeEvalPopen(manifest_line, returncode)
+        stdout.write(manifest_line)
+        return FakeEvalPopen(returncode)
 
     return SimpleNamespace(PIPE=-1, Popen=popen)
 
@@ -270,14 +272,18 @@ def test_accepted_change_request_runs_the_full_transition(
         strategy.evaluator_transition["new_evaluator_id"]
     )
     # The bridge ran against the node under the new head at full fidelity
-    # (fidelity is off, so the canonical class is full/1.0); unbudgeted
-    # campaign -> the affordability deadline is unbounded.
+    # (fidelity is off, so the canonical class is full/1.0). Even an
+    # unbudgeted campaign gets a BOUNDED affordability window — one
+    # calibrated full-eval upper — never None (an unbounded window let a
+    # deadlocked evaluator hold a campaign 6h, 2026-08-12).
+    bridge_upper = orchestrator.evaluation_maintainer.timing(1.0).upper_seconds
+    assert bridge_upper > 0
     assert strategy.bridge_calls == [
         {
             "node_id": 0,
             "fidelity": "full",
             "fraction": 1.0,
-            "deadline_seconds": None,
+            "deadline_seconds": bridge_upper,
         }
     ]
     assert len(strategy.refreshed_classes) == 1
