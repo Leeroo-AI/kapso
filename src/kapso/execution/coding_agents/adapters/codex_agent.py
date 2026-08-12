@@ -164,7 +164,11 @@ class CodexCodingAgent(CodingAgentInterface):
         cmd.extend(self._mcp_overrides)
 
         env = os.environ.copy()
-        env.pop("OPENAI_API_KEY", None)
+        # OPENAI_API_KEY passes through: the CLI's billing is pinned to the
+        # ChatGPT login via preferred_auth_method="chatgpt" in config.toml,
+        # and the sessions' own tooling needs the key (lanes measured it
+        # absent and shipped timeout-hedged 96-row hosted batches,
+        # 2026-08-12 rel-amazon/user-churn).
         for name in self._env_strip:
             env.pop(name, None)
         for name, value in self._env_overrides.items():

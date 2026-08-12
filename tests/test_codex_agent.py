@@ -3,7 +3,8 @@
 A fake `codex` executable on PATH stands in for the real CLI: it records
 argv and the child environment, honors --output-last-message, and switches
 failure modes via FAKE_CODEX_MODE. Pins the adapter contract: env hygiene
-(OPENAI_API_KEY stripped, env_strip honored, env_defaults set-if-absent),
+(OPENAI_API_KEY passed through — CLI billing is pinned via config.toml's
+preferred_auth_method — env_strip honored, env_defaults set-if-absent),
 final-message-vs-stream output, deadline kill metadata, and fail-loud
 error classification.
 """
@@ -91,7 +92,10 @@ def test_success_env_hygiene_and_argv(tmp_path, fake_codex, monkeypatch):
     env = dict(
         line.split("=", 1) for line in envdump.read_text().splitlines() if "=" in line
     )
-    assert "OPENAI_API_KEY" not in env
+    # OPENAI_API_KEY passes through to the session: CLI billing is pinned
+    # by preferred_auth_method in config.toml, and lane tooling needs the
+    # key (absent-key sessions shipped 96-row hosted batches, 2026-08-12).
+    assert env["OPENAI_API_KEY"] == "secret"
     assert "STRIPME" not in env
     assert env["AMBIENT"] == "wins"
     assert env["FRESH"] == "applied"
