@@ -26,6 +26,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 import subprocess
 import sys
 from dataclasses import dataclass, field
@@ -55,6 +56,11 @@ class FinalSelection:
     winner_metrics: Dict[str, float] = field(default_factory=dict)
     scored: Dict[str, float] = field(default_factory=dict)
     excluded: Dict[str, str] = field(default_factory=dict)
+
+
+# A string metric value counts as numeric only in plain float syntax;
+# anything else (metric-version labels etc.) is provenance, not a metric.
+_NUMERIC_METRIC_RE = r"[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?"
 
 
 def _selection_record(run_dir: Path) -> Dict:
@@ -302,9 +308,15 @@ def select_final(
         ):
             best, best_payload = run_dir.name, payload
 
+    # Evolved evaluators may carry provenance labels (metric-version
+    # strings) alongside numbers in their metrics dict; selection needs
+    # the numeric metrics only (observed live: rel-event/user-ignore's
+    # v3 evaluator emitted 'weekly_origin_mean_roc_auc_v1', 2026-08-12).
     metrics = {
         k: float(v)
         for k, v in (best_payload.get("metrics") or {}).items()
+        if isinstance(v, (int, float))
+        or (isinstance(v, str) and re.fullmatch(_NUMERIC_METRIC_RE, v))
     }
     return FinalSelection(
         head_evaluator_id=head,

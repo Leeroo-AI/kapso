@@ -333,7 +333,15 @@ class TestSelectFinal:
             session="s1",
             score=0.8,
             evaluator_id=head,
-            metrics={"auroc": 0.8, "f1": 0.5},
+            # Evolved evaluators mix provenance labels into metrics; the
+            # selection keeps numerics (incl. numeric strings) and drops
+            # labels instead of crashing (live: user-ignore, 2026-08-12).
+            metrics={
+                "auroc": 0.8,
+                "f1": 0.5,
+                "protocol": "weekly_origin_mean_roc_auc_v1",
+                "n_windows": "12",
+            },
         )
         make_run(
             runs,
@@ -349,7 +357,7 @@ class TestSelectFinal:
         # excluded, even though its 0.9 beats every head score
         assert result.winner_run == "run_0003"
         assert result.winner_score == pytest.approx(0.8)
-        assert result.winner_metrics == {"auroc": 0.8, "f1": 0.5}
+        assert result.winner_metrics == {"auroc": 0.8, "f1": 0.5, "n_windows": 12.0}
         assert "run_0001" in result.excluded
         assert "never re-ranked across rulers" in result.excluded["run_0001"]
         # superseded and voided runs were never rescored at all
