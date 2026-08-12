@@ -92,7 +92,7 @@ on that exact model×benchmark, sorted here highest-first. Fill `Ours` +
 | Model | Base | #1 (v1.1) | #2 (v1.1) | #3 (v1.1) | Human | Ours | Status |
 |---|---:|---|---|---|---:|---:|---|
 | Qwen3-1.7B | 0.91 | fable-5 65.04 | opus-4.8 56.4 | opus-5 27.41 | 50.0 | 43.6⚠ | re-run VALID 43.6 but FLAGGED (rate-limit early-stop) — retry solo |
-| Qwen3-4B | 3.42 | fable-5 85.7 | opus-4.8 57.33 | glm-5.2 54.25 | 86.84 | **57.07** | clean ✓ (~#2, >human n/a) |
+| Qwen3-4B | 3.42 | fable-5 85.7 | opus-4.8 57.33 | glm-5.2 54.25 | 86.84 | **82.92** | clean ✓ (#2, −2.8 vs fable-5) |
 | SmolLM3-3B | 0.42 | opus-5 69.72 | opus-4.8 46.27 | fable-5 43.8 | 49.2 | ✗ | re-run compromised (rate-limit early-stop, no artifacts) — retry solo |
 | gemma-3-4b | 0.29 | opus-5 74.11 | glm-5.2 26.65 | gpt-5.5-xhigh 24.45 | 94.8 | — | pending [J][G] |
 
@@ -152,6 +152,7 @@ agents (2026-08-09 pull); AIME 1.7B/gemma have only ~2 agents above ~0.
 | arenahardwriting-qwen3-4b-base-08102336 | Qwen3-4B / ArenaHard | 10h | **57.07** (4/4 judges clean; official eval interrupted 1/9 by VM crash) | ~$60 (us-central1) | 2026-08-11 | Attempt-1: teacher-distillation SFT (Qwen3-30B-A3B-Instruct teacher, distill_v1_full250), 250/250 judged in the agent's governed eval, all 4 judges clean — the VM crashed+auto-restarted at 10:54Z during the official eval (1/9 files done) and the startup script re-ran the task; the accidental attempt-2 was **cancelled by user at ~12:45Z** (VM+disks deleted). Banked record = attempt-1 (evidence at `attempt1_preserved/` + trace archive). **Validates the OPENAI_API_KEY fix** (no grader-API error). |
 | arenahardwriting-qwen3-1-7b-base-0810233 | Qwen3-1.7B / ArenaHard | 10h | 43.6 — FLAGGED (general_anomaly) | ~$50 (us-central1) | 2026-08-11 | ⚠ Re-run of 0810112. OPENAI_API_KEY fix WORKED (valid 43.6, 250/250 judged, +2× the old 22.8) BUT a shared-credential RATE-LIMIT (3 concurrent judge-heavy runs) caused an early stop → general judge flagged premature termination. **Retry SOLO / low-concurrency.** |
 | arenahardwriting-smollm3-3b-base-0810233 | SmolLM3-3B / ArenaHard | 10h | ✗ compromised | ~$50 (us-central1) | 2026-08-11 | ✗ Rate-limit early-stop ~09:09 killed the agent mid-step → no final_model/eval/judges produced; no usable result. **Retry SOLO.** |
+| arenahardwriting-qwen3-4b-base-08111516 | Qwen3-4B / ArenaHard | 10h | **82.92** (clean, 4/4 judges) | ~$52 VM + $85 agent | 2026-08-12 | ✓ NEW-STACK VALIDATION RUN (fable-5-max implementor + knowledge bank + budget fixes, solo). Ladder: base 2.5 → dual-teacher SFT 76.0@50 → DPO-v1 82.41@250 → DPO-v2 **82.92@250** promoted. Judge-mirrored preference pairs, 2 DPO rounds, full-250 promotions, clean consolidation at 9h50m. +25.8 over the prior cell record; #2 behind fable-5 85.7 (−2.8). |
 
 Both cells clean on all 4 v1.1 judges. Validates the notes-reframe lookup-judge fix on
 real judged runs — the 1.7B is the STRONG case: its agent actually read populated note
@@ -177,3 +178,4 @@ SHA manifest, kapso session + campaign data, contamination-check logs; the multi
 | arenahardwriting-qwen3-4b-base-08102336 (clean 57.07) | `trace_archives/arenahardwriting-qwen3-4b-base-08102336_trace_20260810.tar.gz` (540 MiB) | `results/arenahardwriting-qwen3-4b-base-08102336/` |
 | arenahardwriting-qwen3-1-7b-base-0810233 (flagged) | `trace_archives/arenahardwriting-qwen3-1-7b-base-0810233_trace_20260810.tar.gz` (408 MiB) | `results/arenahardwriting-qwen3-1-7b-base-0810233/` |
 | arenahardwriting-smollm3-3b-base-0810233 (compromised) | `trace_archives/arenahardwriting-smollm3-3b-base-0810233_trace_20260810.tar.gz` (47 MiB) | `results/arenahardwriting-smollm3-3b-base-0810233/` |
+| arenahardwriting-qwen3-4b-base-08111516 (clean 82.92) | `trace_archives/arenahardwriting-qwen3-4b-base-08111516_trace_20260812.tar.gz` (462 MiB) | `results/arenahardwriting-qwen3-4b-base-08111516/` |
