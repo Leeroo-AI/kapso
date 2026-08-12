@@ -2221,44 +2221,26 @@ Problem: {problem}"""
         )
 
     def _render_budget_status(self) -> str:
-        """Deterministic budget block for prompts. Advisory only — never a
-        protection mechanism; enforcement is the deadline clamp and the
-        orchestrator's gates."""
+        """Budget block for prompts, drift-corrected to construction time.
+
+        Advisory only — never a protection mechanism; enforcement is the
+        deadline clamp and the orchestrator's gates. The snapshot freezes at
+        iteration start, so the same monotonic anchor that corrects
+        _clamped_timeout corrects the rendered numbers here (a feedback
+        prompt built hours into an iteration must not claim iteration-start
+        remainders)."""
         snapshot = self.budget_snapshot
         if snapshot is None:
             return (
                 f"Iteration {self.iteration_count} — no budget information "
                 "available."
             )
-        position = (
-            f"Iteration {snapshot.iteration_index + 1} of "
-            f"{snapshot.max_iterations}."
+        drift = (
+            time.monotonic() - self.budget_snapshot_monotonic
+            if self.budget_snapshot_monotonic is not None
+            else 0.0
         )
-        if (
-            snapshot.time_budget_seconds is None
-            and snapshot.cost_budget_usd is None
-        ):
-            return f"{position} No time or cost budget is set."
-        parts = [position]
-        if snapshot.time_budget_seconds is not None:
-            parts.append(
-                f"Elapsed {snapshot.elapsed_seconds / 60:.0f} of "
-                f"{snapshot.time_budget_seconds / 60:.0f} budgeted minutes."
-            )
-            if snapshot.finalization_reserve_seconds > 0:
-                searchable = max(snapshot.remaining_after_reserve, 0.0)
-                parts.append(
-                    "Finalization reserve escrowed: "
-                    f"{snapshot.finalization_reserve_seconds / 60:.0f} "
-                    "minutes; searchable time remaining: "
-                    f"{searchable / 60:.0f} minutes."
-                )
-        if snapshot.cost_budget_usd is not None:
-            parts.append(
-                f"Spent ${snapshot.cost_usd:.2f} of "
-                f"${snapshot.cost_budget_usd:.2f}."
-            )
-        return " ".join(parts)
+        return snapshot.render_status(elapsed_since_snapshot=drift)
 
     def _select_parent(self) -> ParentSelection:
         """Select one consistent parent according to the configured policy."""

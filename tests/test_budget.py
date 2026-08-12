@@ -318,6 +318,7 @@ def test_budget_status_block_renders_in_all_modes():
 
     strategy = GenericSearch.__new__(GenericSearch)
     strategy.iteration_count = 4
+    strategy.budget_snapshot_monotonic = None  # stub: no drift anchor
 
     strategy.budget_snapshot = None
     assert "no budget information" in strategy._render_budget_status()
@@ -343,9 +344,9 @@ def test_budget_status_block_renders_in_all_modes():
     )
     budgeted_text = strategy._render_budget_status()
     assert "Iteration 4 of 10." in budgeted_text
-    assert "Elapsed 30 of 100 budgeted minutes." in budgeted_text
+    assert "Elapsed 30 of 100 budgeted minutes" in budgeted_text
     assert "searchable time remaining: 50 minutes" in budgeted_text
-    assert "Spent $2.50 of $10.00." in budgeted_text
+    assert "Spent $2.50 of $10.00" in budgeted_text
 
     strategy.shared_artifacts_brief = "No shared-cache artifacts registered yet."
     rendered = strategy._build_ideation_prompt(
@@ -353,7 +354,7 @@ def test_budget_status_block_renders_in_all_modes():
         repo_memory_brief="memory",
     )
     assert "{{budget_status}}" not in rendered
-    assert "Spent $2.50 of $10.00." in rendered
+    assert "Spent $2.50 of $10.00" in rendered
     assert "{{shared_artifacts_brief}}" not in rendered
 
 
@@ -383,3 +384,30 @@ def test_clamped_timeout_helper_uses_the_snapshot():
     # remainder, so implementation gets ~80s — never the stale 180.
     strategy.budget_snapshot_monotonic = time_module.monotonic() - 100.0
     assert strategy._clamped_timeout(600) == pytest.approx(80, abs=2)
+
+
+def test_render_status_drift_corrects_to_prompt_construction_time():
+    # Live run 08111516: the feedback prompt rendered iteration-start budget
+    # numbers hours later and claimed ~100 phantom searchable minutes; the
+    # agent had to be warned past its own budget block twice. render_status
+    # must discount elapsed_since_snapshot exactly like clamp_timeout does.
+    snapshot = BudgetSnapshot(
+        iteration_index=1,
+        max_iterations=40,
+        elapsed_seconds=3600.0,
+        cost_usd=12.0,
+        time_budget_seconds=36000.0,
+        finalization_reserve_seconds=600.0,
+    )
+    fresh = snapshot.render_status()
+    assert "Elapsed 60 of 600 budgeted minutes" in fresh
+    assert "searchable time remaining: 530 minutes" in fresh
+
+    # Two hours into the iteration the same snapshot must not repeat itself.
+    stale_corrected = snapshot.render_status(elapsed_since_snapshot=7200.0)
+    assert "Elapsed 180 of 600 budgeted minutes" in stale_corrected
+    assert "searchable time remaining: 410 minutes" in stale_corrected
+
+    # Past the end of the searchable window the remainder floors at zero.
+    exhausted = snapshot.render_status(elapsed_since_snapshot=40000.0)
+    assert "searchable time remaining: 0 minutes" in exhausted

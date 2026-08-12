@@ -274,6 +274,55 @@ class BudgetSnapshot:
     # direct construction in tests.
     min_agent_timeout_seconds: float = 60.0
 
+    def render_status(
+        self,
+        elapsed_since_snapshot: float = 0.0,
+    ) -> str:
+        """Human-readable budget block for prompts, drift-corrected.
+
+        The snapshot is frozen at iteration start, but prompts are built much
+        later (the feedback prompt at iteration END — hours later on long
+        runs). ``elapsed_since_snapshot`` discounts that drift so the rendered
+        numbers are true at prompt-construction time; live run #08111516's
+        feedback had to warn the agent twice that the stated "searchable
+        minutes" were ~100 minutes stale. Advisory only — enforcement is
+        clamp_timeout and the orchestrator's gates.
+        """
+        position = (
+            f"Iteration {self.iteration_index + 1} of "
+            f"{self.max_iterations}."
+        )
+        if self.time_budget_seconds is None and self.cost_budget_usd is None:
+            return f"{position} No time or cost budget is set."
+        parts = [position]
+        if self.time_budget_seconds is not None:
+            elapsed_now = self.elapsed_seconds + elapsed_since_snapshot
+            parts.append(
+                f"Elapsed {elapsed_now / 60:.0f} of "
+                f"{self.time_budget_seconds / 60:.0f} budgeted minutes "
+                "(measured at prompt construction — re-check the task clock "
+                "before long commitments)."
+            )
+            if self.finalization_reserve_seconds > 0:
+                remaining = self.remaining_after_reserve
+                searchable = max(
+                    (remaining if remaining is not None else 0.0)
+                    - elapsed_since_snapshot,
+                    0.0,
+                )
+                parts.append(
+                    "Finalization reserve escrowed: "
+                    f"{self.finalization_reserve_seconds / 60:.0f} "
+                    "minutes; searchable time remaining: "
+                    f"{searchable / 60:.0f} minutes."
+                )
+        if self.cost_budget_usd is not None:
+            parts.append(
+                f"Spent ${self.cost_usd:.2f} of "
+                f"${self.cost_budget_usd:.2f} (as of iteration start)."
+            )
+        return " ".join(parts)
+
     def clamp_timeout(
         self,
         configured_seconds: float,
